@@ -536,7 +536,7 @@ async def test_artifact_download_config_rejects_bad_format(mock_client, config) 
     assert "VALIDATION" in msg
     # The remote signed-URL path shares studio.py's validation, so it emits the same
     # self-documenting text as the stdio path (see the sibling test in test_studio.py).
-    assert "Supported formats: default only" in msg
+    assert "supported formats: default only" in msg
     assert "omit output_format" in msg
 
 

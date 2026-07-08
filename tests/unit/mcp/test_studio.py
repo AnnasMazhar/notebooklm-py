@@ -1229,7 +1229,7 @@ async def test_artifact_download_report_markdown_self_documenting(
             },
         )
     msg = str(excinfo.value)
-    assert "Supported formats: default only" in msg
+    assert "supported formats: default only" in msg
     assert "omit output_format" in msg
 
 
@@ -1245,7 +1245,7 @@ async def test_artifact_download_audio_pdf_self_documenting(
             {"notebook": NB_ID, "artifact_type": "audio", "path": out, "output_format": "pdf"},
         )
     msg = str(excinfo.value)
-    assert "Supported formats: default only" in msg
+    assert "supported formats: default only" in msg
     assert "omit output_format" in msg
     mock_client.artifacts.download_audio.assert_not_called()
 
@@ -1265,7 +1265,7 @@ async def test_artifact_download_supported_type_invalid_format_lists_choices(
     assert "expected one of" in msg
     assert "json" in msg and "markdown" in msg and "html" in msg
     # The no-format-axis wording must NOT leak into a type that has a format axis.
-    assert "Supported formats: default only" not in msg
+    assert "supported formats: default only" not in msg
 
 
 async def test_artifact_download_no_artifacts(mcp_call, mock_client, tmp_path) -> None:

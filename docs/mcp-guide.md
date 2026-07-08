@@ -350,7 +350,7 @@ some artifact types have a format axis:
 | `audio`, `video`, `infographic`, `report`, `mind-map`, `data-table` | none — omit `output_format` |
 
 Passing `output_format` to a type with no format axis (e.g. `report` +
-`markdown`) is a validation error that says `Supported formats: default only`
+`markdown`) is a validation error that says `supported formats: default only`
 rather than silently ignoring it, and the message is identical whether the
 download runs over stdio (`path`) or the remote signed-URL connector.
 
