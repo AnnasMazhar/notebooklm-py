@@ -1342,6 +1342,30 @@ async def test_source_add_drive_bad_mime_is_validation_error(mcp_call, mock_clie
     mock_client.sources.add_drive.assert_not_called()
 
 
+@pytest.mark.parametrize("tool", ["source_add", "source_add_and_wait"])
+async def test_source_add_drive_missing_mime_is_validation_error(
+    tool, mcp_call, mock_client
+) -> None:
+    """An omitted drive mime_type is rejected (no google-doc default) and no add
+    RPC runs, so no error source stub is left behind (#1827)."""
+    mock_client.sources.add_drive = AsyncMock(return_value=FakeSource(id=SRC_ID))
+    with pytest.raises(ToolError) as excinfo:
+        await mcp_call(
+            tool,
+            {
+                "notebook": NB_ID,
+                "source_type": "drive",
+                "document_id": "drivefile123",
+            },
+        )
+    msg = str(excinfo.value)
+    assert "VALIDATION" in msg
+    assert "mime_type" in msg
+    # Rejected before resolve_notebook / the add RPC — nothing is persisted.
+    mock_client.sources.add_drive.assert_not_called()
+    mock_client.notebooks.get.assert_not_called()
+
+
 async def test_source_add_mime_type_has_no_schema_enum(mcp_list_tools) -> None:
     """``mime_type`` deliberately stays a free-text ``str`` — NOT a ``Literal`` — so its
     schema carries NO ``enum`` (issue #1759, decision b). It is dual-use: ``source_type=
@@ -1372,10 +1396,12 @@ async def test_source_add_mime_type_has_no_schema_enum(mcp_list_tools) -> None:
         ("file", {"path": "/tmp/doc.pdf"}, {"url": "https://example.com/a"}),
         ("file", {"path": "/tmp/doc.pdf"}, {"text": "hi"}),
         ("file", {"path": "/tmp/doc.pdf"}, {"document_id": "drivefile123"}),
-        # drive consumes `document_id`; url/text/path are foreign.
-        ("drive", {"document_id": "drivefile123"}, {"url": "https://example.com/a"}),
-        ("drive", {"document_id": "drivefile123"}, {"text": "hi"}),
-        ("drive", {"document_id": "drivefile123"}, {"path": "/tmp/x"}),
+        # drive consumes `document_id`; url/text/path are foreign. ``mime_type`` is
+        # required for drive (#1827), so it rides along in ``good`` to reach the
+        # foreign-scalar check (it is metadata, not a content scalar).
+        ("drive", {"document_id": "drivefile123", "mime_type": "pdf"}, {"url": "https://e.com/a"}),
+        ("drive", {"document_id": "drivefile123", "mime_type": "pdf"}, {"text": "hi"}),
+        ("drive", {"document_id": "drivefile123", "mime_type": "pdf"}, {"path": "/tmp/x"}),
         # youtube consumes `url`; text/path/document_id are foreign.
         ("youtube", {"url": "https://www.youtube.com/watch?v=abc"}, {"text": "hi"}),
         ("youtube", {"url": "https://www.youtube.com/watch?v=abc"}, {"path": "/tmp/x"}),

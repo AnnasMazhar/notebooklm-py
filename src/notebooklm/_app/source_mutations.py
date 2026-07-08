@@ -546,6 +546,22 @@ _DRIVE_MIME_MAP: dict[DriveMimeChoice, str] = {
     "pdf": DriveMimeType.PDF.value,
 }
 
+#: The declared Drive MIME choice → the source *type code* that labels the
+#: imported file (:data:`notebooklm._types.sources._SOURCE_TYPE_CODE_MAP`).
+#:
+#: The NotebookLM backend returns an ambiguous type code for Drive imports: a
+#: Drive-hosted PDF comes back as code ``14``, which the client otherwise maps to
+#: :attr:`~notebooklm.types.SourceType.GOOGLE_SPREADSHEET`, mislabeling PDFs as
+#: spreadsheets (#1828). On the Drive add path the caller's declared ``mime_type``
+#: is authoritative for the imported file, so we stamp the corresponding type code
+#: onto the returned source rather than exposing the raw (ambiguous) backend code.
+_DRIVE_MIME_TYPE_CODE: dict[DriveMimeChoice, int] = {
+    "google-doc": 1,  # SourceType.GOOGLE_DOCS
+    "google-slides": 2,  # SourceType.GOOGLE_SLIDES
+    "google-sheets": 14,  # SourceType.GOOGLE_SPREADSHEET
+    "pdf": 3,  # SourceType.PDF
+}
+
 
 @dataclass(frozen=True)
 class SourceAddDrivePlan:
@@ -577,6 +593,13 @@ async def execute_source_add_drive(
     mime = _DRIVE_MIME_MAP[plan.mime_type]
 
     src = await client.sources.add_drive(plan.notebook_id, plan.file_id, plan.title, mime)
+    # Stamp the declared type onto the returned source. The backend returns an
+    # ambiguous type code for Drive imports (a Drive-hosted PDF comes back as
+    # ``14`` → GOOGLE_SPREADSHEET), so the caller's declared ``mime_type`` — not the
+    # raw backend code — is authoritative for how the source is labeled (#1828). The
+    # freshly returned ``Source`` is ours to finalize; ``kind`` derives from
+    # ``_type_code``, so overwriting it is the whole fix.
+    src._type_code = _DRIVE_MIME_TYPE_CODE[plan.mime_type]
     return SourceAddDriveResult(
         source=src,
         notebook_id=plan.notebook_id,
