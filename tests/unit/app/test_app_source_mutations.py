@@ -439,6 +439,18 @@ async def test_add_drive_maps_mime(
     client.sources.add_drive.assert_awaited_once_with("nb_1", "fid", "Drive Doc", expected_mime)
 
 
+def test_drive_mime_maps_have_matching_keys() -> None:
+    """The two Drive-mime dicts are both keyed by ``DriveMimeChoice`` and indexed on
+    the same add path: validation checks ``_DRIVE_MIME_MAP`` but the type-code stamp
+    indexes ``_DRIVE_MIME_SOURCE_TYPE``. If a future choice is added to one but not the
+    other, a validated add would raise ``KeyError`` (→ UNEXPECTED) instead of the clean
+    ``VALIDATION`` the code promises. Guard their key sets together (a module-level
+    ``assert`` would be stripped under ``python -O``)."""
+    from notebooklm._app.source_mutations import _DRIVE_MIME_MAP, _DRIVE_MIME_SOURCE_TYPE
+
+    assert _DRIVE_MIME_MAP.keys() == _DRIVE_MIME_SOURCE_TYPE.keys()
+
+
 def test_source_type_to_code_matches_decoder_map() -> None:
     """``_SOURCE_TYPE_TO_CODE`` is pinned by hand (the ``_app`` boundary forbids
     importing the private decoder map to invert it), so guard it against drift: each

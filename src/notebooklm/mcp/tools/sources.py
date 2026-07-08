@@ -68,19 +68,15 @@ _DRIVE_MIME_CHOICES_STR = ", ".join(f"'{choice}'" for choice in _DRIVE_MIME_CHOI
 
 
 def _validate_drive_mime(source_type: str, mime_type: str | None) -> None:
-    """Enforce that a Drive add carries an explicit, supported ``mime_type``.
+    """Require an explicit, supported ``mime_type`` for a Drive add (#1827).
 
-    A Drive add no longer defaults an omitted ``mime_type`` to ``google-doc``
-    (#1827): for a Drive file that is not a native Google Doc (e.g. a raw ``.md``
-    with Drive MIME ``text/markdown``) the ``google-doc`` default silently routed
-    the import through the Google Docs converter, the import failed, and an error
-    source stub was left behind. The client cannot sniff Drive metadata from a
-    bare ``document_id``, so the caller must declare the type. Rejecting here —
-    BEFORE ``resolve_notebook`` and the add RPC — guarantees no source row is
-    persisted for a malformed Drive add.
-
-    A no-op for non-Drive source types (``mime_type`` is dual-use free-text for
-    ``source_type="file"`` — see the call-site note in ``source_add``).
+    A Drive add no longer defaults an omitted ``mime_type`` to ``google-doc``: a
+    non-Doc Drive file (e.g. a raw ``.md``) so routed through the Google Docs
+    converter failed the import and left an error source stub behind. The client
+    can't sniff Drive metadata from a bare ``document_id``, so the caller must
+    declare the type; rejecting BEFORE ``resolve_notebook`` / the add RPC persists
+    no source row. A no-op for non-Drive types (``mime_type`` is dual-use free-text
+    for ``source_type="file"``).
     """
     if source_type != "drive":
         return
@@ -678,10 +674,9 @@ def register(mcp: Any) -> None:
                 ),
             )
             # ``wait_until_ready`` re-reads the source from GET_NOTEBOOK, where a Drive
-            # PDF again decodes to the ambiguous type code 14 → GOOGLE_SPREADSHEET. The
-            # freshly-added ``src`` already carries the declared-authoritative code
-            # (#1828), so carry it onto the ready outcome before aggregating — otherwise
-            # add-and-wait would relabel the source that source_add labels correctly.
+            # PDF again decodes to the ambiguous code 14 → GOOGLE_SPREADSHEET; carry the
+            # already-stamped code from ``src`` onto the ready outcome so add-and-wait
+            # labels it the same as source_add (#1828).
             if source_type == "drive" and isinstance(outcome, wait_core.SourceWaitReady):
                 outcome.source._type_code = src._type_code
             result = await _aggregate_wait_outcomes(client, nb_id, [outcome])
@@ -959,8 +954,7 @@ async def _add_source_to_wait_on(
                 notebook_id=notebook_id,
                 file_id=document_id,
                 title=title or "",
-                # Non-None + a valid choice, guaranteed by _validate_drive_mime in the
-                # source_add_and_wait tool body before this helper is reached (#1827).
+                # Non-None + valid: _validate_drive_mime ran in the tool body (#1827).
                 mime_type=mime_type,  # type: ignore[arg-type]
             ),
         )
