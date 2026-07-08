@@ -439,6 +439,17 @@ async def test_add_drive_maps_mime(
     client.sources.add_drive.assert_awaited_once_with("nb_1", "fid", "Drive Doc", expected_mime)
 
 
+def test_source_type_to_code_matches_decoder_map() -> None:
+    """``_SOURCE_TYPE_TO_CODE`` is pinned by hand (the ``_app`` boundary forbids
+    importing the private decoder map to invert it), so guard it against drift: each
+    (SourceType → code) entry must round-trip through the canonical decoder map."""
+    from notebooklm._app.source_mutations import _SOURCE_TYPE_TO_CODE
+    from notebooklm._types.sources import _SOURCE_TYPE_CODE_MAP
+
+    for source_type, code in _SOURCE_TYPE_TO_CODE.items():
+        assert _SOURCE_TYPE_CODE_MAP[code] == source_type
+
+
 @pytest.mark.asyncio
 async def test_add_drive_pdf_not_mislabeled_as_spreadsheet() -> None:
     """A Drive PDF add must not surface as ``kind='google_spreadsheet'`` (#1828).

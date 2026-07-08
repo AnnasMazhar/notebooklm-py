@@ -377,11 +377,13 @@ async def add_drive(
     """Add a Google Drive document as a source.
 
     ``mime_type`` is REQUIRED — one of ``google-doc`` / ``google-slides`` /
-    ``google-sheets`` / ``pdf`` (an omitted value is rejected with 422; an unknown
-    value is 400ed by the neutral core). There is no ``google-doc`` default because
-    it silently fails non-Doc Drive imports and leaves an error stub behind (#1827).
-    Flows through ``_app.source_mutations.execute_source_add_drive`` (the neutral
-    ``source_add`` core has no Drive path).
+    ``google-sheets`` / ``pdf``. It is a ``Literal``, so an omitted OR unknown value
+    is rejected with 422 by Pydantic at the schema boundary (the neutral core's
+    ``ValidationError`` guard is a defense-in-depth backstop that this route never
+    reaches). There is no ``google-doc`` default because it silently fails non-Doc
+    Drive imports and leaves an error stub behind (#1827). Flows through
+    ``_app.source_mutations.execute_source_add_drive`` (the neutral ``source_add``
+    core has no Drive path).
     """
     result = await mut_core.execute_source_add_drive(
         client,

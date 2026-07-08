@@ -63,6 +63,9 @@ _SOURCE_TYPES = ("url", "text", "file", "drive", "youtube")
 #: Drive MIME choices the backend accepts (mirrors the CLI ``--mime-type``).
 _DRIVE_MIME_CHOICES = ("google-doc", "google-slides", "google-sheets", "pdf")
 
+#: The choices as a clean, comma-separated quoted string for user-facing errors.
+_DRIVE_MIME_CHOICES_STR = ", ".join(f"'{choice}'" for choice in _DRIVE_MIME_CHOICES)
+
 
 def _validate_drive_mime(source_type: str, mime_type: str | None) -> None:
     """Enforce that a Drive add carries an explicit, supported ``mime_type``.
@@ -84,15 +87,14 @@ def _validate_drive_mime(source_type: str, mime_type: str | None) -> None:
     if mime_type is None:
         raise ValidationError(
             "source_type 'drive' requires 'mime_type'; pass one of "
-            f"{list(_DRIVE_MIME_CHOICES)} (e.g. 'pdf' for a Drive-hosted PDF, "
+            f"{_DRIVE_MIME_CHOICES_STR} (e.g. 'pdf' for a Drive-hosted PDF, "
             "'google-doc' for a native Google Doc). An omitted type is no longer "
             "defaulted to 'google-doc' — a non-Doc Drive file would fail the import "
             "and leave an error source stub behind (#1827)."
         )
     if mime_type not in _DRIVE_MIME_CHOICES:
         raise ValidationError(
-            f"Invalid mime_type {mime_type!r} for drive; "
-            f"expected one of {list(_DRIVE_MIME_CHOICES)}"
+            f"Invalid mime_type {mime_type!r} for drive; expected one of {_DRIVE_MIME_CHOICES_STR}"
         )
 
 
@@ -675,6 +677,13 @@ def register(mcp: Any) -> None:
                     notebook_id=nb_id, source_id=src.id, timeout=timeout, interval=interval
                 ),
             )
+            # ``wait_until_ready`` re-reads the source from GET_NOTEBOOK, where a Drive
+            # PDF again decodes to the ambiguous type code 14 → GOOGLE_SPREADSHEET. The
+            # freshly-added ``src`` already carries the declared-authoritative code
+            # (#1828), so carry it onto the ready outcome before aggregating — otherwise
+            # add-and-wait would relabel the source that source_add labels correctly.
+            if source_type == "drive" and isinstance(outcome, wait_core.SourceWaitReady):
+                outcome.source._type_code = src._type_code
             result = await _aggregate_wait_outcomes(client, nb_id, [outcome])
             # The created source persists regardless of the wait outcome — surface its id
             # at the top level so a timed-out / failed caller can retry or delete it.
