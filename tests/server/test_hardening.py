@@ -113,6 +113,24 @@ class TestUploadPreBufferLimit:
         assert called["add_file"] is False
         assert resp.json()["error"]["category"] == "validation"
 
+    def test_oversized_urlencoded_upload_form_is_413_before_parse(
+        self, app: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        monkeypatch.setattr(app_module, "MAX_UPLOAD_BYTES", 8)
+
+        headers = {"Authorization": f"Bearer {TEST_TOKEN}", "Host": "127.0.0.1"}
+        with TestClient(
+            app, headers=headers, client=("127.0.0.1", 5555), raise_server_exceptions=False
+        ) as c:
+            resp = c.post(
+                "/v1/notebooks/nb-1/sources/file",
+                data={"file": "x" * 64},
+            )
+        assert resp.status_code == 413
+        assert resp.json()["error"]["category"] == "validation"
+
 
 class TestJsonBodyLimits:
     def test_oversized_json_content_length_is_413_before_handler(
@@ -260,6 +278,25 @@ class TestChunkedMultipartRejected:
             "Authorization": f"Bearer {TEST_TOKEN}",
             "Host": "127.0.0.1",
             "Content-Type": "multipart/form-data; boundary=b",
+        }
+        with TestClient(
+            app, headers=headers, client=("127.0.0.1", 5555), raise_server_exceptions=False
+        ) as c:
+            resp = c.post("/v1/notebooks/nb-1/sources/file", content=_chunks())
+        assert resp.status_code == 411
+        assert resp.json()["error"]["category"] == "validation"
+
+    def test_urlencoded_upload_form_without_content_length_is_411(self, app: Any) -> None:
+        from fastapi.testclient import TestClient
+
+        def _chunks() -> Any:
+            yield b"file="
+            yield b"x" * 32
+
+        headers = {
+            "Authorization": f"Bearer {TEST_TOKEN}",
+            "Host": "127.0.0.1",
+            "Content-Type": "application/x-www-form-urlencoded",
         }
         with TestClient(
             app, headers=headers, client=("127.0.0.1", 5555), raise_server_exceptions=False
