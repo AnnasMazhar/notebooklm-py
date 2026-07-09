@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from typing import Any
 
 import httpx
 
@@ -136,21 +137,16 @@ class Kernel:
                 pool=self._timeout,
             )
         headers_arg = dict(headers) if headers is not None else None
+        stream_kwargs: dict[str, Any] = {}
         if max_response_bytes is not None:
-            return await stream_post_with_size_cap(
-                self.get_http_client(),
-                url,
-                body=body,
-                headers=headers_arg,
-                timeout=timeout_override,
-                max_bytes=max_response_bytes,
-            )
+            stream_kwargs["max_bytes"] = max_response_bytes
         return await stream_post_with_size_cap(
             self.get_http_client(),
             url,
             body=body,
             headers=headers_arg,
             timeout=timeout_override,
+            **stream_kwargs,
         )
 
     async def aclose(self) -> None:

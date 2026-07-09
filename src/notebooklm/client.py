@@ -186,7 +186,8 @@ class NotebookLMClient:
                 ``client.chat.ask``. Defaults to 256 MiB because the
                 streamed chat endpoint can include notebook-state sync
                 bytes in addition to the answer text. Pass ``None`` to
-                inherit the shared RPC response cap.
+                inherit the shared RPC response cap. Must be ``>= 1``
+                when supplied.
             storage_path: Path to the storage state file for loading download cookies.
             keepalive: Optional interval in seconds for a background task that
                 pokes ``accounts.google.com`` while the client is open, eliciting
@@ -659,7 +660,8 @@ class NotebookLMClient:
                 to inherit ``timeout`` for chat.
             chat_response_max_bytes: Maximum buffered response size for
                 ``client.chat.ask``. Defaults to 256 MiB. Pass ``None`` to
-                inherit the shared RPC response cap.
+                inherit the shared RPC response cap. Must be ``>= 1``
+                when supplied.
             upload_timeout: Optional override for the ``httpx.Timeout`` used
                 by the resumable-upload start handshake and the finalize
                 POST. ``None`` (default) preserves the original hardcoded
