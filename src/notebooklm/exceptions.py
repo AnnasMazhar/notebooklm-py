@@ -1268,17 +1268,17 @@ class ArtifactInProgressTimeoutError(ArtifactTimeoutError):
         )
 
 
-# =============================================================================
 # Domain: Research
-# =============================================================================
+# Keep catch behavior explicit: task mismatch remains ValidationError; ambiguous,
+# timeout, and start-unavailable paths are ResearchError domain failures.
 
 
 class ResearchError(NotebookLMError):
-    """Base for research operations."""
+    """Research catch-all; ResearchTaskMismatchError stays ValidationError."""
 
 
 class ResearchStartUnavailableError(RPCError, ResearchError):
-    """Research start returned no pollable run."""
+    """No-run start signal; also RPCError because the backend returned a frame."""
 
     def __init__(
         self,
@@ -1306,7 +1306,7 @@ class ResearchStartUnavailableError(RPCError, ResearchError):
 
 
 class ResearchTimeoutError(WaitTimeoutError, ResearchError):
-    """Research task did not reach a terminal state before timeout."""
+    """Timeout signal catchable as TimeoutError, WaitTimeoutError, and ResearchError."""
 
     def __init__(
         self,
@@ -1329,7 +1329,7 @@ class ResearchTimeoutError(WaitTimeoutError, ResearchError):
 
 
 class ResearchTaskMismatchError(ValidationError):
-    """Per-source ``research_task_id`` does not match the caller's ``task_id``."""
+    """ValidationError for cross-task source provenance, not a ResearchError."""
 
     def __init__(self, *, task_id: str, source_research_task_id: str):
         self.task_id = task_id
@@ -1343,7 +1343,7 @@ class ResearchTaskMismatchError(ValidationError):
 
 
 class AmbiguousResearchTaskError(ResearchError):
-    """Two or more research tasks are in flight but no ``task_id`` was given."""
+    """ResearchError for ambiguous in-flight tasks; callers must pass task_id."""
 
     def __init__(self, *, notebook_id: str, task_ids: list[str]):
         self.notebook_id = notebook_id
