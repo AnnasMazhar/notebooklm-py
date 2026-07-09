@@ -65,7 +65,7 @@ def _default_factory(profile: str | None = None) -> AbstractAsyncContextManager[
     )
 
 
-def _normalize_client_startup_error(exc: Exception) -> Exception:
+def _normalize_client_startup_error(exc: Exception) -> AuthError | None:
     """Project stale auth bootstrap ``ValueError``s onto the library auth category.
 
     The auth bootstrap path historically raises plain ``ValueError`` for stale
@@ -73,13 +73,15 @@ def _normalize_client_startup_error(exc: Exception) -> Exception:
     only normalizes the exception it records in app state so its existing error
     projector can return an auth envelope instead of a generic unexpected bug.
     """
+    if isinstance(exc, AuthError):
+        return AuthError(str(exc))
     if isinstance(exc, NotebookLMError):
-        return exc
+        return None
     if isinstance(exc, ValueError):
         message = " ".join(str(exc).split()).casefold()
         if any(marker in message for marker in _STALE_AUTH_STARTUP_MARKERS):
             return AuthError(str(exc))
-    return exc
+    return None
 
 
 def create_app(
@@ -120,10 +122,13 @@ def create_app(
             except Exception as exc:
                 if client_started:
                     raise
+                startup_error = _normalize_client_startup_error(exc)
+                if startup_error is None:
+                    raise
                 app.state.notebooklm = AppState(
                     client=None,
                     pending=pending,
-                    client_error=_normalize_client_startup_error(exc),
+                    client_error=startup_error,
                 )
                 try:
                     yield

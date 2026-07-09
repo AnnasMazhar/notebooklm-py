@@ -86,6 +86,20 @@ async def _account_block(client: NotebookLMClient, *, authenticated: bool) -> di
     }
 
 
+def _persisted_account_identity(account: object) -> dict[str, Any]:
+    """Return persisted ``email`` / ``authuser`` from auth-check details when present."""
+    if not isinstance(account, dict):
+        return {}
+    identity: dict[str, Any] = {}
+    email = account.get("email")
+    if email is not None:
+        identity["email"] = email
+    authuser = account.get("authuser")
+    if authuser is not None:
+        identity["authuser"] = authuser
+    return identity
+
+
 @router.get("/info")
 async def server_info(
     request: Request,
@@ -137,6 +151,7 @@ async def server_info(
     if include_account:
         if startup_error_item is not None:
             info["account"] = {
+                **_persisted_account_identity(result.details.get("account")),
                 "available": False,
                 "reason": startup_error_item["message"],
             }

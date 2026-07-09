@@ -83,6 +83,38 @@ def test_stale_auth_startup_projects_client_routes_to_auth_error() -> None:
     assert err["hint"] == "Re-authenticate and retry."
 
 
+def test_stale_auth_startup_raises_fresh_client_error_per_request() -> None:
+    """The stored startup error must not grow tracebacks across repeated requests."""
+    app = create_app(client_factory=stale_auth_factory())
+    headers = {"Authorization": f"Bearer {TEST_TOKEN}", "Host": "127.0.0.1"}
+
+    with TestClient(
+        app, headers=headers, client=("127.0.0.1", 5555), raise_server_exceptions=False
+    ) as client:
+        stored_error = app.state.notebooklm.client_error
+        assert stored_error is not None
+        assert stored_error.__traceback__ is None
+
+        assert client.get("/v1/notebooks").status_code == 401
+        assert stored_error.__traceback__ is None
+
+        assert client.get("/v1/notebooks").status_code == 401
+        assert stored_error.__traceback__ is None
+
+
+def test_non_auth_client_startup_failure_is_not_swallowed() -> None:
+    """Only normalized auth bootstrap failures are degraded into diagnostic state."""
+
+    @asynccontextmanager
+    async def factory() -> AsyncIterator[FakeClient]:
+        raise FileNotFoundError("missing storage_state.json")
+        yield FakeClient()  # pragma: no cover - makes this an async context manager
+
+    app = create_app(client_factory=factory)
+    with pytest.raises(FileNotFoundError, match="missing storage_state.json"), TestClient(app):
+        pass
+
+
 def test_create_app_default_factory_threads_profile(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """#1769: create_app(profile=X) must reach from_storage(profile=X) through the real
     default-factory closure — not just the create_app boundary. Guards the mocked-boundary

@@ -25,6 +25,7 @@ class _FakeAuthResult:
             "cookies_present": True,
             "sid_cookie": all_passed,
         }
+        self.details = {"account": {"email": "user@example.com", "authuser": 0}}
 
 
 def _patch_auth(monkeypatch: pytest.MonkeyPatch, *, all_passed: bool) -> None:
@@ -181,6 +182,8 @@ def test_server_info_include_account_degrades_when_startup_auth_failed(
 
     assert body["auth"]["authenticated"] is False
     account = body["account"]
+    assert account["email"] == "user@example.com"
+    assert account["authuser"] == 0
     assert account["available"] is False
     assert account["reason"].startswith("Authentication expired or invalid")
 

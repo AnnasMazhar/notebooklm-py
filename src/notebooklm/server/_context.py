@@ -52,7 +52,7 @@ def get_client(request: Request) -> NotebookLMClient:
     """
     state = _state(request)
     if state.client_error is not None:
-        raise state.client_error
+        raise _fresh_exception(state.client_error)
     if state.client is None:  # pragma: no cover - defensive invariant guard
         raise RuntimeError("no client bound to the server")
     return state.client
@@ -60,7 +60,8 @@ def get_client(request: Request) -> NotebookLMClient:
 
 def get_client_error(request: Request) -> BaseException | None:
     """Return the startup failure that prevented binding a live client, if any."""
-    return _state(request).client_error
+    error = _state(request).client_error
+    return _fresh_exception(error) if error is not None else None
 
 
 def get_pending(request: Request) -> PendingRegistry:
@@ -73,3 +74,8 @@ def _state(request: Request) -> AppState:
     if state is None:  # pragma: no cover - lifespan always binds before requests
         raise RuntimeError("no client bound to the server (lifespan did not run)")
     return state
+
+
+def _fresh_exception(exc: BaseException) -> BaseException:
+    """Clone a stored startup error so repeated requests do not mutate traceback state."""
+    return exc.__class__(*exc.args)
