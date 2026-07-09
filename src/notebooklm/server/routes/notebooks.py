@@ -34,6 +34,7 @@ router = APIRouter(prefix="/notebooks", tags=["notebooks"])
 
 ClientDep = Annotated[NotebookLMClient, Depends(get_client)]
 
+
 class NotebookCreate(BaseModel):
     """Request body for creating a notebook."""
 

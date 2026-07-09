@@ -45,6 +45,7 @@ from .._resolve import resolve_notebook, resolve_sources
 #: bloat for a typical agent, so they are dropped unless ``references="full"``.
 _LITE_REFERENCE_FIELDS = ("source_id", "citation_number", "cited_text")
 
+
 def register(mcp: Any) -> None:
     """Register the chat tools on ``mcp``."""
 
