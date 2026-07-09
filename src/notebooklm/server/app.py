@@ -24,6 +24,7 @@ This module imports NO ``click`` / ``rich`` / ``cli``.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -38,6 +39,7 @@ from ..paths import get_active_profile, resolve_profile, set_active_profile
 from ._auth import require_auth
 from ._context import AppState
 from ._errors import http_error_response, install_exception_handlers
+from ._limits import ServerLimiters
 from ._pending import PendingRegistry
 from .routes import artifacts, chat, meta, notebooks, notes, research, share, sources
 from .routes.sources import MAX_UPLOAD_BYTES
@@ -309,10 +311,17 @@ def create_app(
         pending = PendingRegistry()
         client_started = False
         try:
+            limiters = ServerLimiters.from_env()
+            limiters.set_bound_loop(asyncio.get_running_loop())
+            limiters.reset_after_open()
             try:
                 async with factory() as client:
                     client_started = True
-                    app.state.notebooklm = AppState(client=client, pending=pending)
+                    app.state.notebooklm = AppState(
+                        client=client,
+                        pending=pending,
+                        limiters=limiters,
+                    )
                     try:
                         yield
                     finally:
@@ -326,6 +335,7 @@ def create_app(
                 app.state.notebooklm = AppState(
                     client=None,
                     pending=pending,
+                    limiters=limiters,
                     client_error=startup_error,
                 )
                 try:
