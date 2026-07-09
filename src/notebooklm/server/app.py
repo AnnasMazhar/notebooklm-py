@@ -256,6 +256,21 @@ _STALE_AUTH_STARTUP_MARKERS = (
 )
 
 
+def _is_source_file_upload(request: Request) -> bool:
+    """Return true for the authenticated REST file-upload route."""
+    if request.method != "POST":
+        return False
+    path = str(request.scope.get("path", request.url.path))
+    parts = path.strip("/").split("/")
+    return (
+        len(parts) == 5
+        and parts[0] == "v1"
+        and parts[1] == "notebooks"
+        and parts[3] == "sources"
+        and parts[4] == "file"
+    )
+
+
 def _default_factory(profile: str | None = None) -> AbstractAsyncContextManager[NotebookLMClient]:
     # ``from_storage`` returns a dual awaitable / async-context-manager; we use
     # only the async-context-manager protocol (the canonical, non-deprecated path).
@@ -381,6 +396,10 @@ def create_app(
                 return http_error_response(411, "A valid Content-Length is required for uploads")
             if declared > MAX_UPLOAD_BYTES:
                 return http_error_response(413, "Request body exceeds the size limit")
+            state = getattr(request.app.state, "notebooklm", None)
+            if state is not None:
+                async with state.limiters.acquire("source_mutation"):
+                    return await call_next(request)
         elif limit := _json_body_limit(request.method, path, content_type):
             # Without Content-Length, a chunked JSON body could exceed the cap
             # while FastAPI is already buffering/parsing it. Require the same

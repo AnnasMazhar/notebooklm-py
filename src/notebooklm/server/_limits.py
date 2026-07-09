@@ -126,9 +126,11 @@ class ServerLimiters(LoopBoundPrimitive):
             if self._research is None:
                 self._research = asyncio.Semaphore(self.research_limit)
             return self._research
-        if self._chat is None:
-            self._chat = asyncio.Semaphore(self.chat_limit)
-        return self._chat
+        if group == "chat":
+            if self._chat is None:
+                self._chat = asyncio.Semaphore(self.chat_limit)
+            return self._chat
+        raise ValueError(f"Unknown limit group: {group}")
 
     def reset_after_open(self) -> None:
         """Discard loop-bound semaphores after a lifespan loop bind/rebind."""

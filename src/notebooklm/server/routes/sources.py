@@ -49,6 +49,7 @@ from .._pending import PendingRegistry
 from ._passthrough import passthrough_source_id
 
 __all__ = [
+    "MAX_BATCH_URLS",
     "MAX_UPLOAD_BYTES",
     "MAX_WAIT_CONCURRENT_SOURCES",
     "MAX_WAIT_SOURCE_IDS",
@@ -67,6 +68,11 @@ _field_validator = getattr(pydantic, "field_validator", pydantic.validator)
 #: completion. 200 MiB comfortably covers documents/audio while staying
 #: single-user-safe.
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+
+#: Max URL entries accepted by the REST batch-add endpoint. Each entry is added
+#: sequentially under the source-mutation limiter, so the cap bounds how long a
+#: single request can occupy one shared mutation slot.
+MAX_BATCH_URLS = 20
 
 #: Chunk size when streaming an upload to the temp file.
 _UPLOAD_CHUNK = 1024 * 1024
@@ -127,6 +133,12 @@ class SourceAddBatch(BaseModel):
 
     urls: list[str]
     allow_internal: bool = False
+
+    @_field_validator("urls")
+    def _limit_urls(cls, value: list[str]) -> list[str]:
+        if len(value) > MAX_BATCH_URLS:
+            raise ValueError(f"urls must contain at most {MAX_BATCH_URLS} entries")
+        return value
 
 
 class SourceRename(BaseModel):
@@ -265,7 +277,7 @@ async def add_text(
     )
 
 
-@router.post("/file", status_code=201, dependencies=[Depends(limit_source_mutation)])
+@router.post("/file", status_code=201)
 async def add_file(
     notebook_id: str,
     client: ClientDep,

@@ -10,7 +10,11 @@ from notebooklm._types.notebooks import Notebook
 from notebooklm._types.sources import Source
 from notebooklm.rpc.types import SourceStatus
 from notebooklm.server._pagination import MAX_LIMIT
-from notebooklm.server.routes.sources import MAX_WAIT_CONCURRENT_SOURCES, MAX_WAIT_SOURCE_IDS
+from notebooklm.server.routes.sources import (
+    MAX_BATCH_URLS,
+    MAX_WAIT_CONCURRENT_SOURCES,
+    MAX_WAIT_SOURCE_IDS,
+)
 
 from .fakes import FakeClient
 
@@ -607,6 +611,16 @@ def test_add_batch_per_item_error_is_redacted(
 def test_add_batch_empty_is_400(authed_client: TestClient) -> None:
     resp = authed_client.post("/v1/notebooks/nb-1/sources/batch", json={"urls": []})
     assert resp.status_code == 400
+
+
+def test_add_batch_over_limit_is_422(authed_client: TestClient, fake_client: FakeClient) -> None:
+    _seed_notebook(fake_client)
+    urls = [f"https://{i}.example.com" for i in range(MAX_BATCH_URLS + 1)]
+
+    resp = authed_client.post("/v1/notebooks/nb-1/sources/batch", json={"urls": urls})
+
+    assert resp.status_code == 422
+    assert not fake_client.sources_store.get("nb-1")
 
 
 # --- Phase 4: source_wait ----------------------------------------------------
