@@ -114,11 +114,12 @@ def _coerce_research_sources(sources: Sequence[ResearchSourceInput]) -> list[Res
 
 def _is_deep_start_null_result_error(exc: RPCError) -> bool:
     method_id = RPCMethod.START_DEEP_RESEARCH.value
+    # The decoder uses this marker for wrb.fr null payloads, with or without
+    # an attached status code. If the wording drifts, fall through and re-raise
+    # the original RPCError rather than overclassifying unrelated failures.
+    null_result_marker = "returned null result"
     return (
-        exc.method_id == method_id
-        and method_id in exc.found_ids
-        and exc.rpc_code is None
-        and "returned null result data" in str(exc)
+        exc.method_id == method_id and method_id in exc.found_ids and null_result_marker in str(exc)
     )
 
 

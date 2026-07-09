@@ -731,6 +731,30 @@ class TestResearch:
         assert isinstance(err.__cause__, RPCError)
 
     @pytest.mark.asyncio
+    async def test_start_deep_null_result_with_status_raises_clean_unavailable_error(
+        self, auth_tokens, httpx_mock
+    ):
+        """Status-enriched null deep-start frames still have no pollable run."""
+        rpc_id = RPCMethod.START_DEEP_RESEARCH.value
+        chunk = json.dumps(["wrb.fr", rpc_id, None, None, None, [13], "generic"])
+        response_body = f")]}}'\n{len(chunk)}\n{chunk}\n"
+        httpx_mock.add_response(content=response_body.encode(), method="POST")
+
+        async with NotebookLMClient(auth_tokens) as client:
+            with pytest.raises(ResearchStartUnavailableError) as exc_info:
+                await client.research.start(notebook_id="nb_123", query="AI research", mode="deep")
+
+        err = exc_info.value
+        message = str(err)
+        assert "NotebookLM returned no research run" in message
+        assert RPCMethod.START_DEEP_RESEARCH.value not in message
+        assert "Found IDs" not in message
+        assert err.method_id == rpc_id
+        assert err.rpc_code == 13
+        assert err.found_ids == [rpc_id]
+        assert isinstance(err.__cause__, RPCError)
+
+    @pytest.mark.asyncio
     async def test_start_research_invalid_source(self, auth_tokens):
         """Test that invalid source raises ValidationError."""
         from notebooklm.exceptions import ValidationError
