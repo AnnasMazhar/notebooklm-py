@@ -57,6 +57,16 @@ _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH"})
 _NOTEBOOK_ID = r"[^/]+"
 _RESOURCE_ID = r"[^/]+"
 _FILE_UPLOAD_PATH = re.compile(rf"^/v1/notebooks/{_NOTEBOOK_ID}/sources/file$")
+_NO_BODY_MUTATION_ROUTES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "POST",
+        re.compile(rf"^/v1/notebooks/{_NOTEBOOK_ID}/artifacts/{_RESOURCE_ID}/retry$"),
+    ),
+    (
+        "POST",
+        re.compile(rf"^/v1/notebooks/{_NOTEBOOK_ID}/research/{_RESOURCE_ID}/import$"),
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -195,11 +205,21 @@ def _is_json_content_type(content_type: str) -> bool:
     return media_type == "application/json" or media_type.endswith("+json")
 
 
+def _is_no_body_mutation_route(method: str, path: str) -> bool:
+    method = method.upper()
+    return any(
+        route_method == method and route_path.fullmatch(path)
+        for route_method, route_path in _NO_BODY_MUTATION_ROUTES
+    )
+
+
 def _json_body_limit(method: str, path: str, content_type: str) -> _BodyLimit | None:
     method = method.upper()
     for limit in JSON_BODY_LIMITS:
         if method == limit.method and limit.path.fullmatch(path):
             return limit
+    if _is_no_body_mutation_route(method, path):
+        return None
     if (
         method in _MUTATING_METHODS
         and path.startswith("/v1/")
