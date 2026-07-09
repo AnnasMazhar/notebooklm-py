@@ -72,6 +72,41 @@ def test_upload_over_limit_is_413(authed_client: TestClient, monkeypatch: object
     assert resp.status_code == 413
 
 
+def test_unauthenticated_file_upload_rejected_before_mutation_limiter(
+    monkeypatch: object,
+) -> None:
+    from collections.abc import AsyncIterator
+    from contextlib import asynccontextmanager
+
+    import pytest
+
+    from notebooklm.server._limits import ServerLimiters
+    from notebooklm.server.app import create_app
+
+    assert isinstance(monkeypatch, pytest.MonkeyPatch)
+
+    @asynccontextmanager
+    async def _forbid_acquire(self: ServerLimiters, group: object) -> AsyncIterator[None]:
+        raise AssertionError(f"unauthenticated upload acquired {group} limiter")
+        yield
+
+    @asynccontextmanager
+    async def _factory() -> AsyncIterator[FakeClient]:
+        yield FakeClient()
+
+    monkeypatch.setattr(ServerLimiters, "acquire", _forbid_acquire)
+    app = create_app(client_factory=_factory)
+    with TestClient(app, client=("127.0.0.1", 5555), raise_server_exceptions=False) as client:
+        resp = client.post(
+            "/v1/notebooks/nb-1/sources/file",
+            headers={"Host": "127.0.0.1"},
+            files={"file": ("doc.txt", io.BytesIO(b"file-bytes"), "text/plain")},
+        )
+
+    assert resp.status_code == 401
+    assert resp.json()["error"]["category"] == "auth"
+
+
 def test_poll_known_source_returns_200_pending_then_ready(
     authed_client: TestClient, fake_client: FakeClient
 ) -> None:

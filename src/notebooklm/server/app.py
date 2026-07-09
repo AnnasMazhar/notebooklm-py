@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..client import NotebookLMClient
 from ..exceptions import AuthError, NotebookLMError
@@ -256,18 +257,6 @@ _STALE_AUTH_STARTUP_MARKERS = (
 )
 
 
-def _is_source_file_upload(request: Request) -> bool:
-    """Return true for the authenticated REST file-upload route."""
-    if request.method != "POST":
-        return False
-    path = str(request.scope.get("path", request.url.path))
-    match path.strip("/").split("/"):
-        case ["v1", "notebooks", _, "sources", "file"]:
-            return True
-        case _:
-            return False
-
-
 def _default_factory(profile: str | None = None) -> AbstractAsyncContextManager[NotebookLMClient]:
     # ``from_storage`` returns a dual awaitable / async-context-manager; we use
     # only the async-context-manager protocol (the canonical, non-deprecated path).
@@ -393,6 +382,10 @@ def create_app(
                 return http_error_response(411, "A valid Content-Length is required for uploads")
             if declared > MAX_UPLOAD_BYTES:
                 return http_error_response(413, "Request body exceeds the size limit")
+            try:
+                await require_auth(request)
+            except StarletteHTTPException as exc:
+                return http_error_response(exc.status_code, exc.detail)
             state = getattr(request.app.state, "notebooklm", None)
             if state is not None:
                 async with state.limiters.acquire("source_mutation"):
