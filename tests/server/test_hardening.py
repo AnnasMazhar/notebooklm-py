@@ -11,6 +11,7 @@ Covers the review findings fixed after the initial implementation:
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 import pytest
@@ -111,6 +112,138 @@ class TestUploadPreBufferLimit:
         assert resp.status_code == 413
         assert called["add_file"] is False
         assert resp.json()["error"]["category"] == "validation"
+
+
+class TestJsonBodyLimits:
+    def test_oversized_json_content_length_is_413_before_handler(
+        self, app: Any, fake_client: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        called = {"ask": False}
+        orig = fake_client.chat.ask
+
+        async def spy(*args: Any, **kwargs: Any) -> Any:
+            called["ask"] = True
+            return await orig(*args, **kwargs)
+
+        monkeypatch.setattr(fake_client.chat, "ask", spy)
+        monkeypatch.setattr(
+            app_module,
+            "JSON_BODY_LIMITS",
+            (
+                app_module._BodyLimit(
+                    "POST",
+                    re.compile(r"^/v1/notebooks/[^/]+/chat$"),
+                    32,
+                    "chat ask",
+                ),
+            ),
+        )
+
+        headers = {
+            "Authorization": f"Bearer {TEST_TOKEN}",
+            "Host": "127.0.0.1",
+            "Content-Type": "application/json",
+        }
+        with TestClient(
+            app, headers=headers, client=("127.0.0.1", 5555), raise_server_exceptions=False
+        ) as c:
+            resp = c.post(
+                "/v1/notebooks/nb-1/chat",
+                content=b'{"question":"' + (b"x" * 64) + b'"}',
+            )
+        assert resp.status_code == 413
+        assert called["ask"] is False
+        assert resp.json()["error"]["category"] == "validation"
+
+    def test_chunked_json_to_capped_route_is_411_before_handler(
+        self, app: Any, fake_client: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        called = {"ask": False}
+        orig = fake_client.chat.ask
+
+        async def spy(*args: Any, **kwargs: Any) -> Any:
+            called["ask"] = True
+            return await orig(*args, **kwargs)
+
+        def chunks() -> Any:
+            yield b'{"question":"'
+            yield b"hello"
+            yield b'"}'
+
+        monkeypatch.setattr(fake_client.chat, "ask", spy)
+
+        headers = {
+            "Authorization": f"Bearer {TEST_TOKEN}",
+            "Host": "127.0.0.1",
+            "Content-Type": "application/json",
+        }
+        with TestClient(
+            app, headers=headers, client=("127.0.0.1", 5555), raise_server_exceptions=False
+        ) as c:
+            resp = c.post("/v1/notebooks/nb-1/chat", content=chunks())
+        assert resp.status_code == 411
+        assert called["ask"] is False
+        assert resp.json()["error"]["category"] == "validation"
+
+    def test_multipart_upload_ignores_json_caps(
+        self, app: Any, fake_client: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        monkeypatch.setattr(app_module, "DEFAULT_JSON_BODY_BYTES", 8)
+
+        headers = {"Authorization": f"Bearer {TEST_TOKEN}", "Host": "127.0.0.1"}
+        with TestClient(
+            app, headers=headers, client=("127.0.0.1", 5555), raise_server_exceptions=False
+        ) as c:
+            resp = c.post(
+                "/v1/notebooks/nb-1/sources/file",
+                files={"file": ("ok.txt", b"x" * 4096, "text/plain")},
+            )
+        assert resp.status_code == 201
+        assert len(fake_client.uploaded_paths) == 1
+
+    def test_multipart_to_json_route_uses_route_cap(
+        self, app: Any, fake_client: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        called = {"ask": False}
+        orig = fake_client.chat.ask
+
+        async def spy(*args: Any, **kwargs: Any) -> Any:
+            called["ask"] = True
+            return await orig(*args, **kwargs)
+
+        monkeypatch.setattr(fake_client.chat, "ask", spy)
+        monkeypatch.setattr(
+            app_module,
+            "JSON_BODY_LIMITS",
+            (
+                app_module._BodyLimit(
+                    "POST",
+                    re.compile(r"^/v1/notebooks/[^/]+/chat$"),
+                    32,
+                    "chat ask",
+                ),
+            ),
+        )
+
+        headers = {"Authorization": f"Bearer {TEST_TOKEN}", "Host": "127.0.0.1"}
+        with TestClient(
+            app, headers=headers, client=("127.0.0.1", 5555), raise_server_exceptions=False
+        ) as c:
+            resp = c.post(
+                "/v1/notebooks/nb-1/chat",
+                files={"file": ("not-json.txt", b"x" * 4096, "text/plain")},
+            )
+        assert resp.status_code == 413
+        assert called["ask"] is False
+        assert len(fake_client.uploaded_paths) == 0
 
 
 class TestChunkedMultipartRejected:
