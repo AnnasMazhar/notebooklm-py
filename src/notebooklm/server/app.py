@@ -54,7 +54,6 @@ SHORT_JSON_BODY_BYTES = 16 * 1024
 MEDIUM_JSON_BODY_BYTES = 64 * 1024
 
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH"})
-_FORM_CONTENT_TYPES = frozenset({"multipart/form-data", "application/x-www-form-urlencoded"})
 _NOTEBOOK_ID = r"[^/]+"
 _RESOURCE_ID = r"[^/]+"
 _FILE_UPLOAD_PATH = re.compile(rf"^/v1/notebooks/{_NOTEBOOK_ID}/sources/file$")
@@ -196,10 +195,6 @@ def _is_json_content_type(content_type: str) -> bool:
     return media_type == "application/json" or media_type.endswith("+json")
 
 
-def _is_form_content_type(content_type: str) -> bool:
-    return _media_type(content_type) in _FORM_CONTENT_TYPES
-
-
 def _json_body_limit(method: str, path: str, content_type: str) -> _BodyLimit | None:
     method = method.upper()
     for limit in JSON_BODY_LIMITS:
@@ -299,13 +294,13 @@ def create_app(
         content_type = request.headers.get("content-type", "")
         path = request.scope.get("path", request.url.path)
         content_length = request.headers.get("content-length")
-        if _is_form_content_type(content_type) and _is_file_upload_route(request.method, path):
-            # A chunked (no-Content-Length) form upload would otherwise let
+        if _is_file_upload_route(request.method, path):
+            # A chunked (no-Content-Length) upload request would otherwise let
             # Starlette parse or spool the full request before any per-chunk cap
-            # runs. Require an up-front declared length for upload forms so the
-            # size can be bounded before parsing starts.
+            # runs. Require an up-front declared length for the upload route so
+            # the size can be bounded before parsing starts.
             if content_length is None:
-                return http_error_response(411, "Content-Length is required for upload forms")
+                return http_error_response(411, "Content-Length is required for uploads")
             declared = _parse_content_length(content_length)
             if declared is None:
                 return http_error_response(411, "A valid Content-Length is required for uploads")
