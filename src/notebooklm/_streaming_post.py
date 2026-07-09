@@ -40,16 +40,17 @@ async def stream_post_with_size_cap(
     body: PostBody,
     headers: dict[str, str] | None,
     timeout: httpx.Timeout | float | None = None,
-    max_bytes: int = MAX_RPC_RESPONSE_BYTES,
+    max_bytes: int | None = None,
 ) -> httpx.Response:
     """Issue a streaming POST and buffer the body with a running size guard.
 
     Uses :meth:`httpx.AsyncClient.stream` so the body is read chunk-by-chunk and
-    aborted as soon as the running total exceeds ``max_bytes``. The buffered
-    bytes are then attached to a fresh :class:`httpx.Response` with the same
-    status code, headers, and request, so downstream callers can keep using
-    ``response.text`` / ``response.content`` exactly as they did when this was a
-    plain ``client.post`` call.
+    aborted as soon as the running total exceeds ``max_bytes``. Passing
+    ``None`` uses :data:`MAX_RPC_RESPONSE_BYTES`; it does not disable the
+    guard. The buffered bytes are then attached to a fresh
+    :class:`httpx.Response` with the same status code, headers, and request, so
+    downstream callers can keep using ``response.text`` / ``response.content``
+    exactly as they did when this was a plain ``client.post`` call.
 
     Error semantics are preserved verbatim: ``response.raise_for_status()`` is
     invoked while still inside the streaming context so chain middlewares and
@@ -57,6 +58,13 @@ async def stream_post_with_size_cap(
     ``exc.response.headers`` intact (the response headers arrive before any body
     chunk, so reading them does not require consuming the stream).
     """
+    if max_bytes is None:
+        resolved_max_bytes = MAX_RPC_RESPONSE_BYTES
+    elif isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
+        raise ValueError("max_bytes must be a positive integer or None")
+    else:
+        resolved_max_bytes = max_bytes
+
     stream_kwargs: dict[str, Any] = {"content": body}
     if headers:
         stream_kwargs["headers"] = headers
@@ -67,11 +75,11 @@ async def stream_post_with_size_cap(
         buffer = bytearray()
         async for chunk in response.aiter_bytes():
             buffer.extend(chunk)
-            if len(buffer) > max_bytes:
+            if len(buffer) > resolved_max_bytes:
                 raise RPCResponseTooLargeError(
-                    f"RPC response exceeded {max_bytes} bytes "
+                    f"RPC response exceeded {resolved_max_bytes} bytes "
                     f"(read {len(buffer)} bytes before aborting)",
-                    limit_bytes=max_bytes,
+                    limit_bytes=resolved_max_bytes,
                     bytes_read=len(buffer),
                 )
         # Reconstruct a fully-buffered Response so downstream consumers

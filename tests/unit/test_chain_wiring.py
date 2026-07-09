@@ -78,9 +78,16 @@ class FakeKernelPost:
         headers: Any,
         body: bytes,
         read_timeout: float | None = None,
+        max_response_bytes: int | None = None,
     ) -> httpx.Response:
         self.calls.append(
-            {"url": url, "headers": headers, "body": body, "read_timeout": read_timeout}
+            {
+                "url": url,
+                "headers": headers,
+                "body": body,
+                "read_timeout": read_timeout,
+                "max_response_bytes": max_response_bytes,
+            }
         )
         return self.response
 
@@ -118,6 +125,7 @@ async def test_chain_routes_perform_authed_post_to_transport() -> None:
     assert call["headers"] == {}
     assert call["body"] == b"body"
     assert call.get("read_timeout") is None
+    assert call.get("max_response_bytes") is None
 
 
 @pytest.mark.asyncio
@@ -161,6 +169,7 @@ async def test_chain_routes_rpc_executor_path_to_transport() -> None:
     assert call["headers"] == {"X-Goog-AuthUser": "0"}
     assert call["body"] == b"rpc-body"
     assert call.get("read_timeout") is None
+    assert call.get("max_response_bytes") is None
 
 
 @pytest.mark.asyncio
@@ -203,6 +212,7 @@ async def test_chain_terminal_reads_context_keys() -> None:
         "headers": {"X-Test": "yes"},
         "body": b"ctx-body",
         "read_timeout": None,
+        "max_response_bytes": None,
     }
 
 
@@ -244,6 +254,7 @@ async def test_chain_terminal_log_label_defaults_for_direct_calls() -> None:
         headers: Any,
         body: bytes,
         read_timeout: float | None = None,
+        max_response_bytes: int | None = None,
     ) -> httpx.Response:
         request = httpx.Request("POST", url, headers=dict(headers), content=body)
         raise httpx.RequestError("boom", request=request)
@@ -383,6 +394,30 @@ async def test_chain_terminal_forwards_read_timeout_context() -> None:
     assert fake.calls[0].get("read_timeout") == 123.0
 
 
+@pytest.mark.asyncio
+async def test_chain_terminal_forwards_max_response_bytes_context() -> None:
+    """Per-request response-size cap context reaches the concrete streaming POST."""
+    expected_response = httpx.Response(status_code=200, content=b"max-response")
+    fake = FakeKernelPost(response=expected_response)
+    core = _make_core()
+    _swap_kernel_post(core, fake)
+
+    request = RpcRequest(
+        url="https://fake/max-response",
+        headers={},
+        body=b"",
+        context={
+            "log_label": "max-response-test",
+            "max_response_bytes": 12345,
+        },
+    )
+
+    result = await core._composed.chain_host._authed_post_chain_terminal(request)
+
+    assert result.response is expected_response
+    assert fake.calls[0].get("max_response_bytes") == 12345
+
+
 def test_build_chain_empty_returns_terminal_unchanged() -> None:
     """:func:`build_chain` returns the terminal unchanged when ``middlewares`` is empty.
 
@@ -424,9 +459,12 @@ def test_perform_authed_post_signature_unchanged() -> None:
     params = sig.parameters
     assert "build_request" in params
     assert "log_label" in params
+    assert "max_response_bytes" in params
     assert "disable_internal_retries" in params
-    # All three are keyword-only — the ``*`` separator in the production
+    # All four are keyword-only — the ``*`` separator in the production
     # signature is what makes this true.
     assert params["build_request"].kind is inspect.Parameter.KEYWORD_ONLY
     assert params["log_label"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params["max_response_bytes"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params["max_response_bytes"].default is None
     assert params["disable_internal_retries"].kind is inspect.Parameter.KEYWORD_ONLY

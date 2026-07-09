@@ -119,6 +119,7 @@ class Kernel:
         body: PostBody,
         *,
         read_timeout: float | None = None,
+        max_response_bytes: int | None = None,
     ) -> httpx.Response:
         """Issue a raw buffered POST through the live HTTP client."""
         timeout_override: httpx.Timeout | None = None
@@ -140,6 +141,7 @@ class Kernel:
             body=body,
             headers=dict(headers) if headers is not None else None,
             timeout=timeout_override,
+            max_bytes=max_response_bytes,
         )
 
     async def aclose(self) -> None:

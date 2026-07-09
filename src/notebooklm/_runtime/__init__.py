@@ -10,12 +10,14 @@ from . import auth, config, contracts, helpers, init, lifecycle, transport
 from .auth import AuthRefreshCoordinator
 from .config import (
     CORE_LOGGER_NAME,
+    DEFAULT_CHAT_MAX_RESPONSE_BYTES,
     DEFAULT_CHAT_TIMEOUT,
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_KEEPALIVE_MIN_INTERVAL,
     DEFAULT_MAX_CONCURRENT_RPCS,
     DEFAULT_MAX_CONCURRENT_UPLOADS,
     DEFAULT_TIMEOUT,
+    normalize_chat_max_response_bytes,
     normalize_max_concurrent_uploads,
 )
 from .contracts import Kernel, LoopGuard, RpcCaller
@@ -55,12 +57,14 @@ __all__ = [
     "transport",
     "AuthRefreshCoordinator",
     "CORE_LOGGER_NAME",
+    "DEFAULT_CHAT_MAX_RESPONSE_BYTES",
     "DEFAULT_CHAT_TIMEOUT",
     "DEFAULT_CONNECT_TIMEOUT",
     "DEFAULT_KEEPALIVE_MIN_INTERVAL",
     "DEFAULT_MAX_CONCURRENT_RPCS",
     "DEFAULT_MAX_CONCURRENT_UPLOADS",
     "DEFAULT_TIMEOUT",
+    "normalize_chat_max_response_bytes",
     "normalize_max_concurrent_uploads",
     "Kernel",
     "LoopGuard",

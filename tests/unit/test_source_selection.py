@@ -91,6 +91,7 @@ def mock_core():
         build_request,
         log_label,
         read_timeout=None,
+        max_response_bytes=None,
         disable_read_timeout_retries=False,
     ):
         snapshot = AuthSnapshot(
@@ -100,7 +101,12 @@ def mock_core():
             account_email=auth.account_email,
         )
         url, body, headers = build_request(snapshot)
-        core._last_chat_request = {"url": url, "body": body, "headers": headers}
+        core._last_chat_request = {
+            "url": url,
+            "body": body,
+            "headers": headers,
+            "max_response_bytes": max_response_bytes,
+        }
         resp = MagicMock()
         # ``first[2][0]`` carries the server-assigned conversation_id; new
         # conversations require this slot (issue #659).

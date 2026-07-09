@@ -43,6 +43,7 @@ from ._artifacts import ArtifactsAPI
 from ._chat import ChatAPI
 from ._client_composed import ClientComposed
 from ._client_seams import resolve_client_seams
+from ._env import get_max_chat_response_bytes_override
 from ._labels import LabelsAPI
 from ._mind_map import NoteBackedMindMapService
 from ._mind_maps_api import MindMapsAPI
@@ -57,6 +58,7 @@ from ._runtime.config import (
     DEFAULT_MAX_CONCURRENT_RPCS,
     DEFAULT_MAX_CONCURRENT_UPLOADS,
     DEFAULT_TIMEOUT,
+    normalize_chat_max_response_bytes,
 )
 from ._runtime.init import compose_client_internals
 from ._runtime.lifecycle import CookieRotator, CookieSaver
@@ -106,6 +108,7 @@ def _assemble_client(
     cookie_saver: CookieSaver | None = None,
     cookie_rotator: CookieRotator | None = None,
     chat_timeout: float | None = DEFAULT_CHAT_TIMEOUT,
+    chat_max_response_bytes: int | None = None,
     # --- Production-default overrides (test factory only) -----------------
     # ``NotebookLMClient.__init__`` never passes these; the sentinels
     # resolve to the exact behavior the constructor had when this logic
@@ -228,6 +231,15 @@ def _assemble_client(
                 "saturation as opaque httpx.PoolTimeout instead of "
                 "clean back-pressure."
             )
+
+    configured_chat_max_response_bytes = (
+        chat_max_response_bytes
+        if chat_max_response_bytes is not None
+        else get_max_chat_response_bytes_override()
+    )
+    resolved_chat_max_response_bytes = normalize_chat_max_response_bytes(
+        configured_chat_max_response_bytes
+    )
 
     # The client is the composition root: :func:`compose_client_internals`
     # binds composition state onto ``client._composed`` and returns only the
@@ -364,6 +376,7 @@ def _assemble_client(
         reqid=internals.collaborators.reqid,
         loop_guard=internals.collaborators.lifecycle,
         chat_timeout=chat_timeout,
+        chat_max_response_bytes=resolved_chat_max_response_bytes,
         notebooks=client.notebooks,
     )
     client.notes = NotesAPI(

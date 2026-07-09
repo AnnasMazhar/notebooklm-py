@@ -28,7 +28,7 @@ from .._transport_errors import (
     TransportRateLimited,
     TransportServerError,
 )
-from ..exceptions import ChatError, NetworkError
+from ..exceptions import ChatError, NetworkError, RPCResponseTooLargeError
 
 if TYPE_CHECKING:
     from .._request_types import BuildRequest
@@ -62,6 +62,7 @@ async def chat_aware_authed_post(
     build_request: BuildRequest,
     parse_label: str,
     read_timeout: float | None = None,
+    max_response_bytes: int | None = None,
     disable_read_timeout_retries: bool = False,
 ) -> httpx.Response:
     """Chat-side semantic owner around :meth:`RuntimeTransport.perform_authed_post`.
@@ -99,6 +100,7 @@ async def chat_aware_authed_post(
             build_request=build_request,
             log_label=parse_label,
             read_timeout=read_timeout,
+            max_response_bytes=max_response_bytes,
             disable_read_timeout_retries=disable_read_timeout_retries,
         )
     except TransportAuthExpired as exc:
@@ -151,6 +153,21 @@ async def chat_aware_authed_post(
         raise NetworkError(
             f"{parse_label} network error after retries: {exc.original}",
             original_error=exc.original,
+        ) from exc
+    except RPCResponseTooLargeError as exc:
+        limit = (
+            f"{exc.limit_bytes} bytes"
+            if exc.limit_bytes is not None
+            else "the configured response-size limit"
+        )
+        read_suffix = f" after reading {exc.bytes_read} bytes" if exc.bytes_read is not None else ""
+        raise ChatError(
+            f"{parse_label} response exceeded {limit}{read_suffix}. NotebookLM chat "
+            "responses can grow with source count because they include notebook "
+            "sync/state frames as well as the final answer. Try passing a smaller "
+            "source_ids subset, splitting very large notebooks, or raising "
+            "chat_max_response_bytes / NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES when the "
+            "process has enough memory."
         ) from exc
     except httpx.HTTPStatusError as exc:
         # Non-5xx / non-401 / non-429 status errors fall through

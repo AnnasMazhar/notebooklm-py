@@ -14,12 +14,14 @@ from __future__ import annotations
 
 __all__ = [
     "CORE_LOGGER_NAME",
+    "DEFAULT_CHAT_MAX_RESPONSE_BYTES",
     "DEFAULT_CONNECT_TIMEOUT",
     "DEFAULT_CHAT_TIMEOUT",
     "DEFAULT_KEEPALIVE_MIN_INTERVAL",
     "DEFAULT_MAX_CONCURRENT_RPCS",
     "DEFAULT_MAX_CONCURRENT_UPLOADS",
     "DEFAULT_TIMEOUT",
+    "normalize_chat_max_response_bytes",
     "normalize_max_concurrent_uploads",
 ]
 
@@ -47,6 +49,11 @@ DEFAULT_CONNECT_TIMEOUT = 10.0  # Connection establishment timeout
 # fast metadata RPCs on the 30s read window, but give chat enough first-byte
 # slack for the verified shared-notebook path.
 DEFAULT_CHAT_TIMEOUT = 180.0
+
+# Default maximum buffered response body for streamed chat asks. Large notebooks
+# can emit state-sync frames far larger than the final answer text; 256 MiB
+# keeps chat viable for large-source notebooks while staying bounded.
+DEFAULT_CHAT_MAX_RESPONSE_BYTES = 256 * 1024 * 1024
 
 # Minimum keepalive interval to avoid accidentally rate-limiting accounts.google.com
 DEFAULT_KEEPALIVE_MIN_INTERVAL = 60.0
@@ -78,3 +85,18 @@ def normalize_max_concurrent_uploads(max_concurrent_uploads: int | None) -> int:
     if max_concurrent_uploads < 1:
         raise ValueError(f"max_concurrent_uploads must be >= 1, got {max_concurrent_uploads!r}")
     return max_concurrent_uploads
+
+
+def normalize_chat_max_response_bytes(chat_max_response_bytes: int | None) -> int:
+    """Normalize and validate the chat response byte cap."""
+    if chat_max_response_bytes is None:
+        return DEFAULT_CHAT_MAX_RESPONSE_BYTES
+    if (
+        isinstance(chat_max_response_bytes, bool)
+        or not isinstance(chat_max_response_bytes, int)
+        or chat_max_response_bytes < 1
+    ):
+        raise ValueError(
+            f"chat_max_response_bytes must be a positive integer, got {chat_max_response_bytes!r}"
+        )
+    return chat_max_response_bytes

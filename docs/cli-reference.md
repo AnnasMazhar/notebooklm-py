@@ -29,6 +29,7 @@ notebooklm [-p PROFILE] [--storage PATH] [--version] [-v|--quiet] <command> [OPT
 - `NOTEBOOKLM_NOTEBOOK` - Default notebook ID for any command exposing `-n/--notebook`. Resolution order: `-n/--notebook` flag > `NOTEBOOKLM_NOTEBOOK` env > active context (`notebooklm use`) > error. Empty/whitespace values are treated as unset.
 - `NOTEBOOKLM_AUTH_JSON` - Inline authentication JSON (for CI/CD, no file writes needed)
 - `NOTEBOOKLM_HL` - Default output language for artifact generation (overridden by `--language`)
+- `NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES` - Maximum buffered body size for chat asks when large notebooks exceed the default
 - `NOTEBOOKLM_LOG_LEVEL` - Override the package logger level (e.g. `DEBUG`, `INFO`, `WARNING`, `ERROR`)
 - `NOTEBOOKLM_DEBUG_RPC` - Enable RPC debug logging (`1` to enable)
 - `NOTEBOOKLM_QUIET_DEPRECATIONS` - Suppress deprecation notices (`1` to enable)

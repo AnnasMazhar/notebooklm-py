@@ -97,3 +97,24 @@ def get_default_language() -> str:
     """
     raw = os.environ.get("NOTEBOOKLM_HL", "") or ""
     return raw.strip() or "en"
+
+
+def get_max_chat_response_bytes_override() -> int | None:
+    """Return the optional chat response byte-cap override from the environment.
+
+    ``None`` means unset; invalid values raise so deployments fail fast instead
+    of silently using an unsafe or surprising response-size policy.
+    """
+    raw = os.environ.get("NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES", "") or ""
+    value = raw.strip()
+    if not value:
+        return None
+    if value.casefold() in {"true", "false", "yes", "no", "on", "off"}:
+        raise ValueError("NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES must be a positive integer")
+    try:
+        parsed = int(value, 10)
+    except ValueError as exc:
+        raise ValueError("NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES must be a positive integer") from exc
+    if parsed < 1:
+        raise ValueError("NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES must be a positive integer")
+    return parsed

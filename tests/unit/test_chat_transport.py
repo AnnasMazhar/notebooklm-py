@@ -44,7 +44,7 @@ from notebooklm._transport_errors import (
     TransportRateLimited,
     TransportServerError,
 )
-from notebooklm.exceptions import ChatError, NetworkError
+from notebooklm.exceptions import ChatError, NetworkError, RPCResponseTooLargeError
 
 # ---------------------------------------------------------------------------
 # Test scaffolding
@@ -117,8 +117,26 @@ async def test_chat_aware_authed_post_returns_response_and_balances_bookkeeping(
         build_request=_noop_build_request,
         log_label="chat.ask",
         read_timeout=None,
+        max_response_bytes=None,
         disable_read_timeout_retries=False,
     )
+
+
+@pytest.mark.asyncio
+async def test_chat_aware_authed_post_forwards_chat_response_cap():
+    """The chat response cap is a transport tuning knob, not parsed locally."""
+    expected_response = httpx.Response(200, request=_make_request())
+    transport = _make_stub_transport(transport_return_value=expected_response)
+
+    result = await chat_aware_authed_post(
+        transport,  # type: ignore[arg-type]
+        build_request=_noop_build_request,
+        parse_label="chat.ask",
+        max_response_bytes=123456,
+    )
+
+    assert result is expected_response
+    assert transport.perform_authed_post.await_args.kwargs["max_response_bytes"] == 123456
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +376,29 @@ async def test_raw_http_status_error_maps_to_chat_error():
     message = str(excinfo.value)
     assert "HTTP 404" in message
     assert "chat.ask" in message
+    assert excinfo.value.__cause__ is raw_exc
+
+
+@pytest.mark.asyncio
+async def test_rpc_response_too_large_maps_to_actionable_chat_error():
+    raw_exc = RPCResponseTooLargeError(
+        "too large",
+        limit_bytes=1024,
+        bytes_read=1536,
+    )
+    transport = _make_stub_transport(transport_side_effect=raw_exc)
+
+    with pytest.raises(ChatError) as excinfo:
+        await chat_aware_authed_post(
+            transport,  # type: ignore[arg-type]
+            build_request=_noop_build_request,
+            parse_label="chat.ask",
+        )
+
+    message = str(excinfo.value)
+    assert "chat.ask response exceeded 1024 bytes after reading 1536 bytes" in message
+    assert "source_ids" in message
+    assert "NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES" in message
     assert excinfo.value.__cause__ is raw_exc
 
 

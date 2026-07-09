@@ -12,6 +12,8 @@ import reprlib
 import weakref
 from typing import TYPE_CHECKING, Any
 
+import httpx
+
 from .._conversation_cache import ConversationCache
 from .._logging import get_request_id, reset_request_id, set_request_id
 from .._loop_bound import LoopBoundPrimitive
@@ -24,7 +26,11 @@ from .._row_adapters.chat import (
     unwrap_conversation_turns,
     unwrap_last_conversation_id,
 )
-from .._runtime.config import DEFAULT_CHAT_TIMEOUT
+from .._runtime.config import (
+    DEFAULT_CHAT_MAX_RESPONSE_BYTES,
+    DEFAULT_CHAT_TIMEOUT,
+    normalize_chat_max_response_bytes,
+)
 from .._runtime.contracts import LoopGuard, RpcCaller
 from ..exceptions import ChatError, NetworkError, UnknownRPCMethodError, ValidationError
 from .notes import save_chat_answer_as_note
@@ -60,6 +66,8 @@ from ..types import (
 )
 
 logger = logging.getLogger(__name__)
+
+_CHAT_PARSE_THREAD_OFFLOAD_BYTES = 8 * 1024 * 1024
 
 
 def _extract_next_turn_content(next_turn: Any) -> str | None:
@@ -126,6 +134,7 @@ class ChatAPI(LoopBoundPrimitive):
         reqid: ReqidCounter,
         loop_guard: LoopGuard,
         chat_timeout: float | None = DEFAULT_CHAT_TIMEOUT,
+        chat_max_response_bytes: int | None = DEFAULT_CHAT_MAX_RESPONSE_BYTES,
         conversation_cache: ConversationCache | None = None,
         notebooks: NotebookSourceIdProvider | None = None,
     ):
@@ -148,6 +157,10 @@ class ChatAPI(LoopBoundPrimitive):
                 cross-loop follow-up doesn't hang on a lock bound to a dead loop.
             chat_timeout: Per-read HTTP timeout (seconds) for the streamed chat
                 endpoint. ``None`` inherits the underlying transport timeout.
+            chat_max_response_bytes: Maximum buffered response size for the
+                streamed chat endpoint. The default is higher than ordinary
+                RPCs because chat responses can include notebook sync/state
+                frames in addition to the answer.
             conversation_cache: Optional injected cache; defaults to a fresh
                 per-instance ``ConversationCache``.
             notebooks: Optional source-id resolver; defaults to a
@@ -159,6 +172,7 @@ class ChatAPI(LoopBoundPrimitive):
         self._reqid = reqid
         self._loop_guard = loop_guard
         self._chat_timeout = chat_timeout
+        self._chat_max_response_bytes = normalize_chat_max_response_bytes(chat_max_response_bytes)
         if notebooks is None:
             from .._notebooks import NotebooksAPI
 
@@ -349,6 +363,7 @@ class ChatAPI(LoopBoundPrimitive):
                     build_request=build_request,
                     parse_label="chat.ask",
                     read_timeout=self._chat_timeout,
+                    max_response_bytes=self._chat_max_response_bytes,
                     disable_read_timeout_retries=True,
                 )
             finally:
@@ -362,9 +377,7 @@ class ChatAPI(LoopBoundPrimitive):
             # 0 turns, and passing it back as ``params[4]`` for a follow-up
             # produces a ghost turn the server does not register. We discard
             # it here and fetch the real id via ``hPTbtc`` below.
-            answer_text, references, _ignored_stream_id = self._parse_ask_response_with_references(
-                response.text
-            )
+            answer_text, references, _ignored_stream_id = await self._parse_ask_response(response)
 
             resolved_conversation_id = active_conversation_id
             if is_new_conversation:
@@ -937,6 +950,18 @@ class ChatAPI(LoopBoundPrimitive):
         """Compatibility wrapper preserving the old tuple return shape."""
         result = parse_streaming_chat_response(response_text)
         return result.answer, result.references, result.conversation_id
+
+    async def _parse_ask_response(
+        self, response: httpx.Response
+    ) -> tuple[str, list[ChatReference], str | None]:
+        """Parse streamed chat responses without blocking the loop for large bodies."""
+        if len(response.content) >= _CHAT_PARSE_THREAD_OFFLOAD_BYTES:
+
+            def parse_response_text() -> tuple[str, list[ChatReference], str | None]:
+                return self._parse_ask_response_with_references(response.text)
+
+            return await asyncio.to_thread(parse_response_text)
+        return self._parse_ask_response_with_references(response.text)
 
     def _extract_answer_and_refs_from_chunk(
         self, json_str: str

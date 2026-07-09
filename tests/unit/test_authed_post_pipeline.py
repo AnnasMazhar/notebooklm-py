@@ -1391,6 +1391,72 @@ async def test_normal_response_below_cap_works(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_streaming_none_max_bytes_uses_default_cap(monkeypatch):
+    """``max_bytes=None`` means the ordinary RPC default, not unlimited."""
+    from contextlib import asynccontextmanager
+
+    from notebooklm import _streaming_post
+    from notebooklm.exceptions import RPCResponseTooLargeError
+
+    monkeypatch.setattr(_streaming_post, "MAX_RPC_RESPONSE_BYTES", 4)
+    chunks_yielded = 0
+
+    class _FakeResponse:
+        status_code = 200
+        headers: dict[str, str] = {}
+        request = httpx.Request("POST", "https://example.test/x")
+
+        def raise_for_status(self) -> None:
+            return None
+
+        async def aiter_bytes(self):
+            nonlocal chunks_yielded
+            payload = b"x" * 5
+            chunks_yielded += 1
+            yield payload
+
+    @asynccontextmanager
+    async def fake_stream(method, url, **kwargs):
+        yield _FakeResponse()
+
+    client = httpx.AsyncClient()
+    try:
+        monkeypatch.setattr(client, "stream", fake_stream)
+
+        with pytest.raises(RPCResponseTooLargeError) as exc_info:
+            await _streaming_post.stream_post_with_size_cap(
+                client,
+                "https://example.test/x",
+                body=b"",
+                headers=None,
+                max_bytes=None,
+            )
+
+        assert chunks_yielded == 1
+        assert exc_info.value.limit_bytes == 4
+        assert exc_info.value.bytes_read == 5
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.parametrize("max_bytes", [0, -1, True, 1.5, "1024"])
+@pytest.mark.asyncio
+async def test_streaming_rejects_invalid_max_bytes(max_bytes):
+    """The response cap must stay a positive integer or ``None``."""
+    from notebooklm._streaming_post import stream_post_with_size_cap
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(ValueError, match="max_bytes must be a positive integer or None"):
+            await stream_post_with_size_cap(
+                client,
+                "https://example.test/x",
+                body=b"",
+                headers=None,
+                max_bytes=max_bytes,  # type: ignore[arg-type]
+            )
+
+
+@pytest.mark.asyncio
 async def test_streaming_raise_for_status_propagates_before_size_check(monkeypatch):
     """``raise_for_status`` runs before the read loop so the existing
     auth-refresh / 429 / 5xx branches see the same error they always did."""

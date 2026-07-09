@@ -33,6 +33,7 @@ import pytest
 from notebooklm import NotebookLMClient
 from notebooklm._chat import ChatAPI
 from notebooklm._request_types import AuthSnapshot
+from notebooklm._runtime.config import DEFAULT_CHAT_MAX_RESPONSE_BYTES
 from notebooklm.auth import AuthTokens
 from notebooklm.exceptions import ChatError
 from tests._helpers.client_factory import build_client_shell_for_tests
@@ -71,6 +72,67 @@ def _extract_query_param(url: str, key: str) -> str | None:
 
 
 class TestChatTimeoutRouting:
+    def test_client_uses_chat_response_cap_by_default(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES", raising=False)
+        auth = AuthTokens(cookies={"SID": "x"}, csrf_token="csrf", session_id="sid")
+        client = NotebookLMClient(auth)
+
+        assert client.chat._chat_max_response_bytes == DEFAULT_CHAT_MAX_RESPONSE_BYTES
+
+    def test_client_chat_response_cap_env_override(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES", "123456")
+        auth = AuthTokens(cookies={"SID": "x"}, csrf_token="csrf", session_id="sid")
+        client = NotebookLMClient(auth)
+
+        assert client.chat._chat_max_response_bytes == 123456
+
+    def test_client_chat_response_cap_explicit_override_wins_over_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES", "123456")
+        auth = AuthTokens(cookies={"SID": "x"}, csrf_token="csrf", session_id="sid")
+        client = NotebookLMClient(auth, chat_max_response_bytes=654321)
+
+        assert client.chat._chat_max_response_bytes == 654321
+
+    def test_client_chat_response_cap_explicit_override_skips_invalid_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES", "true")
+        auth = AuthTokens(cookies={"SID": "x"}, csrf_token="csrf", session_id="sid")
+        client = NotebookLMClient(auth, chat_max_response_bytes=654321)
+
+        assert client.chat._chat_max_response_bytes == 654321
+
+    @pytest.mark.parametrize("value", ["0", "-1", "true", "false", "1.5", "abc"])
+    def test_client_chat_response_cap_env_rejects_invalid_values(
+        self, value: str, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES", value)
+        auth = AuthTokens(cookies={"SID": "x"}, csrf_token="csrf", session_id="sid")
+
+        with pytest.raises(
+            ValueError, match="NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES must be a positive integer"
+        ):
+            NotebookLMClient(auth)
+
+    def test_client_chat_response_cap_rejects_bool(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("NOTEBOOKLM_MAX_CHAT_RESPONSE_BYTES", raising=False)
+        auth = AuthTokens(cookies={"SID": "x"}, csrf_token="csrf", session_id="sid")
+
+        with pytest.raises(ValueError, match="chat_max_response_bytes must be a positive integer"):
+            NotebookLMClient(auth, chat_max_response_bytes=True)  # type: ignore[arg-type]
+
+    def test_direct_chat_api_response_cap_rejects_bool(self):
+        with pytest.raises(ValueError, match="chat_max_response_bytes must be a positive integer"):
+            ChatAPI(
+                rpc=SimpleNamespace(),
+                transport=SimpleNamespace(),
+                reqid=SimpleNamespace(),
+                loop_guard=SimpleNamespace(assert_bound_loop=lambda: None),
+                chat_max_response_bytes=True,  # type: ignore[arg-type]
+            )
+
     def test_client_uses_chat_specific_timeout_by_default(self):
         auth = AuthTokens(cookies={"SID": "x"}, csrf_token="csrf", session_id="sid")
         client = NotebookLMClient(auth, timeout=75.0)
@@ -119,9 +181,133 @@ class TestChatTimeoutRouting:
         assert result.answer == "Refactor answer is long enough."
         assert transport.perform_authed_post.await_args.kwargs.get("read_timeout") == 45.0
         assert (
+            transport.perform_authed_post.await_args.kwargs.get("max_response_bytes")
+            == DEFAULT_CHAT_MAX_RESPONSE_BYTES
+        )
+        assert (
             transport.perform_authed_post.await_args.kwargs.get("disable_read_timeout_retries")
             is True
         )
+
+    @pytest.mark.asyncio
+    async def test_ask_passes_chat_response_cap_override(self):
+        transport = SimpleNamespace(
+            perform_authed_post=AsyncMock(
+                return_value=httpx.Response(
+                    200,
+                    request=httpx.Request("POST", "https://example.test/chat"),
+                    content=_make_answer_response_body(),
+                )
+            )
+        )
+        chat = ChatAPI(
+            rpc=SimpleNamespace(),
+            transport=transport,
+            reqid=SimpleNamespace(next_reqid=AsyncMock(return_value=100000)),
+            loop_guard=SimpleNamespace(assert_bound_loop=lambda: None),
+            chat_max_response_bytes=98765,
+        )
+
+        await chat.ask(
+            "nb-1",
+            "Q?",
+            source_ids=["s1"],
+            conversation_id="conv-1",
+        )
+
+        assert transport.perform_authed_post.await_args.kwargs["max_response_bytes"] == 98765
+
+
+class TestChatResponseCapFromStorage:
+    @pytest.mark.asyncio
+    async def test_from_storage_build_forwards_chat_response_cap(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        async def fake_from_storage(
+            cls, path: Any = None, profile: str | None = None
+        ) -> AuthTokens:
+            return AuthTokens(cookies={"SID": "x"}, csrf_token="csrf", session_id="sid")
+
+        class RecordingClient:
+            def __init__(self, auth: AuthTokens, **kwargs: Any) -> None:
+                self.auth = auth
+                self.kwargs = kwargs
+
+        monkeypatch.setattr(AuthTokens, "from_storage", classmethod(fake_from_storage))
+        context = NotebookLMClient.from_storage(chat_max_response_bytes=222333)
+        context._cls = RecordingClient  # type: ignore[assignment]
+
+        client = await context._build()
+
+        assert client.kwargs["chat_max_response_bytes"] == 222333  # type: ignore[attr-defined]
+
+
+class TestChatResponseParsing:
+    @pytest.mark.asyncio
+    async def test_large_response_parse_offloads_to_thread(self, monkeypatch: pytest.MonkeyPatch):
+        import notebooklm._chat.api as chat_api_module
+
+        chat = ChatAPI(
+            rpc=SimpleNamespace(),
+            transport=SimpleNamespace(),
+            reqid=SimpleNamespace(),
+            loop_guard=SimpleNamespace(assert_bound_loop=lambda: None),
+        )
+        response = httpx.Response(
+            200,
+            request=httpx.Request("POST", "https://example.test/chat"),
+            content=b"xxxxx",
+        )
+        calls: list[tuple[Any, tuple[Any, ...]]] = []
+
+        def fake_parse(response_text: str) -> tuple[str, list[Any], None]:
+            assert response_text == "xxxxx"
+            return "answer", [], None
+
+        async def fake_to_thread(func: Any, *args: Any, **kwargs: Any) -> Any:
+            calls.append((func, args))
+            return func(*args, **kwargs)
+
+        monkeypatch.setattr(chat_api_module, "_CHAT_PARSE_THREAD_OFFLOAD_BYTES", 5)
+        monkeypatch.setattr(chat, "_parse_ask_response_with_references", fake_parse)
+        monkeypatch.setattr(chat_api_module.asyncio, "to_thread", fake_to_thread)
+
+        result = await chat._parse_ask_response(response)
+
+        assert result == ("answer", [], None)
+        assert len(calls) == 1
+        assert calls[0][1] == ()
+
+    @pytest.mark.asyncio
+    async def test_small_response_parse_stays_inline(self, monkeypatch: pytest.MonkeyPatch):
+        import notebooklm._chat.api as chat_api_module
+
+        chat = ChatAPI(
+            rpc=SimpleNamespace(),
+            transport=SimpleNamespace(),
+            reqid=SimpleNamespace(),
+            loop_guard=SimpleNamespace(assert_bound_loop=lambda: None),
+        )
+        response = httpx.Response(
+            200,
+            request=httpx.Request("POST", "https://example.test/chat"),
+            content=b"xxxx",
+        )
+
+        def fake_parse(response_text: str) -> tuple[str, list[Any], None]:
+            assert response_text == "xxxx"
+            return "inline-answer", [], None
+
+        async def fail_to_thread(*args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("small response parsing should stay inline")
+
+        monkeypatch.setattr(chat_api_module, "_CHAT_PARSE_THREAD_OFFLOAD_BYTES", 5)
+        monkeypatch.setattr(chat, "_parse_ask_response_with_references", fake_parse)
+        monkeypatch.setattr(chat_api_module.asyncio, "to_thread", fail_to_thread)
+
+        result = await chat._parse_ask_response(response)
+
+        assert result == ("inline-answer", [], None)
 
 
 # ---------------------------------------------------------------------------

@@ -832,6 +832,7 @@ class NotebookLMClient:
         upload_timeout: httpx.Timeout | None = None,
         on_rpc_event: Callable[[RpcTelemetryEvent], object] | None = None,
         chat_timeout: float | None = DEFAULT_CHAT_TIMEOUT,                   # 180
+        chat_max_response_bytes: int | None = None,                          # 256 MiB
     ) -> "_FromStorageContext":
         # Returns an awaitable async-context-manager wrapper. Use as
         # `async with NotebookLMClient.from_storage(...) as client:`.
@@ -853,6 +854,7 @@ class NotebookLMClient:
         cookie_saver: CookieSaver | None = None,
         cookie_rotator: CookieRotator | None = None,
         chat_timeout: float | None = DEFAULT_CHAT_TIMEOUT,                   # 180
+        chat_max_response_bytes: int | None = None,                          # 256 MiB
     ):
 
     async def refresh_auth(self, *, allow_headless: bool = False) -> AuthTokens:
