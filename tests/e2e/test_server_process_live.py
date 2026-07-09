@@ -42,7 +42,7 @@ pytest.importorskip("uvicorn")
 pytest.importorskip("multipart")
 
 from notebooklm.auth import AuthTokens  # noqa: E402 - after importorskip
-from notebooklm.paths import list_profiles  # noqa: E402 - after importorskip
+from notebooklm.paths import list_profiles, resolve_profile  # noqa: E402 - after importorskip
 from notebooklm.server.__main__ import SERVER_TOKEN_FILE_ENV  # noqa: E402
 from notebooklm.server._auth import (  # noqa: E402 - after importorskip
     ALLOW_EXTERNAL_BIND_ENV,
@@ -72,7 +72,7 @@ class RunningServer:
 
     base_url: str
     token: str
-    profile: str
+    profile: str | None
     process: subprocess.Popen
     stdout_path: Path
     stderr_path: Path
@@ -173,19 +173,26 @@ def _wait_for_healthz(server: RunningServer) -> None:
     raise AssertionError(f"notebooklm-server did not become ready: {last_error}\n{server.logs()}")
 
 
-def _child_env(*, profile: str) -> dict[str, str]:
+def _has_inline_auth() -> bool:
+    return bool(os.environ.get("NOTEBOOKLM_AUTH_JSON", "").strip())
+
+
+def _child_env(*, profile: str | None) -> dict[str, str]:
     env = os.environ.copy()
     env.pop(SERVER_TOKEN_ENV, None)
     env.pop(SERVER_TOKEN_FILE_ENV, None)
     env.pop(ALLOW_EXTERNAL_BIND_ENV, None)
-    env["NOTEBOOKLM_PROFILE"] = profile
+    if profile is None:
+        env.pop("NOTEBOOKLM_PROFILE", None)
+    else:
+        env["NOTEBOOKLM_PROFILE"] = profile
     return env
 
 
 def _profile_auth_error(profile: str) -> str | None:
     try:
         asyncio.run(AuthTokens.from_storage(profile=profile))
-    except Exception as exc:  # noqa: BLE001 - auth probe decides skip vs candidate fallback
+    except (FileNotFoundError, ValueError) as exc:
         return f"{type(exc).__name__}: {exc}"
     return None
 
@@ -195,12 +202,15 @@ def _candidate_profiles() -> list[str]:
     if explicit and explicit.strip():
         return [explicit.strip()]
 
-    candidates = [_PREFERRED_PROFILE]
-    candidates.extend(profile for profile in list_profiles() if profile != _PREFERRED_PROFILE)
+    candidates = [resolve_profile(), _PREFERRED_PROFILE]
+    candidates.extend(list_profiles())
     return list(dict.fromkeys(candidates))
 
 
-def _select_server_profile() -> str:
+def _select_server_profile() -> str | None:
+    if _has_inline_auth():
+        return None
+
     failures: list[str] = []
     for profile in _candidate_profiles():
         error = _profile_auth_error(profile)
@@ -227,20 +237,21 @@ def server_process(
     base_url = f"http://127.0.0.1:{port}"
     stdout_path = temp_dir / "server.stdout.log"
     stderr_path = temp_dir / "server.stderr.log"
+    args = [
+        command,
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--token-file",
+        str(token_file),
+        "--log-level",
+        "warning",
+    ]
+    if profile is not None:
+        args.extend(["--profile", profile])
     process = _spawn(
-        [
-            command,
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--token-file",
-            str(token_file),
-            "--profile",
-            profile,
-            "--log-level",
-            "warning",
-        ],
+        args,
         env=_child_env(profile=profile),
         stdout_path=stdout_path,
         stderr_path=stderr_path,
@@ -360,7 +371,10 @@ class TestRestServerProcessLiveReads:
         body = _assert_ok(resp)
         assert body["server"] == "notebooklm-server"
         assert body["version"]
-        assert body["auth"]["profile"] == server_process.profile
+        if server_process.profile is None:
+            assert isinstance(body["auth"]["profile"], str) and body["auth"]["profile"]
+        else:
+            assert body["auth"]["profile"] == server_process.profile
         assert isinstance(body["auth"]["authenticated"], bool)
 
     @pytest.mark.readonly
@@ -410,6 +424,7 @@ class TestRestServerProcessLiveMutation:
         os.environ.get("NOTEBOOKLM_SERVER_PROCESS_MUTATION") != "1",
         reason="set NOTEBOOKLM_SERVER_PROCESS_MUTATION=1 to run live REST process mutations",
     )
+    @pytest.mark.timeout(180)
     def test_create_source_wait_chat_delete(self, server_process: RunningServer) -> None:
         notebook_id: str | None = None
         headers = server_process.auth_headers
