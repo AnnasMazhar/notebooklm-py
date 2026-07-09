@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel
 
 from ..._app import notebooks as core
-from ..._app.notebooks import _SUGGEST_SURFACE, SuggestSurface
+from ..._app.notebooks import SUGGEST_SURFACE_MAP, SuggestSurface
 from ..._app.serialize import to_jsonable
 from ...client import NotebookLMClient
 from .._context import get_client
@@ -106,7 +106,7 @@ async def suggested_prompts(
     rows = await client.notebooks.suggest_prompts(
         notebook_id,
         source_ids=list(source_ids) if source_ids else None,
-        mode=_SUGGEST_SURFACE[surface],
+        mode=SUGGEST_SURFACE_MAP[surface],
         query=query,
     )
     return {

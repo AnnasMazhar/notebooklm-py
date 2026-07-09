@@ -29,7 +29,7 @@ from fastmcp import Context
 
 from ..._app import chat as core
 from ..._app.chat import ChatModeChoice, ResponseLengthChoice
-from ..._app.notebooks import _SUGGEST_SURFACE, SuggestSurface
+from ..._app.notebooks import SUGGEST_SURFACE_MAP, SuggestSurface
 from ..._app.serialize import to_jsonable
 from ..._app.views import ask_result_view
 from ...exceptions import ValidationError
@@ -324,7 +324,7 @@ def register(mcp: Any) -> None:
             rows = await client.notebooks.suggest_prompts(
                 nb_id,
                 source_ids=resolved_source_ids,
-                mode=_SUGGEST_SURFACE[surface],
+                mode=SUGGEST_SURFACE_MAP[surface],
                 query=query,
             )
             payload: dict[str, Any] = {"notebook_id": nb_id}

@@ -134,8 +134,8 @@ def test_suggested_prompts_bad_surface_is_422(authed_client: TestClient) -> None
 
 def test_suggest_surface_map_is_shared_neutral_contract() -> None:
     """The REST surface→mode map is imported from the neutral app contract."""
-    from notebooklm._app.notebooks import _SUGGEST_SURFACE as neutral_map
-    from notebooklm.server.routes.notebooks import _SUGGEST_SURFACE as rest_map
+    from notebooklm._app.notebooks import SUGGEST_SURFACE_MAP as neutral_map
+    from notebooklm.server.routes.notebooks import SUGGEST_SURFACE_MAP as rest_map
 
     assert rest_map is neutral_map
     assert rest_map == {

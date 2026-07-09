@@ -62,7 +62,7 @@ SuggestSurface = Literal[
     "flashcards",
 ]
 
-_SUGGEST_SURFACE: dict[SuggestSurface, int] = {
+SUGGEST_SURFACE_MAP: dict[SuggestSurface, int] = {
     "ask": 4,
     "audio-deep-dive": 1,
     "audio-brief": 2,
@@ -265,8 +265,8 @@ __all__ = [
     "NotebookMetadataResult",
     "NotebookRenameResult",
     "ResolveNotebookIdFn",
+    "SUGGEST_SURFACE_MAP",
     "SuggestSurface",
-    "_SUGGEST_SURFACE",
     "execute_notebook_create",
     "execute_notebook_delete",
     "execute_notebook_describe",
