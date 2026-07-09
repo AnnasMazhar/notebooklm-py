@@ -261,14 +261,11 @@ def _is_source_file_upload(request: Request) -> bool:
     if request.method != "POST":
         return False
     path = str(request.scope.get("path", request.url.path))
-    parts = path.strip("/").split("/")
-    return (
-        len(parts) == 5
-        and parts[0] == "v1"
-        and parts[1] == "notebooks"
-        and parts[3] == "sources"
-        and parts[4] == "file"
-    )
+    match path.strip("/").split("/"):
+        case ["v1", "notebooks", _, "sources", "file"]:
+            return True
+        case _:
+            return False
 
 
 def _default_factory(profile: str | None = None) -> AbstractAsyncContextManager[NotebookLMClient]:
