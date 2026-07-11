@@ -104,6 +104,8 @@ Sandboxed, no-display agent environments — **Claude Cowork** (Anthropic's desk
    notebooklm list
    ```
 
+   > ⚠️ **`storage_state.json` / `NOTEBOOKLM_AUTH_JSON` are bearer credentials** — anyone holding them can act as your Google account. Keep the file `0600`, load it from the sandbox's secret store rather than a committed file, never print or log it, and `unset NOTEBOOKLM_AUTH_JSON` when finished.
+
 **Verify** as in [Agent Setup Verification](#agent-setup-verification) below — e.g. `notebooklm --storage <path> auth check --test --json` (require `"status": "ok"` AND `"checks.token_fetch": true`).
 
 **Context does not survive a reset** either: the selected-notebook context (`context.json`) is gone each session, so pass an explicit `-n/--notebook <id>` on notebook-scoped commands instead of relying on `notebooklm use`.

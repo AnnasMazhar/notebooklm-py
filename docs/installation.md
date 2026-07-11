@@ -136,6 +136,8 @@ If the agent is in a no-display sandbox AND `[cookies]` isn't installed (Python 
   notebooklm list
   ```
 
+> ⚠️ **Security:** `storage_state.json` and `NOTEBOOKLM_AUTH_JSON` are bearer credentials for your Google account — store the file `0600` or in the sandbox's secret store, never commit or log them, and `unset NOTEBOOKLM_AUTH_JSON` after use.
+
 Pass an explicit `-n/--notebook <id>` on notebook-scoped commands — the selected-notebook context does not survive a session reset. If Cowork reads `~/.claude/skills/`, `notebooklm skill install` registers the skill there; otherwise add it through Cowork's own capability UI.
 
 **Verification (machine-parseable):**
