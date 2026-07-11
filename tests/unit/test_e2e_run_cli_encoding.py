@@ -18,6 +18,9 @@ from tests.e2e.conftest import run_cli
 
 
 def test_run_cli_pins_utf8_capture(monkeypatch) -> None:
+    # run_cli defaults the child via setdefault, so an ambient PYTHONUTF8!="1"
+    # would no-op the default and fail this spuriously — isolate the default.
+    monkeypatch.delenv("PYTHONUTF8", raising=False)
     captured: dict[str, object] = {}
 
     def fake_run(cmd, **kwargs):
