@@ -1001,7 +1001,7 @@ class TestSource:
         assert source.title == "MyReport.pdf"
 
     def test_pdf_url_title_is_idempotent(self):
-        """Re-parsing an already-derived title (not a URL) does not change it."""
+        """Re-parsing an already-derived title (not the source URL) is a no-op."""
         entry = [
             ["src_pdf4"],
             "SomePaper",
@@ -1009,6 +1009,56 @@ class TestSource:
         ]
         source = Source.from_api_response([entry])
         assert source.title == "SomePaper"
+
+    def test_pdf_explicit_url_shaped_title_preserved(self):
+        """A PDF title that is a URL but NOT the source URL is left intact.
+
+        Only the server degradation (title == the source ``url``) is corrected;
+        an explicit title set via rename/upload that merely looks like a ``.pdf``
+        URL must survive (#1850 review — codex).
+        """
+        entry = [
+            ["src_renamed"],
+            "https://example.com/LegalName.pdf",  # deliberate title, a URL string
+            [
+                None,
+                None,
+                None,
+                None,
+                3,
+                None,
+                None,
+                ["https://example.com/actual-source.pdf"],  # different source url
+            ],
+        ]
+        source = Source.from_api_response([entry])
+        assert source.title == "https://example.com/LegalName.pdf"
+
+    def test_unknown_type_code_does_not_warn_at_construction(self):
+        """Parsing an unknown-typed source must not emit ``UnknownTypeWarning``.
+
+        The PDF title fallback uses a plain type-code lookup (not
+        ``_safe_source_type``), so warnings-as-error environments can still
+        ``list()``/``get()`` an unknown source; the warning stays at ``.kind``
+        access (#1850 review — codex).
+        """
+        import warnings
+
+        from notebooklm._types.common import UnknownTypeWarning
+
+        # type_code 999 is unmapped, and a title is present so the fallback runs.
+        entry = [
+            ["src_unknown"],
+            "Some Title",
+            [None, None, None, None, 999, None, None, ["https://example.com/x"]],
+        ]
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UnknownTypeWarning)
+            source = Source.from_api_response([entry])  # must not raise
+        assert source.title == "Some Title"
+        # ``.kind`` remains the documented warning point.
+        with pytest.warns(UnknownTypeWarning):
+            _ = source.kind
 
     def test_from_api_response_forwards_method_id_to_row(self):
         """``method_id`` threads through to the constructed ``SourceRow`` so
