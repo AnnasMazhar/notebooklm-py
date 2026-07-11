@@ -932,6 +932,84 @@ class TestSource:
         # type code lives at metadata[4] (== 5 → WEB_PAGE) for both paths.
         assert api_source.kind == listing_source.kind == SourceType.WEB_PAGE
 
+    def test_pdf_url_title_derives_basename(self):
+        """A direct-PDF URL used as the title falls back to the path basename.
+
+        Regression for #1850: Google leaves the raw request URL in the title
+        slot for a link that points straight at a ``.pdf`` (HTML pages get an
+        extracted ``<title>``). ``from_row`` derives a display title from the
+        URL path basename while leaving ``url`` untouched.
+        """
+        url = "https://example.com/papers/SomePaper.pdf"
+        # Medium-nested entry, type_code 3 (PDF), title == the raw URL.
+        entry = [["src_pdf"], url, [None, None, None, None, 3, None, None, [url]]]
+        source = Source.from_api_response([entry])
+
+        assert source.title == "SomePaper"
+        assert source.url == url
+        assert source.kind == SourceType.PDF
+
+    def test_pdf_url_title_derives_on_both_funnels(self):
+        """The fallback fires identically on the add and list construction paths."""
+        from notebooklm._row_adapters.sources import SourceRow
+        from notebooklm.rpc import RPCMethod
+
+        url = "https://example.com/reports/Q3%20Report.pdf"
+        entry = [["src_pdf2"], url, [None, None, None, None, 3, None, None, [url]]]
+
+        listing_source = Source.from_row(
+            SourceRow.from_entry(entry, method_id=RPCMethod.GET_NOTEBOOK.value)
+        )
+        api_source = Source.from_api_response([entry])
+
+        assert api_source == listing_source
+        assert api_source.title == listing_source.title == "Q3 Report"
+
+    def test_pdf_real_title_untouched(self):
+        """A PDF whose title is a real string (not a URL) is left alone."""
+        entry = [
+            ["src_pdf3"],
+            "Quarterly Earnings",
+            [None, None, None, None, 3, None, None, ["https://example.com/q.pdf"]],
+        ]
+        source = Source.from_api_response([entry])
+        assert source.title == "Quarterly Earnings"
+
+    def test_non_pdf_url_title_untouched(self):
+        """The fallback is PDF-only: a web_page whose title is a URL is untouched."""
+        url = "https://example.com/page.pdf"
+        # type_code 5 == WEB_PAGE, even though the title looks like a .pdf URL.
+        entry = [["src_web"], url, [None, None, None, None, 5, None, None, [url]]]
+        source = Source.from_api_response([entry])
+        assert source.title == url
+        assert source.kind == SourceType.WEB_PAGE
+
+    def test_drive_pdf_title_untouched(self):
+        """A Drive-hosted PDF (type_code 14 → PDF by MIME) keeps its filename title.
+
+        Drive sources carry no URL and a filename title, so the URL-shape gate
+        in the fallback never fires — the #1832 disambiguation and the #1850
+        fallback do not collide.
+        """
+        metadata = [None] * 20
+        metadata[4] = 14  # ambiguous native-Sheet / Drive-binary code
+        metadata[19] = "application/pdf"  # MIME disambiguates 14 → PDF
+        entry = [["src_drive"], "MyReport.pdf", metadata]
+        source = Source.from_api_response([entry])
+
+        assert source.kind == SourceType.PDF
+        assert source.title == "MyReport.pdf"
+
+    def test_pdf_url_title_is_idempotent(self):
+        """Re-parsing an already-derived title (not a URL) does not change it."""
+        entry = [
+            ["src_pdf4"],
+            "SomePaper",
+            [None, None, None, None, 3, None, None, ["https://example.com/SomePaper.pdf"]],
+        ]
+        source = Source.from_api_response([entry])
+        assert source.title == "SomePaper"
+
     def test_from_api_response_forwards_method_id_to_row(self):
         """``method_id`` threads through to the constructed ``SourceRow`` so
         drift diagnostics name the originating RPC (issue #1242).

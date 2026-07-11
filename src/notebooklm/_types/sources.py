@@ -8,6 +8,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from .._url_utils import pdf_url_display_title
 from ..rpc.types import SourceStatus
 from .common import (
     UnknownTypeWarning,
@@ -216,14 +217,26 @@ class Source:
         single field mapping below therefore covers all three wire shapes
         identically.
         """
+        # Correct the type_code==14 native-Sheet/Drive-PDF overload by the row
+        # MIME before it reaches ``kind`` (#1832). No-op for every other type
+        # code and for real Sheets.
+        type_code = _disambiguate_type_code(row.type_code, row.mime)
+        # #1850: a direct-PDF URL arrives with the raw URL in its title slot
+        # (the server extracts <title> for HTML pages but not for a link that
+        # points straight at a .pdf). When a PDF source's title is itself a
+        # direct-PDF URL, fall back to the URL path basename for display. This
+        # is the single funnel for the add and list paths, so the cleaner title
+        # applies both at add-time and on every later source_list/get read.
+        title = row.title
+        if title is not None and _safe_source_type(type_code) == SourceType.PDF:
+            derived = pdf_url_display_title(title)
+            if derived is not None:
+                title = derived
         return cls(
             id=row.id,
-            title=row.title,
+            title=title,
             url=row.url,
-            # Correct the type_code==14 native-Sheet/Drive-PDF overload by the
-            # row MIME before it reaches ``kind`` (#1832). No-op for every other
-            # type code and for real Sheets.
-            _type_code=_disambiguate_type_code(row.type_code, row.mime),
+            _type_code=type_code,
             created_at=row.created_at,
             status=row.status,
         )
