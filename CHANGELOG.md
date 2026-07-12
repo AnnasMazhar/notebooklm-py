@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`notebooklm skill package` — Claude-uploadable skill archive** (#1856 item 2;
+  the docs half landed in #1857). Builds a deterministic ZIP whose root contains
+  the `notebooklm/SKILL.md` skill folder (version-stamped, frontmatter-first),
+  ready for upload via Claude **Settings → Capabilities** in chat and **Claude
+  Cowork** — the supported hand-off for sandboxed agent environments that
+  cannot run `skill install` against a local directory. Supports
+  `-o/--output` (file or directory), `--force` overwrite protection, and
+  `--json` (success payload `{"path", "version", "entries", "size_bytes"}`;
+  failures use the standard error envelope with codes `SKILL_SOURCE_MISSING` /
+  `OUTPUT_EXISTS` / `WRITE_FAILED`). Release workflow now also attaches `notebooklm-skill.zip`
+  to GitHub releases alongside the `.mcpb` bundle.
+
 ### Fixed
 
 - **Direct-PDF-URL sources no longer show the raw URL as their title.** Adding a
