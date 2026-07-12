@@ -437,6 +437,24 @@ async def test_source_wait_zero_interval_is_validation_error(mcp_call, mock_clie
     assert "VALIDATION" in str(excinfo.value)
 
 
+async def test_source_wait_all_over_cap_is_rejected(mcp_call, mock_client) -> None:
+    """The omitted-``sources`` wait-all path is capped at MAX_WAIT_SOURCE_IDS via the
+    shared fan-out backstop (parity with REST, which rejected this all along — #1871).
+    Without the backstop MCP silently waited on every source; REST returned 400."""
+    from notebooklm._app.source_wait import MAX_WAIT_SOURCE_IDS
+
+    over = MAX_WAIT_SOURCE_IDS + 1
+    mock_client.sources.list = AsyncMock(
+        return_value=[FakeSource(id=f"{i:08d}-0000-0000-0000-000000000000") for i in range(over)]
+    )
+    mock_client.sources.wait_until_ready = AsyncMock()
+    with pytest.raises(ToolError) as excinfo:
+        await mcp_call("source_wait", {"notebook": NB_ID})
+    assert "VALIDATION" in str(excinfo.value)
+    # Listed to learn the count, but no poller was spawned past the cap.
+    mock_client.sources.wait_until_ready.assert_not_awaited()
+
+
 def test_drive_mime_choices_match_core_map() -> None:
     """The MCP drive-MIME tuple is duplicated from the core's ``_DRIVE_MIME_MAP``;
     pin them equal so a new core MIME type can't silently lag the MCP validation."""

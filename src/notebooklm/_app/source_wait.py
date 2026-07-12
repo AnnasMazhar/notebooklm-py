@@ -30,11 +30,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from ..exceptions import ValidationError
 from ..types import (
     Source,
     SourceNotFoundError,
@@ -55,6 +57,28 @@ MAX_WAIT_SOURCE_IDS = 100
 
 #: Max simultaneous per-source pollers one multi-source wait spawns.
 MAX_WAIT_CONCURRENT_SOURCES = 8
+
+
+def validate_wait_bounds(timeout: float, interval: float) -> None:
+    """Reject out-of-range / non-finite ``source wait`` knobs (shared by every adapter).
+
+    JSON permits ``Infinity`` / ``NaN`` (Python's ``json`` parses both), and a
+    ``NaN`` slips through every ``<`` / ``>`` comparison — so ``math.isfinite`` is
+    checked first, before the range guards. ``timeout=inf`` would wait forever;
+    ``NaN`` would break the polling arithmetic. Raises the public
+    :class:`~notebooklm.exceptions.ValidationError`; the MCP tool and the REST
+    route each map that to their own error surface, so the two can't drift.
+    """
+    if not math.isfinite(timeout):
+        raise ValidationError(f"timeout must be a finite number; got {timeout}")
+    if not math.isfinite(interval):
+        raise ValidationError(f"interval must be a finite number; got {interval}")
+    if timeout < 0:
+        raise ValidationError(f"timeout must be >= 0; got {timeout}")
+    if timeout > MAX_WAIT_TIMEOUT:
+        raise ValidationError(f"timeout must be <= {MAX_WAIT_TIMEOUT}; got {timeout}")
+    if interval <= 0:
+        raise ValidationError(f"interval must be > 0; got {interval}")
 
 
 @dataclass(frozen=True)
@@ -154,9 +178,20 @@ async def wait_all_sources(
     re-raising — the adapter's classify-once handler then maps it — rather than
     leaking coroutines. This is the single implementation both the REST route and
     the MCP tool call (previously duplicated; the MCP copy was unbounded).
+
+    A shared fan-out backstop rejects more than :data:`MAX_WAIT_SOURCE_IDS` ids so
+    no adapter path (an explicit subset OR an omitted-``sources`` wait-all) can
+    drift into an unbounded wait — the cap is enforced here, at the one chokepoint
+    every caller passes through, not re-derived per adapter.
     """
     if not source_ids:
         return []
+
+    if len(source_ids) > MAX_WAIT_SOURCE_IDS:
+        raise ValidationError(
+            f"cannot wait on more than {MAX_WAIT_SOURCE_IDS} sources at once; "
+            f"got {len(source_ids)}. Wait on a smaller subset."
+        )
 
     outcomes: list[SourceWaitOutcome | None] = [None] * len(source_ids)
     source_iter = iter(enumerate(source_ids))
@@ -202,5 +237,6 @@ __all__ = [
     "SourceWaitReady",
     "SourceWaitTimeout",
     "execute_source_wait",
+    "validate_wait_bounds",
     "wait_all_sources",
 ]

@@ -23,7 +23,6 @@ This module imports NO ``click`` / ``rich`` / ``cli``.
 
 from __future__ import annotations
 
-import math
 import os
 import shutil
 import tempfile
@@ -42,6 +41,7 @@ from ..._app.source_wait import (
     MAX_WAIT_CONCURRENT_SOURCES,
     MAX_WAIT_SOURCE_IDS,
     MAX_WAIT_TIMEOUT,
+    validate_wait_bounds,
     wait_all_sources,
 )
 from ..._app.views import source_view
@@ -436,9 +436,12 @@ async def add_batch(
     The shared notebook / auth context is validated ONCE up front (a bad
     ``notebook_id`` or stale auth surfaces as the normal top-level 404 / 401),
     so a whole-batch failure is never masked as ``201`` with every item errored.
-    Only per-entry URL / add failures inside the loop are isolated — recorded as
-    an ``error`` item and skipped, never aborting the batch — so partial failure
-    stays visible. Each entry is added SEQUENTIALLY (concurrent bulk writes
+    Only per-entry **input** failures (bad URL / 404 / SSRF-blocked host) are
+    isolated — recorded as an ``error`` item and skipped — so partial failure stays
+    visible; a **fatal** service failure (auth / rate-limit / 5xx, per
+    :func:`batch_item_is_fatal`) re-raises so the top-level handler maps it to the
+    right 401 / 429 / 5xx instead of a partial-success envelope. Each entry is added
+    SEQUENTIALLY (concurrent bulk writes
     invite backend rate-limiting) with ``source_type="url"`` so the http/https
     SSRF guard runs per item. Results are positional (``results[i]`` ↔
     ``urls[i]``).
@@ -523,20 +526,10 @@ async def wait_sources(notebook_id: str, body: SourceWaitBody, client: ClientDep
     all three error buckets are empty — the all-sources mode reports partial
     progress rather than discarding the sources that did become ready.
     """
-    # Reject non-finite bounds first: JSON allows ``inf`` / ``NaN`` (Python's
-    # json module parses ``Infinity`` / ``NaN``), and ``timeout=inf`` would wait
-    # forever while ``NaN`` breaks every comparison. ``math.isfinite`` is False
-    # for both.
-    if not math.isfinite(body.timeout):
-        raise ValidationError(f"timeout must be a finite number; got {body.timeout}")
-    if not math.isfinite(body.interval):
-        raise ValidationError(f"interval must be a finite number; got {body.interval}")
-    if body.timeout < 0:
-        raise ValidationError(f"timeout must be >= 0; got {body.timeout}")
-    if body.timeout > MAX_WAIT_TIMEOUT:
-        raise ValidationError(f"timeout must be <= {MAX_WAIT_TIMEOUT}; got {body.timeout}")
-    if body.interval <= 0:
-        raise ValidationError(f"interval must be > 0; got {body.interval}")
+    # Non-finite + range guards (shared with the MCP tools so the two can't
+    # drift): JSON allows ``inf`` / ``NaN`` and ``NaN`` slips through every
+    # comparison, so ``math.isfinite`` is checked before the range bounds.
+    validate_wait_bounds(body.timeout, body.interval)
     if body.source_ids is not None:
         # An EXPLICIT empty list is rejected: it would otherwise return an
         # immediate ``ok:true`` with nothing waited on — a false "ready" for a

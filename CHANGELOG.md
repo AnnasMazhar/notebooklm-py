@@ -44,8 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and is used by **both** adapters, with a parity guardrail (`tests/_guardrails/
   test_source_policy_parity.py`) that prevents future drift. Behavior change: a fatal
   batch item now aborts the whole `source_add` call (so an agent can re-auth/retry),
-  only per-URL 4xx-input failures isolate; `source_wait` now bounds concurrency at 8
-  and caps ids (100) / timeout (3600s). Per-URL SSRF/validation isolation is unchanged.
+  only per-URL 4xx-input failures isolate; `source_wait` now bounds concurrency at 8,
+  caps the source count at 100 on **both** the explicit-subset and the omitted-`sources`
+  wait-all path (enforced at one shared chokepoint so the adapters can't drift), caps
+  timeout at 3600s, and rejects non-finite (`NaN`/`Infinity`) timeout/interval — all via
+  a shared `_app` validator used by the REST route too. Per-URL SSRF/validation isolation
+  is unchanged.
   ([#1871](https://github.com/teng-lin/notebooklm-py/issues/1871))
 - **Direct-PDF-URL sources no longer show the raw URL as their title.** Adding a
   source whose URL points straight at a `.pdf` left the full request URL in the

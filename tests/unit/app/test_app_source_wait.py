@@ -35,6 +35,7 @@ from notebooklm._app.source_wait import (
     SourceWaitTimeout,
     execute_source_wait,
 )
+from notebooklm.exceptions import ValidationError
 from notebooklm.types import (
     Source,
     SourceNotFoundError,
@@ -172,3 +173,76 @@ async def test_wait_all_sources_empty_returns_empty() -> None:
 
     client = MagicMock()
     assert await wait_all_sources(client, "nb-1", [], timeout=1.0, interval=0.01) == []
+
+
+@pytest.mark.asyncio
+async def test_wait_all_sources_rejects_over_cap() -> None:
+    """The shared fan-out backstop rejects > MAX_WAIT_SOURCE_IDS ids so no adapter
+    path (explicit subset OR wait-all) can drift into an unbounded wait (#1871)."""
+    from notebooklm._app.source_wait import MAX_WAIT_SOURCE_IDS, wait_all_sources
+
+    client = MagicMock()
+    client.sources.wait_until_ready = AsyncMock()
+    ids = [f"s{i}" for i in range(MAX_WAIT_SOURCE_IDS + 1)]
+
+    with pytest.raises(ValidationError, match=str(MAX_WAIT_SOURCE_IDS)):
+        await wait_all_sources(client, "nb-1", ids, timeout=1.0, interval=0.01)
+    # Rejected before spawning any poller — the cap is a guard, not a partial run.
+    client.sources.wait_until_ready.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_wait_all_sources_cancels_siblings_on_unexpected_escape() -> None:
+    """An UNEXPECTED escape (e.g. an RPCError) in one poller cancels + drains the
+    still-running siblings before re-raising, rather than leaking coroutines."""
+    from notebooklm._app.source_wait import wait_all_sources
+    from notebooklm.exceptions import RPCError
+
+    sibling_cancelled = asyncio.Event()
+
+    async def _wait(notebook_id, source_id, *, timeout, initial_interval):
+        if source_id == "boom":
+            await asyncio.sleep(0)  # let the slow sibling start first
+            raise RPCError("unexpected boom")
+        try:
+            await asyncio.sleep(30)  # the slow sibling — should be cancelled
+        except asyncio.CancelledError:
+            sibling_cancelled.set()
+            raise
+        return Source(id=source_id, title=source_id)  # pragma: no cover - never reached
+
+    client = MagicMock()
+    client.sources.wait_until_ready = AsyncMock(side_effect=_wait)
+
+    with pytest.raises(RPCError):
+        await wait_all_sources(client, "nb-1", ["slow", "boom"], timeout=1.0, interval=0.01)
+    assert sibling_cancelled.is_set(), "slow sibling poller was not cancelled/drained"
+
+
+def test_validate_wait_bounds_accepts_valid() -> None:
+    from notebooklm._app.source_wait import validate_wait_bounds
+
+    validate_wait_bounds(30.0, 2.0)  # no raise
+    validate_wait_bounds(0.0, 0.5)  # timeout == 0 is allowed (>= 0)
+
+
+@pytest.mark.parametrize(
+    ("timeout", "interval", "needle"),
+    [
+        (float("nan"), 2.0, "finite"),
+        (float("inf"), 2.0, "finite"),
+        (30.0, float("nan"), "finite"),
+        (30.0, float("inf"), "finite"),
+        (-1.0, 2.0, ">= 0"),
+        (10_000.0, 2.0, "<="),  # over MAX_WAIT_TIMEOUT
+        (30.0, 0.0, "> 0"),
+        (30.0, -1.0, "> 0"),
+    ],
+)
+def test_validate_wait_bounds_rejects(timeout: float, interval: float, needle: str) -> None:
+    """Non-finite / out-of-range knobs are rejected — isfinite BEFORE the range
+    guards so a NaN (which slips through every comparison) can't leak through."""
+    from notebooklm._app.source_wait import validate_wait_bounds
+
+    with pytest.raises(ValidationError, match=needle):
+        validate_wait_bounds(timeout, interval)

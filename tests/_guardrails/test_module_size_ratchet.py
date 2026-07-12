@@ -84,7 +84,7 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # ``tool_error_payload``), so extracting it would only trade a size trip for a
     # circular import. Pinned at its measured LOC; ratchet down when the tool
     # surface is next reorganized.
-    "mcp/tools/sources.py": 1028,
+    "mcp/tools/sources.py": 1020,
 }
 
 

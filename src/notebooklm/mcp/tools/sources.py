@@ -376,15 +376,9 @@ def register(mcp: Any) -> None:
         """
         client = get_client(ctx)
         with mcp_errors():
-            if timeout < 0:
-                raise ValidationError(f"timeout must be >= 0; got {timeout}")
-            if timeout > wait_core.MAX_WAIT_TIMEOUT:
-                raise ValidationError(
-                    f"timeout must be <= {wait_core.MAX_WAIT_TIMEOUT}; got {timeout}. "
-                    "Wait in shorter windows and re-poll."
-                )
-            if interval <= 0:
-                raise ValidationError(f"interval must be > 0; got {interval}")
+            # Non-finite + range guards (shared with the REST route so the two
+            # can't drift); fail-fast before any I/O.
+            wait_core.validate_wait_bounds(timeout, interval)
 
             # All input guards fire BEFORE any I/O (fail-fast, like the bounds
             # checks above): the empty-``sources`` and mutual-exclusion errors must
@@ -661,10 +655,8 @@ def register(mcp: Any) -> None:
         """
         client = get_client(ctx)
         with mcp_errors():
-            if timeout < 0:
-                raise ValidationError(f"timeout must be >= 0; got {timeout}")
-            if interval <= 0:
-                raise ValidationError(f"interval must be > 0; got {interval}")
+            # Non-finite + range guards (shared with source_wait / the REST route).
+            wait_core.validate_wait_bounds(timeout, interval)
             # The same single-add guards source_add applies, all BEFORE any notebook
             # I/O so a malformed call never pays a round-trip. Shares the drive-mime
             # validator + _reject_single_content_scalars with source_add so the two
