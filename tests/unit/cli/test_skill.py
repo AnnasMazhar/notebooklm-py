@@ -841,3 +841,11 @@ class TestSkillPackage:
         assert payload["error"] is True
         assert payload["code"] == "WRITE_FAILED"
         assert result.exception is None or isinstance(result.exception, SystemExit)
+
+    def test_package_trailing_slash_directory_intent(self, runner, tmp_path):
+        """A nonexistent --output ending in a separator creates the directory and
+        writes the default filename inside it (Path would silently drop the slash)."""
+        result = self._invoke(runner, "--output", str(tmp_path / "newdir") + "/")
+
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "newdir" / skill_module.DEFAULT_ARCHIVE_FILENAME).exists()

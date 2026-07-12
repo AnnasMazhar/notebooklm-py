@@ -1494,7 +1494,7 @@ notebooklm skill <install|status|uninstall|show|package> [OPTIONS]
 | `status` | `user`, `project` | `all`, `claude`, `agents` | `all` | `--json` |
 | `uninstall` | `user`, `project` | `all`, `claude`, `agents` | `all` | — |
 | `show` | `user`, `project` | `source`, `claude`, `agents` | `source` | — |
-| `package` | — | — | — | `-o/--output PATH` (default `./notebooklm-skill.zip`; a directory gets the default filename inside it), `--force`, `--json` |
+| `package` | — | — | — | `-o/--output PATH` (default `./notebooklm-skill.zip`; an existing directory — or a PATH ending in a separator — gets the default filename inside it), `--force`, `--json` |
 
 `skill show --target source` prints the packaged `SKILL.md` straight out of the wheel (the canonical content); the other `show` targets read the materialized copy from disk.
 

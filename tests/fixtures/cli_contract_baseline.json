@@ -9225,7 +9225,7 @@
           "default": null,
           "envvar": null,
           "has_custom_shell_complete": false,
-          "help": "Archive path to write (default: ./notebooklm-skill.zip). If PATH is an existing directory, the default filename is written inside it.",
+          "help": "Archive path to write (default: ./notebooklm-skill.zip). If PATH is an existing directory or ends with a path separator, the default filename is written inside it.",
           "is_flag": false,
           "kind": "option",
           "multiple": false,

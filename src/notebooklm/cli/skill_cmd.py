@@ -460,11 +460,12 @@ def show(scope: str, target_name: str):
     "--output",
     "-o",
     "output",
-    type=click.Path(path_type=Path),
+    type=click.Path(),
     default=None,
     help=(
         f"Archive path to write (default: ./{DEFAULT_ARCHIVE_FILENAME}). "
-        "If PATH is an existing directory, the default filename is written inside it."
+        "If PATH is an existing directory or ends with a path separator, "
+        "the default filename is written inside it."
     ),
 )
 @click.option(
@@ -474,7 +475,7 @@ def show(scope: str, target_name: str):
     help="Overwrite an existing archive file.",
 )
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-def package(output: Path | None, force: bool, json_output: bool):
+def package(output: str | None, force: bool, json_output: bool):
     """Build a Claude-uploadable skill archive (chat and Cowork).
 
     Produces a ZIP whose root contains the ``notebooklm/`` skill folder,
@@ -496,9 +497,15 @@ def package(output: Path | None, force: bool, json_output: bool):
     version = get_package_version()
     stamped_content = add_version_comment(content, version)
 
-    output_path = Path(DEFAULT_ARCHIVE_FILENAME) if output is None else output
-    if output_path.is_dir():
-        output_path = output_path / DEFAULT_ARCHIVE_FILENAME
+    if output is None:
+        output_path = Path(DEFAULT_ARCHIVE_FILENAME)
+    else:
+        # A trailing separator signals directory intent even when the
+        # directory does not exist yet (``Path`` normalization would drop it).
+        dir_intent = output.endswith(("/", "\\"))
+        output_path = Path(output)
+        if output_path.is_dir() or dir_intent:
+            output_path = output_path / DEFAULT_ARCHIVE_FILENAME
     if output_path.exists() and not force:
         output_error(
             f"Refusing to overwrite existing file: {output_path} (use --force to overwrite)",
