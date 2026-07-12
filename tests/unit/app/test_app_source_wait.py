@@ -20,6 +20,7 @@ exit-code policy is exercised in
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
@@ -132,3 +133,42 @@ async def test_wait_context_exits_even_on_error() -> None:
     # The error is still classified, and the context still exits cleanly.
     assert isinstance(outcome, SourceWaitNotFound)
     assert events == ["enter", "exit"]
+
+
+@pytest.mark.asyncio
+async def test_wait_all_sources_bounds_concurrency_and_preserves_order() -> None:
+    """The shared multi-source wait caps in-flight pollers at MAX_WAIT_CONCURRENT_SOURCES
+    and returns outcomes in input order (the REST route + MCP tool both use this; the
+    MCP copy was previously unbounded — #1871)."""
+    from notebooklm._app.source_wait import MAX_WAIT_CONCURRENT_SOURCES, wait_all_sources
+
+    active = 0
+    peak = 0
+
+    async def _wait(notebook_id, source_id, *, timeout, initial_interval):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        try:
+            await asyncio.sleep(0.02)
+        finally:
+            active -= 1
+        return Source(id=source_id, title=source_id)
+
+    client = MagicMock()
+    client.sources.wait_until_ready = AsyncMock(side_effect=_wait)
+    ids = [f"s{i}" for i in range(MAX_WAIT_CONCURRENT_SOURCES + 4)]
+
+    outcomes = await wait_all_sources(client, "nb-1", ids, timeout=1.0, interval=0.01)
+
+    assert [outcome.source.id for outcome in outcomes] == ids  # input order preserved
+    assert peak == MAX_WAIT_CONCURRENT_SOURCES  # never more than the cap in flight
+    assert client.sources.wait_until_ready.await_count == len(ids)
+
+
+@pytest.mark.asyncio
+async def test_wait_all_sources_empty_returns_empty() -> None:
+    from notebooklm._app.source_wait import wait_all_sources
+
+    client = MagicMock()
+    assert await wait_all_sources(client, "nb-1", [], timeout=1.0, interval=0.01) == []

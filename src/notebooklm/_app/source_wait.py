@@ -28,6 +28,7 @@ This module is transport-neutral — no ``click`` / ``rich`` / ``cli`` /
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
@@ -43,6 +44,17 @@ from ..types import (
 
 if TYPE_CHECKING:
     from ..client import NotebookLMClient
+
+#: Upper bound on a single ``source_wait`` timeout (seconds) — bounds how long one
+#: request can hold a worker, and turns a ``timeout=inf`` into a clean rejection.
+MAX_WAIT_TIMEOUT = 3600.0
+
+#: Max source ids one ``source_wait`` may target — blocks pathological fan-out while
+#: preserving normal all-source waits (notebooks are source-limited).
+MAX_WAIT_SOURCE_IDS = 100
+
+#: Max simultaneous per-source pollers one multi-source wait spawns.
+MAX_WAIT_CONCURRENT_SOURCES = 8
 
 
 @dataclass(frozen=True)
@@ -123,7 +135,66 @@ async def execute_source_wait(
     return SourceWaitReady(source=source)
 
 
+async def wait_all_sources(
+    client: NotebookLMClient,
+    notebook_id: str,
+    source_ids: list[str],
+    *,
+    timeout: float,
+    interval: float,
+    max_concurrent: int = MAX_WAIT_CONCURRENT_SOURCES,
+) -> list[SourceWaitOutcome]:
+    """Wait for many sources with at most ``max_concurrent`` in-flight pollers.
+
+    One typed outcome per source, in input order. Each per-source wait runs through
+    :func:`execute_source_wait` (which maps the three handled ``SourceWait*``
+    failures to a typed outcome instead of raising), so a slow/failed source never
+    discards its siblings' progress. An UNEXPECTED escape (auth/transport
+    ``RPCError``, a bug) cancels + drains the still-running sibling pollers before
+    re-raising — the adapter's classify-once handler then maps it — rather than
+    leaking coroutines. This is the single implementation both the REST route and
+    the MCP tool call (previously duplicated; the MCP copy was unbounded).
+    """
+    if not source_ids:
+        return []
+
+    outcomes: list[SourceWaitOutcome | None] = [None] * len(source_ids)
+    source_iter = iter(enumerate(source_ids))
+
+    async def _worker() -> None:
+        for index, sid in source_iter:
+            outcomes[index] = await execute_source_wait(
+                client,
+                SourceWaitPlan(
+                    notebook_id=notebook_id,
+                    source_id=sid,
+                    timeout=timeout,
+                    interval=interval,
+                ),
+            )
+
+    tasks = [asyncio.create_task(_worker()) for _ in range(min(len(source_ids), max_concurrent))]
+    try:
+        await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+
+    ready_outcomes: list[SourceWaitOutcome] = []
+    for outcome in outcomes:
+        if outcome is None:
+            raise AssertionError("source wait worker exited without producing an outcome")
+        ready_outcomes.append(outcome)
+    return ready_outcomes
+
+
 __all__ = [
+    "MAX_WAIT_CONCURRENT_SOURCES",
+    "MAX_WAIT_SOURCE_IDS",
+    "MAX_WAIT_TIMEOUT",
     "SourceWaitNotFound",
     "SourceWaitOutcome",
     "SourceWaitPlan",
@@ -131,4 +202,5 @@ __all__ = [
     "SourceWaitReady",
     "SourceWaitTimeout",
     "execute_source_wait",
+    "wait_all_sources",
 ]
