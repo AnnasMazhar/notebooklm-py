@@ -11,6 +11,9 @@ cleanup on success/failure/cancel, and the pre-upload HTML second defense.
 from __future__ import annotations
 
 import asyncio
+import os
+import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +25,7 @@ from notebooklm._source.drive_import import (
     DriveDownload,
     DriveFetcher,
     DriveImportService,
+    _filename_from_disposition,
     _find_confirm_params,
     extract_drive_file_id,
 )
@@ -49,10 +53,14 @@ class _FakeResponse:
         self._body = body
         self.url = httpx.URL(url)
         self.body_reads = 0  # number of aiter_bytes() iterations started
+        # Thread names alive while the body is being produced — lets a test prove
+        # the disk writes run on a dedicated writer thread (off the event loop).
+        self.threads_during_stream: set[str] = set()
 
     async def aiter_bytes(self, chunk_size: int = 65536) -> Any:
         self.body_reads += 1
         for start in range(0, len(self._body), chunk_size):
+            self.threads_during_stream.update(t.name for t in threading.enumerate())
             yield self._body[start : start + chunk_size]
 
 
@@ -114,6 +122,11 @@ def _attachment_headers(filename: str, **extra: str) -> dict[str, str]:
     }
     headers.update(extra)
     return headers
+
+
+def _leaked_drive_temps() -> set[Path]:
+    """The set of ``nlm-drive-*`` temp files currently in the system temp dir."""
+    return set(Path(tempfile.gettempdir()).glob("nlm-drive-*"))
 
 
 # ===========================================================================
@@ -184,6 +197,35 @@ class TestFindConfirmParams:
 
 
 # ===========================================================================
+# _filename_from_disposition — Content-Disposition parsing (incl. RFC 5987)
+# ===========================================================================
+
+
+class TestFilenameFromDisposition:
+    def test_plain_filename(self) -> None:
+        assert _filename_from_disposition('attachment; filename="book.epub"') == "book.epub"
+
+    def test_unquoted_filename(self) -> None:
+        assert _filename_from_disposition("attachment; filename=book.epub") == "book.epub"
+
+    def test_rfc5987_no_language_tag(self) -> None:
+        assert _filename_from_disposition("attachment; filename*=UTF-8''plain.txt") == "plain.txt"
+
+    def test_rfc5987_with_language_tag_and_pct_encoding(self) -> None:
+        # A non-empty language tag (``en``) between the quotes must not defeat the
+        # match, and percent-encoding is decoded.
+        got = _filename_from_disposition("attachment; filename*=UTF-8'en'my%20book.epub")
+        assert got == "my book.epub"
+
+    def test_rfc5987_takes_precedence_over_plain(self) -> None:
+        disposition = "attachment; filename=\"fallback.txt\"; filename*=UTF-8'en'real.epub"
+        assert _filename_from_disposition(disposition) == "real.epub"
+
+    def test_empty_disposition(self) -> None:
+        assert _filename_from_disposition("") == ""
+
+
+# ===========================================================================
 # DriveFetcher — routing table per extension
 # ===========================================================================
 
@@ -228,16 +270,40 @@ class TestDriveFetcherRouting:
         assert response.body_reads == 0
 
     async def test_running_byte_cap_aborts_and_cleans(self) -> None:
-        # No Content-Length header, but the streamed body exceeds the cap.
+        # No Content-Length header, but the streamed body exceeds the cap. Force
+        # multiple chunks (small chunking) so the running cap trips mid-stream and
+        # the writer thread + temp file are torn down cleanly.
+        before = _leaked_drive_temps()
         response = _FakeResponse(headers=_attachment_headers("book.epub"), body=b"x" * 5000)
         with pytest.raises(ValidationError, match="cap"):
             await _fetcher(response, max_bytes=1000)(_FILE_ID)
-        # No temp file leaks: only our own would remain, and the fetch unlinks it.
+        assert _leaked_drive_temps() == before  # temp file unlinked on the abort
+
+    async def test_large_multichunk_body_streams_off_the_event_loop(self) -> None:
+        """A body far larger than one chunk streams byte-exact via the writer thread.
+
+        The random body spans ~11 chunks (> the 8-slot queue), so it exercises the
+        ``queue.Full`` back-pressure branch, and the assertion proves the blocking
+        disk writes ran on a dedicated ``drive-dl-writer-*`` thread — NOT inline on
+        the event loop (the #1873-class starvation this fix removes).
+        """
+        body = os.urandom(700_000)
+        response = _FakeResponse(headers=_attachment_headers("big.epub"), body=body)
+        download = await _fetcher(response)(_FILE_ID)
+        try:
+            assert download.path.read_bytes() == body
+            assert any(
+                name.startswith("drive-dl-writer-") for name in response.threads_during_stream
+            ), "disk writes must run on a dedicated writer thread, not the event loop"
+        finally:
+            download.path.unlink(missing_ok=True)
 
     async def test_zero_byte_download_rejected(self) -> None:
+        before = _leaked_drive_temps()
         response = _FakeResponse(headers=_attachment_headers("book.epub"), body=b"")
         with pytest.raises(ValidationError, match="0 bytes"):
             await _fetcher(response)(_FILE_ID)
+        assert _leaked_drive_temps() == before  # empty temp unlinked
 
 
 # ===========================================================================

@@ -36,9 +36,12 @@ no live Drive access.
 
 from __future__ import annotations
 
+import asyncio
 import os
+import queue
 import re
 import tempfile
+import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -50,6 +53,7 @@ import httpx
 
 from .._artifact._download_client import _is_trusted_download_host
 from .._artifact._redirect_guard import redirect_revalidation_hooks
+from .._artifact.downloads import _await_writer_exit
 from ..exceptions import ValidationError
 from ._upload_decode import _validate_upload_file_supported
 
@@ -77,6 +81,14 @@ _HTML_SNIFF_CAP_BYTES = 256 * 1024
 
 _STREAM_CHUNK_BYTES = 65536
 
+# Bounded queue between the async chunk producer and the single writer thread that
+# drains it to disk — so ``handle.write()`` never runs on the event loop (this
+# fetch is SERVER-SIDE on a possibly-shared loop, streaming up to the cap). Small
+# enough to keep back-pressure (the producer awaits when the writer falls behind),
+# large enough to stay hot across a brief read stall. Mirrors
+# ``_artifact/downloads.py::download_url``'s writer/queue split.
+_DRIVE_WRITER_QUEUE_SIZE = 8
+
 # A raw Drive file id, or the id embedded in a share URL. Drive ids are long
 # base64url-ish tokens; the 20-char floor rejects obviously-too-short junk.
 _DRIVE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{20,}$")
@@ -96,7 +108,9 @@ _BROWSER_UA = (
     "Chrome/125.0.0.0 Safari/537.36"
 )
 
-_ACCEPTED_EXTS_HINT = "epub, docx, doc, txt, md, rtf, odt, csv, tsv, pdf"
+# Derived from the supported set (never hand-maintained) so the user-facing
+# accepted-types message can't drift from what the router actually accepts.
+_ACCEPTED_EXTS_HINT = ", ".join(sorted(_UPLOAD_SUPPORTED_EXTS))
 
 
 @dataclass(frozen=True)
@@ -195,8 +209,10 @@ def _filename_from_disposition(disposition: str) -> str:
     """Extract the filename from a Content-Disposition header, if present."""
     if not disposition:
         return ""
-    # RFC 5987 ``filename*=UTF-8''...`` takes precedence over a plain ``filename=``.
-    ext_match = re.search(r"filename\*\s*=\s*[^']*''([^;]+)", disposition, re.IGNORECASE)
+    # RFC 5987 ``filename*=<charset>'<lang>'<pct-encoded>`` takes precedence over a
+    # plain ``filename=``. The language tag between the quotes is OPTIONAL and may be
+    # non-empty (e.g. ``UTF-8'en'file.txt``), so match ``[^']*`` for it, not ``''``.
+    ext_match = re.search(r"filename\*\s*=\s*[^']*'[^']*'([^;]+)", disposition, re.IGNORECASE)
     if ext_match:
         from urllib.parse import unquote
 
@@ -280,6 +296,11 @@ async def _read_capped_text(response: httpx.Response, cap: int) -> str:
     chunks: list[bytes] = []
     total = 0
     async for chunk in response.aiter_bytes(_STREAM_CHUNK_BYTES):
+        # Slice the final chunk so the buffer never exceeds ``cap`` by up to one
+        # whole chunk (a body far larger than the sniff cap would otherwise pull a
+        # full extra 64 KiB into memory).
+        if total + len(chunk) > cap:
+            chunk = chunk[: cap - total]
         chunks.append(chunk)
         total += len(chunk)
         if total >= cap:
@@ -395,7 +416,7 @@ class DriveFetcher:
         if declared > self._max_bytes:
             raise ValidationError(
                 f"Drive file {file_id} is {declared} bytes, over the "
-                f"{_MAX_DRIVE_DOWNLOAD_MIB} MiB download cap."
+                f"{self._max_bytes // (1024 * 1024)} MiB download cap."
             )
 
     async def _stream_to_temp(
@@ -411,25 +432,100 @@ class DriveFetcher:
         fd, temp_name = tempfile.mkstemp(prefix="nlm-drive-", suffix=suffix)
         os.close(fd)  # mkstemp already created it 0600
         temp_path = Path(temp_name)
-        total = 0
         try:
-            with open(temp_path, "wb") as handle:
-                async for chunk in response.aiter_bytes(_STREAM_CHUNK_BYTES):
-                    total += len(chunk)
-                    if total > self._max_bytes:
-                        raise ValidationError(
-                            f"Drive download exceeded the {_MAX_DRIVE_DOWNLOAD_MIB} MiB cap "
-                            f"for {filename or 'the file'}."
-                        )
-                    handle.write(chunk)
-            if total == 0:
-                raise ValidationError(
-                    "Drive returned 0 bytes — the file may be empty or inaccessible."
-                )
+            await self._drain_to_temp(response, temp_path, filename)
             return temp_path
         except BaseException:
             temp_path.unlink(missing_ok=True)
             raise
+
+    async def _drain_to_temp(
+        self, response: httpx.Response, temp_path: Path, filename: str
+    ) -> None:
+        """Drain the streamed body to ``temp_path`` via a dedicated writer thread.
+
+        A single writer thread performs every blocking ``handle.write()`` off the
+        event loop, draining a bounded queue the async producer feeds — so this
+        server-side fetch never starves a shared loop even while streaming up to
+        the cap. Modelled on ``_artifact/downloads.py::download_url``. The running
+        byte cap is enforced producer-side (before the queue) so an over-cap body
+        aborts + cleans up without ever hitting disk beyond one queued chunk.
+        """
+        chunk_q: queue.Queue[bytes | None] = queue.Queue(maxsize=_DRIVE_WRITER_QUEUE_SIZE)
+        writer_failed = threading.Event()
+        writer_error: list[BaseException] = []
+
+        def _writer_loop() -> None:
+            # On failure, drain the queue in ``finally`` so a producer parked in
+            # ``queue.put`` unblocks and can observe ``writer_failed``.
+            try:
+                with open(temp_path, "wb") as handle:
+                    while True:
+                        item = chunk_q.get()
+                        if item is None:
+                            return
+                        handle.write(item)
+            except BaseException as exc:  # noqa: BLE001 - surfaced via writer_error below
+                writer_error.append(exc)
+                writer_failed.set()
+            finally:
+                while True:
+                    try:
+                        chunk_q.get_nowait()
+                    except queue.Empty:
+                        break
+
+        writer_thread = threading.Thread(
+            target=_writer_loop,
+            name=f"drive-dl-writer-{temp_path.name}",
+            daemon=True,
+        )
+        writer_thread.start()
+        total = 0
+        try:
+            async for chunk in response.aiter_bytes(_STREAM_CHUNK_BYTES):
+                if writer_failed.is_set():
+                    break
+                total += len(chunk)
+                if total > self._max_bytes:
+                    raise ValidationError(
+                        f"Drive download exceeded the {self._max_bytes // (1024 * 1024)} MiB "
+                        f"cap for {filename or 'the file'}."
+                    )
+                # ``put_nowait`` fast-paths the common case; fall back to a
+                # ``to_thread(put)`` only when the queue is full so the producer
+                # suspends cleanly under back-pressure (never blocking the loop).
+                try:
+                    chunk_q.put_nowait(chunk)
+                except queue.Full:
+                    await asyncio.to_thread(chunk_q.put, chunk)
+            if not writer_failed.is_set():
+                try:
+                    chunk_q.put_nowait(None)
+                except queue.Full:
+                    await asyncio.to_thread(chunk_q.put, None)
+            await _await_writer_exit(writer_thread, re_raise_cancel=True)
+            if writer_error:
+                raise next(iter(writer_error))  # one-slot exception box
+        except BaseException:
+            # Ensure the writer sees a sentinel and exits even if the queue is
+            # saturated (drop one item to make room, then put the sentinel) before
+            # the outer handler unlinks the temp file — a bare unlink would race
+            # the writer's still-open file handle.
+            while True:
+                try:
+                    chunk_q.put_nowait(None)
+                    break
+                except queue.Full:
+                    pass
+                try:
+                    chunk_q.get_nowait()
+                except queue.Empty:
+                    pass
+            await _await_writer_exit(writer_thread)
+            raise
+        if total == 0:
+            raise ValidationError("Drive returned 0 bytes — the file may be empty or inaccessible.")
 
 
 class DriveImportService:
