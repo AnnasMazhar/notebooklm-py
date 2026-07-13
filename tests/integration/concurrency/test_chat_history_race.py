@@ -530,9 +530,7 @@ async def test_null_ask_serializes_with_explicit_current_conversation(auth_token
 
     client = _make_client(transport, auth_tokens)
     try:
-        client.chat._cache.cache_conversation_turn(
-            conversation_id, "q0", "answer-0", turn_number=1
-        )
+        client.chat._cache.cache_conversation_turn(conversation_id, "q0", "answer-0", turn_number=1)
         await asyncio.gather(
             client.chat.ask(notebook_id, "q-null", source_ids=["src_001"]),
             client.chat.ask(
@@ -579,9 +577,7 @@ async def test_null_ask_parallel_with_followup_on_other_conversation(auth_tokens
 
     client = _make_client(transport, auth_tokens)
     try:
-        client.chat._cache.cache_conversation_turn(
-            conversation_y, "q0", "answer-0", turn_number=1
-        )
+        client.chat._cache.cache_conversation_turn(conversation_y, "q0", "answer-0", turn_number=1)
         await asyncio.gather(
             client.chat.ask(notebook_id, "q-null", source_ids=["src_001"]),
             client.chat.ask(
