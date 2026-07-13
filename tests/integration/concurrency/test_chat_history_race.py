@@ -447,13 +447,16 @@ async def test_different_notebook_new_conversation_asks_run_in_parallel(auth_tok
 async def test_new_conversation_cache_update_waits_for_resolved_conversation_lock(
     auth_tokens,
 ) -> None:
-    """After hPTbtc returns, a null ask must use the conversation-id lock.
+    """A null ask resolving to a conversation shares that conversation's lock.
 
-    The explicit follow-up below holds ``_conversation_locks[conversation_id]``
-    while its delayed response is in flight. The null ask resolves to that
-    same id sooner; if it wrote the cache without taking the conversation lock,
-    it would land before the already-running follow-up. The expected cache
-    order proves the null ask waits for the follow-up's existing lock.
+    The explicit follow-up contends ``_conversation_locks[conversation_id]``.
+    Under the #1875 two-phase design the null ask resolves that same id under
+    the notebook lock and then holds the conversation lock across BOTH its POST
+    and its cache write — so the two serialize on one lock (peak in-flight 1)
+    and produce contiguous, non-corrupted turns. Which of the two wins the lock
+    is a scheduling detail; the invariant is that neither clobbers the other's
+    turn. Pre-fix the null ask POSTed under the notebook lock and only took the
+    conversation lock for the cache write, so the two POSTs overlapped.
     """
     notebook_id = "nb_new_followup"
     conversation_id = "conv_new_followup"
@@ -490,6 +493,108 @@ async def test_new_conversation_cache_update_waits_for_resolved_conversation_loc
     finally:
         await client._collaborators.kernel.get_http_client().aclose()
 
+    # Both asks serialize on the resolved conversation's lock: peak in-flight 1.
+    assert transport.peak_chat_inflight() == 1, (
+        "a null ask resolving to the follow-up's conversation must serialize "
+        f"on its lock; got peak_chat_inflight={transport.peak_chat_inflight()}"
+    )
+    # Serialized under one lock → contiguous turns, no lost update, both present
+    # (exact order depends on which task wins the lock and is not asserted).
     cached_turns = client.chat.get_cached_turns(conversation_id)
-    assert [turn.query for turn in cached_turns] == ["q0", "q-follow", "q-new"]
     assert [turn.turn_number for turn in cached_turns] == [1, 2, 3]
+    assert {turn.query for turn in cached_turns} == {"q0", "q-new", "q-follow"}
+
+
+@pytest.mark.asyncio
+async def test_null_ask_serializes_with_explicit_current_conversation(auth_tokens) -> None:
+    """A null ask and an explicit follow-up on the *current* conversation serialize.
+
+    Regression for #1875: the server appends a ``conversation_id=None`` ask to
+    the notebook's current conversation (``params[4]=null``). When that current
+    conversation is the same one an explicit follow-up targets, the two must
+    hold the SAME per-conversation lock so their streamed POSTs serialize.
+    Pre-fix the null ask POSTed under the notebook lock while the follow-up
+    POSTed under the conversation lock — disjoint locks, peak in-flight 2.
+    Post-fix the null ask resolves the current id under the notebook lock and
+    takes that conversation's lock around POST + cache — peak in-flight 1.
+    """
+    notebook_id = "nb_1875_same"
+    conversation_id = "conv_1875_same"
+
+    transport = _SerializingChatTransport(
+        response_delay=0.1,
+        conversation_ids_by_notebook={notebook_id: conversation_id},
+    )
+    transport.set_answer("q-null", "answer-null")
+    transport.set_answer("q-follow", "answer-follow")
+
+    client = _make_client(transport, auth_tokens)
+    try:
+        client.chat._cache.cache_conversation_turn(
+            conversation_id, "q0", "answer-0", turn_number=1
+        )
+        await asyncio.gather(
+            client.chat.ask(notebook_id, "q-null", source_ids=["src_001"]),
+            client.chat.ask(
+                notebook_id,
+                "q-follow",
+                source_ids=["src_001"],
+                conversation_id=conversation_id,
+            ),
+        )
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    assert transport.peak_chat_inflight() == 1, (
+        "a null ask and an explicit follow-up on the notebook's current "
+        "conversation must serialize on the same per-conversation lock; "
+        f"got peak_chat_inflight={transport.peak_chat_inflight()}"
+    )
+
+    # Cache coherent: seed turn + the two serialized asks, contiguous 1/2/3.
+    cached_turns = client.chat.get_cached_turns(conversation_id)
+    assert [turn.turn_number for turn in cached_turns] == [1, 2, 3]
+    assert {turn.query for turn in cached_turns} == {"q0", "q-null", "q-follow"}
+
+
+@pytest.mark.asyncio
+async def test_null_ask_parallel_with_followup_on_other_conversation(auth_tokens) -> None:
+    """Granularity guard: a null ask resolving to convX runs parallel to convY.
+
+    The #1875 fix must not become a coarse notebook/global POST lock: a null
+    ask whose current conversation is convX shares no lock with an explicit
+    follow-up on an unrelated convY, so the two overlap at the transport
+    (peak in-flight 2). A regression to a notebook-wide POST lock caps this at 1.
+    """
+    notebook_id = "nb_1875_other"
+    conversation_x = "conv_1875_x"
+    conversation_y = "conv_1875_y"
+
+    transport = _SerializingChatTransport(
+        response_delay=0.1,
+        conversation_ids_by_notebook={notebook_id: conversation_x},
+    )
+    transport.set_answer("q-null", "answer-null")
+    transport.set_answer("q-other", "answer-other")
+
+    client = _make_client(transport, auth_tokens)
+    try:
+        client.chat._cache.cache_conversation_turn(
+            conversation_y, "q0", "answer-0", turn_number=1
+        )
+        await asyncio.gather(
+            client.chat.ask(notebook_id, "q-null", source_ids=["src_001"]),
+            client.chat.ask(
+                notebook_id,
+                "q-other",
+                source_ids=["src_001"],
+                conversation_id=conversation_y,
+            ),
+        )
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    assert transport.peak_chat_inflight() == 2, (
+        "a null ask resolving to convX must not serialize with a follow-up on "
+        f"a different convY; got peak_chat_inflight={transport.peak_chat_inflight()}"
+    )

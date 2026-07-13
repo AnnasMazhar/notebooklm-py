@@ -315,6 +315,7 @@ class ChatAPI(LoopBoundPrimitive):
             *,
             conversation_history: list[Any] | None,
             active_conversation_id: str | None,
+            resolved_id_override: str | None = None,
         ) -> tuple[str, list[ChatReference], str, str]:
             # Capture into closure-local variables so the nested ``build_request``
             # closure carries explicit types — mypy doesn't propagate flow
@@ -372,7 +373,12 @@ class ChatAPI(LoopBoundPrimitive):
             )
 
             resolved_conversation_id = active_conversation_id
-            if is_new_conversation:
+            if resolved_id_override is not None:
+                # Caller resolved the current id under the notebook lock and
+                # holds its conversation lock; skip the post-POST hPTbtc
+                # recovery — the id is known and re-fetching is redundant.
+                resolved_conversation_id = resolved_id_override
+            elif is_new_conversation:
                 # The real conversation_id is not present anywhere in the
                 # streamed chat response. The only way to recover it is to
                 # query ``hPTbtc`` (GET_LAST_CONVERSATION_ID), which returns
@@ -432,30 +438,50 @@ class ChatAPI(LoopBoundPrimitive):
                 turn_number = len(turns)
             return turn_number
 
-        # Follow-ups use the per-conversation lock from history build through
-        # cache update. Null-conversation asks have no id to lock on yet, but
-        # the server still appends them to the notebook's current conversation.
-        # Serialize those by notebook until hPTbtc returns the real id; then
-        # release the notebook path and use the existing conversation-id lock
-        # for the local cache update.
-        #
-        # A null ask cannot serialize its streamed POST against an explicit
-        # follow-up that already knows the same eventual conversation id; the
-        # null path does not know that key until hPTbtc returns. The handoff
-        # below still serializes the local cache update with that follow-up.
+        # Null-conversation asks carry no caller id, but the server appends
+        # them to the notebook's *current* conversation (params[4]=null). We
+        # resolve that id under the notebook lock and, when it exists, run the
+        # POST + cache under its per-conversation lock so a null ask and an
+        # explicit follow-up on that conversation serialize (issue #1875).
         if is_new_conversation:
             async with self._get_new_conversation_lock(notebook_id):
-                (
-                    answer_text,
-                    references,
-                    resolved_conversation_id,
-                    raw_response,
-                ) = await perform_request(
-                    conversation_history=None,
-                    active_conversation_id=None,
-                )
-            async with self._get_conversation_lock(resolved_conversation_id):
-                turn_number = cache_turn(resolved_conversation_id, answer_text)
+                # Resolve the server's current conversation while holding the
+                # notebook lock, so concurrent null asks cannot move the
+                # pointer out from under us before the POST. Residual
+                # assumption: an explicit follow-up to a *different*
+                # conversation does not move the server's current-conversation
+                # pointer between this resolve and the null POST.
+                current_id = await self.get_conversation_id(notebook_id)
+                if current_id is not None:
+                    # Existing conversation: POST + cache under its lock, the
+                    # same lock an explicit follow-up on it would take.
+                    async with self._get_conversation_lock(current_id):
+                        (
+                            answer_text,
+                            references,
+                            resolved_conversation_id,
+                            raw_response,
+                        ) = await perform_request(
+                            conversation_history=None,
+                            active_conversation_id=None,
+                            resolved_id_override=current_id,
+                        )
+                        turn_number = cache_turn(resolved_conversation_id, answer_text)
+                else:
+                    # New conversation: POST under the notebook lock, recover
+                    # the id via post-POST hPTbtc, cache under its lock below.
+                    (
+                        answer_text,
+                        references,
+                        resolved_conversation_id,
+                        raw_response,
+                    ) = await perform_request(
+                        conversation_history=None,
+                        active_conversation_id=None,
+                    )
+            if current_id is None:
+                async with self._get_conversation_lock(resolved_conversation_id):
+                    turn_number = cache_turn(resolved_conversation_id, answer_text)
         else:
             assert conversation_id is not None  # narrowed by is_new_conversation
             async with self._get_conversation_lock(conversation_id):
