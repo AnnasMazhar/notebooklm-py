@@ -92,10 +92,9 @@ if TYPE_CHECKING:
 class AuthMetadata(Protocol):
     """Selected-account routing metadata required by upload flows.
 
-    Inlined from ``_runtime.contracts`` in issue #1327: the upload
-    pipeline is the only consumer, so this single-consumer Protocol lives
-    local to its owner per the ADR-0013 ≥2-feature promotion bar.
-    ``AuthTokens`` structurally satisfies it.
+    Inlined from ``_runtime.contracts`` (#1327): the upload pipeline is the only
+    consumer, so this single-consumer Protocol lives local to its owner (ADR-0013
+    ≥2-feature promotion bar). ``AuthTokens`` structurally satisfies it.
     """
 
     @property
@@ -244,8 +243,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         self._async_client_factory = async_client_factory
         self._max_concurrent_uploads = normalize_max_concurrent_uploads(max_concurrent_uploads)
         self._upload_semaphore: asyncio.Semaphore | None = None
-        # Bounds concurrent Drive auto-route downloads (#1884); loop-bound like the
-        # upload semaphore (reset on rebind / reopen).
+        # Bounds concurrent Drive auto-route downloads (#1884); loop-bound.
         self._download_semaphore: asyncio.Semaphore | None = None
         # ``_bound_loop`` + ``set_bound_loop`` come from the
         # :class:`~notebooklm._loop_bound.LoopBoundPrimitive` base; this pipeline
@@ -352,9 +350,8 @@ class SourceUploadPipeline(LoopBoundPrimitive):
     def get_upload_semaphore(self) -> asyncio.Semaphore:
         """Return the Sources-owned upload semaphore, creating it on first use.
 
-        Caps the section that opens the source FD, registers the source, starts
-        the resumable upload, and streams the body. Lazy construction keeps the
-        pipeline usable outside a running event loop.
+        Caps the FD-open + register + resumable-upload + body-stream section. Lazy
+        construction keeps the pipeline usable outside a running event loop.
         """
         if self._upload_semaphore is None:
             self._upload_semaphore = asyncio.Semaphore(self._max_concurrent_uploads)
@@ -363,9 +360,12 @@ class SourceUploadPipeline(LoopBoundPrimitive):
     def get_download_semaphore(self) -> asyncio.Semaphore:
         """Return the Drive auto-route download semaphore (#1884), lazily built.
 
-        A SEPARATE pool from the upload semaphore — gating the whole
-        download→upload op can't deadlock against ``add_file``'s own upload slot.
+        A SEPARATE pool from the upload semaphore (gating the whole download→upload
+        op can't deadlock against ``add_file``'s own slot). Asserts loop ownership
+        FIRST (the download seam, as ``add_file`` is the upload seam) so a
+        cross-loop ``add_drive_file`` fails before it touches this primitive (#1196).
         """
+        self._lifecycle.assert_bound_loop()
         if self._download_semaphore is None:
             self._download_semaphore = asyncio.Semaphore(self._max_concurrent_uploads)
         return self._download_semaphore

@@ -195,9 +195,11 @@ class DriveRef:
 def parse_drive_ref(id_or_url: str) -> DriveRef:
     """Parse a raw Drive file id or a Drive share URL into a :class:`DriveRef`.
 
-    Accepts a raw id, or a ``https://…`` URL of the ``/d/<id>``,
-    ``/file/d/<id>/…``, or ``?id=<id>`` shapes, preserving a ``resourcekey``
-    query param when present. Rejects anything that does not yield a valid id.
+    Accepts a raw id, or a ``https://…`` URL (on a Google host) of the ``/d/<id>``,
+    ``/file/d/<id>/…``, or ``?id=<id>`` shapes, preserving a ``resourcekey`` query
+    param when present. A URL on a NON-Google host is rejected — an id-shaped path
+    segment under ``evil.example`` is not a Drive reference. Rejects anything that
+    does not yield a valid id.
     """
     candidate = (id_or_url or "").strip()
     if not candidate:
@@ -206,7 +208,10 @@ def parse_drive_ref(id_or_url: str) -> DriveRef:
         return DriveRef(file_id=candidate)
 
     parsed = urlparse(candidate)
-    if parsed.scheme in ("http", "https"):
+    # Only extract from a URL that is actually a Google host (reuses the download
+    # trusted-host allowlist: *.google.com / *.googleusercontent.com / …); a bare
+    # id with no scheme/host stays accepted via the fullmatch above.
+    if parsed.scheme in ("http", "https") and _is_trusted_download_host(parsed.hostname):
         query = parse_qs(parsed.query)
         resource_key = next((v for v in query.get("resourcekey", []) if v), None)
         for value in query.get("id", []):

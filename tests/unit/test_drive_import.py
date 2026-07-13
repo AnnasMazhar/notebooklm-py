@@ -184,6 +184,20 @@ class TestParseDriveRef:
         with pytest.raises(ValidationError):
             parse_drive_ref(bad)
 
+    @pytest.mark.parametrize(
+        "url",
+        [
+            f"https://evil.example/file/d/{_FILE_ID}/view",
+            f"https://drive.google.com.evil.example/open?id={_FILE_ID}",
+            f"http://notgoogle.test/d/{_FILE_ID}",
+        ],
+    )
+    def test_rejects_id_shaped_url_on_non_google_host(self, url: str) -> None:
+        # A valid-looking id under a non-Google host must NOT be treated as a Drive
+        # reference (host hardening) — it raises the clean parse ValidationError.
+        with pytest.raises(ValidationError):
+            parse_drive_ref(url)
+
 
 # ===========================================================================
 # _find_confirm_params — r3 Fix A discriminator
