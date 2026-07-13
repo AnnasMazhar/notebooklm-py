@@ -216,9 +216,7 @@ class RetryMiddleware:
         # clock reconciliation here.
         inherited_deadline = request.context.get(RPC_CONTEXT_RETRY_DEADLINE)
         retry_deadline = (
-            inherited_deadline
-            if inherited_deadline is not None
-            else self._start_retry_deadline()
+            inherited_deadline if inherited_deadline is not None else self._start_retry_deadline()
         )
 
         while True:
