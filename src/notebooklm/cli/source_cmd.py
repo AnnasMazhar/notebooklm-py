@@ -474,7 +474,7 @@ class _DriveMimeChoice(click.Choice):
         try:
             return super().convert(value, param, ctx)
         except click.BadParameter:
-            raise click.BadParameter(
+            raise click.BadParameter(  # cli-input-validation: unsupported --mime-type steered to file-upload path
                 f"{value!r} is not importable via Drive. NotebookLM's Drive import "
                 "supports google-doc/google-slides/google-sheets/pdf only; download an "
                 "upload-only file (epub/docx/txt/md/rtf/odt/csv) and add it via "
