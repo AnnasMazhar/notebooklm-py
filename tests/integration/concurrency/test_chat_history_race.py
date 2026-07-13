@@ -594,3 +594,118 @@ async def test_null_ask_parallel_with_followup_on_other_conversation(auth_tokens
         "a null ask resolving to convX must not serialize with a follow-up on "
         f"a different convY; got peak_chat_inflight={transport.peak_chat_inflight()}"
     )
+
+
+def _build_delete_ok_body() -> str:
+    """Minimal success envelope for a DELETE_CONVERSATION (``J7Gthc``) RPC."""
+    inner = json.dumps([])
+    chunk = json.dumps(["wrb.fr", RPCMethod.DELETE_CONVERSATION.value, inner, None, None])
+    return f")]}}'\n{len(chunk)}\n{chunk}\n"
+
+
+def _request_rpcid(request: httpx.Request) -> str:
+    """Return the ``rpcids`` query param of a batchexecute request."""
+    return parse_qs(urlparse(str(request.url)).query).get("rpcids", [""])[0]
+
+
+class _DeleteRaceTransport(httpx.AsyncBaseTransport):
+    """Transport that lets a ``delete_conversation`` hold the conversation lock
+    while a concurrent null ask resolves the same id and blocks on that lock.
+
+    The DELETE RPC sleeps for ``delete_delay`` (holding the per-conversation
+    lock the whole time), so a null ask gathered *after* it resolves the current
+    id (first ``hPTbtc`` -> ``resolved_id``) and then parks on the same lock.
+    When the delete finishes it marks the id deleted; the null ask wakes, drops
+    its ``resolved_id_override``, POSTs (server starts a fresh conversation) and
+    recovers the real id via the second ``hPTbtc`` -> ``recovered_id``.
+    """
+
+    def __init__(self, *, resolved_id: str, recovered_id: str, delete_delay: float = 0.1) -> None:
+        self._resolved_id = resolved_id
+        self._recovered_id = recovered_id
+        self._delete_delay = delete_delay
+        self._hptbtc_calls = 0
+        self._events: list[str] = []
+
+    def events(self) -> list[str]:
+        return list(self._events)
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if "batchexecute" in str(request.url):
+            rpcid = _request_rpcid(request)
+            if rpcid == RPCMethod.GET_LAST_CONVERSATION_ID.value:
+                self._hptbtc_calls += 1
+                cid = self._resolved_id if self._hptbtc_calls == 1 else self._recovered_id
+                self._events.append(f"hptbtc:{cid}")
+                return httpx.Response(
+                    200,
+                    text=_build_get_conversation_id_response_body(cid),
+                    request=request,
+                )
+            # DELETE_CONVERSATION: hold the conversation lock for the delay.
+            self._events.append("delete-start")
+            await asyncio.sleep(self._delete_delay)
+            self._events.append("delete-end")
+            return httpx.Response(200, text=_build_delete_ok_body(), request=request)
+        # Null chat POST: params[4] is null; the answer's stream id is discarded
+        # and the real id comes from the post-POST hPTbtc (recovered_id).
+        self._events.append("chat-post")
+        return httpx.Response(
+            200,
+            text=_build_chat_response_body("answer-after-delete", "stream-id-discarded"),
+            request=request,
+        )
+
+
+@pytest.mark.asyncio
+async def test_null_ask_recovers_when_current_conversation_deleted_mid_flight(
+    auth_tokens,
+) -> None:
+    """A delete that lands between resolve and POST must not pin the turn to the
+    deleted id.
+
+    Regression for the #1875 review (Codex P2): the null ask resolves
+    ``current_id`` = X, then blocks on ``_get_conversation_lock(X)`` held by a
+    concurrent ``delete_conversation(notebook, X)``. When the delete completes,
+    the server starts a FRESH conversation for the null POST. Without the
+    deleted-id re-check the null ask would suppress the post-POST ``hPTbtc``
+    recovery (``resolved_id_override=X``) and cache/report the new turn under the
+    DELETED id X. Post-fix it drops the override and recovers the real id Y.
+    """
+    notebook_id = "nb_1875_delrace"
+    deleted_id = "conv_1875_deleted"
+    fresh_id = "conv_1875_fresh"
+
+    transport = _DeleteRaceTransport(
+        resolved_id=deleted_id, recovered_id=fresh_id, delete_delay=0.1
+    )
+    client = _make_client(transport, auth_tokens)
+    try:
+        # Seed a turn under the soon-to-be-deleted id so we can prove the cache
+        # entry is gone (delete clears it) and the new turn lands under Y, not X.
+        client.chat._cache.cache_conversation_turn(deleted_id, "q0", "a0", turn_number=1)
+        # Delete is gathered first so it acquires the conversation lock before the
+        # null ask, which then resolves X and parks on that same lock.
+        _, result = await asyncio.gather(
+            client.chat.delete_conversation(notebook_id, deleted_id),
+            client.chat.ask(notebook_id, "q-after-delete", source_ids=["src_001"]),
+        )
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    # The turn is reported and cached under the FRESH id, never the deleted one.
+    assert result.conversation_id == fresh_id, (
+        "null ask must recover the fresh server conversation after its resolved "
+        f"current conversation was deleted mid-flight; got {result.conversation_id!r}"
+    )
+    assert client.chat.get_cached_turns(fresh_id), "new turn must be cached under the fresh id"
+    assert not client.chat.get_cached_turns(deleted_id), (
+        "the deleted conversation's cache (and the recovered turn) must not live "
+        "under the deleted id"
+    )
+    # Ordering proof: the delete completed before the chat POST started.
+    events = transport.events()
+    assert "delete-end" in events and "chat-post" in events
+    assert events.index("delete-end") < events.index("chat-post"), (
+        f"delete must complete before the null POST for the race to be exercised; events={events!r}"
+    )
