@@ -374,6 +374,80 @@ def test_end_to_end_and_persistence(tmp_path) -> None:
     assert asyncio.run(p2.verify_token(access_token)) is not None
 
 
+def test_save_state_runs_atomic_write_off_the_event_loop(tmp_path, monkeypatch) -> None:
+    """Issue #1873(B): the blocking fsync/atomic-write must run OFF the loop thread.
+
+    ``_save_state`` builds the snapshot on the loop, then offloads the mkdir +
+    ``atomic_write_json`` (os.fsync under filelock) via ``anyio.to_thread.run_sync``.
+    Capture the worker's thread id at write time and confirm it differs from the
+    loop thread — AND that the file round-trips into a fresh provider.
+    """
+    import threading
+
+    from notebooklm.mcp import _oauth as oauth_mod
+
+    real_write = oauth_mod.atomic_write_json
+    write_thread_ids: list[int] = []
+
+    def _recording_write(path, data):
+        write_thread_ids.append(threading.get_ident())
+        return real_write(path, data)
+
+    monkeypatch.setattr(oauth_mod, "atomic_write_json", _recording_write)
+
+    async def run() -> int:
+        p = _provider(tmp_path)
+        await p.register_client(_client())
+        return threading.get_ident()
+
+    loop_thread_id = asyncio.run(run())
+
+    # The atomic write ran (register_client persists) on a DIFFERENT thread.
+    assert write_thread_ids, "atomic_write_json was never invoked"
+    assert all(tid != loop_thread_id for tid in write_thread_ids)
+    # And the persisted state round-trips into a fresh provider.
+    p2 = _provider(tmp_path)
+    assert "c1" in p2.clients
+
+
+def test_all_save_state_callers_await_and_persist(tmp_path) -> None:
+    """Issue #1873(B): every ``_save_state`` caller must AWAIT it.
+
+    A missing ``await`` would leave a never-run coroutine and silently drop
+    persistence (regressing #1765). Drive the flows that call
+    ``exchange_authorization_code``, ``exchange_refresh_token`` and
+    ``revoke_token`` and confirm each mutation reaches disk.
+    """
+
+    async def run() -> None:
+        p = _provider(tmp_path)
+        client = _client()
+        await p.register_client(client)
+        sid = (await p.authorize(client, _params())).split("sid=")[1]
+        with TestClient(Starlette(routes=p.get_routes())) as c:
+            r = c.post("/login", data={"sid": sid, "password": _PW}, follow_redirects=False)
+        code = r.headers["location"].split("code=")[1].split("&")[0]
+        token = await p.exchange_authorization_code(client, p.auth_codes[code])
+
+        # exchange_refresh_token → persists the rotated token; the refresh
+        # token must survive a reload done AFTER the exchange.
+        assert token.refresh_token is not None
+        refreshed = await p.exchange_refresh_token(
+            client, p.refresh_tokens[token.refresh_token], scopes=[]
+        )
+        assert refreshed.access_token is not None
+        p_after_refresh = _provider(tmp_path)
+        assert await p_after_refresh.verify_token(refreshed.access_token) is not None
+
+        # revoke_token → persists the removal; the revoked token must be gone
+        # from a fresh reload.
+        await p.revoke_token(p.access_tokens[refreshed.access_token])
+        p_after_revoke = _provider(tmp_path)
+        assert await p_after_revoke.verify_token(refreshed.access_token) is None
+
+    asyncio.run(run())
+
+
 # --------------------------------------------------------------------------- hardening (polish)
 def test_oauth_config_repr_hides_password() -> None:
     cfg = OAuthConfig(password="super-secret-do-not-log", base_url="https://h", state_path=None)

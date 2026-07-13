@@ -293,7 +293,7 @@ class SelfHostedOAuthProvider(InMemoryOAuthProvider):
                 )
             self.clients.pop(evictable, None)
         await super().register_client(client_info)
-        self._save_state()
+        await self._save_state()
 
     # -- password gate ---------------------------------------------------------
     async def authorize(
@@ -447,7 +447,7 @@ class SelfHostedOAuthProvider(InMemoryOAuthProvider):
         self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode
     ) -> OAuthToken:
         token = await super().exchange_authorization_code(client, authorization_code)
-        self._save_state()
+        await self._save_state()
         return token
 
     async def exchange_refresh_token(
@@ -457,16 +457,21 @@ class SelfHostedOAuthProvider(InMemoryOAuthProvider):
         scopes: list[str],
     ) -> OAuthToken:
         token = await super().exchange_refresh_token(client, refresh_token, scopes)
-        self._save_state()
+        await self._save_state()
         return token
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
         await super().revoke_token(token)
-        self._save_state()
+        await self._save_state()
 
-    def _save_state(self) -> None:
+    async def _save_state(self) -> None:
         if self._state_path is None:
             return
+        # Build the snapshot dict ON the event loop, BEFORE offloading, so we
+        # never iterate the live ``clients`` / token maps from the worker
+        # thread while a concurrent coroutine mutates them (the model_dump
+        # calls only read loop-owned state here). The blocking mkdir +
+        # atomic_write_json (os.fsync under filelock) then runs OFF the loop.
         data = {
             "clients": {k: v.model_dump(mode="json") for k, v in self.clients.items()},
             "access_tokens": {k: v.model_dump(mode="json") for k, v in self.access_tokens.items()},
@@ -476,6 +481,16 @@ class SelfHostedOAuthProvider(InMemoryOAuthProvider):
             "a2r": dict(self._access_to_refresh_map),
             "r2a": dict(self._refresh_to_access_map),
         }
+        await anyio.to_thread.run_sync(self._write_state_file, data)
+
+    def _write_state_file(self, data: dict[str, object]) -> None:
+        """Blocking mkdir + atomic write. Runs OFF the event loop via a worker.
+
+        Kept separate from :meth:`_save_state` so the fsync-under-filelock work
+        never blocks the loop (see :meth:`_save_state`). ``self._state_path`` is
+        non-``None`` here (guarded by the caller).
+        """
+        assert self._state_path is not None
         try:
             # Persistence is on by default now (#1765) and this dir may be created here
             # before any `login`, so create it 0700 (like get_profile_dir) — a full-account
