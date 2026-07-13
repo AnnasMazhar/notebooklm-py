@@ -952,9 +952,7 @@ async def test_source_wait_all_sources_forwards_interval(mcp_call, mock_client) 
     )
 
 
-async def test_source_wait_all_sources_propagates_unexpected_error(
-    mcp_call, mock_client
-) -> None:
+async def test_source_wait_all_sources_propagates_unexpected_error(mcp_call, mock_client) -> None:
     """An UNEXPECTED escape from the snapshot poll (e.g. an RPCError — not one of the
     3 handled per-source failures the loop RETURNS) propagates as ToolError. The
     single-snapshot loop is one coroutine, so there are no sibling pollers to leak
