@@ -466,13 +466,31 @@ def source_refresh(ctx, source_id, notebook_id, json_output, client_auth):
     return _run()
 
 
+class _DriveMimeChoice(click.Choice):
+    """``--mime-type`` choice that, on an unsupported value, steers the user to the
+    file-upload path (NotebookLM's Drive import is Google-native + PDF only)."""
+
+    def convert(self, value: Any, param: Any, ctx: Any) -> Any:
+        try:
+            return super().convert(value, param, ctx)
+        except click.BadParameter:
+            raise click.BadParameter(
+                f"{value!r} is not importable via Drive. NotebookLM's Drive import "
+                "supports google-doc/google-slides/google-sheets/pdf only; download an "
+                "upload-only file (epub/docx/txt/md/rtf/odt/csv) and add it via "
+                "`source add <path> --type file` instead.",
+                ctx=ctx,
+                param=param,
+            ) from None
+
+
 @source.command("add-drive")
 @click.argument("file_id")
 @click.argument("title")
 @notebook_option
 @click.option(
     "--mime-type",
-    type=click.Choice(["google-doc", "google-slides", "google-sheets", "pdf"]),
+    type=_DriveMimeChoice(["google-doc", "google-slides", "google-sheets", "pdf"]),
     default="google-doc",
     help="Document type (default: google-doc)",
 )

@@ -83,15 +83,15 @@ def _validate_drive_mime(source_type: str, mime_type: str | None) -> None:
             "source_type 'drive' requires 'mime_type'; pass one of "
             f"{_DRIVE_MIME_CHOICES_STR} (e.g. 'pdf' for a Drive-hosted PDF). "
             "NotebookLM's Drive import only ingests Google-native Docs/Slides/"
-            "Sheets + PDF; upload-only Drive files (epub/docx/txt/md/rtf/odt/csv/"
-            "html) must be downloaded and added as a `file` source (#1827)."
+            "Sheets + PDF; upload-only Drive files (epub/docx/txt/md/rtf/odt/"
+            "csv) must be downloaded and added as a `file` source (#1827)."
         )
     if mime_type not in _DRIVE_MIME_CHOICES:
         raise ValidationError(
             f"Invalid mime_type {mime_type!r} for drive; expected one of "
             f"{_DRIVE_MIME_CHOICES_STR}. Drive import supports Google-native "
             "Docs/Slides/Sheets + PDF only — download an upload-only file "
-            "(epub/docx/txt/md/rtf/odt/csv/html) and add it as a `file` source."
+            "(epub/docx/txt/md/rtf/odt/csv) and add it as a `file` source."
         )
 
 

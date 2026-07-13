@@ -607,7 +607,7 @@ async def execute_source_add_drive(
         raise ValidationError(
             f"Invalid mime_type {plan.mime_type!r}; expected one of {sorted(_DRIVE_MIME_MAP)}. "
             "NotebookLM's Drive import only ingests Google-native Docs/Slides/Sheets + PDF; "
-            "an upload-only Drive file (e.g. epub/docx/txt/md/rtf/odt/csv/html) must be "
+            "an upload-only Drive file (e.g. epub/docx/txt/md/rtf/odt/csv) must be "
             "downloaded and added as a `file` source instead."
         )
     mime = _DRIVE_MIME_MAP[plan.mime_type]
