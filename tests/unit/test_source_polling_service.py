@@ -488,7 +488,7 @@ async def test_sources_api_wait_all_until_ready_delegates_with_list_seam() -> No
     api = SourcesAPI(MagicMock(), uploader=MagicMock())
     ready = [Source(id="s0", status=SourceStatus.READY)]
 
-    with patch.object(api._poller, "wait_all_until_ready", new_callable=AsyncMock) as delegate:
+    with patch.object(SourcePoller, "wait_all_until_ready", new_callable=AsyncMock) as delegate:
         delegate.return_value = ready
         result = await api.wait_all_until_ready("nb_1", ["s0"])
 

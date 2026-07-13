@@ -194,8 +194,9 @@ class FakeSources:
         notebook_id: str,
         source_ids: list[str],
         *,
-        timeout: float,
-        initial_interval: float,
+        timeout: float = 120.0,
+        initial_interval: float = 1.0,
+        **kwargs: Any,  # max_interval/backoff_factor/transient_error_types — signature parity
     ) -> list[Source | SourceNotFoundError | SourceProcessingError | SourceTimeoutError]:
         # Single-snapshot multi-source wait (#1870): one result per id, in input
         # order, with terminal failures RETURNED (not raised) — mirrors the real
