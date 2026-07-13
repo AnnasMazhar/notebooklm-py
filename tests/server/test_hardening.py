@@ -547,3 +547,23 @@ class TestPendingRegistryBounded:
         reg.record("nb", "x")
         reg.drop("nb", "x")
         assert reg.knows("nb", "x") is False
+
+    def test_drop_then_rerecord_survives_eviction_churn(self) -> None:
+        # A dropped-then-re-recorded id must not be evicted by a stale FIFO
+        # tuple left behind by drop(): record→drop→record, then fill to the
+        # cap so exactly one eviction fires — the live id must survive.
+        reg = PendingRegistry()
+        reg.record("nb", "x")
+        reg.drop("nb", "x")
+        reg.record("nb", "x")
+        for i in range(_MAX_ENTRIES - 1):
+            reg.record("nb", f"y-{i}")
+        assert reg.knows("nb", "x") is True
+
+    def test_drop_removes_fifo_tuple_no_duplicate_on_rerecord(self) -> None:
+        reg = PendingRegistry()
+        reg.record("nb", "x")
+        reg.drop("nb", "x")
+        assert ("nb", "x") not in reg._order
+        reg.record("nb", "x")
+        assert list(reg._order).count(("nb", "x")) == 1
