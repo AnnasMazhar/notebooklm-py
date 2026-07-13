@@ -972,6 +972,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_chat/notes.py` | Chat-adjacent note saving workflow adapter |
 | `_chat/wire.py` | Streamed-chat wire request construction + response parsing for the chat client |
 | `_chat/transport.py` | Chat-specific error mapping over the shared transport pipeline |
+| `_chat/deleted_tracker.py` | Bounded `RecentlyDeletedConversations` set — `delete_conversation` records the id (under the conversation lock) so a concurrent null-conversation ask, after acquiring that lock, detects a mid-flight delete and drops `resolved_id_override` to recover the server's real conversation id post-POST (#1875) |
 | `_middleware/chain.py` | Constructs the middleware chain in the canonical ADR-0009 order |
 | `_middleware/*.py` | Modular middleware implementations (drain, metrics, semaphore, retry, auth, error injection, tracing) |
 | `rpc/types.py` | RPC method IDs (source of truth) |
