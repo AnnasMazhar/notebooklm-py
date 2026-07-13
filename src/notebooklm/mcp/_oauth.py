@@ -57,7 +57,7 @@ import secrets
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import anyio
 from fastmcp.server.auth import AuthProvider
@@ -472,7 +472,7 @@ class SelfHostedOAuthProvider(InMemoryOAuthProvider):
         # thread while a concurrent coroutine mutates them (the model_dump
         # calls only read loop-owned state here). The blocking mkdir +
         # atomic_write_json (os.fsync under filelock) then runs OFF the loop.
-        data = {
+        data: dict[str, Any] = {
             "clients": {k: v.model_dump(mode="json") for k, v in self.clients.items()},
             "access_tokens": {k: v.model_dump(mode="json") for k, v in self.access_tokens.items()},
             "refresh_tokens": {
@@ -483,7 +483,7 @@ class SelfHostedOAuthProvider(InMemoryOAuthProvider):
         }
         await anyio.to_thread.run_sync(self._write_state_file, data)
 
-    def _write_state_file(self, data: dict[str, object]) -> None:
+    def _write_state_file(self, data: dict[str, Any]) -> None:
         """Blocking mkdir + atomic write. Runs OFF the event loop via a worker.
 
         Kept separate from :meth:`_save_state` so the fsync-under-filelock work
