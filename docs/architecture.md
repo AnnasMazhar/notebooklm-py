@@ -1139,7 +1139,8 @@ src/notebooklm/
 │   ├── api.py                   # ChatAPI facade (was _chat.py)
 │   ├── notes.py                 # Note saving workflow adapter
 │   ├── wire.py                  # Streamed-chat wire request/response parser
-│   └── transport.py             # Chat error mapping
+│   ├── transport.py             # Chat error mapping
+│   └── deleted_tracker.py       # Bounded RecentlyDeletedConversations set — serializes null-ask vs delete (#1875)
 ├── _auth/                       # Auth subpackage (forwarded through auth.py facade)
 │   ├── __init__.py
 │   ├── paths.py                 # Storage paths and filesystem helpers
