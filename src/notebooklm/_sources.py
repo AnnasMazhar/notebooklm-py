@@ -608,12 +608,20 @@ class SourcesAPI:
                 (HTML/other), or a native (non-downloadable) Google Doc/Slides/Sheet.
         """
         service = DriveImportService(
-            fetch=DriveFetcher(cookies_provider=self._uploader.live_cookies),
+            fetch=DriveFetcher(
+                cookies_provider=self._uploader.live_cookies,
+                authuser=self._uploader.authuser_value(),
+            ),
             add_file=self.add_file,
         )
-        return await service.add_drive_file(
-            notebook_id, document_id, title=title, wait=wait, wait_timeout=wait_timeout
-        )
+        # Gate the whole download→upload op on a DEDICATED download semaphore (not
+        # the upload one — ``add_file`` needs that, so reusing it would deadlock) so
+        # concurrent remote-MCP calls can't each buffer a 200 MiB temp and exhaust
+        # disk; at most ``max_concurrent_uploads`` temps exist at once.
+        async with self._uploader.get_download_semaphore():
+            return await service.add_drive_file(
+                notebook_id, document_id, title=title, wait=wait, wait_timeout=wait_timeout
+            )
 
     async def delete(self, notebook_id: str, source_id: str) -> None:
         """Delete a source from a notebook.

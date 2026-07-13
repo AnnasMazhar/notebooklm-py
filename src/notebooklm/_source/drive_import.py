@@ -54,7 +54,14 @@ import httpx
 from .._artifact._download_client import _is_trusted_download_host
 from .._artifact._redirect_guard import redirect_revalidation_hooks
 from .._artifact.downloads import _await_writer_exit
-from ..exceptions import ValidationError
+from ..exceptions import (
+    ArtifactDownloadError,
+    AuthError,
+    NetworkError,
+    RateLimitError,
+    ServerError,
+    ValidationError,
+)
 from ._upload_decode import _validate_upload_file_supported
 
 if TYPE_CHECKING:
@@ -127,11 +134,12 @@ class DriveDownload:
     content_type: str | None
 
 
-#: The fetch seam: classify + (on success) download a Drive file id to a temp
-#: path. Raises :class:`~notebooklm.exceptions.ValidationError` for the
-#: unsupported / HTML / native-doc / expired-auth cases. Injected so the routing
-#: table and confirm discriminator are testable with a fake HTTP client.
-DriveFetch = Callable[[str], Awaitable[DriveDownload]]
+#: The fetch seam: classify + (on success) download a Drive ref to a temp path.
+#: Raises the typed library errors — ``AuthError`` (expired session),
+#: ``RateLimitError`` / ``ServerError`` / ``NetworkError`` (transient), or
+#: ``ValidationError`` (unsupported / native-doc / permission pointer). Injected
+#: so the routing table + discriminator are testable with a fake HTTP client.
+DriveFetch = Callable[["DriveRef"], Awaitable[DriveDownload]]
 
 
 class AddFile(Protocol):
@@ -172,28 +180,41 @@ def _default_streaming_client(cookies: httpx.Cookies, timeout: httpx.Timeout) ->
     )
 
 
-def extract_drive_file_id(id_or_url: str) -> str:
-    """Parse a raw Drive file id or a Drive share URL into the bare file id.
+@dataclass(frozen=True)
+class DriveRef:
+    """A parsed Drive reference: the file id plus an optional resource key.
+
+    Link-shared files carry a ``resourcekey`` in the share URL that the download
+    request MUST echo back, or Drive refuses the fetch (403 / permission page).
+    """
+
+    file_id: str
+    resource_key: str | None = None
+
+
+def parse_drive_ref(id_or_url: str) -> DriveRef:
+    """Parse a raw Drive file id or a Drive share URL into a :class:`DriveRef`.
 
     Accepts a raw id, or a ``https://…`` URL of the ``/d/<id>``,
-    ``/file/d/<id>/…``, or ``?id=<id>`` shapes. Rejects anything that does not
-    yield a valid Drive id.
+    ``/file/d/<id>/…``, or ``?id=<id>`` shapes, preserving a ``resourcekey``
+    query param when present. Rejects anything that does not yield a valid id.
     """
     candidate = (id_or_url or "").strip()
     if not candidate:
         raise ValidationError("A Google Drive file id or share URL is required.")
     if _DRIVE_ID_RE.fullmatch(candidate):
-        return candidate
+        return DriveRef(file_id=candidate)
 
     parsed = urlparse(candidate)
     if parsed.scheme in ("http", "https"):
-        query_ids = parse_qs(parsed.query).get("id", [])
-        for value in query_ids:
+        query = parse_qs(parsed.query)
+        resource_key = next((v for v in query.get("resourcekey", []) if v), None)
+        for value in query.get("id", []):
             if _DRIVE_ID_RE.fullmatch(value):
-                return value
+                return DriveRef(file_id=value, resource_key=resource_key)
         path_match = _DRIVE_URL_PATH_ID_RE.search(parsed.path)
         if path_match:
-            return path_match.group(1)
+            return DriveRef(file_id=path_match.group(1), resource_key=resource_key)
 
     raise ValidationError(
         f"Could not parse a Google Drive file id from {id_or_url!r}. Pass a raw file id "
@@ -201,8 +222,25 @@ def extract_drive_file_id(id_or_url: str) -> str:
     )
 
 
-def _download_url(file_id: str) -> str:
-    return f"{_DRIVE_DOWNLOAD_URL}?{urlencode({'id': file_id, 'export': 'download'})}"
+def extract_drive_file_id(id_or_url: str) -> str:
+    """Parse a raw Drive file id or a Drive share URL into the bare file id."""
+    return parse_drive_ref(id_or_url).file_id
+
+
+def _download_url(
+    file_id: str, *, authuser: str | None = None, resource_key: str | None = None
+) -> str:
+    """Build the cookie-authed download URL, routing to the SELECTED account.
+
+    ``authuser`` disambiguates the account in a multi-login cookie jar (else Drive
+    serves authuser=0's view); ``resourcekey`` is required for link-shared files.
+    """
+    params = {"id": file_id, "export": "download"}
+    if authuser is not None:
+        params["authuser"] = authuser
+    if resource_key:
+        params["resourcekey"] = resource_key
+    return f"{_DRIVE_DOWNLOAD_URL}?{urlencode(params)}"
 
 
 def _filename_from_disposition(disposition: str) -> str:
@@ -278,9 +316,18 @@ def _find_confirm_params(html_text: str, file_id: str) -> dict[str, str] | None:
     return None
 
 
-def _confirm_url(confirm_params: dict[str, str]) -> str:
+def _confirm_url(
+    confirm_params: dict[str, str], *, authuser: str | None = None, resource_key: str | None = None
+) -> str:
     params = dict(confirm_params)
     action = params.pop("__action__")
+    # The interstitial form rarely echoes authuser/resourcekey, so re-attach the
+    # account routing + resource key for the confirmed re-request (unless the form
+    # already carried them).
+    if authuser is not None:
+        params.setdefault("authuser", authuser)
+    if resource_key:
+        params.setdefault("resourcekey", resource_key)
     return f"{action}?{urlencode(params)}"
 
 
@@ -323,80 +370,117 @@ class DriveFetcher:
         cookies_provider: Callable[[], httpx.Cookies],
         client_factory: StreamingClientFactory = _default_streaming_client,
         max_bytes: int = _MAX_DRIVE_DOWNLOAD_BYTES,
+        authuser: str | None = None,
+        temp_dir: Path | None = None,
     ) -> None:
         self._cookies_provider = cookies_provider
         self._client_factory = client_factory
         self._max_bytes = max_bytes
+        # Routes a multi-login cookie jar to the SELECTED account (else authuser=0).
+        self._authuser = authuser
+        # Where temp downloads land; ``None`` = the system temp dir. Injectable so
+        # concurrent downloads (and tests) can scope their own directory.
+        self._temp_dir = temp_dir
 
-    async def __call__(self, file_id: str) -> DriveDownload:
-        result = await self._request(_download_url(file_id), file_id, allow_confirm=True)
+    async def __call__(self, ref: DriveRef) -> DriveDownload:
+        url = _download_url(ref.file_id, authuser=self._authuser, resource_key=ref.resource_key)
+        result = await self._request(url, ref, allow_confirm=True)
         if isinstance(result, _ConfirmRedirect):
             # Re-request with the confirm token; a second interstitial is treated
             # as a hard failure (no unbounded confirm loop).
-            result = await self._request(result.url, file_id, allow_confirm=False)
+            result = await self._request(result.url, ref, allow_confirm=False)
         if isinstance(result, _ConfirmRedirect):  # pragma: no cover - defensive
             raise ValidationError(
-                f"Drive kept returning the download-confirmation page for {file_id}; "
+                f"Drive kept returning the download-confirmation page for {ref.file_id}; "
                 "it may be too large to fetch or temporarily unavailable."
             )
         return result
 
     async def _request(
-        self, url: str, file_id: str, *, allow_confirm: bool
+        self, url: str, ref: DriveRef, *, allow_confirm: bool
     ) -> DriveDownload | _ConfirmRedirect:
+        file_id = ref.file_id
         timeout = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=30.0)
         client = self._client_factory(self._cookies_provider(), timeout)
-        async with client:  # noqa: SIM117 - stream() nested so the client is entered first
-            async with client.stream("GET", url) as response:
-                status = response.status_code
-                if status in (401, 403):
-                    raise ValidationError(
-                        "Drive authentication expired — run `notebooklm login`, then retry."
-                    )
-                if status >= 400:
-                    raise ValidationError(
-                        f"Drive returned HTTP {status} while fetching file {file_id}."
-                    )
+        try:
+            async with client:  # noqa: SIM117 - stream() nested so the client is entered first
+                async with client.stream("GET", url) as response:
+                    return await self._handle_response(response, ref, allow_confirm=allow_confirm)
+        except (httpx.HTTPError, ArtifactDownloadError) as exc:
+            # Transport-level faults (timeout, DNS, connection reset, or a
+            # redirect-guard policy rejection escaping the streaming GET) map to a
+            # retriable NETWORK error — never a bare httpx traceback surfacing as
+            # UNEXPECTED in MCP / an internal-bug CLI exit.
+            raise NetworkError(
+                f"Network error fetching Drive file {file_id} ({exc.__class__.__name__})",
+                original_error=exc if isinstance(exc, Exception) else None,
+            ) from exc
 
-                content_type = response.headers.get("content-type", "")
-                if "text/html" in content_type.lower():
-                    return await self._classify_html(response, file_id, allow_confirm=allow_confirm)
+    async def _handle_response(
+        self, response: httpx.Response, ref: DriveRef, *, allow_confirm: bool
+    ) -> DriveDownload | _ConfirmRedirect:
+        file_id = ref.file_id
+        status = response.status_code
+        # 401 → expired session (re-auth path). 403 is NOT decided here: Drive
+        # returns 403 + an HTML permission page, which the discriminator handles.
+        if status == 401:
+            raise AuthError("Drive authentication expired — run `notebooklm login`, then retry.")
+        if status == 429:
+            raise RateLimitError(
+                f"Drive throttled the download (HTTP 429) for {file_id}; retry after a delay."
+            )
+        if status >= 500:
+            raise ServerError(
+                f"Drive returned HTTP {status} while fetching {file_id}; retry after a delay.",
+                status_code=status,
+            )
 
-                # Attachment / binary route — inspect headers BEFORE the body.
-                filename = _filename_from_disposition(
-                    response.headers.get("content-disposition", "")
-                )
-                extension = _extension(filename)
-                if extension in _HTML_EXTS:
-                    raise ValidationError(
-                        "HTML isn't supported by NotebookLM upload; convert the page to "
-                        ".txt, .md, or .pdf first, then retry."
-                    )
-                if extension not in _UPLOAD_SUPPORTED_EXTS:
-                    raise ValidationError(
-                        f"Drive file {filename or file_id!r} has an unsupported type for "
-                        f"NotebookLM upload. Accepted: {_ACCEPTED_EXTS_HINT}."
-                    )
-                self._reject_oversize_header(response, file_id)
-                path = await self._stream_to_temp(response, filename, extension)
-                return DriveDownload(
-                    path=path, filename=filename, content_type=content_type or None
-                )
+        content_type = response.headers.get("content-type", "")
+        if "text/html" in content_type.lower():
+            return await self._classify_html(response, ref, allow_confirm=allow_confirm)
+        if status >= 400:
+            # A non-HTML 4xx (e.g. 403/404) is a hard caller/permission error.
+            raise ValidationError(
+                f"Drive returned HTTP {status} while fetching file {file_id}; confirm the "
+                "id is correct and the file is accessible to this account."
+            )
+
+        # Attachment / binary route — inspect headers BEFORE the body.
+        filename = _filename_from_disposition(response.headers.get("content-disposition", ""))
+        extension = _extension(filename)
+        if extension in _HTML_EXTS:
+            raise ValidationError(
+                "HTML isn't supported by NotebookLM upload; convert the page to "
+                ".txt, .md, or .pdf first, then retry."
+            )
+        if extension not in _UPLOAD_SUPPORTED_EXTS:
+            raise ValidationError(
+                f"Drive file {filename or file_id!r} has an unsupported type for "
+                f"NotebookLM upload. Accepted: {_ACCEPTED_EXTS_HINT}."
+            )
+        self._reject_oversize_header(response, file_id)
+        path = await self._stream_to_temp(response, filename, extension)
+        return DriveDownload(path=path, filename=filename, content_type=content_type or None)
 
     async def _classify_html(
-        self, response: httpx.Response, file_id: str, *, allow_confirm: bool
+        self, response: httpx.Response, ref: DriveRef, *, allow_confirm: bool
     ) -> _ConfirmRedirect:
         """Discriminate an HTML response: expired-auth / confirm page / not-downloadable."""
+        file_id = ref.file_id
         final_host = (response.url.host or "").lower()
         if final_host == "accounts.google.com":
-            raise ValidationError(
-                "Drive authentication expired — run `notebooklm login`, then retry."
-            )
+            raise AuthError("Drive authentication expired — run `notebooklm login`, then retry.")
         body = await _read_capped_text(response, _HTML_SNIFF_CAP_BYTES)
         if allow_confirm:
             confirm_params = _find_confirm_params(body, file_id)
             if confirm_params is not None:
-                return _ConfirmRedirect(url=_confirm_url(confirm_params))
+                return _ConfirmRedirect(
+                    url=_confirm_url(
+                        confirm_params,
+                        authuser=self._authuser,
+                        resource_key=ref.resource_key,
+                    )
+                )
         raise ValidationError(
             f"Drive did not return downloadable bytes for {file_id}. If it's a native "
             "Google Doc/Slides/Sheet, add it with source_add(source_type='drive', "
@@ -429,7 +513,8 @@ class DriveFetcher:
         unlinks it after the upload on success.
         """
         suffix = f".{extension}" if extension else ""
-        fd, temp_name = tempfile.mkstemp(prefix="nlm-drive-", suffix=suffix)
+        temp_dir = str(self._temp_dir) if self._temp_dir is not None else None
+        fd, temp_name = tempfile.mkstemp(prefix="nlm-drive-", suffix=suffix, dir=temp_dir)
         os.close(fd)  # mkstemp already created it 0600
         temp_path = Path(temp_name)
         try:
@@ -549,8 +634,8 @@ class DriveImportService:
         wait: bool = False,
         wait_timeout: float = 120.0,
     ) -> Source:
-        file_id = extract_drive_file_id(id_or_url)
-        download = await self._fetch(file_id)
+        ref = parse_drive_ref(id_or_url)
+        download = await self._fetch(ref)
         try:
             # Second defense: even if the fetch mislabeled the type, an HTML file
             # (by extension or content-type) is rejected before it reaches upload.
