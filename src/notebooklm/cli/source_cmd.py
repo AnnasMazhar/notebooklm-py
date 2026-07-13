@@ -479,7 +479,11 @@ def source_refresh(ctx, source_id, notebook_id, json_output, client_auth):
 @json_option
 @with_client
 def source_add_drive(ctx, file_id, title, notebook_id, mime_type, json_output, client_auth):
-    """Add a Google Drive document as a source."""
+    """Add a Google Drive document as a source.
+
+    Only Google-native Docs/Slides/Sheets + PDF import by reference; download an
+    upload-only Drive file (epub/docx/txt/md) and add it via `source add` instead.
+    """
     nb_id = require_notebook(notebook_id)
 
     async def _run():
