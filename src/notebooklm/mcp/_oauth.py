@@ -47,6 +47,7 @@ exposes the co-located full-account ``master_token.json``):
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import html
@@ -257,6 +258,15 @@ class SelfHostedOAuthProvider(InMemoryOAuthProvider):
         self._kdf_limiter = anyio.CapacityLimiter(4)
         self._state_path = state_path
         self._trust_proxy = trust_proxy
+        # Serialize saves. ``_save_state`` snapshots in-memory state on the loop
+        # then offloads the atomic write to a worker thread; without this lock
+        # two concurrent saves could snapshot in one order but have their fsyncs
+        # complete in the opposite order, letting an OLDER snapshot's write
+        # clobber a newer one (dropping a just-registered client/token, or
+        # resurrecting a revoked token on the next restart). Holding the lock
+        # across snapshot+offloaded-write makes a later save snapshot only after
+        # the earlier write has landed, so the last save started always wins.
+        self._save_lock = asyncio.Lock()
         # sid -> _Pending(client, validated params, expiry_ts, attempts). Pre-auth + bounded.
         self._pending: dict[str, _Pending] = {}
         # per-IP failed-login timestamps (throttle).
@@ -467,21 +477,29 @@ class SelfHostedOAuthProvider(InMemoryOAuthProvider):
     async def _save_state(self) -> None:
         if self._state_path is None:
             return
-        # Build the snapshot dict ON the event loop, BEFORE offloading, so we
-        # never iterate the live ``clients`` / token maps from the worker
-        # thread while a concurrent coroutine mutates them (the model_dump
-        # calls only read loop-owned state here). The blocking mkdir +
-        # atomic_write_json (os.fsync under filelock) then runs OFF the loop.
-        data: dict[str, Any] = {
-            "clients": {k: v.model_dump(mode="json") for k, v in self.clients.items()},
-            "access_tokens": {k: v.model_dump(mode="json") for k, v in self.access_tokens.items()},
-            "refresh_tokens": {
-                k: v.model_dump(mode="json") for k, v in self.refresh_tokens.items()
-            },
-            "a2r": dict(self._access_to_refresh_map),
-            "r2a": dict(self._refresh_to_access_map),
-        }
-        await anyio.to_thread.run_sync(self._write_state_file, data)
+        # Serialize saves so the snapshot order equals the on-disk write order
+        # (see ``self._save_lock``). The lock is held across BOTH the on-loop
+        # snapshot and the offloaded write, so a later save cannot snapshot
+        # until the earlier save's fsync has completed — the last save started
+        # always wins, and no older snapshot can clobber a newer one.
+        async with self._save_lock:
+            # Build the snapshot dict ON the event loop, BEFORE offloading, so
+            # we never iterate the live ``clients`` / token maps from the worker
+            # thread while a concurrent coroutine mutates them (the model_dump
+            # calls only read loop-owned state here). The blocking mkdir +
+            # atomic_write_json (os.fsync under filelock) then runs OFF the loop.
+            data: dict[str, Any] = {
+                "clients": {k: v.model_dump(mode="json") for k, v in self.clients.items()},
+                "access_tokens": {
+                    k: v.model_dump(mode="json") for k, v in self.access_tokens.items()
+                },
+                "refresh_tokens": {
+                    k: v.model_dump(mode="json") for k, v in self.refresh_tokens.items()
+                },
+                "a2r": dict(self._access_to_refresh_map),
+                "r2a": dict(self._refresh_to_access_map),
+            }
+            await anyio.to_thread.run_sync(self._write_state_file, data)
 
     def _write_state_file(self, data: dict[str, Any]) -> None:
         """Blocking mkdir + atomic write. Runs OFF the event loop via a worker.
