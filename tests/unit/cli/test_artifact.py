@@ -943,10 +943,9 @@ class TestArtifactExport:
         from notebooklm.rpc import ExportType
 
         # call_args[0] = (notebook_id, artifact_id, title, export_type); content is
-        # keyword-only and defaults to None so the backend retrieves it from the id.
-        assert call_args.kwargs.get("content") is None, (
-            "content should be None (backend retrieves it)"
-        )
+        # keyword-only and OMITTED entirely (not passed as an explicit None) so the
+        # backend retrieves it from the artifact id.
+        assert "content" not in call_args.kwargs, "content should be omitted (backend retrieves it)"
         assert call_args[0][3] == ExportType.DOCS, "export_type should be ExportType.DOCS"
 
     def test_artifact_export_sheets(self, runner, mock_auth):
@@ -987,10 +986,9 @@ class TestArtifactExport:
         from notebooklm.rpc import ExportType
 
         # call_args[0] = (notebook_id, artifact_id, title, export_type); content is
-        # keyword-only and defaults to None so the backend retrieves it from the id.
-        assert call_args.kwargs.get("content") is None, (
-            "content should be None (backend retrieves it)"
-        )
+        # keyword-only and OMITTED entirely (not passed as an explicit None) so the
+        # backend retrieves it from the artifact id.
+        assert "content" not in call_args.kwargs, "content should be omitted (backend retrieves it)"
         assert call_args[0][3] == ExportType.SHEETS, "export_type should be ExportType.SHEETS"
 
     def test_artifact_export_json_output(self, runner, mock_auth):
