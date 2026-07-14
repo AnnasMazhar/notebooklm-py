@@ -371,7 +371,9 @@ async def _await_upload(
                 "status": "pending",
                 "hint": "upload not detected yet — re-invoke await_upload with the same link",
             }
-        await asyncio.sleep(poll_interval_s)
+        # Never sleep past the deadline — cap the tick to the time remaining so a small
+        # custom timeout returns ``pending`` on time instead of overshooting by an interval.
+        await asyncio.sleep(min(poll_interval_s, max(0.0, deadline - time.monotonic())))
         if progress is not None:
             await progress()
 
