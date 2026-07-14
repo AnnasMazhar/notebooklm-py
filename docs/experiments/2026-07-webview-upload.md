@@ -31,7 +31,7 @@ This plan splits the probe (see `docs/plans/remote-mcp-file-upload-plan-v4.md`):
 | Surface | Engine | picker_opened | file_readable | fetch/POST ok | Verdict | Evidence |
 |---|---|:--:|:--:|:--:|---|---|
 | claude.ai web (Chrome/Edge), Claude Desktop | Blink | ✅ | ✅ | ✅ | **GREEN** | automated (`probe_2a.py`) |
-| claude.ai web (Safari), iOS **browser** (Safari) | WebKit | ✅ | ✅ | ✅ | **GREEN** | automated (`probe_2a.py`) |
+| WebKit **engine** (Playwright — proxy for Safari/iOS engine, NOT the iOS Safari app/device) | WebKit | ✅ | ✅ | ✅ | **GREEN (engine-level only)** | automated (`probe_2a.py`) |
 | Claude **iOS — in-app** WKWebView | WebKit (embedded) | ? | ? | ? | PENDING (device) — this is **2b/Phase 3** | — |
 | Claude **Android — external browser** (Chrome) | Blink | ✅ | ✅ | ✅ | **GREEN — live** | on-device 2026-07-14 (below) |
 | Claude **iOS / Android — in-app** WebView | embedded | ? | ? | ? | PENDING (device) — this is **2b/Phase 3** | not tested (we used the external browser) |
@@ -52,9 +52,9 @@ regardless of how 2b lands, mobile users have a working path today.
 
 Ran the full Phase 1 loop against a live dev deployment (`nlm-dev` stack, `peopleconf` account,
 tunnel `notebooklm-test.hantekllc.com`, image `phase1-dev` built from this branch; prod stack
-untouched throughout). Observed server-side end to end:
+untouched throughout). Observed server-side end-to-end:
 
-```
+```text
 source_add(source_type="file")          → minted /files/ul/<token>   (POST /mcp)
 GET  /files/ul/<full-token>             → 200  (upload page opened in Chrome)
 POST notebooklm.google.com/upload/…resumable → 200  (bytes streamed to NotebookLM)
@@ -84,13 +84,15 @@ Only the exact string copied from the **`source_add` tool result** (`human_uploa
 model's rendered link, verified. **Conclusion:** routing a long opaque token through model text /
 a mobile tap-target is unreliable by construction.
 
-### Phase 1 follow-up (recommended next): short-link indirection
-Add a short random id (e.g. 8–12 chars) → token mapping resolved server-side, so the user-facing
-URL is `…/u/<shortid>` (the `/u/{token}` idea the v4 plan floated and v5 dropped as nonexistent —
-this live failure is the evidence to build it). Short enough to survive a mobile tap AND for the
-model to transcribe correctly; the existing signed token stays the server-side source of truth.
-Reuse the same `ConsumedJtiStore` process to hold the shortid→token map (in-process, TTL-swept),
-consistent with the no-DB architecture.
+### Fix — short-link indirection (SHIPPED in this PR)
+Resolved by handing the user a short random id → token link (`…/u/<shortid>`, ~16 chars) that
+`302`-redirects to the canonical `/files/ul/<token>` page server-side. The mapping lives in a new
+in-process, TTL-swept `ShortLinkStore` on `FileTransferConfig` (no DB, same contract as
+`ConsumedJtiStore`); `_broker_upload` returns the short link for the human path and the direct
+`/files/ul` POST target for the agent path, over one token; `await_upload` accepts either.
+**Re-validated live on Android:** `/u/yvhW-egX` (9 chars) → `302` → `GET /files/ul/<token> 200` →
+`POST …?filename=main.pdf 200` → source added — on the **first** clean attempt, where the long URL
+had failed three times. The user only ever handled the short link; the server expanded it losslessly.
 
 ## Incidental findings (feed Phase 3)
 
@@ -125,7 +127,8 @@ the interop evidence for the Phase 5 `ui/uploadFile` proposal).
   escalate upstream (the `ui/uploadFile` proposal), per the plan.
 
 ## Next up (priority order, from what the live test taught us)
-1. **Short-link indirection** (`…/u/<shortid>` → token) — the top Phase 1 follow-up; the opaque URL
-   is the only thing that made the working flow hard. See the defect section above.
-2. **Phase 2b** in-app WebView probe (Phase 3's first commit).
-3. Phase 5 SEP-2631 adapter (parallel, independent).
+1. ~~Short-link indirection~~ — **DONE** (shipped in this PR; see the fix section above).
+2. **Phase 2b** in-app WebView probe (Phase 3's first commit) — the cheap gate that decides whether
+   the Phase 3 widget is worth building.
+3. Phase 3 direct-PUT widget — only if 2b is green (needs the `ui://` substrate + CORS work).
+4. Phase 5 SEP-2631 adapter (parallel, independent).

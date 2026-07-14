@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import math
 import os
 import shutil
 import tempfile
@@ -118,10 +119,11 @@ def _broker_upload(
     if mime_type:
         payload["mime"] = mime_type
     url = cfg.upload_url(payload)
-    # Read the deadline back from the signed token so expires_at / _iso match the
-    # token's ``exp`` exactly, rather than recomputing now() a hair later (drift).
     token = url.rsplit("/", 1)[1]
-    expires_at = cfg.signer.verify(token, op="ul")["exp"]
+    # ``upload_url`` just stamped ``exp = now + UPLOAD_TTL``; compute it directly rather than
+    # a full ``verify()`` (HMAC + base64 + JSON) purely to read one field back. Drift is ≤1s
+    # on a 15-min TTL — immaterial to expires_at / _iso and the short-link store window.
+    expires_at = int(time.time()) + UPLOAD_TTL
     # Tap-friendly short link over the SAME token: the human path gets ``/u/<shortid>``
     # (survives mobile-chat corruption of the long token — live-confirmed), the agent path
     # keeps the direct ``/files/ul`` URL (a ``/u/`` id only serves GET→redirect, not the raw
@@ -272,6 +274,10 @@ async def _add_one(
 #: timing test.
 _AWAIT_TIMEOUT_S = 45.0
 _AWAIT_POLL_INTERVAL_S = 2.0
+#: Hard ceiling on a single ``await_upload`` poll — kept just under the ~60s connector
+#: watchdog so the tool always returns a clean ``pending`` (→ re-invoke) before the transport
+#: cuts the call. A caller asking for more is clamped, not honored.
+_AWAIT_MAX_TIMEOUT_S = 55.0
 
 
 def _extract_ul_token(token_or_url: str) -> str:
@@ -327,12 +333,30 @@ async def _await_upload(
         "hint": "this upload link is invalid or expired — call "
         'source_add(source_type="file") to get a fresh one',
     }
+    # Bound the poll window: a non-finite timeout would never satisfy the deadline check
+    # (an unbounded loop), and one past the ~60s connector watchdog would let the request
+    # die instead of returning a clean ``pending`` — breaking the re-invoke loop the design
+    # relies on. Clamp to [0, _AWAIT_MAX_TIMEOUT_S]; reject NaN/inf outright.
+    if not math.isfinite(timeout_s):
+        raise ValidationError("timeout must be a finite number of seconds")
+    timeout_s = max(0.0, min(timeout_s, _AWAIT_MAX_TIMEOUT_S))
     token = _resolve_upload_token(cfg, token_or_url)
     if token is None:  # unknown/expired short id
         return invalid
     try:
         payload = cfg.signer.verify(token, op="ul")
     except FileLinkError:
+        # The start-token may have expired WHILE a large upload finished — but the
+        # ``/files/ul`` POST verified it live and committed a result. Recover that result
+        # (MAC + op still enforced via allow_expired) rather than lose a successful add; a
+        # truly bad/forged token, or an expired one with nothing committed, stays invalid.
+        try:
+            expired_payload = cfg.signer.verify(token, op="ul", allow_expired=True)
+        except FileLinkError:
+            return invalid
+        done = cfg.jti_store.completed(str(expired_payload.get("jti") or ""))
+        if done is not None:
+            return {"status": "received", "source_id": done.get("source_id"), "file": done}
         return invalid
     jti = str(payload.get("jti") or "")
     deadline = time.monotonic() + timeout_s

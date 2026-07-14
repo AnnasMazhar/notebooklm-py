@@ -122,7 +122,7 @@ class FileLinkSigner:
         mac = hmac.new(self.key, encoded.encode("ascii"), hashlib.sha256).digest()
         return f"{encoded}.{_b64url(mac)}"
 
-    def verify(self, token: str, *, op: str) -> dict[str, Any]:
+    def verify(self, token: str, *, op: str, allow_expired: bool = False) -> dict[str, Any]:
         """Verify ``token`` and return its payload, or raise :class:`FileLinkError`.
 
         Order matters: the length cap runs BEFORE any decode, then the MAC is
@@ -134,6 +134,11 @@ class FileLinkSigner:
             op: The operation the route serves (``"ul"`` / ``"dl"``). A token
                 minted for the other operation is rejected (an upload link cannot
                 be replayed against the download route or vice-versa).
+            allow_expired: Skip ONLY the ``exp`` check (MAC + shape + ``op`` are still
+                enforced). Used exclusively to recover a *committed* upload's result
+                when ``await_upload`` is re-invoked just after the start-token expired
+                — the ``/files/ul`` POST already verified the token while it was live,
+                so honoring the result is safe. NEVER use this to authorize a new write.
         """
         if len(token) > _MAX_TOKEN_LEN:
             raise FileLinkError("token too long")
@@ -160,7 +165,9 @@ class FileLinkSigner:
         if not isinstance(payload, dict):
             raise FileLinkError("malformed token body")
         exp = payload.get("exp")
-        if not isinstance(exp, int) or isinstance(exp, bool) or time.time() > exp:
+        if not isinstance(exp, int) or isinstance(exp, bool):
+            raise FileLinkError("token expired")
+        if not allow_expired and time.time() > exp:
             raise FileLinkError("token expired")
         if payload.get("op") != op:
             raise FileLinkError("operation mismatch")
@@ -266,11 +273,12 @@ class ConsumedJtiStore:
         self._active.discard(jti)
 
 
-#: Short-id length in random bytes. ``token_urlsafe(6)`` → 8 URL-safe chars (48 bits) —
-#: short enough to survive a mobile tap / model transcription, wide enough that guessing
-#: a live id within its ≤15-min window is infeasible (and the resolved token still carries
-#: the HMAC + single-use jti, so a guessed id buys nothing an attacker couldn't get anyway).
-_SHORT_ID_BYTES = 6
+#: Short-id length in random bytes. ``token_urlsafe(12)`` → 16 URL-safe chars (96 bits) —
+#: still short enough to survive a mobile tap / model transcription, but wide enough that a
+#: ``/u/<shortid>`` link (unauthenticated, resolves to a valid write-capable upload token for
+#: its ≤15-min TTL, and the 302/404 route is an online oracle with no per-id rate limit here)
+#: cannot be feasibly guessed. 48 bits was defensible but this keeps a comfortable margin.
+_SHORT_ID_BYTES = 12
 #: Bound mirrors ``_MAX_SEEN_JTIS`` — one entry per file-tool call, all TTL-swept.
 _MAX_SHORT_LINKS = 8192
 
@@ -355,7 +363,11 @@ class FileTransferConfig:
         URL a ``GET /u/<shortid>`` redirects to. Robust to mobile-chat corruption (see
         :class:`ShortLinkStore`)."""
         token = self.signer.sign({**payload, "op": "ul"}, UPLOAD_TTL)
-        exp = int(self.signer.verify(token, op="ul")["exp"])
+        # ``sign`` stamped ``exp = now + UPLOAD_TTL``; recompute it directly rather than
+        # re-verifying the token (a full HMAC+decode) just to read one field back. This
+        # ``now`` is a hair later, so the store entry expires at-or-after the token — never
+        # before it (a short link is never live past its token). Negligible on a 15-min TTL.
+        exp = int(time.time()) + UPLOAD_TTL
         shortid = self.short_links.put(token, exp)
         return f"{self.base_url.rstrip('/')}/u/{shortid}"
 

@@ -15,6 +15,8 @@ import pytest
 
 pytest.importorskip("fastmcp")
 
+import notebooklm.mcp._filelink as filelink  # noqa: E402
+from notebooklm.exceptions import ValidationError  # noqa: E402
 from notebooklm.mcp._filelink import FileLinkSigner, FileTransferConfig  # noqa: E402
 from notebooklm.mcp.tools._fileupload import (  # noqa: E402
     _await_upload,
@@ -130,3 +132,36 @@ async def test_broker_returns_short_human_link_direct_agent_link_one_token() -> 
     got = await _await_upload(cfg, human, timeout_s=0, poll_interval_s=0)
     assert got["status"] == "received"
     assert got["source_id"] == "s-broker"
+
+
+async def test_non_finite_timeout_rejected() -> None:
+    # A NaN/inf timeout would make the poll deadline unsatisfiable (infinite loop). Reject it.
+    cfg = _cfg()
+    url, _ = _mint(cfg)
+    for bad in (float("inf"), float("nan"), float("-inf")):
+        with pytest.raises(ValidationError):
+            await _await_upload(cfg, url, timeout_s=bad)
+
+
+async def test_recovers_committed_result_after_token_expiry(monkeypatch) -> None:
+    # A large upload can commit its result just before the start-token expires; a later
+    # await_upload must still surface the source_id, not return expired_or_invalid.
+    cfg = _cfg()
+    url, jti = _mint(cfg)
+    exp = cfg.signer.verify(url.rsplit("/", 1)[1], op="ul")["exp"]
+    cfg.jti_store.commit(jti, exp, result={"source_id": "s-late-exp"})
+    # Freeze "now" past the token's expiry → normal verify fails, recovery path kicks in.
+    monkeypatch.setattr(filelink.time, "time", lambda: exp + 5)
+    out = await _await_upload(cfg, url, timeout_s=0, poll_interval_s=0)
+    assert out["status"] == "received"
+    assert out["source_id"] == "s-late-exp"
+
+
+async def test_expired_token_with_no_committed_result_stays_invalid(monkeypatch) -> None:
+    # Recovery is ONLY for committed uploads — an expired token with nothing committed is invalid.
+    cfg = _cfg()
+    url, _ = _mint(cfg)
+    exp = cfg.signer.verify(url.rsplit("/", 1)[1], op="ul")["exp"]
+    monkeypatch.setattr(filelink.time, "time", lambda: exp + 5)
+    out = await _await_upload(cfg, url, timeout_s=0, poll_interval_s=0)
+    assert out["status"] == "expired_or_invalid"
