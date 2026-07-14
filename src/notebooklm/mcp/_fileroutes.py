@@ -38,6 +38,7 @@ from starlette.responses import (
     HTMLResponse,
     JSONResponse,
     PlainTextResponse,
+    RedirectResponse,
     Response,
 )
 from starlette.types import Receive, Scope, Send
@@ -418,6 +419,30 @@ def register_file_routes(mcp: FastMCP, config: FileTransferConfig) -> None:
         # The page is fully static (the token already lives in location.href), so
         # there is nothing attacker-controlled to interpolate.
         return HTMLResponse(_UPLOAD_PAGE, headers=_HTML_SECURITY_HEADERS)
+
+    @mcp.custom_route("/u/{shortid}", methods=["GET"])
+    async def short_upload_redirect(request: Request) -> Response:
+        # Tap-friendly ``/u/<shortid>`` → 302 to the canonical ``/files/ul/<token>`` page.
+        # A short id survives mobile-chat corruption that mangles the long opaque token
+        # (tap-truncation, model re-typing, autocorrect — all live-confirmed). The redirect
+        # keeps the upload page + POST route as the single source of truth. The resolved
+        # token still carries the full HMAC + single-use jti, so the short id grants nothing
+        # extra; an unknown/expired id is a flat 404 (a probe learns nothing).
+        token = config.short_links.get(request.path_params["shortid"])
+        if token is None:
+            return HTMLResponse(
+                "<!doctype html><html><body style='font-family:system-ui'>"
+                "<h2>This upload link is invalid or has expired.</h2>"
+                "<p>Re-run the tool from your assistant to get a fresh link.</p>"
+                "</body></html>",
+                status_code=404,
+                headers=_HTML_SECURITY_HEADERS,
+            )
+        return RedirectResponse(
+            f"/files/ul/{token}",
+            status_code=302,
+            headers={"Referrer-Policy": "no-referrer", "Cache-Control": "no-store"},
+        )
 
     @mcp.custom_route("/files/ul/{token}", methods=["POST", "PUT"])
     async def upload_route(request: Request) -> Response:

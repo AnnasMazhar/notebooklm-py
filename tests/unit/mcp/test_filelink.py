@@ -24,6 +24,7 @@ from notebooklm.mcp._filelink import (
     FileLinkError,
     FileLinkSigner,
     FileTransferConfig,
+    ShortLinkStore,
     _b64url_decode,
 )
 
@@ -282,6 +283,36 @@ def test_store_sweeps_expired_completion_results() -> None:
     store.commit("fresh", now + 60, result={"source_id": "s-fresh"})  # live → triggers sweep
     assert store.completed("old") is None
     assert store.completed("fresh") == {"source_id": "s-fresh"}
+
+
+def test_short_link_store_round_trips_token() -> None:
+    # Short-link indirection: mint a tap-friendly /u/<shortid> that resolves to the long
+    # signed token in-process (no DB), so the mobile URL survives a tap and model transcription.
+    store = ShortLinkStore()
+    exp = int(time.time()) + 60
+    sid = store.put("the.signed.token", exp)
+    assert sid and "/" not in sid  # URL-path-safe, non-empty
+    assert store.get(sid) == "the.signed.token"
+
+
+def test_short_link_store_unique_ids_per_put() -> None:
+    store = ShortLinkStore()
+    exp = int(time.time()) + 60
+    a = store.put("tok-a", exp)
+    b = store.put("tok-b", exp)
+    assert a != b
+    assert store.get(a) == "tok-a"
+    assert store.get(b) == "tok-b"
+
+
+def test_short_link_store_expired_id_returns_none() -> None:
+    store = ShortLinkStore()
+    sid = store.put("tok", int(time.time()) - 1)  # already expired
+    assert store.get(sid) is None  # not resolvable past its token's exp
+
+
+def test_short_link_store_unknown_id_returns_none() -> None:
+    assert ShortLinkStore().get("nope") is None
 
 
 def test_config_jti_store_excluded_from_equality_and_default_constructed() -> None:

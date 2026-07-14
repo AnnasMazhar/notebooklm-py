@@ -47,9 +47,11 @@ from typing import Any
 __all__ = [
     "DOWNLOAD_TTL",
     "UPLOAD_TTL",
+    "ConsumedJtiStore",
     "FileLinkError",
     "FileLinkSigner",
     "FileTransferConfig",
+    "ShortLinkStore",
 ]
 
 #: Signed-URL lifetimes. Upload links are shorter-lived than downloads: an upload
@@ -264,6 +266,65 @@ class ConsumedJtiStore:
         self._active.discard(jti)
 
 
+#: Short-id length in random bytes. ``token_urlsafe(6)`` → 8 URL-safe chars (48 bits) —
+#: short enough to survive a mobile tap / model transcription, wide enough that guessing
+#: a live id within its ≤15-min window is infeasible (and the resolved token still carries
+#: the HMAC + single-use jti, so a guessed id buys nothing an attacker couldn't get anyway).
+_SHORT_ID_BYTES = 6
+#: Bound mirrors ``_MAX_SEEN_JTIS`` — one entry per file-tool call, all TTL-swept.
+_MAX_SHORT_LINKS = 8192
+
+
+@dataclass
+class ShortLinkStore:
+    """In-process ``shortid -> (token, exp)`` map backing the tap-friendly ``/u/<shortid>``
+    upload links.
+
+    The long ``/files/ul/<token>`` URL (~250 chars) is fragile through a mobile chat: it gets
+    tap-truncated, re-typed with dropped characters by the model, or autocorrected — every
+    corruption breaks the HMAC (live-confirmed). A short random id sidesteps all of that; this
+    store resolves it back to the real signed token server-side.
+
+    Same contract as :class:`ConsumedJtiStore`: single process / single tenant, every method is
+    synchronous (no ``await`` → atomic on the one event loop, no lock), TTL-swept, dies with the
+    process. No DB, no background sweeper.
+    """
+
+    #: shortid -> (signed token, exp unix seconds). exp mirrors the token's own ``exp`` so a
+    #: resolved link never outlives the token it points at.
+    _links: dict[str, tuple[str, int]] = field(default_factory=dict)
+
+    def _sweep(self, now: int) -> None:
+        for sid in [s for s, (_t, exp) in self._links.items() if exp < now]:
+            del self._links[sid]
+
+    def put(self, token: str, exp: int) -> str:
+        """Register ``token`` (valid until ``exp``) under a fresh short id and return the id.
+
+        Sweeps expired entries and enforces the size bound here (the only growing path), so
+        :meth:`get` stays O(1)."""
+        now = int(time.time())
+        self._sweep(now)
+        if len(self._links) >= _MAX_SHORT_LINKS:
+            # Evict the soonest-to-expire entry (least loss — closest to natural expiry).
+            del self._links[min(self._links, key=lambda s: self._links[s][1])]
+        shortid = secrets.token_urlsafe(_SHORT_ID_BYTES)
+        self._links[shortid] = (token, exp)
+        return shortid
+
+    def get(self, shortid: str) -> str | None:
+        """Return the token for ``shortid``, or ``None`` if unknown or its token has expired
+        (an expired entry is dropped in passing)."""
+        entry = self._links.get(shortid)
+        if entry is None:
+            return None
+        token, exp = entry
+        if int(time.time()) > exp:
+            self._links.pop(shortid, None)
+            return None
+        return token
+
+
 @dataclass(frozen=True)
 class FileTransferConfig:
     """Resolved file-transfer config: the signer + the validated public base URL.
@@ -282,6 +343,21 @@ class FileTransferConfig:
     #: mutable, dict-bearing (unhashable) object, so including it in ``__eq__``/
     #: ``__hash__`` would make every config unhashable and equality depend on live state.
     jti_store: ConsumedJtiStore = field(default_factory=ConsumedJtiStore, compare=False)
+    #: In-process ``shortid -> token`` map backing the ``/u/<shortid>`` tap-friendly links
+    #: (:meth:`short_upload_url`). ``compare=False`` for the same reason as :attr:`jti_store`.
+    short_links: ShortLinkStore = field(default_factory=ShortLinkStore, compare=False)
+
+    def short_upload_url(self, payload: dict[str, Any]) -> str:
+        """Mint an upload token for ``payload`` and return a tap-friendly ``/u/<shortid>`` URL.
+
+        Signs the same ``ul`` token :meth:`upload_url` would, registers it under a short id
+        (keyed to the token's ``exp``), and returns the short URL — the long ``/files/ul``
+        URL a ``GET /u/<shortid>`` redirects to. Robust to mobile-chat corruption (see
+        :class:`ShortLinkStore`)."""
+        token = self.signer.sign({**payload, "op": "ul"}, UPLOAD_TTL)
+        exp = int(self.signer.verify(token, op="ul")["exp"])
+        shortid = self.short_links.put(token, exp)
+        return f"{self.base_url.rstrip('/')}/u/{shortid}"
 
     def upload_url(self, payload: dict[str, Any]) -> str:
         """Sign ``payload`` with the upload TTL and build the ``/files/ul`` URL.

@@ -16,7 +16,11 @@ import pytest
 pytest.importorskip("fastmcp")
 
 from notebooklm.mcp._filelink import FileLinkSigner, FileTransferConfig  # noqa: E402
-from notebooklm.mcp.tools._fileupload import _await_upload, _extract_ul_token  # noqa: E402
+from notebooklm.mcp.tools._fileupload import (  # noqa: E402
+    _await_upload,
+    _broker_upload,
+    _extract_ul_token,
+)
 
 
 def _cfg() -> FileTransferConfig:
@@ -67,6 +71,26 @@ async def test_expired_or_invalid_token() -> None:
     assert "source_add" in out["hint"]
 
 
+async def test_received_via_short_link() -> None:
+    # await_upload must also accept the tap-friendly /u/<shortid> link (what the model now
+    # hands the user), resolving it to the real token via the in-process short-link store.
+    cfg = _cfg()
+    url = cfg.short_upload_url({"nb": "nb1"})  # https://h.example/u/<shortid>
+    shortid = url.rsplit("/", 1)[1]
+    token = cfg.short_links.get(shortid)
+    jti = cfg.signer.verify(token, op="ul")["jti"]
+    cfg.jti_store.commit(jti, int(time.time()) + 60, result={"source_id": "s-short"})
+    out = await _await_upload(cfg, url, timeout_s=0, poll_interval_s=0)
+    assert out["status"] == "received"
+    assert out["source_id"] == "s-short"
+
+
+async def test_unknown_short_link_is_expired_or_invalid() -> None:
+    cfg = _cfg()
+    out = await _await_upload(cfg, "https://h.example/u/nope", timeout_s=0, poll_interval_s=0)
+    assert out["status"] == "expired_or_invalid"
+
+
 async def test_poll_picks_up_a_later_same_process_commit() -> None:
     # The whole point of the in-process map: a commit that lands WHILE await_upload is
     # polling is seen on the next tick (no DB, same event loop).
@@ -82,3 +106,27 @@ async def test_poll_picks_up_a_later_same_process_commit() -> None:
     await lander
     assert out["status"] == "received"
     assert out["source_id"] == "s-late"
+
+
+async def test_broker_returns_short_human_link_direct_agent_link_one_token() -> None:
+    # _broker_upload hands the human a tap-friendly /u/<shortid> and the agent the direct
+    # /files/ul POST target — both over ONE token (one jti). await_upload accepts the short one.
+    cfg = _cfg()
+    out = _broker_upload(cfg, "nb1", title=None, mime_type=None, path="report.pdf")
+    human = out["human_upload"]["url"]
+    agent = out["agent_upload"]["url"]
+    assert "/u/" in human and "/files/ul/" not in human  # short, tap-friendly
+    assert "/files/ul/" in agent  # direct raw-POST target
+
+    # both point at the SAME token (one jti, not two)
+    agent_token = agent.split("/files/ul/", 1)[1].split("?", 1)[0]
+    human_token = cfg.short_links.get(human.rsplit("/", 1)[1])
+    assert human_token == agent_token
+
+    # simulate the upload committing, then await via the SHORT link → received
+    jti = cfg.signer.verify(human_token, op="ul")["jti"]
+    exp = cfg.signer.verify(human_token, op="ul")["exp"]
+    cfg.jti_store.commit(jti, exp, result={"source_id": "s-broker"})
+    got = await _await_upload(cfg, human, timeout_s=0, poll_interval_s=0)
+    assert got["status"] == "received"
+    assert got["source_id"] == "s-broker"

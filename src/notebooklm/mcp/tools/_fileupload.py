@@ -120,7 +120,13 @@ def _broker_upload(
     url = cfg.upload_url(payload)
     # Read the deadline back from the signed token so expires_at / _iso match the
     # token's ``exp`` exactly, rather than recomputing now() a hair later (drift).
-    expires_at = cfg.signer.verify(url.rsplit("/", 1)[1], op="ul")["exp"]
+    token = url.rsplit("/", 1)[1]
+    expires_at = cfg.signer.verify(token, op="ul")["exp"]
+    # Tap-friendly short link over the SAME token: the human path gets ``/u/<shortid>``
+    # (survives mobile-chat corruption of the long token — live-confirmed), the agent path
+    # keeps the direct ``/files/ul`` URL (a ``/u/`` id only serves GET→redirect, not the raw
+    # POST). await_upload accepts either.
+    short_url = f"{cfg.base_url.rstrip('/')}/u/{cfg.short_links.put(token, expires_at)}"
     expires_iso = (
         datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat().replace("+00:00", "Z")
     )
@@ -150,9 +156,10 @@ def _broker_upload(
         "expires_in_seconds": UPLOAD_TTL,
         "mime_locked": mime_locked,
         # Human/browser path, first-class so an agent that cannot upload the bytes
-        # itself reliably surfaces the link to the user (the mobile case).
+        # itself reliably surfaces the link to the user (the mobile case). Uses the SHORT
+        # ``/u/<shortid>`` link — a long opaque token gets mangled in a mobile chat.
         "human_upload": {
-            "url": url,
+            "url": short_url,
             "instructions": (
                 "Open this link in a browser on the device that has the file, then "
                 "pick the file to upload. Works on mobile (photo library / Files). "
@@ -269,9 +276,8 @@ _AWAIT_POLL_INTERVAL_S = 2.0
 
 def _extract_ul_token(token_or_url: str) -> str:
     """Return the bare ``ul`` token from either a raw token or a full
-    ``{base}/files/ul/{token}`` URL (what ``source_add(source_type="file")`` hands the
-    model). Tokens are ``base64url . base64url`` (no ``/``, ``?`` or ``#``), so trimming
-    at the first of those is safe."""
+    ``{base}/files/ul/{token}`` URL. Tokens are ``base64url . base64url`` (no ``/``, ``?``
+    or ``#``), so trimming at the first of those is safe."""
     text = token_or_url.strip()
     marker = "/files/ul/"
     if marker in text:
@@ -279,6 +285,20 @@ def _extract_ul_token(token_or_url: str) -> str:
     for sep in ("?", "#", "/"):
         text = text.split(sep, 1)[0]
     return text
+
+
+def _resolve_upload_token(cfg: FileTransferConfig, token_or_url: str) -> str | None:
+    """Resolve any of the three link shapes ``await_upload`` accepts to the signed token:
+    a tap-friendly ``{base}/u/<shortid>`` (looked up in the in-process short-link store), a
+    full ``{base}/files/ul/<token>``, or a bare token. Returns ``None`` only for an unknown
+    or expired short id (the caller reports it as expired/invalid, same as a bad token)."""
+    text = token_or_url.strip()
+    if "/u/" in text:
+        shortid = text.split("/u/", 1)[1]
+        for sep in ("?", "#", "/"):
+            shortid = shortid.split(sep, 1)[0]
+        return cfg.short_links.get(shortid)
+    return _extract_ul_token(text)
 
 
 async def _await_upload(
@@ -302,15 +322,18 @@ async def _await_upload(
     ``progress`` (best-effort) is awaited at t=0 and each tick as a keepalive; the design
     does not depend on it.
     """
-    token = _extract_ul_token(token_or_url)
+    invalid = {
+        "status": "expired_or_invalid",
+        "hint": "this upload link is invalid or expired — call "
+        'source_add(source_type="file") to get a fresh one',
+    }
+    token = _resolve_upload_token(cfg, token_or_url)
+    if token is None:  # unknown/expired short id
+        return invalid
     try:
         payload = cfg.signer.verify(token, op="ul")
     except FileLinkError:
-        return {
-            "status": "expired_or_invalid",
-            "hint": "this upload link is invalid or expired — call "
-            'source_add(source_type="file") to get a fresh one',
-        }
+        return invalid
     jti = str(payload.get("jti") or "")
     deadline = time.monotonic() + timeout_s
     if progress is not None:
