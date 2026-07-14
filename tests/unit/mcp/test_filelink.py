@@ -255,6 +255,35 @@ def test_store_recommit_same_jti_does_not_evict_at_cap(monkeypatch) -> None:
     assert store._seen["a"] == base + 9  # exp refreshed in place
 
 
+def test_store_commit_records_and_reads_back_completion_result() -> None:
+    # #Phase-1 await_upload: commit may carry the upload result so the in-process
+    # completion map lets a same-process poll surface {source_id, name, size, mime}.
+    store = ConsumedJtiStore()
+    exp = int(time.time()) + 60
+    assert store.completed("j1") is None  # nothing recorded yet
+    store.commit("j1", exp, result={"source_id": "s-1", "name": "report.pdf"})
+    assert store.completed("j1") == {"source_id": "s-1", "name": "report.pdf"}
+
+
+def test_store_commit_without_result_leaves_no_completion_record() -> None:
+    # A plain single-use burn (no result) records nothing readable — await_upload then
+    # stays "pending" rather than inventing an empty received payload.
+    store = ConsumedJtiStore()
+    store.commit("j1", int(time.time()) + 60)
+    assert store.completed("j1") is None
+
+
+def test_store_sweeps_expired_completion_results() -> None:
+    # The completion record is bounded to the token's life like _seen: once exp passes,
+    # a later commit sweeps it so the map cannot leak past TTL.
+    store = ConsumedJtiStore()
+    now = int(time.time())
+    store.commit("old", now - 10, result={"source_id": "s-old"})  # already expired
+    store.commit("fresh", now + 60, result={"source_id": "s-fresh"})  # live → triggers sweep
+    assert store.completed("old") is None
+    assert store.completed("fresh") == {"source_id": "s-fresh"}
+
+
 def test_config_jti_store_excluded_from_equality_and_default_constructed() -> None:
     # `compare=False` keeps the frozen config comparable by (signer, base_url) only —
     # the store is a mutable, dict-bearing object that must not drive __eq__/__hash__.

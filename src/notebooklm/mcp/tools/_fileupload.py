@@ -11,17 +11,25 @@ Imports NO ``click`` / ``rich`` / ``cli``.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import os
 import shutil
 import tempfile
+import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from fastmcp import Context
+
 from ..._app import source_add as add_core
 from ...exceptions import ValidationError
-from .._filelink import UPLOAD_TTL, FileTransferConfig
+from .._confirm import READ_ONLY
+from .._context import get_file_transfer
+from .._errors import mcp_errors
+from .._filelink import UPLOAD_TTL, FileLinkError, FileTransferConfig
 
 if TYPE_CHECKING:
     from ...client import NotebookLMClient
@@ -247,3 +255,108 @@ async def _add_one(
         add_core.SourceAddExecutionPlan(notebook_id=notebook_id, plan=plan),
     )
     return result.source
+
+
+#: Default poll window for :func:`_await_upload`. Kept safely under the ~60s
+#: connector-timeout watchdog observed on claude.ai's remote MCP transport (which
+#: measures time-to-first-response-byte); on timeout the tool returns ``pending`` so
+#: the model re-invokes next turn — the re-invoke loop, not any keepalive, is the
+#: load-bearing completion mechanism (ADR-0024 / Phase 1). Raise only after a live
+#: timing test.
+_AWAIT_TIMEOUT_S = 45.0
+_AWAIT_POLL_INTERVAL_S = 2.0
+
+
+def _extract_ul_token(token_or_url: str) -> str:
+    """Return the bare ``ul`` token from either a raw token or a full
+    ``{base}/files/ul/{token}`` URL (what ``source_add(source_type="file")`` hands the
+    model). Tokens are ``base64url . base64url`` (no ``/``, ``?`` or ``#``), so trimming
+    at the first of those is safe."""
+    text = token_or_url.strip()
+    marker = "/files/ul/"
+    if marker in text:
+        text = text.split(marker, 1)[1]
+    for sep in ("?", "#", "/"):
+        text = text.split(sep, 1)[0]
+    return text
+
+
+async def _await_upload(
+    cfg: FileTransferConfig,
+    token_or_url: str,
+    *,
+    timeout_s: float = _AWAIT_TIMEOUT_S,
+    poll_interval_s: float = _AWAIT_POLL_INTERVAL_S,
+    progress: Callable[[], Awaitable[None]] | None = None,
+) -> dict[str, Any]:
+    """Poll the in-process completion map for the upload behind ``token_or_url``.
+
+    Returns one of:
+    - ``{"status": "received", "source_id": ..., "file": {...}}`` — the browser/agent
+      upload committed a source (same process wrote it; ADR-0024).
+    - ``{"status": "pending", "hint": ...}`` — nothing yet after ``timeout_s``; the
+      model should re-invoke with the same link.
+    - ``{"status": "expired_or_invalid", "hint": ...}`` — the link failed signature/
+      expiry/op checks; mint a fresh one via ``source_add(source_type="file")``.
+
+    ``progress`` (best-effort) is awaited at t=0 and each tick as a keepalive; the design
+    does not depend on it.
+    """
+    token = _extract_ul_token(token_or_url)
+    try:
+        payload = cfg.signer.verify(token, op="ul")
+    except FileLinkError:
+        return {
+            "status": "expired_or_invalid",
+            "hint": "this upload link is invalid or expired — call "
+            'source_add(source_type="file") to get a fresh one',
+        }
+    jti = str(payload.get("jti") or "")
+    deadline = time.monotonic() + timeout_s
+    if progress is not None:
+        await progress()
+    while True:
+        result = cfg.jti_store.completed(jti)
+        if result is not None:
+            return {"status": "received", "source_id": result.get("source_id"), "file": result}
+        if time.monotonic() >= deadline:
+            return {
+                "status": "pending",
+                "hint": "upload not detected yet — re-invoke await_upload with the same link",
+            }
+        await asyncio.sleep(poll_interval_s)
+        if progress is not None:
+            await progress()
+
+
+def register_file_tools(mcp: Any) -> None:
+    """Register the file-transfer MCP tools that live in this sibling module.
+
+    Currently just ``await_upload`` (Phase 1). Called from ``tools.sources.register``
+    so the sources domain keeps a single manifest entry point while this module holds
+    the file-specific overflow (ADR-0008 size budget)."""
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def await_upload(ctx: Context, upload_link: str, timeout: float = 45.0) -> dict[str, Any]:
+        """Wait for a file uploaded via a ``source_add(source_type="file")`` link to land.
+
+        Pass the ``human_upload.url`` (or the bare token) that ``source_add`` returned.
+        Polls the server in-process until the browser/agent upload commits the source:
+
+        * ``{"status":"received","source_id",...,"file":{...}}`` — the upload landed.
+        * ``{"status":"pending",...}`` — nothing yet after ~``timeout`` s; **re-invoke with
+          the same link** (the wait resumes; a transport reset does not lose it).
+        * ``{"status":"expired_or_invalid",...}`` — the link failed; mint a fresh one via
+          ``source_add(source_type="file")``.
+        """
+        with mcp_errors():
+            cfg = get_file_transfer(ctx)
+            if cfg is None:
+                raise ValidationError(
+                    "await_upload needs the remote signed-URL transport; set "
+                    "NOTEBOOKLM_MCP_PUBLIC_URL on the server to enable it"
+                )
+            # ponytail: no ctx.report_progress keepalive yet — the re-invoke loop is the
+            # load-bearing completion path; add one only if a live claude.ai timing test
+            # shows the ~45s poll needs it (ADR-0024 / Phase 1 plan).
+            return await _await_upload(cfg, upload_link, timeout_s=timeout)

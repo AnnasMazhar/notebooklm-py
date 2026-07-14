@@ -197,6 +197,13 @@ class ConsumedJtiStore:
     #: the concurrent request count and always released in the route's ``finally``, so
     #: it needs no sweep or size cap.
     _active: set[str] = field(default_factory=set)
+    #: jti -> upload result ({source_id, name, size, mime}), recorded on a successful
+    #: :meth:`commit` that carries one. This is the in-process **completion map**
+    #: (Phase 1 ``await_upload``): the ``/files/ul`` POST route and the polling tool run
+    #: in the same single process (ADR-0024), so a same-loop poll reads what the route
+    #: wrote — no DB, no cross-process state. Keyed by jti and swept with :attr:`_seen`,
+    #: so a record never outlives its token's ``exp`` (≤ ``UPLOAD_TTL``).
+    _results: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def _sweep(self, now: int) -> None:
         # ``exp < now`` (strict), matching ``verify``'s ``time.time() > exp`` rejection:
@@ -205,6 +212,13 @@ class ConsumedJtiStore:
         # window at the exact expiry second. ``now`` is the caller's ``int(time.time())``.
         for expired_jti in [j for j, exp in self._seen.items() if exp < now]:
             del self._seen[expired_jti]
+            self._results.pop(expired_jti, None)
+
+    def completed(self, jti: str) -> dict[str, Any] | None:
+        """Return the recorded upload result for ``jti``, or ``None`` if not (yet)
+        completed. ``None`` covers both "not uploaded yet" and "burned without a
+        result"; the caller treats either as *pending*."""
+        return self._results.get(jti)
 
     def try_begin(self, jti: str) -> bool:
         """Atomically claim ``jti`` for a single upload.
@@ -219,11 +233,13 @@ class ConsumedJtiStore:
         self._active.add(jti)
         return True
 
-    def commit(self, jti: str, exp: int) -> None:
+    def commit(self, jti: str, exp: int, result: dict[str, Any] | None = None) -> None:
         """Burn ``jti`` permanently (its upload succeeded).
 
-        Sweeps expired entries and enforces the size bound here — the only mutating hot
-        path — so :meth:`try_begin` stays O(1).
+        When ``result`` is given it is recorded in the completion map (:meth:`completed`)
+        so a same-process ``await_upload`` poll can surface the added source. Sweeps
+        expired entries and enforces the size bound here — the only mutating hot path —
+        so :meth:`try_begin` stays O(1).
         """
         self._active.discard(jti)
         self._sweep(int(time.time()))
@@ -235,8 +251,12 @@ class ConsumedJtiStore:
             # the soonest-to-expire entry — the least loss of protection, since it is
             # closest to natural expiry anyway. ``_seen`` is non-empty here, so ``min`` is
             # safe.
-            del self._seen[min(self._seen, key=self._seen.__getitem__)]
+            evicted = min(self._seen, key=self._seen.__getitem__)
+            del self._seen[evicted]
+            self._results.pop(evicted, None)  # keep the completion map in step with _seen
         self._seen[jti] = exp
+        if result is not None:
+            self._results[jti] = result
 
     def rollback(self, jti: str) -> None:
         """Release a claimed-but-unfinished ``jti`` (upload failed / aborted / 429) so

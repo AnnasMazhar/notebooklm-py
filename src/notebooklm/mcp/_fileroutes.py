@@ -528,8 +528,22 @@ def register_file_routes(mcp: FastMCP, config: FileTransferConfig) -> None:
                     # on success means a failed/aborted upload (handled by the outer
                     # ``finally`` rollback) leaves the link usable for retry, honoring
                     # ADR-0024's large-file retry window. ``exp`` was validated as an int
-                    # by ``verify``.
-                    config.jti_store.commit(jti, payload["exp"])
+                    # by ``verify``. The ``result`` payload feeds the in-process completion
+                    # map so a same-process ``await_upload`` poll surfaces the added source
+                    # (Phase 1); it is success-only by construction — a failed upload writes
+                    # nothing, so ``await_upload`` stays "pending" and the model falls back
+                    # to ``source_list``. ``sha256`` is intentionally absent until the
+                    # deferred client/stream hashing (Phase 4) lands.
+                    config.jti_store.commit(
+                        jti,
+                        payload["exp"],
+                        result={
+                            "source_id": source_id,
+                            "name": filename,
+                            "size": total,
+                            "mime": mime,
+                        },
+                    )
                     committed = True
                     # The documented sandbox-`curl`/PUT path (an agent uploading a file
                     # it holds) gets clean JSON when it asks for it; a human browser gets
