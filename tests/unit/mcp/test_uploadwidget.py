@@ -78,9 +78,11 @@ def test_widget_html_uploads_via_xhr_with_progress() -> None:
     assert "function putFile(" in _WIDGET_HTML
     assert "await putFile(" in _WIDGET_HTML  # the loop uses the XHR helper, not fetch
     assert "await fetch(" not in _WIDGET_HTML  # the old fetch upload is gone
-    # The bar is shown per file and hidden when the batch finishes.
-    assert 'pg.style.display="block"' in _WIDGET_HTML
-    assert 'pg.style.display="none"' in _WIDGET_HTML
+    # The bar is shown per file and hidden when the batch finishes — and each show/hide notifies
+    # the host of the new iframe height (ui/notifications/size-changed via size()), else the host
+    # sizes the iframe stale and clips the bar / leaves dead space.
+    assert 'pg.style.display="block"; pg.value=0; size();' in _WIDGET_HTML
+    assert 'pg.style.display="none"; size();' in _WIDGET_HTML
     # Same raw-body cross-origin POST + headers as before (direct-PUT unchanged).
     assert 'xhr.open("POST",url)' in _WIDGET_HTML
     assert 'xhr.setRequestHeader("Content-Type"' in _WIDGET_HTML

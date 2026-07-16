@@ -180,7 +180,7 @@ _WIDGET_HTML = """<!doctype html>
      if(!tok){skipped++;log("• "+file.name+": already added");continue;} // token consumed on a prior click
      if(file.size>200*1024*1024){log("❌ "+file.name+": exceeds 200 MB — skipped");failed++;continue;} // mirrors MAX_UPLOAD_BYTES
      log("uploading "+file.name+" ("+file.size+" B)…");
-     pg.style.display="block"; pg.value=0;  // show the progress bar for this file
+     pg.style.display="block"; pg.value=0; size();  // show the bar + tell the host the iframe grew
      try{
        const res=await putFile(tok+"?filename="+encodeURIComponent(file.name), file, (loaded,total)=>{
          const pct=total?Math.round(loaded/total*100):0; pg.value=pct;
@@ -191,7 +191,7 @@ _WIDGET_HTML = """<!doctype html>
        else failed++;                                    // non-2xx: token uncommitted → still valid for retry
      }catch(e){log("❌ "+file.name+": upload failed (CSP/CORS/network): "+e);failed++;} // transient → retryable
    }
-   pg.style.display="none";  // batch done — hide the bar; the summary line below reports the outcome
+   pg.style.display="none"; size();  // batch done — hide the bar + tell the host the iframe shrank
    sub.textContent = failed ? ("✅ "+ok+" added · "+failed+" to retry — fix and click Upload again")
      : ok ? ("✅ "+ok+" added — you can close this and continue in chat")
      : "nothing to upload — already added";           // all files were skipped (tokens consumed): no misleading "0 added"
