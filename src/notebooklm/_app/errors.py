@@ -26,6 +26,7 @@ The category set is deliberately granular enough that the CLI's
 ``SERVER``                  (5xx — CLI currently folds into ``NOTEBOOKLM_ERROR``)
 ``RPC``                     (other RPC failures -> ``NOTEBOOKLM_ERROR``)
 ``SOURCE_MUTATION``         (``SourceMutationError`` carries its own ``.code``)
+``SOURCE_ADD``              (``SourceAddError`` -> ``NOTEBOOKLM_ERROR``; non-fatal per-item)
 ``UNEXPECTED``              ``UNEXPECTED_ERROR`` (non-library exceptions)
 ==========================  ====================================
 
@@ -65,6 +66,7 @@ from ..exceptions import (
     RateLimitError,
     RPCError,
     ServerError,
+    SourceAddError,
     ValidationError,
     WaitTimeoutError,
 )
@@ -111,6 +113,14 @@ class ErrorCategory(Enum):
     #: catch-all so adapters can recover that carried code rather than folding
     #: it into the library default.
     SOURCE_MUTATION = "source_mutation"
+    #: A per-source ADD failure (``SourceAddError``) — NotebookLM rejected this
+    #: specific source input (invalid/inaccessible/paywalled/empty/unparseable
+    #: URL). Distinct from the generic :attr:`LIBRARY` catch-all so adapters
+    #: project it as a 4xx input error and, in a batch add, ISOLATE it as a
+    #: per-item error instead of aborting the whole batch. ``_source/add.py``
+    #: re-raises every infra signal (auth/rate-limit/server/network) UNWRAPPED,
+    #: so a ``SourceAddError`` is guaranteed to be a per-item input failure.
+    SOURCE_ADD = "source_add"
     #: A library error that fits none of the above (catch-all under
     #: ``NotebookLMError``).
     LIBRARY = "library"
@@ -142,6 +152,12 @@ CATEGORY_HINTS: dict[ErrorCategory, str | None] = {
     ErrorCategory.RPC: None,
     ErrorCategory.SOURCE_MUTATION: (
         "Resolve the source reference (it was missing, ambiguous, or needs confirmation)."
+    ),
+    ErrorCategory.SOURCE_ADD: (
+        "NotebookLM could not add this source (invalid/inaccessible URL, paywalled, empty, "
+        "or unparseable); fix the input and retry — a failed source stub may have been "
+        "created, so list the notebook's sources filtered to the error/failed status to "
+        "find and remove it."
     ),
     ErrorCategory.LIBRARY: None,
     ErrorCategory.UNEXPECTED: None,
@@ -284,6 +300,16 @@ def _category_for(exc: BaseException) -> ErrorCategory:
     # --- Remaining RPC failures (decoding, unknown-method, client 4xx, ...) ---
     if isinstance(exc, RPCError):
         return ErrorCategory.RPC
+
+    # --- Per-source ADD failure (SourceAddError). ----------------------------
+    # A SourceError -> NotebookLMError (NOT an RPCError), so it reaches here only
+    # after every RPC/infra branch missed. ``_source/add.py`` re-raises the infra
+    # signals (auth/rate-limit/server/network) UNWRAPPED and wraps ONLY a residual
+    # per-URL RPCError as SourceAddError, so this is guaranteed a per-item input
+    # failure — hence a NON-fatal category that isolates in a batch add. Must
+    # precede the LIBRARY catch-all to keep its distinct 4xx category.
+    if isinstance(exc, SourceAddError):
+        return ErrorCategory.SOURCE_ADD
 
     # --- CLI-input source-mutation error (carries its own .code taxonomy). ----
     # A direct NotebookLMError subclass, so it must precede the LIBRARY

@@ -103,6 +103,14 @@ def test_every_library_exception_classifies_as_a_library_category(cls: type) -> 
             ErrorCategory.SOURCE_MUTATION,
             False,
         ),
+        # A per-URL ADD failure classifies as its own non-fatal category (#1905)
+        # so a bad URL isolates in a batch add instead of aborting it. Not
+        # retriable — the same input will not succeed unchanged.
+        (
+            exc.SourceAddError("http://bad.example"),
+            ErrorCategory.SOURCE_ADD,
+            False,
+        ),
         (ValueError("not ours"), ErrorCategory.UNEXPECTED, False),
         (RuntimeError("not ours"), ErrorCategory.UNEXPECTED, False),
     ],
@@ -209,6 +217,20 @@ def test_app_raised_errors_are_in_public_hierarchy_and_classify(
     result = classify(app_error)
     assert result.category is expected_category
     assert result.category is not ErrorCategory.UNEXPECTED
+
+
+def test_source_add_error_is_its_own_non_library_category() -> None:
+    """``SourceAddError`` classifies as ``SOURCE_ADD``, not the LIBRARY catch-all (#1905).
+
+    This is what keeps a bad-URL item non-fatal in a batch add: ``LIBRARY`` is a
+    fatal category (aborts the batch), whereas ``SOURCE_ADD`` isolates per item.
+    ``_source/add.py`` re-raises every infra signal unwrapped, so a
+    ``SourceAddError`` is guaranteed a per-item input failure — safe to isolate.
+    """
+    result = classify(exc.SourceAddError("http://bad.example"))
+    assert result.category is ErrorCategory.SOURCE_ADD
+    assert result.category is not ErrorCategory.LIBRARY
+    assert result.retriable is False
 
 
 def test_source_mutation_error_keeps_cli_attributes() -> None:
