@@ -15,6 +15,7 @@ import asyncio
 import base64
 import binascii
 import math
+import mimetypes
 import os
 import shutil
 import tempfile
@@ -190,6 +191,42 @@ def _broker_upload(
     }
 
 
+def _seed_upload_filename(
+    filename: str | None, title: str | None, mime_type: str | None
+) -> str | None:
+    """Pick the spool basename for a bytes upload so a real extension survives to disk.
+
+    NotebookLM 400s an extensionless upload (#1955), yet the folded ``source_add``
+    bytes path let ``title`` / ``mime_type`` ride along without either seeding the
+    basename — a caller passing ``bytes_base64 + title`` (no ``filename``) landed on
+    ``upload.bin`` and hit the 400 even for plain text. Priority:
+
+    * an explicit ``filename`` wins verbatim (unchanged behavior);
+    * otherwise seed the stem from ``title`` (default ``"upload"``) and the extension
+      from ``mime_type`` via :func:`mimetypes.guess_extension` (``text/plain`` →
+      ``.txt``, ``application/pdf`` → ``.pdf``), not doubling one the title already
+      spells (``report.pdf`` + ``.pdf`` → ``report.pdf``);
+    * with no mime-derived extension, a title that already carries one seeds the name;
+    * failing all of that, return ``None`` so :func:`safe_upload_name` applies its
+      extensioned ``upload.bin`` fallback rather than a bare extensionless name.
+
+    The result is ALWAYS passed through :func:`safe_upload_name` for the security pass
+    (path-traversal / control-char / byte-length defenses) — this only chooses a better
+    *candidate*, never bypasses sanitization.
+    """
+    if filename:
+        return filename
+    stem = (title or "").strip()
+    ext = mimetypes.guess_extension(mime_type) if mime_type else None
+    if ext:
+        if stem and os.path.splitext(stem)[1].lower() == ext.lower():
+            return stem
+        return (stem or "upload") + ext
+    if stem and os.path.splitext(stem)[1]:
+        return stem
+    return None
+
+
 async def _add_bytes(
     client: NotebookLMClient,
     notebook_id: str,
@@ -206,12 +243,15 @@ async def _add_bytes(
     to a ``0600`` file under a ``0700`` ``mkdtemp`` dir — the same spool-then-add
     shape the ``/files/ul`` upload route uses, minus the signed-token / single-use /
     concurrency machinery that guards that PUBLIC internet-facing route (this path is
-    already authenticated by the MCP session, so none of it applies). ``filename`` is
-    sanitized to a safe basename (traversal / control-char / empty defenses shared
-    with the upload route via ``safe_upload_name``). The temp tree is always removed —
-    on success, a rejected add, or an error.
+    already authenticated by the MCP session, so none of it applies). The basename is
+    seeded from ``filename`` — or, when it is absent, from ``title`` + a
+    ``mime_type``-inferred extension (:func:`_seed_upload_filename`, #1955) so a
+    caller who passes only ``bytes_base64 + title`` doesn't 400 on an extensionless
+    ``upload.bin`` — and then sanitized to a safe basename (traversal / control-char /
+    empty defenses shared with the upload route via ``safe_upload_name``). The temp
+    tree is always removed — on success, a rejected add, or an error.
     """
-    safe = add_core.safe_upload_name(filename)
+    safe = add_core.safe_upload_name(_seed_upload_filename(filename, title, mime_type))
     temp_dir = tempfile.mkdtemp(prefix="nblm-mcp-ulb-")
     try:
         temp_path = os.path.join(temp_dir, safe)
