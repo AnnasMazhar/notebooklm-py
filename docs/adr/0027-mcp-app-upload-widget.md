@@ -63,8 +63,14 @@ tool-count / schema-char budgets) unless a deployment enables it.
   Purely additive and best-effort: a host that does not run a widget-initiated call simply leaves
   the model on the manual `await_upload` / `source_list` fallback. The exact claude.ai widget→host
   invocation shape is host-specific and undocumented, so it is verified live, not headlessly.
-- Follow-ups still deferred: a progress bar and the fallback ladder
-  (`window.openai.uploadFile` → direct-PUT → link).
+- **Upload progress bar.** The widget uploads each file via `XMLHttpRequest` (not `fetch`, which
+  can't report upload progress) so `xhr.upload.onprogress` drives an inline `<progress>` bar — useful
+  feedback for large files on a slow mobile link. The cross-origin POST, headers, and direct raw-body
+  transfer are unchanged; the existing `/files/ul` CORS (preflight + ACAO) already covers XHR.
+- Follow-up still deferred — the **`window.openai.uploadFile` fallback rung**: `uploadFile`'s
+  behavior for a *custom* (non-OpenAI-storage) upload endpoint is unclear, so building the
+  `uploadFile → direct-PUT → link` ladder around it needs live clarification first (direct-PUT
+  remains the working default; the signed link is the durable fallback).
 - **Requires stateless HTTP.** An MCP-Apps host reads the `ui://` widget resource on a connection
   without the chat `Mcp-Session-Id`; a stateful FastMCP server rejects that ("Missing session ID"
   → "fail to fetch app content"). Enabling the widget therefore auto-enables

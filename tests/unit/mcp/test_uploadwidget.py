@@ -65,8 +65,25 @@ def test_widget_html_is_cross_host() -> None:
         "confirmUpload",  # auto-confirm invoker (#1891)
         "callTool",  # ChatGPT auto-confirm path (window.openai.callTool)
         '"tools/call"',  # claude.ai auto-confirm path (postMessage tools/call)
+        'id="pg"',  # upload progress bar element
+        "xhr.upload.onprogress",  # progress driven by XHR upload events
     ):
         assert marker in _WIDGET_HTML, marker
+
+
+def test_widget_html_uploads_via_xhr_with_progress() -> None:
+    # Upload UX: files go through XHR (not fetch) so the <progress> bar can be driven by
+    # xhr.upload.onprogress — fetch can't report upload progress.
+    assert "new XMLHttpRequest()" in _WIDGET_HTML
+    assert "function putFile(" in _WIDGET_HTML
+    assert "await putFile(" in _WIDGET_HTML  # the loop uses the XHR helper, not fetch
+    assert "await fetch(" not in _WIDGET_HTML  # the old fetch upload is gone
+    # The bar is shown per file and hidden when the batch finishes.
+    assert 'pg.style.display="block"' in _WIDGET_HTML
+    assert 'pg.style.display="none"' in _WIDGET_HTML
+    # Same raw-body cross-origin POST + headers as before (direct-PUT unchanged).
+    assert 'xhr.open("POST",url)' in _WIDGET_HTML
+    assert 'xhr.setRequestHeader("Content-Type"' in _WIDGET_HTML
 
 
 def test_widget_html_auto_confirms_only_on_success() -> None:
