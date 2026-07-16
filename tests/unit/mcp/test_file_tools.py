@@ -343,6 +343,13 @@ _TXT_EXT = mimetypes.guess_extension("text/plain")
         (None, "report.pdf", "application/pdf", "report.pdf"),
         # No mime, but the title carries its own extension → seed from the title.
         (None, "notes.txt", None, "notes.txt"),
+        # A generic octet-stream mime carries no real extension → don't let its ".bin"
+        # guess clobber the title's own extension (notes.txt, NOT notes.txt.bin).
+        (None, "notes.txt", "application/octet-stream", "notes.txt"),
+        (None, "notes.txt", "binary/octet-stream", "notes.txt"),
+        # Generic octet-stream with no title extension → no signal → None (upload.bin).
+        (None, "data", "application/octet-stream", None),
+        (None, None, "application/octet-stream", None),
         # No usable extension signal at all → None (→ safe_upload_name's upload.bin).
         (None, "notes", None, None),
         (None, None, None, None),

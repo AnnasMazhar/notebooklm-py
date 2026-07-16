@@ -191,6 +191,15 @@ def _broker_upload(
     }
 
 
+#: MIME types too generic to seed a useful extension. ``application/octet-stream`` is
+#: "unknown binary"; ``guess_extension`` maps it to a platform-dependent suffix
+#: (``.bin`` / ``.so`` / ``.obj`` / …), none better than the extensionless-equivalent
+#: NotebookLM already rejects — and all of which would wrongly clobber a real extension
+#: the title carries (``notes.txt`` → ``notes.txt.bin``, #1955 review). Treat them as
+#: "no extension signal" so a title's own extension wins instead.
+_GENERIC_MIMES = frozenset({"application/octet-stream", "binary/octet-stream"})
+
+
 def _seed_upload_filename(
     filename: str | None, title: str | None, mime_type: str | None
 ) -> str | None:
@@ -203,10 +212,13 @@ def _seed_upload_filename(
 
     * an explicit ``filename`` wins verbatim (unchanged behavior);
     * otherwise seed the stem from ``title`` (default ``"upload"``) and the extension
-      from ``mime_type`` via :func:`mimetypes.guess_extension` (``text/plain`` →
-      ``.txt``, ``application/pdf`` → ``.pdf``), not doubling one the title already
-      spells (``report.pdf`` + ``.pdf`` → ``report.pdf``);
-    * with no mime-derived extension, a title that already carries one seeds the name;
+      from a *specific* ``mime_type`` via :func:`mimetypes.guess_extension`
+      (``text/plain`` → ``.txt``, ``application/pdf`` → ``.pdf``), not doubling one the
+      title already spells (``report.pdf`` + ``.pdf`` → ``report.pdf``);
+    * a generic ``application/octet-stream`` carries no real extension signal
+      (:data:`_GENERIC_MIMES`), so it never overrides an extension the title already
+      has (``notes.txt`` stays ``notes.txt``, not ``notes.txt.bin``);
+    * with no usable mime extension, a title that already carries one seeds the name;
     * failing all of that, return ``None`` so :func:`safe_upload_name` applies its
       extensioned ``upload.bin`` fallback rather than a bare extensionless name.
 
@@ -221,12 +233,16 @@ def _seed_upload_filename(
     # Content-Type like ``text/plain; charset=utf-8`` — a standard value an HTTP-facing
     # connector passes — would miss and reproduce #1955. Strip params to the bare type
     # first, the same normalization the sibling ``/files/ul`` route applies.
-    bare_mime = mime_type.split(";", 1)[0].strip() if mime_type else None
-    ext = mimetypes.guess_extension(bare_mime) if bare_mime else None
+    bare_mime = mime_type.split(";", 1)[0].strip().lower() if mime_type else ""
+    ext = (
+        mimetypes.guess_extension(bare_mime)
+        if bare_mime and bare_mime not in _GENERIC_MIMES
+        else None
+    )
     if ext:
         # Only skips doubling on an exact match, so a title carrying a DIFFERENT
-        # extension than the mime implies (``report.doc`` + ``application/pdf`` →
-        # ``report.doc.pdf``) still gets one appended — a known simplification: the
+        # extension than a specific mime implies (``report.doc`` + ``application/pdf``
+        # → ``report.doc.pdf``) still gets one appended — a known simplification: the
         # upload succeeds either way since a real extension is present.
         if stem and os.path.splitext(stem)[1].lower() == ext.lower():
             return stem
