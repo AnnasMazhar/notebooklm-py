@@ -31,8 +31,15 @@ pytest.importorskip("fastmcp")
 #: to ~36.0k). Move these DOWN as the surface gets leaner; a rise means
 #: description/param bloat that must be justified, not rubber-stamped.
 SCHEMA_CHAR_BUDGET = (
-    39_400  # total serialized inputSchema + description chars (current 39_384; +16 slack)
+    39_480  # total serialized inputSchema + description chars (current 39_451; +29 slack)
 )
+# #1911 grew studio_download's description: on the remote (http) connector a text
+# artifact (report / data-table) now returns its body INLINE (bounded content +
+# char_count + truncated) for link-incapable hosts, since the server filesystem is
+# unreachable there. Justified feature growth (+67 chars over the prior +16 slack) —
+# three tool PRs (#1908/#1911/#1912) merged in quick succession with intermediate CI
+# runs cancelled, so the budget was not bumped in the race. This restores the ratchet
+# just above the real surface.
 # #1908 documented studio_generate's mind-map exception (mind-map renders
 # synchronously → NO pollable task_id; the rendered map is returned inline under
 # mind_map). Absorbed within the existing budget, partly by trimming the redundant
