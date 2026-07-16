@@ -111,6 +111,49 @@ def _check_http_auth_required(host: str, token: str | None, oauth: OAuthConfig |
         )
 
 
+#: Values of ``FASTMCP_STATELESS_HTTP`` that FastMCP reads as False. An explicit one of
+#: these (paired with the upload widget) is the footgun this warning guards (#1915).
+_FALSEY_STATELESS_VALUES = frozenset({"false", "0", "no", "off"})
+
+
+def _resolve_stateless_http() -> bool | None:
+    """Resolve the ``stateless_http`` value for the http transport, warning on a footgun.
+
+    * Widget on + ``FASTMCP_STATELESS_HTTP`` unset → return ``True`` (auto-enable stateless,
+      which the MCP-Apps upload widget needs to render) and log it.
+    * Widget on + ``FASTMCP_STATELESS_HTTP`` explicitly **falsey** → warn: the widget cannot
+      render (an MCP-Apps host fetches the ``ui://`` resource without a session id, which a
+      stateful server rejects), then return ``None`` (honor the operator's explicit choice).
+    * Otherwise → return ``None`` (FastMCP reads ``FASTMCP_STATELESS_HTTP`` itself).
+
+    An empty ``FASTMCP_STATELESS_HTTP`` is already stripped to *unset* by ``notebooklm.mcp``
+    at import (#1898), so a present value here is a real, non-empty one.
+    """
+    from ._uploadwidget import _WIDGET_FLAG
+
+    widget_on = os.environ.get(_WIDGET_FLAG) == "1"
+    stateless_env = os.environ.get("FASTMCP_STATELESS_HTTP")
+    log = logging.getLogger(__name__)
+    if stateless_env is None:
+        if widget_on:
+            log.info(
+                "%s=1 → enabling stateless HTTP (required for MCP-Apps widget rendering)",
+                _WIDGET_FLAG,
+            )
+            return True
+        return None
+    if widget_on and stateless_env.strip().lower() in _FALSEY_STATELESS_VALUES:
+        log.warning(
+            "%s=1 but FASTMCP_STATELESS_HTTP=%s — the in-app upload widget CANNOT render: an "
+            "MCP-Apps host fetches the ui:// resource without a chat session id, which a stateful "
+            "server rejects. Unset FASTMCP_STATELESS_HTTP (the widget auto-enables stateless) or "
+            "set it to a true value.",
+            _WIDGET_FLAG,
+            stateless_env,
+        )
+    return None
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="notebooklm-mcp",
@@ -246,19 +289,13 @@ def main(argv: list[str] | None = None) -> None:
         from starlette.middleware import Middleware
 
         from ._host_guard import LoopbackHostGuardMiddleware
-        from ._uploadwidget import _WIDGET_FLAG
 
         # The MCP-App upload widget needs stateless HTTP: an MCP-Apps host (claude.ai) fetches the
         # ui:// widget resource on a connection WITHOUT the chat Mcp-Session-Id, which a stateful
-        # server rejects as "Missing session ID" ("fail to fetch app content"). So enabling the
-        # widget implies stateless unless the operator set FASTMCP_STATELESS_HTTP explicitly.
-        stateless_http: bool | None = None  # None → FastMCP reads FASTMCP_STATELESS_HTTP
-        if "FASTMCP_STATELESS_HTTP" not in os.environ and os.environ.get(_WIDGET_FLAG) == "1":
-            stateless_http = True
-            logging.getLogger(__name__).info(
-                "%s=1 → enabling stateless HTTP (required for MCP-Apps widget rendering)",
-                _WIDGET_FLAG,
-            )
+        # server rejects as "Missing session ID" ("fail to fetch app content"). Enabling the widget
+        # implies stateless unless the operator set FASTMCP_STATELESS_HTTP explicitly — and an
+        # explicit falsey value is warned about (it silently breaks the widget). See #1915.
+        stateless_http = _resolve_stateless_http()  # None → FastMCP reads FASTMCP_STATELESS_HTTP
 
         server.run(
             transport="http",
