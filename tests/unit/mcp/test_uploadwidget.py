@@ -73,8 +73,28 @@ def test_widget_html_auto_confirms_only_on_success() -> None:
     # #1891: the auto-confirm fires from inside the res.ok branch (a committed upload), never on a
     # failed POST — a corrupted/failed upload must not tell the model a source was added.
     assert "uploadUrls[i]=null;confirmUpload(tok)" in _WIDGET_HTML
-    # It reads the confirm contract the tool returns, not a hard-coded tool name.
+    # It reads the confirm contract the tool returns for the arg/link...
     assert "confirmSpec=d.confirm" in _WIDGET_HTML
+
+
+def test_widget_html_hard_allowlists_the_confirm_tool() -> None:
+    # SECURITY: confirmSpec arrives via the un-origin-checked postMessage handler, so the tool name
+    # must be hard-allowlisted — a spoofed message must not be able to redirect which tool runs.
+    assert 'CONFIRM_TOOL="await_upload"' in _WIDGET_HTML
+    assert "confirmSpec.tool!==CONFIRM_TOOL" in _WIDGET_HTML  # gate before invoking
+    # The invocation uses the constant, never the message-supplied name.
+    assert "oai.callTool(CONFIRM_TOOL,args)" in _WIDGET_HTML
+    assert "name:CONFIRM_TOOL" in _WIDGET_HTML
+    # callTool rejection is swallowed (no unhandled promise rejection in the host console).
+    assert "oai.callTool(CONFIRM_TOOL,args).catch(" in _WIDGET_HTML
+
+
+def test_widget_confirm_uses_unique_monotonic_rpc_id() -> None:
+    # A multi-file batch fires confirmUpload once per file; two completions in the same millisecond
+    # must NOT collide on the JSON-RPC id, so the id is a strictly-monotonic counter, not Date.now().
+    assert 'id:"cf"+(++cfSeq)' in _WIDGET_HTML
+    assert "let cfSeq=0" in _WIDGET_HTML
+    assert 'id:"cf"+Date.now()' not in _WIDGET_HTML  # the collision-prone form must be gone
 
 
 def test_widget_domain_is_sha256_of_endpoint() -> None:

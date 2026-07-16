@@ -89,16 +89,22 @@ _WIDGET_HTML = """<!doctype html>
  const hasNative=!!(oai&&typeof oai.uploadFile==="function");  // OpenAI native upload (interop signal)
  let initialized=false, uploadUrls=null;  // a POOL of single-use tokens, one per file
  let confirmSpec=null;  // {tool,arg,values}: the auto-confirm contract fired after a successful upload
+ let cfSeq=0;  // strictly-monotonic JSON-RPC id counter — unique per confirm even for same-ms completions
  const geturls=o=>o&&((Array.isArray(o.upload_urls)&&o.upload_urls.length&&o.upload_urls)||(o.upload_url&&[o.upload_url]))||null;
  // Auto-confirm (#1891): after a file lands, ask the host to run await_upload on the link we just
  // used, so the model confirms the add with no second user prompt. Host-appropriate + best-effort:
  // ChatGPT exposes window.openai.callTool; claude.ai/MCP-Apps takes a tools/call over postMessage.
  // A host that ignores it just leaves the model on the manual await_upload/source_list path.
- function confirmUpload(link){ if(!confirmSpec||!confirmSpec.tool||!link)return;
+ // SECURITY: confirmSpec arrives via the un-origin-checked postMessage handler below, so a spoofed
+ // message could set confirmSpec.tool to any name — HARD-ALLOWLIST the one tool the backend ever
+ // sends so a spoofed message can never redirect which tool we invoke (the link is always our own
+ // just-uploaded signed token, so the args aren't attacker-controlled either).
+ const CONFIRM_TOOL="await_upload";
+ function confirmUpload(link){ if(!confirmSpec||confirmSpec.tool!==CONFIRM_TOOL||!link)return;
    const args={}; args[confirmSpec.arg||"upload_link"]=link;
    try{
-     if(oai&&typeof oai.callTool==="function"){oai.callTool(confirmSpec.tool,args);return;}
-     post({jsonrpc:"2.0",id:"cf"+Date.now(),method:"tools/call",params:{name:confirmSpec.tool,arguments:args}});
+     if(oai&&typeof oai.callTool==="function"){oai.callTool(CONFIRM_TOOL,args).catch(()=>{});return;}
+     post({jsonrpc:"2.0",id:"cf"+(++cfSeq),method:"tools/call",params:{name:CONFIRM_TOOL,arguments:args}});
    }catch(e){}
  }
  function ready(h){if(initialized)return;initialized=true;
@@ -122,10 +128,13 @@ _WIDGET_HTML = """<!doctype html>
      sub.textContent="pick file(s) to add"+(d.notebook?" to "+d.notebook:"");}
  }
  // claude.ai / Grok: tool result arrives via postMessage. We deliberately don't allowlist
- // ev.origin (host origin differs per platform — claude.ai / chatgpt.com / Grok): the only thing
- // a message can influence is uploadUrl, and (a) the resource CSP connect-src pins uploads to
- // config.base_url and (b) /files/ul requires a server-signed single-use token, so a spoofed URL
- // can't exfiltrate or add anything. CSP + signed token are the guard, not the frame origin.
+ // ev.origin (host origin differs per platform — claude.ai / chatgpt.com / Grok). A spoofed
+ // message can influence two things: (1) uploadUrl — but the resource CSP connect-src pins uploads
+ // to config.base_url and /files/ul requires a server-signed single-use token, so a spoofed URL
+ // can't exfiltrate or add anything; and (2) confirmSpec (the #1891 auto-confirm contract) — but
+ // confirmUpload hard-allowlists the tool name (CONFIRM_TOOL) and only ever passes our own
+ // just-uploaded signed token, so a spoofed message can't redirect which tool runs or with what.
+ // CSP + signed token + the tool allowlist are the guard, not the frame origin.
  window.addEventListener("message",ev=>{let d=ev.data;if(d==null)return;
    if(typeof d==="string"){try{d=JSON.parse(d)}catch(e){return}}
    if(d.result&&!d.method){ready(d.result.hostInfo&&d.result.hostInfo.name);
