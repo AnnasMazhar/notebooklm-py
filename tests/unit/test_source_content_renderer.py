@@ -99,6 +99,47 @@ async def test_markdown_mode_uses_html_rpc_shape_and_converts_html() -> None:
 
 
 @pytest.mark.asyncio
+async def test_markdown_mode_preserves_br_in_table_cells() -> None:
+    """A ``<br>`` inside a table cell survives conversion as a literal ``<br>`` (#1900)."""
+    pytest.importorskip("markdownify")
+    rpc = RecordingRpc(
+        [
+            ["src_md", "Table Source", [None, None, None, None, 8]],
+            None,
+            None,
+            None,
+            [None, "<table><tr><td>Column 1 <br> Line 2</td><td>Value</td></tr></table>"],
+        ]
+    )
+    renderer = SourceContentRenderer(rpc)
+
+    fulltext = await renderer.get_fulltext("nb_1", "src_md", output_format="markdown")
+
+    assert "Column 1 <br> Line 2" in fulltext.content
+
+
+@pytest.mark.asyncio
+async def test_markdown_mode_repairs_inline_latex_next_to_bold() -> None:
+    """Inline LaTeX adjacent to bold markup stays valid through conversion (#1899)."""
+    pytest.importorskip("markdownify")
+    rpc = RecordingRpc(
+        [
+            ["src_md", "Math Source", [None, None, None, None, 8]],
+            None,
+            None,
+            None,
+            [None, "<p><strong>(B)</strong> <strong>bound</strong> $LT\\alpha_1\\beta_2$</p>"],
+        ]
+    )
+    renderer = SourceContentRenderer(rpc)
+
+    fulltext = await renderer.get_fulltext("nb_1", "src_md", output_format="markdown")
+
+    assert "$LT\\alpha_1\\beta_2$" in fulltext.content
+    assert "\\_" not in fulltext.content
+
+
+@pytest.mark.asyncio
 async def test_markdown_mode_missing_dependency_fails_before_rpc(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
