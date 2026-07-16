@@ -111,9 +111,10 @@ def _check_http_auth_required(host: str, token: str | None, oauth: OAuthConfig |
         )
 
 
-#: Values of ``FASTMCP_STATELESS_HTTP`` that FastMCP reads as False. An explicit one of
-#: these (paired with the upload widget) is the footgun this warning guards (#1915).
-_FALSEY_STATELESS_VALUES = frozenset({"false", "0", "no", "off"})
+#: Values of ``FASTMCP_STATELESS_HTTP`` that FastMCP (pydantic-settings) reads as False.
+#: An explicit one of these (paired with the upload widget) is the footgun this warning
+#: guards (#1915). Kept in sync with pydantic's bool-false set (case-insensitive).
+_FALSEY_STATELESS_VALUES = frozenset({"0", "false", "f", "no", "n", "off"})
 
 
 def _resolve_stateless_http() -> bool | None:
@@ -131,18 +132,21 @@ def _resolve_stateless_http() -> bool | None:
     """
     from ._uploadwidget import _WIDGET_FLAG
 
-    widget_on = os.environ.get(_WIDGET_FLAG) == "1"
+    if os.environ.get(_WIDGET_FLAG) != "1":
+        return None  # Widget off → nothing to resolve; FastMCP reads the env itself.
+
     stateless_env = os.environ.get("FASTMCP_STATELESS_HTTP")
     log = logging.getLogger(__name__)
     if stateless_env is None:
-        if widget_on:
-            log.info(
-                "%s=1 → enabling stateless HTTP (required for MCP-Apps widget rendering)",
-                _WIDGET_FLAG,
-            )
-            return True
-        return None
-    if widget_on and stateless_env.strip().lower() in _FALSEY_STATELESS_VALUES:
+        log.info(
+            "%s=1 → enabling stateless HTTP (required for MCP-Apps widget rendering)",
+            _WIDGET_FLAG,
+        )
+        return True
+    # No .strip(): pydantic-settings does not strip, so a whitespace-padded value is
+    # rejected at FastMCP import (a loud crash, not a silent non-render) — this warning
+    # targets exactly the values FastMCP reads as False, matching pydantic's set.
+    if stateless_env.lower() in _FALSEY_STATELESS_VALUES:
         log.warning(
             "%s=1 but FASTMCP_STATELESS_HTTP=%s — the in-app upload widget CANNOT render: an "
             "MCP-Apps host fetches the ui:// resource without a chat session id, which a stateful "
