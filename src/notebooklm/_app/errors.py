@@ -156,7 +156,7 @@ CATEGORY_HINTS: dict[ErrorCategory, str | None] = {
     ErrorCategory.SOURCE_ADD: (
         "NotebookLM could not add this source (invalid/inaccessible URL, paywalled, empty, "
         "or unparseable); fix the input and retry — a failed source stub may have been "
-        "created, so list the notebook's sources filtered to the error/failed status to "
+        "created, so list the notebook's sources filtered to the error status to "
         "find and remove it."
     ),
     ErrorCategory.LIBRARY: None,
@@ -221,7 +221,7 @@ def is_retriable(category: ErrorCategory) -> bool:
     return category in _RETRIABLE_CATEGORIES
 
 
-def _normalized_rpc_code(exc: ClientError) -> int | None:
+def _normalized_rpc_code(exc: RPCError) -> int | None:
     """Return ``exc.rpc_code`` normalized to an ``int``, or ``None`` if absent/non-numeric.
 
     ``rpc_code`` is typed ``str | int | None``; a string ``"5"`` must compare
@@ -235,6 +235,22 @@ def _normalized_rpc_code(exc: ClientError) -> int | None:
         return int(code)
     except (TypeError, ValueError):
         return None
+
+
+#: rpc_codes that mean a *transient / server-side* failure (not specific to the one
+#: input): HTTP 5xx, plus the gRPC-status infra codes (4 DEADLINE_EXCEEDED, 8
+#: RESOURCE_EXHAUSTED, 13 INTERNAL, 14 UNAVAILABLE). Used to keep a SourceAddError
+#: whose bare-RPCError cause carries one of these FATAL in a batch add — the per-source
+#: rejection codes (e.g. 3 INVALID_ARGUMENT / 9 FAILED_PRECONDITION) fall through to
+#: the non-fatal SOURCE_ADD instead.
+_TRANSIENT_GRPC_CODES = frozenset({4, 8, 13, 14})
+
+
+def _is_transient_rpc_code(code: int | None) -> bool:
+    """Whether ``code`` denotes a transient/server-side failure worth a retry."""
+    if code is None:
+        return False
+    return 500 <= code < 600 or code in _TRANSIENT_GRPC_CODES
 
 
 def _category_for(exc: BaseException) -> ErrorCategory:
@@ -303,12 +319,19 @@ def _category_for(exc: BaseException) -> ErrorCategory:
 
     # --- Per-source ADD failure (SourceAddError). ----------------------------
     # A SourceError -> NotebookLMError (NOT an RPCError), so it reaches here only
-    # after every RPC/infra branch missed. ``_source/add.py`` re-raises the infra
-    # signals (auth/rate-limit/server/network) UNWRAPPED and wraps ONLY a residual
-    # per-URL RPCError as SourceAddError, so this is guaranteed a per-item input
-    # failure — hence a NON-fatal category that isolates in a batch add. Must
-    # precede the LIBRARY catch-all to keep its distinct 4xx category.
+    # after every RPC/infra branch missed. ``_source/add.py`` re-raises the TYPED
+    # infra signals (auth/rate-limit/server/network) UNWRAPPED and wraps only a
+    # residual RPCError as SourceAddError — usually a genuine per-source rejection
+    # (bad URL, FAILED_PRECONDITION, …), which isolates as the NON-fatal SOURCE_ADD.
+    # BUT a transient/server failure can still reach the wrap as a *bare* RPCError
+    # (the null-result-with-status path in ``rpc/decoder.py`` raises RPCError with an
+    # infra ``rpc_code`` rather than a typed ServerError). Keep those FATAL so a batch
+    # add aborts for retry/backoff instead of masking a rate-limit/5xx as a per-item
+    # error. Must precede the LIBRARY catch-all to keep its distinct 4xx category.
     if isinstance(exc, SourceAddError):
+        cause = getattr(exc, "cause", None)
+        if isinstance(cause, RPCError) and _is_transient_rpc_code(_normalized_rpc_code(cause)):
+            return ErrorCategory.SERVER
         return ErrorCategory.SOURCE_ADD
 
     # --- CLI-input source-mutation error (carries its own .code taxonomy). ----
