@@ -66,15 +66,17 @@ tool-count / schema-char budgets) unless a deployment enables it.
     `await_upload` reads and `ConsumedJtiStore` (the single-use/replay guard) are likewise
     per-process. Because the file routes carry no session id, a load balancer can't co-locate the
     mint and the POST via MCP session affinity even in *stateful* mode (explicit cookie/IP affinity
-    still could) — the hazard is **>1 replica**, which stateless only makes tempting. Under
-    multi-replica: (a) a `/files/ul` POST minted by one process but landing on another **fails
-    signature verification (403) — the source is never added**, not merely an `await_upload`
-    confirmation miss; (b) even with a shared signing key, `await_upload` would false-negative
-    across processes (`source_list`, an RPC to Google that works on any replica, is the
-    source-of-truth backstop) and the single-use guard (upload tokens only) degrades to per-process,
-    so a leaked upload token is replayable ~once per process within its TTL (low harm: a duplicate
-    source). To scale out, back the signing key **and** the JTI / completion stores with a shared
-    store (e.g. Redis) or pin token minting + `/files/*` + `await_upload` to one replica.
+    still could) — the hazard is **>1 process** (multiple replicas, or a single replica running
+    multiple workers), which stateless only makes tempting. Under multi-process: (a) a `/files/ul`
+    POST minted by one process but landing on another **fails signature verification (403) — the
+    source is never added**, not merely an `await_upload` confirmation miss; (b) even with a shared
+    signing key, `await_upload` would false-negative across processes (`source_list`, an RPC to
+    Google that works on any replica, is the source-of-truth backstop) and the single-use guard
+    (upload tokens only) degrades to per-process, so a leaked upload token — a content-agnostic
+    write primitive — is replayable ~once per process within its TTL, each replay adding one more
+    attacker-chosen source (bounded by process count and TTL; a deployment wanting a hard cap needs
+    quota controls). To scale out, back the signing key **and** the JTI / completion stores with a
+    shared store (e.g. Redis) or pin token minting + `/files/*` + `await_upload` to one replica.
   - **Forecloses server→client MCP features.** Stateless rules out sampling, elicitation, and
     subscriptions / out-of-band notifications (single-request progress notifications still work).
     Each is already covered otherwise — NotebookLM answers with its own grounded model, not the
