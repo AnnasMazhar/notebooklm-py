@@ -333,6 +333,9 @@ _TXT_EXT = mimetypes.guess_extension("text/plain")
         ("report.pdf", "My Title", "text/plain", "report.pdf"),
         # title + mime → stem from title, extension from mime.
         (None, "b3-stress-bytes", "text/plain", f"b3-stress-bytes{_TXT_EXT}"),
+        # A parameterized Content-Type (charset param) is normalized to the bare type
+        # before the extension lookup — otherwise it'd miss and reproduce #1955.
+        (None, "b3-stress-bytes", "text/plain; charset=utf-8", f"b3-stress-bytes{_TXT_EXT}"),
         # mime only (no title) → the default "upload" stem + mime extension.
         (None, None, "application/pdf", "upload.pdf"),
         (None, "", "application/pdf", "upload.pdf"),

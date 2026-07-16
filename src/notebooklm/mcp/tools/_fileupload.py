@@ -217,8 +217,17 @@ def _seed_upload_filename(
     if filename:
         return filename
     stem = (title or "").strip()
-    ext = mimetypes.guess_extension(mime_type) if mime_type else None
+    # guess_extension does an exact (lower-cased) dict lookup, so a parameterized
+    # Content-Type like ``text/plain; charset=utf-8`` — a standard value an HTTP-facing
+    # connector passes — would miss and reproduce #1955. Strip params to the bare type
+    # first, the same normalization the sibling ``/files/ul`` route applies.
+    bare_mime = mime_type.split(";", 1)[0].strip() if mime_type else None
+    ext = mimetypes.guess_extension(bare_mime) if bare_mime else None
     if ext:
+        # Only skips doubling on an exact match, so a title carrying a DIFFERENT
+        # extension than the mime implies (``report.doc`` + ``application/pdf`` →
+        # ``report.doc.pdf``) still gets one appended — a known simplification: the
+        # upload succeeds either way since a real extension is present.
         if stem and os.path.splitext(stem)[1].lower() == ext.lower():
             return stem
         return (stem or "upload") + ext
