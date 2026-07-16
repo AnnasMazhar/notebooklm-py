@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import mimetypes
 import os
 import textwrap
 from collections.abc import AsyncIterator
@@ -316,13 +317,22 @@ async def test_source_add_bytes_default_filename_and_no_mime(mock_client) -> Non
 # real extension (NotebookLM 400s an extensionless upload) by seeding it from the
 # title + mime, and must NEVER regress the extensioned `upload.bin` fallback nor
 # bypass the shared safe_upload_name security pass.
+#
+# ``application/pdf`` is a single, stable mime→ext mapping, so ``.pdf`` is asserted
+# literally. ``text/plain`` maps to many extensions whose order (hence
+# ``guess_extension``'s pick) depends on the platform's mime.types, so those rows
+# compute the expected extension from ``mimetypes`` rather than hardcoding it —
+# what the fix guarantees is "an extension is seeded", not which one.
+_TXT_EXT = mimetypes.guess_extension("text/plain")
+
+
 @pytest.mark.parametrize(
     ("filename", "title", "mime_type", "expected"),
     [
         # Explicit filename always wins verbatim — title/mime don't touch it.
         ("report.pdf", "My Title", "text/plain", "report.pdf"),
         # title + mime → stem from title, extension from mime.
-        (None, "b3-stress-bytes", "text/plain", "b3-stress-bytes.txt"),
+        (None, "b3-stress-bytes", "text/plain", f"b3-stress-bytes{_TXT_EXT}"),
         # mime only (no title) → the default "upload" stem + mime extension.
         (None, None, "application/pdf", "upload.pdf"),
         (None, "", "application/pdf", "upload.pdf"),
@@ -340,6 +350,14 @@ async def test_source_add_bytes_default_filename_and_no_mime(mock_client) -> Non
 )
 def test_seed_upload_filename(filename, title, mime_type, expected) -> None:
     assert fileupload_mod._seed_upload_filename(filename, title, mime_type) == expected
+
+
+def test_text_plain_resolves_to_an_extension() -> None:
+    # Guards the assumption the #1955 fix rests on: a text/plain bytes upload can be
+    # given a real extension. If a platform's mimetypes can't map text/plain, the seed
+    # would fall back to upload.bin — surface that here rather than in a confusing
+    # basename mismatch elsewhere.
+    assert _TXT_EXT and _TXT_EXT.startswith(".")
 
 
 async def test_source_add_bytes_title_and_mime_seed_extension(mock_client) -> None:
@@ -367,7 +385,7 @@ async def test_source_add_bytes_title_and_mime_seed_extension(mock_client) -> No
         },
     )
     assert result.structured_content["status"] == "added"
-    assert os.path.basename(seen["path"]) == "b3-stress-bytes.txt"
+    assert os.path.basename(seen["path"]) == f"b3-stress-bytes{_TXT_EXT}"
     # The title still rides through as the source label, independent of the basename.
     assert seen["title"] == "b3-stress-bytes"
     assert seen["mime"] == "text/plain"
@@ -446,7 +464,7 @@ async def test_source_add_bytes_seeded_name_still_sanitized(mock_client) -> None
         },
     )
     # basename strips the traversal; the mime extension is appended to the safe leaf.
-    assert os.path.basename(seen["path"]) == "passwd.txt"
+    assert os.path.basename(seen["path"]) == f"passwd{_TXT_EXT}"
     assert "/etc/passwd" not in seen["path"]
 
 
