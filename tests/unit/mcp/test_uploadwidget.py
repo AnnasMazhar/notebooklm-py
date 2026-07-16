@@ -62,8 +62,19 @@ def test_widget_html_is_cross_host() -> None:
         'type="file" multiple',  # universal picker, multi-select
         "upload_urls",  # reads the token pool (one single-use token per file)
         "?filename=",  # direct-PUT to /files/ul
+        "confirmUpload",  # auto-confirm invoker (#1891)
+        "callTool",  # ChatGPT auto-confirm path (window.openai.callTool)
+        '"tools/call"',  # claude.ai auto-confirm path (postMessage tools/call)
     ):
         assert marker in _WIDGET_HTML, marker
+
+
+def test_widget_html_auto_confirms_only_on_success() -> None:
+    # #1891: the auto-confirm fires from inside the res.ok branch (a committed upload), never on a
+    # failed POST — a corrupted/failed upload must not tell the model a source was added.
+    assert "uploadUrls[i]=null;confirmUpload(tok)" in _WIDGET_HTML
+    # It reads the confirm contract the tool returns, not a hard-coded tool name.
+    assert "confirmSpec=d.confirm" in _WIDGET_HTML
 
 
 def test_widget_domain_is_sha256_of_endpoint() -> None:
@@ -140,6 +151,32 @@ async def test_widget_tool_returns_single_use_token_pool(monkeypatch) -> None:
     assert all("/files/ul/" in u for u in urls)
     assert result["upload_url"] == urls[0]  # await_upload back-compat
     assert result["notebook_id"] == "nb-123"
+
+
+async def test_widget_tool_returns_auto_confirm_contract(monkeypatch) -> None:
+    """#1891: source_add_widget returns a machine-readable ``confirm`` contract the widget fires
+    after a successful upload — await_upload on the link just used, so the model confirms the add
+    with no second prompt. ``values`` mirrors the token pool; back-compat fields are unchanged."""
+    monkeypatch.setenv("NOTEBOOKLM_MCP_UPLOAD_WIDGET", "1")
+    cfg = _cfg()
+    mcp = _server(cfg)
+    tool = {t.name: t for t in await mcp._list_tools()}["source_add_widget"]
+    monkeypatch.setattr(_uploadwidget, "resolve_notebook", AsyncMock(return_value="nb-123"))
+    ctx = SimpleNamespace(
+        request_context=SimpleNamespace(
+            lifespan_context=SimpleNamespace(client=MagicMock(), file_transfer=cfg)
+        )
+    )
+
+    result = await tool.fn(ctx, notebook="My Notebook")
+
+    assert result["confirm"] == {
+        "tool": "await_upload",
+        "arg": "upload_link",
+        "values": result["upload_urls"],
+    }
+    # Additive only — the pool/back-compat fields the widget already relies on are untouched.
+    assert result["upload_url"] == result["upload_urls"][0]
 
 
 async def test_widget_pool_tokens_carry_the_longer_widget_ttl(monkeypatch) -> None:
