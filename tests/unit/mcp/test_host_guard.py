@@ -6,8 +6,14 @@ from typing import Any, cast
 
 import pytest
 
-from notebooklm.mcp.__main__ import _host_guard_bypass_allowed
-from notebooklm.mcp._host_guard import LoopbackHostGuardMiddleware
+pytest.importorskip("fastmcp")  # __main__ pulls in fastmcp via _auth
+
+from notebooklm.mcp.__main__ import (
+    _host_guard_bypass_allowed,  # noqa: E402 - after importorskip guard
+)
+from notebooklm.mcp._host_guard import (
+    LoopbackHostGuardMiddleware,  # noqa: E402 - after importorskip guard
+)
 
 
 class _Recorder:
