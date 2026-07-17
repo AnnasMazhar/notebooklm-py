@@ -73,25 +73,40 @@ Why this exact shape (each point raised by review):
    conversation_id) -> bool` so the raw-unwrap + no-swallow policy lives in one
    place and isn't duplicated inline.
 
-5. **Local-cache fast path (bounds the hot-path cost — from agy review).** Before
-   issuing the khqZz probe, check the client turn cache for `current_id`
-   (`self._cache.get_cached_conversation(current_id)`): if it already holds ≥1
-   turn, the conversation is provably a follow-up → set `is_follow_up=True` and
-   **skip the RPC**. Only a *cold* cache (empty — the stateless-remote case, and a
-   cold stdio client) falls through to the khqZz probe. Note the asymmetry: a
-   *non-empty* cache proves follow-up, but an *empty* cache does NOT prove
-   0 prior turns (it may just be cold), so the empty case must still probe. This
-   keeps the warm stdio path at 1 pre-POST RPC and confines the extra probe to the
-   cold/stateless case — exactly where the bug lives.
+5. **Local-cache fast path (agy review) — RECONSIDERED, default = DROP it.** The
+   original idea: if `self._cache.get_cached_conversation(current_id)` holds ≥1
+   turn, report follow-up and skip the khqZz probe, confining the RPC to the
+   cold/stateless case. It is *monotonic-safe in isolation* (a non-empty cache
+   proves ≥1 prior turn; an empty cache still probes) and *never fires on the
+   stateless remote* (cold every request). **But under a concurrent second client
+   (the NotebookLM Web UI on the same account) it introduces a cross-client
+   staleness edge:** a same-client delete clears the cache (`api.py:696` +
+   `_deleted_conversations`), but a **Web-UI delete** of the current conversation
+   does not — so a warm stdio client + `hPTbtc` replication lag can fast-path to
+   `is_follow_up=True` on a now-fresh conversation, re-opening the #1973 symptom
+   (narrow window, non-corrupting — the cache only sets the boolean; the POST
+   always sends `history=None`, so no answer is ever affected).
+
+   **Decision: DROP the fast path — always probe.** The win is one `limit=1` RPC
+   on warm-stdio follow-ups only (nothing on the remote), against a cross-client
+   correctness edge + an extra branch to test. Always-probing is
+   server-authoritative and simpler. If interactive-stdio TTFT later proves this
+   matters, re-add the fast path *with* a documented cross-client-delete
+   limitation — but do not treat it as load-bearing for correctness. (This
+   supersedes the earlier "keep the fast path" framing; see the #1974 review
+   thread where the same trade-off was raised.)
 
 ### Cost & latency (explicit sign-off required)
 
 Null-ask is the **default** chat path, and this probe is **pre-POST**, so it adds
 to time-to-first-token, not just total time. Today the pre-POST cost is 1 RPC
-(hPTbtc); with a cold cache this adds a second (khqZz `limit=1`) whenever a current
-conversation exists. Accepted as the cost of a correct signal, bounded by: (a) the
-local-cache fast path above (warm cache → 0 extra RPC), and (b) `limit=1`
-existence-only (not a full-history pull). The explicit-id path is unchanged.
+(hPTbtc); with the fast path dropped (point 5), a null ask with a current
+conversation adds a second (khqZz `limit=1`) whenever `override is not None`.
+Accepted as the cost of a correct, server-authoritative signal, bounded by
+`limit=1` existence-only (not a full-history pull). On the stateless remote this
+was already the behavior (cache always cold); the only new cost is one `limit=1`
+RPC on **warm-stdio** follow-ups — deemed acceptable vs. the cross-client
+staleness the fast path would introduce. The explicit-id path is unchanged.
 
 ## `turn_number` — deliberately OUT OF SCOPE, but owned (not waved off)
 
@@ -131,11 +146,12 @@ to mock. Downgraded to "confirm for test realism," not an implementation gate.
   old `None` mock missed); + ≥1 row → True; hPTbtc None → False; explicit id →
   True; deleted current id → False (no probe).
 - **Probe-failure test**: khqZz raises → the ask raises (not silent False).
-- **Warm-cache fast-path test** (agy path): a null ask whose client cache already
-  holds ≥1 turn for `current_id` → `is_follow_up=True` **and no khqZz call is
-  issued** (assert the probe is NOT called). State each test case's cache state
-  explicitly — path selection depends on cache warmth, so a warm cache would
-  otherwise silently bypass the khqZz mock and exercise the wrong branch.
+- **Warm-cache probes anyway** (fast path dropped, point 5): a null ask with a
+  warm client cache for `current_id` still issues the khqZz probe and derives
+  `is_follow_up` from the *server* — assert the probe IS called even with a warm
+  cache (so no one silently re-adds a cache short-circuit). State each test case's
+  cache state explicitly regardless, since a stray cache-based branch would
+  otherwise bypass the khqZz mock.
 - **Fixture fallout (REQUIRED — the probe breaks existing passing tests):**
   `tests/conftest.py` (~L390 `mock_get_conversation_id`) only mocks hPTbtc; add a
   `mock_get_conversation_turns` / khqZz fixture, and update every existing
