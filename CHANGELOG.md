@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Research import is now idempotent.** Re-importing a completed research task
+  no longer duplicates its sources: `import_sources_with_verification` (and the
+  MCP `research_import` tool that drives it) pre-filters requested sources whose
+  URL already exists in the notebook on *every* attempt, not only on the
+  timeout-retry path. A repeat import adds nothing and reports the skipped
+  sources — the MCP result gains `newly_imported` / `already_present` (with the
+  existing source ids) and a `status` of `already_imported`. Pass
+  `allow_duplicate=True` (MCP) to force a re-add. Report / pasted-text entries
+  have no dedupable URL and are unaffected
+  ([#1961](https://github.com/teng-lin/notebooklm-py/issues/1961)).
+
 ## [0.8.0]
 
 The headline of 0.8.0 is **integrations**: NotebookLM is now reachable from AI
