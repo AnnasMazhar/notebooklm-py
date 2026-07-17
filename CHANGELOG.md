@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `chat.ask()` (and the `chat_ask` MCP tool / `AskResult`) now report
+  `is_follow_up=True` when an implicit ask (no `conversation_id`) continues the
+  notebook's existing current conversation, instead of always reporting `False`
+  on the implicit path. A genuinely new (first-ever) conversation still reports
+  `is_follow_up=False`
+  ([#1965](https://github.com/teng-lin/notebooklm-py/issues/1965)).
+
 ## [0.8.0]
 
 The headline of 0.8.0 is **integrations**: NotebookLM is now reachable from AI
