@@ -1134,3 +1134,45 @@ class TestImportSourcesIdempotency:
             {"id": "src_a", "title": "A", "url": "https://a.example.com"}
         ]
         research.import_sources.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_allow_duplicate_reimports_baseline_url_after_timeout(self):
+        """`allow_duplicate=True` must be honored on the timeout-reconcile path:
+        a pre-existing BASELINE url whose first import attempt times out (but was
+        NOT newly committed) is retried and re-added, not treated as an empty
+        "already done" success (codex review on #1961). The #1934 safety still
+        holds — a URL this attempt actually committed (post-baseline) is dropped.
+        """
+        baseline_x = MagicMock(id="src_x0", title="X", url="https://x.example.com")
+        research, _, mock_source_lister = _make_research()
+        mock_source_lister.list = AsyncMock(
+            side_effect=[
+                [baseline_x],  # baseline — X already present
+                [baseline_x],  # post-timeout probe — nothing NEW committed yet
+            ]
+        )
+        research.import_sources = AsyncMock(
+            side_effect=[
+                RPCTimeoutError("Timed out", timeout_seconds=30.0),
+                [{"id": "src_x1", "title": "X"}],  # retry re-adds it
+            ]
+        )
+
+        with patch.object(_research_mod.asyncio, "sleep", new_callable=AsyncMock) as mock_sleep:
+            imported = await research.import_sources_with_verification(
+                "nb_123",
+                "task_123",
+                [{"url": "https://x.example.com", "title": "X"}],
+                allow_duplicate=True,
+                initial_delay=5,
+            )
+
+        # It retried (did NOT short-circuit to empty success) and re-added X.
+        assert list(imported) == [{"id": "src_x1", "title": "X"}]
+        assert imported.already_present == []
+        assert research.import_sources.await_count == 2
+        # The baseline URL stayed in the retry batch (not dropped as "present").
+        assert research.import_sources.await_args_list[1].args[2] == [
+            {"url": "https://x.example.com", "title": "X"}
+        ]
+        mock_sleep.assert_awaited_once_with(5)

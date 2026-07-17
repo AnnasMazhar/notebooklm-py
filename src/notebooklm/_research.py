@@ -888,10 +888,21 @@ class ResearchAPI:
                         # committed, keep no-URL entries (report fate unknown; the
                         # report-only attempt cap below bounds the worst case).
                         drop_no_url_entries = bool(committed_urls_norm)
+                        # Drop-for-retry anchor: normally a URL already present in
+                        # the notebook (baseline OR committed by this call) is
+                        # dropped to avoid duplicate inflation. But under
+                        # ``allow_duplicate`` the caller explicitly opted to re-add
+                        # baseline URLs, so anchor on the post-baseline
+                        # ``new_urls_norm`` — only URLs THIS attempt committed are
+                        # dropped; a pre-existing baseline URL is still retried and
+                        # re-added, not silently treated as "already done" (#1961
+                        # codex review). #1934 safety holds in both modes: a URL
+                        # committed by this attempt is never retried.
+                        retry_present_urls = new_urls_norm if allow_duplicate else current_urls_norm
                         filtered_source_pairs = [
                             (source_input, source)
                             for source_input, source, url in source_norms
-                            if url not in current_urls_norm
+                            if url not in retry_present_urls
                             and not (drop_no_url_entries and url is None)
                         ]
                         if len(filtered_source_pairs) != len(source_models):
