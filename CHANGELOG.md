@@ -19,6 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `allow_duplicate=True` (MCP) to force a re-add. Report / pasted-text entries
   have no dedupable URL and are unaffected
   ([#1961](https://github.com/teng-lin/notebooklm-py/issues/1961)).
+- `chat.ask()` (and the `chat_ask` MCP tool / `AskResult`) now report
+  `is_follow_up=True` when an implicit ask (no `conversation_id`) continues the
+  notebook's existing current conversation, instead of always reporting `False`
+  on the implicit path. A genuinely new (first-ever) conversation still reports
+  `is_follow_up=False`
+  ([#1965](https://github.com/teng-lin/notebooklm-py/issues/1965)).
+- **A missing optional-dependency error now points at the right fix.** Reading a
+  source with `output_format="markdown"` without the `markdownify` extra
+  installed used to report the wrong remediation ("Check the auth profile /
+  storage configuration.") because the missing-extra error was classified as a
+  configuration error. It now raises a dedicated `MissingDependencyError`
+  (classified as a new `DEPENDENCY` category) whose hint names the install
+  command — e.g. `pip install 'notebooklm-py[markdown]'` — across the MCP
+  (`DEPENDENCY` code) and REST (`dependency` / HTTP 500) surfaces
+  ([#1959](https://github.com/teng-lin/notebooklm-py/issues/1959)).
 
 ## [0.8.0]
 
