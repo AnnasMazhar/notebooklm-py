@@ -25,6 +25,7 @@ from ._research_import import (
     _partition_requested_sources,
     _requested_import_verification_urls,
     _source_import_verification_url,
+    _validate_research_task_provenance,
 )
 from ._research_task_parser import parse_research_task_models
 from ._row_adapters.research import ImportedSourceRow, ResearchStartRow, unwrap_import_rows
@@ -43,7 +44,6 @@ from .exceptions import (
     NetworkError,
     RateLimitError,
     ResearchStartUnavailableError,
-    ResearchTaskMismatchError,
     ResearchTimeoutError,
     RPCError,
     RPCTimeoutError,
@@ -622,28 +622,12 @@ class ResearchAPI:
             notebook_id,
         )
 
-        # Per-source ``research_task_id`` must match the caller's
-        # ``task_id`` when both are present. A mismatch is the wire-crossing
-        # bug — importing under the wrong task would mis-attribute
-        # provenance. We do this scan BEFORE the multi-task batch check so
-        # callers get the precise diagnostic (which mismatched source +
-        # which task) instead of the generic "multiple tasks" message.
-        for source in source_models:
-            source_task_id = source.research_task_id
-            if source_task_id and source_task_id != task_id:
-                raise ResearchTaskMismatchError(
-                    task_id=task_id,
-                    source_research_task_id=source_task_id,
-                )
-
-        research_task_ids = {
-            source.research_task_id for source in source_models if source.research_task_id
-        }
-        if len(research_task_ids) > 1:
-            raise ValidationError(
-                "Cannot import sources from multiple research tasks in one batch."
-            )
-        effective_task_id = next(iter(research_task_ids), task_id)
+        # Per-source ``research_task_id`` provenance: mismatches raise, a
+        # multi-task batch is refused, and the effective import task id is
+        # returned. Shared with ``import_sources_with_verification`` (which runs
+        # it up front, before the #1961 idempotency pre-filter) so provenance is
+        # validated even for entries the pre-filter would drop.
+        effective_task_id = _validate_research_task_provenance(source_models, task_id)
 
         report_source_indexes = {
             index
@@ -759,6 +743,12 @@ class ResearchAPI:
             return _imported_result([], [])
         source_inputs: list[ResearchSourceInput] = list(sources)
         source_models = _coerce_research_sources(sources)
+
+        # Validate research-task provenance on the FULL requested set up front —
+        # before the #1961 idempotency pre-filter can drop already-present
+        # entries — so a source carrying the wrong ``research_task_id`` is
+        # rejected even when its URL already exists in the notebook.
+        _validate_research_task_provenance(source_models, task_id)
 
         started_at = time.monotonic()
         delay = initial_delay

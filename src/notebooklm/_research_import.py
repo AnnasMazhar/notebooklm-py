@@ -16,9 +16,42 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
 
 from ._types.research import ResearchSource, ResearchSourceInput
+from .exceptions import ResearchTaskMismatchError, ValidationError
 
 if TYPE_CHECKING:
     from .types import Source
+
+
+def _validate_research_task_provenance(
+    source_models: Sequence[ResearchSource], task_id: str
+) -> str:
+    """Validate per-source research-task provenance; return the effective task id.
+
+    Each source's ``research_task_id`` (when present) must match ``task_id`` — a
+    mismatch is the wire-crossing bug (importing under the wrong task
+    mis-attributes provenance), so it raises :class:`ResearchTaskMismatchError`.
+    A batch spanning more than one task id is refused with a
+    :class:`ValidationError`. Returns the id to import under: ``task_id`` unless
+    every pinned source agrees on one shared id.
+
+    Runs BEFORE the #1961 idempotency pre-filter (see
+    :func:`_partition_requested_sources`) so a mismatched-provenance source is
+    rejected even when its URL is already present in the notebook and would
+    otherwise be dropped without ever reaching :meth:`ResearchAPI.import_sources`.
+    """
+    for source in source_models:
+        source_task_id = source.research_task_id
+        if source_task_id and source_task_id != task_id:
+            raise ResearchTaskMismatchError(
+                task_id=task_id,
+                source_research_task_id=source_task_id,
+            )
+    research_task_ids = {
+        source.research_task_id for source in source_models if source.research_task_id
+    }
+    if len(research_task_ids) > 1:
+        raise ValidationError("Cannot import sources from multiple research tasks in one batch.")
+    return next(iter(research_task_ids), task_id)
 
 
 def _normalize_import_verification_url(url: str) -> str:
@@ -72,7 +105,7 @@ def _is_importable_report_source(
 
 
 def _imported_source_entry(source: Source) -> dict[str, str]:
-    return {"id": source.id, "title": source.title or source.url or ""}
+    return {"id": source.id or "", "title": source.title or source.url or ""}
 
 
 def _merge_imported_sources(
@@ -147,6 +180,7 @@ def _partition_requested_sources(
     new_inputs: list[ResearchSourceInput] = []
     new_models: list[ResearchSource] = []
     already_present: list[dict[str, str]] = []
+    already_present_ids: set[str] = set()
     for source_input, source in zip(source_inputs, source_models, strict=True):
         norm = (
             None
@@ -155,13 +189,18 @@ def _partition_requested_sources(
         )
         existing = existing_by_norm_url.get(norm) if norm is not None else None
         if existing is not None:
-            already_present.append(
-                {
-                    "id": existing.id,
-                    "title": existing.title or existing.url or "",
-                    "url": existing.url or "",
-                }
-            )
+            # Skip every matching input, but report each existing source once —
+            # a request that repeats the same URL must not inflate the count.
+            existing_id = existing.id or ""
+            if existing_id not in already_present_ids:
+                already_present_ids.add(existing_id)
+                already_present.append(
+                    {
+                        "id": existing_id,
+                        "title": existing.title or existing.url or "",
+                        "url": existing.url or "",
+                    }
+                )
             continue
         new_inputs.append(source_input)
         new_models.append(source)

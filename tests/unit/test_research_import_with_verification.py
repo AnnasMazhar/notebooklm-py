@@ -1079,3 +1079,58 @@ class TestImportSourcesIdempotency:
         assert research.import_sources.await_args.args[2] == [
             {"url": "https://b.example.com", "title": "B"}
         ]
+
+    @pytest.mark.asyncio
+    async def test_provenance_validated_before_filter_when_all_present(self):
+        """A wrong ``research_task_id`` raises even when every requested URL is
+        already present — provenance is validated before the idempotency
+        pre-filter can drop the entries (coderabbit review on #1961)."""
+        from notebooklm.exceptions import ResearchTaskMismatchError
+
+        existing = [MagicMock(id="src_a", title="A", url="https://a.example.com")]
+        research, _, mock_source_lister = _make_research()
+        mock_source_lister.list = AsyncMock(return_value=existing)
+        research.import_sources = AsyncMock(
+            side_effect=AssertionError("import_sources must not be called")
+        )
+
+        with pytest.raises(ResearchTaskMismatchError):
+            await research.import_sources_with_verification(
+                "nb_123",
+                "task_123",
+                [
+                    {
+                        "url": "https://a.example.com",
+                        "title": "A",
+                        "research_task_id": "wrong-task",
+                    }
+                ],
+            )
+        research.import_sources.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_already_present_reported_once_for_repeated_url(self):
+        """A request repeating the same (normalized) already-present URL reports
+        that existing source once, not once per duplicate input (coderabbit)."""
+        existing = [MagicMock(id="src_a", title="A", url="https://a.example.com")]
+        research, _, mock_source_lister = _make_research()
+        mock_source_lister.list = AsyncMock(return_value=existing)
+        research.import_sources = AsyncMock(
+            side_effect=AssertionError("import_sources must not be called")
+        )
+
+        imported = await research.import_sources_with_verification(
+            "nb_123",
+            "task_123",
+            [
+                {"url": "https://a.example.com", "title": "A"},
+                # Same normalized URL (trailing slash stripped) — a duplicate input.
+                {"url": "https://a.example.com/", "title": "A again"},
+            ],
+        )
+
+        assert list(imported) == []
+        assert imported.already_present == [
+            {"id": "src_a", "title": "A", "url": "https://a.example.com"}
+        ]
+        research.import_sources.assert_not_awaited()
