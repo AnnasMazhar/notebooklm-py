@@ -28,7 +28,8 @@ COPY . /src
 RUN if [ -n "$NOTEBOOKLM_SPEC" ]; then \
         pip install --no-cache-dir "$NOTEBOOKLM_SPEC"; \
     else \
-        if [ -n "$GIT_COMMIT" ]; then printf 'COMMIT = "%s"\n' "$GIT_COMMIT" > /src/src/notebooklm/_commit.py; fi; \
+        if [ -n "$GIT_COMMIT" ]; then printf 'COMMIT = "%s"\n' "$GIT_COMMIT" > /src/src/notebooklm/_commit.py; \
+        else rm -f /src/src/notebooklm/_commit.py; fi; \
         pip install --no-cache-dir "/src[mcp,headless]"; \
     fi
 
