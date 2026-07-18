@@ -45,11 +45,11 @@ async def honor_requested_title(
 
     YouTube, native Google Drive, and web-page imports re-derive the display
     title server-side (from the video / Drive / page metadata), silently
-    discarding the ``title`` sent with the add. Live-verified (URL + YouTube):
-    the backend derives the title *synchronously* — the added source comes back
-    already carrying the re-derived title — so a follow-up ``rename`` lands after
-    that derivation and sticks. When an explicit ``title`` differs from the one
-    the add returned, issue the rename so the requested title wins.
+    discarding the ``title`` sent with the add. Live-verified (URL, YouTube, and
+    Drive): the backend derives the title *synchronously* — the added source comes
+    back already carrying the re-derived title — so a follow-up ``rename`` lands
+    after that derivation and sticks. When an explicit ``title`` differs from the
+    one the add returned, issue the rename so the requested title wins.
 
     Non-fatal by contract: the add already succeeded, so a rename failure keeps
     the added source (with its upstream title) and logs a warning rather than
