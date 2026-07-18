@@ -75,7 +75,7 @@ class RPCMethod(str, Enum):
     CREATE_NOTEBOOK = "CCqFvf"  # -> CreateProject
     GET_NOTEBOOK = "rLM1Ne"  # -> GetProject
     RENAME_NOTEBOOK = "s0tc2d"  # -> MutateProject (generic notebook mutator; see note below)
-    DELETE_NOTEBOOK = "WWINqb"  # -> DeleteProjects (batch-capable; we send a single id)
+    DELETE_NOTEBOOK = "WWINqb"  # -> DeleteProjects (single id; batch shapes probed & rejected, see _notebooks.delete)
 
     # Source operations
     ADD_SOURCE = "izAoDd"  # -> AddSources (batch-capable; we send a single source)
