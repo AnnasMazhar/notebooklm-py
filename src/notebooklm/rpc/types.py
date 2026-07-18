@@ -107,7 +107,7 @@ class RPCMethod(str, Enum):
     # -> CreateArtifact. Generate any artifact (audio, video, report, quiz, etc.)
     CREATE_ARTIFACT = "R7cb6c"
     LIST_ARTIFACTS = "gArtLc"  # -> ListArtifacts. List all artifacts in a notebook
-    DELETE_ARTIFACT = "V5N4be"  # -> DeleteArtifact
+    DELETE_ARTIFACT = "V5N4be"  # -> DeleteArtifact (single id; batch shapes probed & rejected)
     # -> UpdateArtifact (generic artifact updater; we only set the title)
     RENAME_ARTIFACT = "rc3d8d"
     # -> ExportToDrive (Google Drive only; Docs/Sheets are Drive destinations)
