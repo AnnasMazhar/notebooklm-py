@@ -313,6 +313,36 @@ def test_migrate_legacy_state_noop_when_override_equals_legacy(tmp_path: Path) -
     assert json.loads(same.read_text()) == {"clients": {"c1": {}}}
 
 
+def test_migrate_legacy_state_retires_invalid_utf8(tmp_path: Path) -> None:
+    """A legacy file with invalid UTF-8 bytes is unusable → retired (not a startup crash;
+    UnicodeDecodeError ⊂ ValueError is caught), never written as state."""
+    legacy = tmp_path / "oauth_state.json"
+    legacy.write_bytes(b"\xff\xfe not utf-8 at all")
+    new = tmp_path / "oauth" / "host.abcd.json"
+
+    _migrate_legacy_state(new, legacy)  # must not raise
+
+    assert not new.exists()
+    assert not legacy.exists()
+    assert legacy.with_name("oauth_state.json.migrated").exists()
+
+
+def test_migrate_legacy_state_ignores_reappeared_backup_when_marker_exists(tmp_path: Path) -> None:
+    """After a one-time migration (``.migrated`` marker present) and a revocation (live
+    state deleted), a restored/leftover oauth_state.json must NOT be re-imported — it is
+    retired, not migrated, so revoked tokens can't be resurrected from a backup."""
+    legacy = tmp_path / "oauth_state.json"
+    legacy.write_text(json.dumps({"clients": {"revoked": {}}}), encoding="utf-8")
+    (tmp_path / "oauth_state.json.migrated").write_text("{}", encoding="utf-8")  # prior marker
+    new = tmp_path / "oauth" / "host.abcd.json"  # revoked → live state absent
+
+    _migrate_legacy_state(new, legacy)
+
+    assert not new.exists()  # NOT re-imported
+    assert not legacy.exists()  # retired (folded into the marker)
+    assert legacy.with_name("oauth_state.json.migrated").exists()
+
+
 # --------------------------------------------------------------------------- routes / DCR
 def test_provider_routes_include_login_and_register() -> None:
     p = _provider()

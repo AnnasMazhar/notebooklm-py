@@ -168,7 +168,9 @@ def _slug_for_base_url(base_url: str) -> str:
     host charset nor the port, so the prefix alone is not unique.
     """
     norm = base_url.strip().rstrip("/").lower()
-    readable = re.sub(r"[^a-z0-9._-]", "_", urlsplit(base_url).netloc.lower()) or "origin"
+    # Cap the readable prefix so a pathologically long hostname can't push the filename
+    # past the 255-byte limit; the hash (over the FULL origin) still disambiguates.
+    readable = (re.sub(r"[^a-z0-9._-]", "_", urlsplit(base_url).netloc.lower()) or "origin")[:64]
     digest = hashlib.sha256(norm.encode()).hexdigest()[:16]
     return f"{readable}.{digest}"
 
@@ -201,21 +203,22 @@ def _migrate_legacy_state(state_path: Path, legacy_path: Path | None) -> None:
     if legacy_path == state_path or (state_path.exists() and legacy_path.samefile(state_path)):
         return
     migrated = legacy_path.with_name(legacy_path.name + ".migrated")
-    # Already migrated on a prior run, but a legacy file lingers (an earlier rename
-    # failed/crashed). Retire it so it can never be re-migrated after a revocation.
-    if state_path.exists():
-        try:
+    # Migration already happened for this deployment — either the ``.migrated`` marker
+    # exists (a reappeared oauth_state.json is a backup restore or leftover, and importing
+    # it could resurrect revoked tokens) or the live state file is present (a prior rename
+    # failed/crashed). Retire the reappeared/lingering legacy so it is never re-migrated,
+    # and never overwrite the authoritative live state.
+    if migrated.exists() or state_path.exists():
+        with contextlib.suppress(OSError):
             os.replace(legacy_path, migrated)
-        except OSError as exc:
-            logger.warning("Could not retire lingering legacy OAuth state %s: %s", legacy_path, exc)
         return
     try:
-        raw = legacy_path.read_text(encoding="utf-8")
+        raw = legacy_path.read_bytes()
     except OSError as exc:  # transient read error — leave in place, retry next startup
         logger.warning("Could not read legacy OAuth state %s (will retry): %s", legacy_path, exc)
         return
     try:
-        data = json.loads(raw)
+        data = json.loads(raw)  # bytes: invalid UTF-8 or bad JSON → ValueError family
     except ValueError:
         data = None
     if not isinstance(data, dict):

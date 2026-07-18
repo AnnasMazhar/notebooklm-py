@@ -19,7 +19,10 @@ TUNNEL ?= $(if $(_TUNNEL_DOTENV),$(_TUNNEL_DOTENV),cloudflare)
 # CLI/env override wins; else deploy/.env; else ./oauth-state (matches the compose
 # default). make-only, so `_ensure-state-dir` can pre-create it (user-owned) before `up`.
 _OAUTH_STATE_DOTENV := $(shell [ -f .env ] && sed -n 's/^NOTEBOOKLM_OAUTH_STATE_DIR=//p' .env | tr -d '\r' | head -1)
-OAUTH_STATE_DIR ?= $(if $(_OAUTH_STATE_DOTENV),$(_OAUTH_STATE_DOTENV),./oauth-state)
+# Match Compose's own interpolation precedence: an exported NOTEBOOKLM_OAUTH_STATE_DIR
+# (which Compose reads directly) wins, then deploy/.env, then the default. Otherwise
+# `NOTEBOOKLM_OAUTH_STATE_DIR=/x make up` would mount /x but pre-create ./oauth-state.
+OAUTH_STATE_DIR ?= $(or $(NOTEBOOKLM_OAUTH_STATE_DIR),$(_OAUTH_STATE_DOTENV),./oauth-state)
 
 # Pin a published image tag with `make prod VERSION=x.y.z`. Otherwise, keep the
 # override order: shell/CLI env, deploy/.env, this checkout's pyproject version,
