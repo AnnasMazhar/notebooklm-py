@@ -656,11 +656,7 @@ class ArtifactsAPI:
             no longer enters its block.
         """
         logger.debug("Deleting artifact %s from notebook %s", artifact_id, notebook_id)
-        # Single-id only. Despite delete-of-missing being a no-op, live probing
-        # confirmed no batch shape works: [[2], id1, id2, id3] deletes only the
-        # first, and [[2], [id1, id2, id3]] deletes none. (Contrast the plural
-        # DELETE_SOURCE / ADD_SOURCE / DELETE_NOTE, which ARE batch-capable.)
-        params = [[2], artifact_id]
+        params = [[2], artifact_id]  # Single-id only; live batch-shape probes failed.
         await self._rpc.rpc_call(
             RPCMethod.DELETE_ARTIFACT,
             params,
