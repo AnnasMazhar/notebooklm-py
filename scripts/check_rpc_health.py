@@ -64,13 +64,7 @@ from notebooklm._chat.wire import (
 from notebooklm._env import get_default_language
 from notebooklm._logging import scrub_secrets
 from notebooklm._notebooks import build_create_notebook_params
-from notebooklm.auth import (
-    AuthTokens,
-    fetch_tokens,
-    get_account_email_for_storage,
-    get_authuser_for_storage,
-    load_auth_from_storage,
-)
+from notebooklm.auth import AuthTokens
 from notebooklm.exceptions import ChatError, ChatResponseParseError, DecodingError
 from notebooklm.paths import get_storage_path
 from notebooklm.rpc import (
@@ -232,16 +226,31 @@ def extract_id(data: Any, *indices: int) -> str | None:
         return None
 
 
-def load_auth() -> dict[str, str]:
-    """Load auth from environment or storage file.
+async def load_auth(storage_path: Path | None) -> AuthTokens:
+    """Load auth from environment or storage file, preserving cookie domains.
 
-    Uses the library's load_auth_from_storage() which handles:
-    - NOTEBOOKLM_AUTH_JSON env var (for CI)
-    - ~/.notebooklm/storage_state.json file (for local dev)
-    - Proper cookie domain filtering
+    Routes through :meth:`AuthTokens.from_storage` — the same loader the CLI
+    and library use — which handles:
+
+    - ``NOTEBOOKLM_AUTH_JSON`` env var (for CI) and the profile storage file
+      (for local dev), via ``storage_path`` resolved by
+      :func:`resolve_storage_path`
+    - cookie-domain filtering *and* per-cookie domain preservation
+    - authuser / account-email routing and the CSRF + session token fetch
+
+    Domain preservation is load-bearing (issue #2019). The previous
+    ``load_auth_from_storage()`` + ``fetch_tokens()`` pairing flattened the jar
+    to ``name -> value``; under ``NOTEBOOKLM_AUTH_JSON`` there is no file to
+    reload from, so ``build_cookie_jar`` re-pinned every cookie to
+    ``.google.com``. Host-scoped cookies (``OSID`` / ``__Secure-OSID`` on the
+    NotebookLM host, ``LSID`` on ``accounts.google.com``) were then broadcast to
+    every ``*.google.com`` host. After Google's ``notebook.google.com`` cutover
+    that collides with the freshly minted host cookie, dead-ends the sign-in
+    redirect chain on ``accounts.google.com/CookieMismatch``, and made this
+    script report "Authentication expired" against perfectly valid credentials.
     """
     try:
-        cookies = load_auth_from_storage()
+        return await AuthTokens.from_storage(storage_path)
     except FileNotFoundError:
         print(
             "ERROR: No authentication found.\n"
@@ -250,9 +259,16 @@ def load_auth() -> dict[str, str]:
         )
         sys.exit(2)
     except ValueError as e:
-        print(f"ERROR: Invalid authentication: {e}", file=sys.stderr)
+        print(f"ERROR: {scrub_secrets(e)}", file=sys.stderr)
         sys.exit(2)
-    return cookies
+    except httpx.HTTPError as e:
+        # ``httpx`` exception strings can echo full request URLs including
+        # ``f.sid=<session_id>`` query params, so scrub before logging.
+        print(
+            f"ERROR: Network error while fetching auth tokens: {scrub_secrets(e)}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
 
 def resolve_storage_path() -> Path | None:
@@ -1275,7 +1291,6 @@ async def run_health_check(full_mode: bool = False) -> tuple[list[CheckResult], 
     exit-coded separately from RPC drift; see :class:`CohortStatus`).
     """
     storage_path = resolve_storage_path()
-    cookies = load_auth()
 
     notebook_id = os.environ.get("NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID") or os.environ.get(
         "NOTEBOOKLM_GENERATION_NOTEBOOK_ID"
@@ -1289,27 +1304,7 @@ async def run_health_check(full_mode: bool = False) -> tuple[list[CheckResult], 
     cohort_status = CohortStatus.UNKNOWN
 
     print("Fetching auth tokens...")
-    try:
-        csrf_token, session_id = await fetch_tokens(cookies, storage_path=storage_path)
-    except ValueError as e:
-        print(f"ERROR: {scrub_secrets(e)}", file=sys.stderr)
-        sys.exit(2)
-    except httpx.HTTPError as e:
-        # ``httpx`` exception strings can echo full request URLs including
-        # ``f.sid=<session_id>`` query params, so scrub before logging.
-        print(
-            f"ERROR: Network error while fetching auth tokens: {scrub_secrets(e)}",
-            file=sys.stderr,
-        )
-        sys.exit(2)
-    auth = AuthTokens(
-        cookies=cookies,
-        csrf_token=csrf_token,
-        session_id=session_id,
-        storage_path=storage_path,
-        authuser=get_authuser_for_storage(storage_path),
-        account_email=get_account_email_for_storage(storage_path),
-    )
+    auth = await load_auth(storage_path)
     print(f"Auth OK (CSRF token length: {len(auth.csrf_token)})")
     print()
 

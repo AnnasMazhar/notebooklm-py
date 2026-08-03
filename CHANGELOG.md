@@ -39,6 +39,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   type axis. The MCP `/files/dl` route already resolved both format-aware and
   was unaffected
   ([#2034](https://github.com/teng-lin/notebooklm-py/issues/2034)).
+- **Nightly RPC-health and bundle-drift checks no longer report "Authentication
+  expired" against valid credentials.** `scripts/check_rpc_health.py` and
+  `scripts/capture_rpc_registry.py` loaded auth through the flat
+  `load_auth_from_storage()` mapping, which drops every cookie's domain. Under
+  `NOTEBOOKLM_AUTH_JSON` there is no storage file to recover them from, so
+  host-scoped cookies (`OSID` on the NotebookLM host, `LSID` on
+  `accounts.google.com`) were broadcast to every `*.google.com` host. Once
+  Google's `notebook.google.com` cutover landed, the stale broadcast `OSID`
+  collided with the freshly minted host cookie and dead-ended the sign-in chain
+  on `accounts.google.com/CookieMismatch`. Both scripts now use the
+  domain-preserving loaders the CLI already used
+  (`AuthTokens.from_storage()` / `build_httpx_cookies_from_storage()`), and a
+  unit guardrail pins that the jar mirrors the `storage_state` domains
+  ([#2019](https://github.com/teng-lin/notebooklm-py/issues/2019),
+  [#2018](https://github.com/teng-lin/notebooklm-py/issues/2018)).
 
 ## [0.8.0] - 2026-08-03
 

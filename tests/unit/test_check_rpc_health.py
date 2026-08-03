@@ -715,10 +715,12 @@ def test_main_exits_two_when_auth_missing(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.delenv("NOTEBOOKLM_AUTH_JSON", raising=False)
     monkeypatch.setattr("sys.argv", ["check_rpc_health.py"])
 
-    def _missing() -> dict[str, str]:
-        raise FileNotFoundError("simulated missing storage_state.json")
+    class _MissingAuthTokens:
+        @staticmethod
+        async def from_storage(path: Path | None) -> Any:
+            raise FileNotFoundError("simulated missing storage_state.json")
 
-    monkeypatch.setattr(check_rpc_health, "load_auth_from_storage", _missing)
+    monkeypatch.setattr(check_rpc_health, "AuthTokens", _MissingAuthTokens)
 
     with pytest.raises(SystemExit) as excinfo:
         check_rpc_health.main()
