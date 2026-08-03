@@ -2,9 +2,10 @@
 
 ## Status
 
-Proposed — v2, revised after a four-lens review (packaging, compatibility,
-surface coverage, strategy) of the 2026-08-03 original. The original decided a
-full rename including the import package; v2 reverses that (see Alternatives).
+Proposed — v3; the identity flip is consolidated into a single 0.9.0 release
+per maintainer review. v2 (same day) split it across 0.9/0.10 behind a
+brand-stability gate; v1 renamed the import package too. Both are recorded in
+Alternatives.
 
 ## Context
 
@@ -58,17 +59,18 @@ Constraints that shape the decision:
 ## Decision
 
 Rename the **distribution and the discoverability surfaces** to
-**`gemini-notebook-py`**; keep the **import package `notebooklm` and all
-operational plumbing permanently**. Dist-name ≠ import-name is an established
-Python pattern (`beautifulsoup4`/`bs4`, `scikit-learn`/`sklearn`,
-`pillow`/`PIL`), and every argument this ADR's Context makes against renaming
-the wire layer applies equally to the import package: churn with no functional
-gain, brand-stability risk, and — decisive — the plumbing writes its name into
-places we cannot patch after the fact.
+**`gemini-notebook-py`**, completing the flip in a **single 0.9.0 release**;
+keep the **import package `notebooklm` and all operational plumbing
+permanently**. Dist-name ≠ import-name is an established Python pattern
+(`beautifulsoup4`/`bs4`, `scikit-learn`/`sklearn`, `pillow`/`PIL`), and every
+argument this ADR's Context makes against renaming the wire layer applies
+equally to the import package: churn with no functional gain, brand-stability
+risk, and — decisive — the plumbing writes its name into places we cannot
+patch after the fact.
 
 | Surface | Disposition |
 |---|---|
-| PyPI dist `notebooklm-py` | → `gemini-notebook-py` canonical; old name becomes a permanent extras-forwarding shim |
+| PyPI dist `notebooklm-py` | → `gemini-notebook-py` canonical at 0.9.0; old name becomes a permanent extras-forwarding shim |
 | Bare `gemini-notebook` | registered as redirect metapackage (anti-squat) |
 | GitHub repo | → `teng-lin/gemini-notebook-py` (auto-redirects) |
 | CLI | `gemini-notebook`, `gemini-notebook-mcp`, `gemini-notebook-server` added; `notebooklm*` scripts kept **indefinitely** (they match the import name; no deprecation) |
@@ -89,7 +91,7 @@ frowns on) and we accept we may have to surrender it if challenged.
 
 - Register `gemini-notebook-py` and `gemini-notebook` on PyPI. Placeholders
   (`0.1.0`) **depend on `notebooklm-py`** so an early `pip install` works
-  rather than dead-ends; yank them once the real release ships. `publish.yml`'s
+  rather than dead-ends; yank them once 0.9.0 ships. `publish.yml`'s
   tag/version validation rejects out-of-band versions, so this is a one-off
   manual/TestPyPI-style upload using PyPI *pending publishers* registered for
   both names (plus keeping `notebooklm-py`'s publisher) — all against the
@@ -97,53 +99,27 @@ frowns on) and we accept we may have to surrender it if challenged.
 - README: replace the "keeps the name" note with the rename plan and its
   rationale; add `gemini`, `gemini-notebook` keywords (pyproject + manifest).
 
-### Phase 1a — 0.9.0, additive (fully reversible)
+### Phase 1 — 0.9.0: the rename release (single completion checklist)
 
-1. New console scripts `gemini-notebook{,-mcp,-server}` alongside the old
-   three. No startup hints — the old names are not deprecated. Every entry
-   point derives its displayed `prog` from the invoked name: the root Click
-   CLI (`notebooklm_cli.py:134` hardcodes `prog_name="NotebookLM CLI"`),
-   `mcp/__main__.py:181`, and `server/__main__.py:113` all pin the legacy
-   identity today, so the new commands would advertise the old names in
-   `--help`/`--version`.
-2. `GeminiNotebookClient = NotebookLMClient` exported from `notebooklm`
-   (static assignment: subclassing, `isinstance`, pickle, and mypy all keep
-   working; no `__getattr__` indirection).
-3. `__version__` resolution keyed to the distribution that actually supplied
-   the imported files, determined by matching `notebooklm.__file__` against
-   each candidate distribution's RECORD (`importlib.metadata.Distribution.files`).
-   `packages_distributions()` is **not** sufficient: in a dual install both
-   dists declare `notebooklm`, and the mapping says nothing about whose
-   files won the collision. A build-stamped version (extending the existing
-   `hatch_build.py` `_commit.py` bake) is an acceptable simpler alternative.
-   Name lookups (`gemini-notebook-py`, then `notebooklm-py`) remain only as
-   last-resort fallback. `src/notebooklm/__init__.py:40` is currently keyed
-   to the old dist only and would report `0.0.0.dev0` under the renamed
-   dist — and a plain name-ordered lookup is wrong too: with the Phase-0
-   placeholder plus a stale real `notebooklm-py` co-installed,
-   canonical-first would report the placeholder's version for files the old
-   dist supplied. Same fix in the skill version stamp (`_app/skill.py`).
-4. Docs/README lead with "Gemini Notebook"; old name mentioned once per page.
-5. Same-PR guardrail updates: `tests/_guardrails/test_public_surface.py`
-   (new export), CLI contract baseline regen (ADR-0022 machinery) for the new
-   scripts, `test_version_pyproject_sync.py`.
-
-Stopping forever after 1a is a fine outcome: nothing has flipped.
-
-### Phase 1b — 0.10.0, the identity flip (gated; see Guardrails for go/no-go)
-
-Ordered steps; the repo rename is its own verified step, **not** bundled with
-the first dual publish:
+One release completes the rename. Steps are ordered; the abort point is
+before step 1 (the repo rename) — from there everything ships together.
+The 0.9.0 acceptance matrix in Guardrails is the executable definition of
+done.
 
 1. **Repo rename first, quiet window**: rename to
    `teng-lin/gemini-notebook-py`; immediately re-point the Trusted-Publishing
    configs for all three dists at the new repo; verify with a TestPyPI publish
-   before any real release. Same-PR sweep of hardcoded repo strings:
-   `project.urls`, fancy-pypi-readme substitutions, badges, and every
-   `github.repository ==` guard (`publish-docker.yml`, `publish-mcpb.yml`,
-   `verify-package.yml:150,158` — string compares don't get redirects),
-   OCI source label, TestPyPI summary URL,
-   `tests/_guardrails/test_pypi_readme_substitutions.py`.
+   before the release. Same-PR sweep of hardcoded repo strings:
+   `project.urls`, fancy-pypi-readme substitutions, badges, the OCI source
+   label, the TestPyPI summary URL, and **every** `github.repository ==`
+   guard — `publish-docker.yml`, `publish-mcpb.yml`,
+   `verify-package.yml:150,158`, `nightly.yml`, `rpc-health.yml`, and
+   `verify-artifacts.yml` (string compares don't get redirects; after a
+   rename those jobs silently skip). A new repo-wide guardrail test fails CI
+   on any stale `github.repository` / `teng-lin/notebooklm-py` literal
+   outside historical records (CHANGELOG, ADRs), so no future guard can go
+   stale silently. `tests/_guardrails/test_pypi_readme_substitutions.py`
+   updates in the same PR.
 2. **Dist rename**: `project.name = "gemini-notebook-py"`; update the
    self-referential `all` extra and re-lock `uv.lock`. Hatch config is
    untouched (the import package doesn't move — ever).
@@ -152,69 +128,105 @@ the first dual publish:
    from one tag (versions asserted in lockstep), smoke-installs the shim with
    `--find-links dist/` (its pin isn't on PyPI yet), and uploads **canonical
    first**, shims after. Wheel globs/artifact names flip to
-   `gemini_notebook_py-*` here (dist-keyed, not import-keyed — `publish.yml:81`,
-   `testpypi-publish.yml`, artifact names).
-4. **Shim spec**: `notebooklm-py` shim ships zero Python files, zero console
-   scripts, and **mirrors every extra** (`[mcp]`, `[browser]`, … →
-   `gemini-notebook-py[<extra>]==<version>`) — the shipped desktop extension
-   hardcodes `notebooklm-py[mcp]` and must keep resolving. Pin `==`, released
-   in lockstep with every canonical release (automated by step 3), for as
-   long as dual publishing runs.
-5. **Dual-install hazard**: `gemini-notebook-py` still ships the `notebooklm`
-   package, so it collides file-for-file with a stale `notebooklm-py` ≤0.8
-   install. Mitigation — partial by construction: an import-time check
-   (`PackageNotFoundError`-guarded `importlib.metadata` lookup, PEP 440
-   comparison via `packaging.version`, never a string compare) that warns
-   loudly when any **pre-shim** `notebooklm-py` release is present alongside
-   `gemini-notebook-py` — every version below the first shim release
-   (0.10.0), which includes the Phase 1a 0.9.x releases, since those ship
-   real files too. `packaging` moves from the `dev` extra to the base
-   dependencies in the same PR (today it is dev-only, so the detector would
-   itself `ImportError` in exactly the environment it repairs). The warning
-   names the fix:
+   `gemini_notebook_py-*` here (dist-keyed — `publish.yml:81`,
+   `testpypi-publish.yml`, artifact names). `notebooklm-py` 0.9.0 is the
+   **first shim release**; no real (file-shipping) release ever carries a
+   version ≥ 0.9.0.
+4. **Shim spec and isolated-tool installs**: the `notebooklm-py` shim ships
+   zero Python files, zero console scripts, and **mirrors every extra**
+   (`[mcp]`, `[browser]`, … → `gemini-notebook-py[<extra>]==<version>`) —
+   the shipped desktop extension hardcodes `notebooklm-py[mcp]` and must
+   keep resolving. Pin `==`, released in lockstep with every canonical
+   release (automated by step 3). Zero scripts has a consequence for
+   isolated tool installers: `pipx install` and `uv tool install` expose
+   only the *requested* dist's entry points, so installing the shim that way
+   yields no commands. The contract, verified by CI flow tests: (a)
+   `uvx --from "notebooklm-py[mcp]" notebooklm-mcp` — the path baked into
+   shipped desktop extensions — keeps working, because `uvx` resolves
+   executables from the full environment; (b) `pipx install notebooklm-py`
+   requires `--include-deps` and the docs/tombstone README say so; (c) tool
+   installs are steered to `gemini-notebook-py` as the recommended form.
+   Shipping duplicate legacy scripts from the shim instead was rejected: two
+   dists owning the same `bin/` files recreates the uninstall-corruption
+   hazard of constraint 3 inside every dual-install venv.
+5. **New console scripts** `gemini-notebook{,-mcp,-server}` alongside the
+   old three (in the canonical dist). No startup hints — the old names are
+   not deprecated. Every entry point derives its displayed `prog` from the
+   invoked name: the root Click CLI (`notebooklm_cli.py:134` hardcodes
+   `prog_name="NotebookLM CLI"`), `mcp/__main__.py:181`, and
+   `server/__main__.py:113` all pin the legacy identity today, so the new
+   commands would advertise the old names in `--help`/`--version`.
+6. **Client alias**: `GeminiNotebookClient = NotebookLMClient` exported from
+   `notebooklm` (static assignment: subclassing, `isinstance`, pickle, and
+   mypy all keep working; no `__getattr__` indirection).
+7. **`__version__` provenance**: resolution keyed to the distribution that
+   actually supplied the imported files, by matching `notebooklm.__file__`
+   against each candidate distribution's RECORD
+   (`importlib.metadata.Distribution.files`). `packages_distributions()` is
+   **not** sufficient: in a dual install both dists declare `notebooklm`
+   without indicating whose files won. A build-stamped version (extending
+   the existing `hatch_build.py` `_commit.py` bake) is an acceptable simpler
+   alternative. Name lookups (`gemini-notebook-py`, then `notebooklm-py`)
+   remain only as last-resort fallback. `src/notebooklm/__init__.py:40` is
+   currently keyed to the old dist only and would report `0.0.0.dev0` under
+   the renamed dist. Same fix in the skill version stamp (`_app/skill.py`).
+8. **Dual-install hazard**: `gemini-notebook-py` ships the `notebooklm`
+   package, so it collides file-for-file with any pre-shim `notebooklm-py`
+   install. Detection uses an **explicit real-files marker**, not a version
+   threshold: warn when a co-installed `notebooklm-py` dist's RECORD lists
+   `notebooklm/` files (true for every pre-shim release — all < 0.9.0 under
+   this plan — and stays correct even if the boundary ever moves; a
+   `packaging.version` compare is the fallback when RECORD is unavailable,
+   with `PackageNotFoundError` guarded and `packaging` moved from the `dev`
+   extra to base dependencies in the same PR). The warning names the fix:
    `pip uninstall notebooklm-py && pip install --force-reinstall gemini-notebook-py` —
    `--force-reinstall` is required, not `-U`: uninstalling the stale dist
    deletes the shared `notebooklm` files listed in its RECORD, and a plain
    upgrade would consider the already-current canonical install satisfied
-   and never restore them.
-   The check only runs when the canonical files win the collision; a
-   stale-*last* install overwrites `__init__.py` and is undetectable at
-   runtime — that order is covered by docs/release notes only, and the ADR
-   claims no complete runtime mitigation. Test matrix: canonical-only,
-   stale-first, stale-last. Expect dependency-confusion-style scanner flags
-   when a long-lived dist turns shim; pre-empt in the release notes.
-6. **`verify-package.yml`**: replace the `--no-deps` old-name install steps
+   and never restore them. Mitigation is partial by construction: the check
+   only runs when the canonical files win the collision; a stale-*last*
+   install overwrites `__init__.py` and is undetectable at runtime — covered
+   by docs/release notes only. Test matrix covers **install and uninstall
+   orders**: canonical-only, stale-first, stale-last, uninstall-stale-after-
+   dual, uninstall-shim-after-dual. Expect dependency-confusion-style
+   scanner flags when a long-lived dist turns shim; pre-empt in the release
+   notes.
+9. **`verify-package.yml`**: replace the `--no-deps` old-name install steps
    (which break against an empty shim) with the dual-install smoke: shim +
    canonical in one venv, `import notebooklm` verified after installing each
    dist name (there is no second import path — the import package is
-   permanent), all **six** scripts.
-7. **`mcp install`**: `_app/mcp_install.py` writes
-   `uvx --from "gemini-notebook-py[mcp]" gemini-notebook-mcp` under the
-   **unchanged** server key `"notebooklm"` (no duplicate entries on
-   re-install, no orphaning); `desktop-extension/run_server.py` likewise.
-   Previously written configs keep working via the shim indefinitely.
-8. **`deploy/`**: compose/env.example/Makefile/tailscale move to the new
-   image name; all `NOTEBOOKLM_*` vars stay (permanent), so existing `.env`
-   files keep working. Docker pushed to both repositories;
-   `test_unit/test_deploy_compose_default.py` updated same PR.
-9. Same-PR guardrail updates: `test_install_docs.py` + SKILL.md/AGENTS.md
-   install commands (wheel-embedded agent instructions must not keep teaching
-   `pip install notebooklm-py`), the skill recovery hint in
-   `cli/skill_cmd.py` (`pip install --force-reinstall notebooklm-py` → new
-   dist), `test_skill_packaging.py`, `test_mcp_desktop_extension.py`,
-   mcp-install tests, CLI baselines.
+   permanent), all **six** scripts, plus the pipx/uv-tool/uvx flow tests
+   from step 4.
+10. **`mcp install`**: `_app/mcp_install.py` writes
+    `uvx --from "gemini-notebook-py[mcp]" gemini-notebook-mcp` under the
+    **unchanged** server key `"notebooklm"` (no duplicate entries on
+    re-install, no orphaning); `desktop-extension/run_server.py` likewise.
+    Previously written configs keep working via the shim indefinitely.
+11. **`deploy/`**: compose/env.example/Makefile/tailscale move to the new
+    image name; all `NOTEBOOKLM_*` vars stay (permanent), so existing `.env`
+    files keep working. Docker pushed to both repositories;
+    `tests/unit/test_deploy_compose_default.py` updated same PR.
+12. **Docs and guardrails**: README and primary docs lead with
+    "Gemini Notebook" (old name mentioned once per page);
+    `test_install_docs.py` + SKILL.md/AGENTS.md install commands
+    (wheel-embedded agent instructions must not keep teaching
+    `pip install notebooklm-py`), the skill recovery hint in
+    `cli/skill_cmd.py` (`pip install --force-reinstall notebooklm-py` → new
+    dist), `test_skill_packaging.py`, `test_mcp_desktop_extension.py`,
+    mcp-install tests, `tests/_guardrails/test_public_surface.py` (new
+    export), and CLI contract baseline regen (ADR-0022 machinery) for the
+    new scripts — all in the release PRs, not deferred.
 
-### Phase 2 — bake and docs sweep
+### Phase 2 — post-0.9.0 bake (optional)
 
-Dual publishing runs; docs (~1 900 refs), `examples/` prose, issue/PR
-templates, `SECURITY.md`, `CLAUDE.md`/`CONTRIBUTING.md` rewritten to lead with
-the new name. Watch signals: download split, shim bug reports, brand
-stability. `import notebooklm` examples are **correct forever** — no code
-sample churn.
+The long-tail docs sweep (~1 900 refs), `examples/` prose, issue/PR
+templates, `SECURITY.md`, `CLAUDE.md`/`CONTRIBUTING.md`. Watch signals:
+download split, shim bug reports, brand stability. `import notebooklm`
+examples are **correct forever** — no code sample churn.
 
-### Phase 3 — wind-down (no removal cliff)
+### Phase 3 — wind-down (gated; no removal cliff)
 
-When go/no-go criteria say so (Guardrails), dual asset publishing (Docker,
+When the wind-down gate says so (Guardrails), dual asset publishing (Docker,
 skill zip) ends. `notebooklm-py` gets a final shim pinned
 `gemini-notebook-py>=<current major>,<next major>` with a tombstone README —
 and because the import package never goes away, that terminal shim keeps
@@ -231,28 +243,40 @@ range must preserve all legacy extra names and console scripts — the
 shim-equivalence test below enforces this for as long as any published
 shim's range is open, so a future release cannot drop `[mcp]` out from
 under `notebooklm-py[mcp]` installs.
-There is no Phase-4 hard removal: old console scripts, env vars, and config
-home are permanent by decision, so no user ever hits a cliff.
 
 ### Guardrails
 
-- **Gate for 1b (go/no-go, recorded here so it isn't vibes later):** 0.8.0
-  final shipped; brand stable ≥3 months post-announcement (≥2026-10-16);
-  Trusted Publishing verified for all three dists via TestPyPI; the 1a
-  release out with no shim-related regressions.
-- **Gate for Phase 3:** ≥75 % of combined downloads on the new dist for 2
-  consecutive months, or 12 months after 1b, whichever first.
+- **0.9.0 acceptance matrix — the executable definition of done.** 0.9.0
+  does not ship until every row passes:
+  - *Publishing*: OIDC publishers verified for all three dists against the
+    renamed repo via a TestPyPI rehearsal; canonical + both shims built from
+    one tag with lockstep versions; upload order canonical-first exercised.
+  - *Install*: `pip install gemini-notebook-py` and
+    `pip install "notebooklm-py[mcp]"` both yield a working
+    `import notebooklm`; extras parity between shim and canonical; dual
+    install in one venv clean.
+  - *CLI*: all six console scripts run; each reports the invoked name in
+    `--help`/`--version`.
+  - *Version*: `notebooklm.__version__` correct under canonical-only and
+    under dual-install with mismatched versions (RECORD-provenance test).
+  - *Collision*: stale-install warning fires in the stale-first order,
+    remediation command verified to restore a working environment, and the
+    documented-only status of stale-last confirmed by test.
+  - *Tool installers*: `uvx --from "notebooklm-py[mcp]" notebooklm-mcp`
+    works; `pipx install --include-deps notebooklm-py` exposes the legacy
+    scripts; plain-shim pipx behavior documented.
+  - *Integrations*: `mcp install` writes the new uvx spec under the old
+    server key; desktop-extension launcher updated; `deploy/` compose/env
+    render with the new image and old env vars.
+  - *Guardrails/baselines*: public-surface, install-docs, CLI-contract,
+    deploy-compose, pypi-readme-substitution baselines regenerated; the new
+    repo-wide stale-`github.repository` literal guard green.
+- **Wind-down gate (Phase 3)**: ≥75 % of combined downloads on the new dist
+  for 2 consecutive months, or 12 months after 0.9.0, whichever first.
 - **Shim equivalence test** (in canonical repo CI): during dual publishing,
   shim metadata mirrors every canonical extra and pins the exact canonical
   version; after wind-down, every canonical release inside any published
   shim's open range must retain all legacy extra names and console scripts.
-- **Version-resolution test**: `notebooklm.__version__` correct when only
-  `gemini-notebook-py` is installed (the failure mode is a silent
-  `0.0.0.dev0`), and when the imported files come from one dist while a
-  different version is installed under the other name.
-- **Dual-install smoke** in `verify-package.yml` (Phase 1b step 6).
-- **Stale-install check** (Phase 1b step 5) has a unit test for both the
-  warn and the clean path.
 
 ## Consequences
 
@@ -264,14 +288,14 @@ home are permanent by decision, so no user ever hits a cliff.
   in every config file we've ever written to a user's machine.
 - Old-name users are never broken: the shim (with extras) resolves
   indefinitely, and its terminal pin still yields a working install.
-- Dual publishing is bounded by an explicit Phase-3 gate rather than open-ended
+- Consolidating the flip into 0.9.0 (a maintainer decision, replacing v2's
+  two-release phasing) trades the brand-stability bake window for a single
+  completion point with an executable acceptance matrix. The accepted risk:
+  if Google renames again, we carry one stale-brand dist name — the same
+  position we are in today, with the same playbook, and the plumbing
+  unaffected. The abort point is before the repo rename (Phase 1 step 1).
+- Dual publishing is bounded by the wind-down gate rather than open-ended
   maintainer toil; shim releases are automated in `publish.yml`, not manual.
-- The safe-stop points are explicit: after 1a nothing has flipped; the point
-  of no return is 1b step 1 (repo rename), which is why it is separately
-  gated and verified before the first dual publish.
-- If Google renames again after 1b, we are carrying one stale-brand dist name
-  — the same position we are in today, with the same playbook, and the
-  plumbing unaffected.
 - Risks accepted: a PEP 541 / trademark challenge on the `gemini-*` names
   (fallback: keep `notebooklm-py` canonical — everything still works);
   scanner noise when the old dist turns shim; `pynotebooklm` adjacency
@@ -292,7 +316,15 @@ home are permanent by decision, so no user ever hits a cliff.
   Click `envvar=` bypass no grep gate can see; and the 2.0 removal cliff
   strands every config `mcp install` ever wrote. Each had a known fix; the sum
   was a large, risky program buying nothing the dist rename doesn't.
-- **`GEMINI_NOTEBOOK_*` env-var twins** (subset of the above). Deferred
+- **Two-release phasing** (v2 of this ADR: additive-only 0.9, identity flip
+  at 0.10 behind a ≥3-month brand-stability gate). Rejected by maintainer
+  review: it left 0.9.0 with no executable definition of done, and shipping
+  a real (file-carrying) `notebooklm-py` 0.9.x before the first shim widened
+  the dual-install collision window to include users who followed the
+  planned rollout. The consolidated 0.9.0 accepts brand risk for a single
+  completion point; the technical verification steps (TestPyPI/OIDC
+  rehearsal before release) are retained.
+- **`GEMINI_NOTEBOOK_*` env-var twins** (subset of v1). Deferred
   indefinitely; any future attempt must solve, from v1's review: non-warning
   resolve path for the quiet gate and diagnostics, write-side dual-export plus
   twinned credential scrub, a custom `click.Option` for `envvar=`, an
@@ -304,8 +336,10 @@ home are permanent by decision, so no user ever hits a cliff.
   MCP config, and CI pipeline at once; contradicts ADR-0018.
 - **Never rename; keywords only.** Cheapest, and the old page's search rank is
   real — but it cedes the project's identity as "NotebookLM" disappears from
-  Google's own UI. Phase 0+1a alone approximate this alternative's cost while
-  leaving the flip optional, which is partly why 1b is gated rather than
-  scheduled.
+  Google's own UI.
+- **Shim ships duplicate legacy console scripts** (for pipx/uv-tool
+  ergonomics). Rejected in Phase 1 step 4: duplicate `bin/` ownership
+  recreates the uninstall-corruption hazard inside every dual-install venv;
+  documented `--include-deps` / canonical-dist guidance is the safer trade.
 - **`gnb` short CLI alias.** Dropped: PATH collision (srsRAN's `gnb`) and a
   brand-coupled acronym — exactly the churn constraint 1 warns about.
