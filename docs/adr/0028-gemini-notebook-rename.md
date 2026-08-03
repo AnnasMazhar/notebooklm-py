@@ -149,6 +149,12 @@ done.
    Shipping duplicate legacy scripts from the shim instead was rejected: two
    dists owning the same `bin/` files recreates the uninstall-corruption
    hazard of constraint 3 inside every dual-install venv.
+   The **`gemini-notebook` metapackage gets the identical shim contract**:
+   zero Python files, zero console scripts, every extra mirrored as
+   `gemini-notebook-py[<extra>]==<version>`, released in the same lockstep —
+   so `pip install "gemini-notebook[mcp]"` yields the same environment and a
+   working `import notebooklm`. It is a first-class row in the acceptance
+   matrix and the CI flow tests, not just an anti-squat placeholder.
 5. **New console scripts** `gemini-notebook{,-mcp,-server}` alongside the
    old three (in the canonical dist). No startup hints — the old names are
    not deprecated. Every entry point derives its displayed `prog` from the
@@ -160,16 +166,19 @@ done.
    `notebooklm` (static assignment: subclassing, `isinstance`, pickle, and
    mypy all keep working; no `__getattr__` indirection).
 7. **`__version__` provenance**: resolution keyed to the distribution that
-   actually supplied the imported files, by matching `notebooklm.__file__`
-   against each candidate distribution's RECORD
-   (`importlib.metadata.Distribution.files`). `packages_distributions()` is
-   **not** sufficient: in a dual install both dists declare `notebooklm`
-   without indicating whose files won. A build-stamped version (extending
-   the existing `hatch_build.py` `_commit.py` bake) is an acceptable simpler
-   alternative. Name lookups (`gemini-notebook-py`, then `notebooklm-py`)
-   remain only as last-resort fallback. `src/notebooklm/__init__.py:40` is
-   currently keyed to the old dist only and would report `0.0.0.dev0` under
-   the renamed dist. Same fix in the skill version stamp (`_app/skill.py`).
+   actually supplied the imported files — and ownership must be established
+   by **content, not path membership**: in a dual install *both* dists'
+   RECORDs list `notebooklm/__init__.py`, so `Distribution.files` path
+   matching (and `packages_distributions()`) can return two candidates. The
+   rule: hash the imported file's bytes and compare against each candidate
+   RECORD's recorded hash, accepting only a **unique** match; when the match
+   is ambiguous (identical hashes or missing RECORD hashes), fall back to
+   **build-stamped** provenance (extending the existing `hatch_build.py`
+   `_commit.py` bake to stamp the version), and never resolve ambiguity by
+   dist-name ordering — that is exactly the wrong-version failure mode.
+   `src/notebooklm/__init__.py:40` is currently keyed to the old dist only
+   and would report `0.0.0.dev0` under the renamed dist. Same fix in the
+   skill version stamp (`_app/skill.py`).
 8. **Dual-install hazard**: `gemini-notebook-py` ships the `notebooklm`
    package, so it collides file-for-file with any pre-shim `notebooklm-py`
    install. Detection uses an **explicit real-files marker**, not a version
@@ -251,14 +260,17 @@ under `notebooklm-py[mcp]` installs.
   - *Publishing*: OIDC publishers verified for all three dists against the
     renamed repo via a TestPyPI rehearsal; canonical + both shims built from
     one tag with lockstep versions; upload order canonical-first exercised.
-  - *Install*: `pip install gemini-notebook-py` and
-    `pip install "notebooklm-py[mcp]"` both yield a working
-    `import notebooklm`; extras parity between shim and canonical; dual
-    install in one venv clean.
+  - *Install*: `pip install gemini-notebook-py`,
+    `pip install "notebooklm-py[mcp]"`, and
+    `pip install "gemini-notebook[mcp]"` (the metapackage shim) all yield a
+    working `import notebooklm`; extras parity across both shims and the
+    canonical dist; dual install in one venv clean.
   - *CLI*: all six console scripts run; each reports the invoked name in
     `--help`/`--version`.
   - *Version*: `notebooklm.__version__` correct under canonical-only and
-    under dual-install with mismatched versions (RECORD-provenance test).
+    under dual-install with mismatched versions, tested in **both install
+    orders and with differing file contents** (hash-provenance unique-match
+    path and the ambiguous → build-stamp fallback both exercised).
   - *Collision*: stale-install warning fires in the stale-first order,
     remediation command verified to restore a working environment, and the
     documented-only status of stale-last confirmed by test.
