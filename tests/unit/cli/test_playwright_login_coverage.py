@@ -193,7 +193,9 @@ def test_windows_event_loop_noop_off_win32(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 # ensure_chromium_installed — detection contract (#2031)
 # ---------------------------------------------------------------------------
-def _record_subprocess(monkeypatch, probe_stdout: str) -> list[list[str]]:
+def _record_subprocess(
+    monkeypatch, probe_stdout: str, probe_returncode: int = 0
+) -> list[list[str]]:
     """Stub ``subprocess.run``: probe returns ``probe_stdout``, install succeeds."""
     calls: list[list[str]] = []
 
@@ -201,7 +203,7 @@ def _record_subprocess(monkeypatch, probe_stdout: str) -> list[list[str]]:
         calls.append(cmd)
         if "install" in cmd:
             return SimpleNamespace(stdout="", stderr="", returncode=0)
-        return SimpleNamespace(stdout=probe_stdout, stderr="", returncode=0)
+        return SimpleNamespace(stdout=probe_stdout, stderr="", returncode=probe_returncode)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     return calls
@@ -267,6 +269,19 @@ def test_missing_marker_runs_the_install(monkeypatch, capsys) -> None:
 def test_unreadable_probe_answer_does_not_install(monkeypatch, capsys, probe_stdout) -> None:
     """An ambiguous answer must not install — guessing re-downloads every login."""
     calls = _record_subprocess(monkeypatch, probe_stdout)
+    ensure_chromium_installed(make_login_io())
+
+    assert len(calls) == 1  # probe only, no install
+    assert capsys.readouterr().out == ""
+
+
+def test_missing_marker_from_failed_probe_does_not_install(monkeypatch, capsys) -> None:
+    """A non-zero probe exit is unreadable even when the marker reached stdout.
+
+    A probe that dies after writing the marker (or a wrapper that echoes it)
+    must not be trusted to start a download.
+    """
+    calls = _record_subprocess(monkeypatch, CHROMIUM_MISSING_MARKER, probe_returncode=1)
     ensure_chromium_installed(make_login_io())
 
     assert len(calls) == 1  # probe only, no install

@@ -263,13 +263,13 @@ def ensure_chromium_installed(io: LoginIO) -> None:
         )
         saw_present = CHROMIUM_PRESENT_MARKER in result.stdout
         saw_missing = CHROMIUM_MISSING_MARKER in result.stdout
-        # Install only on an unambiguous "missing" answer. Anything else —
-        # the browser is on disk, or the probe returned an answer we cannot
-        # read (crashed, printed neither marker, or printed both) — means
-        # "nothing to do": installing on a guess would re-download on every
-        # login, and a genuinely missing browser still raises an actionable
-        # Playwright error at launch.
-        chromium_missing = saw_missing and not saw_present
+        # Install only on an unambiguous "missing" answer from a probe that
+        # ran to completion. Anything else — the browser is on disk, the probe
+        # exited non-zero, or it returned an answer we cannot read (printed
+        # neither marker, or printed both) — means "nothing to do": installing
+        # on a guess would re-download on every login, and a genuinely missing
+        # browser still raises an actionable Playwright error at launch.
+        chromium_missing = result.returncode == 0 and saw_missing and not saw_present
         if not chromium_missing:
             # If the probe printed an unexpected diagnostic to stderr, surface
             # a sanitised version at debug level so operators can investigate
