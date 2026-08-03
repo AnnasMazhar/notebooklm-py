@@ -2,233 +2,261 @@
 
 ## Status
 
-Proposed (2026-08-03).
+Proposed — v2, revised after a four-lens review (packaging, compatibility,
+surface coverage, strategy) of the 2026-08-03 original. The original decided a
+full rename including the import package; v2 reverses that (see Alternatives).
 
 ## Context
 
 On 2026-07-16 Google renamed NotebookLM to **Gemini Notebook**
 ([announcement](https://blog.google/innovation-and-ai/products/gemini-notebook/notebooklm-gemini-notebook/)).
-The product is unchanged for our purposes — same standalone app, same
-`batchexecute` wire protocol — but every user-facing name this project carries
-now points at a brand Google has retired. New users will search for
-"gemini notebook python", not "notebooklm python".
+The product is unchanged for our purposes — same app, same `batchexecute` wire
+protocol at `notebooklm.google.com` — but the project's discoverable identity
+(PyPI listing, repo name, docs) now points at a retired brand. New users will
+search for "gemini notebook python". PyPI availability checked 2026-08-03:
+`gemini-notebook`, `gemini-notebook-py`, `gemini-notebook-client` are all
+unregistered; PyPI has no reservation mechanism, so squatting is a live risk.
 
-The name is baked into far more than the PyPI listing. The public surface as
-of 0.8.0rc1:
+The name is carried on two very different kinds of surface:
 
-| Surface | Current name |
-|---|---|
-| PyPI distribution | `notebooklm-py` |
-| Import package | `notebooklm` (`src/notebooklm/`, ~2 000 in-tree references) |
-| Console scripts | `notebooklm`, `notebooklm-mcp`, `notebooklm-server` |
-| Environment variables | ~40 distinct `NOTEBOOKLM_*` names (`_env.py`, `paths.py`, `mcp/`, `server/`, …) |
-| Config home | `~/.notebooklm` (`NOTEBOOKLM_HOME` / `NOTEBOOKLM_PROFILE`, `paths.py`) |
-| Primary class | `NotebookLMClient` |
-| GitHub repo | `teng-lin/notebooklm-py` |
-| Desktop extension | `notebooklm-mcp.mcpb`, manifest `name: "notebooklm-mcp"` |
-| Docker image | `<namespace>/notebooklm-mcp` (`publish-docker.yml`) |
-| Skill archive | `notebooklm-skill.zip` (`publish-mcpb.yml`) |
-| CI artifacts / globs | `notebooklm-py-dist`, `dist/notebooklm_py-*.whl`, coverage/mypy/ruff config keyed on `notebooklm` |
+- **Discoverability surfaces**: PyPI dist name, GitHub repo, README/docs
+  branding, MCP/desktop-extension display names, Docker image, skill archive.
+  These are what searchers and new users see.
+- **Operational plumbing**: the `notebooklm` import package (~2 000 in-tree
+  references), ~40 `NOTEBOOKLM_*` env vars (including write-side protocol vars
+  such as the credential scrub in `_auth/refresh.py` and compose-interpolation
+  vars in `deploy/`), `~/.notebooklm` config home, `logging.getLogger("notebooklm")`
+  namespaces (a documented API), `NotebookLMClient`, the MCP server identity
+  `"notebooklm"` written into users' client configs by `notebooklm mcp install`,
+  installed skill directories (`.claude/skills/notebooklm/`), and a dense
+  lattice of name-pinning guardrail tests and `scripts/` tooling.
 
-A hard cutover would strand every existing install, script, cron job, MCP
-config, and CI pipeline at once. Never renaming leaves the project invisible
-under the name users now search for. PyPI name availability was checked on
-2026-08-03: `gemini-notebook`, `gemini-notebook-py`, and
-`gemini-notebook-client` are all unregistered; PyPI has no reservation
-mechanism, so squatting is a live risk while we wait.
+Constraints that shape the decision:
 
-Two standing constraints shape the plan:
-
-1. **Google renames products often.** The wire protocol still lives at
-   `notebooklm.google.com` and the internal RPC layer is keyed on obfuscated
-   method IDs, not names. Renaming the *internal* code buys nothing and risks
-   churn if the brand shifts again.
-2. **ADR-0018 already defines the deprecation machinery** —
-   `warn_deprecated(message, *, removal, stacklevel)` in `_deprecation.py`,
-   silenced by the quiet-deprecations gate. Every compatibility fallback in
-   this plan routes through it; no ad-hoc warnings.
+1. **Google renames products often**; this brand is weeks old. Anything
+   expensive or irreversible keyed to the new name is a bet on brand stability.
+2. **Renaming plumbing strands users where we have no deprecation channel**:
+   configs `mcp install` already wrote to users' machines, self-host `.env` /
+   `docker-compose.yml` files attached to past releases, users' `logging`
+   configs, pickles of `notebooklm.*` classes, installed skill copies.
+3. **pip has no conflict mechanism.** Any two dists that both ship the
+   `notebooklm` package (an old `notebooklm-py` ≤0.8 install plus a renamed
+   canonical dist) silently clobber shared files, and uninstalling either
+   corrupts the survivor.
+4. **Publishing is OIDC Trusted-Publishing only** (`publish.yml`), keyed on
+   owner/repo + workflow. GitHub's redirect after a repo rename does **not**
+   apply to OIDC claims, so a repo rename breaks every configured publisher
+   until re-registered.
+5. **README currently promises the opposite** ("The package keeps the
+   `notebooklm-py` name", July 2026 note). This ADR reverses a published
+   commitment and must retract it explicitly, not silently.
+6. This is a single-maintainer project; every permanent dual surface is
+   permanent toil. A third-party `pynotebooklm` dist already crowds the
+   namespace. ADR-0018 provides the deprecation machinery for anything we do
+   deprecate.
 
 ## Decision
 
-Adopt **`gemini-notebook-py`** as the new distribution name and
-**`gemini_notebook`** as the new import package, migrated in three phases so
-that no release breaks an existing user without a deprecation window, and the
-old names keep working (with warnings) until 2.0.
+Rename the **distribution and the discoverability surfaces** to
+**`gemini-notebook-py`**; keep the **import package `notebooklm` and all
+operational plumbing permanently**. Dist-name ≠ import-name is an established
+Python pattern (`beautifulsoup4`/`bs4`, `scikit-learn`/`sklearn`,
+`pillow`/`PIL`), and every argument this ADR's Context makes against renaming
+the wire layer applies equally to the import package: churn with no functional
+gain, brand-stability risk, and — decisive — the plumbing writes its name into
+places we cannot patch after the fact.
 
-The `-py` suffix is kept deliberately: it signals continuity with
-`notebooklm-py`, matches the existing convention, and — together with the
-"Unofficial" description — reduces the risk that a bare `gemini-*` name reads
-as an official Google package and draws a PyPI trademark complaint. We also
-register the bare `gemini-notebook` name as a redirect metapackage so it
-cannot be squatted.
+| Surface | Disposition |
+|---|---|
+| PyPI dist `notebooklm-py` | → `gemini-notebook-py` canonical; old name becomes a permanent extras-forwarding shim |
+| Bare `gemini-notebook` | registered as redirect metapackage (anti-squat) |
+| GitHub repo | → `teng-lin/gemini-notebook-py` (auto-redirects) |
+| CLI | `gemini-notebook`, `gemini-notebook-mcp`, `gemini-notebook-server` added; `notebooklm*` scripts kept **indefinitely** (they match the import name; no deprecation) |
+| Docker image / skill zip / `.mcpb` display name | new names added, old kept during wind-down |
+| `import notebooklm`, `NOTEBOOKLM_*` env vars, `~/.notebooklm`, logger namespace, MCP identities (`SERVER_KEY`/`SERVER_NAME`/manifest `name`/skill dir), `[tool.notebooklm]` table | **permanent — never renamed** |
+| `NotebookLMClient` | kept; `GeminiNotebookClient` added as a permanent (non-deprecated) alias |
 
-Name mapping (old → new):
+No `gnb` short alias: a 3-letter binary is collision-prone (srsRAN ships a
+`gnb` executable) and the acronym dies with the next rebrand.
 
-| Old | New | Old kept until |
-|---|---|---|
-| `notebooklm-py` (PyPI) | `gemini-notebook-py` | 2.0 (shim releases stop) |
-| `import notebooklm` | `import gemini_notebook` | 2.0 |
-| `notebooklm` CLI | `gemini-notebook` CLI (short alias `gnb`) | 2.0 |
-| `notebooklm-mcp` / `notebooklm-server` | `gemini-notebook-mcp` / `gemini-notebook-server` | 2.0 |
-| `NOTEBOOKLM_<X>` env vars | `GEMINI_NOTEBOOK_<X>` (1:1) | 2.0 |
-| `~/.notebooklm` | `~/.gemini-notebook` | indefinite read fallback |
-| `NotebookLMClient` | `GeminiNotebookClient` | 2.0 (alias) |
-| repo `teng-lin/notebooklm-py` | `teng-lin/gemini-notebook-py` | GitHub auto-redirects |
+The `-py` suffix signals continuity and, with the "Unofficial" description,
+reduces the risk a bare `gemini-*` name reads as official Google. "Gemini" is
+a hotter, more actively defended mark than "NotebookLM"; the bare-name
+metapackage must carry a real dependency (not an empty squat, which PEP 541
+frowns on) and we accept we may have to surrender it if challenged.
 
-What is explicitly **not** renamed: the `rpc/` layer's wire-level naming, the
-default base URL (`notebooklm.google.com` — Google's endpoint, not our brand),
-VCR cassette contents, and historical CHANGELOG/ADR text. Internal private
-modules are renamed only when the `src/` tree physically moves (Phase 3), as
-a mechanical consequence, not a goal.
+### Phase 0 — immediately
 
-## The phases
+- Register `gemini-notebook-py` and `gemini-notebook` on PyPI. Placeholders
+  (`0.1.0`) **depend on `notebooklm-py`** so an early `pip install` works
+  rather than dead-ends; yank them once the real release ships. `publish.yml`'s
+  tag/version validation rejects out-of-band versions, so this is a one-off
+  manual/TestPyPI-style upload using PyPI *pending publishers* registered for
+  both names (plus keeping `notebooklm-py`'s publisher) — all against the
+  current repo name.
+- README: replace the "keeps the name" note with the rename plan and its
+  rationale; add `gemini`, `gemini-notebook` keywords (pyproject + manifest).
 
-### Phase 0 — immediately, independent of any release
+### Phase 1a — 0.9.0, additive (fully reversible)
 
-- **Register the PyPI names.** Upload minimal placeholder sdists (version
-  `0.0.1`, README pointing at this repo) for `gemini-notebook-py` and
-  `gemini-notebook`. This is the only way PyPI lets you hold a name. Configure
-  Trusted Publishing for `gemini-notebook-py` mirroring the existing
-  `publish.yml` setup.
-- Add a "NotebookLM is now Gemini Notebook" note to `README.md` and
-  `docs/index`-level docs; add `gemini`, `gemini-notebook` to `keywords` in
-  `pyproject.toml` and `desktop-extension/manifest.json`. No behavior changes.
+1. New console scripts `gemini-notebook{,-mcp,-server}` alongside the old
+   three. No startup hints — the old names are not deprecated.
+2. `GeminiNotebookClient = NotebookLMClient` exported from `notebooklm`
+   (static assignment: subclassing, `isinstance`, pickle, and mypy all keep
+   working; no `__getattr__` indirection).
+3. `__version__` resolution tries `gemini-notebook-py` then `notebooklm-py`
+   (`src/notebooklm/__init__.py:40` is currently keyed to the old dist only
+   and would report `0.0.0.dev0` under the renamed dist). Same fix in the
+   skill version stamp (`_app/skill.py`).
+4. Docs/README lead with "Gemini Notebook"; old name mentioned once per page.
+5. Same-PR guardrail updates: `tests/_guardrails/test_public_surface.py`
+   (new export), CLI contract baseline regen (ADR-0022 machinery) for the new
+   scripts, `test_version_pyproject_sync.py`.
 
-### Phase 1 — 0.9.0, the compatibility release (additive only)
+Stopping forever after 1a is a fine outcome: nothing has flipped.
 
-Everything new is added; nothing old changes behavior. A user who upgrades
-and touches nothing sees at most a startup hint.
+### Phase 1b — 0.10.0, the identity flip (gated; see Guardrails for go/no-go)
 
-1. **Env vars.** Introduce a single resolver (extend `_env.py`) used by every
-   env read: `GEMINI_NOTEBOOK_<X>` wins; `NOTEBOOKLM_<X>` still honored, with
-   a once-per-process `warn_deprecated(..., removal="2.0")` when only the old
-   name is set. All ~40 variables go through the resolver — no per-call-site
-   fallback logic (grep gate in CI, see Guardrails).
-2. **Console scripts.** Add `gemini-notebook`, `gnb`, `gemini-notebook-mcp`,
-   `gemini-notebook-server` entry points targeting the same mains. The old
-   three stay, and print a one-line deprecation hint on startup (stderr,
-   suppressed by the quiet gate).
-3. **Import alias.** Add a `gemini_notebook` package that re-exports
-   `notebooklm`'s public surface (`from notebooklm import *` plus explicit
-   `__all__`, `__version__`, submodule aliasing via `sys.modules` so
-   `gemini_notebook.types` etc. resolve). `notebooklm` remains the real code —
-   zero churn to the 2 000 internal references in this phase.
-4. **Class alias.** `GeminiNotebookClient = NotebookLMClient` exported from
-   both packages. No warning yet in either direction.
-5. **Config home.** `paths.py` precedence becomes:
-   `GEMINI_NOTEBOOK_HOME` > `NOTEBOOKLM_HOME` (deprecated) >
-   `~/.gemini-notebook` if it exists > `~/.notebooklm` if it exists >
-   `~/.gemini-notebook` (fresh default). No silent data copy — profile dirs
-   hold live auth state under `filelock`; a `notebooklm doctor` /
-   `gemini-notebook doctor` check offers an explicit one-shot migration
-   (rename the directory, leave a `~/.notebooklm` symlink for old scripts).
-6. **Dual publish begins.** `gemini-notebook-py 0.9.0` is the canonical dist
-   (full code). `notebooklm-py 0.9.0` becomes a **shim**: an empty
-   distribution whose only install requirement is
-   `gemini-notebook-py==0.9.0`, with a README explaining the rename. Shims
-   contain no Python files, so installing both never clobbers site-packages.
-   The bare `gemini-notebook` metapackage likewise depends on
-   `gemini-notebook-py`.
-7. **Repo rename.** Rename `teng-lin/notebooklm-py` →
-   `teng-lin/gemini-notebook-py` at 0.9.0 release time. GitHub redirects all
-   old URLs, remotes, and clones. Same-PR sweep: `project.urls`,
-   `hatch-fancy-pypi-readme` substitution URLs in `pyproject.toml`, badge
-   URLs, `publish-docker.yml`/`publish-mcpb.yml` `github.repository` guards,
-   `desktop-extension/manifest.json` links.
-8. **MCP / desktop extension.** Update `display_name` to
-   "Gemini Notebook (gemini-notebook-py)" and descriptions. Keep the manifest
-   `name: "notebooklm-mcp"` **unchanged** for now — the name is the extension's
-   identity in Claude Desktop, and changing it makes installed users' copies
-   orphaned rather than upgraded. Ship the identity change at 2.0 only,
-   release-noted. The launcher `run_server.py` switches to
-   `uvx --from "gemini-notebook-py[mcp]" gemini-notebook-mcp`.
-9. **Docker / release assets.** Push images to both `notebooklm-mcp` and
-   `gemini-notebook-mcp` repositories (second `DOCKERHUB_IMAGE`-style
-   variable); release both `notebooklm-skill.zip` and
-   `gemini-notebook-skill.zip` names.
+Ordered steps; the repo rename is its own verified step, **not** bundled with
+the first dual publish:
 
-### Phase 2 — 0.9.x bake period
+1. **Repo rename first, quiet window**: rename to
+   `teng-lin/gemini-notebook-py`; immediately re-point the Trusted-Publishing
+   configs for all three dists at the new repo; verify with a TestPyPI publish
+   before any real release. Same-PR sweep of hardcoded repo strings:
+   `project.urls`, fancy-pypi-readme substitutions, badges, and every
+   `github.repository ==` guard (`publish-docker.yml`, `publish-mcpb.yml`,
+   `verify-package.yml:150,158` — string compares don't get redirects),
+   OCI source label, TestPyPI summary URL,
+   `tests/_guardrails/test_pypi_readme_substitutions.py`.
+2. **Dist rename**: `project.name = "gemini-notebook-py"`; update the
+   self-referential `all` extra and re-lock `uv.lock`. Hatch config is
+   untouched (the import package doesn't move — ever).
+3. **Multi-dist publishing**: shim pyprojects live in `packaging/shims/
+   {notebooklm-py,gemini-notebook}/`; `publish.yml` builds canonical + shims
+   from one tag (versions asserted in lockstep), smoke-installs the shim with
+   `--find-links dist/` (its pin isn't on PyPI yet), and uploads **canonical
+   first**, shims after. Wheel globs/artifact names flip to
+   `gemini_notebook_py-*` here (dist-keyed, not import-keyed — `publish.yml:81`,
+   `testpypi-publish.yml`, artifact names).
+4. **Shim spec**: `notebooklm-py` shim ships zero Python files, zero console
+   scripts, and **mirrors every extra** (`[mcp]`, `[browser]`, … →
+   `gemini-notebook-py[<extra>]==<version>`) — the shipped desktop extension
+   hardcodes `notebooklm-py[mcp]` and must keep resolving. Pin `==`, released
+   in lockstep with every canonical release (automated by step 3), for as
+   long as dual publishing runs.
+5. **Dual-install hazard**: `gemini-notebook-py` still ships the `notebooklm`
+   package, so it collides file-for-file with a stale `notebooklm-py` ≤0.8
+   install. Mitigation: an import-time check —
+   `importlib.metadata.version("notebooklm-py")` < 0.9 alongside
+   `gemini-notebook-py` ⇒ loud warning naming the fix
+   (`pip uninstall notebooklm-py && pip install -U gemini-notebook-py`) —
+   plus release notes. Expect dependency-confusion-style scanner flags when a
+   long-lived dist turns shim; pre-empt in the release notes.
+6. **`verify-package.yml`**: replace the `--no-deps` old-name install steps
+   (which break against an empty shim) with the dual-install smoke: shim +
+   canonical in one venv, both import paths, all **six** scripts.
+7. **`mcp install`**: `_app/mcp_install.py` writes
+   `uvx --from "gemini-notebook-py[mcp]" gemini-notebook-mcp` under the
+   **unchanged** server key `"notebooklm"` (no duplicate entries on
+   re-install, no orphaning); `desktop-extension/run_server.py` likewise.
+   Previously written configs keep working via the shim indefinitely.
+8. **`deploy/`**: compose/env.example/Makefile/tailscale move to the new
+   image name; all `NOTEBOOKLM_*` vars stay (permanent), so existing `.env`
+   files keep working. Docker pushed to both repositories;
+   `test_unit/test_deploy_compose_default.py` updated same PR.
+9. Same-PR guardrail updates: `test_install_docs.py` + SKILL.md/AGENTS.md
+   install commands (wheel-embedded agent instructions must not keep teaching
+   `pip install notebooklm-py`), `test_skill_packaging.py`,
+   `test_mcp_desktop_extension.py`, mcp-install tests, CLI baselines.
 
-At least one minor-release cycle (target: ~2 months) with both names live.
-Watch: PyPI download split between the two dists, bug reports against the
-alias package, and whether Google's brand holds. Docs are rewritten to lead
-with the new names during this window (mechanical `docs/` sweep, ~1 900
-references, old names mentioned once per page as "(formerly NotebookLM)").
+### Phase 2 — bake and docs sweep
 
-### Phase 3 — 1.0.0, the physical flip
+Dual publishing runs; docs (~1 900 refs), `examples/` prose, issue/PR
+templates, `SECURITY.md`, `CLAUDE.md`/`CONTRIBUTING.md` rewritten to lead with
+the new name. Watch signals: download split, shim bug reports, brand
+stability. `import notebooklm` examples are **correct forever** — no code
+sample churn.
 
-1. **Move the tree**: `git mv src/notebooklm src/gemini_notebook`, mechanical
-   rename of internal imports (the ~2 000 references). One dedicated PR, no
-   functional changes mixed in, so `git blame` damage is a single commit that
-   can be listed in `.git-blame-ignore-revs`.
-2. **Invert the shim**: `notebooklm` becomes the thin re-export package
-   (mirror of the Phase-1 `gemini_notebook` alias, now warning via
-   `warn_deprecated(..., removal="2.0")` on first import).
-3. **Rename-sensitive config** follows in the same PR: `tool.hatch.build`
-   `packages`/`force-include`, `tool.coverage.run` source,
-   `per_file_coverage_floors` keys, `tool.mypy` files + per-module overrides,
-   `ruff` `known-first-party`, `publish.yml` wheel glob
-   (`gemini_notebook_py-*.whl`) and artifact names, `verify-package` /
-   public-surface gates, `tests/` imports.
-4. `NotebookLMClient` remains exported as a deprecated alias of
-   `GeminiNotebookClient` (real subclass-free assignment, warning on
-   attribute-free construction is *not* attempted — the alias warns via
-   module `__getattr__` on first access).
+### Phase 3 — wind-down (no removal cliff)
 
-### Phase 4 — 2.0.0, removal
+When go/no-go criteria say so (Guardrails), dual asset publishing (Docker,
+skill zip) ends. `notebooklm-py` gets a final shim pinned
+`gemini-notebook-py>=<current major>,<next major>` with a tombstone README —
+and because the import package never goes away, that terminal shim keeps
+**working** (install + `import notebooklm`) rather than silently breaking.
+There is no Phase-4 hard removal: old console scripts, env vars, and config
+home are permanent by decision, so no user ever hits a cliff.
 
-Old console scripts, `NOTEBOOKLM_*` env fallbacks (except a hard error message
-naming the replacement), the `notebooklm` import shim, the `NotebookLMClient`
-alias, and `notebooklm-py` shim releases all end. `~/.notebooklm` read
-fallback stays (cheap, harmless). Final `notebooklm-py` upload is a shim
-pinned `gemini-notebook-py>=2,<3` with a tombstone README.
+### Guardrails
 
-## Guardrails
-
-- **One resolver rule** (mirrors ADR-0018's "one module, one switch"): CI
-  greps that no code outside `_env.py` reads `NOTEBOOKLM_` from `os.environ`
-  directly, so the fallback+warning behavior cannot fork.
-- **Shim equivalence test**: a unit test asserts
-  `dir(gemini_notebook)`-public == `dir(notebooklm)`-public and that
-  `gemini_notebook.__version__ is notebooklm.__version__`, so the alias can
-  never drift from the real package.
-- **Dual-install smoke** in `verify-package.yml`: install `notebooklm-py`
-  (shim) and `gemini-notebook-py` into one venv; both imports and all six
-  console scripts must work.
-- **Quiet gate parity**: the quiet-deprecations env var itself gains a
-  `GEMINI_NOTEBOOK_QUIET_DEPRECATIONS` twin via the same resolver — otherwise
-  silencing rename warnings would require the deprecated prefix.
+- **Gate for 1b (go/no-go, recorded here so it isn't vibes later):** 0.8.0
+  final shipped; brand stable ≥3 months post-announcement (≥2026-10-16);
+  Trusted Publishing verified for all three dists via TestPyPI; the 1a
+  release out with no shim-related regressions.
+- **Gate for Phase 3:** ≥75 % of combined downloads on the new dist for 2
+  consecutive months, or 12 months after 1b, whichever first.
+- **Shim equivalence test** (in canonical repo CI): shim metadata mirrors
+  every canonical extra and pins the exact canonical version.
+- **Version-resolution test**: `notebooklm.__version__` correct when only
+  `gemini-notebook-py` is installed (the failure mode is a silent
+  `0.0.0.dev0`).
+- **Dual-install smoke** in `verify-package.yml` (Phase 1b step 6).
+- **Stale-install check** (Phase 1b step 5) has a unit test for both the
+  warn and the clean path.
 
 ## Consequences
 
-- Existing users are never broken before 2.0; every old entry point keeps
-  working with a discoverable pointer to its replacement.
-- We carry dual publishing and alias surfaces for roughly two release phases —
-  accepted cost; the shim dists are near-empty and the alias package is ~50
-  lines.
-- The old PyPI page, GitHub stars/issues/links, and search ranking are
-  preserved (shim README + GitHub redirect) instead of reset.
-- If Google renames again before Phase 3, we stop at Phase 1/2: the additive
-  aliases are cheap to keep or retarget, and the expensive physical flip has
-  not happened. This is the main reason the flip is deferred to 1.0 rather
-  than done in 0.9.
-- Risk: a user with scripts on another machine sets only `NOTEBOOKLM_HOME`
-  pointing at shared state; the precedence order above keeps that working
-  indefinitely until 2.0, and `doctor` reports which home/profile source won
-  (extends the existing `home_source` diagnostic in `paths.py`).
+- Permanent dist/import mismatch (`pip install gemini-notebook-py`,
+  `import notebooklm`) — well-precedented, documented in the README's first
+  screenful. In exchange: no 2 000-reference tree move, no logger-namespace
+  break, no pickle/mypy alias machinery, no `git blame` damage, no
+  `scripts/`+mypy+coverage+ruff config sweep, and the plumbing keeps working
+  in every config file we've ever written to a user's machine.
+- Old-name users are never broken: the shim (with extras) resolves
+  indefinitely, and its terminal pin still yields a working install.
+- Dual publishing is bounded by an explicit Phase-3 gate rather than open-ended
+  maintainer toil; shim releases are automated in `publish.yml`, not manual.
+- The safe-stop points are explicit: after 1a nothing has flipped; the point
+  of no return is 1b step 1 (repo rename), which is why it is separately
+  gated and verified before the first dual publish.
+- If Google renames again after 1b, we are carrying one stale-brand dist name
+  — the same position we are in today, with the same playbook, and the
+  plumbing unaffected.
+- Risks accepted: a PEP 541 / trademark challenge on the `gemini-*` names
+  (fallback: keep `notebooklm-py` canonical — everything still works);
+  scanner noise when the old dist turns shim; `pynotebooklm` adjacency
+  confusion (README disambiguates).
+- Reversed commitment: the README's July 2026 "keeps the name" note is
+  retracted in Phase 0 with rationale, not silently edited.
 
 ## Alternatives considered
 
-- **Bare `gemini-notebook` as the canonical dist name.** Cleaner, but loses
-  the visual continuity with `notebooklm-py` and looks more official-Google
-  than an unofficial client should. Registered as a redirect instead.
-- **Hard cutover at 0.9** (rename everything at once, publish only the new
-  name). Smallest total diff, but breaks every installed user, MCP config,
-  and CI pipeline simultaneously, and contradicts ADR-0018's windowed
-  deprecation policy.
-- **Never rename; add keywords only.** Preserves all names but cedes the
-  searchable identity of the project and confuses new users indefinitely as
-  "NotebookLM" disappears from Google's own UI.
-- **Physical flip in 0.9.** Rejected for the reason in Consequences: it
-  front-loads the most expensive, least reversible step while the new brand
-  is weeks old.
+- **Full rename including the import package** (v1 of this ADR: alias package
+  at 0.9, `git mv src/notebooklm src/gemini_notebook` at 1.0, removals at
+  2.0). Rejected on review: the flip forces a semver-unrelated 1.0; `sys.modules`
+  aliasing is invisible to mypy and breaks typed consumers; pickles of private
+  `notebooklm._types.*` paths break across the flip; the logger namespace (a
+  documented API) flips silently; env-var twinning requires write-side
+  duplication including a credential scrub (`_auth/refresh.py:361`) where a
+  missed twin is a security regression, a quiet-gate that self-recurses, and a
+  Click `envvar=` bypass no grep gate can see; and the 2.0 removal cliff
+  strands every config `mcp install` ever wrote. Each had a known fix; the sum
+  was a large, risky program buying nothing the dist rename doesn't.
+- **`GEMINI_NOTEBOOK_*` env-var twins** (subset of the above). Deferred
+  indefinitely; any future attempt must solve, from v1's review: non-warning
+  resolve path for the quiet gate and diagnostics, write-side dual-export plus
+  twinned credential scrub, a custom `click.Option` for `envvar=`, an
+  allowlist-based (not grep) CI gate, and the test-suite home-isolation
+  fixture (`tests/conftest.py:31-75`).
+- **Bare `gemini-notebook` as canonical.** Most official-looking name, highest
+  challenge risk; kept as a redirect instead.
+- **Hard cutover / publish only the new name.** Breaks every installed user,
+  MCP config, and CI pipeline at once; contradicts ADR-0018.
+- **Never rename; keywords only.** Cheapest, and the old page's search rank is
+  real — but it cedes the project's identity as "NotebookLM" disappears from
+  Google's own UI. Phase 0+1a alone approximate this alternative's cost while
+  leaving the flip optional, which is partly why 1b is gated rather than
+  scheduled.
+- **`gnb` short CLI alias.** Dropped: PATH collision (srsRAN's `gnb`) and a
+  brand-coupled acronym — exactly the churn constraint 1 warns about.
