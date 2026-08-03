@@ -52,6 +52,12 @@ from urllib.parse import urlparse
 from .._atomic_io import atomic_write_json
 from ..config import PERSONAL_BASE_HOST, get_base_host, get_base_url
 from ..exceptions import HeadlessLoginRequiredError
+
+# ``CHANNEL_BROWSERS`` and the launch-failure triage live in the
+# ``browser_launch_errors`` leaf (ADR-0008). ``CHANNEL_BROWSERS`` is re-exported
+# below because this module has always been its import site for the CLI adapter
+# (``cli/services/playwright_login.py``) and the launch banner.
+from .browser_launch_errors import CHANNEL_BROWSERS, classify_launch_failure
 from .cookie_policy import build_cookie_domain_allowlist
 
 if TYPE_CHECKING:
@@ -105,15 +111,6 @@ BROWSER_CLOSED_HELP = (
     "  1. Run: notebooklm login --fresh\n"
     "  2. Or run: notebooklm auth logout && notebooklm login"
 )
-
-# Browsers launched via Playwright's ``channel`` parameter (system-installed,
-# not the bundled Chromium). Maps channel name -> (display label, install URL).
-# Used for the --browser option, the launch banner, and the not-installed
-# error path. The bundled "chromium" choice is intentionally absent.
-CHANNEL_BROWSERS: dict[str, tuple[str, str]] = {
-    "msedge": ("Microsoft Edge", "https://www.microsoft.com/edge"),
-    "chrome": ("Google Chrome", "https://www.google.com/chrome"),
-}
 
 
 # ---------------------------------------------------------------------------
@@ -707,26 +704,24 @@ def run_browser_capture(
             captured_page_html = active_page_html
 
         except Exception as e:
-            # Handle browser launch errors specially (context will be None if launch failed)
-            if context is None and browser in CHANNEL_BROWSERS:
-                err = str(e).lower()
-                is_not_found = any(
-                    marker in err
-                    for marker in (
-                        "executable doesn't exist",
-                        "is not found at",
-                        "no such file",
-                        "failed to launch",
+            # Handle browser launch errors specially (context will be None if
+            # launch failed). This covers the bundled Chromium too, not just the
+            # system channels: before #2004 a bundled-launch failure had no
+            # friendly branch at all and fell through to the bare ``raise``
+            # below, surfacing as "Unexpected error: ... please report a bug".
+            if context is None:
+                launch_help = classify_launch_failure(browser, str(e))
+                if launch_help is not None:
+                    # ``exc_info`` so the traceback survives: this path ends at
+                    # ``io.fail`` and never re-raises ``e``, and the unattended
+                    # L3 sink DROPS ``emit`` lines — the log is the only place a
+                    # headless operator can recover the real launch cause (the
+                    # ``HeadlessReauthResult`` reason string it gets back
+                    # attributes every ``io.fail`` to a dead profile session).
+                    logger.error(
+                        "Browser launch failed (browser=%s): %s", browser, e, exc_info=True
                     )
-                )
-                if is_not_found:
-                    label, install_url = CHANNEL_BROWSERS[browser]
-                    logger.error("%s not found: %s", label, e)
-                    io.emit(
-                        f"[red]{label} not found.[/red]\n"
-                        f"Install from: {install_url}\n"
-                        "Or use the default Chromium browser: notebooklm login"
-                    )
+                    io.emit(launch_help)
                     io.fail(1)
             # Last-resort TargetClosed mapping for anything that escapes the
             # in-flow guards (recover_page, the navigation retry loop,
@@ -735,7 +730,7 @@ def run_browser_capture(
             # map TargetClosed to BROWSER_CLOSED_HELP + exit 1; mirror them
             # here so the user gets the same friendly help instead of the
             # exit-2 bug-report hint. (The launch branch above never falls
-            # through for handled not-found errors — it io.fail(1)s — and
+            # through for a classified launch failure — it io.fail(1)s — and
             # launch failures are not TargetClosed.)
             if isinstance(e, PlaywrightError) and TARGET_CLOSED_ERROR in str(e):
                 io.emit(BROWSER_CLOSED_HELP)
