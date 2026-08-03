@@ -135,6 +135,25 @@ def test_record_evidence_beats_the_version_heuristic(env) -> None:
     assert si.stale_install_warning() is None
 
 
+@pytest.mark.parametrize("shim_version", ["0.9.0a1", "0.9.0b2", "0.9.0rc1", "0.9.0", "1.0.0"])
+def test_prerelease_shims_are_not_misread_as_pre_shim(env, shim_version) -> None:
+    """A 0.9.0 alpha/beta/rc shim is a SHIM, despite sorting below 0.9.0.
+
+    Pre-releases sort below their final version, so a ``< 0.9.0`` bound would
+    classify the very first shim release we publish — ``0.9.0a1``, which claims
+    the PyPI name — as pre-shim and warn on a healthy install. Only the
+    RECORD-stripped fallback path reaches this compare, which is exactly why it
+    would have gone unnoticed.
+    """
+    env(
+        {
+            "notebooklm-py": _FakeDist(shim_version, None),  # no RECORD -> version compare
+            "gemini-notebook-py": _FakeDist(shim_version, _REAL_FILES),
+        }
+    )
+    assert si.stale_install_warning() is None
+
+
 @pytest.mark.parametrize("bad_version", ["", "not-a-version", None])
 def test_unparseable_version_without_record_does_not_cry_wolf(env, bad_version) -> None:
     env(

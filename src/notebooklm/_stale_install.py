@@ -40,9 +40,19 @@ _LEGACY_DIST = "notebooklm-py"
 #: The dist that is canonical from 0.9.0 on.
 _CANONICAL_DIST = "gemini-notebook-py"
 
-#: First ``notebooklm-py`` release that ships no Python files. Only consulted
-#: when RECORD is unavailable — see the module docstring.
-_FIRST_SHIM_VERSION = "0.9.0"
+#: Lower bound of the first ``notebooklm-py`` release that ships no Python
+#: files. Only consulted when RECORD is unavailable — see the module docstring.
+#:
+#: ``0.9.0a0``, not ``0.9.0``: pre-releases sort BELOW their final version, so
+#: a ``0.9.0a1`` shim compared against ``0.9.0`` would be classified pre-shim
+#: and warn about a collision on a perfectly healthy install. ``0.9.0a0`` is
+#: the lowest possible ``0.9.0`` pre-release, so every 0.9.0 alpha/beta/rc
+#: lands on the shim side of the boundary.
+_FIRST_SHIM_VERSION = "0.9.0a0"
+
+#: The human-facing boundary, for messages. The comparison uses the
+#: pre-release-inclusive bound above.
+_FIRST_SHIM_RELEASE = "0.9.0"
 
 #: Any RECORD entry under this prefix means the dist ships real package files.
 _PACKAGE_PREFIX = "notebooklm/"
@@ -131,7 +141,7 @@ def stale_install_warning() -> str | None:
         "'notebooklm-py' copy still ships its own 'notebooklm' package files. The two "
         "overwrite each other, and uninstalling either one deletes files the other "
         "still needs. 'notebooklm-py' became an extras-only shim in "
-        f"{_FIRST_SHIM_VERSION} (ADR-0028); this environment predates that. Fix it "
+        f"{_FIRST_SHIM_RELEASE} (ADR-0028); this environment predates that. Fix it "
         f"with:\n    {REMEDIATION}\n"
         "'--force-reinstall' is required rather than an upgrade: uninstalling the "
         "stale dist deletes the shared files, and a plain upgrade would consider the "

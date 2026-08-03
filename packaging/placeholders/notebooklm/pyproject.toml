@@ -1,0 +1,35 @@
+# ADR-0028 Phase 0 placeholder. ONE-OFF manual upload: it claims the name on
+# PyPI (the only mechanism that does) and installs a working client in the
+# meantime, so an early `pip install notebooklm` does not dead-end.
+#
+# Version 0.0.1 is deliberate and must never be reused: PyPI burns version
+# numbers permanently, and the real release lands at 0.9.0.
+#
+# The `<0.9` cap is load-bearing. From 0.9.0 the notebooklm-py dist becomes a
+# shim depending on gemini-notebook-py==0.9.0; without the cap a resolver could
+# pair this placeholder with that shim and cycle. Yank this release once 0.9.0
+# ships (yanking keeps exact pins working but hides it from resolution).
+[project]
+name = "notebooklm"
+version = "0.0.1"
+description = "Unofficial Python client for Google Gemini Notebook (formerly NotebookLM) - installs gemini-notebook-py; the import package is 'notebooklm'."
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Teng Lin", email = "teng.lin@gmail.com"}]
+readme = "README.md"
+keywords = ["gemini-notebook", "gemini", "notebooklm", "google", "ai"]
+dependencies = ["notebooklm-py>=0.8,<0.9"]
+
+[project.urls]
+Homepage = "https://github.com/teng-lin/notebooklm-py"
+Repository = "https://github.com/teng-lin/notebooklm-py"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+
+[tool.hatch.build.targets.sdist]
+include = ["README.md", "pyproject.toml"]
