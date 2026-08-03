@@ -63,9 +63,9 @@ from .cookie_policy import build_cookie_domain_allowlist
 # DEBUG tracing for the login wait lives in its own leaf (ADR-0008) and is
 # re-exported here because ``browser_capture`` is the only ``_auth`` module the
 # CLI-boundary guardrail sanctions as an import site. Both helpers are
-# credential-safe: every URL they log is stripped of query, fragment,
-# userinfo, and Google-OAuth path first, all of which carry auth material
-# mid-SSO.
+# credential-safe: every URL they log is reduced to scheme + host, dropping the
+# path, query, fragment, and userinfo — any of which can carry auth material
+# mid-SSO, including on a third-party identity provider.
 from .login_wait_trace import log_observed_navigations, safe_page_url
 
 if TYPE_CHECKING:
@@ -663,7 +663,8 @@ def run_browser_capture(
                             url_matches_base_host, wait_until="commit", timeout=300_000
                         )
                 except PlaywrightTimeout:
-                    logger.debug("Login wait: timed out after 300s on %s", safe_page_url(page))
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Login wait: timed out after 300s on %s", safe_page_url(page))
                     io.emit(
                         "[red]Login not detected within 5 minutes.[/red]\n"
                         "Try again with: notebooklm login\n"

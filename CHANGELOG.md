@@ -37,10 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   #2017 / #2022 / #2023 / #2025 / #2028 / #2030 / #2032. `-vv` now logs the
   host(s) that would end the wait plus the starting URL before blocking, one
   line per main-frame navigation observed during it, and the final URL on
-  timeout. Every URL is credential-stripped via the existing `_safe_url`
-  redaction (query, fragment, userinfo, and Google-OAuth paths are dropped), and
-  the tracing attaches no listener at all unless DEBUG is enabled, so behaviour
-  with logging off is unchanged
+  timeout. Every logged URL is reduced to scheme + host — path, query,
+  fragment, and userinfo are all dropped, so a federated SSO redirect cannot
+  put a one-time assertion into output users paste into public bug reports —
+  and the tracing attaches no listener at all unless DEBUG is enabled, so
+  behaviour with logging off is unchanged
   ([#2046](https://github.com/teng-lin/notebooklm-py/issues/2046)).
 - **Audio overviews now download as `.m4a`, not `.mp3`.** The Audio Overview
   bytes have always been AAC in an ISO-BMFF/MP4 container — the artifact

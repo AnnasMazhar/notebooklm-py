@@ -33,7 +33,11 @@ from notebooklm._auth.browser_capture import (
     run_browser_capture,
     url_matches_base_host,
 )
-from notebooklm._auth.login_wait_trace import log_observed_navigations, safe_page_url
+from notebooklm._auth.login_wait_trace import (
+    log_observed_navigations,
+    safe_page_url,
+    trace_url,
+)
 
 TRACE_LOGGER = "notebooklm._auth.login_wait_trace"
 CAPTURE_LOGGER = "notebooklm._auth.browser_capture"
@@ -128,6 +132,51 @@ def test_predicate_semantics_unchanged_by_the_helper_extraction(
 
 
 # ---------------------------------------------------------------------------
+# trace_url: host-only rendering
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # Path dropped even on the product host.
+        ("https://notebook.google.com/notebook/abc123", "https://notebook.google.com/"),
+        # Query and fragment dropped.
+        ("https://accounts.google.com/signin?continue=SECRET", "https://accounts.google.com/"),
+        ("https://notebooklm.google.com/#access_token=SECRET", "https://notebooklm.google.com/"),
+        # Userinfo dropped — rebuilt from hostname, never netloc.
+        ("https://SECRET@notebooklm.google.com/", "https://notebooklm.google.com/"),
+        # A non-standard port is operator signal and survives.
+        ("http://localhost:8080/x", "http://localhost:8080/"),
+        # Host is lowercased by urlparse's hostname.
+        ("https://NoteBook.Google.COM/x", "https://notebook.google.com/"),
+        # Hostless URLs keep only the scheme.
+        ("about:blank", "about:<no host>"),
+        ("data:text/html;base64,U0VDUkVU", "data:<no host>"),
+        ("", ""),
+    ],
+)
+def test_trace_url_keeps_only_the_host(raw: str, expected: str) -> None:
+    assert trace_url(raw) == expected
+
+
+def test_trace_url_drops_third_party_idp_paths() -> None:
+    """The reason this is stricter than ``_safe_url``.
+
+    ``_safe_url`` redacts the path only for a small Google-OAuth host
+    allowlist, keeping it everywhere else. A Workspace tenant can federate to
+    any identity provider, so a one-time SAML assertion can sit in the path of
+    a host no allowlist anticipates — and `-vv` output is what our issue
+    template asks users to paste into public bug reports.
+    """
+    out = trace_url("https://idp.example.test/sso/saml/SECRET_ASSERTION?RelayState=SECRET_STATE")
+
+    assert out == "https://idp.example.test/"
+    assert "SECRET_ASSERTION" not in out
+    assert "SECRET_STATE" not in out
+
+
+# ---------------------------------------------------------------------------
 # safe_page_url: the credential-safe, never-raising page.url reader
 # ---------------------------------------------------------------------------
 
@@ -136,17 +185,15 @@ def test_safe_page_url_strips_credentials() -> None:
     page = MagicMock()
     page.url = "https://accounts.google.com/signin?continue=SECRET&f.sid=SECRET2"
 
-    # Query gone; and on a Google OAuth host the path is a grant position, so
-    # it is replaced by the sentinel rather than kept.
-    assert safe_page_url(page) == "https://accounts.google.com/<redacted>"
+    assert safe_page_url(page) == "https://accounts.google.com/"
 
 
-def test_safe_page_url_keeps_the_path_on_the_product_host() -> None:
-    """Non-auth hosts keep their path — that is the operator's signal."""
+def test_safe_page_url_strips_the_path_on_the_product_host_too() -> None:
+    """No host is exempt — a notebook id is not worth the leak surface."""
     page = MagicMock()
     page.url = "https://notebook.google.com/notebook/abc#access_token=SECRET"
 
-    assert safe_page_url(page) == "https://notebook.google.com/notebook/abc"
+    assert safe_page_url(page) == "https://notebook.google.com/"
 
 
 def test_safe_page_url_degrades_when_the_page_is_gone(
@@ -479,11 +526,11 @@ def test_interactive_wait_logs_accepted_hosts_and_navigations(
     accept_lines = [m for m in messages if m.startswith("Login wait: accepting")]
     # Asserted verbatim: this line names every host that would end the wait,
     # and its absence is what made the notebook.google.com rebrand invisible.
-    # The starting URL keeps its host but loses the ``continue=`` secret, and
-    # the path is replaced because accounts.google.com is an OAuth host.
+    # The starting URL keeps its host and loses everything else, including the
+    # ``continue=`` secret.
     assert accept_lines == [
         "Login wait: accepting any of notebooklm.google.com, notebook.google.com "
-        "(currently on https://accounts.google.com/<redacted>); timeout 300s"
+        "(currently on https://accounts.google.com/); timeout 300s"
     ]
     assert not any("SECRET_CONTINUE" in m for m in messages)
     # Plus the navigation that ended the wait.

@@ -9,7 +9,7 @@ would have answered. See #2046.
 
 This module owns the Playwright-event side of that tracing so the capture core
 stays under the ADR-0008 module-size budget. It is a leaf: it imports only the
-credential-stripping URL formatter (:func:`_safe_url`) and stdlib, holds no
+credential-stripping URL formatter (:func:`trace_url`) and stdlib, holds no
 state, and has no CLI / Click / Rich coupling (ADR-0021).
 """
 
@@ -19,17 +19,54 @@ import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
-
-from .extraction import _safe_url
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["log_observed_navigations", "safe_page_url"]
+__all__ = ["log_observed_navigations", "safe_page_url", "trace_url"]
 
 # Stand-in when the page's URL cannot be read at all. Distinct from
-# ``_safe_url("")`` (which returns ``""``) so an operator reading the log can
+# ``trace_url("")`` (which returns ``""``) so an operator reading the log can
 # tell "the page was gone" apart from "the URL was empty".
 _UNREADABLE_URL = "<unavailable>"
+
+# Rendering for a URL that carries no host at all (``about:blank``, ``data:``,
+# ``chrome-error://``). The scheme is the useful signal; whatever follows it can
+# be arbitrary opaque data, so it is never reproduced.
+_HOSTLESS_URL = "{scheme}:<no host>"
+
+
+def trace_url(url: str) -> str:
+    """Render ``url`` as ``scheme://host[:port]/`` — host only, nothing else.
+
+    Deliberately stricter than ``_auth.extraction._safe_url``, which is built
+    for *error messages about Google endpoints*: it keeps the path for any host
+    outside a small Google-OAuth allowlist, on the reasoning that the path tells
+    an operator which endpoint failed.
+
+    That trade is wrong here. This formatter renders **arbitrary main-frame
+    navigations observed during a live SSO flow**, and a Workspace tenant can
+    federate to any identity provider — ``https://idp.example/sso/<assertion>``
+    puts a one-time credential straight in the path of a host no allowlist can
+    anticipate. `-vv` output is exactly what our issue template asks users to
+    paste into public bug reports, so the safe default is to keep nothing but
+    the host.
+
+    Nothing is lost: the entire diagnostic this tracing exists to provide is
+    *which host the browser is on* — "waiting for notebooklm.google.com, landed
+    on notebook.google.com". The path never contributed to that answer.
+
+    Userinfo (``https://TOKEN@host/``) is dropped by rebuilding from
+    ``hostname``; query and fragment are dropped by never reading them.
+    """
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host:
+        return _HOSTLESS_URL.format(scheme=parsed.scheme or "<unknown>")
+    netloc = f"{host}:{parsed.port}" if parsed.port is not None else host
+    return f"{parsed.scheme}://{netloc}/"
 
 
 def _log_suppressed(what: str, exc: BaseException) -> None:
@@ -37,7 +74,7 @@ def _log_suppressed(what: str, exc: BaseException) -> None:
 
     Deliberately **not** ``exc_info=True``. Playwright exception messages
     routinely embed the offending URL (``net::ERR_ABORTED at https://…?f.sid=…``),
-    and a rendered traceback bypasses :func:`_safe_url` — the precise,
+    and a rendered traceback bypasses :func:`trace_url` — the precise,
     structural redaction this module promises — leaving only the package's
     heuristic ``scrub_secrets`` backstop, which has no marker to match on an
     opaque OAuth grant carried in a URL *path*. The exception class is the
@@ -56,7 +93,7 @@ def safe_page_url(page: Any) -> str:
     to :data:`_UNREADABLE_URL` instead of propagating.
     """
     try:
-        return _safe_url(page.url)
+        return trace_url(page.url)
     except Exception as exc:
         _log_suppressed("could not read the page URL", exc)
         return _UNREADABLE_URL
@@ -87,9 +124,10 @@ def log_observed_navigations(page: Any) -> Iterator[None]:
       Playwright event plumbing runs and the wait is byte-for-byte unchanged.
     * **Never breaks the wait** — the callback swallows every exception, and a
       Playwright build without ``page.on`` degrades to a no-op block.
-    * **Never leaks credentials** — URLs go through :func:`_safe_url`, which
-      drops the query, fragment, and userinfo (and, on Google's OAuth hosts,
-      the path), any of which can carry auth parameters mid-SSO.
+    * **Never leaks credentials** — URLs go through :func:`trace_url`, which
+      keeps the host and drops everything else (path, query, fragment,
+      userinfo), any of which can carry auth material mid-SSO — including on a
+      third-party identity provider no allowlist could anticipate.
 
     Args:
         page: The Playwright ``Page`` being waited on. Typed ``Any`` because
@@ -115,7 +153,7 @@ def log_observed_navigations(page: Any) -> Iterator[None]:
             # login predicate only ever looks at the main frame's URL.
             if not _is_main_frame(frame, main_frame):
                 return
-            logger.debug("Login wait: navigated to %s", _safe_url(getattr(frame, "url", "") or ""))
+            logger.debug("Login wait: navigated to %s", trace_url(getattr(frame, "url", "") or ""))
         except Exception as exc:
             _log_suppressed("could not read a navigation URL", exc)
 

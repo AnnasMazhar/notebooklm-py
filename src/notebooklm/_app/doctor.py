@@ -130,6 +130,14 @@ def _check_profile_dir(profile_dir: Path, *, platform: str | None = None) -> dic
     """
     if not profile_dir.exists():
         return {"status": "fail", "detail": f"{profile_dir} not found"}
+    # Existence alone is not enough. A plain file sitting at the profile path
+    # makes the whole profile unusable — nothing can write ``storage_state.json``
+    # beneath it — and the mode check would misdiagnose it as a permissions
+    # problem (or, on the Windows branch, pass it outright). Report the real
+    # cause instead. ``--fix`` deliberately does NOT repair this: clearing it
+    # means deleting a user file.
+    if not profile_dir.is_dir():
+        return {"status": "fail", "detail": f"{profile_dir} exists but is not a directory"}
     if _is_windows(platform):
         return {"status": "pass", "detail": f"{profile_dir} ({_WINDOWS_PROFILE_DIR_DETAIL})"}
     perms = profile_dir.stat().st_mode & 0o777
@@ -254,7 +262,13 @@ def _apply_fixes(
     # neutral core must not reach into ``notebooklm.paths`` — see the module
     # docstring). Passing mode=0o700 on Windows is at best ignored and at worst
     # applies an over-restrictive ACL, so we let Windows inherit instead.
-    if checks["profile_dir"]["status"] == "fail":
+    #
+    # Guarded on the path being absent, not merely on the ``fail`` status: the
+    # check also fails when a plain FILE occupies the profile path, and
+    # ``mkdir(exist_ok=True)`` only tolerates an existing *directory* — it would
+    # raise ``FileExistsError`` out of ``doctor --fix``. Repairing that case
+    # means deleting a user file, so the failure is left standing for the human.
+    if checks["profile_dir"]["status"] == "fail" and not profile_dir.exists():
         if is_windows:
             profile_dir.mkdir(parents=True, exist_ok=True)
         else:

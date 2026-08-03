@@ -101,6 +101,9 @@ def _mkdir_kwargs_for_missing_profile_dir(platform: str) -> dict[str, Any]:
     """
     profile_dir = MagicMock()
     profile_dir.__str__.return_value = "/fake/profiles/default"  # type: ignore[attr-defined]
+    # The create branch is guarded on the path being absent (a plain file there
+    # is a different failure that --fix must not try to mkdir over).
+    profile_dir.exists.return_value = False
     checks = {
         "migration": {"status": "pass", "detail": "clean (no legacy files)"},
         "profile_dir": {"status": "fail", "detail": "not found"},
@@ -340,6 +343,47 @@ def test_fix_no_longer_greenlights_a_wide_mode_dir_after_migration(home: Path) -
     assert f"Fixed permissions on {profile_dir}" in report.fixes_applied
     assert report.checks["profile_dir"] == {"status": "pass", "detail": str(profile_dir)}
     assert profile_dir.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+def test_a_file_at_the_profile_path_fails_on_every_platform(home: Path, platform: str) -> None:
+    """Existence is not enough — a plain file there makes the profile unusable.
+
+    The Windows carve-out short-circuits before the mode check, so without an
+    explicit directory test it would have reported ``pass`` for a path nothing
+    can ever write ``storage_state.json`` beneath.
+    """
+    profile_path = home / "profiles" / "default"
+    profile_path.parent.mkdir(parents=True)
+    profile_path.write_text("not a directory", encoding="utf-8")
+
+    report = _run(platform=platform)
+
+    assert report.checks["profile_dir"] == {
+        "status": "fail",
+        "detail": f"{profile_path} exists but is not a directory",
+    }
+    assert report.has_failures
+
+
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+def test_fix_leaves_a_file_at_the_profile_path_alone(home: Path, platform: str) -> None:
+    """``--fix`` must not ``mkdir`` over a file, nor claim it repaired one.
+
+    ``mkdir(exist_ok=True)`` only tolerates an existing *directory*, so an
+    unguarded repair would raise ``FileExistsError`` out of ``doctor --fix``.
+    Clearing the path means deleting a user file, which doctor will not do.
+    """
+    profile_path = home / "profiles" / "default"
+    profile_path.parent.mkdir(parents=True)
+    profile_path.write_text("not a directory", encoding="utf-8")
+
+    report = _run(fix=True, platform=platform)
+
+    assert profile_path.is_file()
+    assert profile_path.read_text(encoding="utf-8") == "not a directory"
+    assert not any("profile directory" in fix for fix in report.fixes_applied)
+    assert report.checks["profile_dir"]["status"] == "fail"
 
 
 def test_platform_defaults_to_sys_platform(home: Path) -> None:
