@@ -153,17 +153,57 @@ which was ADR-0028's reason for having a shim in the first place.
 
 ### Confirmed: there is no packaging-level escape
 
-Independent review confirms no mechanism exists to keep `gemini-notebook-py`
-canonical *and* avoid the overlap:
+**Two independent reviews** agree no mechanism exists to keep
+`gemini-notebook-py` canonical *and* avoid the overlap:
 
-- pip implements no `Conflicts` / `Replaces` / `Obsoletes-Dist` (PEP 345's
-  field is not honoured), so the collision cannot be declared away.
-- Wheels are static archives; there are no install-time hooks that could
-  restore files or amend an uninstall.
-- `notebooklm-py 0.8.0`'s RECORD is already written to users' machines and can
-  never be altered retrospectively.
+- pip implements no `Conflicts` / `Replaces` semantics. `Provides-Dist` /
+  `Obsoletes-Dist` exist as metadata but are **not** pip replacement semantics.
+- PEP 610 concerns source *provenance*, not file ownership.
+- Neither `dependency_links` nor requirement ordering establishes *uninstall*
+  ordering.
+- RECORD manipulation would be non-conforming — and still could not alter the
+  RECORD already installed on a user's machine.
+- Wheels are static archives; there are no install-time hooks to restore files
+  or amend an uninstall.
+- PEP 420 namespace packages help only after redesigning the package into
+  genuinely disjoint portions.
+
+A re-export shim (new dist ships `gemini_notebook/` plus a thin
+`notebooklm/`) is viable **only** if the legacy distribution becomes the sole
+owner of `notebooklm/` — which is option 4 wearing a different hat, plus an
+import-compatibility migration. It is not a drop-in fix.
 
 So the option space above really is closed.
+
+### Independent verdicts
+
+Three independent analyses — this one and two external reviews — converged on
+**option 4**. Neither reviewer proposed keeping the ADR's current design.
+
+One added the explicit rider: *if* the new name must own the implementation,
+then do **not** ship the current shim at all — require an explicit
+uninstall-first migration, with import-time warnings as supplemental mitigation
+only, never as the mechanism.
+
+### Test-coverage gap this exposes
+
+The 0.9.0 acceptance matrix in ADR-0028 — and the `verify-package.yml`
+implementation of it on this branch — covers **co-installation** (install the
+stale dist, then the canonical one) but **not the upgrade transaction** that
+actually breaks: `pip install -U <old-name>` from the previous release. That is
+why the defect survived the acceptance matrix.
+
+Add as a required row, independent of which option is chosen:
+
+> **Upgrade-from-previous-release.** Starting from the latest published release
+> installed under **each** published name, run the ordinary upgrade command for
+> that name and assert a working `import notebooklm` plus a working CLI.
+
+And a warning about *how* to assert it: **`pip list` and `pip check` cannot
+detect this failure.** Both report a healthy environment while the package
+files are missing — `pip list` showed correct names and versions throughout.
+Assertions must exercise real imports and console scripts, and ideally inspect
+wheel payloads and installed RECORDs directly.
 
 ### Still unchecked
 
@@ -185,13 +225,25 @@ weakens those objections.
 
 ## Analysis
 
-### The failure is deterministic, not a race
+### The failure is reproducible — but the ordering is not a guarantee
 
-pip installs `gemini-notebook-py` before upgrading `notebooklm-py` under
-**both** of its ordering heuristics: dependency order (the canonical dist is a
-dependency of the shim) and alphabetical order (`g` < `n`). They agree, so this
-is not a scheduling accident that might sometimes come out right — it reproduces
-every time. Two independent runs confirmed it.
+pip installs `gemini-notebook-py` before upgrading `notebooklm-py` under both
+of its apparent ordering heuristics: dependency order (the canonical dist is a
+dependency of the shim) and alphabetical order (`g` < `n`). They agree, and it
+reproduced on every run.
+
+**Correction (from review):** that ordering is *observed behaviour of the tested
+pip* (26.0.1), **not a portable guarantee**. pip does not specify install/
+uninstall ordering across distributions, and it may differ by pip version or
+invocation. This does not make the situation better — it makes it *less
+predictable*: we cannot promise the failure always happens, and equally cannot
+promise any version avoids it. The underlying defect is unconditional: pip
+performs no cross-distribution file-ownership tracking, so uninstall consults
+only the removed distribution's own RECORD and will happily delete files another
+distribution just wrote.
+
+The consequence for ADR-0028 is blunt: its claim that **"old-name users are
+never broken" is false.**
 
 ### The shim is self-defeating
 
