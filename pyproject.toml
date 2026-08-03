@@ -91,9 +91,16 @@ dev = [
 all = ["notebooklm-py[browser,dev,headless,markdown,mcp,server]"]
 
 [project.scripts]
+# Six names, three programs. The `notebooklm*` scripts match the (permanent)
+# import package name and are kept indefinitely — NOT deprecated, no startup
+# hints. The `gemini-notebook*` scripts match the distribution name after the
+# ADR-0028 rebrand. Each program reports whichever name was invoked.
 notebooklm = "notebooklm.notebooklm_cli:main"
 notebooklm-mcp = "notebooklm.mcp.__main__:main"
 notebooklm-server = "notebooklm.server.__main__:main"
+gemini-notebook = "notebooklm.notebooklm_cli:main"
+gemini-notebook-mcp = "notebooklm.mcp.__main__:main"
+gemini-notebook-server = "notebooklm.server.__main__:main"
 
 [build-system]
 requires = ["hatchling", "hatch-fancy-pypi-readme"]

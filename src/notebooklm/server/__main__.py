@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 
 from .._serving import check_bind_allowed, is_loopback
+from .._version_info import SERVER_PROG_NAMES, invoked_prog
 from ._auth import ALLOW_EXTERNAL_BIND_ENV, SERVER_TOKEN_ENV, get_configured_token
 from .app import create_app
 
@@ -110,8 +111,9 @@ def _load_token_file(path: str) -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="notebooklm-server",
-        description="Run the notebooklm-py single-tenant REST server.",
+        # See the MCP entry point: two permanent script names, one program.
+        prog=invoked_prog(SERVER_PROG_NAMES, "notebooklm-server"),
+        description=("Run the Gemini Notebook (formerly NotebookLM) single-tenant REST server."),
     )
     parser.add_argument(
         "--host",

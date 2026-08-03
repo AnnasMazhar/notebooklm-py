@@ -30,21 +30,16 @@ from ._logging import (
 
 configure_logging()
 
-# Version sourced from pyproject.toml via importlib.metadata
+# Version of the distribution that actually supplied these files. Two dist
+# names ship this package (ADR-0028), so ownership is decided by file content,
+# not by dist name — see ``_dist_version`` for why that matters.
 import logging
-from importlib.metadata import PackageNotFoundError, version
+
+from ._dist_version import resolve_version as _resolve_version
 
 _logger = logging.getLogger(__name__)
 
-try:
-    __version__ = version("notebooklm-py")
-except PackageNotFoundError:
-    __version__ = "0.0.0.dev0"  # Fallback when package is not installed
-    _logger.debug(
-        "Package 'notebooklm-py' not found in metadata. "
-        "Using fallback version '%s'. This is normal during development.",
-        __version__,
-    )
+__version__ = _resolve_version()
 
 # Public API: Authentication
 from .auth import AuthTokens

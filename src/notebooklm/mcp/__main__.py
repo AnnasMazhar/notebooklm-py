@@ -27,6 +27,7 @@ import secrets
 import sys
 
 from .._serving import check_bind_allowed, is_loopback
+from .._version_info import MCP_PROG_NAMES, invoked_prog
 from ._auth import MCP_TOKEN_ENV, build_auth, get_configured_token
 from ._filelink import FileLinkSigner, FileTransferConfig
 from ._oauth import (
@@ -178,8 +179,10 @@ def _resolve_stateless_http() -> bool | None:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="notebooklm-mcp",
-        description="Run the notebooklm-py MCP server.",
+        # `notebooklm-mcp` and `gemini-notebook-mcp` are the same program under
+        # two permanent names (ADR-0028); usage text names whichever was run.
+        prog=invoked_prog(MCP_PROG_NAMES, "notebooklm-mcp"),
+        description="Run the Gemini Notebook (formerly NotebookLM) MCP server.",
     )
     parser.add_argument(
         "--profile",

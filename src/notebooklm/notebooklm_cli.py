@@ -91,7 +91,7 @@ _configure_windows_runtime()
 
 import click
 
-from ._version_info import version_string
+from ._version_info import CLI_PROG_NAMES, invoked_prog, version_string
 
 # Import command groups from cli package
 from .cli import (
@@ -131,7 +131,13 @@ __all__ = ["cli", "main"]
 
 
 @click.group(cls=SectionedGroup)
-@click.version_option(version=version_string(), prog_name="NotebookLM CLI")
+@click.version_option(
+    version=version_string(),
+    # Report the name the user actually invoked: `notebooklm --version` and
+    # `gemini-notebook --version` are the same program under two permanent
+    # names (ADR-0028), and each should say so.
+    prog_name=invoked_prog(CLI_PROG_NAMES, "notebooklm"),
+)
 @click.option(
     "--storage",
     type=click.Path(exists=False),

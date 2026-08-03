@@ -1,4 +1,4 @@
-"""Hatchling build hook: bake the git commit into the build as ``_commit.py``.
+"""Hatchling build hook: bake the git commit and version into ``_commit.py``.
 
 Runs for both the sdist and the wheel so the commit survives the standard
 release path (``python -m build`` builds the wheel *from* the sdist, which has
@@ -16,6 +16,14 @@ no ``.git``):
 Only trusts git when ``.git`` sits at the build root — mirrors the runtime
 guard so an sdist unpacked *inside another repo* can't bake in the enclosing
 repo's HEAD. Every step is best-effort: any failure → no file → bare version.
+
+The same file also carries ``VERSION``, the version this wheel was built at.
+Unlike ``.dist-info`` metadata it lives *inside* the package, so it describes
+the files on disk rather than a directory that some other distribution may also
+claim. ``notebooklm._dist_version`` uses it to break the dual-install ownership
+tie that ADR-0028 creates (two dist names shipping one import package). Note
+the asymmetry with the commit: the commit needs git and so is skipped without
+it, whereas the version comes from build metadata and is always stamped.
 """
 
 from __future__ import annotations
@@ -31,16 +39,18 @@ class CommitBuildHook(BuildHookInterface):
 
     def initialize(self, version: str, build_data: dict) -> None:
         root = Path(self.root)
-        # Only trust git if THIS root is the repo — not an enclosing one.
-        if not (root / ".git").exists():
-            return
-        commit = _git_commit(str(root))
-        if not commit:
+        # The version is always known from build metadata; the commit needs a
+        # repo. Only trust git if THIS root is the repo — not an enclosing one.
+        commit = _git_commit(str(root)) if (root / ".git").exists() else None
+        dist_version = self.metadata.version or ""
+        if not commit and not dist_version:
             return
         gen = root / "build" / "_commit.py"
+        lines = [f'COMMIT = "{commit}"\n' if commit else "COMMIT = None\n"]
+        lines.append(f'VERSION = "{dist_version}"\n' if dist_version else "VERSION = None\n")
         try:
             gen.parent.mkdir(parents=True, exist_ok=True)
-            gen.write_text(f'COMMIT = "{commit}"\n', encoding="utf-8")
+            gen.write_text("".join(lines), encoding="utf-8")
         except OSError:
             return  # best-effort: read-only checkout etc. → bare version
         # sdist keeps the src layout; wheel flattens src/notebooklm -> notebooklm.
