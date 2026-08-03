@@ -285,15 +285,29 @@ def _url_only_extraction_failure(final_url: str, redirect_urls: Sequence[str]) -
     This is the **single source of truth for branch order**, shared with
     ``_auth.refresh._fetch_tokens_with_jar``. That caller must run these checks
     *before* handing the body to :func:`extract_csrf_from_html`, and not merely
-    as an optimisation: Google's own ``accounts.google.com`` login page ships a
-    ``WIZ_global_data`` block containing its own ``SNlM0e``, so passing a login
-    page to the extractor would happily return **the login page's token**
-    instead of raising. The pre-check is what keeps that token out of the client.
+    as an optimisation.
 
-    Because both paths now call this one function, they cannot drift out of
-    order — an earlier revision hand-rolled the same checks in ``refresh.py``
-    and got the gate/mismatch precedence wrong there while the extractor had it
-    right (caught in review of #2038).
+    Google's sign-in page carries a ``WIZ_global_data`` block with **its own**
+    ``SNlM0e`` and ``FdrFJe``, so the extractors — which key purely on the
+    presence of those fields and never check what host answered — return the
+    *sign-in page's* tokens rather than raising. Live-captured 2026-08-03,
+    anonymous (no cookies), Chrome UA::
+
+        GET https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fnotebooklm.google.com%2F
+        -> 200 https://accounts.google.com/v3/signin/identifier?...&flowName=GlifWebSignIn
+           ...,"SNlM0e":"ALX_<redacted>:1785760591977","FdrFJe":"<19 digits>",...
+
+    Note the reproducibility caveat: a *bare* ``/ServiceLogin`` with no
+    ``continue=`` serves a different, smaller page with neither field. The
+    ``continue=`` form is the one our own redirect chain produces, which is
+    exactly the case that matters here. Google serves this surface differently
+    by UA, cookies and flow, so treat the shape — not the byte count — as the
+    finding.
+
+    Because both paths call this one function they cannot drift out of order —
+    an earlier revision hand-rolled the same checks in ``refresh.py`` and got
+    the gate/mismatch precedence wrong there while the extractor had it right
+    (caught in review of #2038).
     """
     if is_notebooklm_unavailable_redirect(final_url):
         return ValueError(_unavailable_redirect_message(final_url))

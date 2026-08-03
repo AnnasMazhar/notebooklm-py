@@ -757,10 +757,12 @@ async def _fetch_tokens_with_jar(
         redirect_urls = tuple(str(hop.url) for hop in response.history)
 
         # Classify everything decidable from the URLs BEFORE touching the body.
-        # This is not an optimisation: Google's accounts.google.com login page
-        # ships its own ``WIZ_global_data`` with its own ``SNlM0e``, so handing a
-        # login page to ``extract_csrf_from_html`` would return *that* token
-        # rather than raising. Delegating to the shared classifier (instead of
+        # This is not an optimisation: Google's sign-in page carries its own
+        # ``WIZ_global_data`` with its own ``SNlM0e``/``FdrFJe`` (live-captured;
+        # see ``_url_only_extraction_failure`` for the exact request), and the
+        # extractors never check which host answered — so handing a sign-in page
+        # to ``extract_csrf_from_html`` returns *that* page's token instead of
+        # raising. Delegating to the shared classifier (instead of
         # re-implementing the checks here) keeps the gate -> cookie-mismatch ->
         # auth-redirect precedence identical on both paths; hand-rolling it here
         # is exactly how this path once let a mismatch hop preempt the #1630

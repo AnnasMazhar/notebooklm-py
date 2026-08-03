@@ -160,15 +160,31 @@ class TestFetchTokens:
         assert "CookieMismatch" not in message
 
     @pytest.mark.asyncio
-    async def test_fetch_tokens_never_accepts_the_login_pages_own_token(
+    async def test_fetch_tokens_never_accepts_the_sign_in_pages_own_token(
         self, httpx_mock: HTTPXMock
     ):
-        """A login page carries its OWN ``SNlM0e``; we must never return it.
+        """Never return tokens harvested from Google's own sign-in page.
 
-        This is why the URL-only classification runs *before* the body is
-        parsed rather than as a fast path: handing this response to
-        ``extract_csrf_from_html`` would succeed and hand the caller Google's
-        login-page CSRF token instead of raising.
+        The extractors key purely on the presence of ``SNlM0e``/``FdrFJe`` and
+        never check which host answered, so *any* page carrying those fields
+        parses "successfully". Google's sign-in page is such a page — verified
+        against a live anonymous capture on 2026-08-03::
+
+            GET accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fnotebooklm.google.com%2F
+            -> 200 accounts.google.com/v3/signin/identifier?...&flowName=GlifWebSignIn
+               WIZ_global_data = {...,"SNlM0e":"ALX_...:1785760591977","FdrFJe":"84070..."}
+
+        and `extract_csrf_from_html(that_html)` returned the token instead of
+        raising. (A *bare* ``/ServiceLogin`` with no ``continue=`` serves a
+        different page with neither field, so the parameter matters when
+        reproducing.)
+
+        The token values below are placeholders standing in for that shape — the
+        real capture is not committed because it contains live session values.
+        This test therefore pins **our** invariant (an auth-redirected response
+        never yields tokens), which holds regardless of what Google happens to
+        serve on any given day; the capture is why the invariant is worth having
+        rather than what the test asserts.
         """
         httpx_mock.add_response(
             url="https://notebooklm.google.com/",
@@ -178,8 +194,9 @@ class TestFetchTokens:
         httpx_mock.add_response(
             url="https://accounts.google.com/ServiceLogin",
             content=(
-                b'<html><script>window.WIZ_global_data={"SNlM0e":"LOGIN_PAGE_TOKEN",'
-                b'"FdrFJe":"LOGIN_PAGE_SESSION"};</script></html>'
+                b'<html><script>window.WIZ_global_data = {"S06Grb":"",'
+                b'"SNlM0e":"ALX_PLACEHOLDER_SIGNIN_TOKEN:1785760591977",'
+                b'"FdrFJe":"8407000850280974490"};</script></html>'
             ),
         )
 
@@ -189,7 +206,25 @@ class TestFetchTokens:
 
         message = str(exc.value)
         assert "Authentication expired" in message
-        assert "LOGIN_PAGE_TOKEN" not in message
+        assert "ALX_PLACEHOLDER_SIGNIN_TOKEN" not in message
+
+    def test_extractors_alone_would_accept_a_sign_in_page(self):
+        """Pin the hazard the pre-check exists to prevent.
+
+        If this ever starts raising, the extractors have gained host awareness
+        of their own and the URL-only pre-check in ``_fetch_tokens_with_jar``
+        could be reconsidered. Until then, deleting that pre-check would let
+        Google's sign-in-page tokens through — which is precisely the refactor
+        two reviewers proposed on #2045.
+        """
+        from notebooklm._auth.extraction import extract_csrf_from_html
+
+        signin_html = (
+            '<html><script>window.WIZ_global_data = {"S06Grb":"",'
+            '"SNlM0e":"ALX_PLACEHOLDER_SIGNIN_TOKEN:1785760591977"};</script></html>'
+        )
+        # No final_url -> classification cannot help; the body alone decides.
+        assert extract_csrf_from_html(signin_html) == "ALX_PLACEHOLDER_SIGNIN_TOKEN:1785760591977"
 
     @pytest.mark.asyncio
     async def test_fetch_tokens_redirect_to_login_strips_query_and_fragment(self, monkeypatch):
