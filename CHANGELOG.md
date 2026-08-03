@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Audio overviews now download as `.m4a`, not `.mp3`.** The Audio Overview
+  bytes have always been AAC in an ISO-BMFF/MP4 container — the artifact
+  metadata itself advertises them as `audio/mp4` — so the `.mp3` name was a
+  mislabel that broke players, transcoders, and MIME-sniffing upload endpoints
+  in ways that were hard to trace back to the extension. Fixed on all three
+  surfaces (CLI `download audio`, MCP `studio_download`, REST
+  `POST /v1/notebooks/{id}/artifacts/download`), and the advertised MIME type is
+  now `audio/mp4` instead of `audio/mpeg`
+  ([#2034](https://github.com/teng-lin/notebooklm-py/issues/2034)).
+
+  > **⚠ Migration.** Only the *derived* filename changed — an explicit output
+  > path is still honoured verbatim, so `notebooklm download audio out.mp3`
+  > keeps writing `out.mp3` (with the same, still-AAC bytes). What changes is
+  > the default name when you pass no path, the per-file names under `--all`,
+  > and the `filename` / `mime_type` the MCP and REST surfaces advertise.
+  > Scripts that glob `*.mp3` in a download directory should glob `*.m4a`
+  > (or `*.m4a` and `*.mp3` during a transition).
+
 ## [0.8.0] - 2026-08-03
 
 The headline of 0.8.0 is **integrations**: NotebookLM is now reachable from AI

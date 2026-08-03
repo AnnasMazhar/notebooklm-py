@@ -204,7 +204,9 @@ def _download_specs() -> dict[str, download_core.DownloadTypeSpec]:
         "audio": spec(
             name="audio",
             kind=ArtifactType.AUDIO,
-            extension=".mp3",
+            # ``.m4a`` (AAC in an MP4 container), not ``.mp3`` — see the note on
+            # the CLI's matching row in ``cli/_download_specs.py`` (#2034).
+            extension=".m4a",
             default_dir="./audio",
             download_attr="download_audio",
             help_summary="",
@@ -627,8 +629,17 @@ async def download(notebook_id: str, body: ArtifactDownload, client: ClientDep) 
         served = result.output_path or temp_path
         if Path(temp_dir).resolve() not in Path(served).resolve().parents:
             raise ValidationError("Download produced an unexpected output path")
+        # Set ``media_type`` EXPLICITLY from the shared ``_app`` table rather than
+        # letting ``FileResponse`` guess via ``mimetypes``: the stdlib's builtin map
+        # has no ``.m4a`` row (it resolves only on hosts shipping ``/etc/mime.types``),
+        # so a guessed audio download would degrade to Starlette's ``text/plain``
+        # default on a slim container. Using the same table the MCP surfaces use also
+        # keeps the two servers' Content-Type in lockstep (#2034).
         response = _CleanupFileResponse(
-            served, filename=os.path.basename(served), temp_dir=temp_dir
+            served,
+            filename=os.path.basename(served),
+            media_type=download_core.mime_type_for_extension(Path(served).suffix),
+            temp_dir=temp_dir,
         )
         success = True
         return response

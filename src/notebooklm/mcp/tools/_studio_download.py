@@ -143,7 +143,9 @@ _DOWNLOAD_SPECS: dict[str, download_core.DownloadTypeSpec] = {
     "audio": download_core.DownloadTypeSpec(
         name="audio",
         kind=ArtifactType.AUDIO,
-        extension=".mp3",
+        # ``.m4a`` (AAC in an MP4 container), not ``.mp3`` — see the note on the
+        # CLI's matching row in ``cli/_download_specs.py`` (#2034).
+        extension=".m4a",
         default_dir="./audio",
         download_attr="download_audio",
         help_summary="",
@@ -243,27 +245,17 @@ _KIND_TO_DOWNLOAD_KEY: dict[Any, DownloadType] = {
     spec.kind: cast(DownloadType, key) for key, spec in _DOWNLOAD_SPECS.items()
 }
 
-#: The ONE file-extension → MIME-type table. Both the ``studio_download`` tool
-#: payload (:func:`_broker_download`) and the ``/files/dl`` route derive their
-#: Content-Type from this via :func:`download_mime_type`, so the advertised
-#: ``mime_type`` and the byte stream's ``Content-Type`` can never drift. Keyed by
-#: the extension the spec+format already resolve to, so a new download type only
-#: needs its extension mapped here.
-_EXTENSION_MIME_TYPES: dict[str, str] = {
-    ".mp3": "audio/mpeg",
-    ".mp4": "video/mp4",
-    ".pdf": "application/pdf",
-    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ".png": "image/png",
-    ".md": "text/markdown",
-    ".json": "application/json",
-    ".csv": "text/csv",
-    ".html": "text/html",
-}
+#: The extension → MIME-type table, re-exported from the neutral
+#: :mod:`notebooklm._app.download` core so the ``studio_download`` tool payload
+#: (:func:`_broker_download`), the ``/files/dl`` route, and the REST ``/download``
+#: response all advertise the SAME Content-Type. Aliased here (rather than
+#: inlined) to keep this module's historical name while leaving exactly one
+#: table to edit when a download type gains an extension.
+_EXTENSION_MIME_TYPES = download_core.EXTENSION_MIME_TYPES
 
 #: Fallback when an extension isn't in the table (unreachable for minted tokens —
 #: every spec extension is mapped — but keeps the helpers total).
-_DEFAULT_MIME = "application/octet-stream"
+_DEFAULT_MIME = download_core.DEFAULT_MIME_TYPE
 
 
 def download_extension(spec: download_core.DownloadTypeSpec, output_format: str | None) -> str:
@@ -295,7 +287,7 @@ def download_filename(
 
 def download_mime_type(spec: download_core.DownloadTypeSpec, output_format: str | None) -> str:
     """The MIME type for a download of ``spec`` in ``output_format`` (central table)."""
-    return _EXTENSION_MIME_TYPES.get(download_extension(spec, output_format), _DEFAULT_MIME)
+    return download_core.mime_type_for_extension(download_extension(spec, output_format))
 
 
 async def _passthrough_download_notebook(notebook_id: str) -> str:

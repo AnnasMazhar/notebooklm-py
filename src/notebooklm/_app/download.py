@@ -53,6 +53,42 @@ FORMAT_EXTENSIONS: dict[str, str] = {
     "html": ".html",
 }
 
+#: The ONE file-extension → MIME-type table, keyed by the extensions the download
+#: specs resolve to. Lives here (next to :data:`FORMAT_EXTENSIONS`) rather than in
+#: any adapter so the MCP ``studio_download`` payload, the MCP ``/files/dl`` route,
+#: and the REST ``/download`` response all advertise the SAME Content-Type — and so
+#: none of them has to fall back to :mod:`mimetypes`, whose builtin table does not
+#: know ``.m4a`` (it resolves only when the host ships an ``/etc/mime.types``).
+#:
+#: ``.m4a`` → ``audio/mp4``: an Audio Overview is AAC in an ISO-BMFF/MP4 container,
+#: which is what the artifact row itself advertises (#2034). There is deliberately
+#: no ``.mp3`` row — no spec resolves to it.
+EXTENSION_MIME_TYPES: dict[str, str] = {
+    ".m4a": "audio/mp4",
+    ".mp4": "video/mp4",
+    ".pdf": "application/pdf",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".png": "image/png",
+    ".md": "text/markdown",
+    ".json": "application/json",
+    ".csv": "text/csv",
+    ".html": "text/html",
+}
+
+#: Fallback when an extension isn't in :data:`EXTENSION_MIME_TYPES` (unreachable for
+#: the registered specs — every spec extension is mapped — but keeps callers total).
+DEFAULT_MIME_TYPE = "application/octet-stream"
+
+
+def mime_type_for_extension(extension: str) -> str:
+    """The MIME type for ``extension`` (with leading dot), case-insensitively.
+
+    Falls back to :data:`DEFAULT_MIME_TYPE` for an unmapped extension rather than
+    guessing via :mod:`mimetypes`, whose result varies with the host's mime
+    database.
+    """
+    return EXTENSION_MIME_TYPES.get(extension.lower(), DEFAULT_MIME_TYPE)
+
 
 class ArtifactDict(TypedDict):
     """Artifact structure projected from the ``client.artifacts.list`` API."""
