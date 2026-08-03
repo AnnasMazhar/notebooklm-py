@@ -69,6 +69,21 @@ Two consequences worth stating plainly:
 - **uv users are fine.** The blast radius is pip users upgrading via the old
   name — still the majority.
 
+## Why the standard rename procedure does not cover us
+
+The usual PyPI rename (publish under the new name; turn the old project into a
+wrapper depending on it) has a step we deliberately skip: *"update your import
+package statements and folder names"*. That step is what makes the wrapper safe
+— the new project ships **different files**, so uninstalling the old dist
+removes only its own.
+
+`sklearn` → `scikit-learn` is the standard example working correctly: the
+`sklearn` wrapper never shipped `sklearn/` files itself, so there was nothing to
+collide. Our old dist *did* ship `notebooklm/`, and ADR-0028 keeps that import
+name permanently — so both dists claim the same paths. **The file overlap, not
+the wrapper, is the defect.** Any option below is really a choice about how to
+remove the overlap.
+
 ## Options (maintainer decision, not yet taken)
 
 1. **Ship the shim anyway, document the dance.** Release notes and README tell
@@ -86,8 +101,39 @@ Two consequences worth stating plainly:
    that the next upgrade requires an uninstall-first. Gets a message to users
    *before* they break, using the one release channel they still receive.
 
-Option 3 composes with 1. Option 2 is the only one that makes the bad path
-impossible rather than merely documented.
+4. **Invert the wrapper.** Keep `notebooklm-py` as the real, file-shipping
+   distribution forever, and make **`gemini-notebook-py` the wrapper** that
+   depends on it. Only one dist ever ships `notebooklm/`, so the overlapping
+   RECORD that causes this bug cannot occur — safe *by construction*, not by
+   documentation. Verified against the live 0.0.1 placeholders, which already
+   have exactly this shape: installing `gemini-notebook-py` then running
+   `pip install -U notebooklm-py` leaves a healthy environment.
+
+   Keeps everything ADR-0028 actually protects: `import notebooklm` permanent,
+   every existing install and config untouched, both names installable, the new
+   name present on PyPI with its own README and keywords for discovery.
+
+   What it gives up is the ADR's stated goal that the *new* name be canonical:
+   downloads, release history, and PyPI's own ranking stay on `notebooklm-py`,
+   and `gemini-notebook-py`'s project page is a pointer rather than the
+   package. Discoverability is largely preserved (the name exists and installs
+   the right thing); *identity* is not transferred.
+
+   Also needs an ADR amendment, and reverses the dist/import mismatch direction
+   (`pip install notebooklm-py`, `import notebooklm` — no mismatch at all,
+   which is arguably simpler than the `bs4` precedent the ADR invokes).
+
+Option 3 composes with 1. Options 2 and 4 are the only ones that make the bad
+path impossible rather than merely documented; of those, 4 is the only one that
+also keeps old-name users receiving updates — which was ADR-0028's reason for
+having a shim in the first place.
+
+A fifth option exists and is what the standard procedure assumes: rename the
+import package too. ADR-0028 already rejected it at length (v1 alternative:
+~2000 in-tree references, the logger namespace as documented API, pickles of
+`notebooklm._types.*`, env-var twinning with a credential scrub, and a removal
+cliff stranding every config `mcp install` ever wrote). Nothing found here
+weakens those objections.
 
 ## Reproducing
 
