@@ -456,6 +456,62 @@ If identity transfer is later judged essential, option 4 does not block it: the
 full rename (option 5, import package included) remains available at a 1.0/2.0
 boundary, which is where ADR-0028 itself says such a flip belongs.
 
+## Recommended sequencing
+
+### The distribution name may be the weakest lever available
+
+ADR-0028's stated goal is discoverability: *"New users will search 'gemini
+notebook python'."* Of the surfaces it lists, the distribution name is
+plausibly the **least** effective one for that:
+
+- **GitHub repo name** — drives Google results, GitHub search, and the
+  training data of the coding agents this project explicitly targets.
+- **README / docs prose** — what a search engine or model actually reads.
+- **PyPI keywords + description** — already updated on this branch.
+- **PyPI distribution name** — mostly what you type *after* you have already
+  found the project.
+
+The repo rename is currently deferred and carries **none** of this packaging
+risk. If discoverability is the objective, it is the high-return, low-risk move
+— and it is available independently of every option here.
+
+### ADR-0028's own constraint 1 now argues against its own decision
+
+The ADR opens by warning that *"Google renames products often; this brand is
+weeks old. Anything expensive or irreversible keyed to the new name is a bet on
+brand stability."*
+
+Before this defect, transferring the distribution identity looked cheap. It is
+not: it costs a silent-corruption path (and, separately, breaks existing
+`pipx`/`uv tool` users of the old name on upgrade). The expensive option is now
+also the risky one, so the ADR's own risk analysis points harder at the
+low-commitment choice than it did when the ADR was written.
+
+### Ranked recommendation
+
+1. **Option 4** — invert the wrapper. Zero breakage, deletes machinery,
+   robust to the next rebrand. Ship 0.9.0 on this.
+2. **Pair it with the repo rename** (whenever you are ready). That is where the
+   discoverability actually comes from, and it is risk-free by comparison.
+3. **Revisit identity transfer at 1.0**, if the brand has held. Option 4 does
+   not block option 5 later, and 1.0 is where ADR-0028 itself says such a flip
+   belongs.
+
+If identity transfer is judged non-negotiable *now*:
+
+- Take **option 5** (full rename, import package included). It is expensive,
+  but it costs *work*, not a defect, and it is the only clean route.
+- **Option 6** (hard-fail shim) is the cheaper fallback: it buys identity while
+  breaking old-name users loudly and actionably instead of silently.
+
+Not recommended under any framing:
+
+- **Option 1** — the shim's only purpose is to deliver updates, and delivering
+  them is what corrupts. Incoherent, not merely risky.
+- **Option 2** — for *this* project a frozen pin does not degrade gracefully;
+  it stops working whenever Google changes an undocumented RPC id, with no
+  update path the user would think to look for.
+
 ## Reproducing
 
 ```bash
