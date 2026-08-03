@@ -971,7 +971,9 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_url_utils.py`, `urls.py` | URL parsing/validation internals and the public URL helper facade |
 | `_sharing_manager.py` | Direct sharing management logic |
 | `_version_check.py` | Dynamic client-side version deprecation guard |
-| `_version_info.py` | Human-facing `version_string()` — package version + short git commit (embedded by `hatch_build.py` at build time, or live `git` from a checkout) |
+| `_version_info.py` | Human-facing `version_string()` — package version + short git commit (embedded by `hatch_build.py` at build time, or live `git` from a checkout) — plus `invoked_prog()`, which reports whichever of the six ADR-0028 console-script names was actually run |
+| `_dist_version.py` | Resolves `__version__` to the distribution that actually supplied the imported files. Two dist names ship this import package (ADR-0028), so in a dual install both RECORDs claim `notebooklm/__init__.py`; ownership is decided by hashing the imported bytes against each RECORD digest (unique match only), falling back to the `hatch_build.py` version stamp when ambiguous — never by dist-name order |
+| `_stale_install.py` | Import-time detection of a **pre-shim** `notebooklm-py` co-installed with `gemini-notebook-py` — a file-for-file collision (ADR-0028). Marker-based (does its RECORD list `notebooklm/` files?), with a version compare only as the RECORD-stripped fallback |
 | `_chat/notes.py` | Chat-adjacent note saving workflow adapter |
 | `_chat/wire.py` | Streamed-chat wire request construction + response parsing for the chat client |
 | `_chat/transport.py` | Chat-specific error mapping over the shared transport pipeline |
@@ -1047,7 +1049,9 @@ src/notebooklm/
 ├── _url_utils.py                # URL validation helpers
 ├── _sharing_manager.py          # Sharing management logic
 ├── _version_check.py            # Deprecation version guard
-├── _version_info.py             # version_string(): version + short git commit
+├── _version_info.py             # version_string(): version + short git commit; invoked_prog()
+├── _dist_version.py             # __version__ by file-content ownership across both dist names (ADR-0028)
+├── _stale_install.py            # Warns on a pre-shim notebooklm-py colliding with the canonical dist
 ├── _research_task_parser.py     # Research task result-type parser
 ├── _research_import.py          # ResearchAPI import/verification helpers + #1961 idempotency pre-filter
 ├── _redact.py                   # Transport-neutral secret/home-path/file-link scrubber (redact(msg, max_length)); shared chokepoint under both mcp/_errors.py and server/_errors.py

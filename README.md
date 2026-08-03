@@ -5,7 +5,18 @@
 
 **A Comprehensive Google Gemini Notebook Skill & Unofficial Python API.** Full programmatic access to NotebookLM's features—including capabilities the web UI doesn't expose—via Python, CLI, and AI agents like Claude Code, Codex, and OpenClaw.
 
-> **Note (July 2026):** Google rebranded **NotebookLM** to **[Gemini Notebook](https://blog.google/innovation-and-ai/products/gemini-notebook/notebooklm-gemini-notebook/)**. It remains the same standalone product (now also reachable inside the Gemini app), existing links redirect automatically, and this library drives the same underlying service and works unchanged. The package keeps the `notebooklm-py` name.
+> **Note (July 2026):** Google rebranded **NotebookLM** to **[Gemini Notebook](https://blog.google/innovation-and-ai/products/gemini-notebook/notebooklm-gemini-notebook/)**. It remains the same standalone product (now also reachable inside the Gemini app), existing links redirect automatically, and this library drives the same underlying service and works unchanged.
+>
+> **Correction (August 2026):** that note previously said "the package keeps the `notebooklm-py` name". That is no longer the plan, and we are retracting it rather than editing it away. Searchers now look for "gemini notebook", so at **0.9.0** the distribution is renamed to **`gemini-notebook-py`** — see [ADR-0028](docs/adr/0028-gemini-notebook-rename.md).
+>
+> Nothing about your code changes:
+>
+> - **`import notebooklm` is permanent.** So are the `NOTEBOOKLM_*` environment variables, `~/.notebooklm`, the `notebooklm` logger namespace, and the MCP server identity. A dist name that differs from the import name is ordinary Python (`beautifulsoup4`/`bs4`, `pillow`/`PIL`).
+> - **`pip install notebooklm-py` keeps working**, indefinitely — from 0.9.0 it becomes a thin package that pulls in `gemini-notebook-py`, with every extra (`[mcp]`, `[browser]`, …) mirrored.
+> - **The `notebooklm`, `notebooklm-mcp`, and `notebooklm-server` commands stay**, alongside new `gemini-notebook*` aliases. Neither set is deprecated.
+> - `NotebookLMClient` keeps its name; `GeminiNotebookClient` is a permanent alias for the same class.
+>
+> One caveat worth knowing if you installed before 0.9.0: `notebooklm-py` ≤ 0.8 and `gemini-notebook-py` ship the same files, so having both at once is a broken state. Fix it with `pip uninstall notebooklm-py && pip install --force-reinstall gemini-notebook-py` (`--force-reinstall`, not `-U`).
 
 [![PyPI version](https://img.shields.io/pypi/v/notebooklm-py.svg)](https://pypi.org/project/notebooklm-py/)
 [![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/notebooklm-py/)

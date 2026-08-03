@@ -163,7 +163,12 @@ def resolve_version() -> str:
     candidates = _candidates()
 
     if len(candidates) == 1:
-        version = _dist_version(candidates[0][0])
+        # Destructuring rather than `candidates[0][0]`: the repo-wide guardrail
+        # against raw positional indexing (ADR-0011) reads integer subscripts as
+        # RPC-payload decoding, and unpacking states "exactly one" more plainly
+        # in any case.
+        ((sole_dist, _entry),) = candidates
+        version = _dist_version(sole_dist)
         if version:
             return version
 
@@ -175,12 +180,13 @@ def resolve_version() -> str:
             else []
         )
         if len(matches) == 1:
-            version = _dist_version(matches[0][0])
+            ((owner, _owner_entry),) = matches
+            version = _dist_version(owner)
             if version:
                 _logger.debug(
                     "Multiple distributions ship 'notebooklm'; resolved ownership by "
                     "file hash to %r (version %s).",
-                    matches[0][0].metadata["Name"],
+                    _dist_name(owner),
                     version,
                 )
                 return version
@@ -222,7 +228,8 @@ def resolve_version() -> str:
         except Exception:
             continue
     if len(installed) == 1:
-        version = _dist_version(installed[0])
+        (sole_installed,) = installed
+        version = _dist_version(sole_installed)
         if version:
             return version
     _logger.debug(

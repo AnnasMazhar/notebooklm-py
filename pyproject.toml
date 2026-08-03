@@ -8,7 +8,17 @@ license = {text = "MIT"}
 authors = [
     {name = "Teng Lin", email = "teng.lin@gmail.com"}
 ]
-keywords = ["notebooklm", "google", "ai", "automation", "rpc", "client", "api"]
+keywords = [
+    "gemini-notebook",
+    "gemini",
+    "notebooklm",
+    "google",
+    "ai",
+    "automation",
+    "rpc",
+    "client",
+    "api",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -31,6 +41,10 @@ dependencies = [
     "click>=8.0.0,<9",
     "rich>=13.0.0,<16",
     "filelock>=3.13,<4",
+    # Base (not dev) since ADR-0028: `_stale_install` parses installed dist
+    # versions at import time to detect a pre-shim `notebooklm-py` sharing this
+    # environment. That check runs on end-user installs, not just in CI.
+    "packaging>=23.0,<27",
 ]
 
 [project.urls]
@@ -84,7 +98,6 @@ dev = [
     "ruff==0.15.21",
     "tomli>=2.0.0,<3; python_version < '3.11'",  # for tests/unit/test_install_docs.py on Python 3.10 (tomllib is 3.11+)
     "vcrpy>=6.0.0,<9",
-    "packaging>=23.0,<27",  # for tests/unit/test_version_gate.py (PEP 440 version parsing)
 ]
 # `all` deliberately excludes `cookies` — rookiepy has install issues on Python 3.13+
 # (see CHANGELOG [0.4.1]). Opt in explicitly via `pip install "notebooklm-py[cookies]"`.

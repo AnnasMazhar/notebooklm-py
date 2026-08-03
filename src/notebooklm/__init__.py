@@ -41,6 +41,12 @@ _logger = logging.getLogger(__name__)
 
 __version__ = _resolve_version()
 
+# A pre-0.9 `notebooklm-py` sharing this environment collides file-for-file
+# with us; say so once, at import, while the environment can still be fixed.
+from ._stale_install import warn_on_stale_install as _warn_on_stale_install
+
+_warn_on_stale_install()
+
 # Public API: Authentication
 from .auth import AuthTokens
 
