@@ -126,6 +126,72 @@ class TestFetchTokens:
         assert "Authentication expired" not in message
 
     @pytest.mark.asyncio
+    async def test_fetch_tokens_gate_wins_over_mismatch_hop(self, httpx_mock: HTTPXMock):
+        """The #1630 region gate must outrank a cookie-mismatch hop HERE too.
+
+        ``_extraction_failure`` gets this precedence right, and
+        ``TestExtractionFailureTaxonomy::test_gate_still_wins_over_cookie_mismatch_ordering``
+        pins it — but that test calls the extractor directly, so it cannot see
+        the production ``_fetch_tokens_with_jar`` path, which classifies before
+        the body is ever parsed. An earlier revision hand-rolled the checks
+        there and got the order wrong; both paths now share one classifier.
+        """
+        httpx_mock.add_response(
+            url="https://notebooklm.google.com/",
+            status_code=302,
+            headers={"Location": "https://accounts.google.com/CookieMismatch"},
+        )
+        httpx_mock.add_response(
+            url="https://accounts.google.com/CookieMismatch",
+            status_code=302,
+            headers={"Location": "https://notebooklm.google/?location=unsupported"},
+        )
+        httpx_mock.add_response(
+            url="https://notebooklm.google/?location=unsupported",
+            content=b"<html>NotebookLM</html>",
+        )
+
+        cookies = {"SID": "valid_sid", "__Secure-1PSIDTS": "test_1psidts"}
+        with pytest.raises(ValueError) as exc:
+            await fetch_tokens(cookies)
+
+        message = str(exc.value)
+        assert "region / anti-abuse access gate" in message
+        assert "CookieMismatch" not in message
+
+    @pytest.mark.asyncio
+    async def test_fetch_tokens_never_accepts_the_login_pages_own_token(
+        self, httpx_mock: HTTPXMock
+    ):
+        """A login page carries its OWN ``SNlM0e``; we must never return it.
+
+        This is why the URL-only classification runs *before* the body is
+        parsed rather than as a fast path: handing this response to
+        ``extract_csrf_from_html`` would succeed and hand the caller Google's
+        login-page CSRF token instead of raising.
+        """
+        httpx_mock.add_response(
+            url="https://notebooklm.google.com/",
+            status_code=302,
+            headers={"Location": "https://accounts.google.com/ServiceLogin"},
+        )
+        httpx_mock.add_response(
+            url="https://accounts.google.com/ServiceLogin",
+            content=(
+                b'<html><script>window.WIZ_global_data={"SNlM0e":"LOGIN_PAGE_TOKEN",'
+                b'"FdrFJe":"LOGIN_PAGE_SESSION"};</script></html>'
+            ),
+        )
+
+        cookies = {"SID": "expired_sid", "__Secure-1PSIDTS": "test_1psidts"}
+        with pytest.raises(ValueError) as exc:
+            await fetch_tokens(cookies)
+
+        message = str(exc.value)
+        assert "Authentication expired" in message
+        assert "LOGIN_PAGE_TOKEN" not in message
+
+    @pytest.mark.asyncio
     async def test_fetch_tokens_redirect_to_login_strips_query_and_fragment(self, monkeypatch):
         """Redirect error must not expose query params or fragments from final_url."""
 

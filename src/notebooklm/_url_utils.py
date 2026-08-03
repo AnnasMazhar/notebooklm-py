@@ -8,7 +8,7 @@ import re
 from collections.abc import Iterable
 from urllib.parse import parse_qs, unquote, urlparse
 
-from ._env import ENTERPRISE_BASE_HOST, PERSONAL_BASE_HOST
+from ._env import ENTERPRISE_BASE_HOST, PERSONAL_APP_ALIAS_HOST, PERSONAL_BASE_HOST
 
 # Control characters (C0, DEL, C1) that ``unquote`` can reintroduce into a
 # derived display title — a NUL/newline must never reach a source title.
@@ -25,12 +25,20 @@ _MAX_URL_TITLE_LEN = 200
 # invalid auth) and from a genuine page-structure change.
 _NOTEBOOKLM_MARKETING_HOST = "notebooklm.google"
 
-# The NotebookLM *app* hosts — the only hosts that can legitimately serve a page
+# The NotebookLM *app* hosts — the hosts that can legitimately serve a page
 # carrying ``WIZ_global_data``. Landing anywhere else means the request never
 # reached the app, which is a different failure from "the app's page changed".
 # Sourced from ``_env`` so the enterprise host and any future addition stay in
 # one place. (``_env`` imports nothing from this module, so there is no cycle.)
-_NOTEBOOKLM_APP_HOSTS: frozenset[str] = frozenset({PERSONAL_BASE_HOST, ENTERPRISE_BASE_HOST})
+#
+# This set is deliberately WIDER than ``_env._ALLOWED_BASE_HOSTS``: that one
+# validates where we may *send credentials*, while this one answers the
+# read-only question "did this response come from the app?". The post-rebrand
+# alias ``notebook.google.com`` serves the personal app shell, so omitting it
+# would make a genuine app response report as "never reached the app".
+_NOTEBOOKLM_APP_HOSTS: frozenset[str] = frozenset(
+    {PERSONAL_BASE_HOST, ENTERPRISE_BASE_HOST, PERSONAL_APP_ALIAS_HOST}
+)
 
 # Google's cookie-mismatch interstitial. Reaching it means Google rejected the
 # cookies as not matching the host they were presented to (a cookie *scoping*
@@ -166,12 +174,13 @@ def contains_google_auth_redirect(text: str) -> bool:
 def is_notebooklm_app_host(url: str) -> bool:
     """Check whether ``url`` is served by a NotebookLM *app* host.
 
-    True only for the consumer host (``notebooklm.google.com``) and the
-    enterprise host (``notebooklm.cloud.google.com``) — the two hosts that can
-    serve a page containing ``WIZ_global_data``. Deliberately an exact-host
-    match: the marketing/gate host ``notebooklm.google`` is a different host
-    (no ``.com``) and must not qualify, and no subdomain of the app hosts serves
-    the app shell.
+    True for the consumer host (``notebooklm.google.com``), its post-rebrand
+    alias (``notebook.google.com``), and the enterprise host
+    (``notebooklm.cloud.google.com``) — the hosts that can serve a page
+    containing ``WIZ_global_data``. Deliberately an exact-host match: the
+    marketing/gate host ``notebooklm.google`` is a different host (no ``.com``)
+    and must not qualify, and no subdomain of the app hosts serves the app
+    shell.
 
     Used to split a token-extraction failure into "the app's page shape changed"
     (we are on the app host — file a bug) versus "we never reached the app"

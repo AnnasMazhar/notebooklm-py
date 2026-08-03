@@ -117,6 +117,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   positional calls are unaffected)
   ([#2038](https://github.com/teng-lin/notebooklm-py/issues/2038)).
 
+- **`notebook.google.com` is now recognised as a NotebookLM app host** when
+  deciding whether a token-less response actually reached the app. Google serves
+  the personal app from this alias after the "Gemini Notebook" rebrand, and
+  `_auth/browser_capture.url_matches_base_host` already honoured it; without the
+  matching entry a genuine app response would have been reported as "the request
+  never reached the app". The alias is deliberately *not* added to
+  `_ALLOWED_BASE_HOSTS` — that set governs where credentials may be sent, which
+  is a narrower question than where a response may have come from
+  ([#2038](https://github.com/teng-lin/notebooklm-py/issues/2038)).
+
 ## [0.8.0] - 2026-08-03
 
 The headline of 0.8.0 is **integrations**: NotebookLM is now reachable from AI

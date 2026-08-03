@@ -23,8 +23,10 @@ Private helpers (also re-exported as white-box affordances for tests):
 
 * :func:`_build_wiz_field_patterns` — the ordered regex patterns.
 * :func:`_safe_url` — credential-stripping URL formatter for error messages.
-* :func:`_cookie_mismatch_message` — shared with ``_auth.refresh``, which
-  classifies the same hop before its own auth-redirect pre-check.
+* :func:`_url_only_extraction_failure` — the single source of truth for the
+  gate → cookie-mismatch → auth-redirect precedence. ``_auth.refresh`` calls it
+  before parsing a response body, because Google's login page carries its own
+  ``SNlM0e`` and would otherwise be mistaken for a valid app page.
 """
 
 from __future__ import annotations
@@ -277,6 +279,35 @@ def _token_not_found_message(what: str, final_url: str) -> str:
     return f"{what} not found in HTML. Final URL: {_safe_url(final_url)}\n{detail}"
 
 
+def _url_only_extraction_failure(final_url: str, redirect_urls: Sequence[str]) -> ValueError | None:
+    """Classify the failures that are decidable from the URLs alone, else ``None``.
+
+    This is the **single source of truth for branch order**, shared with
+    ``_auth.refresh._fetch_tokens_with_jar``. That caller must run these checks
+    *before* handing the body to :func:`extract_csrf_from_html`, and not merely
+    as an optimisation: Google's own ``accounts.google.com`` login page ships a
+    ``WIZ_global_data`` block containing its own ``SNlM0e``, so passing a login
+    page to the extractor would happily return **the login page's token**
+    instead of raising. The pre-check is what keeps that token out of the client.
+
+    Because both paths now call this one function, they cannot drift out of
+    order — an earlier revision hand-rolled the same checks in ``refresh.py``
+    and got the gate/mismatch precedence wrong there while the extractor had it
+    right (caught in review of #2038).
+    """
+    if is_notebooklm_unavailable_redirect(final_url):
+        return ValueError(_unavailable_redirect_message(final_url))
+    hop = find_cookie_mismatch_hop((*redirect_urls, final_url))
+    if hop is not None:
+        return ValueError(_cookie_mismatch_message(hop, final_url))
+    if is_google_auth_redirect(final_url):
+        return ValueError(
+            f"Authentication expired or invalid. Final URL: {_safe_url(final_url)}\n"
+            "Run 'notebooklm login' to re-authenticate."
+        )
+    return None
+
+
 def _extraction_failure(what: str, final_url: str, redirect_urls: Sequence[str]) -> ValueError:
     """Classify a failed ``WIZ_global_data`` extraction into an actionable error.
 
@@ -292,6 +323,15 @@ def _extraction_failure(what: str, final_url: str, redirect_urls: Sequence[str])
     3. **Auth redirect** — re-authenticate. Driven by the *final URL* only.
     4. **Token missing** — see :func:`_token_not_found_message`.
 
+    Note that branch 2 wins on a mismatch hop *anywhere* in the chain, including
+    the (unobserved) shape where the chain passes through ``/CookieMismatch`` and
+    then recovers back onto an app host. That precedence is deliberate: a
+    mismatch hop is strong evidence of a cookie fault, and an app host that
+    answers without a token after one is far more likely to be serving a
+    degraded/signed-out shell than to have changed its page structure. The
+    message still names where the chain actually ended, so the alternative
+    reading stays available to the operator.
+
     Deliberately takes no ``html`` argument: the page body is not consulted at
     all. The old ``contains_google_auth_redirect(html)`` fallback matched any
     ``accounts.google.com`` URL anywhere in the body, which nearly every
@@ -300,20 +340,16 @@ def _extraction_failure(what: str, final_url: str, redirect_urls: Sequence[str])
     evidence that would have identified the real fault. Every branch below
     carries the URL.
 
+    Branches 1-3 are delegated to :func:`_url_only_extraction_failure` so this
+    ordering exists in exactly one place; only branch 4 needs the page itself.
+
     Returns the error rather than raising it so each caller's ``raise``
     statement keeps the function's ``NoReturn``-free control flow obvious to
     both readers and type checkers.
     """
-    if is_notebooklm_unavailable_redirect(final_url):
-        return ValueError(_unavailable_redirect_message(final_url))
-    hop = find_cookie_mismatch_hop((*redirect_urls, final_url))
-    if hop is not None:
-        return ValueError(_cookie_mismatch_message(hop, final_url))
-    if is_google_auth_redirect(final_url):
-        return ValueError(
-            f"Authentication expired or invalid. Final URL: {_safe_url(final_url)}\n"
-            "Run 'notebooklm login' to re-authenticate."
-        )
+    url_failure = _url_only_extraction_failure(final_url, redirect_urls)
+    if url_failure is not None:
+        return url_failure
     return ValueError(_token_not_found_message(what, final_url))
 
 

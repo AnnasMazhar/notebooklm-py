@@ -28,7 +28,6 @@ from typing import Any
 import httpx
 
 from .._env import get_base_url
-from .._url_utils import find_cookie_mismatch_hop, is_google_auth_redirect
 from ..paths import get_storage_path, resolve_profile
 from . import cookies as _auth_cookies
 from . import extraction as _auth_extraction
@@ -62,6 +61,10 @@ extract_csrf_from_html = _auth_extraction.extract_csrf_from_html
 extract_session_id_from_html = _auth_extraction.extract_session_id_from_html
 _safe_url = _auth_extraction._safe_url
 _cookie_mismatch_message = _auth_extraction._cookie_mismatch_message
+# Shared URL-only failure classifier — the single source of truth for the
+# gate -> cookie-mismatch -> auth-redirect precedence used by both this module's
+# pre-check and the extractors themselves.
+_url_only_extraction_failure = _auth_extraction._url_only_extraction_failure
 _resolve_token_route_kwargs = _auth_headers._resolve_token_route_kwargs
 
 # Env-var names live in ``_auth.paths``; aliased so the refresh bodies can
@@ -752,21 +755,18 @@ async def _fetch_tokens_with_jar(
         # loses this one classification rather than misreporting it.)
         redirect_urls = tuple(str(hop.url) for hop in response.history)
 
-        # A cookie-mismatch hop is a cookie-*scoping* failure with its own
-        # remediation, so classify it before the generic auth-redirect check —
-        # the interstitial lives on accounts.google.com and would otherwise be
-        # reported as an expired login (#2038, the six-day #2019 false alarm).
-        mismatch_hop = find_cookie_mismatch_hop((*redirect_urls, final_url))
-        if mismatch_hop is not None:
-            raise ValueError(_cookie_mismatch_message(mismatch_hop, final_url))
-
-        # Check if we were redirected to login
-        if is_google_auth_redirect(final_url):
-            raise ValueError(
-                "Authentication expired or invalid. "
-                "Redirected to: " + _safe_url(final_url) + "\n"
-                "Run 'notebooklm login' to re-authenticate."
-            )
+        # Classify everything decidable from the URLs BEFORE touching the body.
+        # This is not an optimisation: Google's accounts.google.com login page
+        # ships its own ``WIZ_global_data`` with its own ``SNlM0e``, so handing a
+        # login page to ``extract_csrf_from_html`` would return *that* token
+        # rather than raising. Delegating to the shared classifier (instead of
+        # re-implementing the checks here) keeps the gate -> cookie-mismatch ->
+        # auth-redirect precedence identical on both paths; hand-rolling it here
+        # is exactly how this path once let a mismatch hop preempt the #1630
+        # region gate (#2038).
+        url_failure = _url_only_extraction_failure(final_url, redirect_urls)
+        if url_failure is not None:
+            raise url_failure
 
         csrf = extract_csrf_from_html(response.text, final_url, redirect_urls=redirect_urls)
         session_id = extract_session_id_from_html(

@@ -344,9 +344,26 @@ class TestIsNotebookLMAppHost:
             "https://notebooklm.google.com/notebook/abc",
             "https://NotebookLM.Google.COM/",  # host comparison is case-insensitive
             "https://notebooklm.cloud.google.com/",  # enterprise host
+            # Post-rebrand personal alias. Omitting it would make a genuine app
+            # response report as "the request never reached the app".
+            "https://notebook.google.com/",
         ],
     )
     def test_app_hosts(self, url: str):
+        assert is_notebooklm_app_host(url) is True
+
+    def test_alias_host_agrees_with_browser_capture(self):
+        """The alias must match the one ``browser_capture`` already recognises.
+
+        ``_auth/browser_capture.url_matches_base_host`` treats
+        ``notebook.google.com`` as the personal-app alias. Two independent
+        notions of "is this the app?" that disagree is how a valid app response
+        gets reported as an environment problem, so pin them together.
+        """
+        from notebooklm._auth.browser_capture import url_matches_base_host
+
+        url = "https://notebook.google.com/"
+        assert url_matches_base_host(url) is True
         assert is_notebooklm_app_host(url) is True
 
     @pytest.mark.parametrize(
