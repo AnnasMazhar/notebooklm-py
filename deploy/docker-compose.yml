@@ -23,7 +23,12 @@ services:
     # the exact version baked in). `make up`/`make prod` inject the checkout's version.
     # Override the namespace via NOTEBOOKLM_MCP_IMAGE. Contributors building from THIS
     # checkout run `make dev`, which layers docker-compose.build.yml (see that file).
-    image: ${NOTEBOOKLM_MCP_IMAGE:-tenglin/notebooklm-mcp}:${NOTEBOOKLM_MCP_VERSION:-latest}
+    #
+    # ADR-0028: the default image follows the Gemini Notebook rebrand. Every
+    # release is pushed under BOTH names, so existing `.env` files that pin
+    # NOTEBOOKLM_MCP_IMAGE=tenglin/notebooklm-mcp keep resolving. The
+    # NOTEBOOKLM_* variable names themselves are permanent and unchanged.
+    image: ${NOTEBOOKLM_MCP_IMAGE:-tenglin/gemini-notebook-mcp}:${NOTEBOOKLM_MCP_VERSION:-latest}
     restart: unless-stopped
     # Run as YOUR uid:gid so the mounted profile's files (owned by you on the
     # host) are readable AND writable with NO chown — and your own `notebooklm`

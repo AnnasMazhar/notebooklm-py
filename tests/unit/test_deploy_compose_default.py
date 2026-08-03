@@ -20,12 +20,40 @@ def _repo_root() -> Path:
     raise RuntimeError("could not locate repo root (no pyproject.toml above this file)")
 
 
+def _app_image_line(compose: str) -> re.Match[str]:
+    """Match the app service's image line, capturing default repo and tag.
+
+    Shape: ``${NOTEBOOKLM_MCP_IMAGE:-<repo>}:${NOTEBOOKLM_MCP_VERSION:-<tag>}``.
+    """
+    m = re.search(
+        r"\$\{NOTEBOOKLM_MCP_IMAGE:-([^}]+)\}:\$\{NOTEBOOKLM_MCP_VERSION:-([^}]+)\}",
+        compose,
+    )
+    assert m, (
+        "app image line not found / not in the expected "
+        "${NOTEBOOKLM_MCP_IMAGE:-…}:${NOTEBOOKLM_MCP_VERSION:-…} form"
+    )
+    return m
+
+
+def test_deploy_compose_app_image_default_repo_follows_the_rebrand() -> None:
+    """The default image is the ADR-0028 brand name.
+
+    Releases are pushed under both names, so a pinned legacy
+    ``NOTEBOOKLM_MCP_IMAGE`` keeps working; but a fresh `docker compose up`
+    should land on the current brand. The env-var NAME stays ``NOTEBOOKLM_*``
+    permanently — only the default value moves.
+    """
+    compose = (_repo_root() / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
+    repo = _app_image_line(compose).group(1)
+    assert repo.endswith("/gemini-notebook-mcp"), (
+        f"default compose image {repo!r} should be the gemini-notebook-mcp repository"
+    )
+
+
 def test_deploy_compose_app_image_default_tag_is_resolvable() -> None:
     compose = (_repo_root() / "deploy" / "docker-compose.yml").read_text(encoding="utf-8")
-    # The app service's image line: ...tenglin/notebooklm-mcp}:${NOTEBOOKLM_MCP_VERSION:-<default>}
-    m = re.search(r"notebooklm-mcp\}:\$\{NOTEBOOKLM_MCP_VERSION:-([^}]+)\}", compose)
-    assert m, "app image line not found / not in the expected ${NOTEBOOKLM_MCP_VERSION:-…} form"
-    default = m.group(1)
+    default = _app_image_line(compose).group(2)
     # Must be a real tag: `latest`, or a PEP 440-ish version — release segment plus optional
     # pre-release (a/b/rc/c), post-release (.postN), and/or dev-release (.devN):
     # 0.8.0 / 0.8.0b2 / 1.2.3rc1 / 1.2.3.post1 / 1.2.3.dev0.

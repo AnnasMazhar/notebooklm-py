@@ -59,7 +59,22 @@ jobs:
             exit 1
           fi
           IMAGE="${{ vars.DOCKERHUB_IMAGE }}"
-          TAGS="${IMAGE}:${VERSION}"
+          # ADR-0028 step 11: publish under BOTH image names from the same
+          # build. Existing deployments pin the legacy name in compose files we
+          # cannot reach, so it must keep receiving releases; new deployments
+          # default to the brand name. The second name is derived from the
+          # first's namespace (…/notebooklm-mcp -> …/gemini-notebook-mcp)
+          # unless DOCKERHUB_IMAGE_GEMINI overrides it, so no extra
+          # configuration is required for the common case.
+          GEMINI_IMAGE="${{ vars.DOCKERHUB_IMAGE_GEMINI }}"
+          if [ -z "$GEMINI_IMAGE" ]; then
+            GEMINI_IMAGE="${IMAGE%/*}/gemini-notebook-mcp"
+          fi
+          if [ "$GEMINI_IMAGE" = "$IMAGE" ]; then
+            echo "Error: the two image names resolved identically ($IMAGE); set DOCKERHUB_IMAGE_GEMINI" >&2
+            exit 1
+          fi
+          TAGS="${IMAGE}:${VERSION},${GEMINI_IMAGE}:${VERSION}"
           # :latest must point at the HIGHEST released version and never move
           # backward. Two gates: (1) a final release only — bare X.Y.Z, no PEP 440
           # pre-release suffix (a/b/rc); (2) it's the max stable tag — maintenance
@@ -69,7 +84,7 @@ jobs:
             HIGHEST=$(git tag --list 'v[0-9]*' | sed 's/^v//' \
               | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
             if [ "$VERSION" = "$HIGHEST" ]; then
-              TAGS="${TAGS},${IMAGE}:latest"
+              TAGS="${TAGS},${IMAGE}:latest,${GEMINI_IMAGE}:latest"
             else
               echo "Not the highest stable tag (highest=$HIGHEST) — publishing version tag only, :latest unchanged."
             fi
