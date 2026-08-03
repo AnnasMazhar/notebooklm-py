@@ -16,7 +16,10 @@ protocol at `notebooklm.google.com` — but the project's discoverable identity
 (PyPI listing, repo name, docs) now points at a retired brand. New users will
 search for "gemini notebook python". PyPI availability checked 2026-08-03:
 `gemini-notebook`, `gemini-notebook-py`, `gemini-notebook-client` are all
-unregistered; PyPI has no reservation mechanism, so squatting is a live risk.
+unregistered — and so is the bare `notebooklm` dist name, which the permanent
+dist/import mismatch this ADR adopts turns into a standing typosquat target
+(`pip install notebooklm` becomes the most likely wrong guess, forever). PyPI
+has no reservation mechanism, so squatting is a live risk on all of them.
 
 The name is carried on two very different kinds of surface:
 
@@ -72,6 +75,7 @@ patch after the fact.
 |---|---|
 | PyPI dist `notebooklm-py` | → `gemini-notebook-py` canonical at 0.9.0; old name becomes a permanent extras-forwarding shim |
 | Bare `gemini-notebook` | registered as redirect metapackage (anti-squat) |
+| Bare `notebooklm` (unregistered today) | registered as a defensive placeholder depending on the canonical dist — the mismatch makes it the permanent likely typo; the `bs4` precedent |
 | GitHub repo | → `teng-lin/gemini-notebook-py` (auto-redirects) |
 | CLI | `gemini-notebook`, `gemini-notebook-mcp`, `gemini-notebook-server` added; `notebooklm*` scripts kept **indefinitely** (they match the import name; no deprecation) |
 | Docker image / skill zip / `.mcpb` display name | new names added, old kept during wind-down |
@@ -91,7 +95,14 @@ frowns on) and we accept we may have to surrender it if challenged.
 
 - Register `gemini-notebook-py` and `gemini-notebook` on PyPI. Placeholders
   (`0.1.0`) **depend on `notebooklm-py`** so an early `pip install` works
-  rather than dead-ends; yank them once 0.9.0 ships. `publish.yml`'s
+  rather than dead-ends; yank them once 0.9.0 ships. Register the bare
+  **`notebooklm`** name in the same batch: with `import notebooklm` permanent,
+  `pip install notebooklm` is the most likely typo forever, and the name is
+  unregistered — exactly why the BeautifulSoup project registered `bs4`.
+  Same placeholder treatment (depends on the canonical dist of the day, README
+  redirects to `gemini-notebook-py`); unlike the two shims it is **not** part
+  of the lockstep matrix — its dependency floor is refreshed opportunistically
+  and it gets a one-time install smoke, not a per-release row. `publish.yml`'s
   tag/version validation rejects out-of-band versions, so this is a one-off
   manual/TestPyPI-style upload using PyPI *pending publishers* registered for
   both names (plus keeping `notebooklm-py`'s publisher) — all against the
@@ -314,6 +325,14 @@ under `notebooklm-py[mcp]` installs.
   confusion (README disambiguates).
 - Reversed commitment: the README's July 2026 "keeps the name" note is
   retracted in Phase 0 with rationale, not silently edited.
+- "Permanent" for the import package is a governance commitment, not physics:
+  it means unscheduled, with a named bar for reopening. A superseding ADR
+  requires either (a) the Gemini Notebook brand stable for 2+ years **and** a
+  1.0 major already planned on API-stability grounds (the only natural flip
+  point), or (b) sustained evidence of real user confusion (recurring issues,
+  measurable support burden). Another Google rename instead *confirms* this
+  decision — the import name that never chases brands is the only one that
+  cannot go stale twice.
 
 ## Alternatives considered
 
