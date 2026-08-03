@@ -123,10 +123,58 @@ remove the overlap.
    (`pip install notebooklm-py`, `import notebooklm` — no mismatch at all,
    which is arguably simpler than the `bs4` precedent the ADR invokes).
 
-Option 3 composes with 1. Options 2 and 4 are the only ones that make the bad
-path impossible rather than merely documented; of those, 4 is the only one that
-also keeps old-name users receiving updates — which was ADR-0028's reason for
-having a shim in the first place.
+6. **Hard-fail shim** (from independent review). Publish `notebooklm-py 0.9.0`
+   shipping **only** a `notebooklm/__init__.py` that raises `ImportError` with
+   migration instructions, and **no dependency on the canonical dist**. Because
+   it is a plain single-package upgrade, pip uninstalls 0.8.0 and then writes
+   this file, so it survives. **Verified:** `pip install -U notebooklm-py` from
+   0.8.0 yields a clean, actionable `ImportError` naming the fix, instead of a
+   namespace package with missing attributes.
+
+   This does not keep old-name users working — it deliberately breaks them,
+   *loudly and at a moment they control* (immediately after they ran an
+   upgrade), rather than silently. Compared with option 2 it trades "silently
+   stale until Google changes an RPC id" for "clearly broken right now, with
+   the fix in the message". It is the honest way to get identity transfer;
+   option 1 is not.
+
+   **Constraint (reasoned, not measured):** the hard-fail shim must NOT depend
+   on `gemini-notebook-py`. With a dependency, pip installs the canonical dist
+   first and writes the shim's `__init__.py` last — overwriting the real one
+   and breaking even a correctly resolved install. An attempt to test this
+   directly hit `ResolutionImpossible` because the published placeholders'
+   `<0.9` cap blocks the circular pairing, which is that cap working as
+   intended.
+
+Option 3 composes with 1. Options 2, 4 and 6 are the only ones that avoid
+*silent* corruption; of those, **4 is the only one where nothing breaks at
+all** — and it is the only one that keeps old-name users receiving updates,
+which was ADR-0028's reason for having a shim in the first place.
+
+### Confirmed: there is no packaging-level escape
+
+Independent review confirms no mechanism exists to keep `gemini-notebook-py`
+canonical *and* avoid the overlap:
+
+- pip implements no `Conflicts` / `Replaces` / `Obsoletes-Dist` (PEP 345's
+  field is not honoured), so the collision cannot be declared away.
+- Wheels are static archives; there are no install-time hooks that could
+  restore files or amend an uninstall.
+- `notebooklm-py 0.8.0`'s RECORD is already written to users' machines and can
+  never be altered retrospectively.
+
+So the option space above really is closed.
+
+### Still unchecked
+
+- **Other installers/lockfile tools:** Poetry, PDM, Pipenv, `pip-tools`. uv is
+  clean and pip is broken; the rest are unknown and matter for CI users.
+- **System packagers (conda, APT/DNF/Arch):** these enforce file ownership
+  strictly and would likely refuse the co-install outright rather than corrupt
+  it — a different, louder failure worth knowing about if anyone repackages us.
+- **The bare `notebooklm` dist:** harmless today (it ships no files), but once
+  its floor is refreshed to depend on `gemini-notebook-py`, it becomes a third
+  participant in the same transaction. Re-check the upgrade matrix then.
 
 A fifth option exists and is what the standard procedure assumes: rename the
 import package too. ADR-0028 already rejected it at length (v1 alternative:
@@ -134,6 +182,122 @@ import package too. ADR-0028 already rejected it at length (v1 alternative:
 `notebooklm._types.*`, env-var twinning with a credential scrub, and a removal
 cliff stranding every config `mcp install` ever wrote). Nothing found here
 weakens those objections.
+
+## Analysis
+
+### The failure is deterministic, not a race
+
+pip installs `gemini-notebook-py` before upgrading `notebooklm-py` under
+**both** of its ordering heuristics: dependency order (the canonical dist is a
+dependency of the shim) and alphabetical order (`g` < `n`). They agree, so this
+is not a scheduling accident that might sometimes come out right — it reproduces
+every time. Two independent runs confirmed it.
+
+### The shim is self-defeating
+
+The shim exists for exactly one reason: to keep old-name users receiving
+updates. Under pip, **delivering that update is precisely what corrupts them.**
+The mechanism and the purpose are the same act. That makes option 1 ("ship it
+and document the workaround") not merely risky but incoherent — the users who
+would need the workaround are, by construction, the ones who ran the command
+without reading release notes.
+
+### The option space is closed
+
+The corruption needs three things at once:
+
+1. two distributions that both ship `notebooklm/` files, **and**
+2. an upgrade transaction that installs one while uninstalling the other, **and**
+3. pip's install-before-uninstall ordering.
+
+We cannot change (3). So every viable option removes (1) or (2), and there are
+exactly three ways to do that — which is why the option list is closed rather
+than merely long:
+
+| Remove | How | Option |
+|---|---|---|
+| (1), by the *new* dist not shipping the files | old dist stays the real one; new name is a wrapper | **4** |
+| (1), by the *old* dist not shipping the files | rename the import package so paths differ | 5 |
+| (2), by never issuing an upgrade | freeze `notebooklm-py` at 0.8.x | 2 |
+
+Option 3 is a mitigation on top of 1, not a fourth way out.
+
+### The ADR mis-classifies the distribution name
+
+ADR-0028 sorts surfaces into *discoverability* (PyPI dist name, repo, docs) and
+*operational plumbing* (import package, env vars, config home, MCP identities),
+and argues plumbing must never be renamed because "the plumbing writes its name
+into places we cannot patch after the fact."
+
+The distribution name is in **both** buckets. It is discoverability for someone
+choosing a package — and plumbing for everyone who already has one, because it
+is written into `requirements.txt`, `pyproject.toml`, `poetry.lock`,
+`uv.lock`, Dockerfiles, and CI configs across every downstream user. Those are
+exactly "places we cannot patch after the fact." Constraint 2 of the ADR applies
+to the dist name by the ADR's own reasoning; it was simply not applied there.
+
+Option 4 splits the two roles cleanly: the plumbing keeps its stable name, and
+the brand gets a wrapper that is cheap to publish and cheap to abandon.
+
+### Option 4 is the ADR's own principle, applied consistently
+
+ADR-0028 closes with: *"the import name that never chases brands is the only one
+that cannot go stale twice."* That argument does not depend on anything specific
+to import names — it is an argument about **which layer should absorb rebrands**.
+Option 4 answers "the wrapper layer", and gets the same robustness for the dist
+name: if Google renames again, publish another thin wrapper and leave the real
+package alone.
+
+### Option 4 deletes machinery rather than adding it
+
+Most of what this branch built exists to *manage* the overlap:
+
+- `_dist_version.py` — content-hash ownership resolution, needed only because
+  two dists' RECORDs can claim the same `__init__.py`;
+- `_stale_install.py` — the collision detector (which, note, does not even fire
+  for this bug);
+- the lockstep three-dist release matrix, the shim generator, the extras-parity
+  gate, the dual-install acceptance rows in `verify-package.yml`.
+
+Under option 4 none of that is required: one dist ships the files, so ownership
+is unambiguous and collisions are impossible. Complexity that exists solely to
+contain a self-inflicted hazard is a strong signal the hazard should not be
+taken on.
+
+### Cost, honestly stated
+
+Option 4 gives up what ADR-0028 most wanted: **transfer of canonical identity.**
+Downloads, release history, and PyPI's own ranking stay on `notebooklm-py`, and
+`gemini-notebook-py`'s project page becomes a pointer. New users still find and
+install the new name; the project's *identity* on PyPI remains the retired
+brand — permanently, the same bargain the ADR already accepted for the import
+name.
+
+Option 2's cost is worse than it looks **for this project specifically**: the
+client breaks whenever Google changes undocumented RPC method IDs (the repo's
+own stated #1 breakage class). A user frozen on 0.8.x does not merely miss
+features — their install stops working against the live service, with no update
+path they have any reason to look for.
+
+### Recommendation
+
+**Option 4**, unless transferring canonical identity is worth shipping a known
+silent-corruption path to pip users. It is the only option that keeps
+old-name users receiving updates (the shim's whole purpose) while making the
+corruption impossible by construction, and it removes machinery instead of
+adding it.
+
+If identity transfer is judged essential, the honest choice is **option 5** —
+the full standard rename, import package included — not option 1. Option 1 buys
+identity with a defect; option 5 buys it with work.
+
+### Not urgent any more
+
+Claiming the three PyPI names removed the time pressure that motivated a fast
+alpha. Nothing is at risk while this is decided. The `0.9.0a1` tag as currently
+prepared assumes ADR-0028's design (real code under `gemini-notebook-py`), so
+**it should not be pushed until this is settled** — under option 4 the canonical
+dist would be a wrapper instead.
 
 ## Reproducing
 
