@@ -59,11 +59,12 @@ snapshot_cookie_jar = _auth_storage.snapshot_cookie_jar
 save_cookies_to_storage = _auth_storage.save_cookies_to_storage
 extract_csrf_from_html = _auth_extraction.extract_csrf_from_html
 extract_session_id_from_html = _auth_extraction.extract_session_id_from_html
-_safe_url = _auth_extraction._safe_url
-_cookie_mismatch_message = _auth_extraction._cookie_mismatch_message
 # Shared URL-only failure classifier — the single source of truth for the
 # gate -> cookie-mismatch -> auth-redirect precedence used by both this module's
-# pre-check and the extractors themselves.
+# pre-check and the extractors themselves. It supersedes the former ``_safe_url``
+# / ``_cookie_mismatch_message`` aliases here: those existed only for the
+# hand-rolled pre-check this module used to carry, and message formatting now
+# lives entirely behind the classifier.
 _url_only_extraction_failure = _auth_extraction._url_only_extraction_failure
 _resolve_token_route_kwargs = _auth_headers._resolve_token_route_kwargs
 
