@@ -213,11 +213,11 @@ def is_cookie_mismatch_redirect(url: str) -> bool:
     """
     if not is_google_auth_redirect(url):
         return False
-    try:
-        path = urlparse(url).path
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return path.strip("/").lower() == _COOKIE_MISMATCH_PATH
+    # No parse guard needed here: ``is_google_auth_redirect`` only returns True
+    # after ``urlparse(url)`` succeeded, so the identical re-parse below cannot
+    # raise. Malformed input (e.g. an unterminated IPv6 literal) is swallowed by
+    # that helper and short-circuits above.
+    return urlparse(url).path.strip("/").lower() == _COOKIE_MISMATCH_PATH
 
 
 def find_cookie_mismatch_hop(urls: Iterable[str]) -> str | None:

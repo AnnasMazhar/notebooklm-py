@@ -12,10 +12,19 @@ Public surface (re-exported from ``notebooklm.auth``):
 * :func:`extract_csrf_from_html` — convenience wrapper for ``SNlM0e``.
 * :func:`extract_session_id_from_html` — convenience wrapper for ``FdrFJe``.
 
+This module also owns the *failure taxonomy* for a missing token — see
+:func:`_extraction_failure`. Classification is driven exclusively by the final
+URL (plus, optionally, the redirect history); the page **body is never scanned**
+for auth signals. Scanning it for ``accounts.google.com`` links is the defect
+fixed in #2038: nearly every Google-served page carries such a link, so the scan
+reported a valid session as expired (#2019).
+
 Private helpers (also re-exported as white-box affordances for tests):
 
 * :func:`_build_wiz_field_patterns` — the ordered regex patterns.
 * :func:`_safe_url` — credential-stripping URL formatter for error messages.
+* :func:`_cookie_mismatch_message` — shared with ``_auth.refresh``, which
+  classifies the same hop before its own auth-redirect pre-check.
 """
 
 from __future__ import annotations
@@ -253,16 +262,18 @@ def _token_not_found_message(what: str, final_url: str) -> str:
     ``"Session ID"``); the ``"<what> not found in HTML"`` prefix is a documented
     message contract and is preserved in both branches.
     """
-    detail = (
-        "This may indicate the page structure has changed."
-        if not final_url or is_notebooklm_app_host(final_url)
-        else (
+    # No URL at all is treated as the on-app-host case: the caller gave us
+    # nothing to contradict "the app answered but the token moved", and that is
+    # the message this path has always emitted.
+    if not final_url or is_notebooklm_app_host(final_url):
+        detail = "This may indicate the page structure has changed."
+    else:
+        detail = (
             "The response did not come from a NotebookLM app host, so the request never "
             "reached the app — this is a redirect/environment problem, not a page-structure "
             "change. Note that most Google-served pages carry accounts.google.com links, so "
             "their presence in the body is not evidence that the session expired."
         )
-    )
     return f"{what} not found in HTML. Final URL: {_safe_url(final_url)}\n{detail}"
 
 

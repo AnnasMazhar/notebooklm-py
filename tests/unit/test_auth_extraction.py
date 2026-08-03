@@ -839,23 +839,21 @@ class TestExtractionFailureTaxonomy:
     _APP_HTML = "<html><body><div id='app'>NotebookLM</div></body></html>"
     _APP_URL = "https://notebooklm.google.com/"
 
+    @staticmethod
+    def _message(html: str, final_url: str, *redirect_urls: str) -> str:
+        """Run one fixture through the classifier and return the message it raised."""
+        with pytest.raises(ValueError) as exc:
+            extract_csrf_from_html(html, final_url, redirect_urls=redirect_urls)
+        return str(exc.value)
+
     def _messages(self) -> dict[str, str]:
-        """Raise all four fixtures and collect their messages."""
-        cases: dict[str, tuple[tuple[str, str], dict[str, tuple[str, ...]]]] = {
-            "expiry": ((self._LOGIN_HTML, self._LOGIN_URL), {}),
-            "mismatch": (
-                (self._HELP_HTML, self._SUPPORT_URL),
-                {"redirect_urls": (self._MISMATCH_HOP,)},
-            ),
-            "false_positive": ((self._HELP_HTML, self._SUPPORT_URL), {}),
-            "structure": ((self._APP_HTML, self._APP_URL), {}),
+        """Raise all four fixtures and collect their messages, keyed by condition."""
+        return {
+            "expiry": self._message(self._LOGIN_HTML, self._LOGIN_URL),
+            "mismatch": self._message(self._HELP_HTML, self._SUPPORT_URL, self._MISMATCH_HOP),
+            "false_positive": self._message(self._HELP_HTML, self._SUPPORT_URL),
+            "structure": self._message(self._APP_HTML, self._APP_URL),
         }
-        out = {}
-        for name, (args, kwargs) in cases.items():
-            with pytest.raises(ValueError) as exc:
-                extract_csrf_from_html(*args, **kwargs)
-            out[name] = str(exc.value)
-        return out
 
     def test_all_four_messages_are_distinct(self):
         """The whole point: four conditions, four messages."""
