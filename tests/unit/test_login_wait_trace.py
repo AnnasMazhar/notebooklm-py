@@ -81,10 +81,9 @@ def debug_logs(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
 def test_accepted_hosts_include_the_rebranded_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NOTEBOOKLM_BASE_URL", raising=False)
 
-    hosts = accepted_login_hosts()
-
-    assert "notebooklm.google.com" in hosts
-    assert "notebook.google.com" in hosts
+    # Exact set, not membership: this pins that the alias is present AND that
+    # nothing else crept into the accept set.
+    assert set(accepted_login_hosts()) == {"notebooklm.google.com", "notebook.google.com"}
 
 
 def test_accepted_hosts_drive_the_predicate(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -478,14 +477,15 @@ def test_interactive_wait_logs_accepted_hosts_and_navigations(
         r.getMessage() for r in debug_logs.records if r.name in (TRACE_LOGGER, CAPTURE_LOGGER)
     ]
     accept_lines = [m for m in messages if m.startswith("Login wait: accepting")]
-    assert len(accept_lines) == 1
-    # Names every host that would end the wait — the line whose absence made
-    # the notebook.google.com rebrand invisible.
-    for host in accepted_login_hosts():
-        assert host in accept_lines[0]
-    # And the starting URL, credential-stripped.
-    assert "accounts.google.com" in accept_lines[0]
-    assert "SECRET_CONTINUE" not in accept_lines[0]
+    # Asserted verbatim: this line names every host that would end the wait,
+    # and its absence is what made the notebook.google.com rebrand invisible.
+    # The starting URL keeps its host but loses the ``continue=`` secret, and
+    # the path is replaced because accounts.google.com is an OAuth host.
+    assert accept_lines == [
+        "Login wait: accepting any of notebooklm.google.com, notebook.google.com "
+        "(currently on https://accounts.google.com/<redacted>); timeout 300s"
+    ]
+    assert not any("SECRET_CONTINUE" in m for m in messages)
     # Plus the navigation that ended the wait.
     assert "Login wait: navigated to https://notebook.google.com/" in messages
     # Listener bookkeeping is balanced — nothing left attached to the page.
