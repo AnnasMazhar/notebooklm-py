@@ -593,17 +593,25 @@ async def download(notebook_id: str, body: ArtifactDownload, client: ClientDep) 
     # ``finally`` below.
     success = False
     try:
-        temp_path = os.path.join(temp_dir, f"artifact{spec.extension}")
+        if body.output_format is not None and not spec.format_choices:
+            raise ValidationError(f"type {body.type!r} does not support an output_format option")
+        # Name the spool file for the extension the REQUESTED format resolves to, not
+        # the spec default: this route serves ``os.path.basename(served)`` as the
+        # download name and derives Content-Type from its suffix, so ``spec.extension``
+        # would hand a ``--format pptx`` deck out as ``artifact.pdf`` /
+        # ``application/pdf`` and a markdown quiz as ``artifact.json``. (The MCP
+        # ``/files/dl`` route already resolves both format-aware; this brings the REST
+        # surface in line.)
+        temp_path = os.path.join(
+            temp_dir,
+            f"artifact{download_core.resolve_extension(spec, body.output_format)}",
+        )
         args: dict[str, Any] = {
             "notebook_id": notebook_id,
             "output_path": temp_path,
             "latest": True,
         }
         if body.output_format is not None:
-            if not spec.format_choices:
-                raise ValidationError(
-                    f"type {body.type!r} does not support an output_format option"
-                )
             args[spec.format_param_name] = body.output_format
         plan = download_core.build_download_plan(spec, args, cwd=Path.cwd())
         result = await download_core.execute_download(
@@ -629,12 +637,11 @@ async def download(notebook_id: str, body: ArtifactDownload, client: ClientDep) 
         served = result.output_path or temp_path
         if Path(temp_dir).resolve() not in Path(served).resolve().parents:
             raise ValidationError("Download produced an unexpected output path")
-        # Set ``media_type`` EXPLICITLY from the shared ``_app`` table rather than
-        # letting ``FileResponse`` guess via ``mimetypes``: the stdlib's builtin map
-        # has no ``.m4a`` row (it resolves only on hosts shipping ``/etc/mime.types``),
-        # so a guessed audio download would degrade to Starlette's ``text/plain``
-        # default on a slim container. Using the same table the MCP surfaces use also
-        # keeps the two servers' Content-Type in lockstep (#2034).
+        # ``media_type`` comes EXPLICITLY from the shared ``_app`` table — the same
+        # one the MCP surfaces read, so the two servers stay in lockstep. Left to
+        # guess, ``FileResponse`` would consult ``mimetypes``, which has no builtin
+        # ``.m4a`` row, and an audio download would degrade to Starlette's
+        # ``text/plain`` default on a slim container (#2034).
         response = _CleanupFileResponse(
             served,
             filename=os.path.basename(served),

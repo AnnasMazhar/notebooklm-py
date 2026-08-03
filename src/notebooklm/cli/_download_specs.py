@@ -73,10 +73,8 @@ DOWNLOAD_SPECS: list[DownloadTypeSpec] = [
         name="audio",
         kind=ArtifactType.AUDIO,
         # ``.m4a``, NOT ``.mp3`` (#2034): the Audio Overview bytes are AAC in an
-        # ISO-BMFF/MP4 container. The artifact row itself advertises the media as
-        # ``audio/mp4`` — ``ArtifactRow.audio_url`` explicitly *prefers* that
-        # entry — so ``.mp3`` was always a mislabel that broke players,
-        # transcoders and MIME-sniffing upload endpoints.
+        # ISO-BMFF/MP4 container, which is what the artifact row itself advertises
+        # (``ArtifactRow.audio_url`` explicitly *prefers* the ``audio/mp4`` entry).
         extension=".m4a",
         default_dir="./audio",
         download_attr="download_audio",

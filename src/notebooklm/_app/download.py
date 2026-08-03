@@ -12,9 +12,10 @@ vocabulary; the CLI adapter rebuilds its historical ``--json`` envelope in
 Public API: :class:`DownloadTypeSpec` (per-leaf metadata), :class:`DownloadPlan`
 (one validated invocation), :class:`DownloadResult` (the typed outcome),
 :func:`build_download_plan` (sync validation + assembly), :func:`execute_download`
-(the download coroutine), :data:`FORMAT_EXTENSIONS`, and the pure
-:func:`select_artifact` / :func:`artifact_title_to_filename` helpers re-exported
-by ``cli/download_helpers.py`` for its established import seam.
+(the download coroutine), the :data:`FORMAT_EXTENSIONS` and
+:data:`EXTENSION_MIME_TYPES` tables with :func:`mime_type_for_extension`, and the
+pure :func:`select_artifact` / :func:`artifact_title_to_filename` helpers
+re-exported by ``cli/download_helpers.py`` for its established import seam.
 
 The notebook-id and partial-artifact-id resolvers are **injected** as callables
 (``notebook_resolver`` / ``artifact_resolver``) so this module never imports the
@@ -54,11 +55,9 @@ FORMAT_EXTENSIONS: dict[str, str] = {
 }
 
 #: The ONE file-extension → MIME-type table, keyed by the extensions the download
-#: specs resolve to. Lives here (next to :data:`FORMAT_EXTENSIONS`) rather than in
-#: any adapter so the MCP ``studio_download`` payload, the MCP ``/files/dl`` route,
-#: and the REST ``/download`` response all advertise the SAME Content-Type — and so
-#: none of them has to fall back to :mod:`mimetypes`, whose builtin table does not
-#: know ``.m4a`` (it resolves only when the host ships an ``/etc/mime.types``).
+#: specs resolve to. Lives in this neutral core rather than in any adapter so the
+#: MCP ``studio_download`` payload, the MCP ``/files/dl`` route and the REST
+#: ``/download`` response all advertise the SAME Content-Type.
 #:
 #: ``.m4a`` → ``audio/mp4``: an Audio Overview is AAC in an ISO-BMFF/MP4 container,
 #: which is what the artifact row itself advertises (#2034). There is deliberately
@@ -83,9 +82,10 @@ DEFAULT_MIME_TYPE = "application/octet-stream"
 def mime_type_for_extension(extension: str) -> str:
     """The MIME type for ``extension`` (with leading dot), case-insensitively.
 
-    Falls back to :data:`DEFAULT_MIME_TYPE` for an unmapped extension rather than
-    guessing via :mod:`mimetypes`, whose result varies with the host's mime
-    database.
+    An unmapped extension falls back to :data:`DEFAULT_MIME_TYPE` rather than
+    being guessed via :mod:`mimetypes`, whose builtin table has no ``.m4a`` row
+    (it resolves only when the host ships an ``/etc/mime.types``) and otherwise
+    varies with the host's mime database.
     """
     return EXTENSION_MIME_TYPES.get(extension.lower(), DEFAULT_MIME_TYPE)
 
@@ -129,6 +129,25 @@ class DownloadTypeSpec:
     format_kwarg: str = ""
     format_param_name: str = "output_format"
     forward_format_only_if_set: bool = False
+
+
+def resolve_extension(spec: DownloadTypeSpec, output_format: str | None = None) -> str:
+    """The file extension a download of ``spec`` in ``output_format`` will carry.
+
+    ``output_format`` picks the extension for the format-bearing types (slide-deck
+    pdf/pptx; quiz/flashcards json/markdown/html) via the spec's
+    ``format_extension_map``; ``None`` — or a leaf with no format axis — yields the
+    spec's default ``extension`` (already the default format's extension).
+
+    An adapter that spools a download to a server-side temp file must name that
+    file with THIS extension rather than ``spec.extension``: a format-bearing type
+    writes a different representation than its default, so the default would label
+    a PPTX deck ``.pdf`` and a markdown quiz ``.json`` — and any Content-Type or
+    ``Content-Disposition`` derived from that name inherits the mislabel.
+    """
+    if output_format:
+        return spec.format_extension_map.get(output_format, spec.extension)
+    return spec.extension
 
 
 class _DownloadFacade(Protocol):
@@ -363,7 +382,7 @@ def artifact_title_to_filename(
 
     Args:
         title: Artifact title.
-        extension: File extension (with leading dot, e.g., ".mp3").
+        extension: File extension (with leading dot, e.g., ".m4a").
         existing_files: Set of filenames already used.
         max_length: Maximum filename length before extension.
 

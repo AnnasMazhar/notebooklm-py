@@ -204,6 +204,18 @@ async def test_execute_download_single_forwards_format_kwarg(tmp_path: Path) -> 
     )
 
 
+def _audio_facade(download_audio: AsyncMock) -> SimpleNamespace:
+    """A facade serving one completed audio artifact, downloaded by ``download_audio``."""
+    audio = _artifact("a1", "Deep Dive", 1)
+    return SimpleNamespace(
+        artifacts=SimpleNamespace(
+            list=AsyncMock(return_value=[audio]),
+            _list_for_download=AsyncMock(return_value=([audio], [], [])),
+            download_audio=download_audio,
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_audio_derived_filename_is_m4a(tmp_path: Path) -> None:
     """With no ``--output`` path, an audio download derives a ``.m4a`` name (#2034).
@@ -213,15 +225,8 @@ async def test_audio_derived_filename_is_m4a(tmp_path: Path) -> None:
     download.
     """
     spec = DOWNLOAD_SPECS_BY_NAME["audio"]
-    audio = _artifact("a1", "Deep Dive", 1)
     download_audio = AsyncMock(return_value=None)
-    facade = SimpleNamespace(
-        artifacts=SimpleNamespace(
-            list=AsyncMock(return_value=[audio]),
-            _list_for_download=AsyncMock(return_value=([audio], [], [])),
-            download_audio=download_audio,
-        )
-    )
+    facade = _audio_facade(download_audio)
 
     plan = build_download_plan(spec, _args(latest=True), tmp_path)
     result = await execute_download(plan, facade)
@@ -239,16 +244,9 @@ async def test_explicit_output_path_extension_is_still_honoured(tmp_path: Path) 
     output path keeps working unchanged (the bytes were always AAC either way).
     """
     spec = DOWNLOAD_SPECS_BY_NAME["audio"]
-    audio = _artifact("a1", "Deep Dive", 1)
     chosen = str(tmp_path / "legacy-name.mp3")
     download_audio = AsyncMock(return_value=chosen)
-    facade = SimpleNamespace(
-        artifacts=SimpleNamespace(
-            list=AsyncMock(return_value=[audio]),
-            _list_for_download=AsyncMock(return_value=([audio], [], [])),
-            download_audio=download_audio,
-        )
-    )
+    facade = _audio_facade(download_audio)
 
     plan = build_download_plan(spec, _args(latest=True, output_path=chosen), tmp_path)
     result = await execute_download(plan, facade)

@@ -60,6 +60,15 @@ def _behaviour(spec: download_core.DownloadTypeSpec) -> dict[str, Any]:
     return {field: getattr(spec, field) for field in _BEHAVIOURAL_FIELDS}
 
 
+def _reachable_extensions() -> set[str]:
+    """Every extension a registered spec can resolve to — default and per-format."""
+    extensions: set[str] = set()
+    for spec in DOWNLOAD_SPECS_BY_NAME.values():
+        extensions.add(spec.extension)
+        extensions.update(spec.format_extension_map.values())
+    return extensions
+
+
 def test_registries_cover_the_same_download_types() -> None:
     """All three tables register the same set of download-type keys."""
     cli_names = set(DOWNLOAD_SPECS_BY_NAME)
@@ -114,11 +123,9 @@ def test_every_registered_extension_has_a_mime_type() -> None:
     on the MCP link payload / ``/files/dl`` route and the REST ``/download``
     response.
     """
-    extensions = set()
-    for spec in DOWNLOAD_SPECS_BY_NAME.values():
-        extensions.add(spec.extension)
-        extensions.update(spec.format_extension_map.values())
-    unmapped = sorted(ext for ext in extensions if ext not in download_core.EXTENSION_MIME_TYPES)
+    unmapped = sorted(
+        ext for ext in _reachable_extensions() if ext not in download_core.EXTENSION_MIME_TYPES
+    )
     assert unmapped == [], (
         f"download extensions missing from _app.download.EXTENSION_MIME_TYPES: {unmapped}"
     )
@@ -130,9 +137,6 @@ def test_mime_table_has_no_unreachable_rows() -> None:
     A stale row is how a corrected mapping drifts back: ``.mp3 -> audio/mpeg``
     survived in the MCP table long enough to be re-adopted.
     """
-    reachable = set()
-    for spec in DOWNLOAD_SPECS_BY_NAME.values():
-        reachable.add(spec.extension)
-        reachable.update(spec.format_extension_map.values())
+    reachable = _reachable_extensions()
     stale = sorted(ext for ext in download_core.EXTENSION_MIME_TYPES if ext not in reachable)
     assert stale == [], f"unreachable rows in _app.download.EXTENSION_MIME_TYPES: {stale}"

@@ -225,6 +225,31 @@ def test_download_with_output_format_streams(
     assert resp.content == fake_client.download_bytes
 
 
+def test_download_pptx_is_not_served_as_pdf(
+    authed_client: TestClient, fake_client: FakeClient
+) -> None:
+    """A ``--format pptx`` deck streams as ``.pptx``, not the spec-default ``.pdf``.
+
+    The route spools to ``artifact<ext>`` and then serves that basename as the
+    download name + derives Content-Type from its suffix. Naming the spool file
+    from ``spec.extension`` mislabelled every non-default format — a PPTX deck was
+    handed out as ``artifact.pdf`` / ``application/pdf``. Same defect class as the
+    ``.mp3``/AAC mislabel in #2034, on the format axis instead of the type axis.
+    """
+    fake_client.artifacts_store["nb-1"] = {"d1": make_artifact("d1", "slide-deck")}
+    resp = authed_client.post(
+        "/v1/notebooks/nb-1/artifacts/download",
+        json={"type": "slide-deck", "output_format": "pptx"},
+    )
+    assert resp.status_code == 200
+    assert ".pptx" in resp.headers["content-disposition"]
+    assert ".pdf" not in resp.headers["content-disposition"]
+    assert (
+        resp.headers["content-type"]
+        == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
+
+
 def test_download_unexpected_output_path_is_rejected(
     authed_client: TestClient, fake_client: FakeClient, tmp_path: object
 ) -> None:
