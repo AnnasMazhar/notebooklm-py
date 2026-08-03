@@ -56,14 +56,24 @@ KNOWN_BARE_LITERALS: frozenset[str] = frozenset({"_auth/browser_capture.py"})
 
 
 def _alias_host(env_module: Path = ENV_MODULE) -> str:
-    """Return the value of ``PERSONAL_APP_ALIAS_HOST`` declared in ``_env.py``."""
+    """Return the value of ``PERSONAL_APP_ALIAS_HOST`` declared in ``_env.py``.
+
+    Handles both the bare ``NAME = "..."`` form and the annotated
+    ``NAME: str = "..."`` one. The constant is unannotated today, but a future
+    typed pass over ``_env.py`` would otherwise turn this lint into a confusing
+    "constant not found" failure for a change that broke nothing.
+    """
     tree = ast.parse(env_module.read_text(encoding="utf-8"), filename=str(env_module))
     for node in tree.body:
-        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Constant):
+        if isinstance(node, ast.Assign):
+            targets: list[ast.expr] = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
             continue
-        if any(
-            isinstance(t, ast.Name) and t.id == ALIAS_CONSTANT_NAME for t in node.targets
-        ) and isinstance(node.value.value, str):
+        if not isinstance(node.value, ast.Constant) or not isinstance(node.value.value, str):
+            continue
+        if any(isinstance(t, ast.Name) and t.id == ALIAS_CONSTANT_NAME for t in targets):
             return node.value.value
     raise AssertionError(f"{ALIAS_CONSTANT_NAME} not found in {env_module}")
 
