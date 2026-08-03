@@ -86,5 +86,44 @@ def test_spawn_unknown_on_a_channel_browser_gets_the_channel_variant():
     help_text = classify_launch_failure("chrome", "spawn UNKNOWN")
     assert help_text == CHANNEL_SPAWN_VETO_HELP
     assert "--browser chrome" not in help_text
-    assert "notebooklm login\n" in help_text
     assert "headless does NOT help" in help_text
+    # Must NOT fall back to the bundled build: default AppLocker rules allow
+    # Program Files and deny user-writable paths, so if a Program Files browser
+    # was vetoed, %LOCALAPPDATA%\\ms-playwright is the least likely to run.
+    assert "ms-playwright" not in help_text
+
+
+# Playwright's REAL spawn-failure text, built in the shipped driver at
+# utils/processLauncher.js as `new Error("Failed to launch: " + error)`. It
+# contains "failed to launch", which is also one of the not-installed markers —
+# so this is the exact string that made an earlier revision answer "Google
+# Chrome not found. Install from: ..." for a Chrome that was installed and
+# merely blocked by policy. The veto marker must win.
+_REAL_SPAWN_VETO_TEXT = "Failed to launch: Error: spawn UNKNOWN"
+
+
+@pytest.mark.parametrize(
+    ("browser", "expected"),
+    [
+        ("chrome", CHANNEL_SPAWN_VETO_HELP),
+        ("msedge", CHANNEL_SPAWN_VETO_HELP),
+        ("chromium", BUNDLED_SPAWN_VETO_HELP),
+    ],
+)
+def test_veto_marker_beats_the_broad_not_installed_markers(browser, expected):
+    assert classify_launch_failure(browser, _REAL_SPAWN_VETO_TEXT) == expected
+
+
+@pytest.mark.parametrize("browser", ["chrome", "chromium"])
+def test_veto_beats_a_missing_executable_when_both_are_reported(browser):
+    """AV quarantine (ERROR_VIRUS_DELETED) really does delete the binary.
+
+    Answering "run playwright install" there loops the user through
+    re-download/re-delete instead of pointing at the rule doing the deleting,
+    so the veto explanation wins over the not-found explanation.
+    """
+    both = "Failed to launch chrome because executable doesn't exist at /x: spawn UNKNOWN"
+    help_text = classify_launch_failure(browser, both)
+    assert help_text in (CHANNEL_SPAWN_VETO_HELP, BUNDLED_SPAWN_VETO_HELP)
+    assert "not found" not in help_text
+    assert "playwright install" not in help_text

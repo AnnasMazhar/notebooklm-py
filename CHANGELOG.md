@@ -135,8 +135,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or Defender blocking `%LOCALAPPDATA%\ms-playwright`) with the working alternatives — a system
   browser under `Program Files`, or signing in elsewhere and shipping `storage_state.json` — plus
   an explicit note that `--headless` does not help. `spawn UNKNOWN` on `--browser chrome`/`msedge`
-  is covered too. The veto itself is an environment policy this client cannot bypass
-  ([#2004](https://github.com/teng-lin/notebooklm-py/issues/2004)).
+  is covered too, and so is `login --master-token`, whose one-time bootstrap spawns a headed
+  browser and previously hit the same raw-traceback dead end. The veto itself is an environment
+  policy this client cannot bypass ([#2004](https://github.com/teng-lin/notebooklm-py/issues/2004)).
 
 ### Documentation
 

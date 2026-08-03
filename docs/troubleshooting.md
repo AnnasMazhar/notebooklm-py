@@ -127,8 +127,9 @@ Workarounds, most reliable first:
 
 #### Windows: browser fails to start with `spawn UNKNOWN`
 
-```
+```text
 BrowserType.launch_persistent_context: spawn UNKNOWN
+Failed to launch: Error: spawn UNKNOWN
 ```
 
 **Cause: something on the machine vetoed *executing* the browser** — this is not a missing install and not a `notebooklm-py` bug (issue [#2004](https://github.com/teng-lin/notebooklm-py/issues/2004)). `UNKNOWN` is libuv's `UV_UNKNOWN`: `CreateProcessW` returned a Win32 error that has no entry in libuv's translation table. A missing binary would surface as `ENOENT` and an ordinary ACL denial as `EACCES`, so what actually reaches `UNKNOWN` is policy- or antivirus-shaped:
@@ -740,6 +741,8 @@ playwright install chromium
 - Allow in System Preferences → Security & Privacy
 
 ### Windows
+
+> **Login problems?** Two Windows-specific login failures are covered under Authentication Errors above: [`spawn UNKNOWN` when the browser will not start](#windows-browser-fails-to-start-with-spawn-unknown), and [`Could not decrypt` / missing `__Secure-1PSIDTS`](#windows-missing-required-cookies-__secure-1psidts-after-login-and---browser-cookies-could-not-decrypt).
 
 **CLI hangs indefinitely (issue #75):**
 

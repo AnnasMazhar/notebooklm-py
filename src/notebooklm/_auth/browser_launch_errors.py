@@ -23,10 +23,16 @@ CHANNEL_BROWSERS: dict[str, tuple[str, str]] = {
 # Launch-failure markers, matched case-insensitively against the exception text
 # (Playwright reports these in the message, not via typed exceptions).
 #
-# The bundled arm keys off the single precise "missing executable" marker: the
-# broader list below would mislabel an unrelated launch crash as "run playwright
-# install". The channel arm can afford the broad list, because a missing browser
-# is the only realistic way a *channel* launch fails.
+# The bundled arm keys off the single precise "missing executable" marker; the
+# broader list would mislabel an unrelated launch crash as "run playwright
+# install". The channel arm can afford the broad list only because the veto
+# check below runs FIRST -- ``failed to launch`` is Playwright's generic
+# spawn-error prefix, not a not-found prefix.
+#
+# Live forms in the shipped driver: ``Failed to launch ${name} because
+# executable doesn't exist at ${path}`` (browserType.js) and ``Failed to
+# launch: <err>`` (utils/processLauncher.js). ``is not found at`` /
+# ``no such file`` are legacy forms kept as belt-and-braces.
 _EXECUTABLE_MISSING_MARKER = "executable doesn't exist"
 _NOT_INSTALLED_MARKERS = (
     _EXECUTABLE_MISSING_MARKER,
@@ -90,10 +96,13 @@ BUNDLED_SPAWN_VETO_HELP = _spawn_veto_help(
     "Ask IT to allow execution from %LOCALAPPDATA%\\ms-playwright.",
     _SPAWN_VETO_SHIP_STATE_STEP,
 )
+# Deliberately does NOT suggest falling back to the bundled Chromium. Default
+# AppLocker rules ALLOW Program Files and DENY user-writable paths — which is
+# why %LOCALAPPDATA%\ms-playwright is the usual casualty. If a Program Files
+# browser was already vetoed, the user-writable bundled build is the *least*
+# likely alternative to run.
 CHANNEL_SPAWN_VETO_HELP = _spawn_veto_help(
     "Ask IT to allow execution from the browser's install directory.",
-    "Try the bundled Chromium instead (a different path, so a path-scoped\n"
-    "     rule may not cover it): notebooklm login",
     _SPAWN_VETO_SHIP_STATE_STEP,
 )
 
@@ -108,13 +117,20 @@ def classify_launch_failure(browser: str, error: str) -> str | None:
     err = error.lower()
     channel_info = CHANNEL_BROWSERS.get(browser)
 
+    # Veto first, on BOTH arms: ``spawn unknown`` is a precise, high-confidence
+    # signal while the not-installed markers are broad heuristics (``failed to
+    # launch`` matches almost any wrapped launch error). When a message carries
+    # both, the veto is the more useful answer AND the safer one -- an AV
+    # quarantine reports ERROR_VIRUS_DELETED, i.e. the binary really is gone, so
+    # answering "run playwright install" sends the user into a
+    # re-download/re-delete loop instead of at the endpoint-security rule that
+    # is actually deleting it.
+    if _SPAWN_VETO_MARKER in err:
+        return CHANNEL_SPAWN_VETO_HELP if channel_info is not None else BUNDLED_SPAWN_VETO_HELP
+
     if channel_info is None:
         # Playwright's bundled Chromium.
-        if _EXECUTABLE_MISSING_MARKER in err:
-            return BUNDLED_CHROMIUM_MISSING_HELP
-        if _SPAWN_VETO_MARKER in err:
-            return BUNDLED_SPAWN_VETO_HELP
-        return None
+        return BUNDLED_CHROMIUM_MISSING_HELP if _EXECUTABLE_MISSING_MARKER in err else None
 
     if any(marker in err for marker in _NOT_INSTALLED_MARKERS):
         label, install_url = channel_info
@@ -123,8 +139,6 @@ def classify_launch_failure(browser: str, error: str) -> str | None:
             f"Install from: {install_url}\n"
             "Or use the default Chromium browser: notebooklm login"
         )
-    if _SPAWN_VETO_MARKER in err:
-        return CHANNEL_SPAWN_VETO_HELP
     return None
 
 

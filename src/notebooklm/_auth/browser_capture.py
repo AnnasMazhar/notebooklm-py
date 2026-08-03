@@ -711,13 +711,19 @@ def run_browser_capture(
             # below, surfacing as "Unexpected error: ... please report a bug".
             if context is None:
                 launch_help = classify_launch_failure(browser, str(e))
-                if launch_help is not None:
-                    # ``exc_info`` so the traceback survives: this path ends at
-                    # ``io.fail`` and never re-raises ``e``, and the unattended
-                    # L3 sink DROPS ``emit`` lines — the log is the only place a
-                    # headless operator can recover the real launch cause (the
-                    # ``HeadlessReauthResult`` reason string it gets back
-                    # attributes every ``io.fail`` to a dead profile session).
+                # Remediation prose is for a human, and only the interactive arm
+                # has one. Short-circuiting the unattended L3 arm via ``io.fail``
+                # would be actively harmful: its sink maps every ``io.fail`` to
+                # ``HeadlessLoginRequiredError``, which ``attempt_headless_reauth``
+                # reports as "the persisted browser profile's Google session is
+                # also expired" — a confidently wrong diagnosis for a browser
+                # that never started, on a PUBLIC ``HeadlessReauthResult.reason``.
+                # Letting the original exception propagate instead lands it in
+                # that caller's generic arm as an honest "headless capture
+                # failed: <Type>" (it logs there; the fall-through ``logger.debug``
+                # below keeps the traceback either way). See #2043.
+                if launch_help is not None and interactive:
+                    # ``exc_info`` because this branch never re-raises ``e``.
                     logger.error(
                         "Browser launch failed (browser=%s): %s", browser, e, exc_info=True
                     )
@@ -908,6 +914,10 @@ __all__ = [
     "BrowserCaptureIO",
     "BrowserCapturePlan",
     "CaptureResult",
+    # Re-exported from the browser_launch_errors leaf: browser_capture is the
+    # only _auth module the CLI-boundary guardrail sanctions, so CLI-side
+    # callers (the --master-token bootstrap) must reach it through here.
+    "classify_launch_failure",
     "connection_error_help",
     "ensure_playwright_available",
     "filter_storage_state_cookies_by_domain_policy",
