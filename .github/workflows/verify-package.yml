@@ -83,7 +83,7 @@ jobs:
         uv pip install --python .venv/bin/python \
           --no-deps --reinstall --no-cache --only-binary=:all: \
           --index-url https://test.pypi.org/simple/ \
-          "notebooklm-py==${{ steps.version.outputs.version }}"
+          "gemini-notebook-py==${{ steps.version.outputs.version }}"
 
     - name: Install published wheel from PyPI (--no-deps)
       if: inputs.source == 'pypi'
@@ -96,7 +96,7 @@ jobs:
         # used instead of activating the venv and calling bare `pip`.
         uv pip install --python .venv/bin/python \
           --no-deps --reinstall --no-cache --only-binary=:all: \
-          "notebooklm-py==${{ steps.version.outputs.version }}"
+          "gemini-notebook-py==${{ steps.version.outputs.version }}"
 
     - name: Verify version
       shell: bash
@@ -113,16 +113,176 @@ jobs:
     - name: Verify CLI
       shell: bash
       run: |
+        set -euo pipefail
         source .venv/bin/activate
-        notebooklm --version
-        notebooklm --help
+        # All six ADR-0028 console scripts must run, and each must report the
+        # name it was invoked as rather than the other brand's — a hardcoded
+        # prog would make `gemini-notebook --version` advertise `notebooklm`.
+        for cmd in notebooklm gemini-notebook; do
+          "$cmd" --help > /dev/null
+          out=$("$cmd" --version)
+          echo "$out"
+          case "$out" in
+            "$cmd, version"*) ;;
+            *) echo "::error::$cmd --version reported '$out', expected it to name $cmd"; exit 1 ;;
+          esac
+        done
+        for cmd in notebooklm-mcp gemini-notebook-mcp notebooklm-server gemini-notebook-server; do
+          out=$("$cmd" --help | head -1)
+          echo "$out"
+          case "$out" in
+            "usage: $cmd"*) ;;
+            *) echo "::error::$cmd --help reported '$out', expected usage for $cmd"; exit 1 ;;
+          esac
+        done
 
     - name: Verify imports
       shell: bash
       run: |
         source .venv/bin/activate
-        python -c "from notebooklm import NotebookLMClient, Notebook, Source, Artifact"
+        python -c "from notebooklm import NotebookLMClient, GeminiNotebookClient, Notebook, Source, Artifact"
+        python -c "
+        from notebooklm import NotebookLMClient, GeminiNotebookClient
+        assert GeminiNotebookClient is NotebookLMClient, 'the ADR-0028 alias must be the same class'
+        "
         echo "Core imports verified"
+
+    # ------------------------------------------------------------------
+    # ADR-0028 acceptance matrix: every published name must yield a working
+    # `import notebooklm`, and the shims must behave as documented. These run
+    # in throwaway venvs so they cannot disturb the verified install above.
+    # ------------------------------------------------------------------
+
+    - name: Verify each published dist name installs and imports
+      shell: bash
+      env:
+        INDEX_ARGS: ${{ inputs.source == 'testpypi' && '--index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/' || '' }}
+      run: |
+        set -euo pipefail
+        VERSION="${{ steps.version.outputs.version }}"
+        # The shims pin `gemini-notebook-py==<version>` and carry real
+        # dependencies, so unlike the canonical check above these deliberately
+        # resolve deps — that resolution IS what is being verified.
+        for dist in gemini-notebook-py notebooklm-py gemini-notebook; do
+          echo "::group::install ${dist}==${VERSION}"
+          rm -rf "venv-${dist}"
+          python -m venv "venv-${dist}"
+          "venv-${dist}/bin/pip" install --no-cache-dir $INDEX_ARGS "${dist}[mcp]==${VERSION}"
+          # There is no second import path: the import package is permanent.
+          got=$("venv-${dist}/bin/python" -c "import notebooklm; print(notebooklm.__version__)")
+          if [ "$got" != "$VERSION" ]; then
+            echo "::error::${dist} installed but reported version ${got} (expected ${VERSION})"
+            exit 1
+          fi
+          # Even the shims must leave all six commands on PATH, since the
+          # canonical dist they pull in owns them.
+          for cmd in notebooklm notebooklm-mcp notebooklm-server \
+                     gemini-notebook gemini-notebook-mcp gemini-notebook-server; do
+            test -x "venv-${dist}/bin/${cmd}" \
+              || { echo "::error::${dist} install is missing ${cmd}"; exit 1; }
+          done
+          echo "OK: ${dist} -> import notebooklm ${got}, all six scripts present"
+          echo "::endgroup::"
+        done
+
+    - name: Verify the shims ship no colliding files
+      shell: bash
+      run: |
+        set -euo pipefail
+        VERSION="${{ steps.version.outputs.version }}"
+        for dist in notebooklm-py gemini-notebook; do
+          # A shim RECORD that listed notebooklm/ files would mean the shim is
+          # clobbering the canonical install — the exact hazard ADR-0028 ends.
+          if "venv-${dist}/bin/python" - "$dist" <<'PY'
+        import sys
+        from importlib.metadata import Distribution
+        files = Distribution.from_name(sys.argv[1]).files or []
+        bad = [str(f) for f in files if str(f).startswith("notebooklm/")]
+        print("shim package files:", bad)
+        sys.exit(0 if bad else 1)
+        PY
+          then
+            echo "::error::${dist} ships notebooklm/ package files; it must be metadata-only"
+            exit 1
+          fi
+          echo "OK: ${dist} is metadata-only"
+        done
+
+    - name: Verify the dual-install collision warning and its remediation
+      shell: bash
+      run: |
+        set -euo pipefail
+        VERSION="${{ steps.version.outputs.version }}"
+        # Stale-first: a pre-shim notebooklm-py already present, canonical
+        # installed over it. The canonical files win, so our check runs and
+        # must fire. (Stale-LAST is undetectable at runtime by construction —
+        # the old release's code is what ends up executing — and is covered by
+        # the release notes only. See ADR-0028 step 8.)
+        rm -rf venv-stale && python -m venv venv-stale
+        # 0.8.0 is the last release that shipped real files under the old name.
+        venv-stale/bin/pip install --no-cache-dir "notebooklm-py==0.8.0"
+        venv-stale/bin/pip install --no-cache-dir \
+          "gemini-notebook-py==${VERSION}" ${{ inputs.source == 'testpypi' && '--index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/' || '' }}
+        if ! venv-stale/bin/python -c "
+        import logging, io
+        stream = io.StringIO()
+        logging.basicConfig(stream=stream, level=logging.WARNING)
+        from notebooklm import _stale_install
+        msg = _stale_install.stale_install_warning()
+        assert msg, 'expected a collision warning in a stale-first dual install'
+        assert '--force-reinstall' in msg, 'the warning must name the remediation'
+        print('warning fired OK')
+        "; then
+          echo "::error::stale-first dual install did not produce the collision warning"
+          exit 1
+        fi
+        # And the documented remediation must actually restore a working env.
+        venv-stale/bin/pip uninstall -y notebooklm-py
+        venv-stale/bin/pip install --no-cache-dir --force-reinstall \
+          "gemini-notebook-py==${VERSION}" ${{ inputs.source == 'testpypi' && '--index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/' || '' }}
+        got=$(venv-stale/bin/python -c "import notebooklm; print(notebooklm.__version__)")
+        test "$got" = "$VERSION" || { echo "::error::remediation left version ${got}"; exit 1; }
+        venv-stale/bin/python -c "
+        from notebooklm import _stale_install
+        assert _stale_install.stale_install_warning() is None, 'warning should clear after remediation'
+        print('remediation verified')
+        "
+
+    - name: Verify isolated tool-installer flows (uvx / pipx)
+      shell: bash
+      run: |
+        set -euo pipefail
+        VERSION="${{ steps.version.outputs.version }}"
+        python -m pip install --upgrade pipx uv
+        PIPX_BIN="$(pipx environment --value PIPX_BIN_DIR)"
+
+        # (a) The path baked into already-shipped desktop extensions. uvx
+        #     resolves executables from the whole environment, so this keeps
+        #     working even though the shim declares no scripts of its own.
+        uvx --from "notebooklm-py[mcp]==${VERSION}" notebooklm-mcp --help > /dev/null
+        echo "OK: uvx --from notebooklm-py[mcp] notebooklm-mcp"
+
+        # (b) pipx exposes only the REQUESTED dist's entry points, so a plain
+        #     shim install yields no commands. Both halves are asserted: the
+        #     absence is what makes --include-deps necessary, and if a future
+        #     change ever gave the shim its own scripts this would catch it.
+        pipx install --force "notebooklm-py==${VERSION}"
+        if [ -x "${PIPX_BIN}/notebooklm" ]; then
+          echo "::error::plain pipx install of the shim exposed commands; the docs say it does not"
+          exit 1
+        fi
+        echo "OK: plain pipx shim install exposes no commands (as documented)"
+        pipx uninstall notebooklm-py
+        pipx install --force --include-deps "notebooklm-py==${VERSION}"
+        "${PIPX_BIN}/notebooklm" --version
+        "${PIPX_BIN}/notebooklm-mcp" --help > /dev/null
+        echo "OK: pipx --include-deps exposes the legacy commands"
+        pipx uninstall notebooklm-py
+
+        # (c) The recommended form for new tool installs.
+        uv tool install --force "gemini-notebook-py==${VERSION}"
+        uv tool run --from "gemini-notebook-py==${VERSION}" gemini-notebook --version
+        echo "OK: uv tool install gemini-notebook-py"
 
     - name: Install Playwright browsers
       shell: bash
