@@ -42,17 +42,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Nightly RPC-health and bundle-drift checks no longer report "Authentication
   expired" against valid credentials.** `scripts/check_rpc_health.py` and
   `scripts/capture_rpc_registry.py` loaded auth through the flat
-  `load_auth_from_storage()` mapping, which drops every cookie's domain. Under
-  `NOTEBOOKLM_AUTH_JSON` there is no storage file to recover them from, so
+  `load_auth_from_storage()` mapping, which drops every cookie's domain, so
   host-scoped cookies (`OSID` on the NotebookLM host, `LSID` on
   `accounts.google.com`) were broadcast to every `*.google.com` host. Once
   Google's `notebook.google.com` cutover landed, the stale broadcast `OSID`
   collided with the freshly minted host cookie and dead-ended the sign-in chain
-  on `accounts.google.com/CookieMismatch`. Both scripts now use the
-  domain-preserving loaders the CLI already used
+  on `accounts.google.com/CookieMismatch`. The health check lost the domains
+  only under `NOTEBOOKLM_AUTH_JSON`, where there is no storage file to rebuild
+  the jar from; the drift monitor lost them unconditionally, because a plain
+  mapping handed to `httpx.get(cookies=...)` carries no domain at all. Both now
+  use the domain-preserving loaders the CLI already used
   (`AuthTokens.from_storage()` / `build_httpx_cookies_from_storage()`), and a
-  unit guardrail pins that the jar mirrors the `storage_state` domains and that
-  a host-scoped cookie value never reaches a host it was not scoped to
+  unit guardrail pins — for both the env-var and the profile-file
+  configuration — that the jar mirrors the `storage_state` domains and that a
+  host-scoped cookie value never reaches a host it was not scoped to
   ([#2019](https://github.com/teng-lin/notebooklm-py/issues/2019),
   [#2018](https://github.com/teng-lin/notebooklm-py/issues/2018)).
 
