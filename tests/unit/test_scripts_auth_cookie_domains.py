@@ -152,10 +152,16 @@ def _cookies_sent_to(
     ]
 
 
-def _register_sign_in_chain(httpx_mock: HTTPXMock, homepage_url: str) -> None:
+def _register_sign_in_chain(
+    httpx_mock: HTTPXMock, homepage_url: str, *, final_html: str = _HOMEPAGE_HTML
+) -> None:
     """NotebookLM → sign-in → NotebookLM, minting a fresh host OSID at the end.
 
-    This is the post-cutover redirect shape that broke the nightly canary.
+    This is the post-cutover redirect shape that broke the nightly canary. Both
+    scripts follow redirects on their authenticated read, so both go through it;
+    ``final_html`` is the only thing that differs (WIZ tokens for the health
+    check, a bundle URL for the drift monitor).
+
     ``pytest_httpx`` defaults to ``is_reusable=False`` +
     ``assert_all_responses_were_requested=True``, so an extra hop errors loudly
     and a skipped hop fails teardown.
@@ -165,7 +171,7 @@ def _register_sign_in_chain(httpx_mock: HTTPXMock, homepage_url: str) -> None:
     httpx_mock.add_response(
         url=homepage_url,
         status_code=200,
-        html=_HOMEPAGE_HTML,
+        html=final_html,
         headers={"Set-Cookie": f"OSID={_MINTED_OSID}; Path=/; Secure; HttpOnly"},
     )
 
@@ -294,11 +300,13 @@ def test_capture_rpc_registry_sends_domain_scoped_cookie_jar(
     bundle_url = (
         f"https://www.gstatic.com/_/mss/{capture_rpc_registry._APP}/_/js/k=boq.en.abc123.js"
     )
-    homepage_url = f"{get_base_url()}/?authuser=0"
-    httpx_mock.add_response(url=homepage_url, status_code=302, headers={"Location": _SIGN_IN_URL})
-    httpx_mock.add_response(url=_SIGN_IN_URL, status_code=302, headers={"Location": homepage_url})
-    httpx_mock.add_response(
-        url=homepage_url, status_code=200, html=f'<script src="{bundle_url}"></script>'
+    # Same chain the health check walks — only the final body differs. The
+    # ``?authuser=0`` suffix is what ``authuser_query(0)`` produces, so this is
+    # the real request shape, not an approximation of it.
+    _register_sign_in_chain(
+        httpx_mock,
+        f"{get_base_url()}/?authuser=0",
+        final_html=f'<script src="{bundle_url}"></script>',
     )
     httpx_mock.add_response(
         url=bundle_url,
