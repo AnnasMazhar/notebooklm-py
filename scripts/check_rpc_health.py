@@ -1290,8 +1290,6 @@ async def run_health_check(full_mode: bool = False) -> tuple[list[CheckResult], 
     the ``sqTeoe`` studio-customization cohort tripwire verdict (reported and
     exit-coded separately from RPC drift; see :class:`CohortStatus`).
     """
-    storage_path = resolve_storage_path()
-
     notebook_id = os.environ.get("NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID") or os.environ.get(
         "NOTEBOOKLM_GENERATION_NOTEBOOK_ID"
     )
@@ -1304,7 +1302,7 @@ async def run_health_check(full_mode: bool = False) -> tuple[list[CheckResult], 
     cohort_status = CohortStatus.UNKNOWN
 
     print("Fetching auth tokens...")
-    auth = await load_auth(storage_path)
+    auth = await load_auth(resolve_storage_path())
     print(f"Auth OK (CSRF token length: {len(auth.csrf_token)})")
     print()
 

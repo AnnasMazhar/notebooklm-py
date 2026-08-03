@@ -37,15 +37,22 @@ from pytest_httpx import HTTPXMock
 from notebooklm._env import get_base_url
 from scripts import capture_rpc_registry, check_rpc_health
 
-# The NotebookLM host is read from the library so this file keeps working
-# through the Gemini Notebook rebrand (ADR-0028) instead of pinning a literal.
-_NOTEBOOK_HOST = httpx.URL(get_base_url()).host
 _ACCOUNTS_HOST = "accounts.google.com"
 _SIGN_IN_URL = f"https://{_ACCOUNTS_HOST}/ServiceLogin"
 
 _HOMEPAGE_HTML = (
     '<html><script>window.WIZ_global_data={"SNlM0e":"csrf_ok","FdrFJe":"sess_ok"};</script></html>'
 )
+
+
+def _notebook_host() -> str:
+    """The NotebookLM host, read from the library rather than pinned literally.
+
+    Resolved at call time (``get_base_url()`` is env-overridable) so the fixture
+    host and the mocked URLs can never disagree, and so this file keeps working
+    through the Gemini Notebook rebrand (ADR-0028).
+    """
+    return httpx.URL(get_base_url()).host
 
 
 def _cookie_entry(name: str, value: str, domain: str) -> dict[str, Any]:
@@ -72,7 +79,7 @@ def _storage_state() -> dict[str, Any]:
         "cookies": [
             _cookie_entry("SID", "v-sid", ".google.com"),
             _cookie_entry("__Secure-1PSIDTS", "v-psidts", ".google.com"),
-            _cookie_entry("OSID", "v-osid", _NOTEBOOK_HOST),
+            _cookie_entry("OSID", "v-osid", _notebook_host()),
             _cookie_entry("LSID", "v-lsid", _ACCOUNTS_HOST),
         ],
         "origins": [],
@@ -89,6 +96,15 @@ def _jar_pairs(jar: httpx.Cookies) -> set[tuple[str, str]]:
 
 def _cookie_names(header: str) -> set[str]:
     return {pair.split("=", 1)[0].strip() for pair in header.split(";") if pair.strip()}
+
+
+def _cookie_names_sent_to(httpx_mock: HTTPXMock, host: str) -> list[set[str]]:
+    """Cookie names carried by each recorded request that reached ``host``."""
+    return [
+        _cookie_names(request.headers.get("cookie", ""))
+        for request in httpx_mock.get_requests()
+        if request.url.host == host
+    ]
 
 
 async def test_check_rpc_health_auth_preserves_cookie_domains(
@@ -115,8 +131,9 @@ async def test_check_rpc_health_auth_preserves_cookie_domains(
 
     # ``resolve_storage_path()`` returns None under NOTEBOOKLM_AUTH_JSON, which
     # is exactly the CI configuration that exposed the bug.
-    assert check_rpc_health.resolve_storage_path() is None
-    auth = await check_rpc_health.load_auth(check_rpc_health.resolve_storage_path())
+    storage_path = check_rpc_health.resolve_storage_path()
+    assert storage_path is None
+    auth = await check_rpc_health.load_auth(storage_path)
 
     assert auth.csrf_token == "csrf_ok"
     assert auth.session_id == "sess_ok"
@@ -126,14 +143,9 @@ async def test_check_rpc_health_auth_preserves_cookie_domains(
     assert _jar_pairs(auth.cookie_jar) == _name_domain_pairs(storage_state)
 
     # 2. Wire-level: the sign-in hop must not receive the NotebookLM-host OSID.
-    sent_to_accounts = [
-        request.headers.get("cookie", "")
-        for request in httpx_mock.get_requests()
-        if request.url.host == _ACCOUNTS_HOST
-    ]
+    sent_to_accounts = _cookie_names_sent_to(httpx_mock, _ACCOUNTS_HOST)
     assert sent_to_accounts, "expected at least one accounts.google.com hop"
-    for header in sent_to_accounts:
-        names = _cookie_names(header)
+    for names in sent_to_accounts:
         assert "OSID" not in names, (
             "the NotebookLM-host OSID must not be broadcast to "
             f"{_ACCOUNTS_HOST} (issue #2019); sent: {sorted(names)}"
@@ -143,13 +155,9 @@ async def test_check_rpc_health_auth_preserves_cookie_domains(
         assert {"SID", "LSID"} <= names
 
     # 3. Positive control on the other side: the NotebookLM host still gets OSID.
-    sent_to_notebook = [
-        request.headers.get("cookie", "")
-        for request in httpx_mock.get_requests()
-        if request.url.host == _NOTEBOOK_HOST
-    ]
+    sent_to_notebook = _cookie_names_sent_to(httpx_mock, _notebook_host())
     assert sent_to_notebook
-    assert all("OSID" in _cookie_names(header) for header in sent_to_notebook)
+    assert all("OSID" in names for names in sent_to_notebook)
 
 
 def test_capture_rpc_registry_sends_domain_scoped_cookie_jar(
