@@ -165,6 +165,31 @@ def test_committed_shims_match_the_generator() -> None:
     )
 
 
+def test_canonical_dist_never_carries_a_pre_rename_version(canonical) -> None:
+    """`gemini-notebook-py` may only ever be published at >= 0.9.0a0.
+
+    The two dist names divide at 0.9.0: below it the real, file-shipping
+    distribution is `notebooklm-py`; from 0.9.0 it is `gemini-notebook-py` and
+    `notebooklm-py` is an extras-only shim (ADR-0028).
+
+    The failure this guards is narrow but severe and entirely plausible:
+    merging this branch into main and then setting the version back to 0.8.x
+    for a maintenance patch. `publish.yml` validates that the TAG matches
+    pyproject, not that the NAME matches the version, so `v0.8.1` would sail
+    through and publish the canonical dist at a pre-rename version — below the
+    floor every shim pins against, and below the boundary `_stale_install`
+    uses to tell a shim from a colliding real install.
+    """
+    from packaging.version import Version
+
+    version = Version(canonical["version"])
+    assert version >= Version("0.9.0a0"), (
+        f"{CANONICAL_NAME} is at {version}, but that dist name only exists from "
+        "0.9.0 onward. A 0.8.x patch must be released from the pre-rename line "
+        "(where project.name is still 'notebooklm-py'), not from this branch."
+    )
+
+
 def test_both_shim_names_are_present() -> None:
     """Guard the set itself: a deleted shim directory would skip its parametrised cases."""
     present = {p.name for p in SHIMS_DIR.iterdir() if p.is_dir()}
