@@ -148,6 +148,10 @@ def test_predicate_semantics_unchanged_by_the_helper_extraction(
         ("https://SECRET@notebooklm.google.com/", "https://notebooklm.google.com/"),
         # A non-standard port is operator signal and survives.
         ("http://localhost:8080/x", "http://localhost:8080/"),
+        # IPv6 literals keep their brackets — ``urlparse.hostname`` strips them,
+        # and without them the port merges into the address's last group.
+        ("https://[2001:db8::1]:8443/path?x=1", "https://[2001:db8::1]:8443/"),
+        ("https://[2001:db8::1]/path", "https://[2001:db8::1]/"),
         # Host is lowercased by urlparse's hostname.
         ("https://NoteBook.Google.COM/x", "https://notebook.google.com/"),
         # Hostless URLs keep only the scheme.

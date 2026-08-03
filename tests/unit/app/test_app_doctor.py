@@ -382,7 +382,9 @@ def test_fix_leaves_a_file_at_the_profile_path_alone(home: Path, platform: str) 
 
     assert profile_path.is_file()
     assert profile_path.read_text(encoding="utf-8") == "not a directory"
-    assert not any("profile directory" in fix for fix in report.fixes_applied)
+    # The whole list, not a substring probe: a stray "Fixed permissions on …"
+    # would be just as wrong as a stray "Created profile directory: …".
+    assert report.fixes_applied == []
     assert report.checks["profile_dir"]["status"] == "fail"
 
 

@@ -65,7 +65,12 @@ def trace_url(url: str) -> str:
     host = parsed.hostname
     if not host:
         return _HOSTLESS_URL.format(scheme=parsed.scheme or "<unknown>")
-    netloc = f"{host}:{parsed.port}" if parsed.port is not None else host
+    # ``hostname`` strips the brackets off an IPv6 literal, so they have to go
+    # back on before a port can be appended — otherwise
+    # ``https://[2001:db8::1]:8443/`` renders as ``https://2001:db8::1:8443/``,
+    # where the port is indistinguishable from the address's last group.
+    rendered_host = f"[{host}]" if ":" in host else host
+    netloc = f"{rendered_host}:{parsed.port}" if parsed.port is not None else rendered_host
     return f"{parsed.scheme}://{netloc}/"
 
 
