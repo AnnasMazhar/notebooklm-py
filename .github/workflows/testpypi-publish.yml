@@ -59,7 +59,7 @@ jobs:
       # the publish job receives.
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # @ v7
       with:
-        name: notebooklm-py-dist
+        name: gemini-notebook-py-dist
         path: dist/
         if-no-files-found: error
         # One-day retention is intentional: publish consumes this artifact
@@ -74,7 +74,7 @@ jobs:
       # in `[browser]`/`[markdown]` until users hit them post-release.
       run: |
         python -m venv smoke-venv
-        WHEEL=$(ls dist/notebooklm_py-*.whl)
+        WHEEL=$(ls dist/gemini_notebook_py-*.whl)
         smoke-venv/bin/pip install "${WHEEL}[browser,dev,markdown]"
         smoke-venv/bin/python -c "import notebooklm; print(notebooklm.__version__)"
 
@@ -106,7 +106,7 @@ jobs:
     - name: Download distribution artifacts
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # @ v8.0.1
       with:
-        name: notebooklm-py-dist
+        name: gemini-notebook-py-dist
         path: dist/
 
     - name: Upload to TestPyPI
@@ -124,6 +124,6 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Version:** ${{ needs.build-and-test.outputs.version }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Package:** https://test.pypi.org/project/notebooklm-py/${{ needs.build-and-test.outputs.version }}/" >> $GITHUB_STEP_SUMMARY
+        echo "**Package:** https://test.pypi.org/project/gemini-notebook-py/${{ needs.build-and-test.outputs.version }}/" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Next Step:** Run the **Verify Package** workflow with source=testpypi" >> $GITHUB_STEP_SUMMARY

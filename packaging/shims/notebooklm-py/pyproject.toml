@@ -1,0 +1,43 @@
+# GENERATED FILE — DO NOT EDIT.
+# Regenerate with: python packaging/shims/generate.py
+#
+# ADR-0028 forwarding shim. Ships no Python modules and no console scripts;
+# it exists so that `pip install notebooklm-py` (and every extra of it) resolves to
+# the canonical distribution. See packaging/shims/README.md.
+
+[project]
+name = "notebooklm-py"
+version = "0.8.0"
+description = "Former name of gemini-notebook-py. Installing this package installs gemini-notebook-py; `import notebooklm` is unchanged and permanent."
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Teng Lin", email = "teng.lin@gmail.com"}]
+readme = "README.md"
+dependencies = [
+    "gemini-notebook-py==0.8.0",
+]
+
+# Every canonical extra is mirrored so that, e.g.,
+# `pip install "notebooklm-py[mcp]"` installs exactly what
+# `pip install "gemini-notebook-py[mcp]"` installs.
+[project.optional-dependencies]
+browser = ["gemini-notebook-py[browser]==0.8.0"]
+cookies = ["gemini-notebook-py[cookies]==0.8.0"]
+dev = ["gemini-notebook-py[dev]==0.8.0"]
+headless = ["gemini-notebook-py[headless]==0.8.0"]
+impersonate = ["gemini-notebook-py[impersonate]==0.8.0"]
+markdown = ["gemini-notebook-py[markdown]==0.8.0"]
+mcp = ["gemini-notebook-py[mcp]==0.8.0"]
+server = ["gemini-notebook-py[server]==0.8.0"]
+all = ["gemini-notebook-py[browser,dev,headless,markdown,mcp,server]==0.8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# No Python package to ship — force an empty wheel payload.
+[tool.hatch.build.targets.wheel]
+bypass-selection = true
+
+[tool.hatch.build.targets.sdist]
+include = ["README.md", "pyproject.toml"]

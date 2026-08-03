@@ -764,6 +764,113 @@ wheels = [
 ]
 
 [[package]]
+name = "gemini-notebook-py"
+version = "0.8.0"
+source = { editable = "." }
+dependencies = [
+    { name = "click" },
+    { name = "filelock" },
+    { name = "httpx" },
+    { name = "packaging" },
+    { name = "rich" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "fastapi" },
+    { name = "fastmcp" },
+    { name = "gpsoauth" },
+    { name = "markdownify" },
+    { name = "mypy" },
+    { name = "playwright" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-httpx" },
+    { name = "pytest-rerunfailures" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+    { name = "python-dotenv" },
+    { name = "python-multipart" },
+    { name = "ruff" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "vcrpy" },
+]
+browser = [
+    { name = "playwright" },
+]
+cookies = [
+    { name = "rookiepy" },
+]
+dev = [
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-httpx" },
+    { name = "pytest-rerunfailures" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+    { name = "python-dotenv" },
+    { name = "ruff" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+    { name = "vcrpy" },
+]
+headless = [
+    { name = "gpsoauth" },
+]
+impersonate = [
+    { name = "curl-cffi" },
+]
+markdown = [
+    { name = "markdownify" },
+]
+mcp = [
+    { name = "fastmcp" },
+]
+server = [
+    { name = "fastapi" },
+    { name = "python-multipart" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0.0,<9" },
+    { name = "curl-cffi", marker = "extra == 'impersonate'", specifier = ">=0.11,<1" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.118,<1" },
+    { name = "fastmcp", marker = "extra == 'mcp'", specifier = "==3.4.2" },
+    { name = "filelock", specifier = ">=3.13,<4" },
+    { name = "gemini-notebook-py", extras = ["browser", "dev", "headless", "markdown", "mcp", "server"], marker = "extra == 'all'" },
+    { name = "gpsoauth", marker = "extra == 'headless'", specifier = ">=1.1.0" },
+    { name = "httpx", specifier = ">=0.27.0,<0.29" },
+    { name = "markdownify", marker = "extra == 'markdown'", specifier = ">=0.14.1,<2" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0,<3" },
+    { name = "packaging", specifier = ">=23.0,<27" },
+    { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.40.0,<2" },
+    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.5.1,<5" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0,<10" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0,<2" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0,<8" },
+    { name = "pytest-httpx", marker = "extra == 'dev'", specifier = ">=0.30.0,<0.37" },
+    { name = "pytest-rerunfailures", marker = "extra == 'dev'", specifier = ">=14.0,<17" },
+    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.3.0,<3" },
+    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.6.0,<4" },
+    { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.0.0,<2" },
+    { name = "python-multipart", marker = "extra == 'server'", specifier = ">=0.0.20,<1" },
+    { name = "rich", specifier = ">=13.0.0,<16" },
+    { name = "rookiepy", marker = "extra == 'cookies'", specifier = ">=0.1.0,<1" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.21" },
+    { name = "tomli", marker = "python_full_version < '3.11' and extra == 'dev'", specifier = ">=2.0.0,<3" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.34,<1" },
+    { name = "vcrpy", marker = "extra == 'dev'", specifier = ">=6.0.0,<9" },
+]
+provides-extras = ["markdown", "browser", "cookies", "impersonate", "headless", "mcp", "server", "dev", "all"]
+
+[[package]]
 name = "gpsoauth"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1307,113 +1414,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/24/bf/d1bda4f6168e0b2e9
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/b2/d0896bdcdc8d28a7fc5717c305f1a861c26e18c05047949fb371034d98bd/nodeenv-1.10.0-py2.py3-none-any.whl", hash = "sha256:5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827", size = 23438, upload-time = "2025-12-20T14:08:52.782Z" },
 ]
-
-[[package]]
-name = "notebooklm-py"
-version = "0.8.0"
-source = { editable = "." }
-dependencies = [
-    { name = "click" },
-    { name = "filelock" },
-    { name = "httpx" },
-    { name = "packaging" },
-    { name = "rich" },
-]
-
-[package.optional-dependencies]
-all = [
-    { name = "fastapi" },
-    { name = "fastmcp" },
-    { name = "gpsoauth" },
-    { name = "markdownify" },
-    { name = "mypy" },
-    { name = "playwright" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-httpx" },
-    { name = "pytest-rerunfailures" },
-    { name = "pytest-timeout" },
-    { name = "pytest-xdist" },
-    { name = "python-dotenv" },
-    { name = "python-multipart" },
-    { name = "ruff" },
-    { name = "tomli", marker = "python_full_version < '3.11'" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "vcrpy" },
-]
-browser = [
-    { name = "playwright" },
-]
-cookies = [
-    { name = "rookiepy" },
-]
-dev = [
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-httpx" },
-    { name = "pytest-rerunfailures" },
-    { name = "pytest-timeout" },
-    { name = "pytest-xdist" },
-    { name = "python-dotenv" },
-    { name = "ruff" },
-    { name = "tomli", marker = "python_full_version < '3.11'" },
-    { name = "vcrpy" },
-]
-headless = [
-    { name = "gpsoauth" },
-]
-impersonate = [
-    { name = "curl-cffi" },
-]
-markdown = [
-    { name = "markdownify" },
-]
-mcp = [
-    { name = "fastmcp" },
-]
-server = [
-    { name = "fastapi" },
-    { name = "python-multipart" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "click", specifier = ">=8.0.0,<9" },
-    { name = "curl-cffi", marker = "extra == 'impersonate'", specifier = ">=0.11,<1" },
-    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.118,<1" },
-    { name = "fastmcp", marker = "extra == 'mcp'", specifier = "==3.4.2" },
-    { name = "filelock", specifier = ">=3.13,<4" },
-    { name = "gpsoauth", marker = "extra == 'headless'", specifier = ">=1.1.0" },
-    { name = "httpx", specifier = ">=0.27.0,<0.29" },
-    { name = "markdownify", marker = "extra == 'markdown'", specifier = ">=0.14.1,<2" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0,<3" },
-    { name = "notebooklm-py", extras = ["browser", "dev", "headless", "markdown", "mcp", "server"], marker = "extra == 'all'" },
-    { name = "packaging", specifier = ">=23.0,<27" },
-    { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.40.0,<2" },
-    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.5.1,<5" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0,<10" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0,<2" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0,<8" },
-    { name = "pytest-httpx", marker = "extra == 'dev'", specifier = ">=0.30.0,<0.37" },
-    { name = "pytest-rerunfailures", marker = "extra == 'dev'", specifier = ">=14.0,<17" },
-    { name = "pytest-timeout", marker = "extra == 'dev'", specifier = ">=2.3.0,<3" },
-    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.6.0,<4" },
-    { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.0.0,<2" },
-    { name = "python-multipart", marker = "extra == 'server'", specifier = ">=0.0.20,<1" },
-    { name = "rich", specifier = ">=13.0.0,<16" },
-    { name = "rookiepy", marker = "extra == 'cookies'", specifier = ">=0.1.0,<1" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.21" },
-    { name = "tomli", marker = "python_full_version < '3.11' and extra == 'dev'", specifier = ">=2.0.0,<3" },
-    { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.34,<1" },
-    { name = "vcrpy", marker = "extra == 'dev'", specifier = ">=6.0.0,<9" },
-]
-provides-extras = ["markdown", "browser", "cookies", "impersonate", "headless", "mcp", "server", "dev", "all"]
 
 [[package]]
 name = "openapi-pydantic"

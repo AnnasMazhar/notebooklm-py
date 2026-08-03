@@ -1,5 +1,8 @@
 [project]
-name = "notebooklm-py"
+# ADR-0028: the DIST is `gemini-notebook-py`; the IMPORT package stays
+# `notebooklm` permanently. `notebooklm-py` lives on as an extras-forwarding
+# shim under packaging/shims/ — see that directory's README.
+name = "gemini-notebook-py"
 version = "0.8.0"
 description = "Unofficial Python library for automating Google NotebookLM"
 dynamic = ["readme"]
@@ -59,7 +62,7 @@ browser = ["playwright>=1.40.0,<2"]
 cookies = ["rookiepy>=0.1.0,<1"]
 # EXPERIMENTAL / PoC: optional curl_cffi transport for browser TLS-JA3
 # impersonation (NOTEBOOKLM_TRANSPORT=curl_cffi). Native wheels, so excluded from
-# `all` like `cookies`. Opt in via pip install "notebooklm-py[impersonate]".
+# `all` like `cookies`. Opt in via pip install "gemini-notebook-py[impersonate]".
 impersonate = ["curl_cffi>=0.11,<1"]
 # Headless master-token auth: mint web cookies from a durable Google master
 # token, no per-session browser (docs/installation.md#headless). gpsoauth is
@@ -100,8 +103,8 @@ dev = [
     "vcrpy>=6.0.0,<9",
 ]
 # `all` deliberately excludes `cookies` — rookiepy has install issues on Python 3.13+
-# (see CHANGELOG [0.4.1]). Opt in explicitly via `pip install "notebooklm-py[cookies]"`.
-all = ["notebooklm-py[browser,dev,headless,markdown,mcp,server]"]
+# (see CHANGELOG [0.4.1]). Opt in explicitly via `pip install "gemini-notebook-py[cookies]"`.
+all = ["gemini-notebook-py[browser,dev,headless,markdown,mcp,server]"]
 
 [project.scripts]
 # Six names, three programs. The `notebooklm*` scripts match the (permanent)
