@@ -36,4 +36,4 @@ pip uninstall notebooklm-py && pip install --force-reinstall gemini-notebook-py
 shared files, and a plain upgrade would consider the current install satisfied
 and never restore them.
 
-Current version: 0.8.0
+Current version: 0.9.0a1

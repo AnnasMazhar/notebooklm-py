@@ -7,29 +7,29 @@
 
 [project]
 name = "notebooklm-py"
-version = "0.8.0"
+version = "0.9.0a1"
 description = "Former name of gemini-notebook-py. Installing this package installs gemini-notebook-py; `import notebooklm` is unchanged and permanent."
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "Teng Lin", email = "teng.lin@gmail.com"}]
 readme = "README.md"
 dependencies = [
-    "gemini-notebook-py==0.8.0",
+    "gemini-notebook-py==0.9.0a1",
 ]
 
 # Every canonical extra is mirrored so that, e.g.,
 # `pip install "notebooklm-py[mcp]"` installs exactly what
 # `pip install "gemini-notebook-py[mcp]"` installs.
 [project.optional-dependencies]
-browser = ["gemini-notebook-py[browser]==0.8.0"]
-cookies = ["gemini-notebook-py[cookies]==0.8.0"]
-dev = ["gemini-notebook-py[dev]==0.8.0"]
-headless = ["gemini-notebook-py[headless]==0.8.0"]
-impersonate = ["gemini-notebook-py[impersonate]==0.8.0"]
-markdown = ["gemini-notebook-py[markdown]==0.8.0"]
-mcp = ["gemini-notebook-py[mcp]==0.8.0"]
-server = ["gemini-notebook-py[server]==0.8.0"]
-all = ["gemini-notebook-py[browser,dev,headless,markdown,mcp,server]==0.8.0"]
+browser = ["gemini-notebook-py[browser]==0.9.0a1"]
+cookies = ["gemini-notebook-py[cookies]==0.9.0a1"]
+dev = ["gemini-notebook-py[dev]==0.9.0a1"]
+headless = ["gemini-notebook-py[headless]==0.9.0a1"]
+impersonate = ["gemini-notebook-py[impersonate]==0.9.0a1"]
+markdown = ["gemini-notebook-py[markdown]==0.9.0a1"]
+mcp = ["gemini-notebook-py[mcp]==0.9.0a1"]
+server = ["gemini-notebook-py[server]==0.9.0a1"]
+all = ["gemini-notebook-py[browser,dev,headless,markdown,mcp,server]==0.9.0a1"]
 
 [build-system]
 requires = ["hatchling"]

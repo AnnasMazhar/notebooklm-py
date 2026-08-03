@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0a1] - 2026-08-03
+
+First pre-release of the **Gemini Notebook rename** ([ADR-0028](docs/adr/0028-gemini-notebook-rename.md)).
+Google renamed NotebookLM to Gemini Notebook, so the *distribution* follows.
+
+**Nothing about your code changes.** `import notebooklm` is permanent, and so
+are the `NOTEBOOKLM_*` environment variables, `~/.notebooklm`, the `notebooklm`
+logger namespace, and the MCP server identity. A distribution name that differs
+from the import name is ordinary Python (`beautifulsoup4`/`bs4`, `pillow`/`PIL`).
+
+**Existing users are unaffected by this pre-release.** `pip install
+notebooklm-py` continues to resolve 0.8.0; pip does not select pre-releases when
+a stable release exists. The `notebooklm-py` distribution is deliberately **not**
+published at this version — it becomes a forwarding shim only at the 0.9.0 final
+release.
+
+### Added
+
+- Distribution `gemini-notebook-py` — canonical from 0.9.0 — and the bare
+  `gemini-notebook` alias, both installing the same code.
+- Console scripts `gemini-notebook`, `gemini-notebook-mcp`, and
+  `gemini-notebook-server`, alongside the existing `notebooklm*` three. Neither
+  set is deprecated; every entry point now reports the name it was invoked as.
+- `GeminiNotebookClient`, a permanent non-deprecated alias of `NotebookLMClient`
+  (the same class object, so `isinstance`, `pickle`, and mypy are unaffected).
+- An import-time warning when a pre-0.9 `notebooklm-py` shares an environment
+  with `gemini-notebook-py`: the two ship the same files, and pip has no
+  conflict mechanism for that. Remedy: `pip uninstall notebooklm-py && pip
+  install --force-reinstall gemini-notebook-py`.
+
+### Changed
+
+- `notebooklm mcp install` writes `uvx --from "gemini-notebook-py[mcp]"
+  gemini-notebook-mcp`, under the unchanged `notebooklm` server key — so
+  re-installing updates the existing entry instead of orphaning it.
+- The `deploy/` compose stack defaults to the `gemini-notebook-mcp` image.
+  Every release is pushed under both image names, so pinned `.env` files keep
+  working.
+- `__version__` now resolves from the distribution that actually supplied the
+  imported files, rather than one hardcoded distribution name.
+
+### Retracted
+
+- The July 2026 README note stating "the package keeps the `notebooklm-py`
+  name". See ADR-0028 for the reasoning behind the reversal.
+
 ## [0.8.0] - 2026-08-03
 
 The headline of 0.8.0 is **integrations**: NotebookLM is now reachable from AI

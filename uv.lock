@@ -765,7 +765,7 @@ wheels = [
 
 [[package]]
 name = "gemini-notebook-py"
-version = "0.8.0"
+version = "0.9.0a1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
