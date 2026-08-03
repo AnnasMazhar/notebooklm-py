@@ -41,10 +41,23 @@ def test_build_server_block_uses_uvx() -> None:
     block = build_server_block()
     assert block == {
         "command": "uvx",
-        "args": ["--from", "notebooklm-py[mcp]", "notebooklm-mcp"],
+        "args": ["--from", "gemini-notebook-py[mcp]", "gemini-notebook-mcp"],
     }
     # A fresh dict each call — callers mutate/merge freely.
     assert build_server_block() is not block
+
+
+def test_server_key_is_not_renamed_by_adr_0028() -> None:
+    """``SERVER_KEY`` must stay ``"notebooklm"`` even though the dist was renamed.
+
+    This key names the ``mcpServers`` entry we write into config files on
+    users' machines — files we can never patch afterwards. Renaming it would
+    make the next ``mcp install`` write a *second* block under the new name and
+    orphan the first, leaving two servers registered for one product. ADR-0028
+    therefore renames the uvx spec inside the block while deliberately holding
+    the key fixed, and this test is the record of that asymmetry.
+    """
+    assert SERVER_KEY == "notebooklm"
 
 
 def test_unknown_client_raises_unsupported() -> None:

@@ -201,8 +201,8 @@ def test_build_command_forwards_argv() -> None:
     assert cmd == [
         "/usr/bin/uvx",
         "--from",
-        "notebooklm-py[mcp]",
-        "notebooklm-mcp",
+        "gemini-notebook-py[mcp]",
+        "gemini-notebook-mcp",
         "--transport",
         "http",
     ]
@@ -211,7 +211,7 @@ def test_build_command_forwards_argv() -> None:
 def test_build_command_no_extra_argv() -> None:
     run_server = _load_run_server()
     cmd = run_server.build_command("/opt/uvx", [])
-    assert cmd == ["/opt/uvx", "--from", "notebooklm-py[mcp]", "notebooklm-mcp"]
+    assert cmd == ["/opt/uvx", "--from", "gemini-notebook-py[mcp]", "gemini-notebook-mcp"]
 
 
 def test_is_prerelease() -> None:
@@ -241,8 +241,8 @@ def test_build_command_pins_prerelease_version() -> None:
     assert cmd == [
         "/usr/bin/uvx",
         "--from",
-        "notebooklm-py[mcp]==0.8.0a1",
-        "notebooklm-mcp",
+        "gemini-notebook-py[mcp]==0.8.0a1",
+        "gemini-notebook-mcp",
         "--transport",
         "http",
     ]
@@ -252,7 +252,7 @@ def test_build_command_stable_version_stays_unpinned() -> None:
     """A stable bundle stays unpinned so it tracks the latest stable server."""
     run_server = _load_run_server()
     cmd = run_server.build_command("/opt/uvx", [], "0.8.0")
-    assert cmd == ["/opt/uvx", "--from", "notebooklm-py[mcp]", "notebooklm-mcp"]
+    assert cmd == ["/opt/uvx", "--from", "gemini-notebook-py[mcp]", "gemini-notebook-mcp"]
 
 
 def test_bundle_version_matches_manifest() -> None:
@@ -349,10 +349,10 @@ def test_run_server_does_not_print_to_stdout_on_success_path(
     # (pinned to its exact version) or stable (unpinned); assert the
     # version-agnostic invariants: the console script runs and the forwarded
     # argv (``--profile x``) is passed through intact.
-    assert "notebooklm-mcp" in cmd
+    assert "gemini-notebook-mcp" in cmd
     assert cmd[-2:] == ["--profile", "x"]
     from_idx = cmd.index("--from")
-    assert cmd[from_idx + 1].startswith("notebooklm-py[mcp]")
+    assert cmd[from_idx + 1].startswith("gemini-notebook-py[mcp]")
     # stdio is passed through cleanly (critical for JSON-RPC).
     import sys
 

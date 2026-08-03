@@ -6,7 +6,7 @@ that omits user-local install dirs, so ``uvx`` may not be discoverable via the
 shell ``PATH`` alone. This launcher searches the common install locations before
 falling back to ``PATH``, then execs::
 
-    uvx --from "notebooklm-py[mcp]" notebooklm-mcp [<forwarded args>]
+    uvx --from "gemini-notebook-py[mcp]" gemini-notebook-mcp [<forwarded args>]
 
 forwarding the host's stdin/stdout/stderr through cleanly. The stdio passthrough
 is critical: the MCP host speaks JSON-RPC over the child's stdin/stdout, so this
@@ -34,8 +34,8 @@ import sys
 #: The PyPI distribution + ``mcp`` extra to resolve, and the console script to
 #: run. ``uvx --from "<PACKAGE>" <CONSOLE_SCRIPT>`` fetches the package (with the
 #: extra) into an ephemeral environment and runs the script.
-PACKAGE = "notebooklm-py[mcp]"
-CONSOLE_SCRIPT = "notebooklm-mcp"
+PACKAGE = "gemini-notebook-py[mcp]"
+CONSOLE_SCRIPT = "gemini-notebook-mcp"
 
 
 def _bundle_version() -> str | None:

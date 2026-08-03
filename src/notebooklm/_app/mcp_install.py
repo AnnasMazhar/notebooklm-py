@@ -11,7 +11,7 @@ Every supported client (Claude Desktop, Claude Code, Cursor, Windsurf) reads an
 ``mcpServers`` JSON object mapping a server name to a ``{command, args}`` block.
 The robust default we write runs the server via ``uvx``::
 
-    uvx --from "notebooklm-py[mcp]" notebooklm-mcp
+    uvx --from "gemini-notebook-py[mcp]" gemini-notebook-mcp
 
 so the install needs only ``uv`` on the host — no global ``pip install`` of the
 package, and the same invocation as the ``.mcpb`` desktop bundle's launcher.
@@ -45,12 +45,20 @@ __all__ = [
 
 #: Name of the ``mcpServers`` entry we write. Stable so a re-install updates the
 #: same block rather than appending a duplicate.
+#:
+#: Deliberately NOT renamed for ADR-0028. This key is written into config files
+#: on users' machines, which we can never patch afterwards: changing it would
+#: append a second block on the next re-install and orphan the first, leaving
+#: two servers registered. It matches the (permanent) import package name.
 SERVER_KEY = "notebooklm"
 
 #: PyPI distribution + ``mcp`` extra, and the console script ``uvx`` runs. Kept
 #: in lockstep with ``desktop-extension/run_server.py`` (the .mcpb launcher).
-_PACKAGE_SPEC = "notebooklm-py[mcp]"
-_CONSOLE_SCRIPT = "notebooklm-mcp"
+#: Newly written configs use the canonical ADR-0028 names; configs written
+#: before 0.9.0 still say ``notebooklm-py[mcp]`` / ``notebooklm-mcp`` and keep
+#: working indefinitely via the forwarding shim and the retained scripts.
+_PACKAGE_SPEC = "gemini-notebook-py[mcp]"
+_CONSOLE_SCRIPT = "gemini-notebook-mcp"
 
 
 class UnsupportedClientError(ValidationError):
