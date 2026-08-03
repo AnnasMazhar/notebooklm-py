@@ -108,8 +108,11 @@ def test_download_audio_advertises_m4a_and_audio_mp4(
 
     ``media_type`` is asserted because the route sets it EXPLICITLY from the shared
     ``_app.download`` table: the stdlib ``mimetypes`` map that ``FileResponse``
-    would otherwise consult has no builtin ``.m4a`` row, so a guessed type would
-    degrade to ``text/plain`` on a host without ``/etc/mime.types``.
+    would otherwise consult has no builtin ``.m4a`` row (``.mp3`` it does have), so
+    a guessed type would degrade to ``FileResponse``'s
+    ``"application/octet-stream"`` fallback on a host without ``/etc/mime.types``.
+    Asserting the exact header therefore also pins this test to be independent of
+    whichever mime database the CI runner happens to ship (#2034).
     """
     fake_client.artifacts_store["nb-1"] = {"a1": make_artifact("a1", "audio")}
     resp = authed_client.post("/v1/notebooks/nb-1/artifacts/download", json={"type": "audio"})

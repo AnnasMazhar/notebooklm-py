@@ -639,9 +639,13 @@ async def download(notebook_id: str, body: ArtifactDownload, client: ClientDep) 
             raise ValidationError("Download produced an unexpected output path")
         # ``media_type`` comes EXPLICITLY from the shared ``_app`` table — the same
         # one the MCP surfaces read, so the two servers stay in lockstep. Left to
-        # guess, ``FileResponse`` would consult ``mimetypes``, which has no builtin
-        # ``.m4a`` row, and an audio download would degrade to Starlette's
-        # ``text/plain`` default on a slim container (#2034).
+        # guess, ``FileResponse`` falls back to
+        # ``guess_type(...)[0] or "application/octet-stream"``, and ``.m4a`` is NOT in
+        # ``mimetypes``' builtin table (``.mp3`` is) — it resolves only when the host
+        # ships a mime database such as ``/etc/mime.types``. So on a slim container an
+        # audio download would be served as ``application/octet-stream``, which defeats
+        # inline playback and any client that dispatches on MIME. Passing it explicitly
+        # also makes the header independent of the runner's mime database (#2034).
         response = _CleanupFileResponse(
             served,
             filename=os.path.basename(served),
