@@ -100,23 +100,29 @@ frowns on) and we accept we may have to surrender it if challenged.
 ### Phase 1a — 0.9.0, additive (fully reversible)
 
 1. New console scripts `gemini-notebook{,-mcp,-server}` alongside the old
-   three. No startup hints — the old names are not deprecated. The `__main__`
-   entry points derive their displayed `prog` from the invoked name
-   (`mcp/__main__.py:181` and `server/__main__.py:113` currently hardcode the
-   legacy names, so the new commands would advertise the old ones in
-   `--help`).
+   three. No startup hints — the old names are not deprecated. Every entry
+   point derives its displayed `prog` from the invoked name: the root Click
+   CLI (`notebooklm_cli.py:134` hardcodes `prog_name="NotebookLM CLI"`),
+   `mcp/__main__.py:181`, and `server/__main__.py:113` all pin the legacy
+   identity today, so the new commands would advertise the old names in
+   `--help`/`--version`.
 2. `GeminiNotebookClient = NotebookLMClient` exported from `notebooklm`
    (static assignment: subclassing, `isinstance`, pickle, and mypy all keep
    working; no `__getattr__` indirection).
 3. `__version__` resolution keyed to the distribution that actually supplied
-   the imported files (`importlib.metadata.packages_distributions()`), with
-   name lookups (`gemini-notebook-py`, then `notebooklm-py`) only as
-   fallback. `src/notebooklm/__init__.py:40` is currently keyed to the old
-   dist only and would report `0.0.0.dev0` under the renamed dist — but a
-   plain name-ordered lookup is wrong too: with the Phase-0 placeholder plus
-   a stale real `notebooklm-py` co-installed, canonical-first would report
-   the placeholder's version for files the old dist supplied. Same fix in
-   the skill version stamp (`_app/skill.py`).
+   the imported files, determined by matching `notebooklm.__file__` against
+   each candidate distribution's RECORD (`importlib.metadata.Distribution.files`).
+   `packages_distributions()` is **not** sufficient: in a dual install both
+   dists declare `notebooklm`, and the mapping says nothing about whose
+   files won the collision. A build-stamped version (extending the existing
+   `hatch_build.py` `_commit.py` bake) is an acceptable simpler alternative.
+   Name lookups (`gemini-notebook-py`, then `notebooklm-py`) remain only as
+   last-resort fallback. `src/notebooklm/__init__.py:40` is currently keyed
+   to the old dist only and would report `0.0.0.dev0` under the renamed
+   dist — and a plain name-ordered lookup is wrong too: with the Phase-0
+   placeholder plus a stale real `notebooklm-py` co-installed,
+   canonical-first would report the placeholder's version for files the old
+   dist supplied. Same fix in the skill version stamp (`_app/skill.py`).
 4. Docs/README lead with "Gemini Notebook"; old name mentioned once per page.
 5. Same-PR guardrail updates: `tests/_guardrails/test_public_surface.py`
    (new export), CLI contract baseline regen (ADR-0022 machinery) for the new
@@ -159,9 +165,18 @@ the first dual publish:
    install. Mitigation — partial by construction: an import-time check
    (`PackageNotFoundError`-guarded `importlib.metadata` lookup, PEP 440
    comparison via `packaging.version`, never a string compare) that warns
-   loudly when a `notebooklm-py` dist < 0.9 is present alongside
-   `gemini-notebook-py`, naming the fix
-   (`pip uninstall notebooklm-py && pip install -U gemini-notebook-py`).
+   loudly when any **pre-shim** `notebooklm-py` release is present alongside
+   `gemini-notebook-py` — every version below the first shim release
+   (0.10.0), which includes the Phase 1a 0.9.x releases, since those ship
+   real files too. `packaging` moves from the `dev` extra to the base
+   dependencies in the same PR (today it is dev-only, so the detector would
+   itself `ImportError` in exactly the environment it repairs). The warning
+   names the fix:
+   `pip uninstall notebooklm-py && pip install --force-reinstall gemini-notebook-py` —
+   `--force-reinstall` is required, not `-U`: uninstalling the stale dist
+   deletes the shared `notebooklm` files listed in its RECORD, and a plain
+   upgrade would consider the already-current canonical install satisfied
+   and never restore them.
    The check only runs when the canonical files win the collision; a
    stale-*last* install overwrites `__init__.py` and is undetectable at
    runtime — that order is covered by docs/release notes only, and the ADR
@@ -204,12 +219,18 @@ skill zip) ends. `notebooklm-py` gets a final shim pinned
 `gemini-notebook-py>=<current major>,<next major>` with a tombstone README —
 and because the import package never goes away, that terminal shim keeps
 **working** (install + `import notebooklm`) rather than silently breaking.
-The open range (chosen over a frozen `==` so upgrades keep flowing to shim
-users) carries an obligation: every canonical release inside a
-shim-advertised range must preserve all legacy extra names and console
-scripts — the shim-equivalence test below enforces this for as long as any
-published shim's range is open, so a future release cannot drop `[mcp]` out
-from under `notebooklm-py[mcp]` installs.
+The open range is chosen over a frozen `==` because a stale exact pin would
+block an explicit `pip install -U gemini-notebook-py` in environments that
+still carry the shim — not because upgrades flow on their own: pip's default
+only-if-needed strategy never upgrades a dependency that still satisfies its
+range, and the terminal shim has no further releases, so canonical upgrades
+reach terminal-shim users only when they upgrade `gemini-notebook-py`
+directly (the tombstone README states exactly that). The range still
+carries an obligation: every canonical release inside a shim-advertised
+range must preserve all legacy extra names and console scripts — the
+shim-equivalence test below enforces this for as long as any published
+shim's range is open, so a future release cannot drop `[mcp]` out from
+under `notebooklm-py[mcp]` installs.
 There is no Phase-4 hard removal: old console scripts, env vars, and config
 home are permanent by decision, so no user ever hits a cliff.
 
