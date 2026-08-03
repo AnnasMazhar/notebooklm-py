@@ -21,11 +21,13 @@ Private helpers (also re-exported as white-box affordances for tests):
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from urllib.parse import urlparse
 
 from .._url_utils import (
-    contains_google_auth_redirect,
+    find_cookie_mismatch_hop,
     is_google_auth_redirect,
+    is_notebooklm_app_host,
     is_notebooklm_unavailable_redirect,
     notebooklm_unavailable_location,
 )
@@ -203,7 +205,113 @@ def _unavailable_redirect_message(final_url: str) -> str:
     )
 
 
-def extract_csrf_from_html(html: str, final_url: str = "") -> str:
+def _cookie_mismatch_message(hop: str, final_url: str) -> str:
+    """Build the diagnostic for a redirect chain that hit ``/CookieMismatch``.
+
+    Google serves that interstitial when the cookies presented do not match the
+    host they were sent to, then 302s onward to a ``support.google.com`` help
+    article. The landing page is an ordinary HTTP 200 whose body is full of
+    ``accounts.google.com`` links, which is exactly what used to make this
+    report as an expired login (#2038; six days of false alarms on #2019).
+
+    The remediation is cookie *scoping*, not merely re-authentication, so the
+    message names the mismatch explicitly. ``_safe_url`` would redact the path
+    of any ``accounts.google.com`` URL, which would erase the very marker being
+    reported, so the hop is rendered from its already-validated parts
+    (scheme + host + the literal ``/CookieMismatch``) — userinfo, query and
+    fragment are dropped exactly as ``_safe_url`` would drop them.
+    """
+    parsed = urlparse(hop)
+    hop_display = f"{parsed.scheme}://{parsed.hostname or ''}/CookieMismatch"
+    landed = _safe_url(final_url)
+    chain = f"{hop_display}, and the chain ended at {landed}" if landed else hop_display
+    return (
+        f"Google's CookieMismatch page was reached during this request: {chain}. Google "
+        "rejected the cookies as not matching the host they were sent to. This is a "
+        "cookie-scoping problem and NOT necessarily an expired session — the credentials "
+        "may be perfectly valid. Common causes: a storage_state.json whose per-cookie "
+        "domains were flattened to a single host, cookies belonging to a different Google "
+        "account or session, or a stale __Secure-1PSIDTS. Run 'notebooklm login' to re-extract "
+        "cookies; if it recurs, verify that storage_state.json preserves each cookie's "
+        "original domain."
+    )
+
+
+def _token_not_found_message(what: str, final_url: str) -> str:
+    """Build the "token missing" diagnostic, split by where the response landed.
+
+    Two genuinely different failures used to share one message (and, worse, were
+    routinely mislabelled "Authentication expired" by a body scan):
+
+    * **Off the app host** — we never reached NotebookLM at all, so the page
+      simply has no ``WIZ_global_data`` to find. That is a redirect/environment
+      problem, and the final URL is the whole diagnosis.
+    * **On the app host** — the app answered but the token is not where we look,
+      i.e. a real page-structure change worth filing a bug about.
+
+    ``what`` is the human name of the missing field (``"CSRF token"`` /
+    ``"Session ID"``); the ``"<what> not found in HTML"`` prefix is a documented
+    message contract and is preserved in both branches.
+    """
+    detail = (
+        "This may indicate the page structure has changed."
+        if not final_url or is_notebooklm_app_host(final_url)
+        else (
+            "The response did not come from a NotebookLM app host, so the request never "
+            "reached the app — this is a redirect/environment problem, not a page-structure "
+            "change. Note that most Google-served pages carry accounts.google.com links, so "
+            "their presence in the body is not evidence that the session expired."
+        )
+    )
+    return f"{what} not found in HTML. Final URL: {_safe_url(final_url)}\n{detail}"
+
+
+def _extraction_failure(what: str, final_url: str, redirect_urls: Sequence[str]) -> ValueError:
+    """Classify a failed ``WIZ_global_data`` extraction into an actionable error.
+
+    Four outcomes, each with a different remediation, ordered so the strongest
+    evidence wins:
+
+    1. **Region / anti-abuse gate** (``notebooklm.google``) — fix the network
+       environment. Checked first because that gate page carries an
+       ``accounts.google.com`` sign-in link (#1630).
+    2. **Cookie mismatch** — fix cookie scoping. Checked before the auth branch
+       because the interstitial lives on ``accounts.google.com`` and would
+       otherwise be reported as an expiry (#2038).
+    3. **Auth redirect** — re-authenticate. Driven by the *final URL* only.
+    4. **Token missing** — see :func:`_token_not_found_message`.
+
+    Deliberately takes no ``html`` argument: the page body is not consulted at
+    all. The old ``contains_google_auth_redirect(html)`` fallback matched any
+    ``accounts.google.com`` URL anywhere in the body, which nearly every
+    Google-served page contains, so it converted "wrong page" into
+    "Authentication expired" and discarded the final URL — the one piece of
+    evidence that would have identified the real fault. Every branch below
+    carries the URL.
+
+    Returns the error rather than raising it so each caller's ``raise``
+    statement keeps the function's ``NoReturn``-free control flow obvious to
+    both readers and type checkers.
+    """
+    if is_notebooklm_unavailable_redirect(final_url):
+        return ValueError(_unavailable_redirect_message(final_url))
+    hop = find_cookie_mismatch_hop((*redirect_urls, final_url))
+    if hop is not None:
+        return ValueError(_cookie_mismatch_message(hop, final_url))
+    if is_google_auth_redirect(final_url):
+        return ValueError(
+            f"Authentication expired or invalid. Final URL: {_safe_url(final_url)}\n"
+            "Run 'notebooklm login' to re-authenticate."
+        )
+    return ValueError(_token_not_found_message(what, final_url))
+
+
+def extract_csrf_from_html(
+    html: str,
+    final_url: str = "",
+    *,
+    redirect_urls: Sequence[str] = (),
+) -> str:
     """
     Extract CSRF token (SNlM0e) from NotebookLM page HTML.
 
@@ -213,6 +321,11 @@ def extract_csrf_from_html(html: str, final_url: str = "") -> str:
     Args:
         html: Page HTML content from notebooklm.google.com
         final_url: The final URL after redirects (for error messages)
+        redirect_urls: The redirect chain that preceded ``final_url``, in order
+            (``[str(r.url) for r in response.history]``). Optional, and only
+            used to build a better diagnostic: Google's ``/CookieMismatch``
+            interstitial 302s onward, so it is invisible to ``final_url`` alone.
+            Omitting it costs only that one classification.
 
     Returns:
         CSRF token value (typically starts with "AF1_QpN-")
@@ -224,32 +337,24 @@ def extract_csrf_from_html(html: str, final_url: str = "") -> str:
             the ``"CSRF token not found"`` / ``"Authentication expired"``
             message substrings, so we intentionally keep the legacy type.
             Internally we delegate to :func:`extract_wiz_field` so the regex
-            matrix (double-quoted / single-quoted / HTML-escaped) is shared.
+            matrix (double-quoted / single-quoted / HTML-escaped) is shared,
+            and to :func:`_extraction_failure` so the failure taxonomy is
+            shared with :func:`extract_session_id_from_html`.
     """
     # Tolerant extraction via the unified helper — accepts canonical,
     # single-quoted, and HTML-escaped variants of the WIZ_global_data field.
     token = extract_wiz_field(html, "SNlM0e", strict=False)
     if token is not None:
         return token
-    # Drift path: differentiate "access gate" / "auth expired" / "shape changed"
-    # because the remediation differs (fix environment / re-login / file a bug).
-    # The *final URL* is the authoritative landing signal, so it is checked
-    # before the weaker ``contains_google_auth_redirect(html)`` body scan — the
-    # ``notebooklm.google`` gate page itself carries an ``accounts.google.com``
-    # sign-in link, which would otherwise mis-route it to "auth expired" (#1630).
-    if is_notebooklm_unavailable_redirect(final_url):
-        raise ValueError(_unavailable_redirect_message(final_url))
-    if is_google_auth_redirect(final_url) or contains_google_auth_redirect(html):
-        raise ValueError(
-            "Authentication expired or invalid. Run 'notebooklm login' to re-authenticate."
-        )
-    raise ValueError(
-        f"CSRF token not found in HTML. Final URL: {_safe_url(final_url)}\n"
-        "This may indicate the page structure has changed."
-    )
+    raise _extraction_failure("CSRF token", final_url, redirect_urls)
 
 
-def extract_session_id_from_html(html: str, final_url: str = "") -> str:
+def extract_session_id_from_html(
+    html: str,
+    final_url: str = "",
+    *,
+    redirect_urls: Sequence[str] = (),
+) -> str:
     """
     Extract session ID (FdrFJe) from NotebookLM page HTML.
 
@@ -259,6 +364,8 @@ def extract_session_id_from_html(html: str, final_url: str = "") -> str:
     Args:
         html: Page HTML content from notebooklm.google.com
         final_url: The final URL after redirects (for error messages)
+        redirect_urls: The redirect chain that preceded ``final_url``. See
+            :func:`extract_csrf_from_html`.
 
     Returns:
         Session ID value
@@ -272,15 +379,4 @@ def extract_session_id_from_html(html: str, final_url: str = "") -> str:
     sid = extract_wiz_field(html, "FdrFJe", strict=False)
     if sid is not None:
         return sid
-    # Final-URL landing host is authoritative; check it before the body scan
-    # (the gate page carries an accounts.google.com link). See extract_csrf.
-    if is_notebooklm_unavailable_redirect(final_url):
-        raise ValueError(_unavailable_redirect_message(final_url))
-    if is_google_auth_redirect(final_url) or contains_google_auth_redirect(html):
-        raise ValueError(
-            "Authentication expired or invalid. Run 'notebooklm login' to re-authenticate."
-        )
-    raise ValueError(
-        f"Session ID not found in HTML. Final URL: {_safe_url(final_url)}\n"
-        "This may indicate the page structure has changed."
-    )
+    raise _extraction_failure("Session ID", final_url, redirect_urls)

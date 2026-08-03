@@ -28,7 +28,7 @@ from typing import Any
 import httpx
 
 from .._env import get_base_url
-from .._url_utils import is_google_auth_redirect
+from .._url_utils import find_cookie_mismatch_hop, is_google_auth_redirect
 from ..paths import get_storage_path, resolve_profile
 from . import cookies as _auth_cookies
 from . import extraction as _auth_extraction
@@ -61,6 +61,7 @@ save_cookies_to_storage = _auth_storage.save_cookies_to_storage
 extract_csrf_from_html = _auth_extraction.extract_csrf_from_html
 extract_session_id_from_html = _auth_extraction.extract_session_id_from_html
 _safe_url = _auth_extraction._safe_url
+_cookie_mismatch_message = _auth_extraction._cookie_mismatch_message
 _resolve_token_route_kwargs = _auth_headers._resolve_token_route_kwargs
 
 # Env-var names live in ``_auth.paths``; aliased so the refresh bodies can
@@ -744,6 +745,20 @@ async def _fetch_tokens_with_jar(
         response.raise_for_status()
 
         final_url = str(response.url)
+        # Redirect hops, in order. Google's ``/CookieMismatch`` interstitial 302s
+        # onward to a support.google.com help article, so it is only ever visible
+        # here — never in ``final_url``. (The curl_cffi transport rebuilds a
+        # synthetic response and reports an empty history; that path simply
+        # loses this one classification rather than misreporting it.)
+        redirect_urls = tuple(str(hop.url) for hop in response.history)
+
+        # A cookie-mismatch hop is a cookie-*scoping* failure with its own
+        # remediation, so classify it before the generic auth-redirect check —
+        # the interstitial lives on accounts.google.com and would otherwise be
+        # reported as an expired login (#2038, the six-day #2019 false alarm).
+        mismatch_hop = find_cookie_mismatch_hop((*redirect_urls, final_url))
+        if mismatch_hop is not None:
+            raise ValueError(_cookie_mismatch_message(mismatch_hop, final_url))
 
         # Check if we were redirected to login
         if is_google_auth_redirect(final_url):
@@ -753,8 +768,10 @@ async def _fetch_tokens_with_jar(
                 "Run 'notebooklm login' to re-authenticate."
             )
 
-        csrf = extract_csrf_from_html(response.text, final_url)
-        session_id = extract_session_id_from_html(response.text, final_url)
+        csrf = extract_csrf_from_html(response.text, final_url, redirect_urls=redirect_urls)
+        session_id = extract_session_id_from_html(
+            response.text, final_url, redirect_urls=redirect_urls
+        )
 
         # httpx copies the input Cookies object into the client. Copy any
         # redirect Set-Cookie updates back to the caller's jar before it is

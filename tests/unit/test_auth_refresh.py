@@ -90,6 +90,42 @@ class TestFetchTokens:
             await fetch_tokens(cookies)
 
     @pytest.mark.asyncio
+    async def test_fetch_tokens_cookie_mismatch_chain_is_not_reported_as_expiry(
+        self, httpx_mock: HTTPXMock
+    ):
+        """End-to-end replay of the #2019 chain: it must not say "expired" (#2038).
+
+        The real rpc-health failure went
+        ``notebooklm.google.com`` -> ``accounts.google.com/CookieMismatch`` ->
+        ``support.google.com/...`` (HTTP 200 help article). The mismatch hop is
+        mid-chain, so ``response.url`` alone cannot see it — this test is what
+        proves the redirect *history* is actually threaded from the transport
+        down into the classifier, not merely accepted as a parameter.
+        """
+        httpx_mock.add_response(
+            url="https://notebooklm.google.com/",
+            status_code=302,
+            headers={"Location": "https://accounts.google.com/CookieMismatch"},
+        )
+        httpx_mock.add_response(
+            url="https://accounts.google.com/CookieMismatch",
+            status_code=302,
+            headers={"Location": "https://support.google.com/accounts/answer/32050"},
+        )
+        httpx_mock.add_response(
+            url="https://support.google.com/accounts/answer/32050",
+            content=b'<html><a href="https://accounts.google.com/signin">Sign in</a></html>',
+        )
+
+        cookies = {"SID": "valid_sid", "__Secure-1PSIDTS": "test_1psidts"}
+        with pytest.raises(ValueError) as exc:
+            await fetch_tokens(cookies)
+
+        message = str(exc.value)
+        assert "CookieMismatch" in message
+        assert "Authentication expired" not in message
+
+    @pytest.mark.asyncio
     async def test_fetch_tokens_redirect_to_login_strips_query_and_fragment(self, monkeypatch):
         """Redirect error must not expose query params or fragments from final_url."""
 
