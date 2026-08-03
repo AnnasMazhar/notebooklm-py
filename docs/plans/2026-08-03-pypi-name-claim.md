@@ -66,6 +66,26 @@ done   # expect 404 404 404
 - Create an **account-scoped** API token: pypi.org → Account settings → API
   tokens → "Entire account". Copy it; it is shown once.
 
+## How the names are actually claimed (two routes)
+
+Trusted Publishing is **per project**. A name can only be claimed by the
+release workflow if that name has a (pending) publisher registered; uploading
+to a project without one is rejected. So the names split:
+
+| Name | Route | Why |
+|---|---|---|
+| `gemini-notebook-py` | **`v0.9.0a1` tag** → `publish.yml` (OIDC, attested, no token) | The one name a pending publisher is registered for. |
+| `gemini-notebook` | `claim.sh` (account token) | No publisher available; claimed as a `0.0.1` placeholder. |
+| `notebooklm` | `claim.sh` (account token) | Outside the release matrix by design — no tag ever publishes it. |
+
+`publish.yml` therefore publishes the **canonical dist only** on a pre-release
+tag, and all three dists on a final tag. That is not merely tidiness: because
+the canonical upload runs first, an unpublishable shim would fail *after* a
+successful publish, leaving a red run over a half-completed release.
+
+Once `gemini-notebook` exists as a project, add a **normal** trusted publisher
+to it (easier than a pending one) so the 0.9.0 final can ship it automatically.
+
 ## Step 2 — Claim, canonical first (5 min)
 
 ```bash

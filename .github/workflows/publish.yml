@@ -22,6 +22,10 @@ jobs:
     permissions:
       contents: read
 
+    outputs:
+      # Consumed by the publish job to decide whether the shim upload runs.
+      prerelease: ${{ steps.release_kind.outputs.prerelease }}
+
     steps:
     - uses: actions/checkout@v7
       with:
@@ -55,7 +59,9 @@ jobs:
 
     - name: Classify the tag (pre-release vs final)
       # A PEP 440 pre-release suffix (aN/bN/rcN, optionally .devN/.postN)
-      # decides whether the LEGACY shim ships — see the next step.
+      # decides whether the forwarding shims ship at all — see the build step
+      # below for the two reasons a pre-release publishes the canonical dist
+      # alone.
       id: release_kind
       run: |
         set -euo pipefail
@@ -73,28 +79,30 @@ jobs:
         python -m build
 
     - name: Build forwarding shims
-      # ADR-0028: `gemini-notebook` (the bare brand) ships from this same tag at
-      # the same version, so an install of either name resolves to this release.
-      # Shims go to a separate directory because the publish job uploads
-      # canonical-first — see the ordering note there.
+      # FINAL RELEASES ONLY — a pre-release publishes the canonical dist alone.
       #
-      # The LEGACY `notebooklm-py` shim is deliberately FINAL-RELEASES-ONLY.
-      # That dist is the live package with real users, and turning it into a
-      # shim is the step ADR-0028 places AFTER its abort point. A pre-release
-      # has nothing to gain from it either: the whole purpose of a pre-release
-      # here is to claim the NEW names, and `notebooklm-py` is already ours.
-      # Publishing it early would burn a version on the production project and
-      # reroute anyone using `--pre` to a dist the ADR still allows us to
-      # abandon. The full three-dist matrix is rehearsed on TestPyPI instead,
-      # where the namespace is separate and nothing is at stake.
+      # Two independent reasons, either of which is sufficient:
+      #
+      # 1. `notebooklm-py` is the live package with real users, and turning it
+      #    into a shim is the step ADR-0028 places AFTER its abort point.
+      #    Publishing it early would burn a version on the production project
+      #    and reroute anyone on `--pre` to a dist we may still abandon. A
+      #    pre-release gains nothing from it: the point is to claim the NEW
+      #    names, and `notebooklm-py` is already ours.
+      # 2. Trusted Publishing is per-project. Uploading a dist whose PyPI
+      #    project has no (pending) publisher is REJECTED — and because the
+      #    canonical upload happens first, that failure would land *after* a
+      #    successful publish, leaving a red run over a half-done release.
+      #    Names without a publisher are claimed out-of-band instead; see
+      #    packaging/placeholders/claim.sh.
+      #
+      # The full three-dist matrix is rehearsed on TestPyPI, where the
+      # namespace is separate and nothing is at stake.
+      if: steps.release_kind.outputs.prerelease == 'false'
       run: |
         set -euo pipefail
         python -m build --outdir dist-shims packaging/shims/gemini-notebook
-        if [ "${{ steps.release_kind.outputs.prerelease }}" = "false" ]; then
-          python -m build --outdir dist-shims packaging/shims/notebooklm-py
-        else
-          echo "Skipping the notebooklm-py shim: pre-release."
-        fi
+        python -m build --outdir dist-shims packaging/shims/notebooklm-py
 
     - name: Assert the built dists carry the tag version
       # Belt-and-braces over the generator check: this reads the built
@@ -102,28 +110,31 @@ jobs:
       run: |
         set -euo pipefail
         TAG_VERSION=${GITHUB_REF#refs/tags/v}
-        EXPECTED=("dist/gemini_notebook_py-${TAG_VERSION}-py3-none-any.whl"
-                  "dist-shims/gemini_notebook-${TAG_VERSION}-py3-none-any.whl")
+        EXPECTED=("dist/gemini_notebook_py-${TAG_VERSION}-py3-none-any.whl")
         if [ "${{ steps.release_kind.outputs.prerelease }}" = "false" ]; then
-          EXPECTED+=("dist-shims/notebooklm_py-${TAG_VERSION}-py3-none-any.whl")
+          EXPECTED+=("dist-shims/gemini_notebook-${TAG_VERSION}-py3-none-any.whl"
+                     "dist-shims/notebooklm_py-${TAG_VERSION}-py3-none-any.whl")
         fi
         for pattern in "${EXPECTED[@]}"; do
           if [ ! -f "$pattern" ]; then
             echo "Error: expected built wheel $pattern is missing"
-            ls -R dist dist-shims
+            ls -R dist dist-shims 2>/dev/null || true
             exit 1
           fi
           echo "OK: $pattern"
         done
-        # A pre-release must NOT carry the legacy shim, so assert its absence
-        # rather than trusting the conditional above.
+        # Assert the absence rather than trusting the conditional above: a
+        # pre-release must not carry ANY shim, because an upload to a project
+        # with no trusted publisher fails after the canonical one succeeded.
         if [ "${{ steps.release_kind.outputs.prerelease }}" = "true" ] \
-           && ls dist-shims/notebooklm_py-* >/dev/null 2>&1; then
-          echo "Error: pre-release built a notebooklm-py shim; it must not be published."
+           && ls dist-shims/* >/dev/null 2>&1; then
+          echo "Error: pre-release built shim artifacts; they must not be published."
+          ls -R dist-shims
           exit 1
         fi
 
     - name: Assert the shims ship no code
+      if: steps.release_kind.outputs.prerelease == 'false'
       # A shim that shipped `notebooklm/` files would collide with the
       # canonical dist file-for-file — the exact hazard ADR-0028 removes.
       # Console scripts are equally forbidden: duplicate `bin/` ownership
@@ -163,6 +174,7 @@ jobs:
         retention-days: 1
 
     - name: Upload shim artifacts
+      if: steps.release_kind.outputs.prerelease == 'false'
       # Same pristine-capture reasoning as above, kept as a separate artifact
       # so the publish job can upload the canonical dist first (see below).
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # @ v7
@@ -185,6 +197,7 @@ jobs:
         smoke-venv/bin/python -c "import notebooklm; print(notebooklm.__version__)"
 
     - name: Smoke-install each shim against the local build
+      if: steps.release_kind.outputs.prerelease == 'false'
       # `--find-links` is required: the shims pin `==<version>`, and that
       # version does not exist on PyPI yet at this point in the release.
       # Installing the shim NAME (not the file) is what proves the forwarding
@@ -247,6 +260,7 @@ jobs:
         path: dist/
 
     - name: Download shim artifacts
+      if: needs.build-and-test.outputs.prerelease == 'false'
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # @ v8.0.1
       with:
         name: gemini-notebook-py-shims
@@ -261,6 +275,7 @@ jobs:
         attestations: true
 
     - name: Publish forwarding shims to PyPI
+      if: needs.build-and-test.outputs.prerelease == 'false'
       # Runs only after the canonical upload succeeded, so the `==` pin these
       # carry always points at something already on the index.
       uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # @ v1.14.0
