@@ -51,9 +51,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on `accounts.google.com/CookieMismatch`. Both scripts now use the
   domain-preserving loaders the CLI already used
   (`AuthTokens.from_storage()` / `build_httpx_cookies_from_storage()`), and a
-  unit guardrail pins that the jar mirrors the `storage_state` domains
+  unit guardrail pins that the jar mirrors the `storage_state` domains and that
+  a host-scoped cookie value never reaches a host it was not scoped to
   ([#2019](https://github.com/teng-lin/notebooklm-py/issues/2019),
   [#2018](https://github.com/teng-lin/notebooklm-py/issues/2018)).
+
+### Changed
+
+- **`scripts/check_rpc_health.py` reports what it authenticated with.** The
+  report now names the auth source (`NOTEBOOKLM_AUTH_JSON` vs the resolved
+  profile path), the base host, the account route, and the cookie jar's
+  `name@domain` scopes — names and domains only, never values. #2019 was a
+  cookie-*scoping* failure that surfaced as a generic "authentication expired"
+  line, leaving the nightly log with nothing to diagnose it from
+  ([#2019](https://github.com/teng-lin/notebooklm-py/issues/2019)).
 
 ## [0.8.0] - 2026-08-03
 

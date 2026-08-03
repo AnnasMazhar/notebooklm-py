@@ -61,7 +61,7 @@ from notebooklm._chat.wire import (
     build_streaming_chat_request,
     parse_streaming_chat_response,
 )
-from notebooklm._env import get_default_language
+from notebooklm._env import get_base_url, get_default_language
 from notebooklm._logging import scrub_secrets
 from notebooklm._notebooks import build_create_notebook_params
 from notebooklm.auth import AuthTokens
@@ -226,6 +226,25 @@ def extract_id(data: Any, *indices: int) -> str | None:
         return None
 
 
+def describe_auth_source(storage_path: Path | None) -> str:
+    """Name where credentials were loaded from, for diagnostics."""
+    return "NOTEBOOKLM_AUTH_JSON env var" if storage_path is None else str(storage_path)
+
+
+def describe_cookie_scopes(auth: AuthTokens) -> str:
+    """Summarise the jar as ``name@domain`` pairs — names and domains only.
+
+    #2019 was a cookie-*scoping* failure that produced a generic "authentication
+    expired" line, so the nightly log carried nothing to diagnose it with. Cookie
+    names and domains are not secrets (values are never printed), and having them
+    in the report makes the next scoping regression readable from the log alone.
+    """
+    jar = auth.cookie_jar
+    if jar is None:
+        return "<no jar>"
+    return ", ".join(sorted(f"{cookie.name}@{cookie.domain}" for cookie in jar.jar))
+
+
 async def load_auth(storage_path: Path | None) -> AuthTokens:
     """Load auth from environment or storage file, preserving cookie domains.
 
@@ -248,18 +267,32 @@ async def load_auth(storage_path: Path | None) -> AuthTokens:
     that collides with the freshly minted host cookie, dead-ends the sign-in
     redirect chain on ``accounts.google.com/CookieMismatch``, and made this
     script report "Authentication expired" against perfectly valid credentials.
+
+    Only the three failure classes below are mapped to the AUTH exit code.
+    ``RuntimeError`` (a failed ``NOTEBOOKLM_REFRESH_CMD``) and non-missing-file
+    ``OSError`` still propagate as a traceback, exactly as they did through the
+    old ``fetch_tokens`` call.
     """
     try:
         return await AuthTokens.from_storage(storage_path)
-    except FileNotFoundError:
+    except FileNotFoundError as e:
+        # ``e`` names the storage path that was actually checked — under
+        # profiles that is the only way to see which one the script resolved.
         print(
-            "ERROR: No authentication found.\n"
+            f"ERROR: No authentication found: {scrub_secrets(e)}\n"
             "Set NOTEBOOKLM_AUTH_JSON env var or run 'notebooklm login'",
             file=sys.stderr,
         )
         sys.exit(2)
     except ValueError as e:
-        print(f"ERROR: {scrub_secrets(e)}", file=sys.stderr)
+        # Name the auth source. The file branch of ``_load_storage_state``
+        # re-raises a bare ``json`` error carrying no context at all, so a
+        # corrupt storage_state.json would otherwise print only
+        # "Expecting value: line 1 column 1 (char 0)".
+        print(
+            f"ERROR: {scrub_secrets(e)}\nAuth source: {describe_auth_source(storage_path)}",
+            file=sys.stderr,
+        )
         sys.exit(2)
     except httpx.HTTPError as e:
         # ``httpx`` exception strings can echo full request URLs including
@@ -1301,9 +1334,13 @@ async def run_health_check(full_mode: bool = False) -> tuple[list[CheckResult], 
     temp_resources = TempResources()
     cohort_status = CohortStatus.UNKNOWN
 
-    print("Fetching auth tokens...")
-    auth = await load_auth(resolve_storage_path())
+    storage_path = resolve_storage_path()
+    print(f"Fetching auth tokens... (source: {describe_auth_source(storage_path)})")
+    auth = await load_auth(storage_path)
     print(f"Auth OK (CSRF token length: {len(auth.csrf_token)})")
+    print(f"  base host:     {httpx.URL(get_base_url()).host}")
+    print(f"  account route: {auth.account_route}")
+    print(f"  cookie scopes: {describe_cookie_scopes(auth)}")
     print()
 
     async with httpx.AsyncClient(timeout=30.0) as client:

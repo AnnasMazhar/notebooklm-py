@@ -20,14 +20,22 @@ collides with it and the chain dead-ends on
 "Authentication expired or invalid".
 
 The live rpc-health workflow cannot gate a PR, so these offline tests pin the
-contract instead: the jar each script authenticates with must mirror the
-``storage_state`` domains exactly, and a host-scoped cookie must never ride
-along to a host it was not scoped to.
+contract instead. Two properties matter, and the fixture is built so neither can
+be satisfied by accident:
+
+* the jar each script authenticates with mirrors the ``storage_state`` domains;
+* **a specific cookie value never reaches a host it was not scoped to.** The
+  fixture deliberately carries ``OSID`` on *both* the NotebookLM host and
+  ``accounts.google.com`` with different values, because same-name-different-
+  domain is the entire reason domains matter — a name-only assertion
+  (``"OSID" not in sent``) would be wrong here, and flattening destroys the
+  accounts-scoped value outright.
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -38,11 +46,17 @@ from notebooklm._env import get_base_url
 from scripts import capture_rpc_registry, check_rpc_health
 
 _ACCOUNTS_HOST = "accounts.google.com"
-_SIGN_IN_URL = f"https://{_ACCOUNTS_HOST}/ServiceLogin"
+_SIGN_IN_PATH = "/ServiceLogin"
+_SIGN_IN_URL = f"https://{_ACCOUNTS_HOST}{_SIGN_IN_PATH}"
 
 _HOMEPAGE_HTML = (
     '<html><script>window.WIZ_global_data={"SNlM0e":"csrf_ok","FdrFJe":"sess_ok"};</script></html>'
 )
+
+# The sign-in chain mints a *fresh* host-scoped OSID on the way back — the exact
+# mechanism #2019 describes. Simulating it keeps the jar assertions honest: they
+# must survive a rotation rather than pinning a jar that never changes.
+_MINTED_OSID = "v-osid-minted"
 
 
 def _notebook_host() -> str:
@@ -72,14 +86,19 @@ def _storage_state() -> dict[str, Any]:
     """Storage state spanning three hosts, mirroring a real logged-in profile.
 
     ``SID`` + ``__Secure-1PSIDTS`` are the ``MINIMUM_REQUIRED_COOKIES`` the auth
-    validators demand; ``OSID`` and ``LSID`` are the host-scoped pair the #2019
-    regression broadcast domain-wide.
+    validators demand. ``OSID`` / ``__Secure-OSID`` are the per-product binding
+    cookies Google scopes to the app host, and ``LSID`` is scoped to the sign-in
+    host — the population #2019 broadcast domain-wide. ``OSID`` appears on *two*
+    hosts with different values so the wire assertions can distinguish "the right
+    OSID arrived" from "an OSID arrived".
     """
     return {
         "cookies": [
             _cookie_entry("SID", "v-sid", ".google.com"),
             _cookie_entry("__Secure-1PSIDTS", "v-psidts", ".google.com"),
-            _cookie_entry("OSID", "v-osid", _notebook_host()),
+            _cookie_entry("OSID", "v-osid-app", _notebook_host()),
+            _cookie_entry("__Secure-OSID", "v-secure-osid-app", _notebook_host()),
+            _cookie_entry("OSID", "v-osid-accounts", _ACCOUNTS_HOST),
             _cookie_entry("LSID", "v-lsid", _ACCOUNTS_HOST),
         ],
         "origins": [],
@@ -94,17 +113,91 @@ def _jar_pairs(jar: httpx.Cookies) -> set[tuple[str, str]]:
     return {(cookie.name, cookie.domain) for cookie in jar.jar}
 
 
-def _cookie_names(header: str) -> set[str]:
-    return {pair.split("=", 1)[0].strip() for pair in header.split(";") if pair.strip()}
+def _jar_value(jar: httpx.Cookies, name: str, domain: str) -> str | None:
+    for cookie in jar.jar:
+        if cookie.name == name and cookie.domain == domain:
+            return cookie.value
+    return None
 
 
-def _cookie_names_sent_to(httpx_mock: HTTPXMock, host: str) -> list[set[str]]:
-    """Cookie names carried by each recorded request that reached ``host``."""
+def _cookie_pairs(header: str) -> set[tuple[str, str]]:
+    """``(name, value)`` pairs from a ``Cookie:`` header.
+
+    Values are kept deliberately: the contract is "the *app-host* OSID never
+    reaches the sign-in host", which a name-only view cannot express once the
+    sign-in host legitimately has an OSID of its own.
+    """
+    pairs: set[tuple[str, str]] = set()
+    for chunk in header.split(";"):
+        chunk = chunk.strip()
+        if "=" in chunk:
+            name, value = chunk.split("=", 1)
+            pairs.add((name.strip(), value.strip()))
+    return pairs
+
+
+def _cookies_sent_to(
+    httpx_mock: HTTPXMock, host: str, path: str | None = None
+) -> list[set[tuple[str, str]]]:
+    """``(name, value)`` pairs carried by each recorded request to ``host``.
+
+    ``path`` narrows to one endpoint. The sign-in assertions use it so they
+    cannot be satisfied by the autouse ``accounts.google.com/RotateCookies``
+    keepalive mock in ``tests/conftest.py`` instead of the redirect hop.
+    """
     return [
-        _cookie_names(request.headers.get("cookie", ""))
+        _cookie_pairs(request.headers.get("cookie", ""))
         for request in httpx_mock.get_requests()
-        if request.url.host == host
+        if request.url.host == host and (path is None or request.url.path == path)
     ]
+
+
+def _register_sign_in_chain(httpx_mock: HTTPXMock, homepage_url: str) -> None:
+    """NotebookLM → sign-in → NotebookLM, minting a fresh host OSID at the end.
+
+    This is the post-cutover redirect shape that broke the nightly canary.
+    ``pytest_httpx`` defaults to ``is_reusable=False`` +
+    ``assert_all_responses_were_requested=True``, so an extra hop errors loudly
+    and a skipped hop fails teardown.
+    """
+    httpx_mock.add_response(url=homepage_url, status_code=302, headers={"Location": _SIGN_IN_URL})
+    httpx_mock.add_response(url=_SIGN_IN_URL, status_code=302, headers={"Location": homepage_url})
+    httpx_mock.add_response(
+        url=homepage_url,
+        status_code=200,
+        html=_HOMEPAGE_HTML,
+        headers={"Set-Cookie": f"OSID={_MINTED_OSID}; Path=/; Secure; HttpOnly"},
+    )
+
+
+def _assert_sign_in_hop_correctly_scoped(httpx_mock: HTTPXMock) -> None:
+    """The sign-in hop gets the sign-in host's cookies and nothing else."""
+    sent = _cookies_sent_to(httpx_mock, _ACCOUNTS_HOST, _SIGN_IN_PATH)
+    assert sent, f"expected a {_SIGN_IN_URL} hop"
+    for pairs in sent:
+        assert ("OSID", "v-osid-app") not in pairs, (
+            "the app-host OSID must not be broadcast to the sign-in host "
+            f"(issue #2019); sent: {sorted(pairs)}"
+        )
+        assert ("OSID", _MINTED_OSID) not in pairs
+        assert ("__Secure-OSID", "v-secure-osid-app") not in pairs
+        # Positive controls: the cookies that *are* scoped to the sign-in host
+        # still ride along, so the assertions above cannot pass by dropping
+        # cookies wholesale — including the same-named OSID that belongs here.
+        assert {("OSID", "v-osid-accounts"), ("LSID", "v-lsid"), ("SID", "v-sid")} <= pairs
+
+
+def _assert_app_hop_correctly_scoped(httpx_mock: HTTPXMock) -> None:
+    """The app host gets its own binding cookies and not the sign-in host's."""
+    sent = _cookies_sent_to(httpx_mock, _notebook_host())
+    assert sent, "expected at least one NotebookLM-host request"
+    for pairs in sent:
+        assert ("LSID", "v-lsid") not in pairs, (
+            f"the sign-in-host LSID must not be sent to {_notebook_host()}; sent: {sorted(pairs)}"
+        )
+        assert ("OSID", "v-osid-accounts") not in pairs
+        assert ("__Secure-OSID", "v-secure-osid-app") in pairs
+        assert ("SID", "v-sid") in pairs
 
 
 async def test_check_rpc_health_auth_preserves_cookie_domains(
@@ -112,25 +205,18 @@ async def test_check_rpc_health_auth_preserves_cookie_domains(
 ) -> None:
     """``check_rpc_health.load_auth`` must build a domain-preserving jar.
 
-    Drives the real auth path against a mocked NotebookLM → sign-in →
-    NotebookLM redirect chain (the shape of the post-cutover hop that broke the
-    nightly canary) and asserts both halves of the contract: the resulting jar
-    mirrors ``storage_state``, and the ``accounts.google.com`` hop carries only
-    the cookies actually scoped to it.
+    Drives the real auth path under ``NOTEBOOKLM_AUTH_JSON`` — the CI
+    configuration that exposed the bug — against the post-cutover redirect
+    chain, and pins both halves of the contract: the resulting jar mirrors
+    ``storage_state``, and each hop carries only the cookies scoped to it.
 
     Fails against the pre-#2019 ``load_auth_from_storage`` + ``fetch_tokens``
-    pairing, which collapsed all four cookies onto ``.google.com``.
+    pairing, which collapsed every cookie onto ``.google.com``.
     """
     storage_state = _storage_state()
     monkeypatch.setenv("NOTEBOOKLM_AUTH_JSON", json.dumps(storage_state))
+    _register_sign_in_chain(httpx_mock, f"{get_base_url()}/")
 
-    homepage_url = f"{get_base_url()}/"
-    httpx_mock.add_response(url=homepage_url, status_code=302, headers={"Location": _SIGN_IN_URL})
-    httpx_mock.add_response(url=_SIGN_IN_URL, status_code=302, headers={"Location": homepage_url})
-    httpx_mock.add_response(url=homepage_url, status_code=200, html=_HOMEPAGE_HTML)
-
-    # ``resolve_storage_path()`` returns None under NOTEBOOKLM_AUTH_JSON, which
-    # is exactly the CI configuration that exposed the bug.
     storage_path = check_rpc_health.resolve_storage_path()
     assert storage_path is None
     auth = await check_rpc_health.load_auth(storage_path)
@@ -138,69 +224,96 @@ async def test_check_rpc_health_auth_preserves_cookie_domains(
     assert auth.csrf_token == "csrf_ok"
     assert auth.session_id == "sess_ok"
 
-    # 1. Jar-level: every cookie kept its original domain.
+    # Jar-level: the set of (name, domain) pairs still mirrors storage_state
+    # even though one cookie rotated, and the rotated value landed on the app
+    # host only — it did not overwrite the sign-in host's same-named cookie.
     assert auth.cookie_jar is not None
     assert _jar_pairs(auth.cookie_jar) == _name_domain_pairs(storage_state)
+    assert _jar_value(auth.cookie_jar, "OSID", _notebook_host()) == _MINTED_OSID
+    assert _jar_value(auth.cookie_jar, "OSID", _ACCOUNTS_HOST) == "v-osid-accounts"
 
-    # 2. Wire-level: the sign-in hop must not receive the NotebookLM-host OSID.
-    sent_to_accounts = _cookie_names_sent_to(httpx_mock, _ACCOUNTS_HOST)
-    assert sent_to_accounts, "expected at least one accounts.google.com hop"
-    for names in sent_to_accounts:
-        assert "OSID" not in names, (
-            "the NotebookLM-host OSID must not be broadcast to "
-            f"{_ACCOUNTS_HOST} (issue #2019); sent: {sorted(names)}"
-        )
-        # Positive control: the cookies that *are* scoped there still ride along,
-        # so the assertion above cannot pass by dropping cookies wholesale.
-        assert {"SID", "LSID"} <= names
+    # Wire-level, both directions.
+    _assert_sign_in_hop_correctly_scoped(httpx_mock)
+    _assert_app_hop_correctly_scoped(httpx_mock)
 
-    # 3. Positive control on the other side: the NotebookLM host still gets OSID.
-    sent_to_notebook = _cookie_names_sent_to(httpx_mock, _notebook_host())
-    assert sent_to_notebook
-    assert all("OSID" in names for names in sent_to_notebook)
+    # Routing: a storage state with no in-band account record must still resolve
+    # to the default account, so the canary's batchexecute URLs are unchanged.
+    assert auth.authuser == 0
+    assert auth.account_email is None
+
+
+async def test_check_rpc_health_auth_preserves_domains_for_file_backed_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, httpx_mock: HTTPXMock
+) -> None:
+    """The same contract holds when auth comes from a profile file, not the env.
+
+    This is the configuration #2037 moves CI to. It exercises a different branch
+    of ``AuthTokens.from_storage`` (``get_authuser_for_storage`` rather than the
+    in-band storage-state read) and, unlike the env-var path, actually persists
+    rotated cookies — so the rotated ``OSID`` must reach disk still scoped to the
+    app host.
+    """
+    monkeypatch.delenv("NOTEBOOKLM_AUTH_JSON", raising=False)
+    monkeypatch.setenv("NOTEBOOKLM_HOME", str(tmp_path))
+
+    storage_path = check_rpc_health.resolve_storage_path()
+    assert storage_path is not None
+    storage_state = _storage_state()
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
+    storage_path.write_text(json.dumps(storage_state), encoding="utf-8")
+
+    _register_sign_in_chain(httpx_mock, f"{get_base_url()}/")
+
+    auth = await check_rpc_health.load_auth(storage_path)
+
+    assert auth.cookie_jar is not None
+    assert _jar_pairs(auth.cookie_jar) == _name_domain_pairs(storage_state)
+    _assert_sign_in_hop_correctly_scoped(httpx_mock)
+    _assert_app_hop_correctly_scoped(httpx_mock)
+
+    # The rotation was persisted, and persisted with its scope intact.
+    persisted = json.loads(storage_path.read_text(encoding="utf-8"))
+    assert (
+        _cookie_entry("OSID", _MINTED_OSID, _notebook_host())["name"],
+        _MINTED_OSID,
+        _notebook_host(),
+    ) in {(c["name"], c["value"], c["domain"]) for c in persisted["cookies"]}
 
 
 def test_capture_rpc_registry_sends_domain_scoped_cookie_jar(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, httpx_mock: HTTPXMock
 ) -> None:
-    """``fetch_bundle`` must hand ``httpx`` a jar, not a domain-less dict.
+    """``fetch_bundle``'s authenticated homepage read must be domain-scoped.
 
-    ``httpx.get(cookies={...})`` attaches a plain mapping to *every* request in
-    the redirect chain regardless of host — the same broadcast the health-check
-    fix removes. Fails against the pre-#2019 ``load_auth_from_storage()`` call,
-    which returned exactly that mapping.
+    The homepage read uses ``follow_redirects=True``, so a domain-less mapping
+    handed to ``httpx.get(cookies=...)`` rides along to every hop in the chain.
+    Asserted on the wire rather than on the argument, so a regression that builds
+    the jar correctly and then flattens it before use is still caught.
     """
-    storage_state = _storage_state()
-    monkeypatch.setenv("NOTEBOOKLM_AUTH_JSON", json.dumps(storage_state))
+    monkeypatch.setenv("NOTEBOOKLM_AUTH_JSON", json.dumps(_storage_state()))
 
     bundle_url = (
         f"https://www.gstatic.com/_/mss/{capture_rpc_registry._APP}/_/js/k=boq.en.abc123.js"
     )
-    captured: list[tuple[str, Any]] = []
-
-    def _fake_get(url: str, **kwargs: Any) -> httpx.Response:
-        captured.append((url, kwargs.get("cookies")))
-        request = httpx.Request("GET", url)
-        if url == bundle_url:
-            return httpx.Response(
-                200,
-                text="/* bundle chunk */",
-                headers={"content-type": "text/javascript"},
-                request=request,
-            )
-        return httpx.Response(200, text=f'<script src="{bundle_url}"></script>', request=request)
-
-    monkeypatch.setattr(httpx, "get", _fake_get)
+    homepage_url = f"{get_base_url()}/?authuser=0"
+    httpx_mock.add_response(url=homepage_url, status_code=302, headers={"Location": _SIGN_IN_URL})
+    httpx_mock.add_response(url=_SIGN_IN_URL, status_code=302, headers={"Location": homepage_url})
+    httpx_mock.add_response(
+        url=homepage_url, status_code=200, html=f'<script src="{bundle_url}"></script>'
+    )
+    httpx_mock.add_response(
+        url=bundle_url,
+        status_code=200,
+        text="/* bundle chunk */",
+        headers={"content-type": "text/javascript"},
+    )
 
     assert capture_rpc_registry.fetch_bundle() == "/* bundle chunk */"
 
-    homepage_url, homepage_cookies = captured[0]
-    assert homepage_url.startswith(get_base_url())
-    assert isinstance(homepage_cookies, httpx.Cookies), (
-        "the authenticated homepage read must use a domain-preserving "
-        "httpx.Cookies jar, not a flat name->value dict (issue #2019)"
-    )
-    assert _jar_pairs(homepage_cookies) == _name_domain_pairs(storage_state)
+    _assert_sign_in_hop_correctly_scoped(httpx_mock)
+    _assert_app_hop_correctly_scoped(httpx_mock)
 
     # The gstatic chunk read stays unauthenticated — it is a public CDN.
-    assert captured[1] == (bundle_url, None)
+    cdn_requests = [r for r in httpx_mock.get_requests() if r.url.host == "www.gstatic.com"]
+    assert cdn_requests
+    assert all("cookie" not in r.headers for r in cdn_requests)
