@@ -50,7 +50,9 @@ except PackageNotFoundError:
 from .auth import AuthTokens
 
 # Public API: Client
-from .client import NotebookLMClient
+# ``GeminiNotebookClient`` is a permanent, non-deprecated alias of the same
+# class — see ADR-0028 and the note beside the assignment in ``client.py``.
+from .client import GeminiNotebookClient, NotebookLMClient
 
 # Public API: Exceptions (centralized in exceptions.py)
 from .exceptions import (
@@ -186,6 +188,7 @@ __all__ = [
     "__version__",
     # Client (main entry point)
     "NotebookLMClient",
+    "GeminiNotebookClient",
     # Auth
     "AuthTokens",
     # Observability

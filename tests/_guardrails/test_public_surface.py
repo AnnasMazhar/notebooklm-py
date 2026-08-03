@@ -47,7 +47,7 @@ _SCAN_ROOTS = ("src", "tests", "docs")
 # test in the same PR.
 # ---------------------------------------------------------------------------
 
-EXPECTED_CLIENT_ALL: list[str] = ["NotebookLMClient"]
+EXPECTED_CLIENT_ALL: list[str] = ["NotebookLMClient", "GeminiNotebookClient"]
 
 EXPECTED_AUTH_ALL: list[str] = [
     "Account",
@@ -121,7 +121,11 @@ _AUTH_DEBLESSED_KEEP_IMPORTABLE: list[str] = [
 
 
 def test_client_module_has_expected_all() -> None:
-    """``notebooklm.client.__all__`` is exactly ``["NotebookLMClient"]``."""
+    """``notebooklm.client.__all__`` is exactly the two client names.
+
+    ``GeminiNotebookClient`` is the permanent ADR-0028 brand alias, not a
+    second class — see ``test_gemini_notebook_client_is_the_same_object``.
+    """
     assert hasattr(client_module, "__all__"), (
         "notebooklm.client must declare __all__ to pin its public surface."
     )
@@ -134,6 +138,28 @@ def test_client_all_entries_resolve_on_module() -> None:
         assert hasattr(client_module, name), (
             f"{name!r} listed in client.__all__ but not present on the module"
         )
+
+
+def test_gemini_notebook_client_is_the_same_object() -> None:
+    """The ADR-0028 brand alias is the class itself, not a lookalike.
+
+    ADR-0028 chose a static assignment over a subclass or a module-level
+    ``__getattr__`` specifically so that identity-based behaviour keeps
+    working. A subclass would pass a naive ``hasattr``/signature check while
+    silently breaking ``type(x) is NotebookLMClient``, ``pickle`` round-trips
+    of instances built through the alias, and mypy's ability to resolve the
+    name statically. Asserting *identity* is what makes those guarantees
+    inspectable; ``==`` or attribute-comparison would not.
+    """
+    import notebooklm
+
+    assert client_module.GeminiNotebookClient is client_module.NotebookLMClient
+    # Re-exported from the package root, and still the same object after the
+    # trip through ``notebooklm/__init__.py``.
+    assert notebooklm.GeminiNotebookClient is client_module.NotebookLMClient
+    # A pickled instance must name the original class regardless of which
+    # alias constructed it, so pickles stay readable across the rename.
+    assert client_module.GeminiNotebookClient.__qualname__ == "NotebookLMClient"
 
 
 def test_auth_module_has_expected_all() -> None:

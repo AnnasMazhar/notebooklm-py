@@ -86,7 +86,7 @@ from ._url_utils import is_google_auth_redirect as is_google_auth_redirect
 from .auth import AuthTokens
 from .exceptions import AuthExtractionError as AuthExtractionError
 
-__all__ = ["NotebookLMClient"]
+__all__ = ["NotebookLMClient", "GeminiNotebookClient"]
 
 logger = logging.getLogger(__name__)
 
@@ -825,6 +825,20 @@ class NotebookLMClient:
             except (OSError, RuntimeError) as e:
                 logger.debug("account-email self-heal write failed: %s", type(e).__name__)
         return email
+
+
+#: Brand alias for :class:`NotebookLMClient`, for users who arrive via the
+#: ``gemini-notebook-py`` distribution name (ADR-0028). Permanent and *not*
+#: deprecated: the two names refer to the same class forever, and neither is
+#: preferred over the other.
+#:
+#: Deliberately a plain assignment rather than a subclass or a module-level
+#: ``__getattr__``. ``isinstance``/``issubclass`` stay true in both
+#: directions, ``pickle`` round-trips (the class still reports its original
+#: ``__qualname__``, so pickles reference ``NotebookLMClient`` regardless of
+#: which name constructed it), and mypy resolves the alias statically instead
+#: of falling back to ``Any``.
+GeminiNotebookClient = NotebookLMClient
 
 
 class _FromStorageContext:

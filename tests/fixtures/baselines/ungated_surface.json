@@ -2,6 +2,7 @@
   "notebooklm": [
     "__version__",
     "NotebookLMClient",
+    "GeminiNotebookClient",
     "AuthTokens",
     "correlation_id",
     "get_request_id",
