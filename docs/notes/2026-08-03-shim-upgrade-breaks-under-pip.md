@@ -351,6 +351,111 @@ prepared assumes ADR-0028's design (real code under `gemini-notebook-py`), so
 **it should not be pushed until this is settled** — under option 4 the canonical
 dist would be a wrapper instead.
 
+## Option 4 in detail
+
+### Shape
+
+| Distribution | Contents | Depends on |
+|---|---|---|
+| `notebooklm-py` | **the real package** — `notebooklm/`, all six console scripts, all extras | (its own deps) |
+| `gemini-notebook-py` | metadata only | `notebooklm-py>=<floor>` + mirrored extras |
+| `gemini-notebook` | metadata only | same |
+| `notebooklm` | metadata only | same |
+
+Exactly one distribution ever ships `notebooklm/`, so the RECORD overlap that
+causes this defect cannot exist. This is the `sklearn` → `scikit-learn` shape,
+which is the standard rename procedure's *safe* case.
+
+The three 0.0.1 placeholders already published on 2026-08-03 are **already this
+shape**. Under option 4 they need only a dependency-floor bump, not the yank
+that ADR-0028's design would require.
+
+### Versioning and pins
+
+Recommended: **lockstep versions, `>=` floor pins** (not `==`).
+
+- Lockstep version numbers keep the PyPI listings legible — `gemini-notebook-py
+  0.9.1` obviously corresponds to `notebooklm-py 0.9.1`. `publish.yml` already
+  automates multi-dist releases, so the cost is near zero.
+- A `>=` floor rather than `==` means a *stale* wrapper still resolves forward
+  instead of pinning users to an old canonical release. Under ADR-0028's `==`
+  design, a wrapper that missed a release actively blocks upgrades.
+
+The trade-off of `>=`: `pip install gemini-notebook-py==0.9.0` may install
+`notebooklm-py 0.9.5`. Harmless, occasionally surprising.
+
+### What this deletes
+
+Machinery on this branch that exists solely to manage the overlap, and would
+become dead code:
+
+- `src/notebooklm/_dist_version.py` — content-hash ownership resolution. With
+  one file-shipping dist, `version("notebooklm-py")` is unambiguous again.
+- `src/notebooklm/_stale_install.py` — the collision detector, plus its
+  `packaging` base dependency.
+- The lockstep `==` assertions, the "assert the shims ship no code" gate, and
+  the dual-install / collision rows in `verify-package.yml`.
+
+Kept, because they are good independent of this decision: the
+`GeminiNotebookClient` alias, the three `gemini-notebook*` console scripts, and
+`invoked_prog()` (which now lives on `notebooklm-py`).
+
+### The real cost: isolated installers
+
+`pipx install` and `uv tool install` expose only the **requested**
+distribution's entry points. A wrapper declares none, so:
+
+```console
+$ pipx install "gemini-notebook-py[browser]"     # documented end-user command
+$ notebooklm --help
+command not found
+```
+
+`docs/installation.md` currently recommends exactly that command for the
+"End user" and "Power user" paths. Under option 4 those must change to either
+`notebooklm-py`, or `--include-deps`.
+
+The wrappers **must not** declare duplicate console scripts to work around
+this: two distributions owning `bin/notebooklm` recreates the same
+uninstall-corruption defect, merely with a smaller blast radius.
+
+Worth comparing honestly, because the problem is not unique to option 4 — both
+designs leave one name broken under isolated installers:
+
+| Design | `pipx install <new name>` | `pipx install notebooklm-py` |
+|---|---|---|
+| ADR-0028 | works | **no commands** — and existing pipx users of the old name LOSE their commands on upgrade |
+| Option 4 | **no commands** | works — existing pipx users are untouched |
+
+Option 4 therefore moves the defect from *silently breaking existing users* to
+*inconveniencing new users*, who are reading the install docs at that moment
+and can simply be given the right command. That is the better half of the
+trade.
+
+### Failure modes are all loud
+
+- Uninstall `notebooklm-py` while a wrapper is installed → the wrapper's
+  dependency is unsatisfied, `import notebooklm` raises `ModuleNotFoundError`,
+  and `pip check` reports it. Normal, visible, repairable.
+- Uninstall a wrapper → the real package is untouched; everything keeps working.
+- No path produces a silently gutted package.
+
+### What it gives up
+
+PyPI identity stays on the retired brand permanently: downloads, release
+history, and PyPI's own ranking remain on `notebooklm-py`, and
+`gemini-notebook-py`'s page is a pointer. New users still find and install the
+new name — discoverability is preserved; *identity transfer* is not.
+
+This is the same bargain ADR-0028 already accepted for the import package,
+extended to the distribution.
+
+### Not a dead end
+
+If identity transfer is later judged essential, option 4 does not block it: the
+full rename (option 5, import package included) remains available at a 1.0/2.0
+boundary, which is where ADR-0028 itself says such a flip belongs.
+
 ## Reproducing
 
 ```bash
