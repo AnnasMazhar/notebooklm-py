@@ -271,13 +271,12 @@ async def test_check_rpc_health_auth_preserves_domains_for_file_backed_profile(
     _assert_sign_in_hop_correctly_scoped(httpx_mock)
     _assert_app_hop_correctly_scoped(httpx_mock)
 
-    # The rotation was persisted, and persisted with its scope intact.
+    # The rotation was persisted, and persisted with its scope intact — the
+    # accounts-scoped OSID must still be there, untouched, alongside it.
     persisted = json.loads(storage_path.read_text(encoding="utf-8"))
-    assert (
-        _cookie_entry("OSID", _MINTED_OSID, _notebook_host())["name"],
-        _MINTED_OSID,
-        _notebook_host(),
-    ) in {(c["name"], c["value"], c["domain"]) for c in persisted["cookies"]}
+    persisted_triples = {(c["name"], c["value"], c["domain"]) for c in persisted["cookies"]}
+    assert ("OSID", _MINTED_OSID, _notebook_host()) in persisted_triples
+    assert ("OSID", "v-osid-accounts", _ACCOUNTS_HOST) in persisted_triples
 
 
 def test_capture_rpc_registry_sends_domain_scoped_cookie_jar(
