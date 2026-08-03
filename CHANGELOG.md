@@ -47,15 +47,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `accounts.google.com`) were broadcast to every `*.google.com` host. Once
   Google's `notebook.google.com` cutover landed, the stale broadcast `OSID`
   collided with the freshly minted host cookie and dead-ended the sign-in chain
-  on `accounts.google.com/CookieMismatch`. The health check lost the domains
-  only under `NOTEBOOKLM_AUTH_JSON`, where there is no storage file to rebuild
-  the jar from; the drift monitor lost them unconditionally, because a plain
-  mapping handed to `httpx.get(cookies=...)` carries no domain at all. Both now
-  use the domain-preserving loaders the CLI already used
+  on `accounts.google.com/CookieMismatch`. Flattening also **lost** data
+  outright, which is the more serious half: a flat map has one slot per name,
+  so where `OSID` legitimately existed on both the app host and
+  `accounts.google.com` with different values, the duplicate-name resolution
+  silently discarded one of them before any request was built — the sign-in
+  host then received a value that was never its own. The health check lost the
+  domains only under `NOTEBOOKLM_AUTH_JSON`, where there is no storage file to
+  rebuild the jar from; the drift monitor lost them unconditionally, because a
+  plain mapping handed to `httpx.get(cookies=...)` carries no domain at all.
+  Both now use the domain-preserving loaders the CLI already used
   (`AuthTokens.from_storage()` / `build_httpx_cookies_from_storage()`), and a
   unit guardrail pins — for both the env-var and the profile-file
-  configuration — that the jar mirrors the `storage_state` domains and that a
-  host-scoped cookie value never reaches a host it was not scoped to
+  configuration — that the jar mirrors the `storage_state` domains, that a
+  host-scoped cookie value never reaches a host it was not scoped to, and that
+  the same-named sibling on the other host survives
   ([#2019](https://github.com/teng-lin/notebooklm-py/issues/2019),
   [#2018](https://github.com/teng-lin/notebooklm-py/issues/2018)).
 
