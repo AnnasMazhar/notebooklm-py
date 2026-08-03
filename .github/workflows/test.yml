@@ -1,10 +1,13 @@
 name: Test
 
+# `v0.9.x` is the long-lived develop branch for the ADR-0028 rename program.
+# Without it in these filters, neither pushes to the branch nor PRs targeting
+# it run the gate at all — the branch would go green by never being tested.
 on:
   push:
-    branches: [main]
+    branches: [main, v0.9.x]
   pull_request:
-    branches: [main]
+    branches: [main, v0.9.x]
   workflow_dispatch:
     inputs:
       custom_branch:
