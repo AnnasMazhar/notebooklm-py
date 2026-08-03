@@ -132,10 +132,19 @@ done
 # --- verify ----------------------------------------------------------------
 
 say "Verifying the claim landed"
+# Check the SIMPLE index, not the JSON API. The JSON API can keep serving 404
+# for minutes after a successful upload, which reads as "the claim failed" when
+# the package is in fact already installable. The simple index is also the path
+# pip actually uses, so it is the honest thing to assert.
 for name in "${AVAILABLE[@]}"; do
-  sleep 2  # index propagation
-  code="$(curl -s -o /dev/null -w '%{http_code}' "https://${INDEX_HOST}/pypi/${name}/json")"
-  printf '  %-22s HTTP %s\n' "$name" "$code"
+  sleep 2  # brief propagation allowance
+  code="$(curl -s -o /dev/null -w '%{http_code}' -H 'Cache-Control: no-cache' \
+          "https://${INDEX_HOST}/simple/${name}/")"
+  if [ "$code" = "200" ]; then
+    printf '  %-22s CLAIMED (simple index HTTP 200)\n' "$name"
+  else
+    printf '  %-22s simple index HTTP %s — re-check in a minute\n' "$name" "$code"
+  fi
 done
 
 if [ "$INDEX_HOST" = "pypi.org" ]; then

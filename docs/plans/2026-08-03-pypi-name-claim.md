@@ -1,7 +1,13 @@
 # Plan: claim the ADR-0028 PyPI names
 
-**Status:** ready to execute · **Owner:** maintainer (needs PyPI credentials)
-**Blocks:** ADR-0028 Phase 1 (the 0.9.0 rename release)
+**Status:** ✅ **names claimed 2026-08-03** — `gemini-notebook-py`,
+`gemini-notebook`, and bare `notebooklm` are all registered at `0.0.1` and
+verified installable (each yields a working `import notebooklm`).
+**Owner:** maintainer · **Blocks:** ADR-0028 Phase 1 (the 0.9.0 rename release)
+
+> **Follow-ups now outstanding — see "After claiming" below.** All three were
+> claimed with an account-scoped token rather than via Trusted Publishing, so
+> the publisher setup changed shape. Delete that token if it still exists.
 
 ## Why now, not at 0.9.0
 
@@ -142,6 +148,36 @@ no pending-publisher handling needed.
 > GitHub's post-rename redirect does not apply to OIDC claims, and publishing
 > breaks until re-registered. That is ADR-0028 Phase 1 step 1 and is tracked
 > separately.
+
+## After claiming — what changed, and what is now outstanding
+
+All three names were claimed with an **account-scoped token**, not through
+Trusted Publishing. Two consequences:
+
+1. **A pending publisher does not activate for a project that already exists.**
+   Pending publishers only fire when they themselves create the project. Now
+   that all three projects exist, add a **normal** trusted publisher to each
+   from its own *Manage → Publishing* page. This is the easier flow, and it
+   removes the earlier constraint that only one pending publisher could be
+   registered — normal publishers have no such limit.
+
+   Do this for **all four** projects (`gemini-notebook-py`, `gemini-notebook`,
+   `notebooklm-py`, and optionally `notebooklm`), with:
+
+   | Field | Value |
+   |---|---|
+   | Owner | `teng-lin` |
+   | Repository | `notebooklm-py` (current name; rename deferred) |
+   | Workflow | `publish.yml` |
+   | Environment | `release` |
+
+2. **Delete the account-scoped API token.** It is the only full-account
+   credential in this flow and is no longer needed once publishers are set up.
+
+Once `gemini-notebook` has a publisher, the pre-release shim gate in
+`publish.yml` could be relaxed — but leave it: reason 1 in that step (not
+shimming the live `notebooklm-py` before ADR-0028's abort point) stands on its
+own.
 
 ## Step 5 — Nothing to maintain until 0.9.0
 
