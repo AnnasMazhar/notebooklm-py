@@ -103,7 +103,7 @@ async def test_read_markdown_missing_extra_raises_missing_dependency() -> None:
     client.sources.get_fulltext = AsyncMock(
         side_effect=ImportError(
             "The 'markdown' format requires the 'markdownify' package. "
-            "Install it with: pip install 'notebooklm-py[markdown]'"
+            "Install it with: pip install 'gemini-notebook-py[markdown]'"
         )
     )
     with pytest.raises(MissingDependencyError, match="markdownify"):

@@ -32,7 +32,7 @@ TROUBLESHOOTING_MD = REPO_ROOT / "docs" / "troubleshooting.md"
 CHANGELOG_MD = REPO_ROOT / "CHANGELOG.md"
 
 CANONICAL_CONTRIBUTOR_INSTALL = "uv sync --frozen --extra browser --extra dev --extra markdown"
-SKILL_BROWSER_LINE_RE = re.compile(r'pip install "notebooklm-py\[browser\]"(?![\w,])')
+SKILL_BROWSER_LINE_RE = re.compile(r'pip install "gemini-notebook-py\[browser\]"(?![\w,])')
 INSTALLATION_LINK_RE = re.compile(r"\bdocs/installation\.md\b")
 
 
@@ -126,7 +126,7 @@ def test_no_wrong_package_name_anywhere() -> None:
                     hits.append(f"{path.relative_to(REPO_ROOT)}:{lineno}: {line.strip()}")
 
     assert not hits, (
-        "Found `notebooklm[<extra>]` (missing `-py`) — should be `notebooklm-py[<extra>]`:\n"
+        "Found `notebooklm[<extra>]` (missing `-py`) — should be `gemini-notebook-py[<extra>]`:\n"
         + "\n".join(hits)
     )
 
@@ -153,7 +153,7 @@ def test_contributor_context_files_contain_canonical_uv_sync(path: Path) -> None
 
 def test_skill_md_contains_agent_install_pattern() -> None:
     """SKILL.md is the AGENT-facing entry point (Persona A), NOT contributor.
-    It must contain the agent install pattern (`pip install "notebooklm-py[browser]"`),
+    It must contain the agent install pattern (`pip install "gemini-notebook-py[browser]"`),
     a separate line for the optional `[cookies]` install, and a link to
     docs/installation.md.
 
@@ -163,11 +163,11 @@ def test_skill_md_contains_agent_install_pattern() -> None:
     """
     text = _read(SKILL_MD)
     assert SKILL_BROWSER_LINE_RE.search(text), (
-        'SKILL.md must contain `pip install "notebooklm-py[browser]"` '
+        'SKILL.md must contain `pip install "gemini-notebook-py[browser]"` '
         "(exact `[browser]` extra, no others bracketed in)."
     )
-    assert 'pip install "notebooklm-py[cookies]"' in text, (
-        'SKILL.md must contain a separate `pip install "notebooklm-py[cookies]"` line '
+    assert 'pip install "gemini-notebook-py[cookies]"' in text, (
+        'SKILL.md must contain a separate `pip install "gemini-notebook-py[cookies]"` line '
         "(optional install, may fail on Python 3.13+)."
     )
     assert INSTALLATION_LINK_RE.search(text), "SKILL.md must link to docs/installation.md."

@@ -130,7 +130,7 @@ def capture_oauth_token(
     except ImportError as exc:  # pragma: no cover - import guard
         raise MasterTokenError(
             "Browser-assisted oauth_token capture needs the [browser] extra "
-            "(pip install 'notebooklm-py[browser]'), or pass --oauth-token manually."
+            "(pip install 'gemini-notebook-py[browser]'), or pass --oauth-token manually."
         ) from exc
 
     with sync_playwright_context() as p:

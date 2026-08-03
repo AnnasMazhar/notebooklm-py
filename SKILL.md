@@ -11,13 +11,13 @@ Complete programmatic access to Google NotebookLM—including capabilities not e
 
 **From PyPI (Recommended for AI agents — Python-version-aware):**
 ```bash
-pip install "notebooklm-py[browser]"   # mandatory; errors must propagate
+pip install "gemini-notebook-py[browser]"   # mandatory; errors must propagate
 
 # [cookies] (rookiepy) is optional and known to FAIL TO BUILD on Python 3.13+.
 # Skip it deliberately on 3.13+ rather than swallowing the error — that lets
 # *real* install failures (typos, network, PyPI outages) surface for the agent.
 if python -c "import sys; sys.exit(0 if sys.version_info < (3, 13) else 1)"; then
-    pip install "notebooklm-py[cookies]"   # errors propagate
+    pip install "gemini-notebook-py[cookies]"   # errors propagate
 else
     echo "Skipping [cookies] on Python 3.13+ (rookiepy unavailable). Use 'notebooklm login' interactively."
 fi
@@ -37,7 +37,7 @@ LATEST_TAG=$(
     jq -r '.tag_name'
 )
 # Includes [browser] so the interactive `notebooklm login` flow works.
-pip install "notebooklm-py[browser] @ git+https://github.com/teng-lin/notebooklm-py@${LATEST_TAG}"
+pip install "gemini-notebook-py[browser] @ git+https://github.com/teng-lin/notebooklm-py@${LATEST_TAG}"
 ```
 
 ⚠️ **DO NOT install from main branch** (`pip install git+https://github.com/teng-lin/notebooklm-py`). The main branch may contain unreleased/unstable changes. Always use PyPI or a specific release tag, unless you are testing unreleased features.
@@ -92,7 +92,7 @@ Sandboxed, no-display agent environments — **Claude Cowork** (Anthropic's desk
 
 1. **Bootstrap each session.** The sandbox resets, so install at the start of every session. You do **not** need `[browser]`/Playwright here — that extra exists only for the interactive `login` flow, which you run on a host machine, not in the sandbox. Chat, sources, generation, and download all run on the base install:
    ```bash
-   pip install notebooklm-py   # no [browser] needed for queries/generation
+   pip install gemini-notebook-py   # no [browser] needed for queries/generation
    ```
    (This is the one place the mandatory `[browser]` install at the top of this file does not apply — you are reusing auth, not logging in here.)
 2. **Reuse a host-generated `storage_state.json`.** Log in once on a machine with a display (`notebooklm login`), then bring the resulting `storage_state.json` into a sandbox-accessible folder and point at it either way:

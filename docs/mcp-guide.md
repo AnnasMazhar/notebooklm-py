@@ -2,7 +2,7 @@
 
 > **Experimental / preview.** The MCP server ships behind the optional `mcp` extra. Its
 > tool surface (names, parameters, output shapes) is **not** covered by the library's semver
-> guarantees and may change between releases. `pip install notebooklm-py` is unaffected — the
+> guarantees and may change between releases. `pip install gemini-notebook-py` is unaffected — the
 > server and its dependencies only arrive with the `mcp` extra.
 
 The MCP server exposes NotebookLM to any [Model Context Protocol](https://modelcontextprotocol.io)
@@ -16,9 +16,9 @@ behaves identically to `notebooklm <command>`.
 The server is behind the `mcp` extra (pulls in `fastmcp`):
 
 ```bash
-pip install "notebooklm-py[mcp]"
+pip install "gemini-notebook-py[mcp]"
 # or run with no install, straight from PyPI:
-uvx --from "notebooklm-py[mcp]" notebooklm-mcp --help
+uvx --from "gemini-notebook-py[mcp]" notebooklm-mcp --help
 ```
 
 ## Authenticate (once)
@@ -29,7 +29,7 @@ once before starting it:
 ```bash
 notebooklm login
 # or, if you didn't install the package:
-uvx --from "notebooklm-py[mcp]" notebooklm login
+uvx --from "gemini-notebook-py[mcp]" notebooklm login
 ```
 
 Credentials are stored per profile under `~/.notebooklm/`. The server binds the **active profile**
@@ -59,7 +59,7 @@ It writes a block that launches the server via `uvx` (so only `uv` needs to be o
   "mcpServers": {
     "notebooklm": {
       "command": "uvx",
-      "args": ["--from", "notebooklm-py[mcp]", "notebooklm-mcp"]
+      "args": ["--from", "gemini-notebook-py[mcp]", "notebooklm-mcp"]
     }
   }
 }

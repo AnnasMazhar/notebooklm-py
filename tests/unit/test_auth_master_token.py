@@ -169,5 +169,5 @@ def test_generate_android_id_is_16_hex():
 
 def test_missing_gpsoauth_raises_actionable(monkeypatch):
     monkeypatch.setitem(sys.modules, "gpsoauth", None)  # `import gpsoauth` -> ImportError
-    with pytest.raises(MasterTokenError, match=r"notebooklm-py\[headless\]"):
+    with pytest.raises(MasterTokenError, match=r"gemini-notebook-py\[headless\]"):
         mt.exchange_master_token("e@x.com", "tok", "abc")

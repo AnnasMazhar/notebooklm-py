@@ -10,7 +10,7 @@ Claude Desktop without any manual JSON editing.
 | File | Purpose |
 |------|---------|
 | `manifest.json` | The extension manifest (name, version, server command). |
-| `run_server.py` | A resilient launcher that locates `uvx` and runs `uvx --from "notebooklm-py[mcp]" notebooklm-mcp`, forwarding stdin/stdout/stderr for clean JSON-RPC. |
+| `run_server.py` | A resilient launcher that locates `uvx` and runs `uvx --from "gemini-notebook-py[mcp]" notebooklm-mcp`, forwarding stdin/stdout/stderr for clean JSON-RPC. |
 
 The launcher resolves the server from PyPI on demand via `uvx`, so there is no
 vendored Python environment in the bundle — only the two files above.
@@ -30,7 +30,7 @@ vendored Python environment in the bundle — only the two files above.
 
 2. **Authenticate once** with your Google account:
    ```bash
-   uvx --from "notebooklm-py[mcp]" notebooklm login
+   uvx --from "gemini-notebook-py[mcp]" notebooklm login
    ```
    This stores credentials under `~/.notebooklm/` for the active profile, which
    the server binds at startup.

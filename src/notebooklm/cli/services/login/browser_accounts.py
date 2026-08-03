@@ -260,7 +260,7 @@ def _read_browser_cookies(
             message=(
                 "[red]rookiepy is not installed.[/red]\n"
                 "Install it with:\n"
-                "  pip install 'notebooklm-py[cookies]'\n"
+                "  pip install 'gemini-notebook-py[cookies]'\n"
                 "or directly:\n"
                 "  pip install rookiepy"
             ),

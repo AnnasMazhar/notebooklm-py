@@ -608,7 +608,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install notebooklm-py
-        run: pip install notebooklm-py
+        run: pip install gemini-notebook-py
 
       # Pre-flight: fail fast and loud on missing/expired auth.
       # `auth check --json` returns exit 0 even when status is "error"; --test makes the network

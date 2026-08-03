@@ -1,9 +1,16 @@
-# notebooklm-py
+# gemini-notebook-py
 <p align="left">
-  <img src="https://raw.githubusercontent.com/teng-lin/notebooklm-py/main/notebooklm-py.png" alt="notebooklm-py logo" width="128">
+  <img src="https://raw.githubusercontent.com/teng-lin/notebooklm-py/main/notebooklm-py.png" alt="gemini-notebook-py logo" width="128">
 </p>
 
-**A Comprehensive Google Gemini Notebook Skill & Unofficial Python API.** Full programmatic access to NotebookLM's features—including capabilities the web UI doesn't expose—via Python, CLI, and AI agents like Claude Code, Codex, and OpenClaw.
+**A Comprehensive Google Gemini Notebook Skill & Unofficial Python API.** Full programmatic access to Gemini Notebook's features—including capabilities the web UI doesn't expose—via Python, CLI, and AI agents like Claude Code, Codex, and OpenClaw.
+
+```bash
+pip install "gemini-notebook-py[browser]"
+```
+```python
+import notebooklm  # the import name is permanent — see the note below
+```
 
 > **Note (July 2026):** Google rebranded **NotebookLM** to **[Gemini Notebook](https://blog.google/innovation-and-ai/products/gemini-notebook/notebooklm-gemini-notebook/)**. It remains the same standalone product (now also reachable inside the Gemini app), existing links redirect automatically, and this library drives the same underlying service and works unchanged.
 >
@@ -18,8 +25,8 @@
 >
 > One caveat worth knowing if you installed before 0.9.0: `notebooklm-py` ≤ 0.8 and `gemini-notebook-py` ship the same files, so having both at once is a broken state. Fix it with `pip uninstall notebooklm-py && pip install --force-reinstall gemini-notebook-py` (`--force-reinstall`, not `-U`).
 
-[![PyPI version](https://img.shields.io/pypi/v/notebooklm-py.svg)](https://pypi.org/project/notebooklm-py/)
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/notebooklm-py/)
+[![PyPI version](https://img.shields.io/pypi/v/gemini-notebook-py.svg)](https://pypi.org/project/gemini-notebook-py/)
+[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue)](https://pypi.org/project/gemini-notebook-py/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://github.com/teng-lin/notebooklm-py/actions/workflows/test.yml/badge.svg)](https://github.com/teng-lin/notebooklm-py/actions/workflows/test.yml)
 <p>
@@ -142,7 +149,7 @@ The full install guide — six personas (agent, end-user, library, headless, con
 **Quickest start** (CLI users and AI agents) — install the CLI with `uv tool` (recommended) or `pipx`:
 
 ```bash
-uv tool install "notebooklm-py[browser]"   # or: pipx install "notebooklm-py[browser]"
+uv tool install "gemini-notebook-py[browser]"   # or: pipx install "gemini-notebook-py[browser]"
 notebooklm login                           # first run auto-downloads Chromium (~170 MB), then Google sign-in
 notebooklm auth check --test --json        # verify: expect "status": "ok"
 ```
@@ -153,13 +160,13 @@ notebooklm auth check --test --json        # verify: expect "status": "ok"
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install "notebooklm-py[browser]"
+pip install "gemini-notebook-py[browser]"
 ```
 
 **As a library** (embedded in your app — no Playwright, no Chromium):
 
 ```bash
-uv add notebooklm-py                    # or, inside a virtualenv: pip install notebooklm-py
+uv add notebooklm-py                    # or, inside a virtualenv: pip install gemini-notebook-py
 ```
 
 If `playwright install chromium` fails on Linux with `TypeError: onExit is not a function`, see the [Linux workaround](docs/troubleshooting.md#linux). **Contributors:** see [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -429,9 +429,11 @@ def ensure_playwright_available(io: BrowserCaptureIO, *, browser: str) -> None:
     except ImportError:
         # markup=False below so Rich keeps the literal `[browser]` pip extra.
         if browser in CHANNEL_BROWSERS:
-            install_hint = '  pip install "notebooklm-py[browser]"'
+            install_hint = '  pip install "gemini-notebook-py[browser]"'
         else:
-            install_hint = '  pip install "notebooklm-py[browser]"\n  playwright install chromium'
+            install_hint = (
+                '  pip install "gemini-notebook-py[browser]"\n  playwright install chromium'
+            )
         io.emit("[red]Playwright not installed. Run:[/red]")
         io.emit(install_hint, markup=False)
         io.fail(1)

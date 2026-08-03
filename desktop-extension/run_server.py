@@ -122,7 +122,7 @@ def build_command(uvx: str, argv: list[str], version: str | None = None) -> list
 
     A **stable** bundle stays unpinned so it tracks the latest stable server. A
     **pre-release** bundle pins its exact ``version`` (e.g.
-    ``notebooklm-py[mcp]==0.8.0a1``) so ``uvx`` launches that pre-release rather
+    ``gemini-notebook-py[mcp]==0.8.0a1``) so ``uvx`` launches that pre-release rather
     than the latest stable. The explicit ``==`` pre-release pin is enough — uv's
     default resolver accepts a pre-release requested by an explicit marker — so
     no ``--prerelease`` flag is used; ``--prerelease=allow`` would needlessly let

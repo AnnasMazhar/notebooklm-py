@@ -113,7 +113,7 @@ async def test_markdown_mode_missing_dependency_fails_before_rpc(
     rpc = RecordingRpc([["src_md", "Markdown Source", []]])
     renderer = SourceContentRenderer(rpc)
 
-    with pytest.raises(ImportError, match="notebooklm-py\\[markdown\\]"):
+    with pytest.raises(ImportError, match="gemini-notebook-py\\[markdown\\]"):
         await renderer.get_fulltext("nb_1", "src_md", output_format="markdown")
 
     assert rpc.calls == []

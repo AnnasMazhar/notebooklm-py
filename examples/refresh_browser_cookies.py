@@ -13,7 +13,7 @@ rotation while you're active; this script handles the harder case of "the
 session is gone, fetch a fresh one from a real browser."
 
 Setup:
-    pip install 'notebooklm-py[cookies]'    # rookiepy for cookie extraction
+    pip install 'gemini-notebook-py[cookies]'    # rookiepy for cookie extraction
     export NOTEBOOKLM_REFRESH_CMD="python /absolute/path/refresh_browser_cookies.py"
 
     # Optional — pick a non-Chrome browser (chrome, edge, firefox, brave, ...)

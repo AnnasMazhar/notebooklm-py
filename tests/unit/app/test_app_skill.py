@@ -48,6 +48,19 @@ from notebooklm._app.skill import (
 
 def test_get_skill_version_extracts_version(tmp_path: Path) -> None:
     skill_file = tmp_path / "SKILL.md"
+    skill_file.write_text("---\nname: test\n---\n<!-- gemini-notebook-py v1.2.3 -->\n# Test")
+
+    assert get_skill_version(skill_file) == "1.2.3"
+
+
+def test_get_skill_version_reads_the_legacy_marker(tmp_path: Path) -> None:
+    """Skills installed before ADR-0028 carry the old marker and cannot be migrated.
+
+    They live on users' machines; if the reader stopped recognising them, every
+    already-installed skill would look unversioned and the installer would
+    offer to overwrite an up-to-date file on every run.
+    """
+    skill_file = tmp_path / "SKILL.md"
     skill_file.write_text("---\nname: test\n---\n<!-- notebooklm-py v1.2.3 -->\n# Test")
 
     assert get_skill_version(skill_file) == "1.2.3"
@@ -72,19 +85,19 @@ def test_get_skill_version_file_not_exists(tmp_path: Path) -> None:
 def test_add_version_comment_inserts_after_frontmatter() -> None:
     content = "---\nname: notebooklm\n---\n# Body"
     result = add_version_comment(content, "1.2.3")
-    assert result == "---\nname: notebooklm\n---\n<!-- notebooklm-py v1.2.3 -->\n# Body"
+    assert result == "---\nname: notebooklm\n---\n<!-- gemini-notebook-py v1.2.3 -->\n# Body"
 
 
 def test_add_version_comment_prepends_when_no_frontmatter() -> None:
     content = "# No Frontmatter\nBody text"
     result = add_version_comment(content, "2.0.0")
-    assert result == "<!-- notebooklm-py v2.0.0 -->\n# No Frontmatter\nBody text"
+    assert result == "<!-- gemini-notebook-py v2.0.0 -->\n# No Frontmatter\nBody text"
 
 
 def test_add_version_comment_prepends_with_incomplete_frontmatter() -> None:
     content = "---\nbroken frontmatter"
     result = add_version_comment(content, "1.0.0")
-    assert result == "<!-- notebooklm-py v1.0.0 -->\n---\nbroken frontmatter"
+    assert result == "<!-- gemini-notebook-py v1.0.0 -->\n---\nbroken frontmatter"
 
 
 def test_add_version_comment_roundtrips_with_get_skill_version(tmp_path: Path) -> None:
@@ -291,7 +304,9 @@ def test_remove_empty_parents_never_removes_scope_root(tmp_path: Path) -> None:
 # build_skill_archive_bytes (Claude-uploadable skill archive)
 # ---------------------------------------------------------------------------
 
-_STAMPED = "---\nname: notebooklm\ndescription: test\n---\n<!-- notebooklm-py v1.2.3 -->\n# Body\n"
+_STAMPED = (
+    "---\nname: notebooklm\ndescription: test\n---\n<!-- gemini-notebook-py v1.2.3 -->\n# Body\n"
+)
 
 
 def test_build_skill_archive_bytes_single_entry_roundtrip() -> None:

@@ -133,7 +133,7 @@ auth = await AuthTokens.from_storage(profile="work")
 Install with the optional `cookies` extra to pull cookies from a locally installed browser via [rookiepy](https://pypi.org/project/rookiepy/) — useful for headless environments where you cannot run Playwright (full extras matrix: [docs/installation.md#optional-extras-matrix](installation.md#optional-extras-matrix)):
 
 ```bash
-pip install "notebooklm-py[cookies]"
+pip install "gemini-notebook-py[cookies]"
 ```
 
 ```python

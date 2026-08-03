@@ -788,7 +788,7 @@ class SourcesAPI:
                 plaintext, ``"markdown"`` returns the source with headings,
                 tables, links, and emphasis preserved. The markdown format
                 requires the ``markdownify`` package (``pip install
-                'notebooklm-py[markdown]'``).
+                'gemini-notebook-py[markdown]'``).
 
         Returns:
             SourceFulltext object with content, title, kind, url, and char_count.

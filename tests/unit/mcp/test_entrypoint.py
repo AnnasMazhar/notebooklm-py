@@ -1,7 +1,7 @@
 """Unit tests for the ``notebooklm-mcp`` console-script entry point.
 
 These pin the argparse contract of :func:`notebooklm.mcp.__main__.main` so the
-``uvx --from "notebooklm-py[mcp]" notebooklm-mcp`` / installed-console-script
+``uvx --from "gemini-notebook-py[mcp]" notebooklm-mcp`` / installed-console-script
 distribution path stays wired:
 
 * ``main(["--help"])`` prints argparse help and exits 0, and

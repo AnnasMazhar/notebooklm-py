@@ -41,4 +41,4 @@ For Codex or other parallel agents:
 
 - Prefer `--json` output and pass explicit notebook IDs instead of relying on `notebooklm use`.
 - Isolate concurrent runs with `NOTEBOOKLM_PROFILE=agent-<id>` so each agent gets its own context file under `~/.notebooklm/profiles/<name>/`. Fall back to `NOTEBOOKLM_HOME=/tmp/agent-<id>` only when separate home directories are required.
-- In headless environments where Playwright login is impractical, authenticate with `notebooklm login --browser-cookies <browser>` (requires `pip install "notebooklm-py[cookies]"`).
+- In headless environments where Playwright login is impractical, authenticate with `notebooklm login --browser-cookies <browser>` (requires `pip install "gemini-notebook-py[cookies]"`).

@@ -8,7 +8,7 @@ This script demonstrates:
 4. Generate a podcast from the research
 
 Prerequisites:
-    pip install "notebooklm-py[browser]" && playwright install chromium
+    pip install "gemini-notebook-py[browser]" && playwright install chromium
     notebooklm login
     # Full install guide: https://github.com/teng-lin/notebooklm-py/blob/main/docs/installation.md
 

@@ -201,7 +201,7 @@ def register_session_commands(cli):
             "(e.g. 'chrome::Profile 1' or 'brave::Work'). "
             "For Firefox Multi-Account Containers, target a specific container with "
             "'firefox::<container-name>' (or 'firefox::none' for the default). "
-            "Requires: pip install 'notebooklm-py[cookies]'"
+            "Requires: pip install 'gemini-notebook-py[cookies]'"
         ),
     )
     @click.option(
@@ -275,7 +275,7 @@ def register_session_commands(cli):
         help=(
             "Headless auth: bootstrap a durable Google master token (one browser "
             "sign-in), then mint web cookies from it with no per-session browser. "
-            "Requires --account EMAIL. Needs pip install 'notebooklm-py[headless]'; "
+            "Requires --account EMAIL. Needs pip install 'gemini-notebook-py[headless]'; "
             "the browser oauth_token capture also needs [browser] — or skip it by "
             "passing --oauth-token. See docs/installation.md#headless."
         ),
@@ -618,7 +618,7 @@ def register_session_commands(cli):
             "safari, arc, ...). 'auto' picks the first one rookiepy can read. "
             "Use 'chrome::<profile>' for one Chromium profile or "
             "'firefox::<container>' for one Firefox container. "
-            "Requires: pip install 'notebooklm-py[cookies]'"
+            "Requires: pip install 'gemini-notebook-py[cookies]'"
         ),
     )
     @click.option(

@@ -150,7 +150,7 @@ CATEGORY_HINTS: dict[ErrorCategory, str | None] = {
     ErrorCategory.VALIDATION: "Fix the invalid argument and retry; this will not succeed unchanged.",
     ErrorCategory.CONFIG: "Check the auth profile / storage configuration.",
     ErrorCategory.DEPENDENCY: (
-        "Install the optional dependency, then retry (e.g. pip install 'notebooklm-py[markdown]')."
+        "Install the optional dependency, then retry (e.g. pip install 'gemini-notebook-py[markdown]')."
     ),
     ErrorCategory.NETWORK: "Transient connectivity issue; retry.",
     ErrorCategory.NOTEBOOK_LIMIT: "Notebook quota is exhausted; delete an existing notebook first.",

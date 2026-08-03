@@ -489,7 +489,7 @@ class TestPlaywrightNotInstalled:
     def test_chromium_install_hint_keeps_browser_extra_and_playwright_line(self, runner):
         """``markup=False`` keeps the literal ``[browser]`` extra.
         With markup enabled Rich would parse ``[browser]`` as a style tag and
-        strip it, leaving ``pip install "notebooklm-py"`` (no extras). The
+        strip it, leaving ``pip install "gemini-notebook-py"`` (no extras). The
         chromium hint also carries the ``playwright install chromium`` line.
         """
         with patch.dict("sys.modules", {"playwright": None, "playwright.sync_api": None}):
@@ -497,7 +497,7 @@ class TestPlaywrightNotInstalled:
         assert result.exit_code == 1
         assert result.output == (
             "Playwright not installed. Run:\n"
-            '  pip install "notebooklm-py[browser]"\n'
+            '  pip install "gemini-notebook-py[browser]"\n'
             "  playwright install chromium\n"
         )
 
@@ -506,7 +506,7 @@ class TestPlaywrightNotInstalled:
             result = runner.invoke(cli, ["login", "--browser", "msedge"])
         assert result.exit_code == 1
         assert result.output == (
-            'Playwright not installed. Run:\n  pip install "notebooklm-py[browser]"\n'
+            'Playwright not installed. Run:\n  pip install "gemini-notebook-py[browser]"\n'
         )
 
 

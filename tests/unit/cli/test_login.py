@@ -127,14 +127,14 @@ class TestLoginCommand:
         with patch.dict("sys.modules", {"playwright": None, "playwright.sync_api": None}):
             result = runner.invoke(cli, ["login"])
             assert result.exit_code == 1
-            assert '"notebooklm-py[browser]"' in result.output, (
+            assert '"gemini-notebook-py[browser]"' in result.output, (
                 f"Install hint must show the literal [browser] extra; got: {result.output!r}"
             )
 
         with patch.dict("sys.modules", {"playwright": None, "playwright.sync_api": None}):
             result_edge = runner.invoke(cli, ["login", "--browser", "msedge"])
             assert result_edge.exit_code == 1
-            assert '"notebooklm-py[browser]"' in result_edge.output, (
+            assert '"gemini-notebook-py[browser]"' in result_edge.output, (
                 "Install hint must show the literal [browser] extra for msedge too; "
                 f"got: {result_edge.output!r}"
             )

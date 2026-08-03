@@ -57,7 +57,7 @@ class SourceContentRenderer:
             except ImportError:
                 raise ImportError(
                     "The 'markdown' format requires the 'markdownify' package. "
-                    "Install it with: pip install 'notebooklm-py[markdown]'"
+                    "Install it with: pip install 'gemini-notebook-py[markdown]'"
                 ) from None
 
         params = [[source_id], [3], [3]] if output_format == "markdown" else [[source_id], [2], [2]]

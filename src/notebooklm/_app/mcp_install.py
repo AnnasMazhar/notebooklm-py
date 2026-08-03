@@ -55,7 +55,7 @@ SERVER_KEY = "notebooklm"
 #: PyPI distribution + ``mcp`` extra, and the console script ``uvx`` runs. Kept
 #: in lockstep with ``desktop-extension/run_server.py`` (the .mcpb launcher).
 #: Newly written configs use the canonical ADR-0028 names; configs written
-#: before 0.9.0 still say ``notebooklm-py[mcp]`` / ``notebooklm-mcp`` and keep
+#: before 0.9.0 still say ``gemini-notebook-py[mcp]`` / ``notebooklm-mcp`` and keep
 #: working indefinitely via the forwarding shim and the retained scripts.
 _PACKAGE_SPEC = "gemini-notebook-py[mcp]"
 _CONSOLE_SCRIPT = "gemini-notebook-mcp"

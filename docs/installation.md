@@ -50,12 +50,12 @@ This is the canonical installation guide for `notebooklm-py`. The README has a q
 
 | Persona | Install command |
 |---|---|
-| **A — AI Agent** | `pip install "notebooklm-py[browser]"` in the user's active env (fall back to `uv tool install` / `pipx install` on an *externally-managed-environment* error) |
-| **B — End user** | `uv tool install "notebooklm-py[browser]"` or `pipx install "notebooklm-py[browser]"` (isolated; avoids the PEP 668 error) |
-| **C — Library user** | `uv add notebooklm-py` (or `pip install notebooklm-py` inside your project venv) |
-| **D — Headless server / CI** | `pip install notebooklm-py` inside a venv/container; ship a `storage_state.json` (no Playwright) |
+| **A — AI Agent** | `pip install "gemini-notebook-py[browser]"` in the user's active env (fall back to `uv tool install` / `pipx install` on an *externally-managed-environment* error) |
+| **B — End user** | `uv tool install "gemini-notebook-py[browser]"` or `pipx install "gemini-notebook-py[browser]"` (isolated; avoids the PEP 668 error) |
+| **C — Library user** | `uv add notebooklm-py` (or `pip install gemini-notebook-py` inside your project venv) |
+| **D — Headless server / CI** | `pip install gemini-notebook-py` inside a venv/container; ship a `storage_state.json` (no Playwright) |
 | **E — Contributor** | `uv sync --frozen --extra browser --extra dev --extra markdown && uv run playwright install chromium && uv run pre-commit install` |
-| **F — Power user** | `uv tool install --python 3.12 "notebooklm-py[browser,cookies,markdown]"` (the `cookies` extra needs Python ≤ 3.12; `--python 3.12` makes uv provision a matching interpreter even if your default is 3.13+) |
+| **F — Power user** | `uv tool install --python 3.12 "gemini-notebook-py[browser,cookies,markdown]"` (the `cookies` extra needs Python ≤ 3.12; `--python 3.12` makes uv provision a matching interpreter even if your default is 3.13+) |
 
 ---
 
@@ -73,19 +73,19 @@ The project ships `notebooklm skill install`, [SKILL.md](../SKILL.md), and [AGEN
 
 <!-- not mirrored: end-user install path (Persona A); CONTRIBUTING.md tracks the in-repo `uv sync` flow only -->
 ```bash
-pip install "notebooklm-py[browser]"   # mandatory; errors must propagate
+pip install "gemini-notebook-py[browser]"   # mandatory; errors must propagate
 
 # [cookies] (rookiepy) is optional and known to FAIL TO BUILD on Python 3.13+.
 # Skip it deliberately on 3.13+ rather than swallowing the error — that lets
 # *real* install failures (typos, network, PyPI outages) surface for the agent.
 if python -c "import sys; sys.exit(0 if sys.version_info < (3, 13) else 1)"; then
-    pip install "notebooklm-py[cookies]"   # errors propagate
+    pip install "gemini-notebook-py[cookies]"   # errors propagate
 else
     echo "Skipping [cookies] on Python 3.13+ (rookiepy unavailable). Use 'notebooklm login' interactively."
 fi
 ```
 
-> If `pip install` errors with `externally-managed-environment` (modern macOS / Debian system Python, [PEP 668](https://peps.python.org/pep-0668/)), retry with `uv tool install "notebooklm-py[browser]"` or `pipx install "notebooklm-py[browser]"` — isolated installs that don't touch system Python. Inside an active virtualenv, `pip` works as-is.
+> If `pip install` errors with `externally-managed-environment` (modern macOS / Debian system Python, [PEP 668](https://peps.python.org/pep-0668/)), retry with `uv tool install "gemini-notebook-py[browser]"` or `pipx install "gemini-notebook-py[browser]"` — isolated installs that don't touch system Python. Inside an active virtualenv, `pip` works as-is.
 
 **Why two separate calls (not `[browser,cookies]`):** the combined form is atomic — if `rookiepy` fails to compile, the whole install fails and the user gets **nothing**. Splitting means `[browser]` always succeeds; `[cookies]` is recoverable.
 
@@ -125,7 +125,7 @@ If the agent is in a no-display sandbox AND `[cookies]` isn't installed (Python 
 - **Bootstrap each session** with the base install — `[browser]`/Playwright is *not* needed here, only for `login` (which you run elsewhere, once):
   <!-- not mirrored: Cowork per-session bootstrap; not part of the contributor flow -->
   ```bash
-  pip install notebooklm-py    # queries/generation/download need no extras
+  pip install gemini-notebook-py    # queries/generation/download need no extras
   ```
 - **Reuse a host-generated `storage_state.json`.** Run `notebooklm login` once on a machine with a display, then bring the file into a sandbox-accessible folder. Point at it with the root `--storage` flag or `NOTEBOOKLM_AUTH_JSON` — the same mechanism as [Persona D](#d-headless-server-or-ci):
   <!-- not mirrored: Cowork auth reuse; not part of the contributor flow -->
@@ -168,9 +168,9 @@ Occasional CLI use.
 
 <!-- not mirrored: end-user isolated install (pipx / uv tool); CONTRIBUTING.md targets in-repo contributors -->
 ```bash
-uv tool install "notebooklm-py[browser]"
+uv tool install "gemini-notebook-py[browser]"
 # OR, with pipx:
-pipx install "notebooklm-py[browser]"
+pipx install "gemini-notebook-py[browser]"
 ```
 
 Both put `notebooklm` on your PATH in a dedicated environment, so they work even where the system Python is locked down — modern macOS (Homebrew) and Debian/Ubuntu reject a plain `pip install` into it with `error: externally-managed-environment` ([PEP 668](https://peps.python.org/pep-0668/)). (If you don't have `uv` yet: <https://docs.astral.sh/uv/getting-started/installation/>.)
@@ -179,7 +179,7 @@ Plain `pip` is fine **inside a virtualenv**, or on Windows (python.org's Python 
 
 <!-- not mirrored: end-user pip install in a venv (Persona B); CONTRIBUTING.md tracks the in-repo `uv sync` flow only -->
 ```bash
-pip install "notebooklm-py[browser]"
+pip install "gemini-notebook-py[browser]"
 ```
 
 **Post-install:** Run `notebooklm login` once. The CLI auto-installs Chromium on first run (~170 MB, 30–90 s, **no progress bar — be patient**).
@@ -197,7 +197,7 @@ notebooklm auth check --test      # confirms auth roundtrip, with explicit succe
 
 Embedding `notebooklm-py` in a Python application.
 
-**Recommended:** `pip install notebooklm-py` (in your app's venv).
+**Recommended:** `pip install gemini-notebook-py` (in your app's venv).
 
 **Post-install:** None for runtime use. To programmatically run interactive login from your app, add `[browser]` and run `playwright install chromium`.
 
@@ -214,14 +214,14 @@ print(notebooklm.__version__)
 
 ### D. Headless server or CI
 
-**Recommended:** `pip install notebooklm-py`
+**Recommended:** `pip install gemini-notebook-py`
 
 **Post-install (3-step recipe — Playwright is *not* required on the server):**
 
 1. **On a workstation with a display**, install with `[browser]` and log in once:
    <!-- not mirrored: headless-server bootstrap step 1 (Persona D); not part of contributor flow -->
    ```bash
-   pip install "notebooklm-py[browser]"
+   pip install "gemini-notebook-py[browser]"
    playwright install chromium
    notebooklm login   # writes ~/.notebooklm/profiles/default/storage_state.json
    ```
@@ -263,7 +263,7 @@ sign-in, then headless forever.
 
 <!-- not mirrored: master-token headless bootstrap (Persona D); not part of contributor flow -->
 ```bash
-pip install "notebooklm-py[headless]"        # adds gpsoauth (pure-Python)
+pip install "gemini-notebook-py[headless]"        # adds gpsoauth (pure-Python)
 
 # One-time bootstrap (a visible browser opens Google's EmbeddedSetup; sign in
 # with a DEDICATED/throwaway account, and the single-use oauth_token is captured
@@ -342,10 +342,10 @@ Non-default browsers, cookie extraction, markdown source dumps.
 
 > **Why this section uses the combined `[browser,cookies]` form** — unlike Persona A, which uses two separate `pip install` calls so a `rookiepy` build failure doesn't leave the user with nothing: power users explicitly opted in, know what `rookiepy` is, and prefer the all-or-nothing tradeoff (single command, no wrapping logic).
 
-> ⚠️  **Don't use `[all]` for power-user setups.** `[all]` deliberately *excludes* `cookies` (see [§ All vs All-Extras](#all-vs-all-extras)). If you `pip install "notebooklm-py[all]"` and then try `--browser-cookies`, you'll get an opaque `rookiepy` import error. For everything-and-the-kitchen-sink, use `pip install "notebooklm-py[browser,cookies,markdown]"` explicitly (Python ≤ 3.12 only).
+> ⚠️  **Don't use `[all]` for power-user setups.** `[all]` deliberately *excludes* `cookies` (see [§ All vs All-Extras](#all-vs-all-extras)). If you `pip install "gemini-notebook-py[all]"` and then try `--browser-cookies`, you'll get an opaque `rookiepy` import error. For everything-and-the-kitchen-sink, use `pip install "gemini-notebook-py[browser,cookies,markdown]"` explicitly (Python ≤ 3.12 only).
 
-- **`--browser-cookies` (no Playwright login):** `pip install "notebooklm-py[browser,cookies]"`. **Caveat:** `rookiepy` may fail to install on Python 3.13/3.14; use Python 3.12 or accept the risk. See [cli-reference.md#authentication-login](cli-reference.md#authentication-login) for the full `--browser-cookies` syntax, including `chrome::<profile-name-or-directory>` for one Chromium user-profile and `firefox::<container>` for Firefox Multi-Account Containers (on every OS — not just macOS). Use `notebooklm auth inspect --browser <browser>` for previewing available accounts before import.
-- **Markdown source dumps:** `pip install "notebooklm-py[markdown]"` for `notebooklm source fulltext -f markdown`.
+- **`--browser-cookies` (no Playwright login):** `pip install "gemini-notebook-py[browser,cookies]"`. **Caveat:** `rookiepy` may fail to install on Python 3.13/3.14; use Python 3.12 or accept the risk. See [cli-reference.md#authentication-login](cli-reference.md#authentication-login) for the full `--browser-cookies` syntax, including `chrome::<profile-name-or-directory>` for one Chromium user-profile and `firefox::<container>` for Firefox Multi-Account Containers (on every OS — not just macOS). Use `notebooklm auth inspect --browser <browser>` for previewing available accounts before import.
+- **Markdown source dumps:** `pip install "gemini-notebook-py[markdown]"` for `notebooklm source fulltext -f markdown`.
 - **Edge instead of Chromium:** install Microsoft Edge from [microsoft.com/edge](https://www.microsoft.com/edge) first — `--browser msedge` does NOT auto-install Edge (only `--browser chromium` auto-installs). Then `notebooklm login --browser msedge`.
 - **Multi-account (personal + work):** see [configuration.md#multiple-accounts](configuration.md#multiple-accounts). Common power-user flow: `notebooklm profile create work && notebooklm -p work login --browser-cookies edge --account work@corp.com`. Use `--all-accounts` to bootstrap profiles for every signed-in Google account in one command.
 
@@ -357,16 +357,16 @@ Source of truth: `pyproject.toml` `[project.optional-dependencies]`.
 
 | Extra | What it adds | When you need it | pip command | uv (in your project) |
 |---|---|---|---|---|
-| (none) | `httpx`, `click`, `rich`, `filelock` | All RPC operations, all CLI commands except `login`. Suffices when you ship a `storage_state.json`. | `pip install notebooklm-py` | `uv add notebooklm-py` |
-| `browser` | `playwright>=1.40.0` | `notebooklm login` (interactive). | `pip install "notebooklm-py[browser]"` | `uv add "notebooklm-py[browser]"` |
-| `cookies` | `rookiepy>=0.1.0` | `notebooklm login --browser-cookies <browser>`, `notebooklm auth inspect`. | `pip install "notebooklm-py[cookies]"` | `uv add "notebooklm-py[cookies]"` |
-| `headless` | `gpsoauth>=1.1.0` | `notebooklm login --master-token` — headless auth that mints/refreshes web cookies from a durable master token, no per-session browser. Pure-Python (in `all`). See [§ D](#d-headless-server-or-ci). | `pip install "notebooklm-py[headless]"` | `uv add "notebooklm-py[headless]"` |
-| `impersonate` | `curl_cffi>=0.11` | **Experimental.** Browser TLS/JA3 impersonation transport — set `NOTEBOOKLM_TRANSPORT=curl_cffi` to route the authenticated API surface through a Chrome-fingerprinted connection (insurance vs TLS fingerprint-gating); override the profile with `NOTEBOOKLM_IMPERSONATE` (default `chrome`, e.g. `safari`, `chrome131`). Native wheels. | `pip install "notebooklm-py[impersonate]"` | `uv add "notebooklm-py[impersonate]"` |
-| `markdown` | `markdownify>=0.14.1` | `notebooklm source fulltext -f markdown`. | `pip install "notebooklm-py[markdown]"` | `uv add "notebooklm-py[markdown]"` |
-| `mcp` | `fastmcp>=2.14` | Run the MCP server (`notebooklm-mcp`) so an MCP client/agent can drive NotebookLM as tools. | `pip install "notebooklm-py[mcp]"` | `uv add "notebooklm-py[mcp]"` |
-| `server` | `fastapi`, `uvicorn[standard]`, `python-multipart` | The localhost REST API server (`notebooklm-server`, experimental). See [§ REST API server](#rest-api-server). | `pip install "notebooklm-py[server]"` | `uv add "notebooklm-py[server]"` |
-| `dev` | pytest stack, mypy, ruff (`==0.15.15` exact pin), pre-commit (`>=4.5.1`), vcrpy | Contributor tooling only. Not sufficient for this repo's default `uv run pytest`; add `browser` too because some unit tests import Playwright. | `pip install "notebooklm-py[dev]"` | `uv add "notebooklm-py[dev]"` (in your project) — but contributors *to this repo* use the [Persona E](#e-contributor) `uv sync` flow instead |
-| `all` | Resolves to `browser` + `dev` + `headless` + `markdown` + `mcp` + `server` (**not `cookies`**) | Contributors who do not need `rookiepy`. | `pip install "notebooklm-py[all]"` | `uv add "notebooklm-py[all]"` (in your project) — see [All vs All-Extras](#all-vs-all-extras) |
+| (none) | `httpx`, `click`, `rich`, `filelock` | All RPC operations, all CLI commands except `login`. Suffices when you ship a `storage_state.json`. | `pip install gemini-notebook-py` | `uv add notebooklm-py` |
+| `browser` | `playwright>=1.40.0` | `notebooklm login` (interactive). | `pip install "gemini-notebook-py[browser]"` | `uv add "gemini-notebook-py[browser]"` |
+| `cookies` | `rookiepy>=0.1.0` | `notebooklm login --browser-cookies <browser>`, `notebooklm auth inspect`. | `pip install "gemini-notebook-py[cookies]"` | `uv add "gemini-notebook-py[cookies]"` |
+| `headless` | `gpsoauth>=1.1.0` | `notebooklm login --master-token` — headless auth that mints/refreshes web cookies from a durable master token, no per-session browser. Pure-Python (in `all`). See [§ D](#d-headless-server-or-ci). | `pip install "gemini-notebook-py[headless]"` | `uv add "gemini-notebook-py[headless]"` |
+| `impersonate` | `curl_cffi>=0.11` | **Experimental.** Browser TLS/JA3 impersonation transport — set `NOTEBOOKLM_TRANSPORT=curl_cffi` to route the authenticated API surface through a Chrome-fingerprinted connection (insurance vs TLS fingerprint-gating); override the profile with `NOTEBOOKLM_IMPERSONATE` (default `chrome`, e.g. `safari`, `chrome131`). Native wheels. | `pip install "gemini-notebook-py[impersonate]"` | `uv add "gemini-notebook-py[impersonate]"` |
+| `markdown` | `markdownify>=0.14.1` | `notebooklm source fulltext -f markdown`. | `pip install "gemini-notebook-py[markdown]"` | `uv add "gemini-notebook-py[markdown]"` |
+| `mcp` | `fastmcp>=2.14` | Run the MCP server (`notebooklm-mcp`) so an MCP client/agent can drive NotebookLM as tools. | `pip install "gemini-notebook-py[mcp]"` | `uv add "gemini-notebook-py[mcp]"` |
+| `server` | `fastapi`, `uvicorn[standard]`, `python-multipart` | The localhost REST API server (`notebooklm-server`, experimental). See [§ REST API server](#rest-api-server). | `pip install "gemini-notebook-py[server]"` | `uv add "gemini-notebook-py[server]"` |
+| `dev` | pytest stack, mypy, ruff (`==0.15.15` exact pin), pre-commit (`>=4.5.1`), vcrpy | Contributor tooling only. Not sufficient for this repo's default `uv run pytest`; add `browser` too because some unit tests import Playwright. | `pip install "gemini-notebook-py[dev]"` | `uv add "gemini-notebook-py[dev]"` (in your project) — but contributors *to this repo* use the [Persona E](#e-contributor) `uv sync` flow instead |
+| `all` | Resolves to `browser` + `dev` + `headless` + `markdown` + `mcp` + `server` (**not `cookies`**) | Contributors who do not need `rookiepy`. | `pip install "gemini-notebook-py[all]"` | `uv add "gemini-notebook-py[all]"` (in your project) — see [All vs All-Extras](#all-vs-all-extras) |
 
 > **Note on `uv` columns:** the `uv (in your project)` column is for users adding `notebooklm-py` as a dependency in **their own** project (requires a `pyproject.toml` in that project). Contributors working inside *this* repo use the Persona E flow (`uv sync --frozen --extra ...`), governed by this repo's `uv.lock`. Do not run `uv sync` outside a project — it errors with `No pyproject.toml found`.
 
@@ -380,8 +380,8 @@ A single-tenant, localhost REST API over the same transport-neutral core as the 
 
 <!-- not mirrored: the server extra is end-user/automation tooling, not part of the contributor `uv sync` flow; CONTRIBUTING.md tracks only browser/dev/markdown. -->
 ```bash
-uv tool install "notebooklm-py[server]"    # fastapi + uvicorn + python-multipart
-# OR, with pipx:  pipx install "notebooklm-py[server]"   (or plain pip inside a venv)
+uv tool install "gemini-notebook-py[server]"    # fastapi + uvicorn + python-multipart
+# OR, with pipx:  pipx install "gemini-notebook-py[server]"   (or plain pip inside a venv)
 ```
 
 **Prerequisite:** a provisioned account (`storage_state.json`) from `notebooklm login`. The server holds one account for the process; it does not run browser login itself.
@@ -500,7 +500,7 @@ The MCP server ships behind the optional `mcp` extra (see the extras matrix abov
 <!-- not mirrored: end-user MCP run/config pointer; out of scope for the contributor README -->
 ```bash
 notebooklm-mcp                                         # installed console script (stdio transport)
-uvx --from "notebooklm-py[mcp]" notebooklm-mcp         # no install — run straight from PyPI
+uvx --from "gemini-notebook-py[mcp]" notebooklm-mcp         # no install — run straight from PyPI
 ```
 
 Wire it into an MCP client with either:
@@ -556,7 +556,7 @@ For the full CLI surface, see [cli-reference.md](cli-reference.md).
 <!-- not mirrored: end-user upgrade commands; contributors `git pull && uv sync --frozen ...` instead -->
 ```bash
 pip install --upgrade notebooklm-py            # latest patch
-pip install --upgrade "notebooklm-py[browser]"  # preserves your extras
+pip install --upgrade "gemini-notebook-py[browser]"  # preserves your extras
 ```
 
 For pinning patterns and version-stability guarantees, see [stability.md](stability.md).
@@ -577,7 +577,7 @@ rm -rf ~/.notebooklm                          # optional: remove auth state
 
 > ⚠️  **`pip install ".[all]"` and `uv sync --all-extras` are not equivalent.**
 >
-> - `pyproject.toml` defines: `all = ["notebooklm-py[browser,dev,markdown,mcp,server]"]` — a self-referential extras string that resolves to **browser + dev + markdown + mcp + server only**. It deliberately excludes `cookies` because `rookiepy` has install issues on Python 3.13+ ([CHANGELOG `[0.4.1]`](../CHANGELOG.md)).
+> - `pyproject.toml` defines: `all = ["gemini-notebook-py[browser,dev,markdown,mcp,server]"]` — a self-referential extras string that resolves to **browser + dev + markdown + mcp + server only**. It deliberately excludes `cookies` because `rookiepy` has install issues on Python 3.13+ ([CHANGELOG `[0.4.1]`](../CHANGELOG.md)).
 > - `uv sync --all-extras` installs **every** extra including `cookies`, and may fail on Python 3.13/3.14.
 > - In this repo, prefer `uv sync --frozen --extra browser --extra dev --extra markdown`.
 

@@ -19,7 +19,7 @@ is **Cloudflare only** — the Tailscale profile needs the `deploy/tailscale/` f
 
 ```bash
 # 1. One-time, on a machine with a browser — bootstrap the Google credential:
-pip install "notebooklm-py[browser,headless]"
+pip install "gemini-notebook-py[browser,headless]"
 notebooklm login --master-token --account you@example.com
 #    → copy the profile dir it wrote (~/.notebooklm/profiles/<name>/, contains master_token.json)
 #      to your server. This is the one irreducible manual step.
@@ -47,7 +47,7 @@ docker compose --profile cloudflare pull && docker compose --profile cloudflare 
 ## Quick start — from a `deploy/` checkout (`make`, either tunnel)
 ```bash
 # 1. bootstrap the master token once, on a machine with a browser (see §1):
-pip install "notebooklm-py[browser,headless]"
+pip install "gemini-notebook-py[browser,headless]"
 notebooklm login --master-token --account you@example.com
 # 2. pick a tunnel + generate secrets (writes deploy/.env):
 cd deploy && make setup
@@ -64,7 +64,7 @@ the detailed walk-through + the security model.
 
 ## 1. Bootstrap the master token (once, on a machine with a browser)
 ```bash
-pip install "notebooklm-py[browser,headless]"
+pip install "gemini-notebook-py[browser,headless]"
 notebooklm login --master-token --account you@example.com
 ```
 This writes `master_token.json` (+ a minted `storage_state.json`) into

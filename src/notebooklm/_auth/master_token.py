@@ -71,7 +71,7 @@ def _require_gpsoauth() -> Any:
         import gpsoauth  # noqa: PLC0415  (lazy: optional [headless] extra)
     except ImportError as exc:  # pragma: no cover - import guard
         raise MasterTokenError(
-            "Master-token auth needs gpsoauth. Install: pip install 'notebooklm-py[headless]'"
+            "Master-token auth needs gpsoauth. Install: pip install 'gemini-notebook-py[headless]'"
         ) from exc
     return gpsoauth
 

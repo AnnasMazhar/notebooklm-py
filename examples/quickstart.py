@@ -9,7 +9,7 @@ This script demonstrates a complete workflow:
 5. Download the result
 
 Prerequisites:
-    pip install "notebooklm-py[browser]" && playwright install chromium
+    pip install "gemini-notebook-py[browser]" && playwright install chromium
     notebooklm login  # Authenticate first
     # Full install guide: https://github.com/teng-lin/notebooklm-py/blob/main/docs/installation.md
 

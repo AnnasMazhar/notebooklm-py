@@ -83,14 +83,22 @@ def get_package_version() -> str:
 
 
 def get_skill_version(skill_path: Path) -> str | None:
-    """Extract version from skill file header comment."""
+    """Extract version from skill file header comment.
+
+    Accepts BOTH the current ``gemini-notebook-py`` marker and the legacy
+    ``notebooklm-py`` one (ADR-0028). Skill files already written to users'
+    machines carry the legacy spelling and cannot be migrated; failing to
+    recognise them would make every previously-installed skill look
+    unversioned, so the installer would treat an up-to-date skill as needing
+    an overwrite.
+    """
     if not skill_path.exists():
         return None
 
     with open(skill_path, encoding="utf-8") as f:
         content = f.read(500)  # Read first 500 chars
 
-    match = re.search(r"notebooklm-py v([\d.]+)", content)
+    match = re.search(r"(?:gemini-notebook-py|notebooklm-py) v([\d.]+)", content)
     return match.group(1) if match else None
 
 
@@ -111,7 +119,7 @@ def iter_targets(target: str) -> list[str]:
 
 def add_version_comment(content: str, version: str) -> str:
     """Embed the CLI version into a skill file."""
-    version_comment = f"<!-- notebooklm-py v{version} -->\n"
+    version_comment = f"<!-- gemini-notebook-py v{version} -->\n"
 
     if "---" in content:
         parts = content.split("---", 2)

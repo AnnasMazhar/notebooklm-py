@@ -140,7 +140,7 @@ notebooklm.research.normalize_url
 notebooklm.research.extract_report_urls
 
 # Helpers (cookies extra) - imported from notebooklm.auth
-notebooklm.auth.convert_rookiepy_cookies_to_storage_state  # requires `pip install "notebooklm-py[cookies]"` — see docs/installation.md#optional-extras-matrix
+notebooklm.auth.convert_rookiepy_cookies_to_storage_state  # requires `pip install "gemini-notebook-py[cookies]"` — see docs/installation.md#optional-extras-matrix
 
 # Cookie-domain tiers - imported from notebooklm.auth
 notebooklm.auth.REQUIRED_COOKIE_DOMAINS
@@ -267,7 +267,7 @@ aliases.
 Version 0.4.0 is backward compatible with v0.3.x. Notable additions:
 
 - **Multi-account profiles** - Existing single-account setups continue to work as the implicit default profile. Your existing `~/.notebooklm/storage_state.json` is auto-detected — no manual migration is required. New accounts can be added via `notebooklm profile create <name>`.
-- **`[cookies]` optional extra** - To reuse cookies from your existing browser, install with `pip install "notebooklm-py[cookies]"` (requires `rookiepy`; full extras matrix: [docs/installation.md#optional-extras-matrix](installation.md#optional-extras-matrix)).
+- **`[cookies]` optional extra** - To reuse cookies from your existing browser, install with `pip install "gemini-notebook-py[cookies]"` (requires `rookiepy`; full extras matrix: [docs/installation.md#optional-extras-matrix](installation.md#optional-extras-matrix)).
 - **Deprecation removal deferred** - The deprecated attributes originally scheduled for v0.4.0 (`Source.source_type`, `Artifact.artifact_type`, `Artifact.variant`, `SourceFulltext.source_type`, `StudioContentType`, `DEFAULT_STORAGE_PATH`) were deferred to v0.5.0. In v0.5.0 and later, use the replacements listed in [Removed in v0.5.0](#removed-in-v050).
 
 ### Migrating from v0.2.x to v0.3.0
@@ -431,18 +431,18 @@ pip install --upgrade notebooklm-py
 ```toml
 # pyproject.toml - recommended
 dependencies = [
-    "notebooklm-py>=0.1,<1.0",  # Accept patches and minors
+    "gemini-notebook-py>=0.1,<1.0",  # Accept patches and minors
 ]
 
 # requirements.txt - for reproducibility
-notebooklm-py==0.1.0  # Exact version (but update regularly!)
+gemini-notebook-py==0.1.0  # Exact version (but update regularly!)
 ```
 
 ### Test Before Upgrading
 
 ```bash
 # Test in development first
-pip install notebooklm-py==X.Y.Z
+pip install gemini-notebook-py==X.Y.Z
 pytest
 ```
 

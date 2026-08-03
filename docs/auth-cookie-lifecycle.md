@@ -121,7 +121,7 @@ keeps `*PSIDTS` rotating for as long as the process lives.
 This is the recommended path. No browser at refresh time, survives full cookie
 expiry, and no `storage_state.json` to keep re-shipping.
 
-1. `pip install "notebooklm-py[headless]"`.
+1. `pip install "gemini-notebook-py[headless]"`.
 2. One-time, on a machine with a browser (dedicated / throwaway account):
    `notebooklm -p <profile> login --master-token --account you@gmail.com`.
 3. Ship the bootstrapped profile — **both** `master_token.json` and the
