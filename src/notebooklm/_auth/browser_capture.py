@@ -56,8 +56,8 @@ from ..exceptions import HeadlessLoginRequiredError
 
 # The storage-state filter is a pure leaf shared by the headed and headless
 # capture arms; the historical names remain re-exported from this module.
-from .browser_cookie_filter import _safe_cookie_shape as _safe_cookie_shape
-from .browser_cookie_filter import filter_storage_state_cookies_by_domain_policy
+from ._browser_cookie_filter import _safe_cookie_shape as _safe_cookie_shape
+from ._browser_cookie_filter import filter_storage_state_cookies_by_domain_policy
 
 # ``CHANNEL_BROWSERS`` and the launch-failure triage live in the
 # ``browser_launch_errors`` leaf (ADR-0008). ``CHANNEL_BROWSERS`` is re-exported
