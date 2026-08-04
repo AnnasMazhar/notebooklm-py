@@ -1172,15 +1172,18 @@ async def probe_rebrand_batchexecute(
         query_params["authuser"] = auth.account_route
     url = f"{retarget_url(get_batchexecute_url(), host)}?{urlencode(query_params)}"
     body = build_request_body(encode_rpc_request(method, []), auth.csrf_token)
-    # Same flattened header the rest of this script sends. When the
-    # domain-aware cookie representation (issue #2054) lands, this call site
-    # should adopt it with the others — a legacy-scoped jar broadcast to the
-    # rebrand host is exactly why an ABSENT verdict here is reported as
-    # "not observed", never as "the host does not support it".
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Cookie": auth.cookie_header,
-    }
+    # No ``Cookie`` header: the shared client from ``build_probe_client`` carries
+    # ``auth.cookie_jar``, so httpx selects per RFC 6265 for whichever host this
+    # probe is retargeted at (#2054).
+    #
+    # That means a profile whose ``OSID``/``__Secure-OSID`` are scoped to the
+    # legacy host sends *no* host-scoped binding to the rebrand host. Measured
+    # 2026-08-04 across five live profiles (two of them pre-cutover, binding on
+    # the legacy host only): ``LIST_NOTEBOOKS`` succeeds on both hosts anyway.
+    # The credential that actually gates the session is the accounts-scoped
+    # ``LSID`` family, which is domain-correct for both. So an ABSENT verdict
+    # here means the endpoint did not answer — not that routing starved it.
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
     try:
         response = await client.post(url, content=body, headers=headers)
@@ -1248,14 +1251,11 @@ async def probe_rebrand_chat(
         conversation_id=None,
         reqid=int(uuid4().int % 1_000_000),
     )
-    # Flattened header, same as the rebrand batchexecute probe above and for the
-    # same reason — see that call site's comment. Issue #2054 migrates every
-    # flattened site to the domain-aware representation; this one and the
-    # batchexecute probe are the two the rebrand lane added, so #2054's sweep
-    # covers FIVE sites, not the three that predate it.
+    # No ``Cookie`` header — the shared client carries the jar and httpx routes
+    # per RFC 6265. See the rebrand batchexecute probe above for why routed
+    # selection does not starve this probe (#2054).
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
-        "Cookie": auth.cookie_header,
         **extra_headers,
     }
 
