@@ -335,6 +335,48 @@ class TestAuthImportCookiesCommand:
         secure_cookie = next(c for c in stored["cookies"] if c["name"] == "__Secure-1PSIDTS")
         assert secure_cookie["secure"] is True
 
+    def test_import_cookies_rejects_lsid_only_binding(self, runner, tmp_path):
+        """An ``LSID``-only set must be rejected, not silently persisted.
+
+        Guards the *call site*, not the predicate. ``secondary_present`` decides
+        whether ``_has_usable_secondary_binding`` is consulted at all, so while
+        ``LSID`` was missing from that set an ``LSID``-only import produced an
+        empty ``secondary_present``, skipped the guard entirely, and wrote a
+        state the canonical rule rejects.
+
+        ``test_cli_binding_rule_matches_cookie_policy`` cannot catch this: it
+        pins the two predicates to each other but never exercises the gate that
+        chooses whether to call one.
+        """
+        input_path = tmp_path / "cookies.json"
+        storage_path = tmp_path / "storage_state.json"
+        cookies = [
+            {"name": "SID", "value": "fixture-sid", "domain": ".google.com", "path": "/"},
+            {
+                "name": "__Secure-1PSIDTS",
+                "value": "fixture-psidts",
+                "domain": ".google.com",
+                "path": "/",
+            },
+            # No OSID and no APISID/SAPISID: LSID alone is not a binding.
+            {
+                "name": "LSID",
+                "value": "fixture-lsid",
+                "domain": "accounts.google.com",
+                "path": "/",
+            },
+        ]
+        input_path.write_text(json.dumps(cookies), encoding="utf-8")
+
+        result = runner.invoke(
+            cli, ["--storage", str(storage_path), "auth", "import-cookies", str(input_path)]
+        )
+
+        assert result.exit_code != 0
+        assert "do not form a usable binding" in result.output
+        assert "LSID" in result.output
+        assert not storage_path.exists()
+
     def test_import_cookies_rejects_present_but_empty_secondary_binding(self, runner, tmp_path):
         input_path = tmp_path / "cookies.json"
         storage_path = tmp_path / "storage_state.json"
