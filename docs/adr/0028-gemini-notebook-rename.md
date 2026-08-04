@@ -14,7 +14,7 @@ On 2026-07-16 Google renamed NotebookLM to **Gemini Notebook**
 The wire protocol is unchanged, and as of 2026-08-04 **both hosts serve it**.
 A live probe that day (issue #1977) reached `batchexecute` on each:
 
-```
+```text
 GET  https://notebooklm.google.com/  -> 302 -> https://notebook.google.com/  (200, app shell)
 POST https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute -> 400 (endpoint live)
 POST https://notebook.google.com/_/LabsTailwindUi/data/batchexecute   -> 400 (endpoint live)
