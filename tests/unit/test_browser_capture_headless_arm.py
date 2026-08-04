@@ -25,6 +25,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from notebooklm._auth import browser_capture
 from notebooklm._auth.browser_capture import (
     RETRYABLE_CONNECTION_ERRORS,
     TARGET_CLOSED_ERROR,
@@ -191,7 +192,7 @@ def test_headless_browser_close_is_typed_instead_of_session_expired(
     page.goto.side_effect = closed
     context.new_page.return_value = page
     context.close.side_effect = closed
-    monkeypatch.setattr("notebooklm._auth.browser_capture.time.sleep", lambda _: None)
+    monkeypatch.setattr(browser_capture.time, "sleep", lambda _: None)
 
     with pytest.raises(_HeadlessCaptureAbort) as excinfo:
         _run_headless(
@@ -214,7 +215,7 @@ def test_headless_connection_retry_exhaustion_is_typed(tmp_path: Path, monkeypat
 
     page.goto.side_effect = PlaywrightError(RETRYABLE_CONNECTION_ERRORS[0])
     context.new_page.return_value = page
-    monkeypatch.setattr("notebooklm._auth.browser_capture.time.sleep", lambda _: None)
+    monkeypatch.setattr(browser_capture.time, "sleep", lambda _: None)
 
     with pytest.raises(_HeadlessCaptureAbort) as excinfo:
         _run_headless(
