@@ -423,7 +423,6 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         needs_title_rename = (
             title is not None
             and title != filename
-            and registration.kind is _CreateResultKind.CREATED
         )
         if wait:
             source = await self.wait_until_ready(
