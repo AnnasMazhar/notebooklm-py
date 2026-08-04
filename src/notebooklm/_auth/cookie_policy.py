@@ -156,10 +156,23 @@ def app_host_scope_note() -> str:
        live on ``.google.com``) satisfy the binding on *either* host — see
        :func:`_has_valid_secondary_binding`.
     2. Select the host that actually holds the cookies via
-       ``NOTEBOOKLM_BASE_URL``. Flagged as unverified because nothing in this
-       repository has yet observed the rebrand host serving an RPC endpoint
-       (see :data:`notebooklm._env.PERSONAL_APP_ALIAS_HOST`) — advice that sends
-       a user into a *different* failure is the bug this note exists to avoid.
+       ``NOTEBOOKLM_BASE_URL``.
+
+    Recovery 2 carries a caveat, but only in one direction. The sibling host is
+    computed *relative to the configured one*, so it is the rebrand host
+    (:data:`notebooklm._env.PERSONAL_APP_ALIAS_HOST`) for a default-host user and
+    the long-established default for a rebrand-host user. Attaching the caveat
+    unconditionally therefore warned rebrand-host users off the legacy host —
+    exactly backwards, and it discourages the one fallback whose behavior this
+    project has exercised end to end.
+
+    What the caveat may and may not claim: a live probe (issue #1977) reached
+    ``batchexecute`` on the rebrand host — a 400 on a deliberately malformed
+    payload proves the endpoint is there. So the host is *not* "unverified to
+    serve the API". It is simply experimental here: not the documented default,
+    and not covered by this repository's cassettes. The note says that and no
+    more — overclaiming in either direction sends users into a different failure,
+    which is the bug this note exists to avoid.
 
     Returns:
         The note as plain text (no trailing newline), or ``""`` when the
@@ -171,6 +184,14 @@ def app_host_scope_note() -> str:
     if base_host not in PERSONAL_APP_HOSTS or not siblings:
         return ""
     other_host = siblings[0]
+    # Asymmetric by design — see the "only in one direction" paragraph above.
+    # Never inline the alias literal here: the centralization guardrail AST-walks
+    # f-string parts too, so the host must arrive via the constant.
+    caveat = (
+        " (that host is experimental — not the documented default)"
+        if other_host == PERSONAL_APP_ALIAS_HOST
+        else ""
+    )
     return (
         f"Heads-up: Google serves the personal app from both {base_host} and "
         f"{other_host} and redirects between them, but the OSID binding is "
@@ -180,8 +201,7 @@ def app_host_scope_note() -> str:
         f"re-run 'notebooklm login' and complete the sign-in (that re-mints the "
         f"account-wide .google.com binding APISID+SAPISID, which both hosts "
         f"accept), or select the host that has the cookies with "
-        f"NOTEBOOKLM_BASE_URL=https://{other_host} (that host is not yet verified "
-        f"to serve the API)."
+        f"NOTEBOOKLM_BASE_URL=https://{other_host}{caveat}."
     )
 
 

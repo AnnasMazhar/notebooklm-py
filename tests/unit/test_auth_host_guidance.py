@@ -14,8 +14,11 @@ These tests pin the three properties that make the guidance safe:
    called.
 2. The binding-related hints carry the cross-host scope caveat, naming both the
    host the cookies land on and the host the client uses, plus a recovery.
-3. The caveat is silent where it does not apply (the enterprise host has no
-   alias; ``__Secure-1PSIDTS`` is a ``.google.com`` cookie both hosts receive).
+3. The caveat is silent where it does not apply — the enterprise host has no
+   alias, ``__Secure-1PSIDTS`` is a ``.google.com`` cookie both hosts receive,
+   and the experimental-host flag rides on the *rebrand* host rather than on
+   "whichever host is not the configured one" (which would flag the legacy
+   default for rebrand-host users).
 """
 
 from __future__ import annotations
@@ -67,11 +70,32 @@ class TestAppHostScopeNote:
         assert f"NOTEBOOKLM_BASE_URL=https://{PERSONAL_BASE_HOST}" in note
         assert f"NOTEBOOKLM_BASE_URL=https://{PERSONAL_APP_ALIAS_HOST}" not in note
 
-    def test_flags_the_alias_as_unverified_for_api_use(self, select_host):
+    def test_flags_the_alias_as_experimental_when_it_is_the_fallback(self, select_host):
         """Recovery advice must not push users into a different failure."""
         select_host(PERSONAL_BASE_HOST)
 
-        assert "not yet verified" in app_host_scope_note()
+        note = app_host_scope_note()
+
+        assert f"NOTEBOOKLM_BASE_URL=https://{PERSONAL_APP_ALIAS_HOST} (that host is" in note
+        assert "experimental" in note
+
+    def test_does_not_flag_the_default_host_as_experimental(self, select_host):
+        """The caveat is about the rebrand host, not about "whichever host is not mine".
+
+        ``other_host`` is relative to the configured host, so an unconditional
+        caveat lands on the *legacy* default for a rebrand-host user — telling
+        them the long-established host is the risky one, precisely when they need
+        the fallback. The asymmetry is the contract.
+        """
+        select_host(PERSONAL_APP_ALIAS_HOST)
+
+        note = app_host_scope_note()
+
+        assert f"NOTEBOOKLM_BASE_URL=https://{PERSONAL_BASE_HOST}." in note
+        assert "experimental" not in note
+        # Nor the older wording, which overclaimed: a live probe (#1977) reached
+        # batchexecute on both hosts, so neither is "unverified to serve the API".
+        assert "not yet verified" not in note
 
     def test_enterprise_host_has_no_sibling_and_no_note(self, select_host):
         select_host(ENTERPRISE_BASE_HOST)
