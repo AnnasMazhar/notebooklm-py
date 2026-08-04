@@ -213,8 +213,9 @@ def app_host_scope_note() -> str:
     Both recoveries are real, and ordered deliberately:
 
     1. Re-run ``notebooklm login`` and complete the sign-in. That re-mints the
-       account-wide ``.google.com`` cookies, and ``APISID`` + ``SAPISID`` (which
-       live on ``.google.com``) satisfy the binding on *either* host — see
+       account-wide cookies. ``APISID`` + ``SAPISID`` live on ``.google.com``
+       and ``LSID`` on ``accounts.google.com``, so none of them are host-scoped
+       and together they satisfy the binding on *either* host — see
        :func:`_has_valid_secondary_binding`.
     2. Select the host that actually holds the cookies via
        ``NOTEBOOKLM_BASE_URL``.
@@ -260,8 +261,9 @@ def app_host_scope_note() -> str:
         f"which is the host this client is configured to use.\n"
         f"If the binding is still missing afterwards it landed on {other_host}: "
         f"re-run 'notebooklm login' and complete the sign-in (that re-mints the "
-        f"account-wide .google.com binding APISID+SAPISID, which both hosts "
-        f"accept), or select the host that has the cookies with "
+        f"account-wide binding APISID+SAPISID+LSID, none of which are "
+        f"host-scoped, so both hosts accept it), or select the host that has "
+        f"the cookies with "
         f"NOTEBOOKLM_BASE_URL=https://{other_host}{caveat}."
     )
 
@@ -329,7 +331,7 @@ def missing_cookies_hint(
     if psidts_missing and not has_secondary:
         return _with_scope_note(
             f"Your {browser_phrase} session is signed in to Google but is missing "
-            f"the cookies NotebookLM needs (OSID or APISID+SAPISID, plus "
+            f"the cookies NotebookLM needs (OSID, or APISID+SAPISID+LSID, plus "
             f"__Secure-1PSIDTS).\n"
             f"Open https://{get_base_host()} in {browser_phrase} (sign in if "
             f"prompted), reload the page, then re-run this command."
@@ -349,7 +351,7 @@ def missing_cookies_hint(
     if not has_secondary:
         return _with_scope_note(
             f"Your {browser_phrase} cookies are missing the NotebookLM binding "
-            f"(OSID, or APISID+SAPISID).\n"
+            f"(OSID, or all of APISID, SAPISID and LSID).\n"
             f"Open https://{get_base_host()} in {browser_phrase} (sign in if "
             f"prompted), reload the page, then re-run this command."
         )

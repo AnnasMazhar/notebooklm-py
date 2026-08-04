@@ -1490,3 +1490,24 @@ class TestSecondaryBindingRequiresLsidWithoutOsid:
     def test_lsid_alone_is_not_sufficient(self) -> None:
         """Without ``OSID`` *or* the XSSI pair, ``LSID`` on its own does not bind."""
         assert not _has_valid_secondary_binding({"LSID"})
+
+
+class TestBindingDiagnosticsNameLsid:
+    """Every strict-binding diagnostic must name ``LSID`` (#1977 review).
+
+    The predicate and the messages drifted apart once already: the rule gained
+    its ``LSID`` conjunct while the hints still told users ``APISID``+``SAPISID``
+    was enough, which is advice that walks them back into the same failure.
+    """
+
+    def test_missing_binding_hint_names_lsid(self) -> None:
+        from notebooklm._auth.cookie_policy import missing_cookies_hint
+
+        hint = missing_cookies_hint({"SID", "__Secure-1PSIDTS"}, browser_label="chrome")
+        assert "LSID" in hint
+
+    def test_missing_binding_and_psidts_hint_names_lsid(self) -> None:
+        from notebooklm._auth.cookie_policy import missing_cookies_hint
+
+        hint = missing_cookies_hint({"SID"}, browser_label="chrome")
+        assert "LSID" in hint

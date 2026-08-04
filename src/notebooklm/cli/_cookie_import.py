@@ -197,7 +197,10 @@ def _import_cookie_json(
     # are present-but-empty can pass required-cookie validation yet be unusable.
     # Reject that specific false-"ok". Like the login flow (which only warns), we
     # stay silent when no secondary-binding cookie is present at all.
-    secondary_present = {"OSID", "APISID", "SAPISID"} & set(cookie_names)
+    # ``LSID`` is in the set: without it an LSID-only import has an empty
+    # ``secondary_present``, skips the check entirely, and persists a state the
+    # canonical rule rejects. It also belongs in the ``Present:`` diagnostic.
+    secondary_present = {"OSID", "APISID", "SAPISID", "LSID"} & set(cookie_names)
     if secondary_present and not _has_usable_secondary_binding(filtered_state):
         raise click.ClickException(  # cli-input-validation: import-cookies secondary-binding validation
             "Secondary-binding cookies are present but do not form a usable "

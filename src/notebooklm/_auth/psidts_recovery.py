@@ -142,7 +142,7 @@ def _recovery_cookie_names(entries: list[dict[str, Any]]) -> set[str]:
     """Return the cookie NAMES present on an allowed auth domain.
 
     Feeds the two name-presence preconditions — ``SID`` present, and
-    :func:`_has_valid_secondary_binding` — which are deliberately domain-blind
+    :func:`_has_rotatable_secondary_binding` — which are deliberately domain-blind
     and expiry-blind, because that is exactly what the preflight they front
     (:func:`notebooklm._auth.cookie_policy._validate_required_cookies`) checks.
 
@@ -447,7 +447,10 @@ def _recover_psidts_inline(path: Path | str | None) -> bool:
        :func:`_psidts_routes_to_rotate`).
     3. Secondary binding intact (``OSID``, or ``APISID + SAPISID``). Google
        rejects ``RotateCookies`` requests that lack these — see
-       :func:`notebooklm._auth.cookie_policy._has_valid_secondary_binding`.
+       :func:`notebooklm._auth.cookie_policy._has_rotatable_secondary_binding`
+       (rotation eligibility — deliberately weaker than the strict
+       :func:`~notebooklm._auth.cookie_policy._has_valid_secondary_binding`
+       session-validity rule).
     4. Cross-process rotation flock available
        (:func:`notebooklm._auth.keepalive._file_lock_try_exclusive` against
        :func:`notebooklm._auth.keepalive._rotation_lock_path`). Mirrors
@@ -875,8 +878,14 @@ def recover_psidts_in_memory(rookiepy_cookies: list[dict[str, Any]]) -> bool:
         path = entry.get("path")
         index_by_identity[(name, domain, (path if isinstance(path, str) else "") or "/")] = pos
 
+    # ``LSID`` rides along: it is half of the secondary binding when ``OSID`` is
+    # absent (#1977), and this path allows the POST on ``APISID``+``SAPISID``
+    # alone — so a rotation that *supplies* the missing ``LSID`` is exactly the
+    # case worth keeping. Dropping it here would discard the cookie that makes
+    # the set usable. The file-backed ``_attempt_rotation`` already persists the
+    # whole rotated jar and so never had this gap.
     for cookie in rotated_cookies:
-        if cookie.name not in {_PSIDTS_COOKIE, "__Secure-3PSIDTS"}:
+        if cookie.name not in {_PSIDTS_COOKIE, "__Secure-3PSIDTS", "LSID"}:
             continue
         if not cookie.value or not cookie.domain:
             continue
