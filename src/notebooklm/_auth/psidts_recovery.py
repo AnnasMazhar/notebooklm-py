@@ -878,8 +878,9 @@ def recover_psidts_in_memory(rookiepy_cookies: list[dict[str, Any]]) -> bool:
         path = entry.get("path")
         index_by_identity[(name, domain, (path if isinstance(path, str) else "") or "/")] = pos
 
-    # ``LSID`` rides along: it is half of the secondary binding when ``OSID`` is
-    # absent (#1977), and this path allows the POST on ``APISID``+``SAPISID``
+    # ``LSID`` rides along: when ``OSID`` is absent the fallback binding needs
+    # all three of ``APISID``, ``SAPISID`` and ``LSID`` (#1977) — ``LSID`` is one
+    # of the three, not half of a pair. This path allows the POST on ``APISID``+``SAPISID``
     # alone — so a rotation that *supplies* the missing ``LSID`` is exactly the
     # case worth keeping. Dropping it here would discard the cookie that makes
     # the set usable. The file-backed ``_attempt_rotation`` already persists the
