@@ -166,10 +166,37 @@ jobs:
           echo "::warning::NOTEBOOKLM_MASTER_TOKEN_JSON secret is empty/absent — cookie-only profile (no rotation immunity)."
         fi
 
+    # Rebrand-host lane state, carried between nightly runs so the lane can
+    # report a *state change* rather than re-announcing the same observation
+    # forever. Restore-only + a run-scoped save key, because cache entries are
+    # immutable: a fixed key would pin the first night's answer permanently.
+    #
+    # A cache miss is harmless by construction: ``load_rebrand_state`` falls
+    # back to the documented ABSENT baseline, so the worst case is that a
+    # genuine PRESENT is announced twice — never a false alarm out of the
+    # steady state.
+    - name: Restore rebrand-host lane state
+      uses: actions/cache/restore@v6
+      continue-on-error: true
+      with:
+        path: rebrand-state.json
+        key: rpc-rebrand-state-${{ needs.resolve-branch.outputs.branch }}-
+        restore-keys: |
+          rpc-rebrand-state-${{ needs.resolve-branch.outputs.branch }}-
+
     - name: Run RPC Health Check
       id: health
       # Auth comes from the profile materialized above (NOT an inline
       # NOTEBOOKLM_AUTH_JSON env var) so the layer-4 re-mint can engage.
+      #
+      # ``--rebrand-state-file`` feeds the rebrand-host lane its previous state
+      # (restored from cache above). The lane is exit-code-free by construction,
+      # so it cannot change ``exit_code`` here — see the "Rebrand host" steps
+      # below for its own, separately-deduped issue.
+      #
+      # No ``--base-url``: the nightly MUST stay on the default host, otherwise
+      # the legacy signal (the only named trigger for a future default flip)
+      # stops being collected. The flag exists for manual investigation.
       continue-on-error: true
       shell: bash
       env:
@@ -179,7 +206,8 @@ jobs:
       run: |
         echo "Testing branch: $TARGET_BRANCH"
         set +e
-        uv run python scripts/check_rpc_health.py --full 2>&1 | tee health-report.txt
+        uv run python scripts/check_rpc_health.py --full \
+          --rebrand-state-file rebrand-state.json 2>&1 | tee health-report.txt
         exit_code=${PIPESTATUS[0]}
         echo "exit_code=${exit_code}" >> "$GITHUB_OUTPUT"
         exit "$exit_code"
@@ -447,6 +475,114 @@ jobs:
         title: "Studio customization cohort flipped — re-capture VideoStyle codes"
         content-filepath: health-report.txt
         labels: rpc-breakage, automated
+
+    # ------------------------------------------------------------------
+    # Rebrand-host lane (notebook.google.com) — SEPARATE from everything
+    # above. It has no exit code: the script keeps its probes out of
+    # ``compute_exit_code`` entirely. That separation is the whole point.
+    # The legacy "Non-transient ERROR detected" issue is deduped by TITLE
+    # ALONE, so a rebrand probe reported through it would open one issue on
+    # the first failing night and then suppress every legacy-degradation
+    # issue after it — disabling the very gate this lane feeds.
+    #
+    # This lane therefore has: its own title, its own dedup key, and a
+    # state-change trigger (ABSENT -> PRESENT) rather than a recurring
+    # error. A rebrand host that never serves RPC files nothing, ever.
+    # ------------------------------------------------------------------
+    - name: Save rebrand-host lane state
+      if: always() && hashFiles('rebrand-state.json') != ''
+      uses: actions/cache/save@v6
+      continue-on-error: true
+      with:
+        path: rebrand-state.json
+        # Run-scoped key: cache entries are immutable, so a fixed key would
+        # freeze the first night's answer forever. The restore step matches
+        # this by prefix and picks the most recent.
+        key: rpc-rebrand-state-${{ needs.resolve-branch.outputs.branch }}-${{ github.run_id }}
+
+    - name: Detect rebrand-host state change
+      id: rebrand
+      if: always()
+      shell: bash
+      run: |
+        if [ ! -f rebrand-state.json ]; then
+          echo "::warning::rebrand-state.json not produced; rebrand lane reported nothing."
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        # A malformed state file must not fail the job: this lane is advisory.
+        if ! uv run python - <<'PY' >> "$GITHUB_OUTPUT"
+        import json
+        from pathlib import Path
+
+        state = json.loads(Path("rebrand-state.json").read_text(encoding="utf-8"))
+        print(f"changed={'true' if state.get('changed') else 'false'}")
+        PY
+        then
+          echo "::warning::rebrand-state.json unreadable; treating the lane as unchanged."
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        fi
+        {
+          echo "## Rebrand-host lane"
+          echo ""
+          grep '^REBRAND' health-report.txt || echo "(no rebrand lane output)"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Check for existing rebrand-host issue
+      if: always() && steps.rebrand.outputs.changed == 'true'
+      id: dup_rebrand
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        if ! count=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+          --state open --label automated \
+          --search 'in:title "Rebrand host RPC availability changed"' \
+          --json number --jq 'length'); then
+          echo "::warning::Rebrand-host dedup probe failed; allowing issue creation"
+          count=0
+        fi
+        echo "open=${count}" >> "$GITHUB_OUTPUT"
+
+    - name: Build rebrand-host issue body
+      if: |
+        always()
+        && steps.rebrand.outputs.changed == 'true'
+        && steps.dup_rebrand.outputs.open == '0'
+      shell: bash
+      run: |
+        {
+          echo "## Rebrand host (notebook.google.com) RPC availability changed"
+          echo ""
+          echo "**Commit:** ${GITHUB_SHA}"
+          echo ""
+          echo "This is the rebrand-host lane of the nightly RPC health check. It"
+          echo "carries NO exit code and is independent of the legacy-host signal;"
+          echo "the legacy lane's issues are unaffected by anything reported here."
+          echo ""
+          grep '^REBRAND' health-report.txt || echo "(no rebrand lane output)"
+          echo ""
+          echo "### Still unanswered"
+          echo ""
+          echo "The \`/upload/_/\` (Scotty) sub-question is NOT probed by this"
+          echo "workflow: \`check_rpc_health.py\` exercises \`ADD_SOURCE_FILE\` as an"
+          echo "RPC only and issues no upload POST anywhere. Answering it needs a"
+          echo "manual authenticated capture (upload-session start only, no bytes),"
+          echo "scrubbed via \`tests/cassette_patterns.py\` before it leaves the machine."
+          echo ""
+          echo "A PRESENT verdict here is evidence the host serves that endpoint from"
+          echo "these credentials — it is NOT on its own a reason to change any default."
+        } > rebrand-issue-body.md
+
+    - name: Create Issue on rebrand-host state change
+      if: |
+        always()
+        && steps.rebrand.outputs.changed == 'true'
+        && steps.dup_rebrand.outputs.open == '0'
+      uses: peter-evans/create-issue-from-file@fca9117c27cdc29c6c4db3b86c48e4115a786710  # @ v6.0.0
+      with:
+        title: "Rebrand host RPC availability changed"
+        content-filepath: rebrand-issue-body.md
+        labels: automated
 
     - name: Upload Report
       if: always()
