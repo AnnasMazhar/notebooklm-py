@@ -817,11 +817,12 @@ def prune_allowlist(path: Path, stale: list[Allowance]) -> list[Allowance]:
             os.fsync(temporary.fileno())
         os.chmod(temporary_path, original_mode)
         os.replace(temporary_path, path)
-        directory_fd = os.open(path.parent, os.O_DIRECTORY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        if hasattr(os, "O_DIRECTORY"):
+            directory_fd = os.open(path.parent, os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     except OSError as exc:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
