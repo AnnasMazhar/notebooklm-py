@@ -195,3 +195,32 @@ def test_staleness_window_is_wider_than_a_release_cadence():
     the canary in a permanent alarm state and train operators to ignore it.
     """
     assert BUILD_LABEL_STALE_AFTER_DAYS >= 30
+
+
+def test_extract_build_label_orders_the_patch_suffix_numerically():
+    """``_p10`` is newer than ``_p9`` — the patch field is not zero-padded.
+
+    Plain lexicographic ordering over the raw label ranks ``_p9`` first, which
+    would report the wrong served label (and could score a matching pin as
+    DRIFTED rather than CURRENT).
+    """
+    html = SHELL.format(label="boq_labs-tailwind-frontend_20260802.02_p9") + SHELL.format(
+        label="boq_labs-tailwind-frontend_20260802.02_p10"
+    )
+    assert extract_build_label(html) == "boq_labs-tailwind-frontend_20260802.02_p10"
+
+
+def test_extract_build_label_orders_the_build_number_before_the_patch():
+    """A higher build on the same day wins regardless of patch number."""
+    html = SHELL.format(label="boq_labs-tailwind-frontend_20260802.09_p0") + SHELL.format(
+        label="boq_labs-tailwind-frontend_20260802.02_p99"
+    )
+    assert extract_build_label(html) == "boq_labs-tailwind-frontend_20260802.09_p0"
+
+
+def test_extract_build_label_orders_the_date_first():
+    """A later date wins over a higher build/patch on an earlier one."""
+    html = SHELL.format(label="boq_labs-tailwind-frontend_20260802.99_p99") + SHELL.format(
+        label="boq_labs-tailwind-frontend_20260803.01_p0"
+    )
+    assert extract_build_label(html) == "boq_labs-tailwind-frontend_20260803.01_p0"

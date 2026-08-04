@@ -1741,6 +1741,20 @@ async def test_check_build_label_reads_the_live_shell() -> None:
 
 
 @pytest.mark.asyncio
+async def test_check_build_label_never_raises() -> None:
+    """The lowest-severity lane must not be able to skip the one that follows it.
+
+    ``check_build_label`` runs immediately before the rebrand-host lane, so an
+    escaping exception would cost that night's rebrand observation. Anything
+    unexpected degrades to UNKNOWN, which alarms nothing.
+    """
+    client = _ShellClient(raises=RuntimeError("something nobody predicted"))
+    probe = await check_rpc_health.check_build_label(client)
+    assert probe.status is BuildLabelStatus.UNKNOWN
+    assert "something nobody predicted" in probe.detail
+
+
+@pytest.mark.asyncio
 async def test_check_build_label_is_unknown_on_a_shell_without_a_label() -> None:
     client = _ShellClient(_response(200, text="<html>maintenance</html>"))
     probe = await check_rpc_health.check_build_label(client)

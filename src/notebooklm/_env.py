@@ -121,10 +121,11 @@ DEFAULT_BL = "boq_labs-tailwind-frontend_20260802.02_p0"
 BUILD_LABEL_STALE_AFTER_DAYS = 90
 
 # Shape of the build label the app shell advertises: ``boq_labs-tailwind-frontend``
-# followed by a ``YYYYMMDD.NN`` build stamp and a ``_pN`` patch suffix. Used to
-# read the served label out of the shell HTML and to date it; a guardrail test
-# asserts :data:`DEFAULT_BL` itself matches, so a malformed bump cannot land.
-BUILD_LABEL_RE = re.compile(r"boq_labs-tailwind-frontend_(\d{8})\.\d{2}_p\d+")
+# followed by a ``YYYYMMDD.NN`` build stamp and a ``_pN`` patch suffix, each
+# captured so the fields can be ordered numerically. Used to read the served label
+# out of the shell HTML and to date it; a guardrail test asserts :data:`DEFAULT_BL`
+# itself matches, so a malformed bump cannot land.
+BUILD_LABEL_RE = re.compile(r"boq_labs-tailwind-frontend_(\d{8})\.(\d{2})_p(\d+)")
 
 
 def extract_build_label(html: str) -> str | None:
@@ -137,12 +138,18 @@ def extract_build_label(html: str) -> str | None:
     A healthy shell names exactly one label (measured 2026-08-04). Should it ever
     name several, the newest wins: the question this answers is "what is the
     freshest build Google is serving?", which is what :data:`DEFAULT_BL` is
-    supposed to be tracking. ``max`` over the whole label is that ordering — the
-    prefix is fixed and every field after it is zero-padded fixed width, so
-    lexicographic order is build order.
+    supposed to be tracking.
+
+    Newest is decided on the parsed ``(date, build, patch)`` triple rather than by
+    ordering the raw strings. The date and build fields are zero-padded fixed
+    width, but the patch suffix is not — plain lexicographic order would rank
+    ``_p9`` above ``_p10``.
     """
-    labels = [match.group(0) for match in BUILD_LABEL_RE.finditer(html)]
-    return max(labels) if labels else None
+    matches = list(BUILD_LABEL_RE.finditer(html))
+    if not matches:
+        return None
+    newest = max(matches, key=lambda m: (m.group(1), int(m.group(2)), int(m.group(3))))
+    return newest.group(0)
 
 
 def build_label_date(label: str) -> date | None:

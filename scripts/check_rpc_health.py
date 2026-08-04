@@ -1690,11 +1690,21 @@ async def check_build_label(client: httpx.AsyncClient) -> BuildLabelProbe:
     A/B on 2026-08-04 got a complete cited answer from the pinned label, the served
     label, and a fabricated 1970 one alike. Nothing fails until Google decides
     otherwise, which is exactly why the gap needs a lane of its own (#2073).
+
+    **Never raises.** ``fetch_app_shell`` already absorbs transport errors, but
+    this lane runs immediately before the rebrand-host lane, so anything it let
+    escape would skip that lane and lose the night's rebrand observation
+    entirely. The lowest-severity lane in the script must not be able to do that
+    to a higher-severity one, so an unexpected failure degrades to UNKNOWN —
+    which alarms nothing — rather than propagating.
     """
-    html, detail = await fetch_app_shell(client, f"{get_base_url()}/")
-    if html is None:
-        return classify_build_label(None, detail)
-    return classify_build_label(extract_build_label(html), detail)
+    try:
+        html, detail = await fetch_app_shell(client, f"{get_base_url()}/")
+        if html is None:
+            return classify_build_label(None, detail)
+        return classify_build_label(extract_build_label(html), detail)
+    except Exception as e:  # noqa: BLE001 - see "Never raises" above
+        return classify_build_label(None, f"lane failed: {scrub_secrets(e) or type(e).__name__}")
 
 
 def format_build_label_lane(probe: BuildLabelProbe) -> list[str]:
