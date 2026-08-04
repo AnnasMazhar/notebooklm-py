@@ -11,10 +11,19 @@ Alternatives.
 
 On 2026-07-16 Google renamed NotebookLM to **Gemini Notebook**
 ([announcement](https://blog.google/innovation-and-ai/products/gemini-notebook/notebooklm-gemini-notebook/)).
-The product is unchanged for our purposes — same app, same `batchexecute` wire
-protocol at `notebooklm.google.com` — but the project's discoverable identity
-(PyPI listing, repo name, docs) now points at a retired brand. New users will
-search for "gemini notebook python". PyPI availability checked 2026-08-03:
+The product is unchanged for our purposes on the host we actually drive: the
+legacy host `notebooklm.google.com` still serves the same app and the same
+`batchexecute` wire protocol. Whether the rebrand host `notebook.google.com`
+also serves that protocol is **unverified** — nothing in this repository has
+ever observed an RPC endpoint there. Every request recorded against it is a
+`GET /` returning the app shell (12 such requests, in the `collection_*`
+cassettes); no `batchexecute` POST to that host has been captured. Treat the
+rebrand host as an accepted-but-unproven base URL until a live probe answers
+it.
+
+Separately, the project's discoverable identity (PyPI listing, repo name, docs)
+now points at a retired brand. New users will search for
+"gemini notebook python". PyPI availability checked 2026-08-03:
 `gemini-notebook`, `gemini-notebook-py`, `gemini-notebook-client` are all
 unregistered — and so is the bare `notebooklm` dist name, which the permanent
 dist/import mismatch this ADR adopts turns into a standing typosquat target

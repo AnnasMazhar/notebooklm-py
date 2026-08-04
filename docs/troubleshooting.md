@@ -1,7 +1,7 @@
 # Troubleshooting
 
 **Status:** Active
-**Last Updated:** 2026-07-16
+**Last Updated:** 2026-08-04
 
 Common issues, known limitations, and workarounds for `notebooklm-py`.
 
@@ -235,6 +235,26 @@ notebooklm login --browser chrome --storage <path>
 ```
 
 `--browser chrome` drives your installed Google Chrome (with its signed-in profile), which usually detects the account immediately and sidesteps bundled-Chromium issues. `--browser msedge` is the equivalent for organizations that require Microsoft Edge for SSO.
+
+### Configuration Errors
+
+#### `ValueError: NOTEBOOKLM_BASE_URL must use https and one of: ...` lists a host that is not documented
+
+**Cause:** The error message enumerates every host the base-URL validator currently accepts. That list is not the same as the list of *supported* values in [configuration.md](configuration.md) — it now also names the Gemini Notebook rebrand host, `notebook.google.com`.
+
+**Status:** `notebook.google.com` is **experimental and unverified**. It is accepted by the validator (so that authentication against the rebrand host is not hard-blocked), but this project has never observed it serving the `batchexecute` RPC endpoint — every request captured against it so far is a `GET /` for the app shell. See [ADR-0028](adr/0028-gemini-notebook-rename.md).
+
+**Solution:** Leave `NOTEBOOKLM_BASE_URL` unset, or set it to a documented value:
+
+```bash
+# Personal (default — no need to set it)
+export NOTEBOOKLM_BASE_URL=https://notebooklm.google.com
+
+# Enterprise
+export NOTEBOOKLM_BASE_URL=https://notebooklm.cloud.google.com
+```
+
+Do not point it at `https://notebook.google.com` expecting RPC calls to work; if you do experiment with it and RPC succeeds or fails, that is worth reporting in an issue.
 
 ### RPC Errors
 
