@@ -445,7 +445,7 @@ class TestKeepalivePoke:
 
     @pytest.mark.asyncio
     async def test_poke_made_by_default(self, httpx_mock: HTTPXMock):
-        """Token fetch hits RotateCookies before notebooklm.google.com."""
+        """Token fetch hits RotateCookies before the app host."""
         httpx_mock.add_response(
             url="https://notebook.google.com/",
             content=_NOTEBOOKLM_HOMEPAGE_HTML,
@@ -459,13 +459,13 @@ class TestKeepalivePoke:
             f"expected exactly one RotateCookies request, got: {all_urls}"
         )
         # Order matters per the docstring: the RotateCookies poke must precede
-        # the notebooklm.google.com fetch so the rotation runs before the
+        # the app-host fetch so the rotation runs before the
         # cookie jar is consumed for the homepage GET. Without this assertion
         # a regression that flipped the order would still produce a single
         # poke request and silently pass.
         assert all_urls.index(KEEPALIVE_ROTATE_URL) < all_urls.index(
             "https://notebook.google.com/"
-        ), f"poke must precede notebooklm homepage fetch; saw order {all_urls}"
+        ), f"poke must precede the app-host homepage fetch; saw order {all_urls}"
         assert str(poke_requests[0].url) == KEEPALIVE_ROTATE_URL
         assert poke_requests[0].method == "POST"
 

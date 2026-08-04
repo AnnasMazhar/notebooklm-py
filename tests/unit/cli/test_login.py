@@ -489,7 +489,7 @@ class TestLoginCommand:
         # Verify timeout=300_000 (5 minutes) is passed
         assert mock_page.wait_for_url.call_args.kwargs.get("timeout") == 300_000
         # The detector must NOT inherit Playwright's default wait_until="load":
-        # notebooklm.google.com is a streaming SPA that never fires "load", so a
+        # The app host is a streaming SPA that never fires "load", so a
         # load-gated wait hangs the full 5 min even though login already succeeded
         # (#1697). Assert the invariant rather than the literal "commit".
         assert mock_page.wait_for_url.call_args.kwargs.get("wait_until") in {
