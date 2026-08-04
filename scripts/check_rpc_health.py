@@ -1614,7 +1614,15 @@ async def fetch_app_shell(client: httpx.AsyncClient, url: str) -> tuple[str | No
         if not location:
             return None, f"HTTP {response.status_code} with no Location header"
         target = httpx.URL(url).join(location)
-        if target.host not in PERSONAL_APP_HOSTS or target.path not in ("", "/"):
+        # ``https`` is checked alongside host and path: a downgrade to ``http``
+        # would put this run's jar on the wire in cleartext for every cookie not
+        # marked Secure. Refusing to follow is the only safe reading of it, and
+        # costs nothing — the app has never served the shell over cleartext.
+        if (
+            target.scheme != "https"
+            or target.host not in PERSONAL_APP_HOSTS
+            or target.path not in ("", "/")
+        ):
             return None, (
                 f"HTTP {response.status_code} redirect to "
                 f"{scrub_secrets(str(target.copy_with(query=None)))} (not the app shell)"

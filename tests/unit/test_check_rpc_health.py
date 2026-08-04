@@ -1646,6 +1646,9 @@ async def test_fetch_app_shell_stops_at_the_sign_in_bounce() -> None:
     [
         "https://example.com/",  # off-host: never follow the jar there
         "https://notebook.google.com/app/notebook",  # app host, but not the shell
+        # Right host, right path, cleartext: following it would put the jar on
+        # the wire unencrypted for every cookie not marked Secure.
+        "http://notebook.google.com/",
     ],
 )
 async def test_fetch_app_shell_refuses_a_hop_off_the_app_root(location: str) -> None:

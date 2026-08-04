@@ -540,12 +540,14 @@ serves, and scores the pin against it:
 - **Exit 5 sits below every live-breakage code** (mismatch, auth, non-transient
   error, cohort flip). A stale pin is maintenance, and it must never mask an
   outage.
-- **Redirects are followed by hand**, one hop, and only to a personal app host at
-  the site root — the lane never carries the session jar somewhere it did not
-  intend to go. The default host serves the shell directly; the legacy host 302s
-  to it, so only a run pointed at the rollback host takes the hop. The sign-in
-  bounce (`/login?continue=…`) ends the walk with `UNKNOWN`: "this run was not
-  signed in" is not evidence about the build label.
+- **Redirects are followed by hand**, at most two hops, and only to an `https`
+  personal app host at the site root — the lane never carries the session jar
+  somewhere it did not intend to go, and never onto cleartext. The default host
+  serves the shell directly; the legacy host 302s to it, so only a run pointed at
+  the rollback host takes a hop at all, and anything past the second reports
+  `more than 2 redirects`. The sign-in bounce (`/login?continue=…`) ends the walk
+  with `UNKNOWN`: "this run was not signed in" is not evidence about the build
+  label.
 - An active `NOTEBOOKLM_BL` override does not change the verdict — the lane always
   scores the committed `DEFAULT_BL`, since that is what ships to users — but the
   report says the override was in effect.
