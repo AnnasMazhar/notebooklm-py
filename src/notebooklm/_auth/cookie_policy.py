@@ -6,7 +6,12 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from notebooklm._env import PERSONAL_APP_ALIAS_HOST, PERSONAL_APP_HOSTS, get_base_host
+from notebooklm._env import (
+    PERSONAL_APP_HOSTS,
+    PERSONAL_BASE_HOST,
+    PERSONAL_LEGACY_HOST,
+    get_base_host,
+)
 
 logger = logging.getLogger("notebooklm.auth")
 
@@ -222,7 +227,7 @@ def app_host_scope_note() -> str:
 
     Recovery 2 carries a caveat, but only in one direction. The sibling host is
     computed *relative to the configured one*, so it is the rebrand host
-    (:data:`notebooklm._env.PERSONAL_APP_ALIAS_HOST`) for a default-host user and
+    (:data:`notebooklm._env.PERSONAL_LEGACY_HOST`) for a default-host user and
     the long-established default for a rebrand-host user. Attaching the caveat
     unconditionally therefore warned rebrand-host users off the legacy host —
     exactly backwards, and it discourages the one fallback whose behavior this
@@ -251,7 +256,7 @@ def app_host_scope_note() -> str:
     # f-string parts too, so the host must arrive via the constant.
     caveat = (
         " (that host is experimental — not the documented default)"
-        if other_host == PERSONAL_APP_ALIAS_HOST
+        if other_host == PERSONAL_LEGACY_HOST
         else ""
     )
     return (
@@ -397,16 +402,16 @@ REQUIRED_COOKIE_DOMAINS: frozenset[str] = frozenset(
         ".google.com",
         "google.com",  # Host-only Domain=google.com cookies (rare but possible)
         # Playwright storage_state may preserve the leading dot for NotebookLM cookies.
-        ".notebooklm.google.com",
-        "notebooklm.google.com",
+        f".{PERSONAL_LEGACY_HOST}",
+        PERSONAL_LEGACY_HOST,
         # Gemini Notebook rebrand (July 2026, issue #2013): Google now also serves
         # the app from ``notebook.google.com`` and sets the per-product binding
         # cookies (``OSID`` / ``__Secure-OSID``) on this host. Both dotted and
         # non-dotted variants are listed (same defensive pattern as
         # ``notebooklm.google.com`` above) so http.cookiejar normalization does
         # not drop them at extraction / load time.
-        f".{PERSONAL_APP_ALIAS_HOST}",
-        PERSONAL_APP_ALIAS_HOST,
+        f".{PERSONAL_BASE_HOST}",
+        PERSONAL_BASE_HOST,
         ".notebooklm.cloud.google.com",
         "notebooklm.cloud.google.com",
         ".googleusercontent.com",
@@ -704,9 +709,9 @@ def _auth_domain_priority(domain: str) -> int:
     """
     if domain == ".google.com":
         return 4
-    if domain == ".notebooklm.google.com":
+    if domain == f".{PERSONAL_LEGACY_HOST}":
         return 3
-    if domain == "notebooklm.google.com":
+    if domain == PERSONAL_LEGACY_HOST:
         return 2
     # Gemini Notebook rebrand host (issue #2013). The dotted variant sits at the
     # same tier as ``.notebooklm.google.com`` and the bare variant at the same
@@ -717,9 +722,9 @@ def _auth_domain_priority(domain: str) -> int:
     # 3 == 3 and 2 == 2, so those pairs tie and the winner falls to
     # ``storage_state`` iteration order. This comment claimed the opposite until
     # #2054; the docstring above now describes the real tier structure.
-    if domain == f".{PERSONAL_APP_ALIAS_HOST}":
+    if domain == f".{PERSONAL_LEGACY_HOST}":
         return 3
-    if domain == PERSONAL_APP_ALIAS_HOST:
+    if domain == PERSONAL_LEGACY_HOST:
         return 2
     if domain == ".notebooklm.cloud.google.com":
         return 3
