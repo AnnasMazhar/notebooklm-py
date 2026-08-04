@@ -65,7 +65,16 @@ from ..exceptions import HeadlessLoginRequiredError
 # below because this module has always been its import site for the CLI adapter
 # (``cli/services/playwright_login.py``) and the launch banner.
 from .browser_launch_errors import CHANNEL_BROWSERS, classify_launch_failure
-from .cookie_policy import build_cookie_domain_allowlist
+
+# ``app_host_scope_note`` owns the both-personal-hosts cookie-scope caveat that
+# every "open the app in your browser" instruction needs (it is appended to the
+# binding-related hints in ``cookie_policy.missing_cookies_hint``). It is
+# re-exported here for the same reason as ``log_observed_navigations`` below:
+# ``browser_capture`` is the only ``_auth`` module the CLI-boundary guardrail
+# sanctions as an import site, and the CLI's own cookie-refresh advice
+# (``cli/services/login/cookie_jar.py``) must not grow a second, drifting copy
+# of that caveat.
+from .cookie_policy import app_host_scope_note, build_cookie_domain_allowlist
 
 # DEBUG tracing for the login wait lives in its own leaf (ADR-0008) and is
 # re-exported here because ``browser_capture`` is the only ``_auth`` module the
@@ -966,6 +975,9 @@ __all__ = [
     "BrowserCapturePlan",
     "CaptureResult",
     "accepted_login_hosts",
+    # Re-exported from the cookie_policy leaf so the CLI's cookie-refresh advice
+    # shares one copy of the both-hosts scope caveat (see the import comment).
+    "app_host_scope_note",
     # Re-exported from the browser_launch_errors leaf: browser_capture is the
     # only _auth module the CLI-boundary guardrail sanctions, so CLI-side
     # callers (the --master-token bootstrap) must reach it through here.
