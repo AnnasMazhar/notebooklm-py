@@ -198,11 +198,16 @@ jobs:
           exit 1
         fi
         echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
+        if [[ "$current_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "baseline_ref=$current_tag" >> "$GITHUB_OUTPUT"
+        else
+          echo "baseline_ref=$previous_tag" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Prune stale entries from immutable release tag
       run: |
         python scripts/audit_public_api_compat.py \
-          --baseline-ref "${{ steps.baseline.outputs.previous_tag }}" \
+          --baseline-ref "${{ steps.baseline.outputs.baseline_ref }}" \
           --prune
 
     - name: Create or safely reuse automation branch and PR
