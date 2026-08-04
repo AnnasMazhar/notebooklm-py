@@ -345,10 +345,12 @@ def _auth_tokens_with_collision() -> AuthTokens:
 # ---------------------------------------------------------------------------
 # The probe POSTs themselves (#2054)
 #
-# Everything above pins the *auth* path. The three batchexecute probes were a
-# separate leak: each hand-built ``{"Cookie": auth.cookie_header}``, the flat
-# projection, so the accounts-scoped ``LSID`` was sent to the app host on every
-# request and one of several same-name cookies survived arbitrarily.
+# Everything above pins the *auth* path. The three probe request paths -- two
+# batchexecute calls and the streamed-chat call, which posts to a hardcoded v1
+# path rather than a method id -- were a separate leak: each hand-built
+# ``{"Cookie": auth.cookie_header}``, the flat projection, so the
+# accounts-scoped ``LSID`` was sent to the app host on every request and one of
+# several same-name cookies survived arbitrarily.
 #
 # These assert on the header of the POST itself, driven through the *shipped*
 # ``build_probe_client``. That indirection is the point: httpx lets an explicit

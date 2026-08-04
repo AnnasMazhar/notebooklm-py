@@ -8,13 +8,17 @@ the highest populated tier in ``storage_state`` iteration order. Reordering the
 file changes the result (issue #2054).
 
 That is harmless as a *display* projection and fatal as a *request* input. The
-affordance has already produced four bad call sites across two files --
-``scripts/check_rpc_health.py`` (three probe POSTs) and
-``scripts/diagnose_get_notebook.py`` -- every one written by an author who had
-the "use ``cookie_jar``" docstring available. #2019 fixed the auth half of the
-first script and the request half survived it, which is why a docstring is not
-enough here: the property is *named* ``cookie_header``, and the name is an
-instruction.
+affordance produced three bad call sites in one file -- the probe POSTs in
+``scripts/check_rpc_health.py`` -- each written by an author who had the "use
+``cookie_jar``" docstring available. #2019 fixed that script's auth half and the
+request half survived it, which is why a docstring is not enough here: the
+property is *named* ``cookie_header``, and the name is an instruction.
+
+(``scripts/diagnose_get_notebook.py`` was broken in the same commit range but by
+a *different* defect -- it joined the domain-preserving ``AuthTokens.cookies``
+map, whose keys are ``(name, domain, path)`` tuples, into a syntactically
+malformed header. This lint does not catch that and should not be read as
+covering it.)
 
 So this lint enforces the one rule the docstrings ask for -- **a flat projection
 may not reach an HTTP request** -- rather than restating it in prose:
@@ -28,9 +32,9 @@ selection for a specific URL) or pass ``auth.cookie_jar`` to the client.
 
 **Passive ratchet, not a burndown.** ``KNOWN_FLAT_WIRE_SITES`` exists so a
 pre-existing site can be recorded rather than block unrelated work. It is empty
-today because #2054 cleared both files; entries should be deleted, never added.
-Adding one means a fifth wire-facing flat projection was introduced, which is
-precisely what this lint exists to stop.
+today because #2054 cleared every site it detects; entries should be deleted,
+never added. Adding one means a new wire-facing flat projection was introduced,
+which is precisely what this lint exists to stop.
 
 Scope is deliberately narrow. Reading ``auth.flat_cookies`` to *print* cookie
 names, to compare sets, or in a test fixture is legitimate and untouched -- only
@@ -61,26 +65,46 @@ def _is_flat_source(node: ast.AST) -> bool:
     followed later by ``headers={"Cookie": cookies}`` is a known blind spot;
     closing it needs real alias tracking, which is a different tool. The lint's
     job is to stop the *idiom* being re-copied, and every real instance so far
-    (four of them, across two files) was written inline.
+    (three of them, in one file) was written inline.
     """
     if isinstance(node, ast.Attribute):
         # ``auth.flat_cookies.copy`` -- the outer attribute is ``copy``, so keep
         # walking left until a projection name is found or the chain runs out.
         return node.attr in FLAT_SOURCES or _is_flat_source(node.value)
-    if isinstance(node, ast.Name) and node.id in FLAT_SOURCES:
-        return True
-    # ``auth.cookie_header.strip()`` / ``auth.flat_cookies.copy()`` -- a method
-    # call *on* a projection is still the projection.
+    # Deliberately NO bare ``ast.Name`` branch. Matching a local by name flags
+    # the *correct* pattern -- ``cookie_header = auth.cookie_header_for(url)``
+    # followed by ``{"Cookie": cookie_header}`` -- which would punish the fix
+    # this lint exists to encourage. ``load_auth_from_storage(...)`` is still
+    # caught below as a Call.
     if isinstance(node, ast.Call):
-        return _is_flat_source(node.func)
-    # ``f"{auth.cookie_header}"`` and ``"; ".join(auth.flat_cookies)`` -- wrapping
-    # it in a string does not make it domain-aware.
+        # A bare name in *callee* position is unambiguous -- ``load_auth_from_storage()``
+        # is the loader, whereas a bare name in *value* position may be a local
+        # holding a correctly-routed header. That asymmetry is why the general
+        # Name branch is omitted but this one is not.
+        if isinstance(node.func, ast.Name) and node.func.id in FLAT_SOURCES:
+            return True
+        # The callee chain (``auth.flat_cookies.copy()``) and the arguments
+        # (``dict(auth.flat_cookies)``, ``"; ".join(... auth.flat_cookies.items())``)
+        # -- wrapping a projection in another call does not make it domain-aware.
+        if _is_flat_source(node.func):
+            return True
+        return any(
+            _is_flat_source(arg) for arg in [*node.args, *(kw.value for kw in node.keywords)]
+        )
+    # ``f"{auth.cookie_header}"`` / ``"a" + auth.cookie_header``.
     if isinstance(node, ast.JoinedStr):
         return any(
             _is_flat_source(v.value) for v in node.values if isinstance(v, ast.FormattedValue)
         )
     if isinstance(node, ast.BinOp):
         return _is_flat_source(node.left) or _is_flat_source(node.right)
+    # ``f"{k}={v}" for k, v in auth.flat_cookies.items()`` -- the generator that
+    # ``cookie_header`` is itself built from, i.e. the first thing an author
+    # writes after being told not to use the property.
+    if isinstance(node, ast.GeneratorExp | ast.ListComp | ast.SetComp):
+        return any(_is_flat_source(gen.iter) for gen in node.generators)
+    if isinstance(node, ast.DictComp):
+        return any(_is_flat_source(gen.iter) for gen in node.generators)
     return False
 
 
@@ -103,6 +127,17 @@ def _flat_wire_sites(tree: ast.AST) -> list[int]:
         elif isinstance(node, ast.Call):
             for kw in node.keywords:
                 if kw.arg == "cookies" and _is_flat_source(kw.value):
+                    hits.append(node.lineno)
+        # Shape 3: headers["Cookie"] = <flat> -- the most ordinary way to set a
+        # header in Python, and invisible to a dict-literal-only matcher.
+        elif isinstance(node, ast.Assign) and _is_flat_source(node.value):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.slice, ast.Constant)
+                    and isinstance(target.slice.value, str)
+                    and target.slice.value.lower() == "cookie"
+                ):
                     hits.append(node.lineno)
 
     return hits
@@ -153,6 +188,16 @@ def test_lint_actually_detects_the_shapes_it_polices() -> None:
     )
 
     fstring_shape = ast.parse('headers = {"Cookie": f"{auth.cookie_header}"}')
+    subscript_shape = ast.parse('headers["Cookie"] = auth.cookie_header')
+    comprehension_shape = ast.parse(
+        'h = {"Cookie": "; ".join(f"{k}={v}" for k, v in auth.flat_cookies.items())}'
+    )
+    wrapper_shape = ast.parse("client = httpx.AsyncClient(cookies=dict(auth.flat_cookies))")
+    # The *correct* pattern must not be flagged: punishing the fix is worse
+    # than missing a violation, because it teaches authors to avoid the lint.
+    correct_shape = ast.parse(
+        'cookie_header = auth.cookie_header_for(url)\nheaders = {"Cookie": cookie_header}'
+    )
     method_shape = ast.parse("client = httpx.AsyncClient(cookies=auth.flat_cookies.copy())")
 
     assert _flat_wire_sites(header_shape), 'the {"Cookie": <flat>} shape must be detected'
@@ -160,7 +205,17 @@ def test_lint_actually_detects_the_shapes_it_polices() -> None:
     assert _flat_wire_sites(call_shape), "a flat loader call must be detected"
     assert _flat_wire_sites(fstring_shape), "an f-string wrapper must not defeat the lint"
     assert _flat_wire_sites(method_shape), "a method call on a projection is still the projection"
+    assert _flat_wire_sites(subscript_shape), 'headers["Cookie"] = <flat> must be detected'
+    assert _flat_wire_sites(comprehension_shape), (
+        "the generator cookie_header is built from must be detected -- it is what an "
+        "author writes next after being told not to use the property"
+    )
+    assert _flat_wire_sites(wrapper_shape), "a dict() wrapper must not defeat the lint"
     assert not _flat_wire_sites(clean_shape), "domain-aware usage must not be flagged"
+    assert not _flat_wire_sites(correct_shape), (
+        "cookie_header_for() assigned to a local named cookie_header is the CORRECT "
+        "pattern and must never be flagged"
+    )
 
 
 def test_allowlist_is_empty_so_the_lint_cannot_be_silenced() -> None:

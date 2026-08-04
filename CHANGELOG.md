@@ -43,8 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `('SID', '.google.com', '/')=…` header, so the script has been unable to
   authenticate for anyone since — and it read the eager module-level
   `BATCHEXECUTE_URL` constant, ignoring `NOTEBOOKLM_BASE_URL` and so pointing
-  enterprise users at the consumer host. Neither half is independently
-  testable, so both are fixed together
+  enterprise users at the consumer host. Both are fixed together, and the
+  script now loads auth domain-preserving (`extract_cookies_with_domains`)
+  rather than through the flat map, so its jar routes per host instead of
+  broadcasting
   ([#2054](https://github.com/teng-lin/notebooklm-py/issues/2054)).
 
 - **`doctor` no longer warns Windows users about permissions the client
