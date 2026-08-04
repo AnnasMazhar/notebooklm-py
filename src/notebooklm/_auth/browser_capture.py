@@ -45,6 +45,7 @@ import time
 from collections.abc import Awaitable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, Protocol
 from urllib.parse import urlparse
@@ -119,6 +120,33 @@ BROWSER_CLOSED_HELP = (
     "  1. Run: notebooklm login --fresh\n"
     "  2. Or run: notebooklm auth logout && notebooklm login"
 )
+
+
+class _CaptureAbortKind(Enum):
+    """Private categories for unattended capture infrastructure aborts."""
+
+    BROWSER_CLOSED = "browser_closed"
+    CONNECTION_EXHAUSTED = "connection_exhausted"
+
+
+class _HeadlessCaptureAbort(RuntimeError):
+    """Private typed abort raised by infrastructure failures in headless mode."""
+
+    def __init__(self, kind: _CaptureAbortKind) -> None:
+        self.kind = kind
+        super().__init__(kind.value)
+
+
+def _abort_capture(
+    io: BrowserCaptureIO,
+    *,
+    headless: bool,
+    kind: _CaptureAbortKind,
+) -> NoReturn:
+    """Abort a capture, retaining infrastructure type for unattended callers."""
+    if headless:
+        raise _HeadlessCaptureAbort(kind)
+    io.fail(1)
 
 
 # ---------------------------------------------------------------------------
@@ -324,14 +352,20 @@ def sync_playwright_context() -> Iterator[Any]:
         yield playwright
 
 
-def recover_page(context: BrowserContext, io: BrowserCaptureIO) -> Page:
+def recover_page(
+    context: BrowserContext,
+    io: BrowserCaptureIO,
+    *,
+    headless: bool = False,
+) -> Page:
     """Get a fresh page from a persistent browser context.
 
     Used when the current page reference is stale (TargetClosedError); a new
     page in a persistent context inherits all cookies and storage. Returns a
-    new ``Page``, or aborts (via ``io.fail``) if the context/browser is dead;
+    new ``Page``, or aborts if the context/browser is dead;
     re-raises the original ``PlaywrightError`` for non-TargetClosed failures.
-    ``io`` supplies both emit + fail.
+    ``io`` supplies both emit + fail. Headless callers receive a typed abort
+    for a dead browser instead of the interactive ``io.fail`` exception.
     """
     from playwright.sync_api import Error as PlaywrightError
 
@@ -342,7 +376,11 @@ def recover_page(context: BrowserContext, io: BrowserCaptureIO) -> Page:
         if TARGET_CLOSED_ERROR in error_str:
             logger.error("Browser context is dead, cannot recover page: %s", error_str)
             io.emit(BROWSER_CLOSED_HELP)
-            io.fail(1)
+            _abort_capture(
+                io,
+                headless=headless,
+                kind=_CaptureAbortKind.BROWSER_CLOSED,
+            )
         logger.error("Failed to create new page for recovery: %s", error_str)
         raise
 
@@ -549,7 +587,9 @@ def run_browser_capture(
         try:
             context = p.chromium.launch_persistent_context(**launch_kwargs)
 
-            page = context.pages[0] if context.pages else recover_page(context, io)
+            page = (
+                context.pages[0] if context.pages else recover_page(context, io, headless=headless)
+            )
 
             # Retry navigation on transient connection errors with backoff
             for attempt in range(1, LOGIN_MAX_RETRIES + 1):
@@ -569,7 +609,7 @@ def run_browser_capture(
 
                     if (is_retryable or is_target_closed) and attempt < LOGIN_MAX_RETRIES:
                         if is_target_closed:
-                            page = recover_page(context, io)
+                            page = recover_page(context, io, headless=headless)
 
                         backoff_seconds = attempt  # Linear backoff: 1s, 2s
                         logger.debug(
@@ -598,14 +638,22 @@ def run_browser_capture(
                             error_str,
                         )
                         io.emit(BROWSER_CLOSED_HELP)
-                        io.fail(1)
+                        _abort_capture(
+                            io,
+                            headless=headless,
+                            kind=_CaptureAbortKind.BROWSER_CLOSED,
+                        )
                     elif is_retryable:
                         logger.error(
                             f"Failed to connect to NotebookLM after {LOGIN_MAX_RETRIES} attempts. "
                             f"Last error: {error_str}"
                         )
                         io.emit(connection_error_help())
-                        io.fail(1)
+                        _abort_capture(
+                            io,
+                            headless=headless,
+                            kind=_CaptureAbortKind.CONNECTION_EXHAUSTED,
+                        )
                     else:
                         logger.debug("Non-retryable error: %s", error_str)
                         raise
@@ -680,7 +728,11 @@ def run_browser_capture(
                     # help text other browser-closed paths use.
                     if TARGET_CLOSED_ERROR in str(exc):
                         io.emit(BROWSER_CLOSED_HELP)
-                        io.fail(1)
+                        _abort_capture(
+                            io,
+                            headless=headless,
+                            kind=_CaptureAbortKind.BROWSER_CLOSED,
+                        )
                     raise
                 io.emit("[green]Login detected.[/green]")
 
@@ -698,14 +750,18 @@ def run_browser_capture(
                     error_str = str(exc)
                     if TARGET_CLOSED_ERROR in error_str:
                         # Page was destroyed (e.g. user switched accounts) -- get fresh page
-                        page = recover_page(context, io)
+                        page = recover_page(context, io, headless=headless)
                         recovered_during_cookie_forcing = True
                         try:
                             page.goto(url, wait_until="commit")
                         except PlaywrightError as inner_exc:
                             if TARGET_CLOSED_ERROR in str(inner_exc):
                                 io.emit(BROWSER_CLOSED_HELP)
-                                io.fail(1)
+                                _abort_capture(
+                                    io,
+                                    headless=headless,
+                                    kind=_CaptureAbortKind.BROWSER_CLOSED,
+                                )
                             elif not is_navigation_interrupted_error(inner_exc):
                                 raise
                     elif not is_navigation_interrupted_error(error_str):
@@ -749,11 +805,10 @@ def run_browser_capture(
                 launch_help = classify_launch_failure(browser, str(e))
                 # Remediation prose is for a human, and only the interactive arm
                 # has one. Short-circuiting the unattended L3 arm via ``io.fail``
-                # would be actively harmful: its sink maps every ``io.fail`` to
-                # ``HeadlessLoginRequiredError``, which ``attempt_headless_reauth``
-                # reports as "the persisted browser profile's Google session is
-                # also expired" — a confidently wrong diagnosis for a browser
-                # that never started, on a PUBLIC ``HeadlessReauthResult.reason``.
+                # would be actively harmful: the unattended sink maps remaining
+                # user-facing ``io.fail`` paths to ``HeadlessLoginRequiredError``.
+                # Those paths retain the existing dead-session classification;
+                # infrastructure aborts use the private typed marker below.
                 # Letting the original exception propagate instead lands it in
                 # that caller's generic arm as an honest "headless capture
                 # failed: <Type>" (it logs there; the fall-through ``logger.debug``
@@ -776,7 +831,11 @@ def run_browser_capture(
             # launch failures are not TargetClosed.)
             if isinstance(e, PlaywrightError) and TARGET_CLOSED_ERROR in str(e):
                 io.emit(BROWSER_CLOSED_HELP)
-                io.fail(1)
+                _abort_capture(
+                    io,
+                    headless=headless,
+                    kind=_CaptureAbortKind.BROWSER_CLOSED,
+                )
             # For everything else, the diagnostic stays at debug level; the bare
             # ``raise`` propagates to ``handle_errors`` → friendly
             # ``Unexpected error: <msg>`` + exit 2.
@@ -863,7 +922,12 @@ def run_cdp_capture(
         return content if isinstance(content, str) else None
 
     with sync_playwright_context() as p:
-        browser = p.chromium.connect_over_cdp(cdp_url)
+        try:
+            browser = p.chromium.connect_over_cdp(cdp_url)
+        except PlaywrightError as exc:
+            if TARGET_CLOSED_ERROR in str(exc):
+                raise _HeadlessCaptureAbort(_CaptureAbortKind.BROWSER_CLOSED) from exc
+            raise
         page = None
         try:
             # Reuse a context the operator's Chrome already holds — that context
@@ -919,6 +983,10 @@ def run_cdp_capture(
                 dict(playwright_state), include_domains=include_domains
             )
             atomic_write_json(storage_path, filtered_state)
+        except PlaywrightError as exc:
+            if TARGET_CLOSED_ERROR in str(exc):
+                raise _HeadlessCaptureAbort(_CaptureAbortKind.BROWSER_CLOSED) from exc
+            raise
         finally:
             # Close ONLY the temporary page we created — never the operator's
             # tabs or context.
