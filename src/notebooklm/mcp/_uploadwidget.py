@@ -79,11 +79,28 @@ _WIDGET_HTML = """<!doctype html>
  <div id="sub" style="font-size:12px;color:#6b7a6e;margin-top:3px">starting…</div>
  <input id="f" type="file" multiple disabled>
  <button id="up" disabled>Upload</button>
+ <progress id="pg" max="100" value="0" style="display:none;width:100%;margin-top:10px"></progress>
  <div id="out"></div>
 </div>
 <script type="module">
- const sub=document.getElementById('sub'),out=document.getElementById('out');
+ const sub=document.getElementById('sub'),out=document.getElementById('out'),pg=document.getElementById('pg');
  const log=m=>{out.textContent+=(out.textContent?"\\n":"")+m;size();};
+ // Upload one file via XHR (not fetch) so xhr.upload.onprogress can drive the <progress> bar —
+ // fetch can't report upload progress. Same cross-origin POST + headers as before; the /files/ul
+ // CORS (preflight + ACAO) already covers it, and onprogress works cross-origin given the ACAO.
+ // Resolves {status,ok,text} like a fetch Response would; rejects on a network/abort error so the
+ // caller's existing catch handles it. Direct-PUT/POST of the raw body is unchanged.
+ function putFile(url,file,onprog){ return new Promise((resolve,reject)=>{
+   const xhr=new XMLHttpRequest();
+   xhr.open("POST",url);
+   xhr.setRequestHeader("Accept","application/json");
+   xhr.setRequestHeader("Content-Type",file.type||"application/octet-stream");
+   if(xhr.upload)xhr.upload.onprogress=e=>{if(e.lengthComputable&&onprog)onprog(e.loaded,e.total);};
+   xhr.onload=()=>resolve({status:xhr.status,ok:xhr.status>=200&&xhr.status<300,text:xhr.responseText||""});
+   xhr.onerror=()=>reject(new Error("network"));
+   xhr.onabort=()=>reject(new Error("abort"));
+   xhr.send(file);
+ });}
  const post=m=>{try{window.parent.postMessage(m,"*")}catch(e){}};
  const oai=window.openai;               // ChatGPT/Grok inject this; claude.ai does not
  const hasNative=!!(oai&&typeof oai.uploadFile==="function");  // OpenAI native upload (interop signal)
@@ -163,15 +180,18 @@ _WIDGET_HTML = """<!doctype html>
      if(!tok){skipped++;log("• "+file.name+": already added");continue;} // token consumed on a prior click
      if(file.size>200*1024*1024){log("❌ "+file.name+": exceeds 200 MB — skipped");failed++;continue;} // mirrors MAX_UPLOAD_BYTES
      log("uploading "+file.name+" ("+file.size+" B)…");
+     pg.style.display="block"; pg.value=0; size();  // show the bar + tell the host the iframe grew
      try{
-       const res=await fetch(tok+"?filename="+encodeURIComponent(file.name),
-         {method:"POST",headers:{"Accept":"application/json","Content-Type":file.type||"application/octet-stream"},body:file});
-       const text=await res.text();
+       const res=await putFile(tok+"?filename="+encodeURIComponent(file.name), file, (loaded,total)=>{
+         const pct=total?Math.round(loaded/total*100):0; pg.value=pct;
+         sub.textContent="uploading "+file.name+" — "+pct+"%"+(n>1?" ("+(i+1)+"/"+n+")":"");});
+       const text=res.text;
        log("["+res.status+"] "+file.name+": "+text.slice(0,160));
        if(res.ok){ok++;uploadUrls[i]=null;confirmUpload(tok);} // burn locally + auto-confirm the add (#1891)
        else failed++;                                    // non-2xx: token uncommitted → still valid for retry
      }catch(e){log("❌ "+file.name+": upload failed (CSP/CORS/network): "+e);failed++;} // transient → retryable
    }
+   pg.style.display="none"; size();  // batch done — hide the bar + tell the host the iframe shrank
    sub.textContent = failed ? ("✅ "+ok+" added · "+failed+" to retry — fix and click Upload again")
      : ok ? ("✅ "+ok+" added — you can close this and continue in chat")
      : "nothing to upload — already added";           // all files were skipped (tokens consumed): no misleading "0 added"
