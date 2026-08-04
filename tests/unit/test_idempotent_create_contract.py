@@ -69,7 +69,9 @@ async def test_probe_result_never_honors_url_title_even_after_wait() -> None:
     api._adder.add_url = AsyncMock(
         return_value=_IdempotentCreateResult(existing, _CreateResultKind.PROBED)
     )
-    api.wait_until_ready = AsyncMock(return_value=Source(id="existing", title="Ready"))  # type: ignore[method-assign]
+    api.wait_until_ready = AsyncMock(  # type: ignore[method-assign]
+        return_value=Source(id="existing", title="Ready")
+    )
     api.rename = AsyncMock()  # type: ignore[method-assign]
 
     result = await api.add_url("nb", existing.url, title="Do not retitle", wait=True)
