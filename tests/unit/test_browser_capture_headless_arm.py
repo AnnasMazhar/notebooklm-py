@@ -190,6 +190,7 @@ def test_headless_browser_close_is_typed_instead_of_session_expired(
     closed = PlaywrightError(TARGET_CLOSED_ERROR)
     page.goto.side_effect = closed
     context.new_page.return_value = page
+    context.close.side_effect = closed
     monkeypatch.setattr("notebooklm._auth.browser_capture.time.sleep", lambda _: None)
 
     with pytest.raises(_HeadlessCaptureAbort) as excinfo:

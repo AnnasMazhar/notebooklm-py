@@ -843,7 +843,13 @@ def run_browser_capture(
             raise
         finally:
             if context:
-                context.close()
+                try:
+                    context.close()
+                except PlaywrightError as close_exc:
+                    # A browser that died during capture can also reject
+                    # teardown; do not let that replace the typed abort.
+                    if TARGET_CLOSED_ERROR not in str(close_exc):
+                        raise
 
     return CaptureResult(page_html=captured_page_html)
 
