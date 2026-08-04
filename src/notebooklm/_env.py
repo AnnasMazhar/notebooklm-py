@@ -21,11 +21,13 @@ ENTERPRISE_BASE_HOST = "notebooklm.cloud.google.com"
 # Alias host the personal app is also served from after Google's "Gemini
 # Notebook" rebrand. It answers "did a response come from the personal app?" and,
 # since it is part of :data:`PERSONAL_APP_HOSTS` below, it is also selectable via
-# ``NOTEBOOKLM_BASE_URL``. Selecting it is *not* a documented configuration:
-# nothing in this repository has yet observed the rebrand host serving an RPC
-# endpoint, so it stays out of ``docs/configuration.md`` until a live probe
-# answers that. It is accepted here so the login/landing and upload-host seams
-# that must cope with both personal hosts can actually be exercised.
+# ``NOTEBOOKLM_BASE_URL``. Selecting it is *not* a documented configuration: a
+# live probe (issue #1977) reached ``batchexecute`` on both personal hosts, so the
+# endpoint is dual-served — but this repository's cassettes have never exercised
+# rebrand-host RPC, because the allowlist rejected the host until now. It stays
+# out of ``docs/configuration.md`` while the default is the legacy host, not
+# because it is unproven. It is accepted here so the login/landing and
+# upload-host seams that must cope with both personal hosts can be exercised.
 #
 # Must stay a direct string literal: ``tests/_guardrails/
 # test_app_host_literals_centralized.py`` reads it out of this module by AST.
