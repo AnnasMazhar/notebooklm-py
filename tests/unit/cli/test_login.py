@@ -947,7 +947,7 @@ class TestLoginCommand:
         ):
             mock_context = MagicMock()
             mock_page_stale = MagicMock()
-            mock_page_stale.url = "https://notebooklm.google.com/"
+            mock_page_stale.url = f"https://{get_base_host()}/"
             mock_page_stale.content.return_value = '<script>"alice@example.com"</script>'
             goto_count = 0
 
@@ -960,7 +960,7 @@ class TestLoginCommand:
 
             mock_page_stale.goto.side_effect = stale_goto
             mock_page_recovered = MagicMock()
-            mock_page_recovered.url = "https://notebooklm.google.com/"
+            mock_page_recovered.url = f"https://{get_base_host()}/"
             mock_page_recovered.content.return_value = '<script>"bob@example.com"</script>'
             mock_context.pages = [mock_page_stale]
             mock_context.new_page.return_value = mock_page_recovered
@@ -1234,7 +1234,7 @@ class TestLoginCommand:
             mock_context = MagicMock()
             mock_page_stale = MagicMock()
             mock_page_fresh = MagicMock()
-            mock_page_fresh.url = "https://notebooklm.google.com/"
+            mock_page_fresh.url = f"https://{get_base_host()}/"
             mock_page_fresh.goto.side_effect = None
 
             # Stale page raises TargetClosedError on every call
@@ -1287,7 +1287,7 @@ class TestLoginCommand:
             mock_context = MagicMock()
             mock_page_stale = MagicMock()
             mock_page_fresh = MagicMock()
-            mock_page_fresh.url = "https://notebooklm.google.com/"
+            mock_page_fresh.url = f"https://{get_base_host()}/"
             mock_page_fresh.goto.side_effect = None
 
             # Initial navigation succeeds (auto-login via cached session)
@@ -1303,7 +1303,7 @@ class TestLoginCommand:
                 raise PlaywrightError("Page.goto: Target page, context or browser has been closed")
 
             mock_page_stale.goto.side_effect = stale_goto_side_effect
-            mock_page_stale.url = "https://notebooklm.google.com/"
+            mock_page_stale.url = f"https://{get_base_host()}/"
             mock_context.pages = [mock_page_stale]
             mock_context.new_page.return_value = mock_page_fresh
             mock_context.storage_state.return_value = {"cookies": [], "origins": []}
@@ -1343,7 +1343,7 @@ class TestLoginCommand:
             mock_context = MagicMock()
             mock_page_stale = MagicMock()
             mock_page_recovered = MagicMock()
-            mock_page_recovered.url = "https://notebooklm.google.com/"
+            mock_page_recovered.url = f"https://{get_base_host()}/"
 
             goto_call_count = 0
 
@@ -1355,7 +1355,7 @@ class TestLoginCommand:
                 raise PlaywrightError("Page.goto: Target page, context or browser has been closed")
 
             mock_page_stale.goto.side_effect = stale_goto_side_effect
-            mock_page_stale.url = "https://notebooklm.google.com/"
+            mock_page_stale.url = f"https://{get_base_host()}/"
             mock_page_recovered.goto.side_effect = PlaywrightError(
                 'Page.goto: Navigation to "https://accounts.google.com/" is interrupted by '
                 'another navigation to "https://notebooklm.google.com/"'
@@ -1457,7 +1457,7 @@ class TestLoginCommand:
                 raise PlaywrightError("Page.goto: Target page, context or browser has been closed")
 
             mock_page_stale.goto.side_effect = stale_goto_side_effect
-            mock_page_stale.url = "https://notebooklm.google.com/"
+            mock_page_stale.url = f"https://{get_base_host()}/"
             # Recovered page also raises TargetClosedError on goto
             mock_page_recovered.goto.side_effect = PlaywrightError(
                 "Page.goto: Target page, context or browser has been closed"

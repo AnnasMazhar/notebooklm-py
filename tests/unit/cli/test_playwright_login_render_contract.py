@@ -54,7 +54,7 @@ import notebooklm.auth as auth_module
 import notebooklm.cli.services.playwright_login as _pl
 import notebooklm.cli.session_cmd as session_cmd_module
 import notebooklm.paths as paths_module
-from notebooklm._env import get_base_host
+from notebooklm._env import PERSONAL_BASE_HOST, get_base_host
 from notebooklm.notebooklm_cli import cli
 from tests._fixtures import patch_session_login_dual
 
@@ -68,6 +68,16 @@ from tests._fixtures import patch_session_login_dual
 _STORAGE = "/x/storage.json"
 _PROFILE = "/x/profile"
 _PROFILE_NAME = "default"
+
+# The host ``_drive_login`` pins ``get_base_host`` to, and therefore the host a
+# simulated page must land on for the "already on the app host" fast path to
+# fire. Named once so the pin and the landing URL can never disagree: pinning
+# the configured host here while landing the page on the legacy alias made the
+# fast path depend on the alias-accept in ``accepted_login_hosts`` rather than
+# on the configured host, so a regression that stopped accepting the configured
+# host would have left every test in this file green.
+_BASE_HOST = PERSONAL_BASE_HOST
+_BASE_URL = f"https://{_BASE_HOST}"
 
 
 @pytest.fixture(autouse=True)
@@ -152,7 +162,7 @@ def _drive_login(
     runner,
     *,
     args: list[str] | None = None,
-    page_url: str = "https://notebooklm.google.com/",
+    page_url: str = f"{_BASE_URL}/",
     goto_side: Any = None,
     wait_side: Any = None,
     wire: Any = None,
@@ -243,7 +253,7 @@ def _drive_login(
         # host regardless of any env var set in the test runner. ``get_base_host``
         # is consumed by the URL helpers that moved into the neutral
         # browser-capture core, so patch its ``_bc`` binding.
-        stack.enter_context(patch.object(_bc, "get_base_host", return_value="notebook.google.com"))
+        stack.enter_context(patch.object(_bc, "get_base_host", return_value=_BASE_HOST))
         stack.enter_context(patch_session_login_dual("_sync_server_language_to_config"))
         if patch_repair:
             stack.enter_context(patch.object(_pl, "repair_playwright_account_metadata"))
@@ -560,7 +570,7 @@ class TestLoginProgressSuccess:
         from playwright.sync_api import Error as PlaywrightError
 
         recovered = MagicMock()
-        recovered.url = "https://notebooklm.google.com/"
+        recovered.url = f"{_BASE_URL}/"
         recovered.goto.return_value = None
         calls = {"n": 0}
 
@@ -683,7 +693,7 @@ class TestLoginErrorRender:
         from playwright.sync_api import Error as PlaywrightError
 
         recovered = MagicMock()
-        recovered.url = "https://notebooklm.google.com/"
+        recovered.url = f"{_BASE_URL}/"
         recovered.goto.side_effect = PlaywrightError(
             "Target page, context or browser has been closed"
         )
@@ -810,7 +820,7 @@ class TestLoginErrorRender:
         from playwright.sync_api import Error as PlaywrightError
 
         recovered = MagicMock()
-        recovered.url = "https://notebooklm.google.com/"
+        recovered.url = f"{_BASE_URL}/"
         recovered.goto.side_effect = PlaywrightError(
             "Target page, context or browser has been closed"
         )
