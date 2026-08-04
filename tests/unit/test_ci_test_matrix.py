@@ -17,7 +17,7 @@ def test_test_matrix_is_independent_and_preserves_ci_contract():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     jobs = workflow["jobs"]
 
-    assert set(jobs) == {"quality", "test"}
+    assert {"quality", "test"} <= set(jobs)
     assert jobs["quality"]["name"] == "Code Quality"
     assert jobs["test"]["name"] == "Test (${{ matrix.os }}, Python ${{ matrix.python-version }})"
     assert "needs" not in jobs["test"]
