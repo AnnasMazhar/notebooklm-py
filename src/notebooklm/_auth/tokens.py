@@ -143,6 +143,20 @@ class AuthTokens:
                 answer, so a silent empty string would hide a malformed URL
                 (``https:/typo`` parses fine and matches nothing) behind a
                 plausible-looking result.
+
+        .. note::
+           Not a pure query: ``http.cookiejar.add_cookie_header`` ends by calling
+           ``clear_expired_cookies()``, so reading a header can prune expired
+           entries from :attr:`cookie_jar`. Harmless today — pruning changes what
+           the jar *holds*, never what a request *sends*, and Playwright writes
+           session cookies as ``expires: -1`` (mapped to ``None``, never expired),
+           so the eligible population is normally empty.
+
+           **Revisit if this method ever gains a caller inside**
+           ``AuthTokens.from_storage``: between ``snapshot_cookie_jar`` and
+           ``save_cookies_to_storage`` a prune would be persisted to disk as a
+           deletion. Correct in itself, but it would make a read-shaped call a
+           write.
         """
         parsed = httpx.URL(url)
         if parsed.scheme != "https":
