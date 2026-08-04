@@ -30,9 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Rolling back is normally just the env var.** Set
     `NOTEBOOKLM_BASE_URL=https://notebooklm.google.com` to return to the
     pre-rebrand host — it is still served and is the documented rollback lever.
-    Existing profiles usually keep working across the switch, because the
-    account-wide `.google.com` binding pair (`APISID` + `SAPISID`) is sent to
-    both hosts and satisfies the session check on its own.
+    Existing profiles usually keep working across the switch. The host-scoped
+    `OSID` does not survive it, but it is not the only binding path: `APISID` +
+    `SAPISID` together with bare `LSID` also satisfies the check, and a profile
+    captured by `notebooklm login` normally carries all three. The `LSID`
+    conjunct is required — `APISID` + `SAPISID` alone fail (#1977).
 
     If authentication *does* fail after switching, the profile was relying on
     the host-scoped `OSID`, which was minted on the host you just left and is
