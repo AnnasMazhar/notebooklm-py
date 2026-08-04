@@ -54,7 +54,7 @@ import notebooklm.auth as auth_module
 import notebooklm.cli.services.playwright_login as _pl
 import notebooklm.cli.session_cmd as session_cmd_module
 import notebooklm.paths as paths_module
-from notebooklm._env import PERSONAL_BASE_HOST, get_base_host
+from notebooklm._env import PERSONAL_BASE_HOST
 from notebooklm.notebooklm_cli import cli
 from tests._fixtures import patch_session_login_dual
 
@@ -540,7 +540,7 @@ class TestLoginProgressSuccess:
     def test_not_logged_in_instructions_then_login_detected(self, runner):
         def wire(page):
             def wait_succeeds(url, **kwargs):
-                page.url = f"https://{get_base_host()}/"
+                page.url = f"{_BASE_URL}/"
 
             page.wait_for_url.side_effect = wait_succeeds
 
@@ -779,10 +779,10 @@ class TestLoginErrorRender:
     def test_unexpected_url_after_login_drift(self, runner):
         def wire(page):
             def wait_succeeds(url, **kwargs):
-                page.url = f"https://{get_base_host()}/"
+                page.url = f"{_BASE_URL}/"
 
             def goto_drifts(url, **kwargs):
-                if get_base_host() in url:
+                if _BASE_HOST in url:
                     page.url = "https://accounts.google.com/AccountChooser"
 
             page.wait_for_url.side_effect = wait_succeeds

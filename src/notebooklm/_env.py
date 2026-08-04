@@ -42,10 +42,16 @@ PERSONAL_APP_HOSTS = frozenset({PERSONAL_BASE_HOST, PERSONAL_LEGACY_HOST})
 # Guard rather than derivation (#2067). If a future edit makes the two constants
 # equal, this fails at import instead of silently shrinking every accept-set
 # built from ``PERSONAL_APP_HOSTS``.
-assert len(PERSONAL_APP_HOSTS) == 2, (
-    "PERSONAL_BASE_HOST and PERSONAL_LEGACY_HOST must name different hosts; "
-    "a one-element PERSONAL_APP_HOSTS silently breaks the login accept-set"
-)
+#
+# Deliberately a raise, not an ``assert``: ``python -O`` strips assertions, so
+# an assert would evaporate in exactly the optimized deployments where a silent
+# one-element accept-set is hardest to notice. The guardrail test covers this at
+# development time; this covers it at runtime.
+if len(PERSONAL_APP_HOSTS) != 2:  # pragma: no cover - import-time invariant
+    raise RuntimeError(
+        "PERSONAL_BASE_HOST and PERSONAL_LEGACY_HOST must name different hosts; "
+        "a one-element PERSONAL_APP_HOSTS silently breaks the login accept-set"
+    )
 
 _ALLOWED_BASE_HOSTS = PERSONAL_APP_HOSTS | {ENTERPRISE_BASE_HOST}
 
