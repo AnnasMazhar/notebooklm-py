@@ -1540,7 +1540,9 @@ class TestMissingCookiesHint:
     def test_missing_psidts_with_binding_suggests_rotation_or_visit(self):
         from notebooklm._auth.cookie_policy import missing_cookies_hint
 
-        hint = missing_cookies_hint({"SID", "APISID", "SAPISID"}, browser_label="firefox")
+        # LSID completes the binding (#1977); without it this set has no valid
+        # secondary binding at all and takes the other branch.
+        hint = missing_cookies_hint({"SID", "APISID", "SAPISID", "LSID"}, browser_label="firefox")
         assert "__Secure-1PSIDTS" in hint
         assert "RotateCookies recovery" in hint
         assert "firefox" in hint

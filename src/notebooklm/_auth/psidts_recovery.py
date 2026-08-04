@@ -60,7 +60,7 @@ from . import storage as _auth_storage
 # Tests must patch these aliases at this module's path, not at the
 # canonical owner's path, because aliases are import-time bound.
 # ----------------------------------------------------------------------------
-_has_valid_secondary_binding = _cookie_policy._has_valid_secondary_binding
+_has_rotatable_secondary_binding = _cookie_policy._has_rotatable_secondary_binding
 _is_allowed_auth_domain = _cookie_policy._is_allowed_auth_domain
 _rotation_lock_path = _keepalive._rotation_lock_path
 _file_lock_try_exclusive = _keepalive._file_lock_try_exclusive
@@ -496,7 +496,7 @@ def _recover_psidts_inline(path: Path | str | None) -> bool:
         return False
     if _psidts_routes_to_rotate(cookie_entries, to_cookie=_storage_entry_to_cookie):
         return False
-    if not _has_valid_secondary_binding(cookie_names):
+    if not _has_rotatable_secondary_binding(cookie_names):
         logger.debug(
             "PSIDTS recovery skipped: secondary binding incomplete "
             "(need OSID, or both APISID and SAPISID)"
@@ -553,7 +553,7 @@ def _recover_psidts_inline(path: Path | str | None) -> bool:
         if "SID" not in fresh_names:
             logger.debug("PSIDTS recovery skipped: SID missing after flock acquisition")
             return False
-        if not _has_valid_secondary_binding(fresh_names):
+        if not _has_rotatable_secondary_binding(fresh_names):
             logger.debug(
                 "PSIDTS recovery skipped: secondary binding incomplete after flock acquisition"
             )
@@ -817,7 +817,7 @@ def recover_psidts_in_memory(rookiepy_cookies: list[dict[str, Any]]) -> bool:
         return False
     if _psidts_routes_to_rotate(rookiepy_cookies, to_cookie=_rookiepy_entry_to_cookie):
         return False
-    if not _has_valid_secondary_binding(cookie_names):
+    if not _has_rotatable_secondary_binding(cookie_names):
         logger.debug(
             "In-memory PSIDTS recovery skipped: secondary binding incomplete "
             "(need OSID, or both APISID and SAPISID)"
