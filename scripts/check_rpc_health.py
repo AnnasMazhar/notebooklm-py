@@ -1235,6 +1235,11 @@ async def probe_rebrand_chat(
         conversation_id=None,
         reqid=int(uuid4().int % 1_000_000),
     )
+    # Flattened header, same as the rebrand batchexecute probe above and for the
+    # same reason — see that call site's comment. Issue #2054 migrates every
+    # flattened site to the domain-aware representation; this one and the
+    # batchexecute probe are the two the rebrand lane added, so #2054's sweep
+    # covers FIVE sites, not the three that predate it.
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Cookie": auth.cookie_header,
