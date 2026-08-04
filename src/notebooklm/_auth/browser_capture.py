@@ -50,7 +50,14 @@ from typing import TYPE_CHECKING, Any, NoReturn, Protocol
 from urllib.parse import urlparse
 
 from .._atomic_io import atomic_write_json
-from ..config import PERSONAL_BASE_HOST, get_base_host, get_base_url
+
+# ``PERSONAL_APP_HOSTS`` is imported from ``_env`` rather than ``config``
+# deliberately: it is not part of ``config.__all__``, and re-exporting it there
+# just to reach it here would add a public export for an internal host fact.
+# Importing ``_env`` directly is the established idiom (``_url_utils`` and
+# friends do the same).
+from .._env import PERSONAL_APP_HOSTS
+from ..config import get_base_host, get_base_url
 from ..exceptions import HeadlessLoginRequiredError
 
 # ``CHANNEL_BROWSERS`` and the launch-failure triage live in the
@@ -360,10 +367,18 @@ def accepted_login_hosts() -> tuple[str, ...]:
     ("waiting for host X") can never drift from the predicate that actually
     ends the wait — the drift that made the ``notebook.google.com`` rebrand
     (#2017 / #2025 and friends) so expensive to triage.
+
+    Selecting *either* personal host accepts *both* of them. Google's login
+    flow may land on either one regardless of which we navigated to, so keying
+    the accept set on the selected host alone would reject a perfectly good
+    landing (and, on the alias, fail every login). Enterprise has no such
+    alias, so it accepts only itself.
     """
     base_host = get_base_host().lower()
-    if base_host == PERSONAL_BASE_HOST:
-        return (base_host, "notebook.google.com")
+    if base_host in PERSONAL_APP_HOSTS:
+        # Selected host first so the DEBUG line names the one we navigated to;
+        # the rest sorted so the message is stable across runs.
+        return (base_host, *sorted(PERSONAL_APP_HOSTS - {base_host}))
     return (base_host,)
 
 
