@@ -30,8 +30,8 @@ predate the constant. Entries should be deleted, never added -- adding one means
 a new copy of a domain fact was introduced, which is the thing this lint exists
 to prevent.
 
-The alias value is read from ``_env.py`` via AST so this lint cannot drift from
-the source of truth and pulls in no import side effects.
+Both host values are read from ``_env.py`` via AST so this lint cannot drift
+from the source of truth and pulls in no import side effects.
 """
 
 from __future__ import annotations

@@ -201,12 +201,13 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true", help="write changes (default: dry run)")
     args = parser.parse_args()
 
+    paths = sorted(PROJECT_ROOT.glob(CASSETTE_GLOB))
     totals: Counter = Counter()
-    for path in sorted(PROJECT_ROOT.glob(CASSETTE_GLOB)):
+    for path in paths:
         totals.update(process(path, args.apply))
 
     mode = "APPLIED" if args.apply else "DRY RUN"
-    print(f"[{mode}] cassettes scanned: {len(list(PROJECT_ROOT.glob(CASSETTE_GLOB)))}")
+    print(f"[{mode}] cassettes scanned: {len(paths)}")
     for key in sorted(totals):
         print(f"  {key}: {totals[key]}")
     rewritten = sum(v for k, v in totals.items() if not k.startswith(("skipped_", "files_")))
