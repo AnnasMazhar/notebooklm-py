@@ -143,9 +143,18 @@ def _validate_resumable_upload_url(upload_url: str) -> str:
     """Validate that a resumable upload URL targets the configured upload endpoint."""
     try:
         parsed = urlsplit(upload_url)
-        actual_port = parsed.port or _default_port_for_scheme(parsed.scheme)
+        # ``or`` would fold an explicit ``:0`` into the scheme default, since
+        # ``urlsplit`` returns the int 0 and 0 is falsy — an explicitly stated
+        # port must stay distinct from an absent one so ``:0`` is rejected.
+        actual_port = (
+            parsed.port if parsed.port is not None else _default_port_for_scheme(parsed.scheme)
+        )
         expected = urlsplit(get_upload_url())
-        expected_port = expected.port or _default_port_for_scheme(expected.scheme)
+        expected_port = (
+            expected.port
+            if expected.port is not None
+            else _default_port_for_scheme(expected.scheme)
+        )
     except ValueError as exc:
         raise ValidationError("Upload URL is not valid") from exc
 
