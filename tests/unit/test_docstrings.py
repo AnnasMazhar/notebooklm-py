@@ -184,7 +184,7 @@ async def test_from_storage_smoke_constructs_client(tmp_path: Path, httpx_mock: 
     # call resolves without touching the network.
     html = '"SNlM0e":"smoke_csrf" "FdrFJe":"smoke_session"'
     httpx_mock.add_response(
-        url="https://notebooklm.google.com/",
+        url="https://notebook.google.com/",
         content=html.encode(),
     )
 

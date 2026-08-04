@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The default base host is now `notebook.google.com`.** Google rebranded
+  NotebookLM to Gemini Notebook and serves the personal app from both
+  `notebooklm.google.com` and `notebook.google.com`; `batchexecute` is
+  dual-served on both (ADR-0028). The client now defaults to the rebrand host
+  instead of waiting for the legacy one to fail, which would have converted a
+  migration into an incident
+  ([#2067](https://github.com/teng-lin/notebooklm-py/issues/2067)).
+
+  **What changes for you:**
+
+  - **Share URLs.** `share_url`, `get_share_url()` and artifact deep-links now
+    read `https://notebook.google.com/notebook/<id>`. Previously-issued links
+    keep working — Google serves and redirects between both hosts — but any
+    test or snapshot pinning the old string needs updating.
+  - **`config.DEFAULT_BASE_URL` and `config.PERSONAL_BASE_HOST` change value.**
+    Both remain public and keep their names and types, so the API-compat gate
+    sees no break; the *values* moved. Code comparing against them is fine;
+    code comparing against a hardcoded `"notebooklm.google.com"` is not.
+  - **Rolling back needs a re-login, not just an env var.** Set
+    `NOTEBOOKLM_BASE_URL=https://notebooklm.google.com` to return to the
+    pre-rebrand host — it is still served and is the documented rollback lever
+    — then re-run `notebooklm login`. A profile created after the flip holds
+    host-scoped binding cookies (`OSID`) minted on the new host, and those are
+    never sent to the old one. Account-wide `.google.com` cookies are accepted
+    by both hosts, which is why a fresh sign-in restores either.
+
 ### Fixed
 
 - **RPC errors now name the host, not just the method.** Google serves the
@@ -17,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indistinguishable from "this account cannot see that notebook", so the one
   recovery lever available was one the user could not tell they needed. Every
   HTTP-status message now reads `… calling LIST_NOTEBOOKS on
-  notebooklm.google.com: …` — 4xx (including the 401/403 fallback), 5xx, and
+  notebook.google.com: …` — 4xx (including the 401/403 fallback), 5xx, and
   429 on both the mapper and the retry-exhausted transport path, which is the
   one a real 429 actually reaches. The host is read from the request that
   failed rather than re-read from `NOTEBOOKLM_BASE_URL`, so a re-point while an

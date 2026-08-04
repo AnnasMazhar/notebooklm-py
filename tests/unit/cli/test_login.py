@@ -16,6 +16,7 @@ import notebooklm.auth as auth_module
 import notebooklm.cli.playwright_login_io as playwright_login_io_module
 import notebooklm.cli.services.playwright_login as _pl
 import notebooklm.cli.session_cmd as session_cmd_module
+from notebooklm._env import get_base_host
 from notebooklm.notebooklm_cli import cli
 from tests._fixtures import patch_session_login_dual
 
@@ -227,7 +228,7 @@ class TestLoginCommand:
         ):
             mock_context = MagicMock()
             mock_page = MagicMock()
-            mock_page.url = "https://notebooklm.google.com/"
+            mock_page.url = f"https://{get_base_host()}/"
             mock_context.pages = [mock_page]
             mock_launch = (
                 mock_pw.return_value.__enter__.return_value.chromium.launch_persistent_context
@@ -362,7 +363,7 @@ class TestLoginCommand:
         ):
             mock_context = MagicMock()
             mock_page = MagicMock()
-            mock_page.url = "https://notebooklm.google.com/"
+            mock_page.url = f"https://{get_base_host()}/"
             mock_context.pages = [mock_page]
             # Real Playwright pages expose their owning BrowserContext via
             # ``page.context``; wire it so tests can reach the context from the
@@ -541,10 +542,10 @@ class TestLoginCommand:
         mock_page.url = "https://accounts.google.com/signin"
 
         def wait_succeeds(url, **kwargs):
-            mock_page.url = "https://notebooklm.google.com/"
+            mock_page.url = f"https://{get_base_host()}/"
 
         def goto_drifts(url, **kwargs):
-            if "notebooklm" in url:
+            if get_base_host() in url:
                 mock_page.url = "https://accounts.google.com/AccountChooser"
 
         mock_page.wait_for_url.side_effect = wait_succeeds
@@ -709,7 +710,7 @@ class TestLoginCommand:
         ):
             mock_context = MagicMock()
             mock_page = MagicMock()
-            mock_page.url = "https://notebooklm.google.com/"
+            mock_page.url = f"https://{get_base_host()}/"
             mock_context.pages = [mock_page]
             mock_context.storage_state.return_value = {"cookies": [], "origins": []}
             mock_launch = (
@@ -746,7 +747,7 @@ class TestLoginCommand:
         ):
             mock_context = MagicMock()
             mock_page = MagicMock()
-            mock_page.url = "https://notebooklm.google.com/"
+            mock_page.url = f"https://{get_base_host()}/"
             mock_context.pages = [mock_page]
             mock_context.storage_state.return_value = {"cookies": [], "origins": []}
             mock_launch = (
@@ -784,7 +785,7 @@ class TestLoginCommand:
         ):
             mock_context = MagicMock()
             mock_page = MagicMock()
-            mock_page.url = "https://notebooklm.google.com/"
+            mock_page.url = f"https://{get_base_host()}/"
             mock_page.content.return_value = "<html></html>"
             mock_context.pages = [mock_page]
             mock_context.storage_state.return_value = _required_cookie_state()
@@ -815,7 +816,7 @@ class TestLoginCommand:
         # after Playwright's sync context has torn down its event loop.
         mock_context = MagicMock()
         mock_page = MagicMock()
-        mock_page.url = "https://notebooklm.google.com/"
+        mock_page.url = f"https://{get_base_host()}/"
         mock_page.content.return_value = "<html></html>"
         mock_context.pages = [mock_page]
         mock_context.storage_state.return_value = _required_cookie_state()
@@ -899,7 +900,7 @@ class TestLoginCommand:
         ):
             mock_context = MagicMock()
             mock_page = MagicMock()
-            mock_page.url = "https://notebooklm.google.com/"
+            mock_page.url = f"https://{get_base_host()}/"
             mock_page.content.return_value = '<script>"bob@example.com"</script>'
             mock_context.pages = [mock_page]
             mock_context.storage_state.return_value = _required_cookie_state()
@@ -1015,7 +1016,7 @@ class TestLoginCommand:
         ):
             mock_context = MagicMock()
             mock_page = MagicMock()
-            mock_page.url = "https://notebooklm.google.com/"
+            mock_page.url = f"https://{get_base_host()}/"
             mock_page.content.return_value = "<html></html>"
             mock_context.pages = [mock_page]
             mock_context.storage_state.return_value = _required_cookie_state()
@@ -1155,7 +1156,7 @@ class TestLoginCommand:
         ):
             mock_context = MagicMock()
             mock_page = MagicMock()
-            mock_page.url = "https://notebooklm.google.com/"
+            mock_page.url = f"https://{get_base_host()}/"
             mock_context.pages = [mock_page]
             mock_context.storage_state.return_value = {"cookies": [], "origins": []}
             mock_launch = (

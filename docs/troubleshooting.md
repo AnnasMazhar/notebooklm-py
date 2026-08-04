@@ -242,12 +242,15 @@ notebooklm login --browser chrome --storage <path>
 
 **Cause:** The error message enumerates every host the base-URL validator currently accepts. That list is not the same as the list of *supported* values in [configuration.md](configuration.md) — it now also names the Gemini Notebook rebrand host, `notebook.google.com`.
 
-**Status:** `notebook.google.com` is **experimental, and not the default**. A live probe on 2026-08-04 reached `batchexecute` on **both** personal hosts, so the endpoint is dual-served, not rebrand-host-only or legacy-only. What is missing is coverage on our side: no `batchexecute` request to the rebrand host has ever been captured in `tests/cassettes/` — every recorded request against it is a `GET /` for the app shell — because the base-URL validator rejected the host until recently, so no client we shipped *could* have issued one. That is a gap in this project's testing, not a statement about the service. Dual-serving is also transitional: `scripts/check_rpc_health.py` probes the rebrand host in its own reporting lane so a change is noticed. See [ADR-0028](adr/0028-gemini-notebook-rename.md).
+**Status:** `notebook.google.com` is **the default** since #2067. A live probe on 2026-08-04 reached `batchexecute` on **both** personal hosts, so the endpoint is dual-served, not rebrand-host-only or legacy-only. The cassettes in `tests/cassettes/` now record requests against the rebrand host. The pre-rebrand host `notebooklm.google.com` remains a valid, still-served value and is the documented rollback lever — note that rolling back also needs a fresh `notebooklm login`, because the host-scoped binding cookies in an existing profile were minted on the host you are leaving. See [ADR-0028](adr/0028-gemini-notebook-rename.md).
 
 **Solution:** Leave `NOTEBOOKLM_BASE_URL` unset, or set it to a documented value:
 
 ```bash
 # Personal (default — no need to set it)
+export NOTEBOOKLM_BASE_URL=https://notebook.google.com
+
+# Personal, pre-rebrand host (still served; rollback lever — re-run 'notebooklm login' after switching)
 export NOTEBOOKLM_BASE_URL=https://notebooklm.google.com
 
 # Enterprise
