@@ -242,7 +242,7 @@ notebooklm login --browser chrome --storage <path>
 
 **Cause:** The error message enumerates every host the base-URL validator currently accepts. That list is not the same as the list of *supported* values in [configuration.md](configuration.md) — it now also names the Gemini Notebook rebrand host, `notebook.google.com`.
 
-**Status:** `notebook.google.com` is **experimental and unverified**. It is accepted by the validator (so that authentication against the rebrand host is not hard-blocked), but this project has never observed it serving the `batchexecute` RPC endpoint — every request captured against it so far is a `GET /` for the app shell. See [ADR-0028](adr/0028-gemini-notebook-rename.md).
+**Status:** `notebook.google.com` is **experimental, and not the default**. A live probe on 2026-08-04 reached `batchexecute` on **both** personal hosts, so the endpoint is dual-served, not rebrand-host-only or legacy-only. What is missing is coverage on our side: no `batchexecute` request to the rebrand host has ever been captured in `tests/cassettes/` — every recorded request against it is a `GET /` for the app shell — because the base-URL validator rejected the host until recently, so no client we shipped *could* have issued one. That is a gap in this project's testing, not a statement about the service. Dual-serving is also transitional: `scripts/check_rpc_health.py` probes the rebrand host in its own reporting lane so a change is noticed. See [ADR-0028](adr/0028-gemini-notebook-rename.md).
 
 **Solution:** Leave `NOTEBOOKLM_BASE_URL` unset, or set it to a documented value:
 
@@ -254,7 +254,7 @@ export NOTEBOOKLM_BASE_URL=https://notebooklm.google.com
 export NOTEBOOKLM_BASE_URL=https://notebooklm.cloud.google.com
 ```
 
-Do not point it at `https://notebook.google.com` expecting RPC calls to work; if you do experiment with it and RPC succeeds or fails, that is worth reporting in an issue.
+`https://notebook.google.com` is accepted but deliberately left out of the documented values while the default stays on the legacy host: it is untested by this project, so use it as an escape hatch rather than a normal setting. If you do run against it, reporting whether RPC succeeded or failed is genuinely useful — open an issue either way.
 
 ### RPC Errors
 
