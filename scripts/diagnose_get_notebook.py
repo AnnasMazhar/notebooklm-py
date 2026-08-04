@@ -26,7 +26,8 @@ from urllib.parse import urlencode
 import httpx
 
 from notebooklm._auth.cookies import _load_storage_state
-from notebooklm.auth import AuthTokens, extract_cookies_with_domains, fetch_tokens
+from notebooklm._auth.refresh import _fetch_tokens_with_jar
+from notebooklm.auth import AuthTokens, build_cookie_jar, extract_cookies_with_domains
 from notebooklm.rpc import (
     RPCMethod,
     build_request_body,
@@ -147,13 +148,20 @@ async def run_diagnosis(notebook_id: str | None = None) -> None:
     cookies = load_auth()
 
     print("Fetching auth tokens...")
+    # Fetch through a jar we keep, rather than `fetch_tokens(cookies)`. That
+    # helper builds a jar internally and copies it back only when
+    # NOTEBOOKLM_REFRESH_CMD ran, so on the ordinary path a Set-Cookie from the
+    # sign-in redirect -- a rotated host-scoped OSID, say -- is discarded, and
+    # the RPCs below would then be rejected despite token extraction having
+    # succeeded. `poke=False` keeps this read-only: no RotateCookies POST.
+    jar = build_cookie_jar(cookies=cookies)
     try:
-        csrf_token, session_id = await fetch_tokens(cookies)
+        csrf_token, session_id = await _fetch_tokens_with_jar(jar, None, poke=False)
     except (ValueError, httpx.HTTPError) as e:
         print(f"ERROR: Failed to fetch auth tokens: {e}")
         print("Try running: notebooklm login")
         sys.exit(1)
-    auth = AuthTokens(cookies=cookies, csrf_token=csrf_token, session_id=session_id)
+    auth = AuthTokens(cookies=cookies, csrf_token=csrf_token, session_id=session_id, cookie_jar=jar)
     print(f"Auth OK (CSRF length: {len(auth.csrf_token)})")
 
     async with httpx.AsyncClient(

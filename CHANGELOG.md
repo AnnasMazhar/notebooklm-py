@@ -41,7 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built its `Cookie:` header by joining `AuthTokens.cookies`, whose keys became
   `(name, domain, path)` tuples in #369 — emitting a syntactically malformed
   `('SID', '.google.com', '/')=…` header, so the script has been unable to
-  authenticate for anyone since — and it read the eager module-level
+  authenticate for anyone since [#369](https://github.com/teng-lin/notebooklm-py/issues/369) —
+  and it read the eager module-level
   `BATCHEXECUTE_URL` constant, ignoring `NOTEBOOKLM_BASE_URL` and so pointing
   enterprise users at the consumer host. Both are fixed together, and the
   script now loads auth domain-preserving (`extract_cookies_with_domains`)
