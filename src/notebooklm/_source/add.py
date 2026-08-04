@@ -9,7 +9,7 @@ from dataclasses import replace
 from typing import Any
 from urllib.parse import parse_qs
 
-from .._idempotency import _IdempotentCreateResult, idempotent_create
+from .._idempotency import _CreateResultKind, _IdempotentCreateResult, idempotent_create
 from .._runtime.contracts import RpcCaller
 from ..exceptions import (
     AuthError,
@@ -76,6 +76,23 @@ async def honor_requested_title(
     # would drop url / kind / status. Keep the fully-hydrated added source and swap in
     # just the new title — mirrors the file-upload rename (``_source/upload.py``).
     return replace(source, title=(renamed.title if renamed else None) or requested)
+
+
+async def honor_requested_title_if_fresh(
+    rename: RenameSource,
+    notebook_id: str,
+    result: Source | _IdempotentCreateResult[Source],
+    requested_title: str | None,
+    logger: logging.Logger,
+) -> Source:
+    """Apply a requested title only to a source created by this call."""
+    if isinstance(result, _IdempotentCreateResult):
+        if result.kind is _CreateResultKind.PROBED:
+            return result.value
+        source = result.value
+    else:
+        source = result
+    return await honor_requested_title(rename, notebook_id, source, requested_title, logger)
 
 
 class SourceAddService:

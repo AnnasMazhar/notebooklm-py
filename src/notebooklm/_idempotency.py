@@ -71,6 +71,13 @@ class _IdempotentCreateResult(Generic[T]):
     kind: _CreateResultKind
 
 
+def _coerce_create_result(value: T | _IdempotentCreateResult[T]) -> _IdempotentCreateResult[T]:
+    """Attach fresh-create provenance to a legacy value-only result."""
+    if isinstance(value, _IdempotentCreateResult):
+        return value
+    return _IdempotentCreateResult(value=value, kind=_CreateResultKind.CREATED)
+
+
 # The translated exception types that ``rpc_call`` raises when the
 # request fails in a way that *might* have committed the write on the
 # server. With ``disable_internal_retries=True``, the middleware retry loop

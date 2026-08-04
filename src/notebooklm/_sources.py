@@ -11,14 +11,13 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ._idempotency import _CreateResultKind, _IdempotentCreateResult
 from ._lookup import unwrap_or_raise
 from ._row_adapters.sources import interpret_source_freshness
 from ._runtime.config import DEFAULT_MAX_CONCURRENT_UPLOADS
 from ._runtime.contracts import RpcCaller
 from ._settings import build_get_user_settings_params, extract_account_limits
 from ._source import upload as _source_upload
-from ._source.add import SourceAddService, honor_requested_title
+from ._source.add import SourceAddService, honor_requested_title_if_fresh
 from ._source.content import SourceContentRenderer
 from ._source.drive_import import DriveFetcher, DriveImportService
 from ._source.listing import SourceLister
@@ -35,7 +34,6 @@ from .types import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 _SOURCE_ID_UUID_PATTERN = _source_upload._SOURCE_ID_UUID_PATTERN
 _extract_register_file_source_id = _source_upload._extract_register_file_source_id
@@ -419,15 +417,7 @@ class SourcesAPI:
             logger=logger,
             return_result=True,
         )
-        if isinstance(result, _IdempotentCreateResult):
-            source = result.value
-            is_fresh = result.kind is _CreateResultKind.CREATED
-        else:  # Keep injected/private service seams source-compatible.
-            source = result
-            is_fresh = True
-        if not is_fresh:
-            return source
-        return await honor_requested_title(self.rename, notebook_id, source, title, logger)
+        return await honor_requested_title_if_fresh(self.rename, notebook_id, result, title, logger)
 
     async def add_text(
         self,
@@ -587,15 +577,7 @@ class SourcesAPI:
             logger=logger,
             return_result=True,
         )
-        if isinstance(result, _IdempotentCreateResult):
-            source = result.value
-            is_fresh = result.kind is _CreateResultKind.CREATED
-        else:  # Keep injected/private service seams source-compatible.
-            source = result
-            is_fresh = True
-        if not is_fresh:
-            return source
-        return await honor_requested_title(self.rename, notebook_id, source, title, logger)
+        return await honor_requested_title_if_fresh(self.rename, notebook_id, result, title, logger)
 
     async def add_drive_file(
         self,
@@ -635,10 +617,9 @@ class SourcesAPI:
             ),
             add_file=self.add_file,
         )
-        # Gate the whole download→upload op on a DEDICATED download semaphore (not
-        # the upload one — ``add_file`` needs that, so reusing it would deadlock) so
-        # concurrent remote-MCP calls can't each buffer a 200 MiB temp and exhaust
-        # disk; at most ``max_concurrent_uploads`` temps exist at once.
+        # Gate the whole download→upload op on a DEDICATED download semaphore;
+        # reusing the upload one would deadlock because ``add_file`` needs it.
+        # It bounds temporary-file fan-out to ``max_concurrent_uploads``.
         async with self._uploader.get_download_semaphore():
             return await service.add_drive_file(
                 notebook_id, document_id, title=title, wait=wait, wait_timeout=wait_timeout

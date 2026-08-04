@@ -9,14 +9,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic
-from typing import IO, TYPE_CHECKING, Any, Literal, Protocol, cast, overload
+from typing import IO, TYPE_CHECKING, Any, Protocol, cast
 
 import httpx
 
 from .._auth.account import authuser_query, format_authuser_value
 from .._callbacks import maybe_await_callback
 from .._env import get_base_url
-from .._idempotency import _CreateResultKind, _IdempotentCreateResult, idempotent_create
+from .._idempotency import _coerce_create_result, _IdempotentCreateResult, idempotent_create
 from .._loop_bound import LoopBoundPrimitive
 from .._runtime.config import (
     DEFAULT_MAX_CONCURRENT_UPLOADS,
@@ -461,7 +461,6 @@ class SourceUploadPipeline(LoopBoundPrimitive):
 
         return source
 
-    @overload
     async def register_file_source(
         self,
         notebook_id: str,
@@ -471,45 +470,18 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         logger: Any | None = None,
         get_source_limit: GetSourceLimit | None = None,
         rpc_call: RpcCallback | None = None,
-        with_provenance: Literal[True],
-    ) -> _IdempotentCreateResult[str]: ...
-
-    @overload
-    async def register_file_source(
-        self,
-        notebook_id: str,
-        filename: str,
-        *,
-        list_sources: ListSources | None = None,
-        logger: Any | None = None,
-        get_source_limit: GetSourceLimit | None = None,
-        rpc_call: RpcCallback | None = None,
-        with_provenance: Literal[False] = False,
-    ) -> str: ...
-
-    async def register_file_source(
-        self,
-        notebook_id: str,
-        filename: str,
-        *,
-        list_sources: ListSources | None = None,
-        logger: Any | None = None,
-        get_source_limit: GetSourceLimit | None = None,
-        rpc_call: RpcCallback | None = None,
-        with_provenance: bool = False,
-    ) -> str | _IdempotentCreateResult[str]:
-        """Register a file source, preserving the historical string result."""
-        result = await self._register_file_source_result(
-            notebook_id,
-            filename,
-            list_sources=list_sources,
-            logger=logger,
-            get_source_limit=get_source_limit,
-            rpc_call=rpc_call,
-        )
-        if with_provenance:
-            return result
-        return result.value
+    ) -> str:
+        """Register a file source intent and return its source ID."""
+        return (
+            await self._register_file_source_result(
+                notebook_id,
+                filename,
+                list_sources=list_sources,
+                logger=logger,
+                get_source_limit=get_source_limit,
+                rpc_call=rpc_call,
+            )
+        ).value
 
     async def _register_file_source_for_upload(
         self, notebook_id: str, filename: str
@@ -518,17 +490,12 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         register = self.register_file_source
         registration: str | _IdempotentCreateResult[str]
         if getattr(register, "__func__", None) is SourceUploadPipeline.register_file_source:
-            registration = await register(notebook_id, filename, with_provenance=True)
+            registration = await self._register_file_source_result(notebook_id, filename)
         else:
             # Preserve injected and overridden legacy seams that only accept
             # the historical (notebook_id, filename) call shape.
             registration = await register(notebook_id, filename)
-        if isinstance(registration, _IdempotentCreateResult):
-            return registration
-        return _IdempotentCreateResult(
-            value=registration,
-            kind=_CreateResultKind.CREATED,
-        )
+        return _coerce_create_result(registration)
 
     async def _register_file_source_result(
         self,
@@ -540,16 +507,10 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         get_source_limit: GetSourceLimit | None = None,
         rpc_call: RpcCallback | None = None,
     ) -> _IdempotentCreateResult[str]:
-        """Register a file source intent and get SOURCE_ID.
+        """Register a file source intent and retain create/probe provenance.
 
-        Uses the same probe-then-create idempotency pattern as ``add_url`` /
-        ``add_drive`` (the ADD_SOURCE_FILE RPC is mutating, so a 5xx/network
-        failure between commit and response could duplicate on a naive retry).
-        Because filenames are NOT identity-bearing (two uploads of ``report.pdf``
-        are legitimately distinct), the probe captures a baseline of source IDs
-        BEFORE the first create and only matches IDs new since then; an ambiguous
-        match (>1 new source, e.g. a concurrent uploader) raises ``SourceAddError``
-        rather than guessing.
+        Filenames are not identity-bearing, so the probe matches only source IDs
+        that appeared after the pre-create baseline and rejects ambiguity.
         """
         params = build_register_file_source_params(filename, notebook_id)
         if rpc_call is None:
