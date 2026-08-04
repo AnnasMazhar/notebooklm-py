@@ -9,14 +9,14 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic
-from typing import IO, TYPE_CHECKING, Any, Protocol, cast
+from typing import IO, TYPE_CHECKING, Any, Literal, Protocol, cast, overload
 
 import httpx
 
 from .._auth.account import authuser_query, format_authuser_value
 from .._callbacks import maybe_await_callback
 from .._env import get_base_url
-from .._idempotency import idempotent_create
+from .._idempotency import _CreateResultKind, _IdempotentCreateResult, idempotent_create
 from .._loop_bound import LoopBoundPrimitive
 from .._runtime.config import (
     DEFAULT_MAX_CONCURRENT_UPLOADS,
@@ -397,7 +397,10 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                 file_obj, file_size = await asyncio.to_thread(_open_and_stat, file_path)
                 handed_off = False
                 try:
-                    source_id = await self.register_file_source(notebook_id, filename)
+                    registration = await self._register_file_source_for_upload(
+                        notebook_id, filename
+                    )
+                    source_id = registration.value
                     upload_url = await self.start_resumable_upload(
                         notebook_id,
                         filename,
@@ -417,7 +420,11 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                     if not handed_off:
                         file_obj.close()
 
-        needs_title_rename = title is not None and title != filename
+        needs_title_rename = (
+            title is not None
+            and title != filename
+            and registration.kind is _CreateResultKind.CREATED
+        )
         if wait:
             source = await self.wait_until_ready(
                 notebook_id,
@@ -458,6 +465,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
 
         return source
 
+    @overload
     async def register_file_source(
         self,
         notebook_id: str,
@@ -467,7 +475,75 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         logger: Any | None = None,
         get_source_limit: GetSourceLimit | None = None,
         rpc_call: RpcCallback | None = None,
-    ) -> str:
+        with_provenance: Literal[True],
+    ) -> _IdempotentCreateResult[str]: ...
+
+    @overload
+    async def register_file_source(
+        self,
+        notebook_id: str,
+        filename: str,
+        *,
+        list_sources: ListSources | None = None,
+        logger: Any | None = None,
+        get_source_limit: GetSourceLimit | None = None,
+        rpc_call: RpcCallback | None = None,
+        with_provenance: Literal[False] = False,
+    ) -> str: ...
+
+    async def register_file_source(
+        self,
+        notebook_id: str,
+        filename: str,
+        *,
+        list_sources: ListSources | None = None,
+        logger: Any | None = None,
+        get_source_limit: GetSourceLimit | None = None,
+        rpc_call: RpcCallback | None = None,
+        with_provenance: bool = False,
+    ) -> str | _IdempotentCreateResult[str]:
+        """Register a file source, preserving the historical string result."""
+        result = await self._register_file_source_result(
+            notebook_id,
+            filename,
+            list_sources=list_sources,
+            logger=logger,
+            get_source_limit=get_source_limit,
+            rpc_call=rpc_call,
+        )
+        if with_provenance:
+            return result
+        return result.value
+
+    async def _register_file_source_for_upload(
+        self, notebook_id: str, filename: str
+    ) -> _IdempotentCreateResult[str]:
+        """Normalize built-in and legacy registration seams for ``add_file``."""
+        register = self.register_file_source
+        registration: str | _IdempotentCreateResult[str]
+        if getattr(register, "__func__", None) is SourceUploadPipeline.register_file_source:
+            registration = await register(notebook_id, filename, with_provenance=True)
+        else:
+            # Preserve injected and overridden legacy seams that only accept
+            # the historical (notebook_id, filename) call shape.
+            registration = await register(notebook_id, filename)
+        if isinstance(registration, _IdempotentCreateResult):
+            return registration
+        return _IdempotentCreateResult(
+            value=registration,
+            kind=_CreateResultKind.CREATED,
+        )
+
+    async def _register_file_source_result(
+        self,
+        notebook_id: str,
+        filename: str,
+        *,
+        list_sources: ListSources | None = None,
+        logger: Any | None = None,
+        get_source_limit: GetSourceLimit | None = None,
+        rpc_call: RpcCallback | None = None,
+    ) -> _IdempotentCreateResult[str]:
         """Register a file source intent and get SOURCE_ID.
 
         Uses the same probe-then-create idempotency pattern as ``add_url`` /

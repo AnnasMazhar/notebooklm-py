@@ -9,7 +9,7 @@ from dataclasses import replace
 from typing import Any
 from urllib.parse import parse_qs
 
-from .._idempotency import idempotent_create
+from .._idempotency import _IdempotentCreateResult, idempotent_create
 from .._runtime.contracts import RpcCaller
 from ..exceptions import (
     AuthError,
@@ -95,7 +95,8 @@ class SourceAddService:
         extract_youtube_video_id: Callable[[str], str | None],
         is_youtube_url: YoutubeDetector,
         logger: logging.Logger,
-    ) -> Source:
+        return_result: bool = False,
+    ) -> Source | _IdempotentCreateResult[Source]:
         """Add a URL source to a notebook."""
         logger.debug("Adding URL source to notebook %s: %s", notebook_id, url[:80])
         video_id = extract_youtube_video_id(url)
@@ -149,16 +150,18 @@ class SourceAddService:
                     return source
             return None
 
-        source = await idempotent_create(
+        result = await idempotent_create(
             _create,
             _probe,
             label=f"sources.add_url[{url[:40]}]",
         )
+        source = result.value
 
         if wait:
-            return await wait_until_ready(notebook_id, source.id, timeout=wait_timeout)
+            source = await wait_until_ready(notebook_id, source.id, timeout=wait_timeout)
+            result = replace(result, value=source)
 
-        return source
+        return result if return_result else source
 
     async def add_text(
         self,
@@ -238,7 +241,8 @@ class SourceAddService:
         list_sources: ListSources,
         wait_until_ready: WaitUntilReady,
         logger: logging.Logger,
-    ) -> Source:
+        return_result: bool = False,
+    ) -> Source | _IdempotentCreateResult[Source]:
         """Add a Google Drive document as a source.
 
         Drive sources go through the same probe-then-create idempotency
@@ -346,16 +350,18 @@ class SourceAddService:
                     return source
             return None
 
-        source = await idempotent_create(
+        result = await idempotent_create(
             _create,
             _probe,
             label=f"sources.add_drive[{file_id}]",
         )
+        source = result.value
 
         if wait:
-            return await wait_until_ready(notebook_id, source.id, timeout=wait_timeout)
+            source = await wait_until_ready(notebook_id, source.id, timeout=wait_timeout)
+            result = replace(result, value=source)
 
-        return source
+        return result if return_result else source
 
     def extract_youtube_video_id(
         self,

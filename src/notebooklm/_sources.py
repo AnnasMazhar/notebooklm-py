@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from ._idempotency import _CreateResultKind, _IdempotentCreateResult
 from ._lookup import unwrap_or_raise
 from ._row_adapters.sources import interpret_source_freshness
 from ._runtime.config import DEFAULT_MAX_CONCURRENT_UPLOADS
@@ -404,7 +405,7 @@ class SourcesAPI:
         Example:
             source = await client.sources.add_url(nb_id, url, wait=True)
         """
-        source = await self._adder.add_url(
+        result = await self._adder.add_url(
             notebook_id,
             url,
             wait=wait,
@@ -416,7 +417,16 @@ class SourcesAPI:
             extract_youtube_video_id=self._extract_youtube_video_id,
             is_youtube_url=is_youtube_url,
             logger=logger,
+            return_result=True,
         )
+        if isinstance(result, _IdempotentCreateResult):
+            source = result.value
+            is_fresh = result.kind is _CreateResultKind.CREATED
+        else:  # Keep injected/private service seams source-compatible.
+            source = result
+            is_fresh = True
+        if not is_fresh:
+            return source
         return await honor_requested_title(self.rename, notebook_id, source, title, logger)
 
     async def add_text(
@@ -564,7 +574,7 @@ class SourcesAPI:
                 notebook_id, file_id="1abc123xyz", title="My Document",
                 mime_type=DriveMimeType.GOOGLE_DOC.value, wait=True)
         """
-        source = await self._adder.add_drive(
+        result = await self._adder.add_drive(
             notebook_id,
             file_id,
             title,
@@ -575,7 +585,16 @@ class SourcesAPI:
             list_sources=self.list,
             wait_until_ready=self.wait_until_ready,
             logger=logger,
+            return_result=True,
         )
+        if isinstance(result, _IdempotentCreateResult):
+            source = result.value
+            is_fresh = result.kind is _CreateResultKind.CREATED
+        else:  # Keep injected/private service seams source-compatible.
+            source = result
+            is_fresh = True
+        if not is_fresh:
+            return source
         return await honor_requested_title(self.rename, notebook_id, source, title, logger)
 
     async def add_drive_file(
