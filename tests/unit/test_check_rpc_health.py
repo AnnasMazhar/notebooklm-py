@@ -598,10 +598,18 @@ def _chat_auth() -> Any:
 class _ChatClient:
     """Minimal httpx-like client returning a fixed response (or raising)."""
 
-    def __init__(self, *, text: str = "", status: int = 200, raises: Exception | None = None):
+    def __init__(
+        self,
+        *,
+        text: str = "",
+        status: int = 200,
+        raises: Exception | None = None,
+        response_headers: dict[str, str] | None = None,
+    ):
         self._text = text
         self._status = status
         self._raises = raises
+        self._response_headers = response_headers or {}
         self.url: str | None = None
         self.content: str | None = None
 
@@ -613,6 +621,7 @@ class _ChatClient:
         return httpx.Response(
             self._status,
             text=self._text,
+            headers=self._response_headers,
             request=httpx.Request("POST", url),
         )
 
@@ -999,7 +1008,11 @@ def test_rebrand_probes_are_not_check_results() -> None:
         (503, RebrandProbeStatus.UNKNOWN),
         (302, RebrandProbeStatus.ABSENT),
         (404, RebrandProbeStatus.ABSENT),
-        (401, RebrandProbeStatus.ABSENT),
+        # Auth answers are NOT endpoint answers: an unauthenticated request
+        # proves nothing about whether the host serves the RPC (#2062).
+        (401, RebrandProbeStatus.UNAUTHENTICATED),
+        (403, RebrandProbeStatus.UNAUTHENTICATED),
+        (407, RebrandProbeStatus.UNAUTHENTICATED),
     ],
 )
 def test_classify_rebrand_status(status_code: int, expected: RebrandProbeStatus | None) -> None:
@@ -1008,6 +1021,31 @@ def test_classify_rebrand_status(status_code: int, expected: RebrandProbeStatus 
         assert verdict is None
     else:
         assert verdict is not None and verdict[0] is expected
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://accounts.google.com/ServiceLogin?continue=https://notebook.google.com/",
+        "https://accounts.google.com/v3/signin/identifier",
+        "/ServiceLogin?passive=1209600",
+        "https://accounts.youtube.com/accounts/SetSID",
+    ],
+)
+def test_rebrand_login_redirect_is_unauthenticated(location: str) -> None:
+    """A bounce into Google's sign-in flow says "signed out", not "absent"."""
+    verdict = check_rpc_health.classify_rebrand_status(302, location)
+    assert verdict is not None and verdict[0] is RebrandProbeStatus.UNAUTHENTICATED
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["https://notebook.google.com/app", "/app/notebook", "", None, "::not a url::"],
+)
+def test_rebrand_non_login_redirect_stays_absent(location: str | None) -> None:
+    """Only sign-in redirects are excused — everything else still answers ABSENT."""
+    verdict = check_rpc_health.classify_rebrand_status(302, location)
+    assert verdict is not None and verdict[0] is RebrandProbeStatus.ABSENT
 
 
 def test_retarget_url_keeps_path_and_query() -> None:
@@ -1057,6 +1095,29 @@ async def test_rebrand_batchexecute_absent_on_redirect() -> None:
     )
     assert probe.status is RebrandProbeStatus.ABSENT
     assert "302" in probe.detail
+
+
+@pytest.mark.asyncio
+async def test_rebrand_batchexecute_unauthenticated_on_401() -> None:
+    """A 401 is a statement about our credentials, not about the endpoint."""
+    client = _ChatClient(status=401, text="")
+    probe = await check_rpc_health.probe_rebrand_batchexecute(
+        client, _chat_auth(), "notebook.google.com"
+    )
+    assert probe.status is RebrandProbeStatus.UNAUTHENTICATED
+
+
+@pytest.mark.asyncio
+async def test_rebrand_chat_unauthenticated_on_sign_in_redirect() -> None:
+    client = _ChatClient(
+        status=302,
+        text="",
+        response_headers={"Location": "https://accounts.google.com/ServiceLogin?continue=x"},
+    )
+    probe = await check_rpc_health.probe_rebrand_chat(
+        client, _chat_auth(), "notebook.google.com", "nb_123"
+    )
+    assert probe.status is RebrandProbeStatus.UNAUTHENTICATED
 
 
 @pytest.mark.asyncio
@@ -1181,10 +1242,14 @@ def test_rebrand_present_stays_quiet_on_the_next_run() -> None:
     assert state["changed"] is False
 
 
-@pytest.mark.parametrize("status", [RebrandProbeStatus.UNKNOWN, RebrandProbeStatus.NOT_PROBED])
+@pytest.mark.parametrize(
+    "status",
+    [s for s in RebrandProbeStatus if s not in check_rpc_health.RECORDED_REBRAND_STATUSES],
+)
 def test_rebrand_unrecorded_statuses_carry_previous_state_forward(
     status: RebrandProbeStatus,
 ) -> None:
+    """Parametrized over the enum: a new non-recorded verdict is covered on arrival."""
     previous = {check_rpc_health.REBRAND_BATCHEXECUTE: "PRESENT"}
     state = build_rebrand_state(
         "notebook.google.com",
@@ -1193,6 +1258,53 @@ def test_rebrand_unrecorded_statuses_carry_previous_state_forward(
     )
     assert state["changed"] is False
     assert state["state"][check_rpc_health.REBRAND_BATCHEXECUTE] == "PRESENT"
+
+
+def test_rebrand_recorded_statuses_are_exactly_present_and_absent() -> None:
+    """The recorded set is the state machine's contract; widening it is the bug.
+
+    UNAUTHENTICATED in particular must stay out: recording it would let a night
+    with a broken CI profile overwrite a PRESENT and file a false
+    ``PRESENT->ABSENT``-shaped availability change (#2062).
+    """
+    assert {
+        RebrandProbeStatus.PRESENT,
+        RebrandProbeStatus.ABSENT,
+    } == check_rpc_health.RECORDED_REBRAND_STATUSES
+
+
+def test_rebrand_auth_failure_never_erases_a_recorded_present() -> None:
+    """The whole point of the UNAUTHENTICATED verdict, end to end."""
+    previous = {
+        check_rpc_health.REBRAND_BATCHEXECUTE: "PRESENT",
+        check_rpc_health.REBRAND_CHAT: "PRESENT",
+    }
+    probes = [
+        RebrandProbe(
+            check_rpc_health.REBRAND_BATCHEXECUTE, RebrandProbeStatus.UNAUTHENTICATED, "401"
+        ),
+        RebrandProbe(
+            check_rpc_health.REBRAND_CHAT, RebrandProbeStatus.UNAUTHENTICATED, "302 sign-in"
+        ),
+    ]
+    state = build_rebrand_state("notebook.google.com", probes, previous)
+    assert state["transitions"] == []
+    assert state["changed"] is False
+    assert state["state"] == previous
+    # The observation is still reported — it is carried, not hidden.
+    assert state["observed"][check_rpc_health.REBRAND_BATCHEXECUTE] == "UNAUTHENTICATED"
+
+
+def test_rebrand_state_records_the_run_that_wrote_it() -> None:
+    """The stamp the workflow matches against its own run id (#2062)."""
+    probes = [_probe(check_rpc_health.REBRAND_BATCHEXECUTE, RebrandProbeStatus.ABSENT)]
+    state = build_rebrand_state("notebook.google.com", probes, load_rebrand_state(None), "42")
+    assert state["run_id"] == "42"
+    # Unstamped by default, for local runs that have no run identity.
+    assert (
+        build_rebrand_state("notebook.google.com", probes, load_rebrand_state(None))["run_id"]
+        is None
+    )
 
 
 def test_rebrand_state_round_trips(tmp_path: Path) -> None:
@@ -1241,6 +1353,18 @@ def test_format_rebrand_lane_lines() -> None:
     assert "STATE CHANGE: batchexecute: ABSENT->PRESENT" in joined
     assert "NOT_PROBED" in joined
     assert all(line.startswith("REBRAND") for line in lines)
+
+
+def test_format_rebrand_lane_flags_an_auth_failure_as_inconclusive() -> None:
+    """An operator reading the report must not mistake it for a real ABSENT."""
+    probes = [
+        RebrandProbe(check_rpc_health.REBRAND_CHAT, RebrandProbeStatus.UNAUTHENTICATED, "HTTP 401")
+    ]
+    state = build_rebrand_state("notebook.google.com", probes, load_rebrand_state(None))
+    joined = "\n".join(check_rpc_health.format_rebrand_lane(state, probes))
+    assert "UNAUTHENTICATED" in joined
+    assert "STATE CHANGE" not in joined
+    assert "carried forward" in joined
 
 
 def test_format_rebrand_lane_says_so_when_nothing_changed() -> None:
@@ -1357,9 +1481,13 @@ def test_main_threads_the_rebrand_state_into_the_report(
         *,
         base_url_source: str = "default",
         rebrand_state_path: Path | None = None,
+        rebrand_previous_state_path: Path | None = None,
+        rebrand_run_id: str | None = None,
     ) -> tuple[list[CheckResult], CohortStatus, dict[str, Any]]:
         captured["base_url_source"] = base_url_source
         captured["rebrand_state_path"] = rebrand_state_path
+        captured["rebrand_previous_state_path"] = rebrand_previous_state_path
+        captured["rebrand_run_id"] = rebrand_run_id
         state = build_rebrand_state(
             "notebook.google.com",
             [_probe(check_rpc_health.REBRAND_BATCHEXECUTE, RebrandProbeStatus.PRESENT)],
@@ -1372,6 +1500,7 @@ def test_main_threads_the_rebrand_state_into_the_report(
     # monkeypatch own the key so its teardown undoes that for later tests.
     monkeypatch.setenv("NOTEBOOKLM_BASE_URL", "https://notebooklm.google.com")
     state_file = tmp_path / "rebrand-state.json"
+    previous_file = tmp_path / "rebrand-state-prev.json"
     monkeypatch.setattr(
         sys,
         "argv",
@@ -1381,6 +1510,10 @@ def test_main_threads_the_rebrand_state_into_the_report(
             "https://notebook.google.com",
             "--rebrand-state-file",
             str(state_file),
+            "--rebrand-previous-state-file",
+            str(previous_file),
+            "--rebrand-run-id",
+            "12345",
         ],
     )
 
@@ -1391,4 +1524,8 @@ def test_main_threads_the_rebrand_state_into_the_report(
     assert rc == 0
     assert captured["base_url_source"] == "--base-url"
     assert captured["rebrand_state_path"] == state_file
+    # Read and write paths stay separate, so a state file restored from cache
+    # but never rewritten cannot be mistaken for this run's output (#2062).
+    assert captured["rebrand_previous_state_path"] == previous_file
+    assert captured["rebrand_run_id"] == "12345"
     assert "STATE CHANGE: batchexecute: ABSENT->PRESENT" in out

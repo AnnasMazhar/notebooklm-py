@@ -139,17 +139,34 @@ class RebrandProbeStatus(str, Enum):
     """Verdict for one rebrand-host (``notebook.google.com``) capability probe.
 
     ``PRESENT`` / ``ABSENT`` are *recorded* states — they are what the state
-    file remembers and what a transition is computed against. ``UNKNOWN``
-    (transport failure, rate limit, 5xx) and ``NOT_PROBED`` (the ``/upload/_/``
-    sub-question, which needs a manual capture) are explicitly NOT recorded:
-    they carry the previous state forward so a flake can never manufacture a
+    file remembers and what a transition is computed against. Every other
+    member is explicitly NOT recorded (see :data:`RECORDED_REBRAND_STATUSES`):
+    it carries the previous state forward, so a flake can never manufacture a
     state change, and never suppress a real one later.
+
+    ``UNKNOWN`` is server-side or transport noise (rate limit, 5xx, connection
+    failure). ``UNAUTHENTICATED`` is the answer "we were not signed in for that
+    request" — an HTTP 401/403 or a redirect into Google's sign-in flow. That
+    is a statement about this run's credentials, NOT about the endpoint, so it
+    must never overwrite a recorded PRESENT: measured 2026-08-04 across five
+    live profiles, the session is gated by the accounts-scoped ``LSID`` family
+    (domain-correct for both hosts), so an auth failure here means a broken or
+    partial profile, never a missing endpoint. ``NOT_PROBED`` is the
+    ``/upload/_/`` sub-question, which needs a manual capture.
     """
 
     PRESENT = "PRESENT"
     ABSENT = "ABSENT"
+    UNAUTHENTICATED = "UNAUTHENTICATED"
     UNKNOWN = "UNKNOWN"
     NOT_PROBED = "NOT_PROBED"
+
+
+# The only verdicts written to the state file and compared for transitions.
+# Everything else carries the previous value forward untouched.
+RECORDED_REBRAND_STATUSES: frozenset[RebrandProbeStatus] = frozenset(
+    {RebrandProbeStatus.PRESENT, RebrandProbeStatus.ABSENT}
+)
 
 
 # Studio-customization cohort tripwire RPC. NOT in ``RPCMethod`` (it is gated off
@@ -1132,18 +1149,62 @@ def retarget_url(url: str, host: str) -> str:
     return str(httpx.URL(url).copy_with(host=host))
 
 
-def classify_rebrand_status(status_code: int) -> tuple[RebrandProbeStatus, str] | None:
+# HTTP statuses that answer "you are not signed in", not "the endpoint is gone".
+_REBRAND_AUTH_STATUS_CODES = frozenset({401, 403, 407})
+
+# A ``Location`` landing on one of these is Google's sign-in flow. Same reading
+# as a 401: the host bounced an unauthenticated request, which says nothing
+# about whether it serves the RPC endpoint to a signed-in one.
+_LOGIN_REDIRECT_HOSTS = frozenset({"accounts.google.com", "accounts.youtube.com"})
+_LOGIN_REDIRECT_PATH_MARKERS = ("servicelogin", "signin", "accountchooser", "oauth")
+
+
+def is_login_redirect(location: str | None) -> bool:
+    """Return whether a redirect ``Location`` points into Google's sign-in flow.
+
+    Handles the relative form (``/ServiceLogin?...``) as well as the absolute
+    one, since either is a legal ``Location`` per RFC 7231.
+    """
+    if not location:
+        return False
+    try:
+        url = httpx.URL(location)
+    except (httpx.InvalidURL, ValueError, TypeError):
+        return False
+    if url.host in _LOGIN_REDIRECT_HOSTS:
+        return True
+    path = url.path.lower()
+    return any(marker in path for marker in _LOGIN_REDIRECT_PATH_MARKERS)
+
+
+def classify_rebrand_status(
+    status_code: int, location: str | None = None
+) -> tuple[RebrandProbeStatus, str] | None:
     """Map a non-200 HTTP status to a lane verdict, or None to keep inspecting.
 
     Rate limits and 5xx are ``UNKNOWN`` (server-side noise — never a state
-    change). Everything else non-200 is ``ABSENT``: the host answered, and what
-    it answered was not an RPC response.
+    change). 401/403 and redirects into the sign-in flow are
+    ``UNAUTHENTICATED``: they establish that *this request* was not
+    authenticated, which is not evidence the endpoint is absent, so they must
+    not overwrite a recorded PRESENT (#2062). Everything else non-200 is
+    ``ABSENT``: the host answered, and what it answered was not an RPC
+    response.
     """
     if status_code == 200:
         return None
     if status_code == 429 or status_code >= 500:
         return RebrandProbeStatus.UNKNOWN, f"HTTP {status_code} (transient — no conclusion drawn)"
+    if status_code in _REBRAND_AUTH_STATUS_CODES:
+        return (
+            RebrandProbeStatus.UNAUTHENTICATED,
+            f"HTTP {status_code} (not authenticated for this host — no conclusion drawn)",
+        )
     if 300 <= status_code < 400:
+        if is_login_redirect(location):
+            return (
+                RebrandProbeStatus.UNAUTHENTICATED,
+                f"HTTP {status_code} redirect to sign-in — no conclusion drawn",
+            )
         return RebrandProbeStatus.ABSENT, f"HTTP {status_code} (redirect, not an RPC response)"
     return RebrandProbeStatus.ABSENT, f"HTTP {status_code}"
 
@@ -1194,7 +1255,7 @@ async def probe_rebrand_batchexecute(
             scrub_secrets(str(e) or type(e).__name__),
         )
 
-    verdict = classify_rebrand_status(response.status_code)
+    verdict = classify_rebrand_status(response.status_code, response.headers.get("location"))
     if verdict is not None:
         return RebrandProbe(REBRAND_BATCHEXECUTE, verdict[0], verdict[1])
 
@@ -1268,7 +1329,7 @@ async def probe_rebrand_chat(
             scrub_secrets(str(e) or type(e).__name__),
         )
 
-    verdict = classify_rebrand_status(response.status_code)
+    verdict = classify_rebrand_status(response.status_code, response.headers.get("location"))
     if verdict is not None:
         return RebrandProbe(REBRAND_CHAT, verdict[0], verdict[1])
 
@@ -1370,17 +1431,25 @@ def build_rebrand_state(
     host: str,
     probes: list[RebrandProbe],
     previous: dict[str, str],
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Fold ``probes`` onto ``previous`` and describe the transitions.
 
-    Only PRESENT/ABSENT observations update the recorded state; UNKNOWN and
-    NOT_PROBED carry the previous value forward, so a rate-limited night neither
-    fires an alarm nor erases yesterday's answer.
+    Only PRESENT/ABSENT observations update the recorded state; every other
+    verdict (UNKNOWN, UNAUTHENTICATED, NOT_PROBED) carries the previous value
+    forward, so a rate-limited or signed-out night neither fires an alarm nor
+    erases yesterday's answer.
+
+    ``run_id`` stamps the document with the identity of the run that produced
+    it. Consumers (the workflow's "Detect rebrand-host state change" step) match
+    it against their own run id, so a state file restored from cache but never
+    rewritten — the health script exiting early, say — can never be read as this
+    run's result. See ``.github/workflows/rpc-health.yml`` (#2062).
     """
     state = dict(previous)
     transitions: list[dict[str, str]] = []
     for probe in probes:
-        if probe.status not in (RebrandProbeStatus.PRESENT, RebrandProbeStatus.ABSENT):
+        if probe.status not in RECORDED_REBRAND_STATUSES:
             continue
         before = state.get(probe.capability)
         if before != probe.status.value:
@@ -1396,6 +1465,7 @@ def build_rebrand_state(
     return {
         "version": REBRAND_STATE_VERSION,
         "host": host,
+        "run_id": run_id,
         "state": state,
         "observed": {p.capability: p.status.value for p in probes},
         "transitions": transitions,
@@ -1423,7 +1493,7 @@ def format_rebrand_lane(state: dict[str, Any], probes: list[RebrandProbe]) -> li
     lines = [f"REBRAND  host: {state['host']} (own lane — never affects the exit code)"]
     for probe in probes:
         lines.append(
-            f"REBRAND  {probe.capability:13} {probe.status.value:10} - {scrub_secrets(probe.detail)}"
+            f"REBRAND  {probe.capability:13} {probe.status.value:15} - {scrub_secrets(probe.detail)}"
         )
     for transition in state["transitions"]:
         lines.append(
@@ -1432,6 +1502,12 @@ def format_rebrand_lane(state: dict[str, Any], probes: list[RebrandProbe]) -> li
         )
     if not state["changed"]:
         lines.append("REBRAND  no state change since the previous recorded run")
+    if any(p.status is RebrandProbeStatus.UNAUTHENTICATED for p in probes):
+        lines.append(
+            "REBRAND  NOTE: an UNAUTHENTICATED probe says this run's credentials "
+            "were rejected, NOT that the endpoint is gone — the previous recorded "
+            "state was carried forward. Check the CI profile."
+        )
     lines.append(
         "REBRAND  NOTE: an ABSENT verdict means 'not observed from this run's "
         "credentials', not 'unsupported'."
@@ -1738,6 +1814,8 @@ async def run_health_check(
     *,
     base_url_source: str = "default",
     rebrand_state_path: Path | None = None,
+    rebrand_previous_state_path: Path | None = None,
+    rebrand_run_id: str | None = None,
 ) -> tuple[list[CheckResult], CohortStatus, dict[str, Any]]:
     """Run health check on all RPC methods.
 
@@ -1749,9 +1827,14 @@ async def run_health_check(
 
     ``base_url_source`` names where the selected base host came from
     (``default`` / ``NOTEBOOKLM_BASE_URL`` / ``--base-url``) so the report says
-    which host was probed and why. ``rebrand_state_path`` is the rebrand lane's
-    previous-state file; ``None`` compares against the documented baseline and
-    persists nothing.
+    which host was probed and why. ``rebrand_state_path`` is where the rebrand
+    lane writes this run's state; ``rebrand_previous_state_path`` is where it
+    reads the last run's from (defaulting to the same file, which is what a
+    local invocation wants). CI keeps them apart so the file the workflow reads
+    back can only be one this run wrote — see the "Detect rebrand-host state
+    change" step. ``None`` compares against the documented baseline and persists
+    nothing. ``rebrand_run_id`` stamps the written document; see
+    :func:`build_rebrand_state`.
     """
     notebook_id = os.environ.get("NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID") or os.environ.get(
         "NOTEBOOKLM_GENERATION_NOTEBOOK_ID"
@@ -1766,8 +1849,9 @@ async def run_health_check(
     # A no-observation document, so an early failure still yields a
     # well-formed (and change-free) rebrand lane rather than a KeyError.
     rebrand_state: dict[str, Any] = build_rebrand_state(
-        rebrand_probe_host(), [], dict(REBRAND_BASELINE_STATE)
+        rebrand_probe_host(), [], dict(REBRAND_BASELINE_STATE), rebrand_run_id
     )
+    previous_state_path = rebrand_previous_state_path or rebrand_state_path
 
     storage_path = resolve_storage_path()
     print(f"Fetching auth tokens... (source: {describe_auth_source(storage_path)})")
@@ -1845,7 +1929,8 @@ async def run_health_check(
             rebrand_state = build_rebrand_state(
                 rebrand_probe_host(),
                 rebrand_probes,
-                load_rebrand_state(rebrand_state_path),
+                load_rebrand_state(previous_state_path),
+                rebrand_run_id,
             )
             write_rebrand_state(rebrand_state_path, rebrand_state)
             for line in format_rebrand_lane(rebrand_state, rebrand_probes):
@@ -2134,9 +2219,28 @@ def main() -> int:
         default=None,
         type=Path,
         help=(
-            "Path the rebrand-host lane reads the previous run's state from and "
-            "writes this run's state to. Omitted: compare against the documented "
-            "ABSENT baseline and persist nothing."
+            "Path the rebrand-host lane writes this run's state to (and, unless "
+            "--rebrand-previous-state-file is given, also reads the previous "
+            "run's state from). Omitted: compare against the documented ABSENT "
+            "baseline and persist nothing."
+        ),
+    )
+    parser.add_argument(
+        "--rebrand-previous-state-file",
+        default=None,
+        type=Path,
+        help=(
+            "Read the previous run's rebrand state from a DIFFERENT path than "
+            "the one written. CI passes both so a state file restored from cache "
+            "can never be mistaken for this run's output."
+        ),
+    )
+    parser.add_argument(
+        "--rebrand-run-id",
+        default=None,
+        help=(
+            "Stamp the written rebrand state with this run's identity, so a "
+            "consumer can verify the document it reads was produced by this run."
         ),
     )
     args = parser.parse_args()
@@ -2158,6 +2262,8 @@ def main() -> int:
             full_mode=args.full,
             base_url_source=source,
             rebrand_state_path=args.rebrand_state_file,
+            rebrand_previous_state_path=args.rebrand_previous_state_file,
+            rebrand_run_id=args.rebrand_run_id,
         )
     )
     return print_summary(results, cohort_status, rebrand_state)
