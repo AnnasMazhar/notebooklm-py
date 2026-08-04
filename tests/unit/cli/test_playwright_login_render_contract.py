@@ -243,9 +243,7 @@ def _drive_login(
         # host regardless of any env var set in the test runner. ``get_base_host``
         # is consumed by the URL helpers that moved into the neutral
         # browser-capture core, so patch its ``_bc`` binding.
-        stack.enter_context(
-            patch.object(_bc, "get_base_host", return_value="notebooklm.google.com")
-        )
+        stack.enter_context(patch.object(_bc, "get_base_host", return_value="notebook.google.com"))
         stack.enter_context(patch_session_login_dual("_sync_server_language_to_config"))
         if patch_repair:
             stack.enter_context(patch.object(_pl, "repair_playwright_account_metadata"))
@@ -669,7 +667,7 @@ class TestLoginErrorRender:
             "Failed to connect to NotebookLM after multiple retries.\n"
             "This may be caused by:\n"
             "  • Network connectivity issues\n"
-            "  • Firewall or VPN blocking notebooklm.google.com\n"
+            "  • Firewall or VPN blocking notebook.google.com\n"
             "  • Corporate proxy interfering with the connection\n"
             "  • Google rate limiting (too many login attempts)\n"
             "\n"
@@ -677,7 +675,7 @@ class TestLoginErrorRender:
             "  1. Check your internet connection\n"
             "  2. Disable VPN/proxy temporarily\n"
             "  3. Wait a few minutes before retrying\n"
-            "  4. Check if notebooklm.google.com is accessible in your browser\n"
+            "  4. Check if notebook.google.com is accessible in your browser\n"
         )
 
     @pytest.mark.requires_playwright

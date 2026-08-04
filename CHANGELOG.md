@@ -27,13 +27,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Both remain public and keep their names and types, so the API-compat gate
     sees no break; the *values* moved. Code comparing against them is fine;
     code comparing against a hardcoded `"notebooklm.google.com"` is not.
-  - **Rolling back needs a re-login, not just an env var.** Set
+  - **Rolling back is normally just the env var.** Set
     `NOTEBOOKLM_BASE_URL=https://notebooklm.google.com` to return to the
-    pre-rebrand host — it is still served and is the documented rollback lever
-    — then re-run `notebooklm login`. A profile created after the flip holds
-    host-scoped binding cookies (`OSID`) minted on the new host, and those are
-    never sent to the old one. Account-wide `.google.com` cookies are accepted
-    by both hosts, which is why a fresh sign-in restores either.
+    pre-rebrand host — it is still served and is the documented rollback lever.
+    Existing profiles usually keep working across the switch, because the
+    account-wide `.google.com` binding pair (`APISID` + `SAPISID`) is sent to
+    both hosts and satisfies the session check on its own.
+
+    If authentication *does* fail after switching, the profile was relying on
+    the host-scoped `OSID`, which was minted on the host you just left and is
+    never sent to the other one. Recover with `notebooklm login --fresh`. Use
+    `--fresh` specifically: a plain `notebooklm login` can report "Already
+    logged in" and re-mint nothing, because the login accept-set matches either
+    personal host.
 
 ### Fixed
 

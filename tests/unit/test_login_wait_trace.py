@@ -135,7 +135,7 @@ def test_enterprise_host_has_no_personal_alias(monkeypatch: pytest.MonkeyPatch) 
     ("url", "expected"),
     [
         ("https://notebook.google.com/", True),
-        ("https://notebook.google.com/", True),
+        ("https://notebooklm.google.com/", True),
         # Case-insensitive: the predicate lowercases the parsed hostname.
         ("https://NoteBookLM.Google.COM/", True),
         ("https://NOTEBOOK.GOOGLE.COM/x", True),

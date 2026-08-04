@@ -257,7 +257,9 @@ export NOTEBOOKLM_BASE_URL=https://notebooklm.google.com
 export NOTEBOOKLM_BASE_URL=https://notebooklm.cloud.google.com
 ```
 
-Both personal hosts are documented values since #2067. `https://notebook.google.com` is the default and is what this project's cassettes now exercise; `https://notebooklm.google.com` remains served and is the supported rollback lever. Switching between them needs a fresh `notebooklm login` as well as the variable, because the host-scoped `OSID` binding in an existing profile was minted on the host you are leaving and is never sent to the other one.
+Both personal hosts are documented values since #2067. `https://notebook.google.com` is the default and is what this project's cassettes now exercise; `https://notebooklm.google.com` remains served and is the supported rollback lever.
+
+Switching between them is normally just the variable — the account-wide `.google.com` binding pair (`APISID` + `SAPISID`) is sent to both hosts and satisfies the session check by itself. If auth fails after switching, the profile was relying on the host-scoped `OSID`, which was minted on the host you left and is never sent to the other one; recover with `notebooklm login --fresh`. Use `--fresh` rather than a plain `notebooklm login`, which can report "Already logged in" and re-mint nothing, since the login accept-set matches either personal host.
 
 ### RPC Errors
 
