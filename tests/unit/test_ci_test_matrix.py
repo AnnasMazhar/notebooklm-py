@@ -21,6 +21,7 @@ def test_test_matrix_is_independent_and_preserves_ci_contract():
     assert jobs["quality"]["name"] == "Code Quality"
     assert jobs["test"]["name"] == "Test (${{ matrix.os }}, Python ${{ matrix.python-version }})"
     assert "needs" not in jobs["test"]
+    assert jobs["test"]["strategy"]["fail-fast"] is False
 
     matrix = jobs["test"]["strategy"]["matrix"]
     assert matrix == {
