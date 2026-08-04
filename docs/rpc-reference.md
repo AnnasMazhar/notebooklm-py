@@ -2541,8 +2541,8 @@ await rpc_call(
 )
 
 # Share URL format:
-# - Notebook: https://notebooklm.google.com/notebook/{notebook_id}
-# - Artifact deep-link: https://notebooklm.google.com/notebook/{notebook_id}?artifactId={artifact_id}
+# - Notebook: https://notebook.google.com/notebook/{notebook_id}
+# - Artifact deep-link: https://notebook.google.com/notebook/{notebook_id}?artifactId={artifact_id}
 ```
 
 **Important:** The `?artifactId=xxx` URL is a **deep link** - it opens the shared notebook and navigates to that artifact. The artifact itself isn't independently shared.
