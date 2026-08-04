@@ -257,7 +257,7 @@ export NOTEBOOKLM_BASE_URL=https://notebooklm.google.com
 export NOTEBOOKLM_BASE_URL=https://notebooklm.cloud.google.com
 ```
 
-`https://notebook.google.com` is accepted but deliberately left out of the documented values while the default stays on the legacy host: it is untested by this project, so use it as an escape hatch rather than a normal setting. If you do run against it, reporting whether RPC succeeded or failed is genuinely useful — open an issue either way.
+Both personal hosts are documented values since #2067. `https://notebook.google.com` is the default and is what this project's cassettes now exercise; `https://notebooklm.google.com` remains served and is the supported rollback lever. Switching between them needs a fresh `notebooklm login` as well as the variable, because the host-scoped `OSID` binding in an existing profile was minted on the host you are leaving and is never sent to the other one.
 
 ### RPC Errors
 
