@@ -420,10 +420,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                     if not handed_off:
                         file_obj.close()
 
-        needs_title_rename = (
-            title is not None
-            and title != filename
-        )
+        needs_title_rename = title is not None and title != filename
         if wait:
             source = await self.wait_until_ready(
                 notebook_id,
