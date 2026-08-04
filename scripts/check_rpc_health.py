@@ -91,8 +91,8 @@ from notebooklm._chat.wire import (
 from notebooklm._env import (
     BUILD_LABEL_STALE_AFTER_DAYS,
     DEFAULT_BL,
-    PERSONAL_APP_ALIAS_HOST,
     PERSONAL_APP_HOSTS,
+    PERSONAL_BASE_HOST,
     build_label_days_behind,
     extract_build_label,
     get_base_url,
@@ -1164,11 +1164,23 @@ class RebrandProbe:
 def rebrand_probe_host() -> str:
     """Return the host the rebrand lane probes.
 
-    Always the post-rebrand alias, regardless of what ``--base-url`` /
+    Always the post-rebrand host, regardless of what ``--base-url`` /
     ``NOTEBOOKLM_BASE_URL`` selected for the main lane: the lane's question is
     specifically "does *that* host serve RPC?".
+
+    .. note::
+
+       Since #2067 moved the default onto this same host, the lane duplicates
+       the main lane instead of adding a signal. That is deliberate for one
+       release: re-aiming it at :data:`~notebooklm._env.PERSONAL_LEGACY_HOST`
+       turns it into a *rollback-availability* monitor (ADR-0028, as amended),
+       which is the useful question post-flip -- but the nightly compares
+       against cached state (``rpc-health.yml``), so flipping the target
+       without bumping the state namespace would read the old host's history
+       as this host's and fire a spurious transition alert. Tracked as the
+       follow-up to this flip; kept redundant-but-honest until then.
     """
-    return PERSONAL_APP_ALIAS_HOST
+    return PERSONAL_BASE_HOST
 
 
 def retarget_url(url: str, host: str) -> str:
@@ -1556,10 +1568,10 @@ def format_rebrand_lane(state: dict[str, Any], probes: list[RebrandProbe]) -> li
 # Build-label lane — is ``_env.DEFAULT_BL`` still close to what Google serves?
 # ---------------------------------------------------------------------------
 
-# How many hops the app-shell fetch will follow. The authenticated shell takes at
-# most one: ``notebooklm.google.com`` answers 302 to ``notebook.google.com/``,
-# which answers 200 (measured 2026-08-04). Two is one spare hop; anything more is
-# a redirect loop, not a shell.
+# How many hops the app-shell fetch will follow. Measured 2026-08-04: the default
+# host (``notebook.google.com`` since #2067) answers 200 directly, and the legacy
+# host answers 302 to it — so a run pointed at the rollback host takes exactly one
+# hop. Two is one spare; anything more is a redirect loop, not a shell.
 _SHELL_MAX_HOPS = 2
 
 

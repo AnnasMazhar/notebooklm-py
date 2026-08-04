@@ -541,8 +541,11 @@ serves, and scores the pin against it:
   error, cohort flip). A stale pin is maintenance, and it must never mask an
   outage.
 - **Redirects are followed by hand**, one hop, and only to a personal app host at
-  the site root. The sign-in bounce (`/login?continue=…`) ends the walk with
-  `UNKNOWN`: "this run was not signed in" is not evidence about the build label.
+  the site root — the lane never carries the session jar somewhere it did not
+  intend to go. The default host serves the shell directly; the legacy host 302s
+  to it, so only a run pointed at the rollback host takes the hop. The sign-in
+  bounce (`/login?continue=…`) ends the walk with `UNKNOWN`: "this run was not
+  signed in" is not evidence about the build label.
 - An active `NOTEBOOKLM_BL` override does not change the verdict — the lane always
   scores the committed `DEFAULT_BL`, since that is what ships to users — but the
   report says the override was in effect.
@@ -553,14 +556,14 @@ probe below) and bump `DEFAULT_BL` in `src/notebooklm/_env.py`.
 ```python
 import asyncio, httpx
 from notebooklm._auth.cookies import _build_httpx_cookies_from_storage_strict
-from notebooklm._env import DEFAULT_BL, extract_build_label
+from notebooklm._env import DEFAULT_BL, extract_build_label, get_base_url
 
 async def main():
     # The strict loader is deliberate: build_httpx_cookies_from_storage triggers a
     # PSIDTS RotateCookies round-trip and a disk write, so it is not safe here.
     jar = _build_httpx_cookies_from_storage_strict(None)
     async with httpx.AsyncClient(cookies=jar, follow_redirects=True, timeout=60.0) as c:
-        r = await c.get("https://notebook.google.com/")
+        r = await c.get(f"{get_base_url()}/")
     print("pinned:", DEFAULT_BL)
     print("served:", extract_build_label(r.text))
 
