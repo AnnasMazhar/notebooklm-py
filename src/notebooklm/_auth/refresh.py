@@ -599,7 +599,7 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
         raise RuntimeError(
             f"{NOTEBOOKLM_REFRESH_CMD_ENV} exited {result.returncode} "
             f"(executable: {executable_basename}). "
-            f"Set {NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT_ENV}=1 and re-run with -v to see "
+            f"Set {NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT_ENV}=1 and re-run with -vv to see "
             "the command's captured stdout/stderr in the debug log."
         )
     logger.info("NotebookLM cookies refreshed via %s", NOTEBOOKLM_REFRESH_CMD_ENV)

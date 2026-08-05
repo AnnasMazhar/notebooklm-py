@@ -236,8 +236,9 @@ class TestLoginWindowsPermissions:
         ``0700`` and backup ``0600`` chmods (and the file-mode ``fchmod``) are
         POSIX-only and guarded on ``sys.platform``. With the platform forced to
         ``win32`` a real ``storage_state.json`` write through the canonical
-        ``replace_from_login`` performs NO ``os.chmod`` — and still writes the
-        file (and its ``.bak`` backup) correctly.
+        ``replace_from_login`` performs NO ``os.chmod``/``os.fchmod`` — and still
+        writes the file correctly. The ``backup=True`` ``.bak`` chmod is NOT
+        covered here (see the note at the ``replace_from_login`` call below).
         """
         import contextlib
         import os
@@ -275,8 +276,8 @@ class TestLoginWindowsPermissions:
         monkeypatch.setattr(sw.sys, "platform", "win32")
 
         path = tmp_path / "storage_state.json"
-        # Pre-existing target so the import ``.bak`` backup path (also chmod-guarded)
-        # is exercised, not just the parent-dir chmod.
+        # Pre-existing target so the writer takes its overwrite path (the
+        # ``os.replace`` onto an existing inode), not a first-write path.
         _atomic_write_json_unchecked(path, {"cookies": [], "origins": []})
         chmod_calls.clear()
         fchmod_calls.clear()
