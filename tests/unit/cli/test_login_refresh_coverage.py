@@ -453,3 +453,51 @@ def test_refresh_forwards_include_domains_to_writer(tmp_path) -> None:
     )
     writer.assert_called_once()
     assert writer.call_args.kwargs["include_domains"] == {"youtube"}
+
+
+def test_login_single_targeted_forwards_include_domains_to_writer(tmp_path) -> None:
+    """``_login_browser_cookies_single`` threads the opt-in set to the writer."""
+    account = _account("bob@example.com", browser_profile="Default")
+    writer = MagicMock(return_value=None)
+    deps = _deps(
+        enumerate_browser_accounts=MagicMock(return_value=({"Default": ["raw"]}, [account])),
+        select_account=MagicMock(return_value=account),
+        confirm_profile_account_overwrite=MagicMock(),
+        get_storage_path=MagicMock(return_value=tmp_path / "storage_state.json"),
+        write_extracted_cookies=writer,
+        sync_server_language_to_config=MagicMock(),
+    )
+    refresh._login_browser_cookies_single(
+        "chrome",
+        storage=None,
+        account_email="bob@example.com",
+        profile_name=None,
+        active_profile="work",
+        include_domains={"youtube"},
+        deps=deps,
+    )
+    writer.assert_called_once()
+    assert writer.call_args.kwargs["include_domains"] == {"youtube"}
+
+
+def test_login_all_accounts_forwards_include_domains_to_writer(tmp_path) -> None:
+    """``_login_all_accounts_from_browser`` threads the opt-in set to the writer."""
+    account = _account("alice@example.com", browser_profile="Default")
+    writer = MagicMock(return_value=None)
+    deps = _deps(
+        enumerate_browser_accounts=MagicMock(return_value=({"Default": ["raw"]}, [account])),
+        list_profiles=MagicMock(return_value=[]),
+        profiles_by_account_email=MagicMock(return_value={}),
+        email_to_profile_name=MagicMock(return_value="alice"),
+        resolve_all_accounts_target=MagicMock(return_value="alice"),
+        get_storage_path=MagicMock(return_value=tmp_path / "alice.json"),
+        write_extracted_cookies=writer,
+        sync_server_language_to_config=MagicMock(),
+    )
+    refresh._login_all_accounts_from_browser(
+        "chrome",
+        include_domains={"youtube"},
+        deps=deps,
+    )
+    writer.assert_called_once()
+    assert writer.call_args.kwargs["include_domains"] == {"youtube"}
