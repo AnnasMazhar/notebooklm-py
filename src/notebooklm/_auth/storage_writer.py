@@ -22,10 +22,20 @@ all write via ``_atomic_io``):
   (raises :class:`LockUnavailableError`) because failing open could overwrite a
   concurrent CAS delta; :func:`clear_in_band_account` is best-effort cleanup and
   swallows lock unavailability, matching the pre-refactor semantics.
+* :func:`replace_from_remint` — the full cookie-replace re-mint persister for the
+  BROWSER-CAPTURE arms (L3 headless-launch + interactive + CDP), relocated from
+  the bare ``atomic_write_json`` sites in :mod:`notebooklm._auth.browser_capture`.
+  Applies the write-time domain filter internally under the lock, then either
+  carries the existing ``notebooklm`` account namespace (``carry_account=True`` —
+  the unattended profile-launch arm, closing [capture-1]) or drops the stale
+  binding (``carry_account=False`` — the interactive arm, whose CLI adapter
+  re-establishes it). **Fails closed** (returns
+  :class:`WriteOutcome` with ``lock_unavailable``). Closes [capture-2].
 * :func:`persist_minted_jar` — the master-token L4 re-mint persister relocated
   from :mod:`notebooklm._auth.master_token`, routed through ``_atomic_io`` (so it
   gains fsync durability + temp cleanup) while keeping its storage lock and its
-  rebind-to-minted-account semantics. **Fails closed.**
+  rebind-to-minted-account semantics. b-PR2 adds the write-time domain filter
+  here (the L4 unfiltered-persist gap). **Fails closed.**
 * :func:`write_master_token` — the ``master_token.json`` writer, now routed
   through ``_atomic_io`` **and** guarded by a bounded sibling lock (it was
   previously lockless). **Fails closed.**
@@ -110,6 +120,7 @@ __all__ = [
     "clear_in_band_account",
     "merge_cookie_delta",
     "persist_minted_jar",
+    "replace_from_remint",
     "update_account_metadata",
     "write_master_token",
 ]
@@ -392,6 +403,107 @@ def clear_in_band_account(storage_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Browser-capture re-mint (relocated from ``browser_capture.py``)
+# ---------------------------------------------------------------------------
+
+
+def replace_from_remint(
+    path: Path,
+    captured_state: dict[str, Any],
+    *,
+    carry_account: bool,
+    include_domains: set[str] | None = None,
+) -> WriteOutcome:
+    """Full cookie replace for a browser-capture re-mint, under the storage lock.
+
+    The single sanctioned persist for the :mod:`notebooklm._auth.browser_capture`
+    arms (interactive login, L3 headless-launch re-auth, CDP re-auth). Replaces
+    ``storage_state.json``'s cookies with ``captured_state`` — a re-mint is a
+    brand-new session, so cookies are *replaced*, never merged. Full-file replace
+    intent: **fails closed**, returning ``WriteOutcome(lock_unavailable)`` on lock
+    unavailability so the capture caller can surface/retry rather than race a
+    concurrent keepalive write ([capture-2]).
+
+    Everything below happens **inside** the canonical storage lock:
+
+    * The write-time domain filter
+      (:func:`filter_storage_state_cookies_by_domain_policy`) is applied so
+      sibling-product cookies never reach disk. ``include_domains`` carries the
+      interactive ``--include-domains`` opt-in through unchanged; the default
+      policy preserves trusted Google roots (``*.googleusercontent.com`` / Drive
+      etc.), matching main's preserve-trusted-roots behavior. The filter is
+      idempotent, so a caller that pre-filtered with the same ``include_domains``
+      is not narrowed further.
+    * Account namespace handling branches on ``carry_account``:
+
+      - ``carry_account=True`` (unattended profile-launch arm): the existing
+        ``notebooklm`` namespace is read from the current file and CARRIED OVER
+        into the new state, so an in-place re-mint against our own profile no
+        longer destroys the account binding ([capture-1]).
+      - ``carry_account=False`` (interactive arm, and the CDP no-resolve
+        fallback): the stale binding is DROPPED — the user may have signed into a
+        different account. On the INTERACTIVE login arm the CLI adapter's
+        ``repair_playwright_account_metadata`` re-establishes it immediately
+        after the write. On the library / mid-RPC CDP arm there is NO such
+        repair, so it lands on the authuser=0 default (repair happens only via
+        CLI ``auth refresh``); carrying a stale index blindly would instead
+        relocate [capture-1], so authuser=0 is the deliberate safe fallback.
+
+    CDP arm caveat: CDP attaches to the operator's daily Chrome, whose account
+    set may not match the stored binding. The CALLER re-resolves the stored email
+    against the captured jar (any network lookup happens OUTSIDE this held lock)
+    and passes the verdict as ``carry_account``; on no-resolve it passes
+    ``carry_account=False`` rather than carry a possibly-misrouting index.
+
+    Args:
+        path: Destination ``storage_state.json``.
+        captured_state: The (already healed) captured storage-state dict.
+        carry_account: Whether to carry the existing account namespace forward.
+        include_domains: Optional ``--include-domains`` opt-in labels, applied by
+            the internal filter (mirrors the capture caller's filter call).
+
+    Returns:
+        :class:`WriteOutcome` — ``ok`` on success, ``lock_unavailable`` if the
+        bounded storage-lock acquire timed out / the lock infra failed.
+    """
+    from . import account as _account  # lazy: avoid the account<->writer cycle
+    from ._browser_cookie_filter import (  # noqa: PLC0415 (leaf; avoid import cycle)
+        filter_storage_state_cookies_by_domain_policy,
+    )
+
+    _ensure_secure_parent_dir(path)
+    lock_path = _storage_state_lock_path(path)
+    with _acquire_storage_lock(lock_path, log_prefix="replace_from_remint") as state:
+        if state != "held":
+            return WriteOutcome(WriteStatus.LOCK_UNAVAILABLE)
+
+        # Carry the existing account namespace BEFORE overwriting (read under the
+        # same lock so it can't tear against a concurrent writer).
+        carried_namespace: dict[str, Any] | None = None
+        if carry_account and path.exists():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing = None
+            if isinstance(existing, dict):
+                namespace = existing.get(_account._STORAGE_NAMESPACE_KEY)
+                if isinstance(namespace, dict):
+                    carried_namespace = namespace
+
+        # Write-time domain filter (preserve-trusted-roots). Returns a fresh
+        # ``{"cookies": [...], "origins": []}`` — the captured browser state
+        # never carries our ``notebooklm`` namespace, so it is only (re)attached
+        # from the carried value below.
+        filtered = filter_storage_state_cookies_by_domain_policy(
+            dict(captured_state), include_domains=include_domains
+        )
+        if carried_namespace is not None:
+            filtered[_account._STORAGE_NAMESPACE_KEY] = carried_namespace
+        atomic_write_json(path, filtered)
+    return WriteOutcome(WriteStatus.OK)
+
+
+# ---------------------------------------------------------------------------
 # Master-token writers (relocated from ``master_token.py``)
 # ---------------------------------------------------------------------------
 
@@ -405,8 +517,18 @@ def persist_minted_jar(path: Path, jar: httpx.Cookies, *, email: str | None) -> 
     rebind-to-minted-account namespace semantics. Old cookies are *replaced*, not
     merged — a re-mint is a brand-new session. Full-file replace intent:
     **fails closed**.
+
+    b-PR2 additionally applies the write-time domain filter
+    (:func:`filter_storage_state_cookies_by_domain_policy`, default policy —
+    preserve-trusted-roots) to the minted cookies before they reach disk, closing
+    the L4 unfiltered-persist gap. The rebind to the minted account
+    (``authuser=0`` + the minted ``email``) is unaffected: the filter only
+    narrows the cookie rows, never the account namespace.
     """
     from . import master_token as _master_token  # lazy: avoid import cycle
+    from ._browser_cookie_filter import (  # noqa: PLC0415 (leaf; avoid import cycle)
+        filter_storage_state_cookies_by_domain_policy,
+    )
 
     _ensure_secure_parent_dir(path)
     lock_path = _storage_state_lock_path(path)
@@ -422,7 +544,12 @@ def persist_minted_jar(path: Path, jar: httpx.Cookies, *, email: str | None) -> 
                 data = loaded if isinstance(loaded, dict) else {}
             except json.JSONDecodeError:
                 data = {}
-        data["cookies"] = _master_token.storage_state_from_jar(jar)["cookies"]
+        # Apply the write-time domain filter to the minted jar (L4 gap): the
+        # minted cookies were previously persisted raw. Default policy — trusted
+        # Google roots are preserved (main's preserve-trusted-roots behavior).
+        minted_state = _master_token.storage_state_from_jar(jar)
+        filtered_minted = filter_storage_state_cookies_by_domain_policy(minted_state)
+        data["cookies"] = filtered_minted["cookies"]
         data.setdefault("origins", [])
         ns_raw = data.get("notebooklm")
         ns: dict[str, Any] = ns_raw if isinstance(ns_raw, dict) else {}
