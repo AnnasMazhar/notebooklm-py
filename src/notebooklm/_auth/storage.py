@@ -6,8 +6,10 @@ import contextlib
 import errno
 import logging
 import os
+import random
 import sys
 import threading
+import time
 import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -88,6 +90,23 @@ class CookieSaveResult:
 _LOCK_CONTENTION_ERRNOS = {errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES}
 
 
+# --- Bounded-acquire tuning (single source of truth) ------------------------
+#
+# Shared by BOTH bounded acquire paths so they honour the same deadline and the
+# same jittered exponential backoff:
+#   * the blocking Windows ``msvcrt`` retry loop in ``_acquire_os_lock`` below
+#     ([storage-F4]: Windows has no blocking-without-internal-timeout primitive,
+#     so the blocking path drives ``LK_NBLCK`` probes to this deadline instead
+#     of letting ``LK_LOCK`` fail open after its internal ~10x1s), and
+#   * ``storage_writer._acquire_storage_lock`` (the non-blocking-probe bounded
+#     helper that the fail-closed RMW / re-mint writers use), which imports these.
+# 90 s is a generous worst-case wait that still bounds a crashed/wedged holder.
+# See ADR-0029.
+_LOCK_ACQUIRE_DEADLINE_SECONDS = 90.0
+_LOCK_ACQUIRE_INITIAL_DELAY_SECONDS = 0.01
+_LOCK_ACQUIRE_MAX_DELAY_SECONDS = 0.5
+
+
 # In-process lock registry, keyed per canonical lock-path (never global — distinct
 # profiles and the rotate sentinel must not couple). Acquired BEFORE the OS lock
 # (ordering: in-process lock -> OS lock) so threads within one process serialize
@@ -107,6 +126,79 @@ def _inprocess_lock_for(lock_path: Path) -> threading.Lock:
             lock = threading.Lock()
             _INPROCESS_LOCKS[key] = lock
         return lock
+
+
+def _acquire_os_lock(fd: int, *, blocking: bool, log_prefix: str) -> str:
+    """Acquire the OS-level exclusive lock on ``fd``; return the tristate.
+
+    Returns one of ``"held"`` / ``"contended"`` / ``"unavailable"``. The caller
+    (:func:`_file_lock`) has already taken the per-path in-process
+    :class:`threading.Lock` (ordering: in-process lock -> OS lock), so any
+    contention observed here is from **another process**, never another thread in
+    this process.
+
+    * **POSIX** — ``flock(LOCK_EX)`` when blocking (a kernel-level wait: unbounded
+      but non-spinning, unchanged), ``LOCK_EX | LOCK_NB`` when non-blocking.
+    * **Windows** — ``msvcrt`` has no blocking-without-internal-timeout primitive:
+      the blocking ``LK_LOCK`` mode gives up after ~10x1s and would fail open
+      long before the 90 s deadline ([storage-F4]). So the Windows **blocking**
+      path drives a bounded deadline retry over the **non-blocking** ``LK_NBLCK``
+      probe using the same jittered exponential backoff as
+      :func:`storage_writer._acquire_storage_lock`, retrying **only** on the
+      contention errno and falling through to ``"unavailable"`` when the deadline
+      elapses (never ``while True`` without a deadline break). A non-contention
+      errno (``EBADF`` etc.) falls through immediately with **no** retry spin.
+      Windows non-blocking is a single ``LK_NBLCK`` probe.
+    """
+    if sys.platform != "win32":
+        import fcntl
+
+        op = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+        try:
+            fcntl.flock(fd, op)
+            return "held"
+        except OSError as exc:
+            if not blocking and exc.errno in _LOCK_CONTENTION_ERRNOS:
+                logger.debug("%s: lock contended (%s)", log_prefix, type(exc).__name__)
+                return "contended"
+            logger.debug("%s: lock op unavailable (%s)", log_prefix, type(exc).__name__)
+            return "unavailable"
+
+    import msvcrt
+
+    deadline = time.monotonic() + _LOCK_ACQUIRE_DEADLINE_SECONDS
+    delay = _LOCK_ACQUIRE_INITIAL_DELAY_SECONDS
+    while True:
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            return "held"
+        except OSError as exc:
+            if exc.errno not in _LOCK_CONTENTION_ERRNOS:
+                # EBADF and other non-contention errnos: retrying cannot help.
+                # Fall through immediately — no spin.
+                logger.debug("%s: lock op unavailable (%s)", log_prefix, type(exc).__name__)
+                return "unavailable"
+            if not blocking:
+                # Non-blocking caller: another process holds the byte-range lock
+                # (in-process contention was already resolved by the threading
+                # lock in _file_lock). Report the skip signal without retrying.
+                logger.debug("%s: lock contended (%s)", log_prefix, type(exc).__name__)
+                return "contended"
+            # Blocking caller under contention: retry the non-blocking probe with
+            # jittered exponential backoff until the bounded deadline, then fall
+            # through to "unavailable" so the caller applies its per-intent fail
+            # policy (CAS fail-open with a one-shot warning).
+            now = time.monotonic()
+            if now >= deadline:
+                logger.debug(
+                    "%s: bounded msvcrt lock acquire exceeded %.0fs deadline; giving up",
+                    log_prefix,
+                    _LOCK_ACQUIRE_DEADLINE_SECONDS,
+                )
+                return "unavailable"
+            sleep_for = min(delay + random.uniform(0.0, delay), max(0.0, deadline - now))
+            time.sleep(sleep_for)
+            delay = min(delay * 2, _LOCK_ACQUIRE_MAX_DELAY_SECONDS)
 
 
 @contextlib.contextmanager
@@ -157,30 +249,12 @@ def _file_lock(lock_path: Path, *, blocking: bool, log_prefix: str) -> Iterator[
             yield "unavailable"
             return
         locked = False
-        state = "unavailable"
         try:
-            try:
-                if sys.platform == "win32":
-                    import msvcrt
-
-                    msvcrt.locking(fd, msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
-                else:
-                    import fcntl
-
-                    op = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
-                    fcntl.flock(fd, op)
-                locked = True
-                state = "held"
-            except OSError as exc:
-                if not blocking and exc.errno in _LOCK_CONTENTION_ERRNOS:
-                    # Non-blocking acquire bounced because another process holds
-                    # the lock — this is the "skip" signal.
-                    state = "contended"
-                    logger.debug("%s: lock contended (%s)", log_prefix, type(exc).__name__)
-                else:
-                    # NFS without flock, kernel quirk, etc. Caller should fail open.
-                    state = "unavailable"
-                    logger.debug("%s: lock op unavailable (%s)", log_prefix, type(exc).__name__)
+            # OS-lock acquisition (in-process lock already held above). On Windows
+            # the blocking path is a bounded ``LK_NBLCK`` retry to the shared 90 s
+            # deadline rather than ``LK_LOCK``'s internal ~10x1s ([storage-F4]).
+            state = _acquire_os_lock(fd, blocking=blocking, log_prefix=log_prefix)
+            locked = state == "held"
             yield state
         finally:
             if locked:
