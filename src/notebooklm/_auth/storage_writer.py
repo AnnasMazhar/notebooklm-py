@@ -86,6 +86,18 @@ from .._atomic_io import atomic_write_json
 from ..exceptions import LockUnavailableError
 from .paths import _storage_state_lock_path
 
+# Bounded-acquire tuning is defined ONCE next to the ``_file_lock`` primitive in
+# ``storage`` and shared here so both bounded paths (the blocking Windows
+# ``msvcrt`` retry in ``storage._acquire_os_lock`` and this non-blocking-probe
+# helper) honour the same 90 s deadline and jittered backoff. This top-level
+# import is cycle-safe: ``storage`` does not import ``storage_writer`` at module
+# scope (only lazily, inside function bodies).
+from .storage import (
+    _LOCK_ACQUIRE_DEADLINE_SECONDS,
+    _LOCK_ACQUIRE_INITIAL_DELAY_SECONDS,
+    _LOCK_ACQUIRE_MAX_DELAY_SECONDS,
+)
+
 if TYPE_CHECKING:
     import httpx
 
@@ -104,16 +116,12 @@ __all__ = [
 
 logger = logging.getLogger("notebooklm.auth")
 
-# --- Bounded acquire tuning -------------------------------------------------
-#
 # The unified full-file RMW / re-mint writers replace ``filelock``'s blocking
-# 10 s timeout with a platform-neutral bounded acquire. Under real contention a
-# caller waits up to this deadline (retrying a non-blocking probe with jittered
-# exponential backoff) before applying its per-intent failure policy. 90 s is a
-# generous worst-case CLI wait that still bounds a crashed/wedged holder.
-_LOCK_ACQUIRE_DEADLINE_SECONDS = 90.0
-_LOCK_ACQUIRE_INITIAL_DELAY_SECONDS = 0.01
-_LOCK_ACQUIRE_MAX_DELAY_SECONDS = 0.5
+# 10 s timeout with a platform-neutral bounded acquire (:func:`_acquire_storage_lock`):
+# under real contention a caller retries a non-blocking probe with jittered
+# exponential backoff up to ``_LOCK_ACQUIRE_DEADLINE_SECONDS`` before applying its
+# per-intent failure policy. Those tuning constants live in ``storage`` (imported
+# above) so this path and the blocking Windows ``msvcrt`` retry share one source.
 
 
 class WriteStatus(Enum):
