@@ -1,8 +1,10 @@
 """Refresh-cmd coordination + token-fetch entry points for authentication.
 
-This private module owns the ``NOTEBOOKLM_REFRESH_CMD`` subprocess flow, the
-per-loop coalescing of refresh attempts, and the public ``fetch_tokens`` /
-``fetch_tokens_with_domains`` entry points. ``notebooklm.auth`` re-exports
+This private module owns the ``NOTEBOOKLM_REFRESH_CMD`` subprocess flow and the
+public ``fetch_tokens`` / ``fetch_tokens_with_domains`` entry points. The
+cross-loop coalescing of refresh attempts + the per-path success epoch now live
+in :mod:`notebooklm._auth.single_flight`; this module consumes that core and
+adds the cross-process refresh-cmd flock. ``notebooklm.auth`` re-exports
 compatibility names, but production no longer mirrors facade-level rebindings;
 tests that substitute moved refresh bodies should patch
 ``notebooklm._auth.refresh`` directly.
@@ -19,8 +21,7 @@ import logging
 import os
 import shlex
 import subprocess
-import threading
-import weakref
+from collections.abc import Coroutine
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,7 @@ from . import headers as _auth_headers
 from . import keepalive as _keepalive
 from . import paths as _auth_paths
 from . import recovery as _auth_recovery
+from . import single_flight as _single_flight
 from . import storage as _auth_storage
 from .account import authuser_query
 
@@ -87,66 +89,63 @@ _poke_session = _keepalive._poke_session
 _REFRESH_ATTEMPTED_CONTEXT: ContextVar[bool] = ContextVar(
     "_REFRESH_ATTEMPTED_CONTEXT", default=False
 )
-# In-process state for refresh coordination, keyed per resolved storage path.
-#
-# Two layers of protection are required:
-#
-# - ``_REFRESH_STATE_LOCK`` (sync ``threading.Lock``) makes the
-#   ``_REFRESH_GENERATIONS`` check-and-update atomic ACROSS event loops.
-#   Two loops sharing a storage path each hold their own ``asyncio.Lock``
-#   (see below), so the asyncio lock alone cannot serialize the generation
-#   bump.
-#
-# - ``_REFRESH_LOCKS_BY_LOOP`` mirrors the keepalive ``_POKE_LOCKS_BY_LOOP``
-#   pattern: ``asyncio.Lock`` is loop-bound, so a per-loop / per-resolved-
-#   storage-path registry avoids the cross-loop / cross-thread hazard of a
-#   module-global ``asyncio.Lock`` that binds to the first event loop that
-#   uses it. The outer ``WeakKeyDictionary`` is keyed on the loop object so
-#   the inner dict is reclaimed when the loop is garbage-collected.
-_REFRESH_STATE_LOCK = threading.Lock()
-_REFRESH_LOCKS_BY_LOOP: weakref.WeakKeyDictionary[Any, dict[Path | None, asyncio.Lock]] = (
-    weakref.WeakKeyDictionary()
-)
-_REFRESH_GENERATIONS: dict[str, int] = {}
 
-# In-flight ``asyncio.Future`` registry for refresh-cmd coalescing.
-#
-# Same-loop concurrent callers that both encounter auth-expiry coalesce on a
-# single in-flight subprocess by sharing a per-resolved-storage-path
-# ``asyncio.Future``. The future is keyed per-loop because ``asyncio.Future``
-# is loop-bound; cross-loop coordination falls back to the
-# ``_REFRESH_GENERATIONS`` counter guarded by ``_REFRESH_STATE_LOCK``.
-#
-# The strong-ref ``_REFRESH_INFLIGHT_TASKS`` set keeps the shielded subprocess
-# Tasks alive so the asyncio GC does not collect them. The task self-removes
-# via ``add_done_callback(set.discard)`` once settled.
-_REFRESH_INFLIGHT_BY_LOOP: weakref.WeakKeyDictionary[Any, dict[str, asyncio.Future[None]]] = (
-    weakref.WeakKeyDictionary()
-)
-# Strong-ref set keyed by task identity. ``set.add`` / ``set.discard`` are
-# atomic under CPython's GIL (individual bytecode mutations on the underlying
-# hash table cannot interleave), so concurrent ``add`` / ``discard`` calls
-# from different event-loop threads are safe without an explicit lock. This is
-# implementation-specific to CPython; non-CPython runtimes would need a
-# ``threading.Lock`` here.
-_REFRESH_INFLIGHT_TASKS: set[asyncio.Task[None]] = set()
+# Cross-loop coalescing + the per-path success epoch now live in
+# ``notebooklm._auth.single_flight`` (c-PR2). The old per-loop future maps and
+# module-level generation dict (``_REFRESH_INFLIGHT_BY_LOOP`` /
+# ``_REFRESH_GENERATIONS`` / ``_REFRESH_LOCKS_BY_LOOP`` / ``_get_refresh_lock``)
+# were deleted in the same PR that introduced the shared core; there is no
+# revert-hazard split. A single refresh-cmd "rung policy" discriminator keys the
+# flight; the success epoch is keyed per canonical PATH only (see
+# ``single_flight.py``).
+_REFRESH_FLIGHT_POLICY = "refresh-cmd"
+
+# Cross-process rotation-style flock primitive, aliased from keepalive so the
+# leader body can serialize the refresh-cmd subprocess across processes
+# ([refresh-2]). Tests substitute it by patching this bare name.
+_file_lock_try_exclusive = _keepalive._file_lock_try_exclusive
+_refresh_lock_path = _auth_paths._refresh_lock_path
+canonical_storage_key = _auth_paths.canonical_storage_key
 
 
-def _get_inflight_registry() -> dict[str, asyncio.Future[None]]:
-    """Return the per-loop in-flight refresh-cmd future registry.
+async def _refresh_cmd_leader_body(
+    path_key: str,
+    resolved_storage_path: Path,
+    profile: str | None,
+) -> None:
+    """Leader-only body: run ``_run_refresh_cmd`` under a cross-process flock.
 
-    Mirrors ``_get_refresh_lock``: ``asyncio.Future`` is loop-bound, so we
-    need a per-loop registry. ``_REFRESH_STATE_LOCK`` makes the lookup /
-    insert atomic across threads (different loops on different threads can
-    each populate their own per-loop dict concurrently).
+    Runs as the single-flight leader's ``asyncio.Task``. In-process coalescing
+    already guarantees one subprocess per process; the per-path flock adds the
+    CROSS-process exclusion that closes the refresh-cmd stampede ([refresh-2]),
+    mirroring the keepalive rotation flock. Re-mint rungs deliberately take NO
+    such flock (each cross-process re-mint owns its own browser — §c.5/§c.7).
+
+    On a genuine cross-process contention (another process holds the flock and
+    is refreshing) the subprocess is skipped and the caller reloads whatever
+    that process writes — best-effort, bounded to a reload rather than a
+    duplicate subprocess. The success epoch is bumped ONLY after our own
+    subprocess actually exits zero, so a skipped or failed attempt leaves
+    waiters retrying (single_flight guarantee 2).
     """
-    loop = asyncio.get_running_loop()
-    with _REFRESH_STATE_LOCK:
-        per_loop = _REFRESH_INFLIGHT_BY_LOOP.get(loop)
-        if per_loop is None:
-            per_loop = {}
-            _REFRESH_INFLIGHT_BY_LOOP[loop] = per_loop
-        return per_loop
+    lock_path = _refresh_lock_path(resolved_storage_path)
+    if lock_path is None:
+        await _run_refresh_cmd(resolved_storage_path, profile)
+        _single_flight.note_success(path_key)
+        return
+    with _file_lock_try_exclusive(lock_path) as acquired:
+        if not acquired:
+            # Another process holds the refresh flock — it is refreshing right
+            # now. Skip our subprocess (no bump); the caller reloads the storage
+            # that process is writing.
+            logger.debug(
+                "%s skipped: %s held by another process",
+                NOTEBOOKLM_REFRESH_CMD_ENV,
+                lock_path,
+            )
+            return
+        await _run_refresh_cmd(resolved_storage_path, profile)
+    _single_flight.note_success(path_key)
 
 
 async def _coalesced_run_refresh_cmd(
@@ -154,92 +153,81 @@ async def _coalesced_run_refresh_cmd(
     resolved_storage_path: Path,
     profile: str | None,
 ) -> None:
-    """Run ``_run_refresh_cmd`` once per ``refresh_key`` on this event loop.
+    """Run the refresh-cmd once across all loops for ``refresh_key``.
 
-    Same-loop concurrent callers that hit this function while a refresh is
-    in flight will await the same underlying ``asyncio.Future`` rather than
-    spawning their own subprocess.
+    Delegates coalescing + the success-epoch skip to
+    :mod:`notebooklm._auth.single_flight`. Preserves the historical None/raise
+    contract: returns ``None`` when the storage is (or has just been) refreshed
+    and the caller should reload; raises the subprocess exception when the
+    refresh genuinely failed and no concurrent flight succeeded; propagates
+    ``CancelledError`` on caller-side cancellation (after settling the shared
+    subprocess).
 
-    Cancel-safety design:
+    Preserved single-flight guarantees:
 
-    - The subprocess is driven by a strongly-referenced background
-      ``asyncio.Task`` (registered in ``_REFRESH_INFLIGHT_TASKS``) so it
-      survives cancellation of any individual awaiter.
-    - Each awaiter wraps the future in ``asyncio.shield`` so local
-      cancellation of the awaiter does NOT cancel the shared subprocess —
-      mirrors the ``AuthRefreshCoordinator.await_refresh`` pattern used
-      for the RPC refresh path.
-    - The caller in ``_fetch_tokens_with_refresh`` keeps re-awaiting the
-      shielded future under the per-loop asyncio lock so the lock is not
-      released until the subprocess settles. This prevents a duplicate
-      subprocess from being spawned if the lock is released mid-refresh
-      and a second caller observes a partially-completed state.
+    1. **Late-waiter skip (compare-under-exclusion)** — the success epoch is
+       captured BEFORE waiting, and the epoch compare + the flight claim happen
+       under a SINGLE ``_REGISTRY_LOCK`` hold via
+       ``single_flight.claim_if_epoch_current``. A caller whose ``epoch_before``
+       is already stale (a sibling succeeded and prompt-popped its flight in the
+       meantime) gets a skip signal and reloads instead of spawning a redundant
+       subprocess.
+    2. **Bump on subprocess success only** — the leader body bumps the epoch
+       exclusively after ``_run_refresh_cmd`` exits zero; a failed (or
+       flock-skipped) attempt leaves the epoch untouched so waiters retry.
+    3. **Cancel/settle race** — ``await_flight`` settles the shared subprocess
+       before propagating caller cancellation; a subprocess that fails while the
+       caller is cancelled never bumps the epoch (the body raised before the
+       bump).
+    4. **No phantom bump on cancel-before-work** — only the leader body bumps,
+       and only after real work; a caller cancelled before/while awaiting never
+       bumps, and neither does a follower.
     """
-    loop = asyncio.get_running_loop()
-    registry = _get_inflight_registry()
-    with _REFRESH_STATE_LOCK:
-        existing = registry.get(refresh_key)
-        leader = existing is None or existing.done()
-        if leader:
-            future: asyncio.Future[None] = loop.create_future()
-            registry[refresh_key] = future
+    # ``refresh_key`` is already the canonical ``str(resolved_storage_path)``
+    # computed by the caller; reuse it as the per-path success-epoch key rather
+    # than recomputing.
+    path_key = refresh_key
+    flight_key = (path_key, _REFRESH_FLIGHT_POLICY)
+    # Capture the epoch BEFORE any wait (guarantee 1). A concurrent flight that
+    # SUCCEEDS while we wait bumps past this baseline, letting us skip.
+    epoch_before = _single_flight.read_success_epoch(path_key)
+
+    def _factory() -> Coroutine[Any, Any, None]:
+        return _refresh_cmd_leader_body(path_key, resolved_storage_path, profile)
+
+    # A PERSISTENTLY failing refresh-cmd with N concurrent waiters runs up to N
+    # sequential leader subprocesses: each follower whose leader failed becomes a
+    # fresh leader in turn (faithful to "failure leaves waiters retrying"). The
+    # first success bumps the epoch and every remaining waiter skips — so the
+    # unbounded-retry cost is bounded by the number of concurrent callers.
+    while True:
+        claimed = _single_flight.claim_if_epoch_current(
+            flight_key, _factory, path_key=path_key, epoch_before=epoch_before
+        )
+        if claimed is None:
+            # Compare-under-exclusion skip: a sibling already succeeded (epoch
+            # advanced) — reload the fresh storage instead of refreshing.
+            return
+        is_leader, flight = claimed
+        try:
+            await _single_flight.await_flight(flight)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:  # noqa: BLE001 - inspect epoch / leadership below
+            if _single_flight.read_success_epoch(path_key) > epoch_before:
+                # A concurrent flight succeeded even though the one we awaited
+                # failed — reload rather than propagate.
+                return
+            if is_leader:
+                # Our own subprocess failed and nobody else refreshed —
+                # propagate so the caller surfaces the failure.
+                raise
+            # We followed a leader whose subprocess failed; loop to re-attempt
+            # as a fresh leader (failure leaves waiters retrying).
+            continue
         else:
-            future = existing  # type: ignore[assignment]
-
-    if leader:
-        task = asyncio.create_task(_run_refresh_cmd(resolved_storage_path, profile))
-        # Strong-ref pattern: without ``add_done_callback`` the task can be
-        # collected by the asyncio GC before completion if no awaiter is
-        # holding a reference.
-        _REFRESH_INFLIGHT_TASKS.add(task)
-        task.add_done_callback(_REFRESH_INFLIGHT_TASKS.discard)
-
-        def _settle(t: asyncio.Task[None]) -> None:
-            # ``Future.set_*`` is loop-affine; the callback runs on the owning
-            # loop (same loop that created the future and the task), so direct
-            # ``set_result`` / ``set_exception`` is safe.
-            if not future.done():
-                if t.cancelled():
-                    future.cancel()
-                else:
-                    exc = t.exception()
-                    if exc is not None:
-                        future.set_exception(exc)
-                    else:
-                        future.set_result(None)
-            # Intentionally LEAVE the (now-done) future in the registry so the
-            # caller's CancelledError handler in ``_fetch_tokens_with_refresh``
-            # can still inspect ``inflight.exception()`` after a cancel/settle
-            # race. The leader-check at the
-            # get-or-create site (``existing is None or existing.done()``)
-            # treats a done future as overwritable, so the next refresh
-            # cycle's leader replaces this slot — no accumulation.
-
-        task.add_done_callback(_settle)
-
-    # All callers (leader + followers) await the shared future under shield.
-    # Re-raises subprocess exception to every awaiter.
-    await asyncio.shield(future)
-
-
-def _get_refresh_lock(resolved_storage_path: Path | None) -> asyncio.Lock:
-    """Return the ``asyncio.Lock`` for ``(running event loop, resolved storage path)``.
-
-    Mirrors ``_get_poke_lock``. Keyed on the RESOLVED storage path so callers
-    passing ``(None, profile="foo")`` share the lock with callers passing the
-    explicit profile-resolved path.
-    """
-    loop = asyncio.get_running_loop()
-    with _REFRESH_STATE_LOCK:
-        per_loop = _REFRESH_LOCKS_BY_LOOP.get(loop)
-        if per_loop is None:
-            per_loop = {}
-            _REFRESH_LOCKS_BY_LOOP[loop] = per_loop
-        lock = per_loop.get(resolved_storage_path)
-        if lock is None:
-            lock = asyncio.Lock()
-            per_loop[resolved_storage_path] = lock
-        return lock
+            # Flight succeeded (leader bumped the epoch) — caller reloads.
+            return
 
 
 _AUTH_ERROR_SIGNALS = (
@@ -542,191 +530,35 @@ async def _fetch_tokens_with_refresh(
         )
         # Canonicalize the storage path so different representations of the
         # same physical file (relative vs absolute, with or without symlinks,
-        # ``~`` shorthand) hash to the same lock-registry / generation key.
-        # ``get_storage_path`` already returns a resolved path, but a
-        # caller-supplied ``storage_path`` may be relative or a symlink.
-        refresh_storage_path = (
-            (storage_path or get_storage_path(profile=profile)).expanduser().resolve()
+        # ``~`` shorthand) hash to the same flight / success-epoch key
+        # ([refresh-5]). ``get_storage_path`` already returns a resolved path,
+        # but a caller-supplied ``storage_path`` may be relative or a symlink.
+        refresh_storage_path = canonical_storage_key(
+            storage_path or get_storage_path(profile=profile)
         )
+        # Both operands above are non-None in this branch (``env_auth`` already
+        # handled the no-file case); canonicalizing a real path yields a Path.
+        assert refresh_storage_path is not None
         refresh_key = str(refresh_storage_path)
-        # Snapshot the generation BEFORE acquiring the async lock so we can
-        # detect whether a concurrent refresh (potentially on a different
-        # event loop) bumped it while we were waiting. ``_REFRESH_STATE_LOCK``
-        # makes this read atomic with the later check-and-update below.
-        with _REFRESH_STATE_LOCK:
-            refresh_generation = _REFRESH_GENERATIONS.get(refresh_key, 0)
         refresh_token = _REFRESH_ATTEMPTED_CONTEXT.set(True)
         try:
-            async with _get_refresh_lock(refresh_storage_path):
-                # Bump generation ONLY after the current-attempt subprocess
-                # succeeds — never eagerly. An earlier implementation bumped it
-                # BEFORE ``_run_refresh_cmd``; on subprocess failure the phantom
-                # bump made concurrent waiters short-circuit onto stale storage.
-                # The bump happens just below, before the reload of fresh disk.
-                #
-                # Re-check under the sync state lock so the read is atomic
-                # ACROSS event loops. The per-loop asyncio lock only
-                # serializes within a single loop; a second loop sharing this
-                # storage path holds its own asyncio.Lock.
-                with _REFRESH_STATE_LOCK:
-                    current_generation = _REFRESH_GENERATIONS.get(refresh_key, 0)
-                    # ``current > refresh_generation`` means another caller
-                    # (any loop) has SUCCESSFULLY refreshed since we observed
-                    # auth-expiry — we can skip ``_run_refresh_cmd`` and just
-                    # reload the freshly-written storage.
-                    should_run_refresh = current_generation <= refresh_generation
-                if should_run_refresh:
-                    # Cancel-safety: drive the subprocess through the shared
-                    # in-flight future. Same-loop concurrent callers coalesce
-                    # on the same subprocess. If THIS caller is cancelled
-                    # while the subprocess is in flight, we keep awaiting the
-                    # shielded future so the asyncio lock is NOT released
-                    # until the subprocess settles — otherwise a second
-                    # caller could spawn a duplicate concurrent refresh by
-                    # observing the mid-flight lock release.
-                    caller_cancelled = False
-                    # ``observed_inflight`` distinguishes "current-attempt
-                    # subprocess actually ran" from "cancellation arrived
-                    # before any subprocess registered for THIS attempt"
-                    # (issue #816). Only when we have proof of the current
-                    # attempt do we have license to bump the generation.
-                    observed_inflight = False
-                    subprocess_exc: BaseException | None = None
-                    # Snapshot the inflight registry slot BEFORE entering
-                    # the await. The ``_settle`` callback intentionally
-                    # leaves done futures in the registry so the
-                    # cancel/settle race fix can still inspect
-                    # ``inflight.exception()``; that
-                    # retention also means the registry may still hold a
-                    # STALE done future from a previous refresh cycle when
-                    # our await starts. We distinguish that stale slot
-                    # from a current-attempt future so the
-                    # cancel-before-register narrow window (issue #816)
-                    # does not attribute a prior cycle's success to this
-                    # caller's no-op attempt.
-                    registry = _get_inflight_registry()
-                    with _REFRESH_STATE_LOCK:
-                        prior_inflight = registry.get(refresh_key)
-                    # A pre-existing registry entry that was already done
-                    # at capture time is stale leftover from a prior cycle.
-                    # A pre-existing entry that was still active is a
-                    # sibling leader's current-cycle future — same-loop
-                    # coalescing means we legitimately follow it.
-                    prior_was_active = prior_inflight is not None and not prior_inflight.done()
-                    while True:
-                        try:
-                            await _coalesced_run_refresh_cmd(
-                                refresh_key, refresh_storage_path, profile
-                            )
-                            # Normal return only happens when the shielded
-                            # future resolved with success — i.e. a
-                            # current-attempt subprocess ran to completion.
-                            observed_inflight = True
-                            break
-                        except asyncio.CancelledError:
-                            # Caller-side cancellation. Re-enter the await
-                            # so the shielded subprocess can settle while we
-                            # still hold the asyncio lock.
-                            caller_cancelled = True
-                            with _REFRESH_STATE_LOCK:
-                                inflight = registry.get(refresh_key)
-                            # Determine whether the registry slot belongs
-                            # to the CURRENT refresh attempt. Two cases
-                            # mean "yes":
-                            #   (a) the slot was overwritten during our
-                            #       await (``inflight is not prior_inflight``
-                            #       — a new leader inserted a fresh future);
-                            #   (b) the slot already held an actively-
-                            #       running sibling leader at capture time
-                            #       (``prior_was_active``) — same-loop
-                            #       coalescing means we legitimately follow
-                            #       its subprocess.
-                            # Otherwise the slot is either empty or a
-                            # stale done future that ``_settle``
-                            # intentionally left behind from a prior cycle
-                            # (PR #621 cancel/settle race retention).
-                            # Treating that stale entry as proof of our
-                            # attempt would re-bump generation against an
-                            # outdated result — the warm-registry variant
-                            # of #816.
-                            if inflight is None or (
-                                inflight is prior_inflight and not prior_was_active
-                            ):
-                                # No current-attempt future to wait on
-                                # (issue #816 narrow window: cancellation
-                                # arrived before the registry insert).
-                                break
-                            observed_inflight = True
-                            if inflight.done():
-                                # Current attempt already settled and we
-                                # absorbed the cancellation. ``_settle``
-                                # left the done future in the registry so
-                                # this branch can inspect its terminal
-                                # state (PR #621 cancel/settle race).
-                                if inflight.cancelled():
-                                    # Subprocess itself was cancelled —
-                                    # treat as failure (do not bump gen).
-                                    subprocess_exc = asyncio.CancelledError()
-                                else:
-                                    subprocess_exc = inflight.exception()
-                                break
-                            # Otherwise (current-attempt future still in
-                            # flight) loop and re-await the shielded
-                            # future so the asyncio lock is not released
-                            # until the subprocess settles.
-                        except BaseException as exc:  # noqa: BLE001
-                            subprocess_exc = exc
-                            break
-
-                    if subprocess_exc is not None:
-                        # Subprocess failed — DO NOT bump generation.
-                        # Concurrent / subsequent waiters re-attempt the
-                        # refresh instead of short-circuiting on a phantom
-                        # bump.
-                        if caller_cancelled:
-                            # Caller cancellation takes priority for THIS
-                            # caller.
-                            raise asyncio.CancelledError() from subprocess_exc
-                        raise subprocess_exc
-
-                    if observed_inflight:
-                        # Subprocess succeeded AND we're about to reload
-                        # storage. Bump the generation now so other callers
-                        # (any loop) see the success and skip their own
-                        # subprocess. The bump is atomic across loops via
-                        # ``_REFRESH_STATE_LOCK``.
-                        with _REFRESH_STATE_LOCK:
-                            # ``max(...)`` defends against the rare
-                            # interleaving where another loop's pre-lock
-                            # capture was AFTER ours and bumped past us.
-                            existing = _REFRESH_GENERATIONS.get(refresh_key, 0)
-                            _REFRESH_GENERATIONS[refresh_key] = max(
-                                existing, refresh_generation + 1
-                            )
-
-                    if caller_cancelled:
-                        # Generation handling depends on whether a subprocess
-                        # actually ran:
-                        # * observed_inflight=True: subprocess succeeded (the
-                        #   failure branch already raised above); the bump
-                        #   above persists for other callers' benefit.
-                        # * observed_inflight=False: no subprocess ever
-                        #   registered, so generation stays at the pre-fetch
-                        #   baseline (issue #816) — concurrent / subsequent
-                        #   waiters re-attempt the refresh instead of
-                        #   short-circuiting on a phantom bump.
-                        # Either way THIS caller propagates cancellation
-                        # rather than completing the retry.
-                        raise asyncio.CancelledError()
-                # Offloaded off the loop: under the refresh lock, an inline
-                # read + POST would freeze the loop (refresh-1 / HIGH#2).
-                fresh_jar = await asyncio.to_thread(
-                    build_httpx_cookies_from_storage, refresh_storage_path
-                )
-                _replace_cookie_jar(cookie_jar, fresh_jar)
-                # Capture the baseline NOW — after the wholesale replacement
-                # but before the retry fetch can mutate the jar.
-                post_refresh_snapshot = snapshot_cookie_jar(cookie_jar)
+            # Coalesce the refresh-cmd across ALL event loops and serialize it
+            # across processes via the per-path flock — all delegated to
+            # ``_coalesced_run_refresh_cmd`` (single_flight core). It returns
+            # when the storage is, or has just been, refreshed; raises the
+            # subprocess exception on genuine failure; and propagates
+            # ``CancelledError`` (after settling the shared subprocess) on
+            # caller-side cancellation.
+            await _coalesced_run_refresh_cmd(refresh_key, refresh_storage_path, profile)
+            # Offloaded off the loop: an inline read + POST would freeze the
+            # loop (refresh-1 / HIGH#2).
+            fresh_jar = await asyncio.to_thread(
+                build_httpx_cookies_from_storage, refresh_storage_path
+            )
+            _replace_cookie_jar(cookie_jar, fresh_jar)
+            # Capture the baseline NOW — after the wholesale replacement but
+            # before the retry fetch can mutate the jar.
+            post_refresh_snapshot = snapshot_cookie_jar(cookie_jar)
             route_kwargs = resolve_route(refresh_storage_path)
             csrf, session_id = await _fetch_tokens_with_jar(
                 cookie_jar, refresh_storage_path, **route_kwargs

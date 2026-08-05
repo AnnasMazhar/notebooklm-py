@@ -66,3 +66,40 @@ def _rotation_lock_path(storage_path: Path | None) -> Path | None:
     if storage_path is None:
         return None
     return storage_path.with_name(f".{storage_path.name}.rotate.lock")
+
+
+def _refresh_lock_path(storage_path: Path | None) -> Path | None:
+    """Sibling sentinel used to serialize ``NOTEBOOKLM_REFRESH_CMD`` across processes.
+
+    Distinct from both the storage-write lock (``.storage_state.json.lock``) and
+    the rotation sentinel (``.storage_state.json.rotate.lock``): a long-running
+    cookie save or a keepalive rotation must not block — or be blocked by — a
+    refresh-cmd subprocess. In-process coalescing already guarantees a single
+    subprocess per process (see :mod:`notebooklm._auth.single_flight`); this
+    flock adds the *cross-process* exclusion that closes the refresh-cmd
+    stampede ([refresh-2]). Callers pass the already-canonicalized path from
+    :func:`canonical_storage_key` so relative / symlinked representations of the
+    same file derive the same sentinel.
+    """
+    if storage_path is None:
+        return None
+    return storage_path.with_name(f".{storage_path.name}.refresh.lock")
+
+
+def canonical_storage_key(storage_path: Path | None) -> Path | None:
+    """Return the canonical form of ``storage_path`` for in-process keying.
+
+    One helper, three consumers ([refresh-5]): the keepalive poke throttle map
+    (``_LAST_POKE_ATTEMPT_MONOTONIC``), the per-loop poke lock registry
+    (``_get_poke_lock``), and the refresh-cmd flock derivation
+    (:func:`_refresh_lock_path`). Two syntactic representations of the SAME
+    underlying file (relative vs absolute, ``~``-prefixed, or through a symlink)
+    must collapse to one key or the dedupe/coalescing is silently bypassed and
+    duplicate ``RotateCookies`` POSTs / refresh subprocesses fire.
+
+    ``None`` (env-var auth, no on-disk file) is returned unchanged: there is no
+    file to canonicalize and ``None`` is a legitimate throttle-map key.
+    """
+    if storage_path is None:
+        return None
+    return storage_path.expanduser().resolve()

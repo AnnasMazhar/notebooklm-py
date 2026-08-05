@@ -118,6 +118,11 @@ _LAST_POKE_ATTEMPT_MONOTONIC: dict[Path | None, float] = {}
 # Rotation sentinel path lives in ``notebooklm._auth.paths``; aliased here for
 # white-box callers that reach ``notebooklm.auth._rotation_lock_path``.
 _rotation_lock_path = _auth_paths._rotation_lock_path
+# Canonicalization helper shared with the refresh flock derivation ([refresh-5]):
+# the poke lock registry and the rotation throttle map key on the CANONICAL
+# storage path so relative / symlinked / ``~`` representations of one file
+# collapse to a single dedupe slot.
+canonical_storage_key = _auth_paths.canonical_storage_key
 
 # Cross-process file-lock primitives live in ``_auth.storage``. Aliased into
 # this module's namespace so the keepalive bodies resolve them locally; tests
@@ -133,16 +138,17 @@ def _get_poke_lock(storage_path: Path | None) -> asyncio.Lock:
     to the current loop. The dict mutation runs under the sync state lock so
     concurrent threads with their own loops don't tear the registry.
     """
+    key = canonical_storage_key(storage_path)
     loop = asyncio.get_running_loop()
     with _POKE_STATE_LOCK:
         per_loop = _POKE_LOCKS_BY_LOOP.get(loop)
         if per_loop is None:
             per_loop = {}
             _POKE_LOCKS_BY_LOOP[loop] = per_loop
-        lock = per_loop.get(storage_path)
+        lock = per_loop.get(key)
         if lock is None:
             lock = asyncio.Lock()
-            per_loop[storage_path] = lock
+            per_loop[key] = lock
         return lock
 
 
@@ -156,12 +162,13 @@ def _try_claim_rotation(storage_path: Path | None) -> bool:
     ``_rotate_cookies`` callers (layer-2 keepalive loops, etc.) — neither
     of which holds the per-loop async lock used by layer-1 ``_poke_session``.
     """
+    key = canonical_storage_key(storage_path)
     with _POKE_STATE_LOCK:
-        last = _LAST_POKE_ATTEMPT_MONOTONIC.get(storage_path, 0.0)
+        last = _LAST_POKE_ATTEMPT_MONOTONIC.get(key, 0.0)
         now = time.monotonic()
         if last > 0 and (now - last) < _KEEPALIVE_RATE_LIMIT_SECONDS:
             return False
-        _LAST_POKE_ATTEMPT_MONOTONIC[storage_path] = now
+        _LAST_POKE_ATTEMPT_MONOTONIC[key] = now
         return True
 
 

@@ -331,15 +331,15 @@ _rotation_lock_path = _auth_paths._rotation_lock_path
 # patch the canonical home directly (``_auth.refresh.X``) — production
 # code no longer mirrors writes (``_AuthFacadeModule`` retired per ADR-0003).
 _REFRESH_ATTEMPTED_CONTEXT = _auth_refresh._REFRESH_ATTEMPTED_CONTEXT
-_REFRESH_STATE_LOCK = _auth_refresh._REFRESH_STATE_LOCK
-_REFRESH_LOCKS_BY_LOOP = _auth_refresh._REFRESH_LOCKS_BY_LOOP
-_REFRESH_GENERATIONS = _auth_refresh._REFRESH_GENERATIONS
-_REFRESH_INFLIGHT_BY_LOOP = _auth_refresh._REFRESH_INFLIGHT_BY_LOOP
-_REFRESH_INFLIGHT_TASKS = _auth_refresh._REFRESH_INFLIGHT_TASKS
+# The cross-loop coalescing machinery (per-loop future maps + the
+# ``_REFRESH_GENERATIONS`` counter + ``_get_refresh_lock`` /
+# ``_get_inflight_registry`` / ``_REFRESH_STATE_LOCK`` / ``_REFRESH_INFLIGHT_*``)
+# was replaced by ``notebooklm._auth.single_flight`` in c-PR2; the five
+# underscore-private facade test-bindings that mirrored it are removed (they
+# were never part of the supported facade surface). Tests substitute the new
+# behaviour by patching ``_auth.single_flight`` / ``_auth.refresh`` directly.
 _AUTH_ERROR_SIGNALS = _auth_refresh._AUTH_ERROR_SIGNALS
-_get_inflight_registry = _auth_refresh._get_inflight_registry
 _coalesced_run_refresh_cmd = _auth_refresh._coalesced_run_refresh_cmd
-_get_refresh_lock = _auth_refresh._get_refresh_lock
 _should_try_refresh = _auth_refresh._should_try_refresh
 _split_refresh_cmd = _auth_refresh._split_refresh_cmd
 _run_refresh_cmd = _auth_refresh._run_refresh_cmd
