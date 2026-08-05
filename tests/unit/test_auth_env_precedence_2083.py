@@ -13,6 +13,7 @@ file while the cookie jar came from the env var.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -200,6 +201,10 @@ async def test_explicit_cookies_still_refresh_when_env_var_is_merely_present(
     Inferring it would silently disable ``NOTEBOOKLM_REFRESH_CMD`` for every
     explicit-cookie caller in a mixed environment (#2084 review).
     """
+    # The whole point is a *mixed* environment, and that precondition arrives
+    # via the fixture rather than this body — state it so it cannot erode
+    # silently and leave the test passing for the wrong reason.
+    assert _ENV in os.environ, "this test is only meaningful with ambient env auth set"
     marker = tmp_path / "refresh-cmd-ran"
     monkeypatch.setenv("NOTEBOOKLM_REFRESH_CMD", f"touch {marker}")
     # Two rounds: the initial fetch, then the post-refresh retry.
