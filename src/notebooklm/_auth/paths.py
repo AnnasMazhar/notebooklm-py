@@ -35,7 +35,13 @@ tests, so they are also re-exported.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+#: Inline Playwright ``storage_state`` JSON, an alternative to a profile file
+#: (CI/CD, no disk writes). Read through :func:`resolve_auth_json_env` so every
+#: auth-layer call site shares one presence/empty contract.
+NOTEBOOKLM_AUTH_JSON_ENV = "NOTEBOOKLM_AUTH_JSON"
 
 NOTEBOOKLM_REFRESH_CMD_ENV = "NOTEBOOKLM_REFRESH_CMD"
 NOTEBOOKLM_REFRESH_CMD_USE_SHELL_ENV = "NOTEBOOKLM_REFRESH_CMD_USE_SHELL"
@@ -53,6 +59,31 @@ NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT_ENV = "NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT"
 _REFRESH_ATTEMPTED_ENV = "_NOTEBOOKLM_REFRESH_ATTEMPTED"
 
 NOTEBOOKLM_DISABLE_KEEPALIVE_POKE_ENV = "NOTEBOOKLM_DISABLE_KEEPALIVE_POKE"
+
+
+def resolve_auth_json_env() -> str | None:
+    """Return the raw ``NOTEBOOKLM_AUTH_JSON`` value, or ``None`` if it is unset.
+
+    The **single** read of this env var for the auth layer. Before this helper,
+    seven call sites spelled the check by hand and disagreed on
+    presence-vs-truthiness (the classic drift that produced #2057 / #2083): a
+    *set-but-empty* value silently fell through to a profile file at some sites
+    and raised at others. Centralising the read here makes the contract one
+    thing everywhere:
+
+    * unset ⇒ ``None`` (fall through to profile-file auth);
+    * set ⇒ the value is returned verbatim, so ``resolve_auth_json_env() is not
+      None`` means "inline env auth is selected" — a set-but-empty value counts
+      as *selected*, never a silent fall-through to a file.
+
+    The set-but-empty **configuration error** ("set but empty") is raised by the
+    one consumer that actually parses the payload,
+    :func:`notebooklm._auth.cookies._load_storage_state`, rather than here, so
+    the presence-only callers (path resolvers, PSIDTS recovery, header routing,
+    the cookie-save skip) stay behaviour-identical and cannot regress to the
+    fall-through bug. See ADR-0030.
+    """
+    return os.environ.get(NOTEBOOKLM_AUTH_JSON_ENV)
 
 
 def _storage_state_lock_path(storage_path: Path) -> Path:
