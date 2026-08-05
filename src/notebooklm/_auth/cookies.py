@@ -114,7 +114,8 @@ def _validate_routable_entries(
 
     if not psidts_recovery._psidts_routes_to_rotate(entries, to_cookie=to_cookie):
         raise RequiredCookieValidationError(
-            f"Required cookie __Secure-1PSIDTS is not routable{context}.\n{_EXTRACTION_HINT}"
+            f"Required cookie __Secure-1PSIDTS is not routable{context}.\n{_EXTRACTION_HINT}",
+            reason="psidts_unroutable",
         )
 
 
@@ -520,12 +521,44 @@ def extract_cookies_with_domains(
     return cookie_map
 
 
+def _load_cookies_pure(path: Path | None = None, *, require_routable: bool = True) -> httpx.Cookies:
+    """PURE inner loader: file I/O + validation ONLY — never any network.
+
+    This is the network-free half of :func:`build_httpx_cookies_from_storage`.
+    It reads the storage state (file, inline ``NOTEBOOKLM_AUTH_JSON``, or the
+    resolved profile), builds the domain-preserving jar, and runs the
+    required-cookie + RFC 6265 routing preflight. On a validation failure it
+    raises :class:`RequiredCookieValidationError` carrying a closed-enum
+    ``reason`` (:data:`~notebooklm._auth.cookie_policy.RequiredCookieReason` —
+    ``"missing_cookie"`` or ``"psidts_unroutable"``) and STOPS. It does not fire
+    the inline ``RotateCookies`` recovery POST, and does not touch the network
+    under any input; composing recovery on top of the typed reason is the job of
+    the public wrapper below (issue #2061 / event-loop-blocking fix). Callers on
+    an event loop must run the public wrapper via ``asyncio.to_thread`` so the
+    (blocking) file read and any recovery POST stay off the loop.
+
+    ``require_routable`` toggles the RFC 6265 routing preflight; pass it ``True``
+    only where a recovery attempt follows in the wrapper. See
+    :func:`_build_httpx_cookies_from_storage_state` for why a loader with no
+    recovery arm must stay name-only.
+    """
+    storage_state = _load_storage_state(path)
+    return _build_httpx_cookies_from_storage_state(storage_state, require_routable=require_routable)
+
+
 def build_httpx_cookies_from_storage(path: Path | None = None) -> httpx.Cookies:
     """Build an httpx.Cookies jar with original domains preserved.
 
     This function loads cookies from storage and creates a proper httpx.Cookies
     jar with the original domains intact. This is critical for cross-domain
     redirects (e.g., to accounts.google.com for token refresh) to work correctly.
+
+    It is the PUBLIC WRAPPER over :func:`_load_cookies_pure`: it composes the
+    pure (network-free) load with the explicit inline ``__Secure-1PSIDTS``
+    recovery POST. Synchronous callers (CLI login, ``playwright_login``) invoke
+    it directly and see unchanged behavior; async callers must offload it with
+    ``asyncio.to_thread`` so the blocking recovery POST + disk write never freeze
+    the event loop.
 
     Args:
         path: Path to storage_state.json. If provided, takes precedence over env vars.
@@ -537,12 +570,8 @@ def build_httpx_cookies_from_storage(path: Path | None = None) -> httpx.Cookies:
         FileNotFoundError: If storage file doesn't exist.
         ValueError: If required cookies are missing or JSON is malformed.
     """
-    # Load outside the typed recovery boundary.  Missing files, malformed JSON,
-    # and invalid environment configuration are configuration failures, not
-    # cookie-validation failures that may trigger a POST.
-    storage_state = _load_storage_state(path)
     try:
-        return _build_httpx_cookies_from_storage_state(storage_state, require_routable=True)
+        return _load_cookies_pure(path, require_routable=True)
     except RequiredCookieValidationError:
         # Inline ``__Secure-1PSIDTS`` recovery (issue #865) — same as the
         # ``load_auth_from_storage`` hook in ``notebooklm.auth``. Without
@@ -563,13 +592,11 @@ def build_httpx_cookies_from_storage(path: Path | None = None) -> httpx.Cookies:
                 "PSIDTS is present but does not route to the rotate URL and recovery "
                 "declined; continuing with the unrotatable cookie set"
             )
-            return _build_httpx_cookies_from_storage_state(storage_state, require_routable=False)
+            return _load_cookies_pure(path, require_routable=False)
         # The recovery handler proved a routed post-mint cookie and persisted
         # a live required row.  The one retry intentionally uses the existing
         # name/liveness contract and cannot recursively recover.
-        return _build_httpx_cookies_from_storage_state(
-            _load_storage_state(path), require_routable=False
-        )
+        return _load_cookies_pure(path, require_routable=False)
 
 
 def _build_httpx_cookies_from_storage_state(
@@ -620,9 +647,12 @@ def _build_httpx_cookies_from_storage_strict(path: Path | None) -> httpx.Cookies
     Name-only for the reason given on :func:`_build_httpx_cookies_from_storage_state`:
     ``fetch_tokens_passive`` uses this loader precisely because it must not fire a
     heal, so it is the wrong place to raise a condition only a heal can clear.
+
+    Thin alias for the network-free :func:`_load_cookies_pure` with the routing
+    preflight disabled; retained as a named import for ``_auth.refresh`` (the
+    passive probe). Like the pure loader it performs no network I/O.
     """
-    storage_state = _load_storage_state(path)
-    return _build_httpx_cookies_from_storage_state(storage_state, require_routable=False)
+    return _load_cookies_pure(path, require_routable=False)
 
 
 def build_cookie_jar(

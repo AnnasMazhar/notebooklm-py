@@ -559,13 +559,10 @@ async def _fetch_tokens_with_refresh(
         try:
             async with _get_refresh_lock(refresh_storage_path):
                 # Bump generation ONLY after the current-attempt subprocess
-                # succeeds — never eagerly. An earlier implementation bumped
-                # the generation BEFORE ``_run_refresh_cmd``; when the
-                # subprocess failed, the phantom bump made concurrent waiters
-                # short-circuit and proceed with stale storage. The bump
-                # itself happens just below, immediately before
-                # ``build_httpx_cookies_from_storage`` reloads the freshly-
-                # written disk state.
+                # succeeds — never eagerly. An earlier implementation bumped it
+                # BEFORE ``_run_refresh_cmd``; on subprocess failure the phantom
+                # bump made concurrent waiters short-circuit onto stale storage.
+                # The bump happens just below, before the reload of fresh disk.
                 #
                 # Re-check under the sync state lock so the read is atomic
                 # ACROSS event loops. The per-loop asyncio lock only
@@ -721,7 +718,11 @@ async def _fetch_tokens_with_refresh(
                         # Either way THIS caller propagates cancellation
                         # rather than completing the retry.
                         raise asyncio.CancelledError()
-                fresh_jar = build_httpx_cookies_from_storage(refresh_storage_path)
+                # Offloaded off the loop: under the refresh lock, an inline
+                # read + POST would freeze the loop (refresh-1 / HIGH#2).
+                fresh_jar = await asyncio.to_thread(
+                    build_httpx_cookies_from_storage, refresh_storage_path
+                )
                 _replace_cookie_jar(cookie_jar, fresh_jar)
                 # Capture the baseline NOW — after the wholesale replacement
                 # but before the retry fetch can mutate the jar.
@@ -868,7 +869,7 @@ async def fetch_tokens(
         ValueError: If tokens cannot be extracted from response
         RuntimeError: If ``NOTEBOOKLM_REFRESH_CMD`` is set but fails
     """
-    jar = build_cookie_jar(cookies=cookies, storage_path=storage_path)
+    jar = await asyncio.to_thread(build_cookie_jar, cookies=cookies, storage_path=storage_path)
     csrf, session_id, refreshed, _post_refresh_snapshot = await _fetch_tokens_with_refresh(
         jar,
         storage_path,
@@ -917,7 +918,7 @@ async def fetch_tokens_with_domains(
         RuntimeError: If ``NOTEBOOKLM_REFRESH_CMD`` is set but fails.
     """
     path = _auth_cookies.resolve_auth_storage_path(path, profile)
-    jar = build_httpx_cookies_from_storage(path)
+    jar = await asyncio.to_thread(build_httpx_cookies_from_storage, path)
     # Capture the open-time snapshot before any rotation could fire. The
     # snapshot is the input to the dirty-flag/delta merge that closes the
     # stale-overwrite-fresh race (docs/auth-cookie-lifecycle.md §3.4.1).
@@ -990,10 +991,9 @@ async def fetch_tokens_passive(
     """
     path = _auth_cookies.resolve_auth_storage_path(path, profile)
     # Strict (no-recovery) loader: a missing/expired PSIDTS raises ``ValueError``
-    # here rather than triggering the inline ``RotateCookies`` rotation + save
-    # that ``build_httpx_cookies_from_storage`` would. A readiness probe reports
-    # "not authenticated" — it does not heal cookies.
-    jar = _build_httpx_cookies_from_storage_strict(path)
+    # rather than triggering the inline ``RotateCookies`` rotation + save. A
+    # readiness probe reports "not authenticated"; it does not heal. Offloaded.
+    jar = await asyncio.to_thread(_build_httpx_cookies_from_storage_strict, path)
     route_kwargs = _resolve_token_route_kwargs(path, authuser=authuser, account_email=account_email)
     # poke=False + no save_cookies_to_storage ⇒ zero side effects on disk or
     # on the server-side cookie rotation state.
