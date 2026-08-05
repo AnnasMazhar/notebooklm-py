@@ -184,6 +184,145 @@ def test_replace_from_remint_filters_domains_but_keeps_trusted_subdomains(
     assert {"SID", "MEDIA", "DRV"} <= names  # trusted Google roots preserved
 
 
+# --- replace_from_login: CLI login / import full-replace (b-PR3) -----------
+
+
+def _login_state(extra: list[dict] | None = None) -> dict:
+    """A captured browser state with the required cookies on ``.google.com``."""
+    cookies = [
+        {"name": "SID", "value": "s", "domain": ".google.com", "path": "/"},
+        {"name": "__Secure-1PSIDTS", "value": "p", "domain": ".google.com", "path": "/"},
+    ]
+    if extra:
+        cookies.extend(extra)
+    return {"cookies": cookies, "origins": []}
+
+
+def test_login_write_outcome_is_value_free(tmp_path: Path) -> None:
+    """``LoginWriteOutcome`` never carries a cookie VALUE (only names/keys)."""
+    # Drive the required-cookies-dropped path with a sentinel-bearing value: the
+    # only SID copy sits on a non-allowlisted domain and is dropped.
+    path = tmp_path / "storage_state.json"
+    state = {
+        "cookies": [
+            {"name": "SID", "value": "SENTINEL-SECRET", "domain": ".youtube.com", "path": "/"},
+            {"name": "__Secure-1PSIDTS", "value": "SENTINEL-SECRET", "domain": ".google.com"},
+        ],
+        "origins": [],
+    }
+    outcome = sw.replace_from_login(path, state, include_domains=None)
+    assert outcome.required_cookies_dropped
+    assert "SENTINEL-SECRET" not in repr(outcome)
+    assert not path.exists()
+
+
+def test_replace_from_login_filters_and_records_include_domains(tmp_path: Path) -> None:
+    """Login write: filter runs inside the writer, account is embedded, and the
+    opt-in ``include_domains`` set is recorded in the ``notebooklm`` namespace."""
+    path = tmp_path / "storage_state.json"
+    state = _login_state(
+        [
+            {"name": "YT", "value": "y", "domain": ".youtube.com", "path": "/"},
+            {"name": "MEDIA", "value": "m", "domain": "lh3.googleusercontent.com", "path": "/"},
+        ]
+    )
+    outcome = sw.replace_from_login(
+        path,
+        state,
+        include_domains={"youtube"},
+        account=sw.AccountRecord(authuser=2, email="a@example.com"),
+    )
+    assert outcome.ok
+    data = json.loads(path.read_text(encoding="utf-8"))
+    names = {c["name"] for c in data["cookies"]}
+    assert {
+        "SID",
+        "__Secure-1PSIDTS",
+        "YT",
+        "MEDIA",
+    } <= names  # youtube opted in, trusted root kept
+    ns = data["notebooklm"]
+    assert ns["account"] == {"authuser": 2, "email": "a@example.com"}
+    assert ns["include_domains"] == ["youtube"]
+    assert ns["version"] == 1
+
+
+def test_replace_from_login_default_drops_youtube_keeps_trusted_roots(tmp_path: Path) -> None:
+    path = tmp_path / "storage_state.json"
+    state = _login_state(
+        [
+            {"name": "YT", "value": "y", "domain": ".youtube.com", "path": "/"},
+            {"name": "MEDIA", "value": "m", "domain": "lh3.googleusercontent.com", "path": "/"},
+        ]
+    )
+    outcome = sw.replace_from_login(path, state, include_domains=None, account=sw.CLEAR_ACCOUNT)
+    assert outcome.ok
+    data = json.loads(path.read_text(encoding="utf-8"))
+    names = {c["name"] for c in data["cookies"]}
+    assert "YT" not in names
+    assert {"SID", "MEDIA"} <= names
+    # CLEAR + no opt-ins => no notebooklm namespace at all.
+    assert "notebooklm" not in data
+
+
+def test_replace_from_login_required_dropped_writes_nothing(tmp_path: Path) -> None:
+    """A required cookie whose only copy sits on a filtered domain => the writer
+    returns REQUIRED_COOKIES_DROPPED and writes NOTHING (#2086 contract)."""
+    path = tmp_path / "storage_state.json"
+    state = {
+        "cookies": [
+            {"name": "SID", "value": "s", "domain": ".youtube.com", "path": "/"},
+            {"name": "__Secure-1PSIDTS", "value": "p", "domain": ".google.com", "path": "/"},
+        ],
+        "origins": [],
+    }
+    outcome = sw.replace_from_login(path, state, include_domains=None)
+    assert outcome.required_cookies_dropped
+    assert outcome.missing_required == ("SID",)
+    assert "__Secure-1PSIDTS" in outcome.present_names
+    assert not path.exists()  # nothing written
+
+
+def test_replace_from_login_keep_account_carries_input_namespace(tmp_path: Path) -> None:
+    """KEEP_ACCOUNT (the import default) carries whatever the input state holds —
+    import states carry none, so the result carries none."""
+    path = tmp_path / "storage_state.json"
+    outcome = sw.replace_from_login(path, _login_state(), include_domains=None)  # default KEEP
+    assert outcome.ok
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert "notebooklm" not in data  # KEEP + no opt-ins + input had no namespace
+
+
+def test_replace_from_login_import_backup_inside_lock(tmp_path: Path) -> None:
+    """The import flavour takes a pre-overwrite ``.bak`` copy (0600) of an existing
+    target inside the lock and returns its path."""
+    import sys
+
+    path = tmp_path / "storage_state.json"
+    path.write_text(json.dumps({"cookies": [{"name": "OLD"}], "origins": []}), encoding="utf-8")
+    outcome = sw.replace_from_login(
+        path, _login_state(), include_domains=None, include_optional=True, backup=True
+    )
+    assert outcome.ok
+    assert outcome.backup_path == path.with_name("storage_state.json.bak")
+    assert outcome.backup_path.exists()
+    assert json.loads(outcome.backup_path.read_text())["cookies"] == [{"name": "OLD"}]
+    if sys.platform != "win32":
+        assert (outcome.backup_path.stat().st_mode & 0o777) == 0o600
+    # include_optional recorded in the namespace.
+    assert json.loads(path.read_text())["notebooklm"]["include_optional"] is True
+
+
+def test_replace_from_login_fails_closed_on_lock_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "storage_state.json"
+    _patch_lock_unavailable(monkeypatch)
+    outcome = sw.replace_from_login(path, _login_state(), include_domains=None)
+    assert outcome.lock_unavailable
+    assert not path.exists()  # nothing written without the lock
+
+
 # --- persist_minted_jar: full replace, fails CLOSED ------------------------
 
 

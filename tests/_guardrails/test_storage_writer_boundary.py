@@ -68,20 +68,35 @@ _STORAGE_STATE_LITERAL = "storage_state.json"
 # Categorised only for reviewer clarity — the guardrail asserts the whole set.
 _ATOMIC_WRITE_JSON_IMPORTERS: frozenset[str] = frozenset(
     {
-        # Canonical storage-state writer (refactor (b)).
-        "_auth/storage_writer.py",
         # Legitimate NON-storage-state writers (permanent).
         "io.py",  # public re-export of the _atomic_io helpers
         "_auth/account.py",  # writes the legacy sibling context.json (not storage_state)
         "cli/context.py",  # CLI context.json / config.json
         "mcp/_oauth.py",  # writes the MCP OAuth token file
-        # Storage-state writers still to be migrated onto storage_writer
-        # (tracked; removed as later PRs land — see _STORAGE_STATE_WRITE_EXEMPTIONS).
-        # ``_auth/browser_capture.py`` migrated in b-PR2 (now routes through
-        # storage_writer.replace_from_remint) and dropped off this list.
-        "cli/services/login/refresh.py",  # CLI login writer (migrates in b-PR3)
-        "cli/services/login/cookie_writes.py",  # CLI login writer (migrates in b-PR3)
-        "cli/_cookie_import.py",  # CLI auth import-cookies writer (migrates in b-PR3)
+        # NOTE: the canonical writer ``_auth/storage_writer.py`` no longer imports
+        # the PUBLIC ``atomic_write_json`` — since b-PR3 the public helper rejects
+        # ``storage_state.json`` paths at runtime, and the writer uses the
+        # module-private bypass ``_atomic_write_json_unchecked`` instead (tracked
+        # by _ATOMIC_WRITE_JSON_BYPASS_IMPORTERS below).
+        # The three CLI login/import writers migrated in b-PR3 (they now route
+        # through storage_writer.replace_from_login via the auth facade) and
+        # ``_auth/browser_capture.py`` migrated in b-PR2 — all dropped off here.
+    }
+)
+
+# --- Clause (iv, bypass): the module-private storage-state write bypass ---------
+#
+# ``_atomic_io._atomic_write_json_unchecked`` is the module-private symbol the
+# public ``atomic_write_json`` delegates to AFTER its ``storage_state.json``
+# rejection (b-PR3). It skips that guard, so it is the ONLY way to atomically
+# write a ``storage_state.json`` file — and the canonical writer is its ONLY
+# sanctioned importer. Equality-asserted so any new importer of the bypass is
+# loud in CI (it would be a boundary breach as severe as a bare storage-state
+# write).
+_ATOMIC_WRITE_JSON_BYPASS = "_atomic_write_json_unchecked"
+_ATOMIC_WRITE_JSON_BYPASS_IMPORTERS: frozenset[str] = frozenset(
+    {
+        "_auth/storage_writer.py",  # canonical storage-state writer (refactor (b))
     }
 )
 
@@ -108,7 +123,10 @@ _REPLACE_FILE_ATOMICALLY_IMPORTERS: frozenset[str] = frozenset(
 # ``storage_writer.py`` is the canonical home; the rest are annotated exemptions.
 _AUTH_WRITE_PRIMITIVE_IMPORTERS: frozenset[str] = frozenset(
     {
-        "_auth/storage_writer.py",  # canonical (writes storage_state.json)
+        # canonical writer — imports the module-private bypass
+        # ``_atomic_write_json_unchecked`` (counted as a write primitive here);
+        # the public ``atomic_write_json`` now rejects storage_state.json paths.
+        "_auth/storage_writer.py",
         "_auth/account.py",  # context.json cleanup only (not storage_state)
         # ``_auth/browser_capture.py`` migrated in b-PR2 — it no longer imports a
         # write primitive (re-mint now routes through storage_writer).
@@ -124,24 +142,21 @@ _AUTH_WRITE_PRIMITIVE_IMPORTERS: frozenset[str] = frozenset(
 _STORAGE_STATE_WRITE_EXEMPTIONS: frozenset[str] = frozenset(
     {
         "migration.py",  # permanent: legacy-profile file migration (#2085)
-        # ``_auth/browser_capture.py`` migrated in b-PR2 (routes through
-        # storage_writer.replace_from_remint).
-        "cli/services/login/refresh.py",  # migrates in b-PR3
-        "cli/services/login/cookie_writes.py",  # migrates in b-PR3
-        "cli/_cookie_import.py",  # migrates in b-PR3
+        # b-PR3 acceptance criterion: this set is now exactly {migration.py}.
+        # ``_auth/browser_capture.py`` migrated in b-PR2; the three CLI
+        # login/import writers migrated in b-PR3 (all route through the canonical
+        # storage_writer, and the runtime rejection now backstops the boundary).
     }
 )
 
 # --- Clause (ii): sanctioned dependency-seam bindings of a write primitive ------
 #
-# ``(relative source path, lineno-free descriptor)``. The CLI login refresh deps
-# object binds ``atomic_write_json`` so the injected writer can be swapped in
-# tests; it migrates in b-PR3.
-_WRITE_PRIMITIVE_SEAM_BINDINGS: frozenset[str] = frozenset(
-    {
-        "cli/services/login/refresh.py",  # RefreshDeps(atomic_write_json=...) — b-PR3
-    }
-)
+# No module binds a write primitive through a dependency seam any more: the CLI
+# login ``RefreshDeps.atomic_write_json`` seam was removed in b-PR3 (the drivers
+# now inject ``replace_from_login``, which is not a write primitive). Kept as an
+# equality-asserted (empty) frozenset so a future re-introduction of a
+# write-primitive seam binding is loud in CI.
+_WRITE_PRIMITIVE_SEAM_BINDINGS: frozenset[str] = frozenset()
 
 
 def _iter_src_files() -> list[Path]:
@@ -164,12 +179,18 @@ def _is_atomic_io_module(module: str) -> bool:
 
 
 def _imports_write_primitive(tree: ast.AST) -> set[str]:
-    """Names of ``_atomic_io`` write primitives imported by this module."""
+    """Names of ``_atomic_io`` write primitives imported by this module.
+
+    Counts the two public primitives (:data:`_WRITE_PRIMITIVES`) AND the
+    module-private storage-state bypass (:data:`_ATOMIC_WRITE_JSON_BYPASS`) — the
+    canonical writer imports the latter, and clause (i) must still recognise it as
+    a write-primitive importer even though it no longer imports the public name.
+    """
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and _is_atomic_io_module(node.module or ""):
             for alias in node.names:
-                if alias.name in _WRITE_PRIMITIVES:
+                if alias.name in _WRITE_PRIMITIVES or alias.name == _ATOMIC_WRITE_JSON_BYPASS:
                     found.add(alias.name)
     return found
 
@@ -279,6 +300,28 @@ def test_atomic_write_json_importers_frozen_allowlist() -> None:
     )
 
 
+def test_atomic_write_json_bypass_importers_frozen_allowlist() -> None:
+    """Clause (iv, bypass): only the canonical writer imports the storage-state
+    write bypass ``_atomic_write_json_unchecked``.
+
+    Equality-asserted. The bypass skips the public ``atomic_write_json``'s
+    ``storage_state.json`` rejection (b-PR3), so any importer beyond
+    ``storage_writer.py`` would be able to write storage_state.json unlocked —
+    exactly the class the boundary exists to prevent.
+    """
+    actual = {
+        _rel(p)
+        for p in _iter_src_files()
+        if _imports_named_primitive(ast.parse(p.read_text("utf-8")), _ATOMIC_WRITE_JSON_BYPASS)
+    }
+    assert actual == set(_ATOMIC_WRITE_JSON_BYPASS_IMPORTERS), (
+        "storage-state write-bypass importer set drifted from the frozen allowlist. "
+        f"Unexpected new importers: {sorted(actual - _ATOMIC_WRITE_JSON_BYPASS_IMPORTERS)}; "
+        f"stale allowlist entries: {sorted(_ATOMIC_WRITE_JSON_BYPASS_IMPORTERS - actual)}. "
+        "Only storage_writer.py may import _atomic_write_json_unchecked."
+    )
+
+
 def test_replace_file_atomically_importers_frozen_allowlist() -> None:
     """Clause (iv, parallel): the repo-wide set of ``replace_file_atomically``
     importers is frozen (equality-asserted), so a future ``cli``/``mcp`` module
@@ -300,6 +343,8 @@ def test_atomic_write_json_allowlist_entries_exist() -> None:
     """Every allowlist entry must name a real source file (no stale paths)."""
     for rel in _ATOMIC_WRITE_JSON_IMPORTERS:
         assert (SRC_ROOT / rel).is_file(), f"allowlisted importer no longer exists: {rel}"
+    for rel in _ATOMIC_WRITE_JSON_BYPASS_IMPORTERS:
+        assert (SRC_ROOT / rel).is_file(), f"bypass importer no longer exists: {rel}"
     for rel in _REPLACE_FILE_ATOMICALLY_IMPORTERS:
         assert (SRC_ROOT / rel).is_file(), f"rfa allowlisted importer no longer exists: {rel}"
     for rel in _AUTH_WRITE_PRIMITIVE_IMPORTERS:
