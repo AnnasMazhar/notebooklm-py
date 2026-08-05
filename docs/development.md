@@ -879,10 +879,11 @@ The `RedactingFilter` preserves `record.exc_info` (the live exception object) so
      when it is empty — it is the only credential they ship.
    - `NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID`: Your test notebook ID
 
-   `NOTEBOOKLM_AUTH_JSON` is **no longer used by any workflow**. A cookie
-   snapshot is superseded by any other active client within ~10 minutes and
-   rejected shortly after, so it was routinely dead before a scheduled run
-   started (see
+   `NOTEBOOKLM_AUTH_JSON` is **no longer used by any workflow**. Any other
+   active client supersedes a cookie snapshot within ~10 minutes (the ~600 s
+   rotation cadence), and a *superseded* value has been observed failing
+   within roughly half an hour — so a snapshot exported on a workstation was
+   routinely dead before a scheduled run started (see
    [auth-cookie-lifecycle.md §2.5](auth-cookie-lifecycle.md#25-four-timers-people-confuse)).
 
 The live-E2E workflows (`verify-package.yml`, `nightly.yml`, `rpc-health.yml`,
