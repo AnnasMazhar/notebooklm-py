@@ -12,7 +12,7 @@ from click.testing import CliRunner
 import notebooklm.cli.services.login.master_token as mt_service
 from notebooklm._auth import browser_capture
 from notebooklm.notebooklm_cli import cli
-from notebooklm.paths import get_storage_path
+from notebooklm.paths import get_master_token_path, get_storage_path
 
 
 def _seed_profile_account(monkeypatch, tmp_path, email):
@@ -32,11 +32,26 @@ def _seed_profile_account(monkeypatch, tmp_path, email):
 
 def test_master_token_refresh_calls_service(tmp_path, monkeypatch):
     monkeypatch.setenv("NOTEBOOKLM_HOME", str(tmp_path))
+    storage = get_storage_path()
+    storage.parent.mkdir(parents=True, exist_ok=True)
+    storage.write_text(json.dumps({"cookies": []}), encoding="utf-8")
     with patch.object(mt_service, "refresh", new=AsyncMock()) as ref:
         result = CliRunner().invoke(cli, ["login", "--master-token-refresh"])
     assert result.exit_code == 0, result.output
-    assert ref.called
-    assert "Re-minted" in result.output
+    ref.assert_awaited_once_with(
+        storage_path=storage,
+        master_token_path=get_master_token_path(),
+    )
+    assert result.output.strip() == f"Re-minted cookies -> {storage}"
+
+
+def test_master_token_refresh_help_marks_forced_route_legacy():
+    result = CliRunner().invoke(cli, ["login", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "Legacy forced re-mint; prefer 'notebooklm auth refresh'." in " ".join(
+        result.output.split()
+    )
 
 
 def test_master_token_requires_account(tmp_path, monkeypatch):
@@ -69,6 +84,53 @@ def test_master_token_bootstrap_browser_capture_when_no_oauth(tmp_path, monkeypa
     assert result.exit_code == 0, result.output
     assert cap.called
     assert boot.call_args.kwargs["oauth_token"] == "CAPTOK"
+
+
+@pytest.mark.parametrize(
+    ("browser", "expected_fragment"),
+    [
+        # Playwright's REAL spawn-veto text (utils/processLauncher.js builds
+        # `new Error("Failed to launch: " + error)`), on both the bundled build
+        # and a system channel.
+        ("chromium", "refused to start the browser"),
+        ("chrome", "refused to start the browser"),
+    ],
+)
+@pytest.mark.requires_playwright
+def test_master_token_bootstrap_explains_a_launch_veto(
+    tmp_path, monkeypatch, browser, expected_fragment
+):
+    """`login --master-token` spawns a headed browser, so it hits the same veto.
+
+    docs/troubleshooting.md routes #2004 readers here as a workaround, so this
+    path must not answer with the raw "This may be a bug" handler either.
+    """
+    monkeypatch.setenv("NOTEBOOKLM_HOME", str(tmp_path))
+    with patch("playwright.sync_api.sync_playwright") as mock_pw:
+        mock_pw.return_value.__enter__.return_value.chromium.launch.side_effect = Exception(
+            "Failed to launch: Error: spawn UNKNOWN"
+        )
+        result = CliRunner().invoke(
+            cli, ["login", "--master-token", "--account", "e@x.com", "--browser", browser]
+        )
+
+    assert result.exit_code == 1
+    assert expected_fragment in result.output
+    assert "This may be a bug" not in result.output
+
+
+@pytest.mark.requires_playwright
+def test_master_token_bootstrap_reraises_an_unclassified_launch_failure(tmp_path, monkeypatch):
+    """Unrecognized failures must keep propagating rather than get a wrong hint."""
+    monkeypatch.setenv("NOTEBOOKLM_HOME", str(tmp_path))
+    with patch("playwright.sync_api.sync_playwright") as mock_pw:
+        mock_pw.return_value.__enter__.return_value.chromium.launch.side_effect = Exception(
+            "Timeout 30000ms exceeded"
+        )
+        result = CliRunner().invoke(cli, ["login", "--master-token", "--account", "e@x.com"])
+
+    assert result.exit_code == 2
+    assert "This may be a bug" in result.output
 
 
 class _ReachedPlaywright(RuntimeError):

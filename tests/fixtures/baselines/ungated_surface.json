@@ -30,6 +30,7 @@
     "MindMapResult",
     "Note",
     "Label",
+    "Collection",
     "ConversationTurn",
     "ChatReference",
     "AskResult",
@@ -90,6 +91,8 @@
     "MindMapNotFoundError",
     "LabelError",
     "LabelNotFoundError",
+    "CollectionError",
+    "CollectionNotFoundError",
     "WaitTimeoutError",
     "UnknownTypeWarning",
     "SourceType",
@@ -183,7 +186,9 @@
     "MindMapError",
     "MindMapNotFoundError",
     "LabelError",
-    "LabelNotFoundError"
+    "LabelNotFoundError",
+    "CollectionError",
+    "CollectionNotFoundError"
   ],
   "notebooklm.io": [
     "atomic_update_json",

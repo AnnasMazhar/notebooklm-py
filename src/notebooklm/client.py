@@ -57,6 +57,7 @@ from ._client_assembly import _assemble_client
 from ._client_composed import ClientComposed
 from ._client_seams import ClientSeams
 from ._client_seams import resolve_client_seams as resolve_client_seams  # noqa: F401
+from ._collections import CollectionsAPI
 from ._deprecation import warn_deprecated
 from ._env import get_base_url as get_base_url
 from ._labels import LabelsAPI
@@ -105,6 +106,7 @@ class NotebookLMClient:
     - settings: Manage user settings (output language, etc.)
     - sharing: Manage notebook sharing and permissions
     - labels: AI-group sources into topic labels (auto-label / reorganize)
+    - collections: Group notebooks into account-level collections
 
     Usage:
         # Create from saved authentication (canonical idiom)
@@ -127,6 +129,7 @@ class NotebookLMClient:
         settings: SettingsAPI for user settings
         sharing: SharingAPI for notebook sharing
         labels: LabelsAPI for source labels (topic grouping)
+        collections: CollectionsAPI for account-level notebook collections
         auth: The AuthTokens used for authentication
     """
 
@@ -153,6 +156,7 @@ class NotebookLMClient:
     settings: SettingsAPI
     sharing: SharingAPI
     labels: LabelsAPI
+    collections: CollectionsAPI
 
     def __init__(
         self,
@@ -607,6 +611,8 @@ class NotebookLMClient:
         on_rpc_event: Callable[[RpcTelemetryEvent], object] | None = None,
         chat_timeout: float | None = DEFAULT_CHAT_TIMEOUT,
         chat_response_max_bytes: int | None = DEFAULT_CHAT_RESPONSE_MAX_BYTES,
+        *,
+        allow_headless: bool = False,
     ) -> _FromStorageContext:
         """Create a client from Playwright storage state file.
 
@@ -669,6 +675,9 @@ class NotebookLMClient:
                 full semantics.
             on_rpc_event: Optional sync or async callback invoked after each
                 logical RPC succeeds or fails.
+            allow_headless: Permit one cold-start layer-3 browser recovery when
+                stored cookies are fully expired. A sibling master token can
+                recover automatically without enabling browser recovery.
 
         Returns:
             ``_FromStorageContext`` — an awaitable async-context-manager
@@ -708,6 +717,7 @@ class NotebookLMClient:
             chat_response_max_bytes=chat_response_max_bytes,
             upload_timeout=upload_timeout,
             on_rpc_event=on_rpc_event,
+            allow_headless=allow_headless,
         )
 
     async def refresh_auth(self, *, allow_headless: bool = False) -> AuthTokens:
@@ -899,7 +909,10 @@ class _FromStorageContext:
         path = kwargs["path"]
         profile = kwargs["profile"]
 
-        auth = await AuthTokens.from_storage(Path(path) if path else None, profile=profile)
+        auth_kwargs = {"allow_headless": True} if kwargs["allow_headless"] else {}
+        auth = await AuthTokens.from_storage(
+            Path(path) if path else None, profile=profile, **auth_kwargs
+        )
         storage_path = auth.storage_path
 
         self._client = self._cls(

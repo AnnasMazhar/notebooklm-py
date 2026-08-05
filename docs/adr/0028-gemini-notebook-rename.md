@@ -11,10 +11,69 @@ Alternatives.
 
 On 2026-07-16 Google renamed NotebookLM to **Gemini Notebook**
 ([announcement](https://blog.google/innovation-and-ai/products/gemini-notebook/notebooklm-gemini-notebook/)).
-The product is unchanged for our purposes — same app, same `batchexecute` wire
-protocol at `notebooklm.google.com` — but the project's discoverable identity
-(PyPI listing, repo name, docs) now points at a retired brand. New users will
-search for "gemini notebook python". PyPI availability checked 2026-08-03:
+The wire protocol is unchanged, and as of 2026-08-04 **both hosts serve it**.
+A live probe that day (issue #1977) reached `batchexecute` on each:
+
+```text
+GET  https://notebooklm.google.com/  -> 302 -> https://notebook.google.com/  (200, app shell)
+POST https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute -> 400 (endpoint live)
+POST https://notebook.google.com/_/LabsTailwindUi/data/batchexecute   -> 400 (endpoint live)
+```
+
+(A 400 on a deliberately malformed payload proves the endpoint exists.) So the
+**app shell has already migrated** — the legacy host is now a redirect — while
+`batchexecute` is **dual-served**. The RPC backend has not moved out from under
+us, which is why most sessions still work against the legacy default.
+
+Two things follow, and they are easy to conflate:
+
+- **Our own coverage has never exercised rebrand-host RPC.** Every request
+  recorded against `notebook.google.com` in `tests/cassettes/` is a `GET /`
+  returning the app shell (12 such, all in `collection_*`); no `batchexecute`
+  POST to that host has been captured. That is a gap in our testing, not a
+  statement about the service — until this change the base-URL allowlist
+  rejected the host, so no client we ship *could* have issued one.
+- **Dual-serving is a transitional state, not a guarantee.** It is the thing to
+  monitor, which is why `scripts/check_rpc_health.py` probes the rebrand host in
+  its own reporting lane.
+
+> **Amended (#2067): the trigger for moving the default has changed.**
+>
+> This ADR originally set the criterion as *"the legacy host ceasing to serve
+> RPC, not the rebrand host starting to"* — i.e. move when the old host breaks.
+> That is now superseded, for one reason: **it makes the migration an incident
+> rather than a change.** The signal arrives *as* users start failing, the fix
+> ships days later, and the window in which the move is invisible — the window
+> we are in right now, with both hosts serving — has closed by the time we act.
+>
+> Waiting also buys less safety than it appears to. The evidence that the flip
+> is survivable does not depend on legacy degrading: the app shell has already
+> migrated (the legacy host is a 302), so a session's CSRF/session pair is
+> *already* minted by `notebook.google.com` today and accepted by legacy
+> `batchexecute` — visible in twelve recorded interactions in
+> `tests/cassettes/collection_*.yaml`. Flipping makes the origin coherent; it
+> does not introduce a new dependency. Pre-cutover profiles were measured
+> against both hosts (#2067) and reached the rebrand host successfully
+> *without* their legacy-scoped `OSID`, because the accounts-scoped `LSID`
+> family is what actually gates the session.
+>
+> The revised criterion: **move while both hosts serve, keep the legacy host
+> selectable via `NOTEBOOKLM_BASE_URL`, and treat the probe lane as a
+> rollback-availability monitor** — a `PRESENT → ABSENT` transition on the
+> legacy host now means "rollback has expired", which is the thing worth
+> alarming on.
+>
+> What has *not* changed: dual-serving is still transitional and still the
+> thing to monitor. This amendment moves the default; it does not claim the
+> rebrand host is guaranteed.
+
+Both hosts are accepted base URLs. The default is `notebook.google.com`
+(#2067); the legacy host remains selectable via `NOTEBOOKLM_BASE_URL` and is
+documented as the rollback lever.
+
+Separately, the project's discoverable identity (PyPI listing, repo name, docs)
+now points at a retired brand. New users will search for
+"gemini notebook python". PyPI availability checked 2026-08-03:
 `gemini-notebook`, `gemini-notebook-py`, `gemini-notebook-client` are all
 unregistered — and so is the bare `notebooklm` dist name, which the permanent
 dist/import mismatch this ADR adopts turns into a standing typosquat target

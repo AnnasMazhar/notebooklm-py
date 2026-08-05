@@ -31,8 +31,30 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from notebooklm._auth.browser_capture import BrowserCapturePlan, run_cdp_capture
+from notebooklm._auth.browser_capture import (
+    TARGET_CLOSED_ERROR,
+    BrowserCapturePlan,
+    _CaptureAbortKind,
+    _HeadlessCaptureAbort,
+    run_cdp_capture,
+)
+from notebooklm._env import get_base_url
 from notebooklm.exceptions import HeadlessLoginRequiredError
+
+
+def _landed_on_app() -> str:
+    """The URL a healthy session lands on, tracking the configured host.
+
+    Production navigates the captured page to ``get_base_url()``, so the
+    simulated landing has to follow it. Pinned to the legacy alias instead,
+    every generic-landing test below reached its "authenticated" branch through
+    the alias-accept in ``accepted_login_hosts`` — dropping the *configured*
+    host from that accept set would not have failed a single one of them. The
+    deliberate cross-host case
+    (:func:`test_cdp_cross_personal_host_landing_is_authenticated`) still names
+    both hosts literally.
+    """
+    return f"{get_base_url()}/"
 
 
 class _RaisingCaptureIO:
@@ -121,9 +143,7 @@ def test_cdp_authenticated_landing_persists_and_filters(tmp_path: Path) -> None:
         # A sibling-product cookie the domain filter must DROP.
         {"name": "X", "value": "y", "domain": "mail.google.com", "path": "/"},
     ]
-    playwright, browser, _context, page = _fake_cdp_browser(
-        "https://notebooklm.google.com/", cookies=cookies
-    )
+    playwright, browser, _context, page = _fake_cdp_browser(_landed_on_app(), cookies=cookies)
     io = _RaisingCaptureIO()
 
     result = _run_cdp(_plan(tmp_path), io, playwright, "http://127.0.0.1:9222")
@@ -150,7 +170,7 @@ def test_cdp_authenticated_landing_persists_and_filters(tmp_path: Path) -> None:
 @pytest.mark.requires_playwright
 def test_cdp_uses_temporary_page_in_existing_context(tmp_path: Path) -> None:
     """Reuse the operator's EXISTING context but navigate/close our OWN page."""
-    playwright, browser, context, page = _fake_cdp_browser("https://notebooklm.google.com/")
+    playwright, browser, context, page = _fake_cdp_browser(_landed_on_app())
     io = _RaisingCaptureIO()
 
     _run_cdp(_plan(tmp_path), io, playwright, "http://127.0.0.1:9222")
@@ -161,6 +181,42 @@ def test_cdp_uses_temporary_page_in_existing_context(tmp_path: Path) -> None:
     context.new_page.assert_called_once()
     page.close.assert_called_once()
     context.close.assert_not_called()
+
+
+@pytest.mark.requires_playwright
+@pytest.mark.parametrize(
+    ("selected", "landed"),
+    [
+        ("https://notebooklm.google.com", "https://notebook.google.com/"),
+        ("https://notebook.google.com", "https://notebooklm.google.com/"),
+    ],
+)
+def test_cdp_cross_personal_host_landing_is_authenticated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, selected: str, landed: str
+) -> None:
+    """Landing on the *other* personal host is a success, not an off-host miss.
+
+    The CDP arm classifies its landing through ``url_matches_base_host``, so it
+    inherits ``accepted_login_hosts``. Google may redirect between the legacy
+    host and the post-rebrand alias in either direction; treating that as
+    off-host would raise on a perfectly good session.
+    """
+    monkeypatch.setenv("NOTEBOOKLM_BASE_URL", selected)
+    playwright, browser, _context, page = _fake_cdp_browser(
+        landed, cookies=[{"name": "SID", "value": "v", "domain": ".google.com", "path": "/"}]
+    )
+    io = _RaisingCaptureIO()
+
+    result = _run_cdp(_plan(tmp_path), io, playwright, "http://127.0.0.1:9222")
+
+    assert result is not None
+    storage = tmp_path / "storage_state.json"
+    assert storage.exists()
+    assert {c["name"] for c in json.loads(storage.read_text(encoding="utf-8"))["cookies"]} == {
+        "SID"
+    }
+    page.close.assert_called_once()
+    browser.close.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -193,9 +249,7 @@ def test_cdp_off_host_landing_raises_loudly_and_persists_nothing(tmp_path: Path)
 @pytest.mark.requires_playwright
 def test_cdp_no_context_raises_and_persists_nothing(tmp_path: Path) -> None:
     """An attached browser with no context cannot supply a session → raise."""
-    playwright, browser, _context, _page = _fake_cdp_browser(
-        "https://notebooklm.google.com/", has_context=False
-    )
+    playwright, browser, _context, _page = _fake_cdp_browser(_landed_on_app(), has_context=False)
     io = _RaisingCaptureIO()
 
     with pytest.raises(HeadlessLoginRequiredError, match="no browser"):
@@ -204,6 +258,22 @@ def test_cdp_no_context_raises_and_persists_nothing(tmp_path: Path) -> None:
     assert not (tmp_path / "storage_state.json").exists()
     # We still disconnected, and never fabricated a context.
     browser.new_context.assert_not_called()
+    browser.close.assert_called_once()
+
+
+@pytest.mark.requires_playwright
+def test_cdp_target_closed_is_typed_instead_of_session_expired(tmp_path: Path) -> None:
+    """A closed attached browser is infrastructure failure, not a dead session."""
+    playwright, browser, _context, page = _fake_cdp_browser(_landed_on_app())
+    from playwright.sync_api import Error as PlaywrightError
+
+    page.goto.side_effect = PlaywrightError(TARGET_CLOSED_ERROR)
+
+    with pytest.raises(_HeadlessCaptureAbort) as excinfo:
+        _run_cdp(_plan(tmp_path), _RaisingCaptureIO(), playwright, "http://127.0.0.1:9222")
+
+    assert excinfo.value.kind is _CaptureAbortKind.BROWSER_CLOSED
+    assert not (tmp_path / "storage_state.json").exists()
     browser.close.assert_called_once()
 
 
@@ -231,9 +301,7 @@ def test_cdp_malformed_cookie_value_never_logged(tmp_path: Path, caplog) -> None
         # A valid allowed cookie so the capture still persists something.
         {"name": "SID", "value": "ok", "domain": ".google.com", "path": "/"},
     ]
-    playwright, _browser, _context, _page = _fake_cdp_browser(
-        "https://notebooklm.google.com/", cookies=cookies
-    )
+    playwright, _browser, _context, _page = _fake_cdp_browser(_landed_on_app(), cookies=cookies)
     io = _RaisingCaptureIO()
 
     with caplog.at_level(logging.WARNING):

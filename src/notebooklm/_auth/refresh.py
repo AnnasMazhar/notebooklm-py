@@ -28,13 +28,13 @@ from typing import Any
 import httpx
 
 from .._env import get_base_url
-from .._url_utils import is_google_auth_redirect
 from ..paths import get_storage_path, resolve_profile
 from . import cookies as _auth_cookies
 from . import extraction as _auth_extraction
 from . import headers as _auth_headers
 from . import keepalive as _keepalive
 from . import paths as _auth_paths
+from . import recovery as _auth_recovery
 from . import storage as _auth_storage
 from .account import authuser_query
 
@@ -60,7 +60,13 @@ snapshot_cookie_jar = _auth_storage.snapshot_cookie_jar
 save_cookies_to_storage = _auth_storage.save_cookies_to_storage
 extract_csrf_from_html = _auth_extraction.extract_csrf_from_html
 extract_session_id_from_html = _auth_extraction.extract_session_id_from_html
-_safe_url = _auth_extraction._safe_url
+# Shared URL-only failure classifier — the single source of truth for the
+# gate -> cookie-mismatch -> auth-redirect precedence used by both this module's
+# pre-check and the extractors themselves. It supersedes the former ``_safe_url``
+# / ``_cookie_mismatch_message`` aliases here: those existed only for the
+# hand-rolled pre-check this module used to carry, and message formatting now
+# lives entirely behind the classifier.
+_url_only_extraction_failure = _auth_extraction._url_only_extraction_failure
 _resolve_token_route_kwargs = _auth_headers._resolve_token_route_kwargs
 
 # Env-var names live in ``_auth.paths``; aliased so the refresh bodies can
@@ -448,9 +454,10 @@ async def _fetch_tokens_with_refresh(
     storage_path: Path | None = None,
     profile: str | None = None,
     *,
-    authuser: int = 0,
+    authuser: int | None = None,
     account_email: str | None = None,
     force_authuser_query: bool = False,
+    allow_headless: bool = False,
 ) -> tuple[str, str, bool, _auth_storage.CookieSnapshot | None]:
     """Fetch tokens, optionally running NOTEBOOKLM_REFRESH_CMD on auth expiry.
 
@@ -467,15 +474,52 @@ async def _fetch_tokens_with_refresh(
     When ``refreshed`` is ``False`` the snapshot is ``None`` (no refresh
     happened; caller's pre-fetch snapshot is still the right baseline).
     """
+    explicit_authuser = (
+        authuser if authuser is not None and (authuser != 0 or force_authuser_query) else None
+    )
+
+    def resolve_route(path: Path | None) -> dict[str, Any]:
+        return _resolve_token_route_kwargs(
+            path,
+            authuser=explicit_authuser,
+            account_email=account_email,
+        )
+
     try:
-        route_kwargs: dict[str, Any] = {"authuser": authuser}
-        if account_email is not None:
-            route_kwargs["account_email"] = account_email
-        if force_authuser_query:
-            route_kwargs["force_authuser_query"] = True
+        route_kwargs = resolve_route(storage_path)
         csrf, session_id = await _fetch_tokens_with_jar(cookie_jar, storage_path, **route_kwargs)
         return csrf, session_id, False, None
     except ValueError as err:
+        if isinstance(err, _auth_extraction._LoginRedirectError) and storage_path is not None:
+
+            async def validate_recovered_jar(recovered_jar: httpx.Cookies) -> None:
+                await _fetch_tokens_with_jar(
+                    recovered_jar,
+                    storage_path,
+                    **_resolve_token_route_kwargs(storage_path, authuser=None, account_email=None),
+                )
+
+            try:
+                recovery = await _auth_recovery.coalesced_cold_recovery(
+                    storage_path=storage_path,
+                    allow_headless=allow_headless,
+                    validate=validate_recovered_jar,
+                    initial_error=err,
+                )
+            except _auth_extraction._LoginRedirectError as retry_err:
+                err = retry_err
+            else:
+                _replace_cookie_jar(cookie_jar, recovery.cookie_jar)
+                try:
+                    csrf, session_id = await _fetch_tokens_with_jar(
+                        cookie_jar,
+                        storage_path,
+                        **resolve_route(storage_path),
+                    )
+                except _auth_extraction._LoginRedirectError as retry_err:
+                    err = retry_err
+                else:
+                    return csrf, session_id, True, recovery.snapshot
         if not _should_try_refresh(err):
             raise
         logger.warning(
@@ -669,11 +713,7 @@ async def _fetch_tokens_with_refresh(
                 # Capture the baseline NOW — after the wholesale replacement
                 # but before the retry fetch can mutate the jar.
                 post_refresh_snapshot = snapshot_cookie_jar(cookie_jar)
-            route_kwargs = {"authuser": authuser}
-            if account_email is not None:
-                route_kwargs["account_email"] = account_email
-            if force_authuser_query:
-                route_kwargs["force_authuser_query"] = True
+            route_kwargs = resolve_route(refresh_storage_path)
             csrf, session_id = await _fetch_tokens_with_jar(
                 cookie_jar, refresh_storage_path, **route_kwargs
             )
@@ -744,17 +784,32 @@ async def _fetch_tokens_with_jar(
         response.raise_for_status()
 
         final_url = str(response.url)
+        # Redirect hops, in order. Google's ``/CookieMismatch`` interstitial 302s
+        # onward to a support.google.com help article, so it is only ever visible
+        # here — never in ``final_url``. (The curl_cffi transport rebuilds a
+        # synthetic response and reports an empty history; that path simply
+        # loses this one classification rather than misreporting it.)
+        redirect_urls = tuple(str(hop.url) for hop in response.history)
 
-        # Check if we were redirected to login
-        if is_google_auth_redirect(final_url):
-            raise ValueError(
-                "Authentication expired or invalid. "
-                "Redirected to: " + _safe_url(final_url) + "\n"
-                "Run 'notebooklm login' to re-authenticate."
-            )
+        # Classify everything decidable from the URLs BEFORE touching the body.
+        # This is not an optimisation: Google's sign-in page carries its own
+        # ``WIZ_global_data`` with its own ``SNlM0e``/``FdrFJe`` (live-captured;
+        # see ``_url_only_extraction_failure`` for the exact request), and the
+        # extractors never check which host answered — so handing a sign-in page
+        # to ``extract_csrf_from_html`` returns *that* page's token instead of
+        # raising. Delegating to the shared classifier (instead of
+        # re-implementing the checks here) keeps the gate -> cookie-mismatch ->
+        # auth-redirect precedence identical on both paths; hand-rolling it here
+        # is exactly how this path once let a mismatch hop preempt the #1630
+        # region gate (#2038).
+        url_failure = _url_only_extraction_failure(final_url, redirect_urls)
+        if url_failure is not None:
+            raise url_failure
 
-        csrf = extract_csrf_from_html(response.text, final_url)
-        session_id = extract_session_id_from_html(response.text, final_url)
+        csrf = extract_csrf_from_html(response.text, final_url, redirect_urls=redirect_urls)
+        session_id = extract_session_id_from_html(
+            response.text, final_url, redirect_urls=redirect_urls
+        )
 
         # httpx copies the input Cookies object into the client. Copy any
         # redirect Set-Cookie updates back to the caller's jar before it is
@@ -801,13 +856,13 @@ async def fetch_tokens(
         RuntimeError: If ``NOTEBOOKLM_REFRESH_CMD`` is set but fails
     """
     jar = build_cookie_jar(cookies=cookies, storage_path=storage_path)
-    route_kwargs = _resolve_token_route_kwargs(
+    csrf, session_id, refreshed, _post_refresh_snapshot = await _fetch_tokens_with_refresh(
+        jar,
         storage_path,
+        profile,
         authuser=authuser,
         account_email=account_email,
-    )
-    csrf, session_id, refreshed, _post_refresh_snapshot = await _fetch_tokens_with_refresh(
-        jar, storage_path, profile, **route_kwargs
+        force_authuser_query=authuser is not None,
     )
     if refreshed:
         fresh = _cookie_map_from_jar(jar)
@@ -821,6 +876,7 @@ async def fetch_tokens_with_domains(
     *,
     authuser: int | None = None,
     account_email: str | None = None,
+    allow_headless: bool = False,
 ) -> tuple[str, str]:
     """Fetch tokens with domain-preserving cookies from storage.
 
@@ -835,6 +891,8 @@ async def fetch_tokens_with_domains(
             persisted profile value, or 0 when none exists.
         account_email: Optional explicit Google account email. When provided,
             it is used as the auth routing value instead of the integer index.
+        allow_headless: Permit layer-3 browser recovery after a confirmed login
+            redirect. The environment opt-in remains effective when this is false.
 
     Returns:
         Tuple of (csrf_token, session_id)
@@ -848,13 +906,19 @@ async def fetch_tokens_with_domains(
     if path is None and (profile is not None or "NOTEBOOKLM_AUTH_JSON" not in os.environ):
         path = get_storage_path(profile=profile)
     jar = build_httpx_cookies_from_storage(path)
-    route_kwargs = _resolve_token_route_kwargs(path, authuser=authuser, account_email=account_email)
     # Capture the open-time snapshot before any rotation could fire. The
     # snapshot is the input to the dirty-flag/delta merge that closes the
     # stale-overwrite-fresh race (docs/auth-cookie-lifecycle.md §3.4.1).
     snapshot = snapshot_cookie_jar(jar)
+    refresh_options: dict[str, Any] = {}
+    if authuser is not None:
+        refresh_options.update(authuser=authuser, force_authuser_query=True)
+    if account_email is not None:
+        refresh_options["account_email"] = account_email
+    if allow_headless:
+        refresh_options["allow_headless"] = True
     csrf, session_id, refreshed, post_refresh_snapshot = await _fetch_tokens_with_refresh(
-        jar, path, profile, **route_kwargs
+        jar, path, profile, **refresh_options
     )
     if refreshed and post_refresh_snapshot is not None:
         # NOTEBOOKLM_REFRESH_CMD replaced the jar wholesale. Use the snapshot
