@@ -292,6 +292,7 @@ class AuthTokens:
                 authuser=authuser,
                 account_email=account_email,
                 allow_headless=allow_headless,
+                env_auth=True,
             )
         elif allow_headless:
             fetch_result = await _auth_refresh._fetch_tokens_with_refresh(

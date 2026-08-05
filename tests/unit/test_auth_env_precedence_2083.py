@@ -183,3 +183,37 @@ async def test_refresh_cmd_does_not_run_or_touch_a_profile_under_env_auth(
 
     assert not marker.exists(), "the refresh command must not run for env-only auth"
     assert profiled_home.read_bytes() == before, "a bypassed profile must not be rewritten"
+
+
+@pytest.mark.asyncio
+async def test_explicit_cookies_still_refresh_when_env_var_is_merely_present(
+    profiled_home: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    httpx_mock: HTTPXMock,
+) -> None:
+    """``fetch_tokens(cookies=...)`` did not load from the env var, so the hook applies.
+
+    The env-auth suppression must key off how *this* caller obtained its
+    credentials, not off ``storage_path is None`` plus an ambient
+    ``NOTEBOOKLM_AUTH_JSON`` that may belong to something else in the process.
+    Inferring it would silently disable ``NOTEBOOKLM_REFRESH_CMD`` for every
+    explicit-cookie caller in a mixed environment (#2084 review).
+    """
+    marker = tmp_path / "refresh-cmd-ran"
+    monkeypatch.setenv("NOTEBOOKLM_REFRESH_CMD", f"touch {marker}")
+    # Two rounds: the initial fetch, then the post-refresh retry.
+    for _ in range(2):
+        httpx_mock.add_response(
+            url=f"{get_base_url()}/",
+            status_code=302,
+            headers={"Location": "https://accounts.google.com/signin"},
+        )
+        httpx_mock.add_response(
+            url="https://accounts.google.com/signin", content=b"<html>Login</html>"
+        )
+
+    with pytest.raises(Exception):  # noqa: B017 - the refresh attempt is the subject
+        await refresh.fetch_tokens({"SID": "sid", "__Secure-1PSIDTS": "psidts"}, profile="work")
+
+    assert marker.exists(), "explicit-cookie callers must keep their refresh hook"
