@@ -522,6 +522,17 @@ async def _fetch_tokens_with_refresh(
                     return csrf, session_id, True, recovery.snapshot
         if not _should_try_refresh(err):
             raise
+        if storage_path is None and "NOTEBOOKLM_AUTH_JSON" in os.environ:
+            # Env auth has no writable backing store, so the fallback below
+            # would lock, rewrite and then read a profile file this caller
+            # bypassed — converting env auth into file auth and mutating a
+            # profile that may belong to another account. The refresh command
+            # cannot help either: NOTEBOOKLM_AUTH_JSON is scrubbed from its
+            # environment, so it cannot re-mint the credential in use (#2083).
+            logger.debug(
+                "Skipping %s: env auth has no file to refresh into", NOTEBOOKLM_REFRESH_CMD_ENV
+            )
+            raise
         logger.warning(
             "NotebookLM auth failed (%s). Running %s to refresh cookies.",
             err,
@@ -903,8 +914,7 @@ async def fetch_tokens_with_domains(
         ValueError: If tokens cannot be extracted from response.
         RuntimeError: If ``NOTEBOOKLM_REFRESH_CMD`` is set but fails.
     """
-    if path is None and (profile is not None or "NOTEBOOKLM_AUTH_JSON" not in os.environ):
-        path = get_storage_path(profile=profile)
+    path = _auth_cookies.resolve_auth_storage_path(path, profile)
     jar = build_httpx_cookies_from_storage(path)
     # Capture the open-time snapshot before any rotation could fire. The
     # snapshot is the input to the dirty-flag/delta merge that closes the
@@ -976,8 +986,7 @@ async def fetch_tokens_passive(
         httpx.HTTPError: If request fails.
         ValueError: If tokens cannot be extracted (e.g. redirected to sign-in).
     """
-    if path is None and (profile is not None or "NOTEBOOKLM_AUTH_JSON" not in os.environ):
-        path = get_storage_path(profile=profile)
+    path = _auth_cookies.resolve_auth_storage_path(path, profile)
     # Strict (no-recovery) loader: a missing/expired PSIDTS raises ``ValueError``
     # here rather than triggering the inline ``RotateCookies`` rotation + save
     # that ``build_httpx_cookies_from_storage`` would. A readiness probe reports
