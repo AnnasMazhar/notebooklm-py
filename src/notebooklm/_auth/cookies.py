@@ -441,11 +441,16 @@ def load_httpx_cookies(path: Path | None = None) -> httpx.Cookies:
         FileNotFoundError: If storage file doesn't exist (when using file-based auth).
         ValueError: If required cookies are missing or JSON is malformed.
     """
+    # Name-only, deliberately. No recovery follows this loader, and the routing
+    # preflight exists to *trigger* a heal — see the rule on
+    # ``_build_httpx_cookies_from_storage_state``. Asking it here would reject a
+    # ``__Secure-1PSIDTS`` scoped to the app host, which is a cookie the download
+    # host receives and the rotate URL does not: unrotatable, but not unusable.
     storage_state = _load_storage_state(path)
     return _build_httpx_cookies_from_storage_state(
         storage_state,
         context=" for downloads",
-        require_routable=True,
+        require_routable=False,
     )
 
 
@@ -518,7 +523,18 @@ def build_httpx_cookies_from_storage(path: Path | None = None) -> httpx.Cookies:
         from . import psidts_recovery
 
         if not psidts_recovery._recover_psidts_inline(path):
-            raise
+            # Recovery declined — no writable backing store (inline
+            # ``NOTEBOOKLM_AUTH_JSON``), no rotatable secondary binding, a
+            # contended lock, or a throttled slot. The routing condition exists
+            # to trigger a heal, so with no heal to trigger it must not turn a
+            # loadable state into a hard failure: retry name-only, which
+            # re-raises if a required cookie is genuinely absent and otherwise
+            # returns the same jar this loader built before #2061.
+            logger.debug(
+                "PSIDTS is present but does not route to the rotate URL and recovery "
+                "declined; continuing with the unrotatable cookie set"
+            )
+            return _build_httpx_cookies_from_storage_state(storage_state, require_routable=False)
         # The recovery handler proved a routed post-mint cookie and persisted
         # a live required row.  The one retry intentionally uses the existing
         # name/liveness contract and cannot recursively recover.
@@ -533,7 +549,20 @@ def _build_httpx_cookies_from_storage_state(
     context: str = "",
     require_routable: bool,
 ) -> httpx.Cookies:
-    """Build a jar from an already-loaded state without recovery side effects."""
+    """Build a jar from an already-loaded state without recovery side effects.
+
+    ``require_routable`` adds the RFC 6265 routing preflight on top of the
+    required-name check. **Pass it only where a recovery attempt follows.**
+
+    The routing condition asks whether ``__Secure-1PSIDTS`` would be sent to
+    the ``RotateCookies`` URL on ``accounts.google.com``. That is a question
+    about whether the cookie can be *refreshed*, not about whether it can be
+    *used*: one scoped to the app host is delivered on every app request while
+    never reaching the rotate URL — unrotatable, but not unusable. Raising on it
+    is only justified when the raise is what triggers the heal that fixes it.
+    A loader with no recovery arm must stay name-only, or it converts a working
+    session into a hard failure it cannot repair (#2061).
+    """
     entries = _sanitized_auth_entries(storage_state)
     cookies = httpx.Cookies()
     seen_keys: set[CookieKey] = set()
@@ -557,9 +586,14 @@ def _build_httpx_cookies_from_storage_state(
 
 
 def _build_httpx_cookies_from_storage_strict(path: Path | None) -> httpx.Cookies:
-    """Inner load-and-validate body. No recovery — raises ``ValueError`` directly."""
+    """Inner load-and-validate body. No recovery — raises ``ValueError`` directly.
+
+    Name-only for the reason given on :func:`_build_httpx_cookies_from_storage_state`:
+    ``fetch_tokens_passive`` uses this loader precisely because it must not fire a
+    heal, so it is the wrong place to raise a condition only a heal can clear.
+    """
     storage_state = _load_storage_state(path)
-    return _build_httpx_cookies_from_storage_state(storage_state, require_routable=True)
+    return _build_httpx_cookies_from_storage_state(storage_state, require_routable=False)
 
 
 def build_cookie_jar(

@@ -20,6 +20,7 @@ from notebooklm._auth import (
     cookies,
     psidts_recovery,
     storage,
+    tokens,
 )
 from notebooklm._auth.cookie_policy import RequiredCookieValidationError
 from notebooklm.cli.services import auth_source
@@ -184,13 +185,21 @@ def test_captured_state_validation_preserves_same_site_attributes() -> None:
         (".google.com", "/", 1, False),
     ],
 )
-def test_validation_only_loader_uses_route_preflight(
+def test_route_preflight_accepts_only_rotatable_psidts(
     tmp_path: Path,
     domain: str,
     path: str,
     expires: int | None,
     expected: bool,
 ) -> None:
+    """The routing preflight itself, exercised where it is legitimately applied.
+
+    Deliberately calls the shared builder rather than a public loader: the
+    ``require_routable=True`` arm belongs only to loaders that follow a failure
+    with a recovery attempt, so no public loader is an honest vehicle for it.
+    The two below pin the other half — that the loaders *without* a recovery arm
+    stay name-only.
+    """
     state = _required_state(
         {"domain": domain, "path": path, "expires": expires}
         if domain != ".google.com" or path != "/" or expires is not None
@@ -198,17 +207,82 @@ def test_validation_only_loader_uses_route_preflight(
     )
     state["cookies"][-1]["domain"] = domain
     state["cookies"][-1]["path"] = path
-    path_to_state = tmp_path / "storage_state.json"
-    path_to_state.write_text(json.dumps(state), encoding="utf-8")
 
     if expected:
-        jar = cookies.load_httpx_cookies(path_to_state)
+        jar = cookies._build_httpx_cookies_from_storage_state(state, require_routable=True)
         assert any(
             cookie.name == "__Secure-1PSIDTS" and cookie.value == "psidts" for cookie in jar.jar
         )
     else:
         with pytest.raises(RequiredCookieValidationError):
-            cookies.load_httpx_cookies(path_to_state)
+            cookies._build_httpx_cookies_from_storage_state(state, require_routable=True)
+
+
+def test_download_loader_accepts_an_unrotatable_psidts(tmp_path: Path) -> None:
+    """A PSIDTS the rotate URL never sees is still a cookie the app host gets.
+
+    ``load_httpx_cookies`` backs artifact downloads and has no recovery arm, so
+    hardening it would convert a working session into a permanent failure with
+    no repair path. Regression guard for the first cut of #2061, which did.
+    """
+    path = tmp_path / "storage_state.json"
+    path.write_text(
+        json.dumps(_required_state({"domain": ".notebook.google.com", "expires": None})),
+        encoding="utf-8",
+    )
+
+    jar = cookies.load_httpx_cookies(path)
+
+    assert {cookie.name for cookie in jar.jar} >= {"SID", "__Secure-1PSIDTS"}
+
+
+def test_download_loader_still_rejects_a_missing_required_cookie(tmp_path: Path) -> None:
+    """Name-only is not no-validation — the required-cookie contract still holds."""
+    state = _required_state()
+    state["cookies"] = [row for row in state["cookies"] if row["name"] != "__Secure-1PSIDTS"]
+    path = tmp_path / "storage_state.json"
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(RequiredCookieValidationError, match="__Secure-1PSIDTS"):
+        cookies.load_httpx_cookies(path)
+
+
+def test_env_auth_state_is_not_hardened_when_recovery_cannot_run(
+    monkeypatch: pytest.MonkeyPatch, httpx_mock: HTTPXMock
+) -> None:
+    """Inline ``NOTEBOOKLM_AUTH_JSON`` has no writable store, so no heal exists.
+
+    ``_resolve_recovery_path`` returns ``None`` for env auth and recovery
+    declines. Raising the routing condition there would be a pure loss: a hard
+    failure the caller has no way to repair. It must load, and fire no POST.
+    """
+    monkeypatch.setenv(
+        "NOTEBOOKLM_AUTH_JSON",
+        json.dumps(_required_state({"domain": ".notebook.google.com", "expires": None})),
+    )
+
+    jar = cookies.build_httpx_cookies_from_storage(None)
+
+    assert {cookie.name for cookie in jar.jar} >= {"SID", "__Secure-1PSIDTS"}
+    assert _rotate_requests(httpx_mock) == []
+
+
+def test_declined_recovery_falls_back_instead_of_hardening(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A declined heal (throttle, contention, no rotatable binding) must not fail the load."""
+    path = tmp_path / "storage_state.json"
+    path.write_text(
+        json.dumps(_required_state({"domain": ".notebook.google.com", "expires": None})),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(psidts_recovery, "_recover_psidts_inline", lambda _path: False)
+
+    jar = cookies.build_httpx_cookies_from_storage(path)
+    flat = tokens.load_auth_from_storage(path)
+
+    assert {cookie.name for cookie in jar.jar} >= {"SID", "__Secure-1PSIDTS"}
+    assert flat["__Secure-1PSIDTS"] == "psidts"
 
 
 def test_validation_only_malformed_required_row_is_typed_and_redacted(

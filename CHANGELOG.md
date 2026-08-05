@@ -66,10 +66,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **What changes for you:** on a profile in one of those states, the client now
   makes a `RotateCookies` POST and a storage write during startup where it
-  previously proceeded and failed. Sessions that already worked are unaffected —
-  a routed, live PSIDTS still short-circuits before any POST. `auth inspect`
-  deliberately keeps probing before validating, so a network outage is still
-  reported as a network outage rather than as a bad cookie set.
+  previously went straight to a failing RPC. Nothing that loaded before stops
+  loading: a routed, live PSIDTS short-circuits before any POST, and if the heal
+  cannot run or does not succeed the load continues exactly as it did before.
+  The routing condition is only raised where a recovery attempt follows it, so
+  artifact downloads and the read-only `fetch_tokens_passive` probe are
+  unchanged — a PSIDTS scoped to the app host is unrotatable, not unusable.
+  `auth inspect` likewise keeps probing before validating, so a network outage
+  is still reported as a network outage rather than as a bad cookie set.
 
 - **The pinned frontend build label is current again, and can no longer rot
   unwatched.** `_env.DEFAULT_BL` — the `bl` value sent on the chat streaming

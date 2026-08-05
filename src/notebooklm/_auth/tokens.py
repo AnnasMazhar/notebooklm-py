@@ -422,7 +422,13 @@ def load_auth_from_storage(path: Path | None = None) -> dict[str, str]:
         # we pass ``path`` through verbatim — including ``None`` for the
         # default-profile case.
         if not _auth_psidts_recovery._recover_psidts_inline(path):
-            raise
+            # Recovery declined, so the routing half of the preflight has no
+            # heal to trigger and must not harden into a failure this call
+            # cannot repair. Re-run name-only: it re-raises when a required
+            # cookie is genuinely absent, and otherwise returns exactly what
+            # this function returned before #2061. See
+            # ``_build_httpx_cookies_from_storage_state`` for the rule.
+            return _auth_cookies.extract_cookies_from_storage(storage_state)
         storage_state = _auth_cookies._load_storage_state(path)
         return _auth_cookies.extract_cookies_from_storage(storage_state)
 

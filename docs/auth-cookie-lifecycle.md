@@ -660,10 +660,25 @@ callers. The loaders now run `_validate_routable_entries`: required names, then
 the same RFC 6265 routing predicate the gate uses. The two conditions are
 written against one function so they cannot drift apart silently (issue #2061).
 
-The cost is deliberate: recovery now fires — a `RotateCookies` POST and a disk
-write — in states that previously proceeded to the first RPC and failed there.
-That is the trade. A `__Secure-1PSIDTS` that cannot be sent to the rotate URL is
-not a working session; healing it at load time is the point of the ladder.
+**The routing preflight belongs only where a heal follows it, and it is never
+stricter than that heal.** The condition asks whether `__Secure-1PSIDTS` would
+be *sent to the rotate URL* — a question about whether the cookie can be
+**refreshed**, not whether it can be **used**. One scoped to the app host is
+delivered on every app request while never reaching `accounts.google.com`:
+unrotatable, but not unusable. So:
+
+- Loaders with a recovery arm (`build_httpx_cookies_from_storage`,
+  `load_auth_from_storage`) raise it — and when recovery *declines* (inline
+  `NOTEBOOKLM_AUTH_JSON` has no writable store, no rotatable secondary binding,
+  a contended lock, a throttled slot) they retry name-only rather than harden
+  into a failure nothing can repair.
+- Loaders without one stay name-only: `load_httpx_cookies` (artifact downloads)
+  and `_build_httpx_cookies_from_storage_strict` (the `fetch_tokens_passive`
+  probe, which exists precisely so no heal fires).
+
+The net effect is a heal *attempt* in states that previously went straight to a
+failing RPC, and no new terminal failures: every state that loaded before still
+loads.
 
 The separate "did the heal land?" check (`_psidts_is_live`) is deliberately
 domain-blind instead, because it must predict the retrying preflight rather than
