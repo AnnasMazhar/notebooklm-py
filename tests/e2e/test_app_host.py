@@ -34,12 +34,18 @@ import httpx
 import pytest
 
 from notebooklm._env import PERSONAL_BASE_HOST, get_base_url
+from notebooklm._runtime.init import _resolve_async_client_factory
 
 from .conftest import requires_auth
 
 #: Google's cookie-rotation endpoint. Not app traffic, and legitimately a
 #: different host — ``RotateCookies`` is accounts-scoped by construction.
 _ACCOUNTS_HOST = "accounts.google.com"
+
+#: Path prefix of the data plane: batchexecute and streamed chat both live under
+#: it. This is the traffic "are we hitting the right host?" is really about, and
+#: the traffic for which a redirect is unambiguously wrong.
+_DATA_PLANE_PREFIX = "/_/"
 
 
 class _RequestLog:
@@ -52,33 +58,68 @@ class _RequestLog:
         """Entries excluding the accounts-scoped cookie rotation."""
         return [e for e in self.entries if e[0] != _ACCOUNTS_HOST]
 
+    def data_plane_entries(self) -> list[tuple[str, str, int, str | None]]:
+        """App entries for batchexecute / streamed chat only.
+
+        Forward-looking, not currently load-bearing: the e2e ``client`` fixture
+        is built from pre-loaded ``AuthTokens``, so ``notebooks.list()`` issues
+        exactly one request today — the batchexecute POST — and this filter
+        removes nothing (measured 2026-08-04).
+
+        It exists because the session-bootstrapping paths *do* issue a landing
+        ``GET /``, and pointed at the legacy host via the documented rollback
+        lever that request legitimately 302s to the rebrand host while the data
+        plane keeps serving on the configured host. Should the fixture ever grow
+        such a request, asserting over it would report a working rollback as a
+        failure. Scoping now costs nothing and removes that trap.
+        """
+        return [e for e in self.app_entries() if e[1].startswith(_DATA_PLANE_PREFIX)]
+
     def hosts(self) -> set[str]:
         return {e[0] for e in self.entries}
 
 
 @pytest.fixture
 def request_log(monkeypatch: pytest.MonkeyPatch) -> _RequestLog:
-    """Record every HTTP request the client under test issues.
+    """Record every HTTP request the client under test issues, hops included.
 
     Wraps ``httpx.AsyncClient.send`` rather than injecting a client factory:
     ``async_client_factory`` is deliberately kept off the public constructor
     (see ``client.py``), and routing this test around that constructor would
     stop it testing the thing it exists to test. Wrapping the transport instead
     observes whatever the shipped construction path actually built.
+
+    Skips when the resolved transport is not ``httpx.AsyncClient``. Under
+    ``NOTEBOOKLM_TRANSPORT=curl_cffi`` the client is a ``CurlCffiAsyncClient``,
+    which exposes ``get``/``post``/``stream`` and no ``send`` at all — this
+    wrapper would silently record nothing and the assertions would fail with an
+    empty log despite perfectly good live traffic. The resolver is the library's
+    own, so this check cannot drift from what the client actually builds.
     """
+    if _resolve_async_client_factory(None) is not httpx.AsyncClient:
+        pytest.skip("resolved transport is not httpx.AsyncClient (NOTEBOOKLM_TRANSPORT is set)")
+
     log = _RequestLog()
     original = httpx.AsyncClient.send
 
     async def recording_send(self: httpx.AsyncClient, request: httpx.Request, **kwargs: object):
         response = await original(self, request, **kwargs)
-        log.entries.append(
-            (
-                request.url.host,
-                request.url.path,
-                response.status_code,
-                response.headers.get("location"),
+        # ``Kernel.open`` builds its client with ``follow_redirects=True``
+        # (``_kernel.py``), so ``send`` returns the TERMINAL response and the
+        # 3xx hops survive only in ``response.history`` — while ``request`` is
+        # the FIRST request, not the last. Recording that pair alone would log a
+        # bounce off the configured host as ``(configured host, 200)``, leaving
+        # this test blind to precisely the state it exists to catch. Walking
+        # ``history`` and reading each hop's own ``request`` fixes both halves.
+        for hop in (*response.history, response):
+            log.entries.append(
+                (
+                    hop.request.url.host,
+                    hop.request.url.path,
+                    hop.status_code,
+                    hop.headers.get("location"),
+                )
             )
-        )
         return response
 
     monkeypatch.setattr(httpx.AsyncClient, "send", recording_send)
@@ -108,25 +149,34 @@ class TestAppHost:
         await client.notebooks.list()
 
         expected = httpx.URL(get_base_url()).host
-        app = request_log.app_entries()
-        assert app, "no app requests were observed — the recording fixture did not engage"
+        data_plane = request_log.data_plane_entries()
+        assert data_plane, (
+            "no data-plane requests were observed — the recording fixture did not "
+            f"engage; entries seen: {request_log.entries}"
+        )
 
-        wrong_host = [e for e in app if e[0] != expected]
+        wrong_host = [e for e in data_plane if e[0] != expected]
         assert not wrong_host, f"requests left the configured host {expected}: {wrong_host}"
 
-        redirected = [e for e in app if 300 <= e[2] < 400]
+        redirected = [e for e in data_plane if 300 <= e[2] < 400]
         assert not redirected, (
             f"the app host answered with a redirect, so the client is aimed at the "
             f"wrong host and is being bounced: {redirected}"
         )
 
-        assert any("batchexecute" in e[1] for e in app), (
-            f"no batchexecute request was observed; paths seen: {[e[1] for e in app]}"
+        assert any("batchexecute" in e[1] for e in data_plane), (
+            f"no batchexecute request was observed; paths seen: {[e[1] for e in data_plane]}"
         )
 
     @pytest.mark.asyncio
     async def test_unconfigured_runs_reach_the_rebrand_host(self, client, request_log):
-        """With no override set, that configured host is the rebrand host.
+        """With no override set, every app request reaches the rebrand host.
+
+        This is the CI case, and it makes the unconditional claim over *all* app
+        traffic rather than the data plane alone — so if the fixture ever grows
+        a session-bootstrapping request, this test covers it too. That is safe
+        on the default host, which serves the shell directly; only the legacy
+        host bounces.
 
         Skips rather than fails when ``NOTEBOOKLM_BASE_URL`` is set: pointing a
         run at the legacy host is a supported configuration (ADR-0028), and a
@@ -139,3 +189,6 @@ class TestAppHost:
 
         assert httpx.URL(get_base_url()).host == PERSONAL_BASE_HOST
         assert request_log.hosts() - {_ACCOUNTS_HOST} == {PERSONAL_BASE_HOST}
+
+        bounced = [e for e in request_log.app_entries() if 300 <= e[2] < 400]
+        assert not bounced, f"app traffic was redirected on the default host: {bounced}"
