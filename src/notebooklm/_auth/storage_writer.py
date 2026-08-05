@@ -1,0 +1,450 @@
+"""Canonical writer for ``storage_state.json`` (and sibling credential files).
+
+This module is the **single sanctioned home** for mutations of
+``storage_state.json``. It is the only module under :mod:`notebooklm._auth`
+permitted to import the ``_atomic_io`` write primitives
+(:func:`atomic_write_json` / :func:`replace_file_atomically`) and to perform the
+final atomic write of a storage-state file. The boundary is enforced by
+``tests/_guardrails/test_storage_writer_boundary.py`` (an AST guardrail plus an
+equality-asserted allowlist of every module that imports ``atomic_write_json``).
+
+Intent-shaped API (all synchronous, all serialize on the canonical storage lock,
+all write via ``_atomic_io``):
+
+* :func:`merge_cookie_delta` — the CAS delta merge relocated verbatim from
+  ``storage.save_cookies_to_storage`` (kept as the monkeypatchable delegate
+  seam in :mod:`notebooklm._auth.storage`). It is a **CAS** intent and
+  therefore **fails open** on lock unavailability (status quo): availability
+  wins, and the snapshot/delta CAS guards keep correctness.
+* :func:`update_account_metadata` / :func:`clear_in_band_account` — the in-band
+  account writers relocated from :mod:`notebooklm._auth.account`. These are
+  **full-file RMW** intents: :func:`update_account_metadata` **fails closed**
+  (raises :class:`LockUnavailableError`) because failing open could overwrite a
+  concurrent CAS delta; :func:`clear_in_band_account` is best-effort cleanup and
+  swallows lock unavailability, matching the pre-refactor semantics.
+* :func:`persist_minted_jar` — the master-token L4 re-mint persister relocated
+  from :mod:`notebooklm._auth.master_token`, routed through ``_atomic_io`` (so it
+  gains fsync durability + temp cleanup) while keeping its storage lock and its
+  rebind-to-minted-account semantics. **Fails closed.**
+* :func:`write_master_token` — the ``master_token.json`` writer, now routed
+  through ``_atomic_io`` **and** guarded by a bounded sibling lock (it was
+  previously lockless). **Fails closed.**
+
+Lock unification (see ADR-0029): the full-file RMW / re-mint intents drop
+``filelock`` in favour of the project-internal ``storage._file_lock`` primitive
+via a **platform-neutral bounded acquire** (:func:`_acquire_storage_lock`):
+a non-blocking probe plus deadline/jitter retry (default 90 s), then the
+per-intent failure policy above. The CAS merge keeps the status-quo blocking
+``_file_lock_exclusive`` acquire (fail-open). An in-process ``threading.Lock``
+keyed per canonical lock-path (ordering: in-process lock -> OS lock) is added in
+``storage._file_lock`` itself so threads within one process serialize before the
+OS lock; the distinct ``.{name}.rotate.lock`` sentinel is never collapsed into
+the storage lock.
+
+The fail-closed writers raise :class:`~notebooklm.exceptions.LockUnavailableError`
+(public via ``notebooklm.exceptions`` / the ``notebooklm.auth`` facade). It
+subclasses :class:`TimeoutError` — itself an :class:`OSError` — exactly mirroring
+the ``filelock.Timeout`` MRO it replaces, so callers' existing
+``except OSError`` / ``except TimeoutError`` arms (``_auth/recovery.py`` around
+``persist_minted_jar``; the CLI login writers around ``write_account_metadata``)
+keep catching a lock failure unchanged; only the exception type and the 10 s→90 s
+bound differ.
+
+Permission contract (POSIX): every writer ensures the parent directory is
+``0700`` on creation and the file is ``0600`` (the latter via
+:func:`atomic_write_json`'s default mode). On Windows we rely on
+``%USERPROFILE%`` ACL inheritance.
+
+Outcome types are **value-free by contract**: :class:`WriteOutcome` may carry
+only an enum status — never cookie values, state dicts, jar objects, or caught
+exceptions.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import logging
+import os
+import random
+import sys
+import time
+from collections.abc import Iterator
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from .._atomic_io import atomic_write_json
+
+# ``LockUnavailableError`` is the public, canonical home for the fail-closed
+# lock-failure exception (``notebooklm.exceptions`` — also re-exported on the
+# ``notebooklm.auth`` facade). It subclasses ``TimeoutError`` (an ``OSError``),
+# exactly mirroring the ``filelock.Timeout`` MRO it replaces, so existing
+# ``except OSError`` arms keep catching a lock failure. Re-exported here for the
+# writers that raise it.
+from ..exceptions import LockUnavailableError
+from .paths import _storage_state_lock_path
+
+if TYPE_CHECKING:
+    import httpx
+
+    from .storage import CookieSaveResult, CookieSnapshot, RecoveryCookieObservation
+
+__all__ = [
+    "LockUnavailableError",
+    "WriteOutcome",
+    "WriteStatus",
+    "clear_in_band_account",
+    "merge_cookie_delta",
+    "persist_minted_jar",
+    "update_account_metadata",
+    "write_master_token",
+]
+
+logger = logging.getLogger("notebooklm.auth")
+
+# --- Bounded acquire tuning -------------------------------------------------
+#
+# The unified full-file RMW / re-mint writers replace ``filelock``'s blocking
+# 10 s timeout with a platform-neutral bounded acquire. Under real contention a
+# caller waits up to this deadline (retrying a non-blocking probe with jittered
+# exponential backoff) before applying its per-intent failure policy. 90 s is a
+# generous worst-case CLI wait that still bounds a crashed/wedged holder.
+_LOCK_ACQUIRE_DEADLINE_SECONDS = 90.0
+_LOCK_ACQUIRE_INITIAL_DELAY_SECONDS = 0.01
+_LOCK_ACQUIRE_MAX_DELAY_SECONDS = 0.5
+
+
+class WriteStatus(Enum):
+    """Closed-enum status for a full-file / RMW storage write."""
+
+    OK = "ok"
+    LOCK_UNAVAILABLE = "lock_unavailable"
+
+
+@dataclass(frozen=True)
+class WriteOutcome:
+    """Value-free outcome for full-replace / RMW storage writers.
+
+    Carries only an enum status — never cookie values, jars, state dicts, or
+    caught exceptions — so it is always safe to ``repr``/log.
+    """
+
+    status: WriteStatus
+
+    @property
+    def ok(self) -> bool:
+        return self.status is WriteStatus.OK
+
+    @property
+    def lock_unavailable(self) -> bool:
+        return self.status is WriteStatus.LOCK_UNAVAILABLE
+
+
+def _ensure_secure_parent_dir(path: Path) -> None:
+    """Create ``path.parent`` (0700 on POSIX for freshly-created dirs).
+
+    Closes the master-token path's mode-less ``mkdir(parents=True)`` gap. Only a
+    directory this call creates is chmod-ed to 0700 — pre-existing directories
+    are left untouched so an existing install's permissions are not surprised.
+    """
+    parent = path.parent
+    already_existed = parent.exists()
+    parent.mkdir(parents=True, exist_ok=True)
+    if sys.platform != "win32" and not already_existed:
+        with contextlib.suppress(OSError):
+            os.chmod(parent, 0o700)
+
+
+@contextlib.contextmanager
+def _acquire_storage_lock(
+    lock_path: Path,
+    *,
+    log_prefix: str,
+    deadline_seconds: float = _LOCK_ACQUIRE_DEADLINE_SECONDS,
+) -> Iterator[str]:
+    """Platform-neutral **bounded** exclusive acquire of a storage sentinel lock.
+
+    Non-blocking probe (via ``storage._file_lock(blocking=False)``, which takes
+    the per-path in-process ``threading.Lock`` before the OS lock) plus a
+    deadline/jitter retry loop. Yields one of:
+
+    * ``"held"`` — the lock is held; released when the ``with`` block exits.
+    * ``"unavailable"`` — the deadline elapsed under contention, or the lock
+      infrastructure failed (read-only dir, NFS without flock, fd exhaustion).
+
+    The caller maps ``"unavailable"`` to its per-intent policy: fail-open
+    callers proceed, fail-closed callers raise :class:`LockUnavailableError`.
+    """
+    from . import storage as _storage  # lazy: avoid the storage<->writer cycle
+
+    deadline = time.monotonic() + deadline_seconds
+    delay = _LOCK_ACQUIRE_INITIAL_DELAY_SECONDS
+    while True:
+        with _storage._file_lock(lock_path, blocking=False, log_prefix=log_prefix) as state:
+            if state == "held":
+                yield "held"
+                return
+            if state == "unavailable":
+                # Infrastructure failure — no amount of retrying will help.
+                yield "unavailable"
+                return
+            # state == "contended": another holder (thread or process) has it.
+        now = time.monotonic()
+        if now >= deadline:
+            logger.debug(
+                "%s: bounded storage-lock acquire exceeded %.0fs deadline; giving up",
+                log_prefix,
+                deadline_seconds,
+            )
+            yield "unavailable"
+            return
+        # Jittered exponential backoff, clamped to the remaining budget.
+        sleep_for = min(delay + random.uniform(0.0, delay), max(0.0, deadline - now))
+        time.sleep(sleep_for)
+        delay = min(delay * 2, _LOCK_ACQUIRE_MAX_DELAY_SECONDS)
+
+
+# ---------------------------------------------------------------------------
+# CAS delta merge (relocated from ``storage.save_cookies_to_storage``)
+# ---------------------------------------------------------------------------
+
+
+def merge_cookie_delta(
+    cookie_jar: httpx.Cookies,
+    path: Path | None = None,
+    *,
+    original_snapshot: CookieSnapshot | None = None,
+    recovery_observation: RecoveryCookieObservation | None = None,
+    return_result: bool = False,
+) -> bool | CookieSaveResult:
+    """CAS snapshot/delta merge of ``cookie_jar`` into ``storage_state.json``.
+
+    Relocated verbatim (behaviour-preserving) from
+    ``storage.save_cookies_to_storage``; that function remains the public,
+    monkeypatchable delegate seam. The ``original_snapshot=None`` legacy-warning
+    branch stays on the delegate so its ``stacklevel`` still points at the
+    caller.
+
+    This is a **CAS** intent: on lock unavailability it **fails open** (status
+    quo — the snapshot/delta CAS guards preserve correctness), driven by
+    ``storage._file_lock_exclusive``. The full signature (incl.
+    ``recovery_observation``) and the :class:`CookieSaveResult` return with
+    ``cas_rejected_keys`` are load-bearing for the PSIDTS-recovery and
+    cookie-persistence baseline callers.
+    """
+    from . import storage as _storage  # lazy: avoid the storage<->writer cycle
+
+    cookie_save_result = _storage.CookieSaveResult
+    cookie_save_return = _storage._cookie_save_return
+
+    if path is None and "NOTEBOOKLM_AUTH_JSON" in os.environ:
+        logger.debug("Skipping cookie sync: Auth loaded from NOTEBOOKLM_AUTH_JSON env var")
+        return cookie_save_return(cookie_save_result(True), return_result=return_result)
+
+    if path is None:
+        logger.debug("Skipping cookie sync: No storage file path available")
+        return cookie_save_return(cookie_save_result(True), return_result=return_result)
+
+    lock_path = _storage_state_lock_path(path)
+    with _storage._file_lock_exclusive(lock_path):
+        if not path.exists():
+            logger.debug("Skipping cookie sync: Storage file not found at %s", path)
+            return cookie_save_return(cookie_save_result(False), return_result=return_result)
+
+        try:
+            storage_data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(
+                "Failed to read storage state for cookie sync: %s",
+                type(e).__name__,
+            )
+            return cookie_save_return(cookie_save_result(False), return_result=return_result)
+
+        cookies = storage_data.get("cookies") if isinstance(storage_data, dict) else None
+        if not isinstance(cookies, list):
+            logger.warning(
+                "storage_state at %s has an invalid 'cookies' key/payload; "
+                "rotated cookies will not be persisted",
+                path,
+            )
+            return cookie_save_return(cookie_save_result(False), return_result=return_result)
+
+        if original_snapshot is None:
+            updated_count = _storage._merge_cookies_legacy(cookie_jar, storage_data)
+            cas_rejected_keys: frozenset[Any] = frozenset()
+        else:
+            updated_count, cas_rejected_keys = _storage._merge_cookies_with_snapshot(
+                cookie_jar,
+                storage_data,
+                original_snapshot,
+                recovery_observation=recovery_observation,
+            )
+
+        if updated_count == 0:
+            # A CAS rejection with no other successful work means disk does
+            # not reflect our intent; the caller must not advance baseline.
+            return cookie_save_return(
+                cookie_save_result(not cas_rejected_keys, cas_rejected_keys),
+                return_result=return_result,
+            )
+
+        try:
+            atomic_write_json(path, storage_data)
+            logger.debug("Successfully synced %d refreshed cookies to %s", updated_count, path)
+            # Even on a successful disk write, if any CAS arm rejected work,
+            # disk diverges from ``post`` for at least one key — caller must
+            # not advance baseline.
+            return cookie_save_return(
+                cookie_save_result(not cas_rejected_keys, cas_rejected_keys),
+                return_result=return_result,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to write updated cookies to %s: %s",
+                path,
+                type(e).__name__,
+            )
+            return cookie_save_return(cookie_save_result(False), return_result=return_result)
+
+
+# ---------------------------------------------------------------------------
+# In-band account writers (relocated from ``account.py``)
+# ---------------------------------------------------------------------------
+
+
+def update_account_metadata(storage_path: Path, *, authuser: int, email: str | None = None) -> None:
+    """Persist account metadata atomically inside ``storage_state.json``.
+
+    Relocated from ``account.write_account_metadata`` (the in-band write only —
+    the sibling ``context.json`` cleanup ``_drop_legacy_account_key`` stays in
+    ``account.py``). Full-file RMW intent: **fails closed**, raising
+    :class:`LockUnavailableError` on lock unavailability.
+    """
+    from . import account as _account  # lazy: avoid the account<->writer cycle
+
+    account_payload: dict[str, Any] = {"authuser": authuser}
+    if email:
+        account_payload["email"] = email
+
+    lock_path = _storage_state_lock_path(storage_path)
+    _ensure_secure_parent_dir(storage_path)
+    with _acquire_storage_lock(lock_path, log_prefix="write_account_metadata") as state:
+        if state != "held":
+            raise LockUnavailableError(
+                f"write_account_metadata: storage lock unavailable at {lock_path}"
+            )
+        data = _account._load_storage_state_for_write(storage_path)
+        namespace = data.get(_account._STORAGE_NAMESPACE_KEY)
+        if not isinstance(namespace, dict):
+            namespace = {}
+        namespace["version"] = _account._STORAGE_NAMESPACE_VERSION
+        namespace[_account._ACCOUNT_CONTEXT_KEY] = account_payload
+        data[_account._STORAGE_NAMESPACE_KEY] = namespace
+        atomic_write_json(storage_path, data)
+
+
+def clear_in_band_account(storage_path: Path) -> None:
+    """Remove the ``notebooklm.account`` key from ``storage_state.json``.
+
+    Relocated from ``account._clear_in_band_account``. Best-effort cleanup:
+    swallows lock unavailability and read/parse errors, matching the
+    pre-refactor semantics (the reader falls back to the legacy record). No-op if
+    the file is missing, unreadable, or carries no in-band record.
+    """
+    from . import account as _account  # lazy: avoid the account<->writer cycle
+
+    if not storage_path.exists():
+        return
+    lock_path = _storage_state_lock_path(storage_path)
+    _ensure_secure_parent_dir(storage_path)
+    with _acquire_storage_lock(lock_path, log_prefix="clear_account_metadata") as state:
+        if state != "held":
+            # Best-effort: the same failure mode the old filelock OSError arm
+            # swallowed. The legacy reader still resolves the account record.
+            logger.debug("in-band account clear skipped: storage lock unavailable at %s", lock_path)
+            return
+        try:
+            data = json.loads(storage_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            logger.debug("in-band account clear skipped at %s: %s", storage_path, e)
+            return
+        if not isinstance(data, dict):
+            return
+        namespace = data.get(_account._STORAGE_NAMESPACE_KEY)
+        if not isinstance(namespace, dict) or _account._ACCOUNT_CONTEXT_KEY not in namespace:
+            return
+        del namespace[_account._ACCOUNT_CONTEXT_KEY]
+        if set(namespace.keys()) <= {"version"}:
+            del data[_account._STORAGE_NAMESPACE_KEY]
+        else:
+            data[_account._STORAGE_NAMESPACE_KEY] = namespace
+        atomic_write_json(storage_path, data)
+
+
+# ---------------------------------------------------------------------------
+# Master-token writers (relocated from ``master_token.py``)
+# ---------------------------------------------------------------------------
+
+
+def persist_minted_jar(path: Path, jar: httpx.Cookies, *, email: str | None) -> None:
+    """Replace the cookies in ``storage_state.json`` with a freshly-minted jar.
+
+    Relocated from ``master_token.persist_minted_jar``, now routed through
+    :func:`atomic_write_json` (fsync durability + temp cleanup, closing
+    [storage-F5]) while keeping the storage lock it already held and its
+    rebind-to-minted-account namespace semantics. Old cookies are *replaced*, not
+    merged — a re-mint is a brand-new session. Full-file replace intent:
+    **fails closed**.
+    """
+    from . import master_token as _master_token  # lazy: avoid import cycle
+
+    _ensure_secure_parent_dir(path)
+    lock_path = _storage_state_lock_path(path)
+    with _acquire_storage_lock(lock_path, log_prefix="persist_minted_jar") as state:
+        if state != "held":
+            raise LockUnavailableError(
+                f"persist_minted_jar: storage lock unavailable at {lock_path}"
+            )
+        data: dict[str, Any] = {}
+        if path.exists():
+            try:
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+                data = loaded if isinstance(loaded, dict) else {}
+            except json.JSONDecodeError:
+                data = {}
+        data["cookies"] = _master_token.storage_state_from_jar(jar)["cookies"]
+        data.setdefault("origins", [])
+        ns_raw = data.get("notebooklm")
+        ns: dict[str, Any] = ns_raw if isinstance(ns_raw, dict) else {}
+        ns["version"] = 1
+        ns["account"] = {"authuser": 0, **({"email": email} if email else {})}
+        data["notebooklm"] = ns
+        atomic_write_json(path, data)
+
+
+def write_master_token(path: Path, *, email: str, master_token: str, android_id: str) -> None:
+    """Persist a ``master_token.json`` record at mode 0600 (full-account credential).
+
+    Relocated from ``master_token.write_master_token``, now routed through
+    :func:`atomic_write_json` (atomic + fsync-durable + temp cleanup) and guarded
+    by a bounded sibling ``.master_token.json.lock`` — it was previously lockless
+    (part of [storage-F5]). RMW intent: **fails closed**.
+    """
+    from . import master_token as _master_token  # lazy: avoid import cycle
+
+    _ensure_secure_parent_dir(path)
+    payload = {
+        "version": _master_token._MASTER_TOKEN_VERSION,
+        "email": email,
+        "android_id": android_id,
+        "master_token": master_token,
+    }
+    # Sibling dotted lock for the credential file (distinct from the profile's
+    # storage-state lock — a different file).
+    lock_path = _storage_state_lock_path(path)
+    with _acquire_storage_lock(lock_path, log_prefix="write_master_token") as state:
+        if state != "held":
+            raise LockUnavailableError(f"write_master_token: lock unavailable at {lock_path}")
+        atomic_write_json(path, payload)

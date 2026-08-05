@@ -524,7 +524,8 @@ the default dependency.
 |--------|----------------|
 | [`_auth/tokens.py`](../src/notebooklm/_auth/tokens.py) | Token dataclass + storage-loading helpers. |
 | [`_auth/paths.py`](../src/notebooklm/_auth/paths.py) | Storage paths and filesystem helpers. |
-| [`_auth/storage.py`](../src/notebooklm/_auth/storage.py) | Profile/state persistence on disk. |
+| [`_auth/storage.py`](../src/notebooklm/_auth/storage.py) | Profile/state persistence on disk: cookie snapshot/delta CAS math + the file-lock primitive; `save_cookies_to_storage` is the monkeypatchable delegate seam onto `storage_writer`. |
+| [`_auth/storage_writer.py`](../src/notebooklm/_auth/storage_writer.py) | Canonical `storage_state.json` writer (ADR-0029): the only `_auth` module that performs the atomic write; intent-shaped API (CAS merge, account metadata, master-token persist) on the unified bounded storage lock. |
 | [`_auth/extraction.py`](../src/notebooklm/_auth/extraction.py) | Cookie/token extraction from browser sessions. |
 | [`_auth/headers.py`](../src/notebooklm/_auth/headers.py) | HTTP header construction. |
 | [`_auth/cookies.py`](../src/notebooklm/_auth/cookies.py) | Cookie maps + `_update_cookie_input` helper. |
@@ -1186,7 +1187,8 @@ src/notebooklm/
 │   ├── headless_reauth.py       # Layer-3 headless re-auth (opt-in; typed outcomes; local-unattended-only)
 │   ├── account.py               # Account profile + multi-account switching
 │   ├── session.py               # Auth-session refresh implementation via `refresh_auth_session()` and explicit collaborators
-│   ├── storage.py               # Profile/state persistence on disk
+│   ├── storage.py               # Profile/state persistence: CAS merge math + file-lock primitive + save_cookies_to_storage delegate seam
+│   ├── storage_writer.py        # Canonical storage_state.json writer (ADR-0029): sole atomic-write owner, unified bounded lock
 │   ├── keepalive.py             # Cookie keepalive + __Secure-1PSIDTS rotation
 │   ├── psidts_recovery.py       # Inline PSIDTS recovery for cold-start (issue #865)
 │   ├── master_token.py          # Headless master-token auth: mint cookies + layer-4 re-mint (ADR-0023)

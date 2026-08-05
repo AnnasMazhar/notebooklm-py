@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import errno
-import json
 import logging
 import os
 import sys
+import threading
 import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -16,10 +16,8 @@ from typing import Any, NamedTuple, TypeAlias
 
 import httpx
 
-from .._atomic_io import atomic_write_json
 from . import cookie_policy as _cookie_policy
 from . import cookies as _auth_cookies
-from .paths import _storage_state_lock_path
 
 logger = logging.getLogger("notebooklm.auth")
 
@@ -79,7 +77,36 @@ class CookieSaveResult:
     cas_rejected_keys: frozenset[CookieSnapshotKey] = frozenset()
 
 
+# Errnos that a non-blocking lock acquire raises to mean "held elsewhere"
+# (contended), NOT "infrastructure broken". EWOULDBLOCK/EAGAIN are the POSIX
+# ``flock(LOCK_NB)`` contention signals. ``EACCES`` is here specifically because
+# it is the errno Windows ``msvcrt.locking(LK_NBLCK)`` raises under contention —
+# POSIX ``flock`` never returns EACCES for contention, and a POSIX *permission*
+# failure surfaces earlier at the ``os.open`` step (yielded as "unavailable").
+# So do NOT drop EACCES to "fix" it: on Windows that would misclassify real
+# contention as an infrastructure failure (fail-open) instead of a skip.
 _LOCK_CONTENTION_ERRNOS = {errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES}
+
+
+# In-process lock registry, keyed per canonical lock-path (never global — distinct
+# profiles and the rotate sentinel must not couple). Acquired BEFORE the OS lock
+# (ordering: in-process lock -> OS lock) so threads within one process serialize
+# on a storage sentinel before touching the OS flock, which both bounds Windows
+# ``msvcrt`` contention and lets the non-blocking rotate path observe an
+# in-process holder as "contended" without an OS round-trip. See ADR-0029.
+_INPROCESS_LOCKS: dict[str, threading.Lock] = {}
+_INPROCESS_LOCKS_GUARD = threading.Lock()
+
+
+def _inprocess_lock_for(lock_path: Path) -> threading.Lock:
+    """Return the process-wide :class:`threading.Lock` for ``lock_path``."""
+    key = os.fspath(lock_path)
+    with _INPROCESS_LOCKS_GUARD:
+        lock = _INPROCESS_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _INPROCESS_LOCKS[key] = lock
+        return lock
 
 
 @contextlib.contextmanager
@@ -88,8 +115,9 @@ def _file_lock(lock_path: Path, *, blocking: bool, log_prefix: str) -> Iterator[
 
     Yields one of:
       - ``"held"``  — the lock is held; release it on exit.
-      - ``"contended"`` — non-blocking acquire saw the lock held elsewhere.
-        Only ever yielded when ``blocking=False``.
+      - ``"contended"`` — non-blocking acquire saw the lock held elsewhere
+        (by another in-process thread OR another process). Only ever yielded
+        when ``blocking=False``.
       - ``"unavailable"`` — lock infrastructure failed (cannot mkdir, cannot
         open the sentinel, NFS without flock support). Caller should
         **fail open** (proceed without coordination) rather than retry forever.
@@ -99,65 +127,81 @@ def _file_lock(lock_path: Path, *, blocking: bool, log_prefix: str) -> Iterator[
     contention (someone else is rotating) but **proceed** on infrastructure
     failure (otherwise a read-only auth dir would permanently suppress
     rotation).
+
+    Locking order is **in-process lock -> OS lock**: the per-path
+    :class:`threading.Lock` is taken first (blockingly for ``blocking=True``,
+    non-blockingly for ``blocking=False`` where a failed acquire maps straight to
+    ``"contended"``), then the OS-level flock/``msvcrt`` lock. The in-process
+    lock is released last.
     """
-    try:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-    except OSError as exc:
-        # Read-only directory, permission denied, ENOSPC, etc. Yield
-        # "unavailable" so the wrapper can fail open.
-        logger.debug(
-            "%s: lock file unavailable %s (%s)",
-            log_prefix,
-            lock_path,
-            type(exc).__name__,
-        )
-        yield "unavailable"
+    inprocess_lock = _inprocess_lock_for(lock_path)
+    if not inprocess_lock.acquire(blocking=blocking):
+        # Only reachable with ``blocking=False``: another thread in this process
+        # holds the sentinel. Report contention without touching the OS lock.
+        logger.debug("%s: in-process lock contended", log_prefix)
+        yield "contended"
         return
-    locked = False
-    state = "unavailable"
     try:
         try:
-            if sys.platform == "win32":
-                import msvcrt
-
-                msvcrt.locking(fd, msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-
-                op = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
-                fcntl.flock(fd, op)
-            locked = True
-            state = "held"
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
         except OSError as exc:
-            if not blocking and exc.errno in _LOCK_CONTENTION_ERRNOS:
-                # Non-blocking acquire bounced because another process holds
-                # the lock — this is the "skip" signal.
-                state = "contended"
-                logger.debug("%s: lock contended (%s)", log_prefix, type(exc).__name__)
-            else:
-                # NFS without flock, kernel quirk, etc. Caller should fail open.
-                state = "unavailable"
-                logger.debug("%s: lock op unavailable (%s)", log_prefix, type(exc).__name__)
-        yield state
-    finally:
-        if locked:
+            # Read-only directory, permission denied, ENOSPC, etc. Yield
+            # "unavailable" so the wrapper can fail open.
+            logger.debug(
+                "%s: lock file unavailable %s (%s)",
+                log_prefix,
+                lock_path,
+                type(exc).__name__,
+            )
+            yield "unavailable"
+            return
+        locked = False
+        state = "unavailable"
+        try:
             try:
                 if sys.platform == "win32":
                     import msvcrt
 
-                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                    msvcrt.locking(fd, msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
                 else:
                     import fcntl
 
-                    fcntl.flock(fd, fcntl.LOCK_UN)
+                    op = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
+                    fcntl.flock(fd, op)
+                locked = True
+                state = "held"
             except OSError as exc:
-                logger.debug(
-                    "%s: failed to release file lock (%s)",
-                    log_prefix,
-                    type(exc).__name__,
-                )
-        os.close(fd)
+                if not blocking and exc.errno in _LOCK_CONTENTION_ERRNOS:
+                    # Non-blocking acquire bounced because another process holds
+                    # the lock — this is the "skip" signal.
+                    state = "contended"
+                    logger.debug("%s: lock contended (%s)", log_prefix, type(exc).__name__)
+                else:
+                    # NFS without flock, kernel quirk, etc. Caller should fail open.
+                    state = "unavailable"
+                    logger.debug("%s: lock op unavailable (%s)", log_prefix, type(exc).__name__)
+            yield state
+        finally:
+            if locked:
+                try:
+                    if sys.platform == "win32":
+                        import msvcrt
+
+                        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                except OSError as exc:
+                    logger.debug(
+                        "%s: failed to release file lock (%s)",
+                        log_prefix,
+                        type(exc).__name__,
+                    )
+            os.close(fd)
+    finally:
+        inprocess_lock.release()
 
 
 # Dedupe contract: best-effort under threads, exactly-once on a single
@@ -387,15 +431,7 @@ def save_cookies_to_storage(
         With ``return_result=True``, callers can inspect CAS-rejected keys and
         advance their baseline for the keys that did write through.
     """
-    if path is None and "NOTEBOOKLM_AUTH_JSON" in os.environ:
-        logger.debug("Skipping cookie sync: Auth loaded from NOTEBOOKLM_AUTH_JSON env var")
-        return _cookie_save_return(CookieSaveResult(True), return_result=return_result)
-
-    if path is None:
-        logger.debug("Skipping cookie sync: No storage file path available")
-        return _cookie_save_return(CookieSaveResult(True), return_result=return_result)
-
-    if original_snapshot is None:
+    if original_snapshot is None and path is not None:
         # NOT a deprecation: the original_snapshot=None form is a *permanent*
         # public-API back-compat shim (docs/auth-cookie-lifecycle.md §3.4.1),
         # not a scheduled removal — every in-tree caller already passes a
@@ -404,6 +440,8 @@ def save_cookies_to_storage(
         # RuntimeWarning, not a DeprecationWarning. It is therefore outside
         # ADR-0018's scope: no NOTEBOOKLM_QUIET_DEPRECATIONS gate, no removal
         # version, and emitted directly here rather than via warn_deprecated.
+        # Emitted on THIS delegate (not the relocated merge body) so
+        # ``stacklevel=2`` still points at the caller.
         warnings.warn(
             "save_cookies_to_storage called without original_snapshot; the "
             "legacy full-merge path is vulnerable to the stale-overwrite-fresh "
@@ -413,66 +451,19 @@ def save_cookies_to_storage(
             stacklevel=2,
         )
 
-    lock_path = _storage_state_lock_path(path)
-    with _file_lock_exclusive(lock_path):
-        if not path.exists():
-            logger.debug("Skipping cookie sync: Storage file not found at %s", path)
-            return _cookie_save_return(CookieSaveResult(False), return_result=return_result)
+    # Canonical patch seam: the CAS delta merge body lives in
+    # :func:`notebooklm._auth.storage_writer.merge_cookie_delta`. This module-level
+    # ``save_cookies_to_storage`` symbol stays here as the monkeypatchable
+    # delegate (~18 test files patch it; ``_runtime/lifecycle.py`` late-binds it).
+    from . import storage_writer  # local import: avoid the storage<->writer cycle
 
-        try:
-            storage_data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as e:
-            logger.warning(
-                "Failed to read storage state for cookie sync: %s",
-                type(e).__name__,
-            )
-            return _cookie_save_return(CookieSaveResult(False), return_result=return_result)
-
-        cookies = storage_data.get("cookies") if isinstance(storage_data, dict) else None
-        if not isinstance(cookies, list):
-            logger.warning(
-                "storage_state at %s has an invalid 'cookies' key/payload; "
-                "rotated cookies will not be persisted",
-                path,
-            )
-            return _cookie_save_return(CookieSaveResult(False), return_result=return_result)
-
-        if original_snapshot is None:
-            updated_count = _merge_cookies_legacy(cookie_jar, storage_data)
-            cas_rejected_keys: frozenset[CookieSnapshotKey] = frozenset()
-        else:
-            updated_count, cas_rejected_keys = _merge_cookies_with_snapshot(
-                cookie_jar,
-                storage_data,
-                original_snapshot,
-                recovery_observation=recovery_observation,
-            )
-
-        if updated_count == 0:
-            # A CAS rejection with no other successful work means disk does
-            # not reflect our intent; the caller must not advance baseline.
-            return _cookie_save_return(
-                CookieSaveResult(not cas_rejected_keys, cas_rejected_keys),
-                return_result=return_result,
-            )
-
-        try:
-            atomic_write_json(path, storage_data)
-            logger.debug("Successfully synced %d refreshed cookies to %s", updated_count, path)
-            # Even on a successful disk write, if any CAS arm rejected work,
-            # disk diverges from ``post`` for at least one key — caller must
-            # not advance baseline.
-            return _cookie_save_return(
-                CookieSaveResult(not cas_rejected_keys, cas_rejected_keys),
-                return_result=return_result,
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to write updated cookies to %s: %s",
-                path,
-                type(e).__name__,
-            )
-            return _cookie_save_return(CookieSaveResult(False), return_result=return_result)
+    return storage_writer.merge_cookie_delta(
+        cookie_jar,
+        path,
+        original_snapshot=original_snapshot,
+        recovery_observation=recovery_observation,
+        return_result=return_result,
+    )
 
 
 def _preserved_same_site(stored_cookie: dict[str, Any], fresh_state: dict[str, Any]) -> str:
