@@ -287,3 +287,47 @@ async def test_midsession_ladder_skips_rung_without_opt_in(
             await refresh_auth_session(allow_headless=False, **_bundle(http_client, auth))
 
     assert calls == [], "the L2.5 rung must NOT fire without the opt-in (default off)"
+
+
+@pytest.mark.asyncio
+async def test_rung_threads_work_profile_from_storage_path(
+    _clean_refresh_env: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The mid-session rung derives the profile from ``auth.storage_path`` (P2).
+
+    A client built for the ``work`` profile (storage under
+    ``<home>/profiles/work/storage_state.json``) must refresh the WORK profile —
+    the adapter passes ``profile="work"`` to the coalesced machinery, so
+    ``_run_refresh_cmd`` exports ``NOTEBOOKLM_REFRESH_PROFILE=work`` — not the
+    process-wide "default".
+    """
+    monkeypatch.setenv(refresh_mod.NOTEBOOKLM_REFRESH_CMD_ENV, "refresh.sh")
+    monkeypatch.setenv(refresh_mod.NOTEBOOKLM_REFRESH_CMD_MIDSESSION_ENV, "1")
+    # Point the home at tmp so the storage path resolves under profiles/work.
+    monkeypatch.setenv("NOTEBOOKLM_HOME", str(tmp_path))
+    work_storage = tmp_path / "profiles" / "work" / "storage_state.json"
+    work_storage.parent.mkdir(parents=True)
+    work_storage.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+
+    captured: dict[str, str | None] = {}
+
+    async def _fake_coalesced(refresh_key: str, resolved_path: Path, profile: str | None) -> None:
+        captured["profile"] = profile
+
+    import notebooklm._auth.cookies as cookies_mod
+
+    monkeypatch.setattr(refresh_mod, "_coalesced_run_refresh_cmd", _fake_coalesced)
+    monkeypatch.setattr(refresh_mod, "build_httpx_cookies_from_storage", lambda p: httpx.Cookies())
+    monkeypatch.setattr(cookies_mod, "build_httpx_cookies_from_storage", lambda p: httpx.Cookies())
+
+    kernel = MagicMock()
+    kernel.get_http_client.return_value.cookies = httpx.Cookies()
+    ok = await session_mod._try_refresh_cmd_reauth(
+        auth=_auth(storage_path=work_storage), kernel=kernel
+    )
+
+    assert ok is True
+    assert captured["profile"] == "work", (
+        "mid-session rung must thread the work profile derived from storage_path, "
+        f"got {captured['profile']!r}"
+    )

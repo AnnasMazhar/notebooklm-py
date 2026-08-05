@@ -59,7 +59,7 @@ untouched** (see the boundary below).
 
 ### Two loader layers, named distinctly (c-PR1)
 
-```
+```text
 _load_cookies_pure(path)                 # inner: file I/O + validation ONLY,
                                          #        no network, EVER
 build_httpx_cookies_from_storage(path)   # public wrapper: pure load +
@@ -123,7 +123,7 @@ the fresh-loop-runs-full-ladder behaviour.
 
 ### One ladder, rung availability as policy
 
-```
+```text
 L1 homepage refresh
   → L2 RotateCookies / PSIDTS rotation
   → L2.5 refresh-cmd            (NEW rung; promoted from cold-only [refresh-4])

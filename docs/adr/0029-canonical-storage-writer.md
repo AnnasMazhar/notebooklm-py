@@ -172,6 +172,29 @@ reaches them without importing private `_auth` modules.
   are the save-ordering guard ([storage-F3], §b.3 — in b-PR1's scope, not a pure
   relocation) and the lock exception-type/bound change above.
 
+## Alternatives considered
+
+- **Keep `atomic_write_json` everywhere, enforce the boundary with a lint rule
+  only.** Rejected: a lint catches new *call sites*, but the durability, locking,
+  and save-ordering policy would still live re-implemented at each writer, so the
+  lost-update / non-durable / reorder classes stay *representable* — a reviewer
+  mistake reopens them. Funnelling through one module makes them unrepresentable
+  by construction; the AST guardrail is then a backstop, not the sole defense.
+- **Per-call-site locked writers (no shared module).** Rejected: every login /
+  import / re-mint / account path would re-derive the canonical dotted lock path
+  and the acquire/fail policy, and the CAS-vs-full-file fail-open/closed split
+  would drift between copies. One module gives a single audited home for the
+  intent-shaped API and its per-intent policy.
+- **A `StorageWriter` class instead of a module of intents.** Rejected: the
+  writers are stateless and process-global (the lock lives on disk, the epoch in
+  `single_flight`), so an instance adds lifecycle/wiring with no state to own; a
+  module of intent functions matches the existing `_auth/` seam style and keeps
+  the delegate seam (`storage.save_cookies_to_storage`) monkeypatchable.
+- **Reuse `filelock` for the unified lock.** Rejected in favour of the
+  project-internal `storage._file_lock` primitive (ADR-0029 lock unification): it
+  shares one bounded-acquire deadline/backoff with the Windows `msvcrt` path and
+  the dotted `.storage_state.json.lock` sentinel, avoiding a divergent lock file.
+
 ## Related references
 
 - [Architecture](../architecture.md) — layered design and the `_auth/` file index.

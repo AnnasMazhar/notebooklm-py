@@ -481,6 +481,39 @@ class TestRefreshAuth:
         assert result is client._auth
 
     @pytest.mark.asyncio
+    async def test_refresh_auth_wider_policy_propagates_incidental_runtimeerror(
+        self, mock_auth, monkeypatch
+    ):
+        """An incidental (non-auth) RuntimeError from the joined base flight
+        PROPAGATES rather than triggering a second headless-capable refresh.
+
+        Finding #4: the base flight's only L3-remediable failure is a ValueError
+        (dead-cookie 302 / token extraction). refresh-cmd swallows its own
+        RuntimeError internally, so a RuntimeError reaching the join is incidental
+        (e.g. "Client not initialized" from ``get_http_client``). Re-running with
+        the headless rung for that would be wrong — it must surface instead.
+        """
+        client = NotebookLMClient(mock_auth)
+        calls: list[bool] = []
+
+        async def fake_session(*, allow_headless, auth, **_kwargs):
+            calls.append(allow_headless)
+            if not allow_headless:
+                raise RuntimeError("Client not initialized. Use 'async with' context.")
+            return auth
+
+        import notebooklm.client as client_mod
+
+        monkeypatch.setattr(client_mod, "refresh_auth_session", fake_session)
+
+        async with client:
+            with pytest.raises(RuntimeError, match="Client not initialized"):
+                await client.refresh_auth(allow_headless=True)
+
+        # Only the base flight ran; no headless (True) re-run was attempted.
+        assert calls == [False]
+
+    @pytest.mark.asyncio
     async def test_refresh_auth_base_policy_does_not_route_through_coordinator(
         self, mock_auth, monkeypatch
     ):

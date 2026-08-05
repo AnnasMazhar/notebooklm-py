@@ -673,14 +673,23 @@ def attempt_headless_reauth(
     return _drive_capture_coalesced(plan)
 
 
-def _get_drive_record(storage_path: Path) -> _DriveRecord:
-    """Return the per-resolved-storage-path single-flight record for the drive.
+def _get_drive_record(storage_path: Path, *, source: str) -> _DriveRecord:
+    """Return the per-(resolved-storage-path, source) single-flight drive record.
 
     Get-or-create is atomic under :data:`_DRIVE_REGISTRY_LOCK` so the worker
     threads ``asyncio.to_thread`` may use all share one :class:`_DriveRecord`
     (and therefore one drive lock and one drive-sequence) per storage file.
+
+    The key includes ``source`` (``"profile"`` vs ``"cdp"``) as well as the path
+    (CodeRabbit #4). The two credential sources re-mint into the SAME
+    ``storage_state.json``, but they are DIFFERENT sessions: a follower must not
+    coalesce onto the OTHER source's FAILED outcome (e.g. treat its own live CDP
+    attach as failed because the dedicated profile's session was dead, or vice
+    versa). Sharing the OUTCOME across sources was the bug; a shared lock would
+    merely serialize them, which is not required and not what we do — each source
+    gets its own record, lock, and drive-sequence.
     """
-    key = str(storage_path.expanduser().resolve())
+    key = f"{storage_path.expanduser().resolve()}\x00{source}"
     with _DRIVE_REGISTRY_LOCK:
         record = _DRIVE_RECORDS_BY_PATH.get(key)
         if record is None:
@@ -708,11 +717,14 @@ def _drive_capture_coalesced(
     stale outcome from a previous drive cycle whose cookies may have re-died —
     drives its own browser. Redundant is safe; false SUCCESS is not.
 
-    Both credential sources (dedicated profile and ``cdp_url`` attach) coalesce
-    on the SAME per-storage-path record, since both re-mint into the same
-    ``storage_state.json``.
+    The two credential sources (dedicated profile and ``cdp_url`` attach) use
+    SEPARATE per-(path, source) records (CodeRabbit #4): both re-mint into the
+    same ``storage_state.json``, but a follower must coalesce only onto an outcome
+    from its OWN source — never accept the other source's FAILED result (a dead
+    profile must not fail a live CDP attach, nor vice versa).
     """
-    record = _get_drive_record(plan.storage_path)
+    source = "cdp" if cdp_url is not None else "profile"
+    record = _get_drive_record(plan.storage_path, source=source)
     # Snapshot BEFORE blocking on the drive lock: we accept an outcome only from
     # a drive that finishes DURING this wait (strictly-newer sequence).
     pre_completed = record.snapshot_completed()

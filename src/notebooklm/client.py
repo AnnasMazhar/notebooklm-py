@@ -799,12 +799,12 @@ class NotebookLMClient:
         # Wider policy: join the in-flight base refresh (join-then-rerun).
         try:
             await coord.await_refresh()
-        except (ValueError, RuntimeError):
-            # Narrow by design: L3-remediable failures surface as ValueError
-            # (dead-cookie/extraction) or RuntimeError (refresh-cmd); a transport
-            # error (e.g. httpx 5xx) is not L3-fixable and propagates instead.
-            # Joined base flight failed — re-run our own flight with the full L3
-            # rung so we never lose it.
+        except ValueError:
+            # Narrow by design: the L3-remediable base-flight failure surfaces as
+            # ValueError (dead-cookie 302 / token extraction). refresh-cmd swallows
+            # its RuntimeError internally (returns bool), so a RuntimeError here is
+            # incidental (e.g. "Client not initialized") and must propagate, not
+            # trigger a second headless refresh; transport 5xx propagates too.
             return await refresh_auth_session(
                 auth=self._auth,
                 kernel=self._collaborators.kernel,

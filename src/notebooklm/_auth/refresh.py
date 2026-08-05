@@ -126,10 +126,19 @@ _REFRESH_ATTEMPTED_CONTEXT: ContextVar[bool] = ContextVar(
 # ``single_flight.py``).
 _REFRESH_FLIGHT_POLICY = "refresh-cmd"
 
+# Cap on how many times a single caller FOLLOWS a failing refresh-cmd leader
+# before surfacing the failure, so a persistently-failing command cannot make one
+# caller wait out an unbounded chain of other callers' subprocesses (CodeRabbit).
+# A direct leader-failure and the success-epoch reload short-circuit before this.
+_MAX_REFRESH_FOLLOW_RETRIES = 3
+
 # Cross-process rotation-style flock primitive, aliased from keepalive so the
 # leader body can serialize the refresh-cmd subprocess across processes
 # ([refresh-2]). Tests substitute it by patching this bare name.
 _file_lock_try_exclusive = _keepalive._file_lock_try_exclusive
+# Bounded async wait for another process's refresh flock to release (flock-loser
+# reloads-fresh-not-stale fix); lives next to the flock primitive in ``keepalive``.
+_wait_for_refresh_holder = _keepalive._wait_for_refresh_holder
 _refresh_lock_path = _auth_paths._refresh_lock_path
 canonical_storage_key = _auth_paths.canonical_storage_key
 
@@ -148,11 +157,13 @@ async def _refresh_cmd_leader_body(
     such flock (each cross-process re-mint owns its own browser — §c.5/§c.7).
 
     On a genuine cross-process contention (another process holds the flock and
-    is refreshing) the subprocess is skipped and the caller reloads whatever
-    that process writes — best-effort, bounded to a reload rather than a
-    duplicate subprocess. The success epoch is bumped ONLY after our own
-    subprocess actually exits zero, so a skipped or failed attempt leaves
-    waiters retrying (single_flight guarantee 2).
+    is refreshing) the subprocess is skipped and — rather than reload the STALE
+    file immediately (the holder has not finished writing yet) — the loser WAITS
+    (bounded) for the holder to release, then the caller reloads the fresh
+    cookies it wrote (:func:`_wait_for_refresh_holder`). The success epoch is
+    bumped ONLY after our OWN subprocess actually exits zero, so a skipped
+    (wait-then-reload) or failed attempt leaves waiters retrying (single_flight
+    guarantee 2).
     """
     lock_path = _refresh_lock_path(resolved_storage_path)
     if lock_path is None:
@@ -160,18 +171,20 @@ async def _refresh_cmd_leader_body(
         _single_flight.note_success(path_key)
         return
     with _file_lock_try_exclusive(lock_path) as acquired:
-        if not acquired:
-            # Another process holds the refresh flock — it is refreshing right
-            # now. Skip our subprocess (no bump); the caller reloads the storage
-            # that process is writing.
-            logger.debug(
-                "%s skipped: %s held by another process",
-                NOTEBOOKLM_REFRESH_CMD_ENV,
-                lock_path,
-            )
+        if acquired:
+            await _run_refresh_cmd(resolved_storage_path, profile)
+            _single_flight.note_success(path_key)
             return
-        await _run_refresh_cmd(resolved_storage_path, profile)
-    _single_flight.note_success(path_key)
+    # Lost the cross-process flock: another process holds it and is refreshing
+    # right now. Wait (bounded) for it to finish writing, THEN return so the
+    # caller reloads the FRESH file rather than the stale one it would otherwise
+    # re-read immediately. No subprocess runs and the epoch is NOT bumped here.
+    logger.debug(
+        "%s: %s held by another process; waiting for it to finish",
+        NOTEBOOKLM_REFRESH_CMD_ENV,
+        lock_path,
+    )
+    await _wait_for_refresh_holder(lock_path)
 
 
 async def _coalesced_run_refresh_cmd(
@@ -221,11 +234,13 @@ async def _coalesced_run_refresh_cmd(
     def _factory() -> Coroutine[Any, Any, None]:
         return _refresh_cmd_leader_body(path_key, resolved_storage_path, profile)
 
-    # A PERSISTENTLY failing refresh-cmd with N concurrent waiters runs up to N
-    # sequential leader subprocesses: each follower whose leader failed becomes a
-    # fresh leader in turn (faithful to "failure leaves waiters retrying"). The
-    # first success bumps the epoch and every remaining waiter skips — so the
-    # unbounded-retry cost is bounded by the number of concurrent callers.
+    # A PERSISTENTLY failing refresh-cmd with N concurrent waiters would run up to
+    # N sequential leader subprocesses (each failed leader's follower becomes a
+    # fresh leader). The first success bumps the epoch and remaining waiters skip.
+    # The follow-then-fail retries are capped at ``_MAX_REFRESH_FOLLOW_RETRIES`` so
+    # one caller cannot wait out an unbounded chain; direct leader-failure
+    # propagation and the success-epoch reload are preserved.
+    follow_failures = 0
     while True:
         claimed = _single_flight.claim_if_epoch_current(
             flight_key, _factory, path_key=path_key, epoch_before=epoch_before
@@ -248,8 +263,11 @@ async def _coalesced_run_refresh_cmd(
                 # Our own subprocess failed and nobody else refreshed —
                 # propagate so the caller surfaces the failure.
                 raise
-            # We followed a leader whose subprocess failed; loop to re-attempt
-            # as a fresh leader (failure leaves waiters retrying).
+            # We followed a leader whose subprocess failed. Retry as a fresh
+            # leader, but bound the chain (see ``_MAX_REFRESH_FOLLOW_RETRIES``).
+            follow_failures += 1
+            if follow_failures >= _MAX_REFRESH_FOLLOW_RETRIES:
+                raise
             continue
         else:
             # Flight succeeded (leader bumped the epoch) — caller reloads.
@@ -309,9 +327,12 @@ async def try_refresh_cmd_reauth(
     canonical_path = canonical_storage_key(storage_path)
     assert canonical_path is not None  # narrowed non-None above
     refresh_key = str(canonical_path)
-    # In-process recursion guard, same discipline as the cold path: prevents a
-    # retried GET (which could re-enter this rung) from spawning a second
-    # subprocess within the same task/context.
+    # In-process recursion guard, same discipline as the cold path. It is set for
+    # the DURATION of the coalesced run and reset in the ``finally`` BEFORE this
+    # function returns, so it guards only re-entry WHILE the subprocess is in
+    # flight (a refresh command re-invoking this library on the same task), NOT
+    # the caller's later retried GET (which runs after the reset). That later GET
+    # is safe regardless: the ladder invokes each rung once per refresh run.
     refresh_token = _REFRESH_ATTEMPTED_CONTEXT.set(True)
     try:
         # Coalesced across loops + serialized across processes by the flock.
@@ -417,10 +438,11 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
           ``NOTEBOOKLM_AUTH_JSON`` (inline storage_state — the child gets the
           on-disk path via ``NOTEBOOKLM_REFRESH_STORAGE_PATH`` instead),
           ``NOTEBOOKLM_SERVER_TOKEN`` / ``NOTEBOOKLM_SERVER_TOKEN_FILE`` (REST
-          server bearer token), ``NOTEBOOKLM_MCP_TOKEN`` and
-          ``NOTEBOOKLM_MCP_OAUTH_PASSWORD`` (MCP server auth). None of these is
-          needed by a refresh command, and none should leak down the process
-          tree.
+          server bearer token), ``NOTEBOOKLM_MCP_TOKEN``,
+          ``NOTEBOOKLM_MCP_OAUTH_PASSWORD`` (MCP server auth), and
+          ``NOTEBOOKLM_MCP_OAUTH_STATE_PATH`` (pointer to the 0600 issued-token /
+          client-registry file). None of these is needed by a refresh command,
+          and none should leak down the process tree.
         * ``_NOTEBOOKLM_REFRESH_ATTEMPTED`` is injected as the recursion guard.
         * ``NOTEBOOKLM_REFRESH_PROFILE`` / ``NOTEBOOKLM_REFRESH_STORAGE_PATH``
           are injected so the command refreshes the right profile in place.
@@ -461,7 +483,8 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
     # spawn (audit refresh-6). ``NOTEBOOKLM_AUTH_JSON`` carries the full
     # Playwright storage_state; ``NOTEBOOKLM_SERVER_TOKEN`` /
     # ``NOTEBOOKLM_SERVER_TOKEN_FILE`` / ``NOTEBOOKLM_MCP_TOKEN`` /
-    # ``NOTEBOOKLM_MCP_OAUTH_PASSWORD`` are our own server auth secrets.
+    # ``NOTEBOOKLM_MCP_OAUTH_PASSWORD`` / ``NOTEBOOKLM_MCP_OAUTH_STATE_PATH`` are
+    # our own server auth secrets (the last a pointer to the 0600 token file).
     # Forwarding any of them via ``os.environ.copy()`` would inherit them down
     # the tree (visible via ``/proc/<pid>/environ`` to the same UID) and into
     # any grandchild the refresh command spawns — a real exposure now that this
@@ -576,7 +599,8 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
         raise RuntimeError(
             f"{NOTEBOOKLM_REFRESH_CMD_ENV} exited {result.returncode} "
             f"(executable: {executable_basename}). "
-            f"Run with --verbose to see captured stdout/stderr in the debug log."
+            f"Set {NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT_ENV}=1 and re-run with -v to see "
+            "the command's captured stdout/stderr in the debug log."
         )
     logger.info("NotebookLM cookies refreshed via %s", NOTEBOOKLM_REFRESH_CMD_ENV)
 

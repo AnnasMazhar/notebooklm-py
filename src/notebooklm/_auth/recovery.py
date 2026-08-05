@@ -130,7 +130,17 @@ async def coalesced_cold_recovery(
         )
 
     _is_leader, flight = _single_flight.claim(flight_key, _factory)
-    return await _single_flight.await_flight(flight)
+    shared = await _single_flight.await_flight(flight)
+    # Per-call COPIES (CodeRabbit #1): the flight result is shared verbatim across
+    # every follower on every loop. Downstream mutates BOTH halves — the jar
+    # becomes a caller's live jar (rotated in place) and
+    # ``save_cookies_to_storage(original_snapshot=...)`` mutates the snapshot dict —
+    # so hand each caller its own jar container and snapshot copy to prevent
+    # cross-loop corruption. ``CookieSnapshot`` values are immutable NamedTuples,
+    # so a shallow ``dict`` copy fully isolates the mapping.
+    from .cookies import _clone_cookie_jar
+
+    return ColdRecoveryResult(_clone_cookie_jar(shared.cookie_jar), dict(shared.snapshot))
 
 
 async def try_headless_reauth(
@@ -227,8 +237,12 @@ async def try_master_token_reauth(*, storage_path: Path | None, cookie_jar: http
     if fresh_jar is None:
         return False
 
-    from .cookies import _replace_cookie_jar
+    from .cookies import _clone_cookie_jar, _replace_cookie_jar
 
-    _replace_cookie_jar(cookie_jar, fresh_jar)
+    # Repopulate this caller's jar from a COPY of the shared result (CodeRabbit
+    # #1): the single-flight jar is handed to every follower on every loop, so
+    # cloning before we read it keeps concurrent followers isolated from one
+    # another's jar mutation.
+    _replace_cookie_jar(cookie_jar, _clone_cookie_jar(fresh_jar))
     logger.info("Master-token re-mint succeeded; reloaded fresh cookies for retry.")
     return True

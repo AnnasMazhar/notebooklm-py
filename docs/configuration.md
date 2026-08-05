@@ -366,10 +366,14 @@ profile name.
 See also `NOTEBOOKLM_REFRESH_CMD_USE_SHELL` to opt back into `shell=True`
 parsing.
 
-By default the command fires only at **cold start** (client construction /
-passive token fetch). Set `NOTEBOOKLM_REFRESH_CMD_MIDSESSION=1` to also fire it
-**mid-session** (the L2.5 rung of the unified recovery ladder), e.g. inside a
-long-lived server that has been running past cookie expiry. This is **opt-in for
+By default the command fires only at **active cold start** — client construction
+/ `AuthTokens.from_storage`, which run the recovery ladder when the stored
+cookies are dead. **Passive readiness probes do NOT invoke it**: `auth check
+--test --passive` (and other passive token fetches) use the strict, no-recovery
+loader and never enter the refresh path, so a passive check reports expiry
+without spawning the command. Set `NOTEBOOKLM_REFRESH_CMD_MIDSESSION=1` to also
+fire it **mid-session** (the L2.5 rung of the unified recovery ladder), e.g.
+inside a long-lived server that has been running past cookie expiry. This is **opt-in for
 one release** and flips to default-on afterward; enable it only once you have
 confirmed your command is safe to invoke while the client is live. When you need
 to see what the command printed, set `NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT=1` to

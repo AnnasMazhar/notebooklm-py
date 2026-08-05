@@ -454,7 +454,7 @@ def test_follower_does_not_report_false_success_when_leader_failed(
         drive_lock=_ContentionSignalLock(),  # type: ignore[arg-type]
         _state_lock=threading.Lock(),
     )
-    monkeypatch.setattr(hr, "_get_drive_record", lambda _p: record)
+    monkeypatch.setattr(hr, "_get_drive_record", lambda _p, *, source: record)
     monkeypatch.setitem(__import__("sys").modules, "playwright", _DummyModule())
     monkeypatch.setitem(__import__("sys").modules, "playwright.sync_api", _DummyModule())
 

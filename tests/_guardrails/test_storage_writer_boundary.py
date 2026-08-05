@@ -7,7 +7,7 @@ boundary by construction (import/name-based, following ``_ast_reach_in.py`` and
 the other ``tests/_guardrails/`` lints) so a new writer is loud in CI rather than
 silently re-opening the lost-update / policy-bypass classes the refactor closes.
 
-Four decidable clauses (plan §b.2 enforcement, layer 1 — AST guardrail):
+Five decidable clauses (plan §b.2 enforcement, layer 1 — AST guardrail):
 
 (i)  Outside ``storage_writer.py`` (and ``migration.py``), no ``_auth/`` module
      may import an ``_atomic_io`` **write primitive** (``atomic_write_json`` /
@@ -30,6 +30,18 @@ Four decidable clauses (plan §b.2 enforcement, layer 1 — AST guardrail):
      ``atomic_write_json`` (clause (iii) cannot see the CLI writers, which call it
      with variable paths — so this allowlist keeps them visible). A new importer
      — anywhere — turns this assertion red until it is triaged onto the list.
+
+(v)  A module-level import of the ``_atomic_io`` **module itself** (as opposed to
+     the write-primitive NAMES clauses (i)/(iv) match) — ``import
+     notebooklm._atomic_io`` / ``from .. import _atomic_io`` / ``from notebooklm
+     import _atomic_io``, under any alias — followed by an attribute-access CALL
+     to a write primitive or the ``_atomic_write_json_unchecked`` bypass on that
+     alias (``_atomic_io._atomic_write_json_unchecked(path, data)``). This shape
+     imports no primitive NAME, so it is invisible to every other clause AND it
+     can reach the module-private bypass that skips the runtime
+     ``storage_state.json`` rejection — a real hole. An equality-asserted
+     allowlist of module-importers (:data:`_ATOMIC_IO_MODULE_IMPORTERS`) freezes
+     who may import the module at all.
 
 The allowlists are module-level frozensets asserted by **equality** (not
 subset), and every entry is existence-checked, so a stale entry (a module that no
@@ -158,6 +170,29 @@ _STORAGE_STATE_WRITE_EXEMPTIONS: frozenset[str] = frozenset(
 # write-primitive seam binding is loud in CI.
 _WRITE_PRIMITIVE_SEAM_BINDINGS: frozenset[str] = frozenset()
 
+# --- Clause (v): modules that import the ``_atomic_io`` MODULE (not its NAMES) --
+#
+# Equality-asserted allowlist of every module repo-wide that imports the
+# ``_atomic_io`` module *object* (``import notebooklm._atomic_io`` /
+# ``from .. import _atomic_io`` / ``from notebooklm import _atomic_io``), as
+# distinct from ``from .._atomic_io import <primitive>`` (a NAME import — clauses
+# (i)/(iv)). VERIFIED by grep (2026-08): the set is currently **empty** — every
+# legitimate user (io.py, storage_writer.py, account.py, migration.py,
+# mcp/_oauth.py) imports the primitive NAMES, never the module object. Frozen
+# empty so the FIRST module to pull in the ``_atomic_io`` module (which could then
+# reach ``_atomic_write_json_unchecked`` via attribute access, skipping the public
+# ``atomic_write_json``'s storage_state.json rejection) turns this red. A legit
+# future module-importer must be triaged onto this list AND, if it makes a
+# write-primitive attribute call, onto the clause-(v) call allowlist below.
+_ATOMIC_IO_MODULE_IMPORTERS: frozenset[str] = frozenset()
+
+# Modules allowed to CALL a write primitive via an ``_atomic_io`` module alias
+# (the clause-(v) attribute-call shape). Mirrors clause (iii)'s literal-call
+# allowlist: only the canonical writer / migration may write storage_state, and
+# neither currently uses the module-import shape — so this is empty. Frozen so a
+# new attribute-call bypass anywhere is loud.
+_ATOMIC_IO_MODULE_WRITE_CALL_ALLOWLIST: frozenset[str] = frozenset()
+
 
 def _iter_src_files() -> list[Path]:
     return sorted(p for p in SRC_ROOT.rglob("*.py") if "__pycache__" not in p.parts)
@@ -202,6 +237,88 @@ def _imports_named_primitive(tree: ast.AST, name: str) -> bool:
             if any(alias.name == name for alias in node.names):
                 return True
     return False
+
+
+# --- Clause (v): module-import + attribute-call bypass detection ---------------
+#
+# ``_atomic_io`` module-object aliases arrive three ways:
+#   * ``import notebooklm._atomic_io``            -> reachable as ``notebooklm._atomic_io``
+#   * ``import notebooklm._atomic_io as aio``     -> direct alias ``aio``
+#   * ``from .. import _atomic_io [as x]`` /
+#     ``from notebooklm import _atomic_io [as x]``-> direct alias ``_atomic_io``/``x``
+# ``from .._atomic_io import <name>`` is a NAME import (node.module == "_atomic_io"),
+# NOT a module import — clauses (i)/(iv) own it, so it is deliberately excluded.
+_ATOMIC_IO_MODULE_CONTAINERS = frozenset({"", "notebooklm"})
+
+
+def _atomic_io_module_aliases(tree: ast.AST) -> tuple[set[str], bool]:
+    """Local aliases binding the ``_atomic_io`` **module object**.
+
+    Returns ``(direct_aliases, has_pkg_qualified)``:
+
+    * ``direct_aliases`` — names that ARE the module (``... as X`` /
+      ``from <container> import _atomic_io [as X]``), called as ``X.<primitive>``.
+    * ``has_pkg_qualified`` — a plain ``import notebooklm._atomic_io`` (no
+      ``as``) is present, so the module is reached as the attribute chain
+      ``notebooklm._atomic_io.<primitive>``.
+    """
+    direct: set[str] = set()
+    pkg_qualified = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "notebooklm._atomic_io":
+                    if alias.asname:
+                        direct.add(alias.asname)
+                    else:
+                        pkg_qualified = True
+        elif isinstance(node, ast.ImportFrom):
+            # ``from notebooklm import _atomic_io`` (module="notebooklm") or a
+            # relative ``from . import _atomic_io`` / ``from .. import _atomic_io``
+            # (module is None -> ""). The imported NAME is the module itself.
+            if (node.module or "") in _ATOMIC_IO_MODULE_CONTAINERS:
+                for alias in node.names:
+                    if alias.name == "_atomic_io":
+                        direct.add(alias.asname or "_atomic_io")
+    return direct, pkg_qualified
+
+
+def _imports_atomic_io_module(tree: ast.AST) -> bool:
+    """Does this module import the ``_atomic_io`` module object (any alias)?"""
+    direct, pkg_qualified = _atomic_io_module_aliases(tree)
+    return bool(direct) or pkg_qualified
+
+
+def _atomic_io_module_write_calls(tree: ast.AST) -> list[int]:
+    """Line numbers of write-primitive / bypass CALLS via an ``_atomic_io`` module
+    alias (``aio.atomic_write_json(...)`` / ``notebooklm._atomic_io.
+    _atomic_write_json_unchecked(...)``)."""
+    direct, pkg_qualified = _atomic_io_module_aliases(tree)
+    if not direct and not pkg_qualified:
+        return []
+    targets = _WRITE_PRIMITIVES | {_ATOMIC_WRITE_JSON_BYPASS}
+    hits: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute) or func.attr not in targets:
+            continue
+        base = func.value
+        # Direct alias: ``aio.atomic_write_json(...)`` / ``_atomic_io.foo(...)``.
+        if isinstance(base, ast.Name) and base.id in direct:
+            hits.append(node.lineno)
+            continue
+        # Package-qualified: ``notebooklm._atomic_io.foo(...)``.
+        if (
+            pkg_qualified
+            and isinstance(base, ast.Attribute)
+            and base.attr == "_atomic_io"
+            and isinstance(base.value, ast.Name)
+            and base.value.id == "notebooklm"
+        ):
+            hits.append(node.lineno)
+    return hits
 
 
 def _has_write_primitive_seam_binding(tree: ast.AST) -> bool:
@@ -353,6 +470,10 @@ def test_atomic_write_json_allowlist_entries_exist() -> None:
         assert (SRC_ROOT / rel).is_file(), f"storage-state exemption no longer exists: {rel}"
     for rel in _WRITE_PRIMITIVE_SEAM_BINDINGS:
         assert (SRC_ROOT / rel).is_file(), f"seam-binding entry no longer exists: {rel}"
+    for rel in _ATOMIC_IO_MODULE_IMPORTERS:
+        assert (SRC_ROOT / rel).is_file(), f"_atomic_io module importer no longer exists: {rel}"
+    for rel in _ATOMIC_IO_MODULE_WRITE_CALL_ALLOWLIST:
+        assert (SRC_ROOT / rel).is_file(), f"_atomic_io module write-call entry gone: {rel}"
 
 
 def test_auth_write_primitive_importers_frozen() -> None:
@@ -386,6 +507,102 @@ def test_write_primitive_seam_bindings_frozen() -> None:
         f"Unexpected: {sorted(actual - _WRITE_PRIMITIVE_SEAM_BINDINGS)}; "
         f"stale: {sorted(_WRITE_PRIMITIVE_SEAM_BINDINGS - actual)}."
     )
+
+
+def test_atomic_io_module_importers_frozen() -> None:
+    """Clause (v): the repo-wide set of modules importing the ``_atomic_io``
+    module OBJECT (not its NAMES) is frozen (equality-asserted).
+
+    Currently empty: every legitimate user imports the primitive NAMES via
+    ``from .._atomic_io import ...``. A new module-object importer — the shape
+    that can reach ``_atomic_write_json_unchecked`` past the public wrapper's
+    storage_state.json rejection — turns this red until triaged.
+    """
+    actual = {
+        _rel(p)
+        for p in _iter_src_files()
+        if _imports_atomic_io_module(ast.parse(p.read_text("utf-8")))
+    }
+    assert actual == set(_ATOMIC_IO_MODULE_IMPORTERS), (
+        "_atomic_io MODULE-object importer set drifted from the frozen allowlist. "
+        f"Unexpected new importers: {sorted(actual - _ATOMIC_IO_MODULE_IMPORTERS)}; "
+        f"stale allowlist entries: {sorted(_ATOMIC_IO_MODULE_IMPORTERS - actual)}. "
+        "Import the primitive NAMES via `from .._atomic_io import ...` (tracked by "
+        "clauses (i)/(iv)); a module-object import + attribute-call can reach the "
+        "storage-state bypass and must be triaged onto _ATOMIC_IO_MODULE_IMPORTERS."
+    )
+
+
+def test_no_atomic_io_module_write_primitive_attribute_calls() -> None:
+    """Clause (v): no write-primitive / bypass CALL via an ``_atomic_io`` module
+    alias outside the allowlist.
+
+    This closes the module-import + attribute-call hole (``import
+    notebooklm._atomic_io`` then ``_atomic_io._atomic_write_json_unchecked(...)``)
+    that every NAME-based clause is blind to.
+    """
+    violations: dict[str, list[int]] = {}
+    for path in _iter_src_files():
+        rel = _rel(path)
+        if rel in _ATOMIC_IO_MODULE_WRITE_CALL_ALLOWLIST:
+            continue
+        hits = _atomic_io_module_write_calls(ast.parse(path.read_text("utf-8")))
+        if hits:
+            violations[rel] = hits
+    assert violations == {}, (
+        "write-primitive attribute call(s) via an _atomic_io module alias outside "
+        f"the clause-(v) allowlist: {violations}. Route storage_state writes through "
+        "notebooklm._auth.storage_writer instead."
+    )
+
+
+@pytest.mark.parametrize(
+    ("snippet", "should_flag"),
+    [
+        # The exact module-import + attribute-call bypass shapes clause (v) closes.
+        (
+            "import notebooklm._atomic_io\n"
+            "notebooklm._atomic_io._atomic_write_json_unchecked(path, data)",
+            True,
+        ),
+        ("import notebooklm._atomic_io as aio\naio.atomic_write_json(path, data)", True),
+        ("from .. import _atomic_io\n_atomic_io.atomic_write_json(path, data)", True),
+        ("from . import _atomic_io\n_atomic_io._atomic_write_json_unchecked(path, data)", True),
+        ("from notebooklm import _atomic_io\n_atomic_io.replace_file_atomically(tmp, path)", True),
+        ("from notebooklm import _atomic_io as m\nm.replace_file_atomically(tmp, path)", True),
+        # NAME import (module == "_atomic_io") — clauses (i)/(iv) own it, NOT (v).
+        ("from .._atomic_io import atomic_write_json\natomic_write_json(path, data)", False),
+        (
+            "from .._atomic_io import _atomic_write_json_unchecked\n_atomic_write_json_unchecked(p, d)",
+            False,
+        ),
+        # Module alias, but a non-write attribute (atomic_update_json is allowed).
+        ("import notebooklm._atomic_io as aio\naio.atomic_update_json(path, m)", False),
+        # Unrelated module.
+        ("import os\nos.replace(a, b)", False),
+    ],
+)
+def test_atomic_io_module_bypass_detector_self_check(snippet: str, should_flag: bool) -> None:
+    """Self-test of the clause (v) detector: the module-import + attribute-call
+    bypass (incl. the ``_atomic_write_json_unchecked`` shape) is flagged, while a
+    NAME import or a non-write attribute call is not."""
+    hits = _atomic_io_module_write_calls(ast.parse(snippet))
+    assert bool(hits) is should_flag, f"{snippet!r} -> hits={hits}, expected flag={should_flag}"
+
+
+def test_atomic_io_module_import_is_detected() -> None:
+    """The module-object import detector recognises every spelling (and rejects the
+    NAME-import spelling that clauses (i)/(iv) own)."""
+    assert _imports_atomic_io_module(ast.parse("import notebooklm._atomic_io"))
+    assert _imports_atomic_io_module(ast.parse("import notebooklm._atomic_io as aio"))
+    assert _imports_atomic_io_module(ast.parse("from .. import _atomic_io"))
+    assert _imports_atomic_io_module(ast.parse("from . import _atomic_io as x"))
+    assert _imports_atomic_io_module(ast.parse("from notebooklm import _atomic_io"))
+    # NAME import — module part is "_atomic_io", not a container: NOT a module import.
+    assert not _imports_atomic_io_module(
+        ast.parse("from .._atomic_io import _atomic_write_json_unchecked")
+    )
+    assert not _imports_atomic_io_module(ast.parse("import os"))
 
 
 @pytest.mark.parametrize(

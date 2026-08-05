@@ -253,16 +253,20 @@ class LoginWriteOutcome:
 
 
 def _ensure_secure_parent_dir(path: Path) -> None:
-    """Create ``path.parent`` (0700 on POSIX for freshly-created dirs).
+    """Ensure ``path.parent`` exists and is ``0700`` on POSIX.
 
-    Closes the master-token path's mode-less ``mkdir(parents=True)`` gap. Only a
-    directory this call creates is chmod-ed to 0700 — pre-existing directories
-    are left untouched so an existing install's permissions are not surprised.
+    Closes the master-token path's mode-less ``mkdir(parents=True)`` gap. The
+    chmod is applied UNCONDITIONALLY (not only when this call creates the dir),
+    restoring the pre-refactor self-heal that ``cli/services/login/cookie_writes.py``
+    performed after every successful write: a credentials directory loosened by a
+    backup / restore / sync tool (e.g. to 0755) is re-tightened to 0700 on the
+    next login / refresh, so session-cookie files never sit under a
+    world-traversable parent. Windows is skipped (POSIX modes are a no-op there
+    and can confuse ACL inheritance from ``%USERPROFILE%``).
     """
     parent = path.parent
-    already_existed = parent.exists()
     parent.mkdir(parents=True, exist_ok=True)
-    if sys.platform != "win32" and not already_existed:
+    if sys.platform != "win32":
         with contextlib.suppress(OSError):
             os.chmod(parent, 0o700)
 

@@ -430,3 +430,59 @@ def test_acquire_storage_lock_times_out_bounded(
     monkeypatch.setattr(storage_mod, "_file_lock", always_contended)
     with sw._acquire_storage_lock(lock_path, log_prefix="test", deadline_seconds=0.05) as state:
         assert state == "unavailable"
+
+
+# --- parent-dir permission self-heal ---------------------------------------
+
+
+def test_ensure_secure_parent_dir_creates_at_0700(tmp_path: Path) -> None:
+    """A freshly-created parent directory is 0700 on POSIX."""
+    import sys
+
+    if sys.platform == "win32":
+        pytest.skip("POSIX permission semantics")
+    path = tmp_path / "sub" / "storage_state.json"
+    sw._ensure_secure_parent_dir(path)
+    assert path.parent.is_dir()
+    assert (path.parent.stat().st_mode & 0o777) == 0o700
+
+
+def test_ensure_secure_parent_dir_retightens_existing_loose_dir(tmp_path: Path) -> None:
+    """A PRE-EXISTING parent loosened to 0755 (e.g. by a backup/sync tool) is
+    re-tightened to 0700 on the next writer intent — the restored self-heal
+    (finding #2 regression). POSIX-only."""
+    import sys
+
+    if sys.platform == "win32":
+        pytest.skip("POSIX permission semantics")
+    parent = tmp_path / "creds"
+    parent.mkdir(mode=0o700)
+    # Simulate a restore/sync tool loosening the directory after the fact.
+    import os
+
+    os.chmod(parent, 0o755)
+    assert (parent.stat().st_mode & 0o777) == 0o755
+
+    sw._ensure_secure_parent_dir(parent / "storage_state.json")
+
+    # Unconditional chmod re-tightened the already-existing directory.
+    assert (parent.stat().st_mode & 0o777) == 0o700
+
+
+def test_writer_intent_retightens_loose_parent_dir(tmp_path: Path) -> None:
+    """End-to-end: a writer intent (write_master_token) run against a loosened
+    pre-existing parent re-tightens it to 0700 (POSIX-only)."""
+    import os
+    import sys
+
+    if sys.platform == "win32":
+        pytest.skip("POSIX permission semantics")
+    parent = tmp_path / "creds"
+    parent.mkdir(mode=0o700)
+    os.chmod(parent, 0o755)
+
+    sw.write_master_token(
+        parent / "master_token.json", email="e@x.com", master_token="aas_et/M", android_id="abc"
+    )
+
+    assert (parent.stat().st_mode & 0o777) == 0o700

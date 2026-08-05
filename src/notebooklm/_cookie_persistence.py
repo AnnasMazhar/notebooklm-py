@@ -12,6 +12,7 @@ from typing import Protocol
 
 import httpx
 
+from ._auth.paths import canonical_storage_key
 from ._auth.storage import (
     CookieSaveResult,
     CookieSnapshot,
@@ -105,6 +106,13 @@ class CookiePersistence:
         if effective_path is None:
             return
         save_path: Path = effective_path
+        # Canonical save-ordering KEY (CodeRabbit #5): collapse two syntactic
+        # spellings of the SAME file (relative vs resolved vs ``~``-expanded vs
+        # symlinked) to one ``_last_applied_seq`` entry. Keying by the raw
+        # ``effective_path`` lets a stale worker hash to a DIFFERENT key, be missed
+        # by the drop-check, and write an older jar after a newer one. The WRITE
+        # still targets ``save_path`` unchanged; only the ordering key canonicalizes.
+        save_key: Path = canonical_storage_key(save_path) or save_path
 
         # Stamp the dispatch order BEFORE the worker is queued (on the loop
         # thread, so the sequence reflects save() call order, not worker run
@@ -117,6 +125,7 @@ class CookiePersistence:
         def _save(
             s: httpx.Cookies = jar_copy,
             p: Path = save_path,
+            key: Path = save_key,
             lock: threading.Lock = self.save_lock,
             post: CookieSnapshot = post_save_snapshot,
             persistence: CookiePersistence = self,
@@ -125,12 +134,12 @@ class CookiePersistence:
             """Worker-thread save: hold the in-process lock around the disk write."""
             with lock:
                 # Drop a stale worker: a newer save() dispatch has already
-                # applied a merge to this path, so writing our older jar would
-                # resurrect the stale-overwrite race. A newer dispatch that only
-                # *hard-failed* (see below) does NOT advance the marker, so this
-                # older worker still proceeds — its write is strictly newer than
-                # disk and dropping it would regress vs today.
-                last_applied = persistence._last_applied_seq.get(p, -1)
+                # applied a merge to this path (keyed canonically), so writing our
+                # older jar would resurrect the stale-overwrite race. A newer
+                # dispatch that only *hard-failed* (see below) does NOT advance the
+                # marker, so this older worker still proceeds — its write is
+                # strictly newer than disk and dropping it would regress vs today.
+                last_applied = persistence._last_applied_seq.get(key, -1)
                 if dispatch_seq < last_applied:
                     return
                 snap = persistence.loaded_cookie_snapshot
@@ -145,7 +154,7 @@ class CookiePersistence:
                 # rejected keys). A hard-fail (``ok=False`` WITHOUT rejected
                 # keys) does not advance, so the older worker above may proceed.
                 if _apply_ran_merge(result) and dispatch_seq > last_applied:
-                    persistence._last_applied_seq[p] = dispatch_seq
+                    persistence._last_applied_seq[key] = dispatch_seq
                 persistence._advance_baseline_after_save(snap, post, result)
 
         await to_thread(_save)

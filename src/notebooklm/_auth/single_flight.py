@@ -88,9 +88,11 @@ class Flight(Generic[T]):
 _REGISTRY_LOCK = threading.Lock()
 _FLIGHTS: dict[FlightKey, Flight[Any]] = {}
 # Strong references to leader tasks so the asyncio GC does not collect a
-# subprocess-driving task whose only awaiter got cancelled. ``set.add`` /
-# ``set.discard`` are individually atomic under CPython's GIL; the task
-# self-removes via ``add_done_callback``.
+# subprocess-driving task whose only awaiter got cancelled. Both ``set.add``
+# (in ``_claim``) and ``set.discard`` (in the ``_on_done`` callback) mutate this
+# set under ``_REGISTRY_LOCK`` — it is part of the state that lock guards, so the
+# discipline holds under free-threaded CPython, not merely by GIL atomicity. The
+# task self-removes via ``add_done_callback``.
 _LEADER_TASKS: set[asyncio.Task[Any]] = set()
 # Process-global per-canonical-PATH success counter. Keyed per path only (NOT
 # per (path, policy)): a late refresh-cmd waiter must observe a completed
@@ -205,7 +207,15 @@ def _claim(
     def _on_done(settled: asyncio.Task[T]) -> None:
         # Order: mirror the terminal state onto the bridge (waking followers),
         # then drop the strong ref and prompt-pop the registry slot.
-        _LEADER_TASKS.discard(settled)
+        # The strong-ref set is part of the state ``_REGISTRY_LOCK`` guards, so
+        # the discard takes the lock too (``.add`` in ``_claim`` holds it) —
+        # keeping the module's "one lock guards the registry, task set, and epoch
+        # map" invariant intact under free-threaded CPython, not just GIL-atomic.
+        # The critical section is a single ``set.discard`` with no await inside;
+        # the callback runs on the leader's loop, so this brief plain-lock hold
+        # cannot deadlock.
+        with _REGISTRY_LOCK:
+            _LEADER_TASKS.discard(settled)
         _mirror(settled, flight)
         _pop(flight_key, flight)
         # Retrieve a terminal exception so the (possibly awaiter-less) bridge is
@@ -228,6 +238,21 @@ def _mirror(task: asyncio.Task[Any], flight: Flight[Any]) -> None:
     surfaced to followers as a ``CancelledError`` *exception* on the bridge
     (rather than cancelling the bridge) so ``asyncio.wrap_future`` delivers it
     as an ordinary awaited outcome.
+
+    Leader-cancellation note (CodeRabbit #3): a follower on a DIFFERENT loop then
+    observes that ``CancelledError`` and, via :func:`await_flight`, re-raises it
+    as though the follower itself were cancelled — it does NOT fall through to the
+    fresh-leader retry path. This is deliberate and safe: nothing in the codebase
+    calls ``.cancel()`` on a ``_LEADER_TASKS`` member, so a leader task is
+    cancelled ONLY on event-loop / interpreter TEARDOWN. In that terminal
+    condition the shared work is genuinely gone; a same-loop follower is being
+    torn down too (correctly cancelled), and the rare cross-loop case degrades to
+    one aborted attempt that the caller's normal error handling surfaces — never a
+    hang and never a duplicate subprocess (the flight is prompt-popped, so the
+    next fresh call simply claims a new leader). Distinguishing leader- from
+    caller-cancellation would need a separate non-``CancelledError`` bridge signal
+    threaded through every ``await_flight`` consumer (incl. recovery's one-shot
+    callers), which is not warranted for a teardown-only edge.
     """
     bridge = flight.bridge
     if bridge.done():
@@ -271,12 +296,15 @@ async def await_flight(flight: Flight[T]) -> T:
     In-tree precedent: ``recovery.py``'s ``_await_shared_task`` (this replaces
     it, generalized from an ``asyncio.Task`` to a cross-loop future bridge).
     """
-    # ONE wrapper future over the shared bridge, re-shielded across every await
-    # so at most one asyncio future is ever created (nothing to leak) and — the
-    # critical safety property — the bridge is NEVER cancelled out from under
-    # sibling followers, even on a SECOND cancellation during the settle window
-    # (``shield`` absorbs the repeated cancel; the un-shielded form would chain
-    # ``bridge.cancel()`` and detonate every sibling — #621).
+    # ONE wrapper future over the shared bridge (``asyncio.wrap_future``),
+    # re-shielded across every await. ``asyncio.shield`` allocates a fresh outer
+    # future per call, so under repeated rapid cancellation the settle loop below
+    # re-shields ``wrapped`` once per retry — but the single wrapper over the
+    # shared bridge is never re-created, and — the critical safety property — the
+    # bridge is NEVER cancelled out from under sibling followers, even on a SECOND
+    # cancellation during the settle window (``shield`` absorbs the repeated
+    # cancel; the un-shielded form would chain ``bridge.cancel()`` and detonate
+    # every sibling — #621).
     wrapped = asyncio.wrap_future(flight.bridge)
     try:
         return await asyncio.shield(wrapped)
@@ -296,11 +324,24 @@ async def await_flight(flight: Flight[T]) -> T:
                 continue
             except BaseException:  # noqa: BLE001 - settle before propagating
                 break
+
         # Drain the settled wrapper so it is not GC'd with an unretrieved
         # exception (stray "Future exception was never retrieved" in CI logs).
-        if wrapped.done() and not wrapped.cancelled():
-            with contextlib.suppress(BaseException):
-                wrapped.result()
+        # Cross-loop (CodeRabbit #6): the bridge can be done on the LEADER's loop
+        # while ``wrapped`` is still PENDING on this loop (``wrap_future`` resolves
+        # it via ``call_soon_threadsafe``), so a bare ``if wrapped.done()`` check
+        # here would skip the drain and leak the exception. Drain now if already
+        # done, else attach a done-callback that retrieves it whenever it lands —
+        # we still re-raise our cancellation immediately below.
+        def _drain(fut: asyncio.Future[Any]) -> None:
+            if not fut.cancelled():
+                with contextlib.suppress(BaseException):
+                    fut.result()
+
+        if wrapped.done():
+            _drain(wrapped)
+        else:
+            wrapped.add_done_callback(_drain)
         raise
 
 

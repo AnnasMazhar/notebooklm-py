@@ -858,6 +858,21 @@ def _replace_cookie_jar(target: httpx.Cookies, source: httpx.Cookies) -> None:
         target.jar.set_cookie(cookie)
 
 
+def _clone_cookie_jar(source: httpx.Cookies) -> httpx.Cookies:
+    """Return a fresh ``httpx.Cookies`` with its own jar container from ``source``.
+
+    A distinct jar CONTAINER (the individual ``http.cookiejar.Cookie`` values are
+    shared by reference — they are effectively immutable), so a caller that later
+    clears / repopulates / rotates its jar cannot disturb a sibling holding the
+    same single-flight recovery result on another loop (see recovery.py's
+    coalesced cold / master-token paths — CodeRabbit copy-on-return).
+    """
+    clone = httpx.Cookies()
+    for cookie in source.jar:
+        clone.jar.set_cookie(cookie)
+    return clone
+
+
 def _cookie_map_from_jar(cookie_jar: httpx.Cookies) -> DomainCookieMap:
     """Extract a path-aware auth cookie map from an httpx cookie jar.
 

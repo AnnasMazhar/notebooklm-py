@@ -27,6 +27,7 @@ import httpx
 import pytest
 
 from notebooklm import auth as auth_mod
+from notebooklm._auth import keepalive as _keepalive
 from notebooklm._auth import refresh as _auth_refresh
 from notebooklm._auth import single_flight as _single_flight
 
@@ -415,3 +416,82 @@ class TestCrossLoopCoalescing:
         )
         # Success epoch bumped exactly once (subprocess succeeded once).
         assert _single_flight.read_success_epoch(str(storage.expanduser().resolve())) == 1
+
+
+class TestFlockLoserWaitsThenReloads:
+    """Cross-process flock loser WAITS for the winner before reloading (P2).
+
+    Pre-fix, a process that lost ``.storage_state.json.refresh.lock`` returned
+    from ``_refresh_cmd_leader_body`` immediately, so the caller reloaded the
+    STALE file before the winner had written the fresh cookies. The loser now
+    polls the flock until it frees (winner finished writing), then returns — with
+    no subprocess of its own and no success-epoch bump.
+    """
+
+    @pytest.mark.asyncio
+    async def test_wait_for_refresh_holder_polls_until_released(self, monkeypatch, tmp_path):
+        import contextlib
+
+        # contended, contended, then released → the wait must poll through the
+        # two contended probes and return True on the third.
+        states = iter([False, False, True])
+
+        @contextlib.contextmanager
+        def fake_try(lock_path):
+            yield next(states)
+
+        # ``_wait_for_refresh_holder`` lives in keepalive and resolves the flock
+        # via keepalive's own name, so patch it there.
+        monkeypatch.setattr(_keepalive, "_file_lock_try_exclusive", fake_try)
+        lock_path = tmp_path / ".storage_state.json.refresh.lock"
+        assert await _auth_refresh._wait_for_refresh_holder(lock_path) is True
+
+    @pytest.mark.asyncio
+    async def test_wait_for_refresh_holder_times_out_best_effort(self, monkeypatch, tmp_path):
+        import contextlib
+
+        @contextlib.contextmanager
+        def always_contended(lock_path):
+            yield False
+
+        monkeypatch.setattr(_keepalive, "_file_lock_try_exclusive", always_contended)
+        # Force an already-elapsed deadline so the loop bails on the first pass.
+        monkeypatch.setattr(_keepalive._auth_storage, "_LOCK_ACQUIRE_DEADLINE_SECONDS", -1.0)
+        lock_path = tmp_path / ".storage_state.json.refresh.lock"
+        assert await _auth_refresh._wait_for_refresh_holder(lock_path) is False
+
+    @pytest.mark.asyncio
+    async def test_leader_body_loser_waits_no_subprocess_no_bump(self, monkeypatch, tmp_path):
+        import contextlib
+
+        calls = {"n": 0}
+
+        @contextlib.contextmanager
+        def fake_try(lock_path):
+            # Call 1 = leader body's own acquire (refresh alias) → contended.
+            # Calls 2+ = the wait poll (keepalive) → contended once, then released.
+            calls["n"] += 1
+            yield calls["n"] >= 3
+
+        # The leader body's acquire resolves the flock via the refresh alias; the
+        # wait poll resolves it via keepalive. Install the SAME stateful fake on
+        # both names so one counter spans the acquire AND the poll loop.
+        monkeypatch.setattr(_auth_refresh, "_file_lock_try_exclusive", fake_try)
+        monkeypatch.setattr(_keepalive, "_file_lock_try_exclusive", fake_try)
+        monkeypatch.setattr(_auth_refresh, "_refresh_lock_path", lambda p: tmp_path / ".x.lock")
+
+        ran: list[Path] = []
+
+        async def fake_run(path, profile):
+            ran.append(path)
+
+        monkeypatch.setattr(_auth_refresh, "_run_refresh_cmd", fake_run)
+
+        storage = tmp_path / "storage_state.json"
+        key = str(storage)
+        before = _single_flight.read_success_epoch(key)
+        await _auth_refresh._refresh_cmd_leader_body(key, storage, None)
+
+        assert ran == [], "the flock loser must NOT run its own subprocess"
+        assert _single_flight.read_success_epoch(key) == before, "loser must not bump the epoch"
+        assert calls["n"] >= 3, "the loser must WAIT (poll the flock), not return immediately"

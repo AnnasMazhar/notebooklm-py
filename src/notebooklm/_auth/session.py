@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from .._env import get_base_url
 from .._url_utils import is_google_auth_redirect
 from ..exceptions import AuthExtractionError
+from ..paths import profile_from_storage_path
 from .account import authuser_query
 from .extraction import extract_wiz_field
 from .recovery import try_headless_reauth, try_master_token_reauth
@@ -137,10 +138,17 @@ async def _try_refresh_cmd_reauth(*, auth: AuthTokens, kernel: Kernel) -> bool:
     The rung is opt-in mid-session (``NOTEBOOKLM_REFRESH_CMD_MIDSESSION=1``) and
     reuses the cold-start refresh-cmd machinery; see
     :func:`notebooklm._auth.refresh.try_refresh_cmd_reauth`.
+
+    The profile is derived from ``auth.storage_path`` (not left as ``None``) so a
+    client built via ``from_storage(profile="work")`` — without the process-wide
+    default set — refreshes the WORK profile, not "default"
+    (``NOTEBOOKLM_REFRESH_PROFILE``). A non-profile storage path (explicit
+    ``--storage``/legacy) yields ``None`` and keeps the path-based routing.
     """
     return await try_refresh_cmd_reauth(
         storage_path=auth.storage_path,
         cookie_jar=kernel.get_http_client().cookies,
+        profile=profile_from_storage_path(auth.storage_path),
     )
 
 

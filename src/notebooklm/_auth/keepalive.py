@@ -17,6 +17,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import random
 import threading
 import time
 import weakref
@@ -188,6 +189,40 @@ def _file_lock_try_exclusive(lock_path: Path) -> Iterator[bool]:
         # "held" → True (proceed, we own it); "unavailable" → True (fail open);
         # "contended" → False (someone else is rotating, skip).
         yield state != "contended"
+
+
+async def _wait_for_refresh_holder(lock_path: Path) -> bool:
+    """Bounded async wait for another PROCESS's refresh flock to release.
+
+    The refresh-cmd flock is held by the winning process across its
+    ``_run_refresh_cmd`` subprocess. A loser that fails the non-blocking acquire
+    must not reload immediately: the winner has not yet written the fresh
+    cookies, so an immediate reload re-reads the STALE file and the loser fails
+    even though a refresh is moments away. Poll the flock with jittered async
+    backoff (``asyncio.sleep`` keeps the event loop live) until it frees —
+    meaning the winner finished writing — then let the caller reload.
+
+    Reuses the shared bounded-acquire tuning (``storage`` deadline/initial/max
+    delay). Returns ``True`` when the holder released (or the lock infra is
+    unworkable → fail open) within the deadline, ``False`` on timeout (the caller
+    falls back to a best-effort stale reload). No subprocess runs, no epoch bump.
+    """
+    deadline = time.monotonic() + _auth_storage._LOCK_ACQUIRE_DEADLINE_SECONDS
+    delay = _auth_storage._LOCK_ACQUIRE_INITIAL_DELAY_SECONDS
+    while True:
+        with _file_lock_try_exclusive(lock_path) as acquired:
+            if acquired:
+                # Holder released (or the lock is unworkable → fail open): the
+                # freshly-written file is now the best we can reload.
+                return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            logger.debug("refresh flock still held at the bounded deadline; reloading best-effort")
+            return False
+        # Jittered exponential backoff, async so the event loop is not frozen.
+        sleep_for = min(delay + random.uniform(0.0, delay), remaining)
+        await asyncio.sleep(sleep_for)
+        delay = min(delay * 2, _auth_storage._LOCK_ACQUIRE_MAX_DELAY_SECONDS)
 
 
 def _is_recently_rotated(storage_path: Path | None) -> bool:

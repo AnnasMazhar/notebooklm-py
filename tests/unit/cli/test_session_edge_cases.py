@@ -228,27 +228,77 @@ class TestLoginWindowsPermissions:
         chmod_700 = [c for c in chmod_calls if c["args"] == (0o700,)]
         assert len(chmod_700) >= 2, f"Expected ≥2 chmod(0o700) calls on Unix, got {len(chmod_700)}"
 
-    def test_windows_storage_chmod_skipped(self, _patch_login_deps):
-        """On Windows, storage_state.json dir/file chmod is skipped.
+    def test_windows_storage_chmod_skipped(self, tmp_path, monkeypatch):
+        """On Windows the canonical writer skips all POSIX permission mutation.
 
-        Since b-PR3 the ``storage_state.json`` save path (login, refresh, and
-        import) funnels through the canonical ``_auth.storage_writer``: the
-        parent-dir ``0700`` and file ``0600`` permission bits (and their
-        Windows skip guard) live there now — the CLI writers no longer chmod
-        directly. We verify the Windows guard exists by grepping the writer's
-        source (``_ensure_secure_parent_dir`` + the import ``.bak`` backup both
-        guard on ``sys.platform``); the file mode is applied by
-        ``atomic_write_json``'s own Windows-guarded ``fchmod``.
+        Behavior test (not a source grep): since b-PR3 the ``storage_state.json``
+        save path funnels through ``_auth.storage_writer``, whose parent-dir
+        ``0700`` and backup ``0600`` chmods (and the file-mode ``fchmod``) are
+        POSIX-only and guarded on ``sys.platform``. With the platform forced to
+        ``win32`` a real ``storage_state.json`` write through the canonical
+        ``replace_from_login`` performs NO ``os.chmod`` — and still writes the
+        file (and its ``.bak`` backup) correctly.
         """
-        import inspect
+        import contextlib
+        import os
 
-        from notebooklm._auth import storage_writer
+        from notebooklm._atomic_io import _atomic_write_json_unchecked
+        from notebooklm._auth import storage as storage_mod
+        from notebooklm._auth import storage_writer as sw
 
-        source = inspect.getsource(storage_writer)
-        # The pattern: ``if sys.platform != "win32": ...chmod(...)``. Either quote
-        # style is acceptable so the assertion survives style changes.
-        assert 'sys.platform != "win32"' in source or "sys.platform != 'win32'" in source, (
-            "Missing Windows guard for storage_state.json chmod in "
-            "notebooklm._auth.storage_writer (the permission contract moved into "
-            "the canonical storage writer in b-PR3)"
+        chmod_calls: list[tuple] = []
+        real_chmod = os.chmod
+
+        def _spy_chmod(*args, **kwargs):
+            chmod_calls.append(args)
+            return real_chmod(*args, **kwargs)
+
+        fchmod_calls: list[tuple] = []
+        real_fchmod = os.fchmod if hasattr(os, "fchmod") else None
+
+        def _spy_fchmod(*args, **kwargs):
+            fchmod_calls.append(args)
+            return real_fchmod(*args, **kwargs)
+
+        # ``sys`` is a process-global singleton, so forcing ``sys.platform`` to
+        # "win32" also sends the storage OS-lock down its ``msvcrt`` branch (which
+        # does not exist on this host). Bypass the lock with an always-held stub so
+        # the write proceeds while the platform-guarded chmods take the win32 path.
+        @contextlib.contextmanager
+        def _held(lock_path, *, blocking, log_prefix):
+            yield "held"
+
+        monkeypatch.setattr(storage_mod, "_file_lock", _held)
+        monkeypatch.setattr(os, "chmod", _spy_chmod)
+        if real_fchmod is not None:
+            monkeypatch.setattr(os, "fchmod", _spy_fchmod)
+        monkeypatch.setattr(sw.sys, "platform", "win32")
+
+        path = tmp_path / "storage_state.json"
+        # Pre-existing target so the import ``.bak`` backup path (also chmod-guarded)
+        # is exercised, not just the parent-dir chmod.
+        _atomic_write_json_unchecked(path, {"cookies": [], "origins": []})
+        chmod_calls.clear()
+        fchmod_calls.clear()
+
+        state = {
+            "cookies": [
+                {"name": "SID", "value": "s", "domain": ".google.com", "path": "/"},
+                {"name": "__Secure-1PSIDTS", "value": "p", "domain": ".google.com", "path": "/"},
+            ],
+            "origins": [],
+        }
+        # ``backup`` deliberately omitted: shutil.copy2 replicates the source mode
+        # via its OWN os.chmod (unrelated to the writer's win32-guarded chmod),
+        # which would be noise here. The parent-dir 0700 chmod and the file-mode
+        # fchmod are the writer/_atomic_io permission bits under test.
+        outcome = sw.replace_from_login(path, state, include_domains=None)
+
+        assert outcome.ok, outcome
+        assert path.exists()  # the write still succeeded under the win32 guard
+        assert chmod_calls == [], (
+            f"os.chmod (parent-dir 0700) must be skipped on win32, got {chmod_calls}"
+        )
+        assert fchmod_calls == [], (
+            f"os.fchmod (file 0600) must be skipped on win32, got {fchmod_calls}"
         )

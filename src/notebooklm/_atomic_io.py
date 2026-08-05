@@ -318,6 +318,17 @@ def atomic_write_json(path: Path, data: Any, *, mode: int = 0o600) -> None:
     """
     # Case-insensitive match: on macOS (APFS/HFS+) and Windows (NTFS) a casing
     # variant resolves to the same file, so ``==`` alone would let it slip past.
+    #
+    # LEXICAL guard only: this compares the basename (casefolded), mirroring
+    # ``atomic_update_json``'s #1215 precedent below. It is deliberately NOT a
+    # resolved-path check, so a symlink whose OWN basename differs (e.g.
+    # ``cookies.json`` -> ``storage_state.json``) slips past this string test. That
+    # is acceptable because this rejection is a fast fail-loud tripwire for the
+    # common misuse, not the real boundary: the AST guardrail
+    # (``tests/_guardrails/test_storage_writer_boundary.py``) plus the canonical
+    # dotted storage lock are what actually enforce single-writer serialization.
+    # We do not resolve() here (an extra stat + symlink walk on every write) for a
+    # bypass shape that the import-boundary guardrail already flags at its source.
     if path.name.casefold() == _STORAGE_STATE_FILENAME:
         raise ValueError(
             f"atomic_write_json must not be called with a {path.name!r} "
