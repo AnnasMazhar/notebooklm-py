@@ -445,7 +445,10 @@ def _login_with_browser_cookies(
             account=account,
         )
     except OSError as e:
-        logger.error("Failed to save authentication to %s: %s", storage_path, e)
+        # G6: redact the bound exception in the log line (use the type name) so
+        # subprocess stderr / payload data captured in ``e`` is not persisted in
+        # caller log destinations — matching ``cookie_writes._write_extracted_cookies``.
+        logger.error("Failed to save authentication to %s: %s", storage_path, type(e).__name__)
         _emit(io, f"[red]Failed to save authentication to {storage_path}.[/red]\nDetails: {e}")
         io.fail(1)
 

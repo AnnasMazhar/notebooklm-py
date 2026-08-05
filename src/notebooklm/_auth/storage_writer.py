@@ -76,7 +76,6 @@ import contextlib
 import json
 import logging
 import os
-import random
 import shutil
 import sys
 import time
@@ -100,7 +99,7 @@ from .._atomic_io import _atomic_write_json_unchecked as atomic_write_json
 # ``except OSError`` arms keep catching a lock failure. Re-exported here for the
 # writers that raise it.
 from ..exceptions import LockUnavailableError
-from .paths import _storage_state_lock_path
+from .paths import _storage_state_lock_path, resolve_auth_json_env
 
 # Bounded-acquire tuning is defined ONCE next to the ``_file_lock`` primitive in
 # ``storage`` and shared here so both bounded paths (the blocking Windows
@@ -111,7 +110,6 @@ from .paths import _storage_state_lock_path
 from .storage import (
     _LOCK_ACQUIRE_DEADLINE_SECONDS,
     _LOCK_ACQUIRE_INITIAL_DELAY_SECONDS,
-    _LOCK_ACQUIRE_MAX_DELAY_SECONDS,
 )
 
 if TYPE_CHECKING:
@@ -303,8 +301,10 @@ def _acquire_storage_lock(
                 yield "unavailable"
                 return
             # state == "contended": another holder (thread or process) has it.
-        now = time.monotonic()
-        if now >= deadline:
+        # Jittered exponential backoff (shared with ``_acquire_os_lock``'s
+        # Windows retry via ``storage._sleep_backoff`` — one tuning site).
+        next_delay = _storage._sleep_backoff(delay, deadline)
+        if next_delay is None:
             logger.debug(
                 "%s: bounded storage-lock acquire exceeded %.0fs deadline; giving up",
                 log_prefix,
@@ -312,10 +312,7 @@ def _acquire_storage_lock(
             )
             yield "unavailable"
             return
-        # Jittered exponential backoff, clamped to the remaining budget.
-        sleep_for = min(delay + random.uniform(0.0, delay), max(0.0, deadline - now))
-        time.sleep(sleep_for)
-        delay = min(delay * 2, _LOCK_ACQUIRE_MAX_DELAY_SECONDS)
+        delay = next_delay
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +348,7 @@ def merge_cookie_delta(
     cookie_save_result = _storage.CookieSaveResult
     cookie_save_return = _storage._cookie_save_return
 
-    if path is None and "NOTEBOOKLM_AUTH_JSON" in os.environ:
+    if path is None and resolve_auth_json_env() is not None:
         logger.debug("Skipping cookie sync: Auth loaded from NOTEBOOKLM_AUTH_JSON env var")
         return cookie_save_return(cookie_save_result(True), return_result=return_result)
 

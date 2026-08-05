@@ -10,7 +10,6 @@ from __future__ import annotations
 import http.cookiejar
 import json
 import logging
-import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeAlias
@@ -20,6 +19,7 @@ import httpx
 from ..paths import get_storage_path
 from . import cookie_policy as _cookie_policy
 from . import cookie_semantics as _cookie_semantics
+from .paths import resolve_auth_json_env
 
 logger = logging.getLogger("notebooklm.auth")
 
@@ -362,11 +362,12 @@ def resolve_auth_storage_path(path: Path | None, profile: str | None) -> Path | 
 
     Presence, not truthiness: an empty ``NOTEBOOKLM_AUTH_JSON`` is a
     configuration error :func:`_load_storage_state` reports, not a silent
-    fall-through to a file. This matches ``_resolve_recovery_path``.
+    fall-through to a file. This matches ``_resolve_recovery_path``. The env-var
+    read is centralised in :func:`notebooklm._auth.paths.resolve_auth_json_env`.
     """
     if path is not None:
         return path
-    if "NOTEBOOKLM_AUTH_JSON" in os.environ:
+    if resolve_auth_json_env() is not None:
         return None
     return get_storage_path(profile=profile)
 
@@ -409,8 +410,9 @@ def _load_storage_state(path: Path | None = None) -> dict[str, Any]:
             )
         return storage_state
 
-    if "NOTEBOOKLM_AUTH_JSON" in os.environ:
-        auth_json = os.environ["NOTEBOOKLM_AUTH_JSON"].strip()
+    env_auth_json = resolve_auth_json_env()
+    if env_auth_json is not None:
+        auth_json = env_auth_json.strip()
         if not auth_json:
             raise StorageStateValidationError(
                 "NOTEBOOKLM_AUTH_JSON environment variable is set but empty.\n"

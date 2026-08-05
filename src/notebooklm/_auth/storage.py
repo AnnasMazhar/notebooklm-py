@@ -107,6 +107,29 @@ _LOCK_ACQUIRE_INITIAL_DELAY_SECONDS = 0.01
 _LOCK_ACQUIRE_MAX_DELAY_SECONDS = 0.5
 
 
+def _sleep_backoff(delay: float, deadline: float) -> float | None:
+    """Sleep one jittered exponential-backoff step of a bounded-acquire loop.
+
+    The single home for the deadline-check + jitter + sleep + delay-bump
+    arithmetic shared by BOTH bounded-acquire loops — the Windows ``msvcrt``
+    retry in :func:`_acquire_os_lock` below and
+    ``storage_writer._acquire_storage_lock`` — so future tuning edits one site
+    (b-PR4 review NIT). Behaviour is identical to the two former inline copies:
+    equal jitter (``delay + U[0, delay]``) clamped to the remaining budget,
+    then ``delay`` doubled and capped at :data:`_LOCK_ACQUIRE_MAX_DELAY_SECONDS`.
+
+    Returns the next ``delay`` to use, or ``None`` when the ``deadline`` has
+    already elapsed — the caller must then stop retrying and fall through to
+    ``"unavailable"`` (each caller keeps its own site-specific give-up log line).
+    """
+    now = time.monotonic()
+    if now >= deadline:
+        return None
+    sleep_for = min(delay + random.uniform(0.0, delay), max(0.0, deadline - now))
+    time.sleep(sleep_for)
+    return min(delay * 2, _LOCK_ACQUIRE_MAX_DELAY_SECONDS)
+
+
 # In-process lock registry, keyed per canonical lock-path (never global — distinct
 # profiles and the rotate sentinel must not couple). Acquired BEFORE the OS lock
 # (ordering: in-process lock -> OS lock) so threads within one process serialize
@@ -188,17 +211,15 @@ def _acquire_os_lock(fd: int, *, blocking: bool, log_prefix: str) -> str:
             # jittered exponential backoff until the bounded deadline, then fall
             # through to "unavailable" so the caller applies its per-intent fail
             # policy (CAS fail-open with a one-shot warning).
-            now = time.monotonic()
-            if now >= deadline:
+            next_delay = _sleep_backoff(delay, deadline)
+            if next_delay is None:
                 logger.debug(
                     "%s: bounded msvcrt lock acquire exceeded %.0fs deadline; giving up",
                     log_prefix,
                     _LOCK_ACQUIRE_DEADLINE_SECONDS,
                 )
                 return "unavailable"
-            sleep_for = min(delay + random.uniform(0.0, delay), max(0.0, deadline - now))
-            time.sleep(sleep_for)
-            delay = min(delay * 2, _LOCK_ACQUIRE_MAX_DELAY_SECONDS)
+            delay = next_delay
 
 
 @contextlib.contextmanager
