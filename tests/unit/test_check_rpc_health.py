@@ -1359,14 +1359,17 @@ def test_rebrand_state_round_trips(tmp_path: Path) -> None:
     assert load_rebrand_state(path)[check_rpc_health.REBRAND_CHAT] == "ABSENT"
 
 
-def test_rebrand_state_ignores_unknown_capabilities_and_invalid_statuses(tmp_path: Path) -> None:
+@pytest.mark.parametrize("invalid_status", ["PRESNT", ["PRESENT"], {"value": "PRESENT"}])
+def test_rebrand_state_ignores_unknown_capabilities_and_invalid_statuses(
+    tmp_path: Path, invalid_status: object
+) -> None:
     path = tmp_path / "rebrand-state.json"
     path.write_text(
         json.dumps(
             {
                 "version": check_rpc_health.REBRAND_STATE_VERSION,
                 "state": {
-                    check_rpc_health.REBRAND_BATCHEXECUTE: "PRESNT",
+                    check_rpc_health.REBRAND_BATCHEXECUTE: invalid_status,
                     check_rpc_health.REBRAND_CHAT: "ABSENT",
                     "future-capability": "ABSENT",
                 },

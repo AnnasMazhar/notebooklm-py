@@ -1472,13 +1472,10 @@ def load_rebrand_state(path: Path | None) -> dict[str, str]:
     if not isinstance(recorded, dict):
         return dict(REBRAND_BASELINE_STATE)
     merged = dict(REBRAND_BASELINE_STATE)
-    recorded_statuses = {
-        RebrandProbeStatus.PRESENT.value,
-        RebrandProbeStatus.ABSENT.value,
-    }
+    recorded_statuses = {status.value for status in RECORDED_REBRAND_STATUSES}
     for key in REBRAND_BASELINE_STATE:
         value = recorded.get(key)
-        if value in recorded_statuses:
+        if isinstance(value, str) and value in recorded_statuses:
             merged[key] = value
     return merged
 
