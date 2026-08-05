@@ -800,13 +800,11 @@ class NotebookLMClient:
         try:
             await coord.await_refresh()
         except (ValueError, RuntimeError):
-            # Deliberately narrow: every dead-cookie / extraction failure that L3
-            # could remedy surfaces from refresh_auth_session as ValueError (and
-            # refresh-cmd failures as RuntimeError). A transport error (e.g.
-            # httpx 5xx) is not an L3-fixable condition, so it propagates rather
-            # than triggering a redundant headless rerun.
-            # The joined base flight failed (or none succeeded) — re-run our own
-            # flight with the full L3 rung policy so we never lose the rung.
+            # Narrow by design: L3-remediable failures surface as ValueError
+            # (dead-cookie/extraction) or RuntimeError (refresh-cmd); a transport
+            # error (e.g. httpx 5xx) is not L3-fixable and propagates instead.
+            # Joined base flight failed — re-run our own flight with the full L3
+            # rung so we never lose it.
             return await refresh_auth_session(
                 auth=self._auth,
                 kernel=self._collaborators.kernel,
