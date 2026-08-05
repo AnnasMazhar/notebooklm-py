@@ -52,7 +52,8 @@ Rebrand-host lane (``notebook.google.com``):
     lane as a green one.
 
 Environment variables:
-    NOTEBOOKLM_AUTH_JSON - Playwright storage state JSON (required)
+    NOTEBOOKLM_AUTH_JSON - Playwright storage state JSON (optional; the
+        profile's storage_state.json is used when unset, which is what CI does)
     NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID - Notebook ID for read operations
     NOTEBOOKLM_GENERATION_NOTEBOOK_ID - Notebook ID for write operations
     NOTEBOOKLM_RPC_DELAY - Delay between RPC calls in seconds (default: 1.0)
