@@ -475,6 +475,21 @@ def save_cookies_to_storage(
             return _cookie_save_return(CookieSaveResult(False), return_result=return_result)
 
 
+def _preserved_same_site(stored_cookie: dict[str, Any], fresh_state: dict[str, Any]) -> str:
+    """Keep a stored ``sameSite`` instead of the merge default that erases it.
+
+    ``http.cookiejar.Cookie`` carries no SameSite attribute, so
+    :func:`_cookie_to_storage_state` can only emit the ``"None"`` default. Writing
+    that back over a row captured with ``"Lax"``/``"Strict"`` would downgrade it on
+    every rotation, quietly undoing the attribute preservation the capture and
+    rookiepy converters perform.
+    """
+    stored = stored_cookie.get("sameSite")
+    if stored in {"Strict", "Lax", "None"}:
+        return str(stored)
+    return str(fresh_state["sameSite"])
+
+
 def _merge_cookies_legacy(cookie_jar: httpx.Cookies, storage_data: dict[str, Any]) -> int:
     """Legacy merge: trust in-memory whenever it differs from disk.
 
@@ -528,7 +543,7 @@ def _merge_cookies_legacy(cookie_jar: httpx.Cookies, storage_data: dict[str, Any
             stored_cookie["path"] = refreshed_cookie.path or stored_cookie.get("path") or "/"
             stored_cookie["secure"] = refreshed_cookie.secure
             stored_cookie["httpOnly"] = _cookie_is_http_only(refreshed_cookie)
-            stored_cookie["sameSite"] = fresh_state["sameSite"]
+            stored_cookie["sameSite"] = _preserved_same_site(stored_cookie, fresh_state)
             updated_count += 1
 
     for key, cookie in cookies_by_key.items():
@@ -599,6 +614,14 @@ def _merge_recovery_target_rows(
             # This is the recovery-specific CAS rejection. The sibling rows
             # remain byte-for-byte intact; no stale recovery value may clobber
             # a value that did not exist when the POST started.
+            #
+            # Deliberately whole-key, even in the mixed case where another row
+            # for this identity *was* replaced below: the key is reported as
+            # rejected, so ``advance_cookie_snapshot_after_save`` leaves the
+            # baseline where it is. A conflicting row is still on disk and the
+            # loaders pick a winner among duplicates, so we cannot claim the
+            # identity now reads as the value we wrote. Advancing on a partial
+            # write would retire a delta that never fully landed.
             cas_rejected.add(delta_key)
 
         if replaceable:
@@ -804,7 +827,7 @@ def _merge_cookies_with_snapshot(
             stored_cookie["path"] = matched_delta_cookie.path or stored_cookie.get("path") or "/"
             stored_cookie["secure"] = matched_delta_cookie.secure
             stored_cookie["httpOnly"] = _cookie_is_http_only(matched_delta_cookie)
-            stored_cookie["sameSite"] = fresh_state["sameSite"]
+            stored_cookie["sameSite"] = _preserved_same_site(stored_cookie, fresh_state)
             matched_delta_keys.add(matched_delta_key)
             updated_count += 1
             new_cookies.append(stored_cookie)

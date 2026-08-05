@@ -369,3 +369,44 @@ def test_safe_cookie_shape_tolerates_non_str_keys() -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ---------------------------------------------------------------------------
+# A failed in-memory heal must never discard the completed sign-in (#2082)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.requires_playwright
+def test_capture_persists_even_when_the_psidts_heal_declines(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Google withholding ``__Secure-1PSIDTS`` must not cost the user their login.
+
+    The login flow's passive ``goto()`` navigations do not always draw a
+    ``Set-Cookie: __Secure-1PSIDTS`` (issue #865), and the in-memory heal cannot
+    run at all without a rotatable secondary binding. Before this guard the
+    capture raised before ``atomic_write_json``, throwing away a completed SSO
+    round-trip and surfacing as a generic "please report a bug". The cookies are
+    still the best material available, and the disk-based cold-start recovery
+    retries from them on the next command — so persist, and say so.
+    """
+    playwright, browser, _context, page = _fake_cdp_browser(
+        _landed_on_app(),
+        cookies=[{"name": "SID", "value": "v", "domain": ".google.com", "path": "/"}],
+    )
+    io = _RaisingCaptureIO()
+
+    with caplog.at_level("WARNING", logger="notebooklm._auth.browser_capture"):
+        result = _run_cdp(_plan(tmp_path), io, playwright, "http://127.0.0.1:9222")
+
+    assert result is not None
+    storage = tmp_path / "storage_state.json"
+    assert storage.exists(), "a completed sign-in must survive a failed heal"
+    assert {c["name"] for c in json.loads(storage.read_text(encoding="utf-8"))["cookies"]} == {
+        "SID"
+    }
+    assert any("__Secure-1PSIDTS" in record.getMessage() for record in caplog.records), (
+        "the incomplete state must be reported, not silently persisted"
+    )
+    page.close.assert_called_once()
+    browser.close.assert_called_once()

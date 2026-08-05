@@ -164,7 +164,8 @@ def test_captured_state_validation_preserves_same_site_attributes() -> None:
     state["cookies"][-1]["sameSite"] = "Lax"
     state["cookies"][0]["sameSite"] = "Strict"
 
-    validated = browser_state_validation.validate_captured_state_with_recovery(state)
+    validated, error = browser_state_validation.heal_captured_state(state)
+    assert error is None
 
     same_site = {row["name"]: row["sameSite"] for row in validated["cookies"]}
     assert same_site["SID"] == "Strict"
@@ -270,13 +271,21 @@ def test_env_auth_state_is_not_hardened_when_recovery_cannot_run(
 def test_declined_recovery_falls_back_instead_of_hardening(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A declined heal (throttle, contention, no rotatable binding) must not fail the load."""
+    """A declined heal (throttle, contention, no rotatable binding) must not fail the load.
+
+    Declines through a real precondition rather than a patched seam: with no
+    ``OSID`` and no ``APISID``/``SAPISID`` pair the set has no rotatable
+    secondary binding, so ``_recover_psidts_inline`` returns ``False`` on its
+    own. That keeps the test honest about *why* recovery declined and stays
+    clear of the ADR-0007 private-monkeypatch rule.
+    """
+    state = _required_state({"domain": ".notebook.google.com", "expires": None})
+    state["cookies"] = [
+        row for row in state["cookies"] if row["name"] not in {"OSID", "APISID", "SAPISID"}
+    ]
     path = tmp_path / "storage_state.json"
-    path.write_text(
-        json.dumps(_required_state({"domain": ".notebook.google.com", "expires": None})),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(psidts_recovery, "_recover_psidts_inline", lambda _path: False)
+    path.write_text(json.dumps(state), encoding="utf-8")
+    assert not psidts_recovery._recover_psidts_inline(path), "precondition: recovery must decline"
 
     jar = cookies.build_httpx_cookies_from_storage(path)
     flat = tokens.load_auth_from_storage(path)
@@ -307,6 +316,11 @@ def test_validation_only_malformed_required_row_is_typed_and_redacted(
     ):
         cookies.load_httpx_cookies(path)
 
+    # Without this the redaction assertions below would pass vacuously on an
+    # empty record list — which is what an accidentally-silenced logger looks
+    # like. ``_auth.cookies`` logs to the "notebooklm.auth" logger by name, not
+    # via ``__name__``, so that is the level to raise.
+    assert caplog.records, "expected a redacted malformed-row diagnostic"
     combined = " ".join(record.getMessage() for record in caplog.records)
     assert secret not in combined
     assert raw_expiry not in combined
