@@ -58,6 +58,20 @@ from ._auth.master_token import (  # noqa: F401
     read_master_token,
     write_master_token,
 )
+
+# Canonical login/import storage writer (refactor (b), b-PR3). Re-exported here
+# as the public boundary the CLI login/import writers consume — ``cli/`` may not
+# import private ``_auth.*`` modules (tests/_guardrails/test_cli_boundary.py), so
+# the three CLI writers reach ``replace_from_login`` (and its ``account`` sentinel
+# / value-free outcome) ONLY through this facade, exactly like
+# ``save_cookies_to_storage`` / ``write_account_metadata`` / ``persist_minted_jar``.
+from ._auth.storage_writer import (  # noqa: F401
+    CLEAR_ACCOUNT,
+    KEEP_ACCOUNT,
+    AccountRecord,
+    LoginWriteOutcome,
+    replace_from_login,
+)
 from ._auth.tokens import AuthTokens
 
 # Public re-export: the fail-closed storage writers (persist_minted_jar /
@@ -142,12 +156,15 @@ _is_allowed_cookie_domain = _cookie_policy._is_allowed_cookie_domain
 # without being added here.
 __all__ = [
     "Account",
+    "AccountRecord",
     "AuthTokens",
     "build_cookie_jar",
     "build_httpx_cookies_from_storage",
+    "CLEAR_ACCOUNT",
     "clear_account_metadata",
     "convert_rookiepy_cookies_to_storage_state",
     "cookie_names_from_storage",
+    "drop_legacy_account_key",
     "enumerate_accounts",
     "exchange_master_token",
     "extract_cookies_from_storage",
@@ -159,7 +176,9 @@ __all__ = [
     "get_account_email_for_storage",
     "get_authuser_for_storage",
     "GOOGLE_REGIONAL_CCTLDS",
+    "KEEP_ACCOUNT",
     "LockUnavailableError",
+    "LoginWriteOutcome",
     "MasterTokenError",
     "mint_cookies",
     "missing_cookies_hint",
@@ -169,6 +188,7 @@ __all__ = [
     "read_account_metadata",
     "read_account_metadata_from_storage_state",
     "read_master_token",
+    "replace_from_login",
     "REQUIRED_COOKIE_DOMAINS",
     "validate_with_recovery",
     "write_account_metadata",
@@ -231,6 +251,15 @@ format_authuser_value = _auth_account.format_authuser_value
 authuser_query = _auth_account.authuser_query
 write_account_metadata = _auth_account.write_account_metadata
 clear_account_metadata = _auth_account.clear_account_metadata
+# The sibling ``context.json`` legacy-account cleanup. ``replace_from_login`` now
+# embeds/clears the in-band ``notebooklm.account`` record in the same atomic
+# storage-state write, but the legacy sibling ``context.json[account]`` key lives
+# in a DIFFERENT file under a DIFFERENT lock and is deliberately NOT relocated
+# into the storage writer (plan §b.1). The CLI login writers call this facade
+# helper after a successful write so a default-account (cleared) login can't keep
+# routing to a stale legacy account, matching the pre-refactor
+# ``write_account_metadata`` / ``clear_account_metadata`` migration side effect.
+drop_legacy_account_key = _auth_account._drop_legacy_account_key
 
 
 async def enumerate_accounts(

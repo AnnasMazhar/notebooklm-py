@@ -229,28 +229,26 @@ class TestLoginWindowsPermissions:
         assert len(chmod_700) >= 2, f"Expected ≥2 chmod(0o700) calls on Unix, got {len(chmod_700)}"
 
     def test_windows_storage_chmod_skipped(self, _patch_login_deps):
-        """On Windows, storage_state.json chmod(0o600) is also skipped.
+        """On Windows, storage_state.json dir/file chmod is skipped.
 
-        The ``storage_state.json`` save path runs through
-        ``services.login.cookie_writes._write_extracted_cookies`` and
-        ``services.login.refresh._login_with_browser_cookies`` (D1 PR-3
-        cutover moved the body out of session.py; P3.T4 split the single
-        ``services/login.py`` module into a package). We verify the
-        Windows guard exists by grepping the source of those submodules —
-        fragile compared to a behaviour assertion, but the writers are
-        wrapped in ``atomic_write_json`` which intentionally hides the
-        platform-dependent ``chmod`` from observers.
+        Since b-PR3 the ``storage_state.json`` save path (login, refresh, and
+        import) funnels through the canonical ``_auth.storage_writer``: the
+        parent-dir ``0700`` and file ``0600`` permission bits (and their
+        Windows skip guard) live there now — the CLI writers no longer chmod
+        directly. We verify the Windows guard exists by grepping the writer's
+        source (``_ensure_secure_parent_dir`` + the import ``.bak`` backup both
+        guard on ``sys.platform``); the file mode is applied by
+        ``atomic_write_json``'s own Windows-guarded ``fchmod``.
         """
         import inspect
 
-        from notebooklm.cli.services.login import cookie_writes, refresh
+        from notebooklm._auth import storage_writer
 
-        # The pattern: ``if sys.platform != "win32": storage_path.parent.chmod(0o700)``.
-        # Either quote style is acceptable so the assertion survives style changes.
-        for module in (cookie_writes, refresh):
-            source = inspect.getsource(module)
-            assert 'sys.platform != "win32"' in source or "sys.platform != 'win32'" in source, (
-                f"Missing Windows guard for storage_state.json chmod in "
-                f"{module.__name__} (moved from session.py in D1 PR-3, "
-                "split into login/ package in P3.T4)"
-            )
+        source = inspect.getsource(storage_writer)
+        # The pattern: ``if sys.platform != "win32": ...chmod(...)``. Either quote
+        # style is acceptable so the assertion survives style changes.
+        assert 'sys.platform != "win32"' in source or "sys.platform != 'win32'" in source, (
+            "Missing Windows guard for storage_state.json chmod in "
+            "notebooklm._auth.storage_writer (the permission contract moved into "
+            "the canonical storage writer in b-PR3)"
+        )

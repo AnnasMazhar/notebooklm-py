@@ -2,8 +2,11 @@
 
 ## Status
 
-Accepted (rolling out — refactor (b), b-PR1 lands the writer + guardrail; later
-PRs migrate the remaining writers and add the runtime rejection).
+Accepted (rolling out — refactor (b): b-PR1 lands the writer + guardrail; b-PR2
+migrates browser capture / L4 re-mint; b-PR3 migrates the three CLI login/import
+writers onto `replace_from_login`, lands the runtime `atomic_write_json`
+storage-state rejection + module-private bypass, and shrinks the storage-state
+exemption to `{migration.py}`).
 
 Scope of b-PR1 (per plan §b.6): **relocations + additive enforcement + the
 [storage-F3] save-ordering guard**. The relocations are behaviour-preserving for
@@ -118,8 +121,43 @@ write primitive (except annotated, shrinking exemptions), dependency-seam
 bindings are allowlisted, write-primitive calls on a `storage_state.json`
 literal are forbidden, and an **equality-asserted** frozenset enumerates every
 module repo-wide that imports `atomic_write_json` (so a new importer is loud).
-A later PR adds the runtime `atomic_write_json` storage-state rejection once all
-callers are migrated; the exemption set then shrinks to `{migration.py}`.
+
+### Runtime rejection + module-private bypass (b-PR3)
+
+Once every storage-state caller is migrated onto the writer, the public
+`atomic_write_json` (`notebooklm.io`) **rejects `storage_state.json` paths** with
+`ValueError` — the same guard `atomic_update_json` has carried since #1215,
+generalised. This is a **documented public-surface change** (precedent #1215): a
+bare atomic write on `storage_state.json` skips the canonical dotted
+`.storage_state.json.lock` sentinel and would re-open the lost-update race, so it
+is refused. The canonical writer legitimately writes storage-state files under
+that lock, so it uses a **module-private bypass** — `_atomic_io._atomic_write_json_unchecked`,
+a private symbol (not a keyword flag) — which skips the guard. The AST guardrail
+adds an equality-asserted allowlist pinning the bypass's importer set to exactly
+`{storage_writer.py}`, and the b-PR3 storage-state-exemption set shrinks to
+`{migration.py}`. Landing the rejection only after b-PR3 migrates the last
+storage-state callers (the three CLI login/import writers and browser capture)
+avoids breaking `notebooklm login` / `auth import-cookies` / browser capture
+during the migration window.
+
+### Login / import full-replace intent (b-PR3)
+
+`replace_from_login` is the single sanctioned persist for the CLI
+`login --browser-cookies`, `auth refresh --browser-cookies`, and
+`auth import-cookies` flows. Under the storage lock it applies the write-time
+domain filter, re-validates `MINIMUM_REQUIRED_COOKIES` on the FILTERED state
+(returning a value-free `LoginWriteOutcome(required_cookies_dropped, …)` — mapping
+to #2086's `CookieValidationFailure(COOKIE_VALIDATION_FAILED)` / `io.fail(1)` /
+not-exists contract), embeds/clears the in-band `notebooklm.account` binding via
+an `account` sentinel (`KEEP_ACCOUNT` | `CLEAR_ACCOUNT` | `AccountRecord`),
+records the `include_domains` opt-in set in the namespace, and (import flavour)
+takes the pre-overwrite `.bak` backup INSIDE the lock. The legacy sibling
+`context.json[account]` cleanup (`_drop_legacy_account_key`) stays a separate,
+CLI-triggered concern (different file, different lock) exposed as the additive
+facade helper `drop_legacy_account_key`. `replace_from_login` /
+`LoginWriteOutcome` / `AccountRecord` / `KEEP_ACCOUNT` / `CLEAR_ACCOUNT` /
+`drop_legacy_account_key` are additive `notebooklm.auth` re-exports so the CLI
+reaches them without importing private `_auth` modules.
 
 ## Consequences
 

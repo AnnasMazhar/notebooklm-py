@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`notebooklm.io.atomic_write_json` now rejects `storage_state.json` paths.**
+  As the final step of routing every `storage_state.json` mutation through the
+  single canonical `_auth.storage_writer` (ADR-0029), the public
+  `atomic_write_json` helper now raises `ValueError` when handed a
+  `storage_state.json` path — the same guard `atomic_update_json` has enforced
+  since #1215. A bare atomic write skips the canonical dotted
+  `.storage_state.json.lock` sentinel and would re-open the lost-update race, so
+  it is refused; cookie/account writers must go through the dedicated
+  `notebooklm._auth.storage_writer` intents. Callers writing other JSON files
+  (`context.json`, `config.json`, OAuth tokens, …) are unaffected. The canonical
+  writer uses a module-private bypass internally. This is a documented
+  public-surface change (precedent #1215).
+- The CLI `login --browser-cookies`, `auth refresh --browser-cookies`, and
+  `auth import-cookies` writers now persist through the canonical
+  `storage_writer.replace_from_login` (write-time domain filter, post-filter
+  required-cookie revalidation, in-band account metadata, and — for import — the
+  `.bak` backup all happen under one storage lock). Additive `notebooklm.auth`
+  re-exports (`replace_from_login`, `LoginWriteOutcome`, `AccountRecord`,
+  `KEEP_ACCOUNT`, `CLEAR_ACCOUNT`, `drop_legacy_account_key`) expose the writer to
+  the CLI boundary. Behaviour is preserved; the failure surface
+  (`COOKIE_VALIDATION_FAILED` on dropped required cookies, exit 1, nothing
+  written) is unchanged.
+
 - **The default base host is now `notebook.google.com`.** Google rebranded
   NotebookLM to Gemini Notebook and serves the personal app from both
   `notebooklm.google.com` and `notebook.google.com`; `batchexecute` is
