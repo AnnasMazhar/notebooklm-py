@@ -29,6 +29,11 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+# Module-object import for ``auth.MINIMUM_REQUIRED_COOKIES`` — the same
+# access pattern ``cli/_cookie_import.py`` uses; the constant is public in
+# behavior but deliberately not part of ``auth.__all__``.
+from .... import auth as _auth_public
+
 # ``browser_capture`` is the one sanctioned ``_auth`` import for the CLI
 # adapter (see tests/_guardrails/test_cli_boundary.py); it re-exports the
 # write-time domain filter from its ``_browser_cookie_filter`` leaf.
@@ -240,6 +245,29 @@ def _write_extracted_cookies(
             "Dropped %d cookie(s) outside the write-time cookie-domain policy for %s",
             dropped,
             storage_path,
+        )
+
+    # Re-run the Tier-1 required-cookie check on the FILTERED state (same
+    # post-filter revalidation the import-cookies path performs). The
+    # validation above is name-based over the permissive converter output,
+    # so a required cookie whose only copy sits on a non-allowlisted domain
+    # (the converter suffix-accepts ``*.google.com``) passes validation and
+    # is then dropped here — without this recheck we would atomically write
+    # unusable auth and exit 0 (the post-write verification probe is
+    # deliberately nonfatal).
+    filtered_names = cookie_names_from_storage(storage_state)
+    missing_required = sorted(_auth_public.MINIMUM_REQUIRED_COOKIES.difference(filtered_names))
+    if missing_required:
+        hint = missing_cookies_hint(filtered_names)
+        return CookieValidationFailure(
+            code="COOKIE_VALIDATION_FAILED",
+            message=(
+                "[red]Required authentication cookies were dropped by the "
+                "write-time cookie-domain policy.[/red]\n"
+                f"Missing after domain filtering: {', '.join(missing_required)} "
+                "(the only copies were scoped to non-allowlisted domains).\n\n"
+                f"{hint}"
+            ),
         )
 
     try:

@@ -135,7 +135,15 @@ class TestSelectRefreshAccount:
 
 
 def _ok_storage():
-    return {"cookies": [{"name": "SID", "value": "x"}]}
+    # Domains matter: the write-time filter and the post-filter Tier-1
+    # recheck both run on this state, so the required cookies must sit on
+    # an allowlisted domain to exercise the success paths.
+    return {
+        "cookies": [
+            {"name": "SID", "value": "x", "domain": ".google.com", "path": "/"},
+            {"name": "__Secure-1PSIDTS", "value": "y", "domain": ".google.com", "path": "/"},
+        ]
+    }
 
 
 class TestWriteExtractedCookies:
@@ -388,3 +396,82 @@ class TestWriteExtractedCookiesDomainFilter:
         persisted = self._write(tmp_path, raw)
         names = {c["name"] for c in persisted["cookies"]}
         assert {"SID", "__Secure-1PSIDTS", "REG_UK", "REG_DE"} <= names
+
+    def test_functional_drive_and_download_domains_survive(self, tmp_path):
+        """Drive-ingest and media-download domains pass the write-time filter.
+
+        ``drive.google.com`` (both dotted variants) and
+        ``.googleusercontent.com`` are in ``REQUIRED_COOKIE_DOMAINS`` —
+        Drive-source ingest follows redirects through drive.google.com and
+        artifact media downloads hit ``*.googleusercontent.com`` — so the
+        write-time policy must never drop them. Pins the functional-domain
+        survival so a future policy edit cannot silently break Drive ingest
+        or downloads.
+        """
+        raw = [
+            _rookiepy_cookie(".google.com", "SID"),
+            _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
+            _rookiepy_cookie("drive.google.com", "DRIVE_HOST"),
+            _rookiepy_cookie(".drive.google.com", "DRIVE_DOT"),
+            _rookiepy_cookie(".googleusercontent.com", "GUC_DOMAIN"),
+        ]
+        persisted = self._write(tmp_path, raw)
+        names = {c["name"] for c in persisted["cookies"]}
+        assert {"SID", "__Secure-1PSIDTS", "DRIVE_HOST", "DRIVE_DOT", "GUC_DOMAIN"} <= names
+
+    def test_host_scoped_googleusercontent_subdomain_dropped_for_parity(self, tmp_path):
+        """Host-scoped ``lh3.googleusercontent.com`` rows are dropped — Playwright parity.
+
+        The write-time filter is exact-match against the allowlist
+        (dot/no-dot equivalent), identical to the Playwright capture arms,
+        which have never persisted host-scoped googleusercontent subdomain
+        rows. Domain-wide ``.googleusercontent.com`` cookies DO survive
+        (previous test) and RFC 6265 sends them to every
+        ``*.googleusercontent.com`` host at download time; the runtime gate
+        additionally stays suffix-permissive for cookies acquired in the
+        live session. This documents the deliberate parity-drop.
+        """
+        raw = [
+            _rookiepy_cookie(".google.com", "SID"),
+            _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
+            _rookiepy_cookie(".googleusercontent.com", "GUC_DOMAIN"),
+            _rookiepy_cookie("lh3.googleusercontent.com", "GUC_HOST"),
+        ]
+        persisted = self._write(tmp_path, raw)
+        names = {c["name"] for c in persisted["cookies"]}
+        domains = {c["domain"] for c in persisted["cookies"]}
+        assert "GUC_DOMAIN" in names
+        assert "GUC_HOST" not in names
+        assert "lh3.googleusercontent.com" not in domains
+
+    def test_required_cookie_only_on_filtered_domain_fails_before_write(self, tmp_path):
+        """Filtering away a required cookie fails loudly instead of writing.
+
+        The converter suffix-accepts ``*.google.com``, so a jar whose only
+        ``SID`` sits on ``mail.google.com`` passes ``validate_with_recovery``;
+        the write-time filter then drops that row. The post-filter Tier-1
+        recheck must return a validation failure (and write nothing) rather
+        than persisting unusable auth with a success exit.
+        """
+        storage_path = tmp_path / "storage_state.json"
+        io = make_recording_io(run_async=MagicMock())
+        raw = [
+            _rookiepy_cookie("mail.google.com", "SID"),
+            _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
+        ]
+        with (
+            patch.object(cookie_writes, "fetch_tokens_with_domains", MagicMock()),
+            patch.object(auth_module, "write_account_metadata"),
+        ):
+            out = cookie_writes._write_extracted_cookies(
+                io,
+                raw,
+                storage_path=storage_path,
+                profile=None,
+                authuser=0,
+                email="a@gmail.com",
+            )
+        assert isinstance(out, CookieValidationFailure)
+        assert out.code == "COOKIE_VALIDATION_FAILED"
+        assert "SID" in out.message
+        assert not storage_path.exists()

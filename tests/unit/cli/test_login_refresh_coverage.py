@@ -55,11 +55,20 @@ def _deps(**overrides: Any) -> refresh.RefreshDeps:
 
 
 def _login_base_deps(**overrides: Any) -> refresh.RefreshDeps:
-    storage_state = {"cookies": [{"name": "SID"}], "origins": []}
+    # Required cookies on an allowlisted domain: the write-time filter and
+    # the post-filter Tier-1 recheck both run on this state, so the success
+    # paths need SID + __Secure-1PSIDTS to survive filtering.
+    storage_state = {
+        "cookies": [
+            {"name": "SID", "domain": ".google.com", "path": "/"},
+            {"name": "__Secure-1PSIDTS", "domain": ".google.com", "path": "/"},
+        ],
+        "origins": [],
+    }
     return _deps(
         read_browser_cookies=MagicMock(return_value=["raw"]),
         validate_with_recovery=MagicMock(return_value=(storage_state, None)),
-        cookie_names_from_storage=MagicMock(return_value=["SID"]),
+        cookie_names_from_storage=MagicMock(return_value={"SID", "__Secure-1PSIDTS"}),
         missing_cookies_hint=MagicMock(return_value="hint"),
         sync_server_language_to_config=MagicMock(),
         fetch_tokens_with_domains=MagicMock(return_value=None),
@@ -390,7 +399,7 @@ def _sibling_heavy_jar() -> list[dict]:
     ]
 
 
-def _login_and_read_storage(tmp_path, **login_kwargs) -> dict:
+def _login_and_read_storage(tmp_path, jar: list[dict] | None = None, **login_kwargs) -> dict:
     """Drive ``_login_with_browser_cookies`` with the real validate → filter →
     write pipeline (only the network/verification seams stubbed) and return
     the persisted ``storage_state.json``."""
@@ -398,7 +407,9 @@ def _login_and_read_storage(tmp_path, **login_kwargs) -> dict:
 
     storage_path = tmp_path / "storage_state.json"
     deps = _deps(
-        read_browser_cookies=MagicMock(return_value=_sibling_heavy_jar()),
+        read_browser_cookies=MagicMock(
+            return_value=jar if jar is not None else _sibling_heavy_jar()
+        ),
         sync_server_language_to_config=MagicMock(),
         fetch_tokens_with_domains=MagicMock(return_value=None),
     )
@@ -430,6 +441,60 @@ def test_login_with_cookies_opt_in_persists_opted_domains(tmp_path) -> None:
     names = {c["name"] for c in persisted["cookies"]}
     assert {"SID", "__Secure-1PSIDTS", "MAIL_OSID"} <= names
     assert names.isdisjoint({"DOCS_OSID", "ACCOUNT_OSID"})
+
+
+def test_login_with_cookies_functional_domains_survive(tmp_path) -> None:
+    """Drive-ingest and media-download domains pass the write-time filter.
+
+    ``drive.google.com`` (both dotted variants) and
+    ``.googleusercontent.com`` are in ``REQUIRED_COOKIE_DOMAINS`` (Drive
+    ingest redirects, artifact media downloads), so a default browser-cookie
+    login must persist them unchanged. Host-scoped googleusercontent
+    subdomain rows are dropped — exact parity with the Playwright capture
+    arms, which never persisted them either.
+    """
+    jar = [
+        _rookiepy_cookie(".google.com", "SID"),
+        _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
+        _rookiepy_cookie("drive.google.com", "DRIVE_HOST"),
+        _rookiepy_cookie(".drive.google.com", "DRIVE_DOT"),
+        _rookiepy_cookie(".googleusercontent.com", "GUC_DOMAIN"),
+        _rookiepy_cookie("lh3.googleusercontent.com", "GUC_HOST"),
+    ]
+    persisted = _login_and_read_storage(tmp_path, jar=jar)
+    names = {c["name"] for c in persisted["cookies"]}
+    assert {"SID", "__Secure-1PSIDTS", "DRIVE_HOST", "DRIVE_DOT", "GUC_DOMAIN"} <= names
+    assert "GUC_HOST" not in names
+
+
+def test_login_with_cookies_required_only_on_sibling_domain_exits(tmp_path, capsys) -> None:
+    """Filtering away a required cookie exits 1 instead of writing.
+
+    The converter suffix-accepts ``*.google.com``, so a jar whose only
+    ``SID`` sits on ``mail.google.com`` passes ``validate_with_recovery``;
+    the write-time filter then drops that row. The post-filter Tier-1
+    recheck must exit 1 (writing nothing) rather than persisting unusable
+    auth with a success exit.
+    """
+    storage_path = tmp_path / "storage_state.json"
+    jar = [
+        _rookiepy_cookie("mail.google.com", "SID"),
+        _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
+    ]
+    deps = _deps(
+        read_browser_cookies=MagicMock(return_value=jar),
+        sync_server_language_to_config=MagicMock(),
+        fetch_tokens_with_domains=MagicMock(return_value=None),
+    )
+    with (
+        patch.object(auth_module, "clear_account_metadata"),
+        patch.object(playwright_login_io_module, "run_async"),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        refresh._login_with_browser_cookies(storage_path, "chrome", deps=deps)
+    assert exc_info.value.code == 1
+    assert "SID" in capsys.readouterr().out
+    assert not storage_path.exists()
 
 
 def test_refresh_forwards_include_domains_to_writer(tmp_path) -> None:
