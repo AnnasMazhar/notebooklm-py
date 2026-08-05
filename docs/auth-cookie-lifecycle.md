@@ -649,6 +649,22 @@ decision is about, not a domain-priority ranking: a `__Secure-1PSIDTS` scoped to
 `accounts.google.com`, while a host-scoped one on `accounts.google.com` does
 (issue #2057).
 
+**The gate is only reachable because the cookie-load preflight asks the same
+question.** Recovery is invoked from the `except` arm around the loaders'
+required-cookie validation, so whatever that validation accepts, recovery never
+sees. Validating cookie *names* alone made a present-but-unusable
+`__Secure-1PSIDTS` — expired, or scoped so it never routes to
+`accounts.google.com` — satisfy the preflight and skip recovery entirely, which
+left the expiry arm of the gate above largely unreachable through the built-in
+callers. The loaders now run `_validate_routable_entries`: required names, then
+the same RFC 6265 routing predicate the gate uses. The two conditions are
+written against one function so they cannot drift apart silently (issue #2061).
+
+The cost is deliberate: recovery now fires — a `RotateCookies` POST and a disk
+write — in states that previously proceeded to the first RPC and failed there.
+That is the trade. A `__Secure-1PSIDTS` that cannot be sent to the rotate URL is
+not a working session; healing it at load time is the point of the ladder.
+
 The separate "did the heal land?" check (`_psidts_is_live`) is deliberately
 domain-blind instead, because it must predict the retrying preflight rather than
 the request jar. **Do not merge the two predicates.** Their differences are
@@ -667,7 +683,28 @@ working session into a permanent failure loop: `save_cookies_to_storage`
 CAS-matches the *first* stored row for an identity, so a stale same-identity
 twin survives the save, and the heal would report failure on every load while
 the preflight keeps passing. That twin is issue #1523's data shape — #1523 fixed
-the producer, and nothing on the load/save path removes an existing one.
+the producer, and nothing on the load/save path removed an existing one.
+
+**One heal check is routed, and only one.** There are two "did it land?"
+questions, asked by different processes:
+
+- The process that *made* the POST re-reads disk through `_psidts_save_succeeded`
+  → `_is_psidts_persisted` → the domain-blind `_psidts_is_live`. Unchanged, for
+  the reason above.
+- A process that found the flock **held** asks whether the holder's heal makes
+  *its own* load succeed, so it must ask the routed question
+  (`_is_psidts_routed_on_disk`). A domain-blind answer there reports "healed",
+  the caller retries, and the routed preflight rejects the state anyway.
+
+The routed variant is safe only because the save collapses the twin instead of
+leaving it: when `save_cookies_to_storage` receives a `recovery_observation`, an
+observed recovery-target identity is replaced in place and its exact duplicates
+are removed, across leading-dot domain variants. A row the observation saw as
+unusable — empty, non-string, or malformed `expires` — is replaceable; a
+non-empty value that was *not* observed before the POST is still a CAS conflict
+and is left alone. Without that collapse the routed check would reproduce the
+permanent failure loop described above, which is why the two changes have to
+travel together.
 
 Note also that `_psidts_is_live` models `extract_cookies_from_storage`
 specifically; the sibling loader `_build_httpx_cookies_from_storage_strict`

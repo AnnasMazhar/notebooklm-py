@@ -72,6 +72,12 @@ from ._browser_cookie_filter import filter_storage_state_cookies_by_domain_polic
 # (``cli/services/playwright_login.py``) and the launch banner.
 from .browser_launch_errors import CHANNEL_BROWSERS, classify_launch_failure
 
+# The captured-state validation bridge is a leaf (ADR-0008) so this module does
+# not grow a second copy of the rookiepy-shaped recovery contract.
+from .browser_state_validation import (
+    validate_captured_state_with_recovery as _validate_captured_state_with_recovery,
+)
+
 # ``app_host_scope_note`` owns the both-personal-hosts cookie-scope caveat that
 # every "open the app in your browser" instruction needs (it is appended to the
 # binding-related hints in ``cookie_policy.missing_cookies_hint``). It is
@@ -654,6 +660,7 @@ def run_browser_capture(
             filtered_state: dict[str, Any] = filter_storage_state_cookies_by_domain_policy(
                 dict(playwright_state), include_domains=include_domains
             )
+            filtered_state = _validate_captured_state_with_recovery(filtered_state)
             atomic_write_json(storage_path, filtered_state)
             captured_page_html = active_page_html
 
@@ -850,6 +857,7 @@ def run_cdp_capture(
             filtered_state: dict[str, Any] = filter_storage_state_cookies_by_domain_policy(
                 dict(playwright_state), include_domains=include_domains
             )
+            filtered_state = _validate_captured_state_with_recovery(filtered_state)
             atomic_write_json(storage_path, filtered_state)
         except PlaywrightError as exc:
             if TARGET_CLOSED_ERROR in str(exc):

@@ -399,8 +399,15 @@ def load_auth_from_storage(path: Path | None = None) -> dict[str, str]:
     """
     storage_state = _auth_cookies._load_storage_state(path)
     try:
-        return _auth_cookies.extract_cookies_from_storage(storage_state)
-    except ValueError:
+        cookies = _auth_cookies.extract_cookies_from_storage(storage_state)
+        entries = _auth_cookies._sanitized_auth_entries(storage_state)
+        _auth_cookies._validate_routable_entries(
+            entries,
+            to_cookie=_auth_cookies._storage_entry_to_cookie,
+            require_routable=True,
+        )
+        return cookies
+    except _auth_cookies.RequiredCookieValidationError:
         # Inline ``__Secure-1PSIDTS`` recovery (issue #865). Playwright login
         # can land a ``storage_state.json`` that carries SID + secondary
         # binding but lacks PSIDTS, because Google only mints PSIDTS
