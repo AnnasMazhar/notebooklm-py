@@ -239,10 +239,15 @@ print(notebooklm.__version__)
 
    <!-- not mirrored: headless-server bootstrap step 2b (CI secret); not part of contributor flow -->
    ```bash
-   # one-off, on the workstation
+   # one-off, on the workstation: mint the master token, then ship it.
+   # Plain `notebooklm login` (step 1) does NOT create master_token.json.
+   pip install "notebooklm-py[headless]"
+   notebooklm login --master-token   # writes ~/.notebooklm/profiles/default/master_token.json
    gh secret set NOTEBOOKLM_MASTER_TOKEN_JSON < ~/.notebooklm/profiles/default/master_token.json
 
-   # in the job, before anything that authenticates
+   # in the job, before anything that authenticates.
+   # [headless] pulls gpsoauth, without which the mint below cannot run.
+   pip install "notebooklm-py[headless]"
    umask 077
    mkdir -p ~/.notebooklm/profiles/default
    printf '%s' "$NOTEBOOKLM_MASTER_TOKEN_JSON" > ~/.notebooklm/profiles/default/master_token.json

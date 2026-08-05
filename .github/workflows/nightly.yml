@@ -225,9 +225,9 @@ jobs:
     # replaces the old inline-env auth: env-var auth never engages the layer-4
     # master-token re-mint (it only fires when master_token.json sits BESIDE
     # the profile's storage_state.json — src/notebooklm/_auth/session.py), so
-    # a rotated cookie secret used to hard-fail the run. With a file-based
-    # profile plus the optional NOTEBOOKLM_MASTER_TOKEN_JSON secret, expired
-    # cookies are re-minted in-process and the job survives rotation.
+    # a rotated cookie secret used to hard-fail the run. The master token is
+    # now MANDATORY (empty secret or 3 failed mints both exit 1) — it is the
+    # only credential shipped, so there is no snapshot to degrade onto.
     - name: Materialize auth profile
       if: needs.resolve-branch.outputs.is_standard == 'true'
       env:

@@ -344,9 +344,9 @@ async def load_auth(storage_path: Path | None) -> AuthTokens:
     Routes through :meth:`AuthTokens.from_storage` — the same loader the CLI
     and library use — which handles:
 
-    - ``NOTEBOOKLM_AUTH_JSON`` env var (for CI) and the profile storage file
-      (for local dev), via ``storage_path`` resolved by
-      :func:`resolve_storage_path`
+    - the profile storage file (what CI and local dev both use) and the
+      short-lived ``NOTEBOOKLM_AUTH_JSON`` env var, via ``storage_path``
+      resolved by :func:`resolve_storage_path`
     - cookie-domain filtering *and* per-cookie domain preservation
     - authuser / account-email routing and the CSRF + session token fetch
 

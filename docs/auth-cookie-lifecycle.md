@@ -28,10 +28,12 @@ friends) extracted from a real browser sign-in. Two clocks govern their validity
 
 - **`__Secure-1PSIDTS` has a *recommended* rotation cadence of ~600 s**
   (self-reported by Google as `["identity.hfcr",600]` on the `RotateCookies`
-  response). This is a *hint*, not a hard rejection TTL: the prior value keeps
-  authenticating far longer — commonly hours to days on a stable IP / non-Workspace
-  account. Worst-case profiles (datacenter egress, cross-IP, Workspace policy,
-  incomplete extraction) can collapse that to hours or less.
+  response). This is a *hint*, not a hard rejection TTL — but see §2.5: once a
+  newer value has been issued, the **superseded** one is now rejected within
+  roughly half an hour. The "hours to days" figure below applies only while no
+  other client has rotated the session out from under you; a copied snapshot
+  does not qualify. Worst-case profiles (datacenter egress, cross-IP, Workspace
+  policy, incomplete extraction) collapse it further.
 - **`SID` and `__Secure-1PSID`** have very long server-side lifetimes (months to
   years) and effectively don't expire under normal usage.
 - **Cookie set completeness matters more than freshness.** Google rejects cookie
@@ -155,7 +157,9 @@ on a schedule:
    (off-minute schedule avoids fleet collision).
 4. Keeping the source browser running with a Google tab adds resilience, but even
    a closed browser works for hours-to-days while `RotateCookies` keeps
-   succeeding from `SID` alone.
+   succeeding from `SID` alone — provided this is the only client using the
+   session. A second client rotating the same session supersedes your value;
+   see §2.5.
 
 > **Browser support:** `--browser-cookies` accepts any of the ~16 browsers rookiepy
 > reads on the host (`arc`, `brave`, `chrome`, `edge`, `firefox`, `opera`, `safari`,
@@ -408,7 +412,7 @@ Cookie decay clocks by class:
 
 | Cookie | Rotation / expiry signal | Lifecycle |
 |---|---|---|
-| `__Secure-1PSIDTS` / `*-3PSIDTS` | Recommended cadence ~600 s (`["identity.hfcr",600]`); not a hard TTL | Refreshed opportunistically; stale values work for hours-to-days, then drift into sign-in redirects |
+| `__Secure-1PSIDTS` / `*-3PSIDTS` | Recommended cadence ~600 s (`["identity.hfcr",600]`); not a hard TTL | Refreshed opportunistically. An *un-superseded* stale value works for hours-to-days; a **superseded** one dies within ~30 min (§2.5) |
 | `SIDCC` / `__Secure-*SIDCC` | ~5 min sliding window | Ephemeral; generally not load-bearing for auth |
 | `SID`, `HSID`, `SSID`, `APISID`, `SAPISID` (+ `__Secure-` cousins) | Months → ~1 year | Long-lived identity; not rotated by us |
 | `OSID`, `__Secure-OSID` | Per-product session | Re-issued on each sign-in |
