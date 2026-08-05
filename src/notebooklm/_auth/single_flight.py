@@ -242,9 +242,10 @@ def _mirror(task: asyncio.Task[Any], flight: Flight[Any]) -> None:
     Leader-cancellation note (CodeRabbit #3): a follower on a DIFFERENT loop then
     observes that ``CancelledError`` and, via :func:`await_flight`, re-raises it
     as though the follower itself were cancelled — it does NOT fall through to the
-    fresh-leader retry path. This is deliberate and safe: nothing in the codebase
-    calls ``.cancel()`` on a ``_LEADER_TASKS`` member, so a leader task is
-    cancelled ONLY on event-loop / interpreter TEARDOWN. In that terminal
+    fresh-leader retry path. This is deliberate and safe: no PRODUCTION code
+    calls ``.cancel()`` on a ``_LEADER_TASKS`` member (only a coverage test does,
+    to exercise this very path), so a leader task is cancelled ONLY on event-loop
+    / interpreter TEARDOWN. In that terminal
     condition the shared work is genuinely gone; a same-loop follower is being
     torn down too (correctly cancelled), and the rare cross-loop case degrades to
     one aborted attempt that the caller's normal error handling surfaces — never a
