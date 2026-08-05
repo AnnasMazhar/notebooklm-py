@@ -66,6 +66,7 @@ _DOCUMENTED_PUBLIC_IMPORTS = {
     "notebooklm.auth": [
         "AuthTokens",
         "convert_rookiepy_cookies_to_storage_state",
+        "LockUnavailableError",
         "OPTIONAL_COOKIE_DOMAINS",
         "OPTIONAL_COOKIE_DOMAINS_BY_LABEL",
         "REQUIRED_COOKIE_DOMAINS",

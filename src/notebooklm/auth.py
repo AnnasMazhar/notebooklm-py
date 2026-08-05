@@ -59,6 +59,13 @@ from ._auth.master_token import (  # noqa: F401
     write_master_token,
 )
 from ._auth.tokens import AuthTokens
+
+# Public re-export: the fail-closed storage writers (persist_minted_jar /
+# write_account_metadata, reached via this facade) raise LockUnavailableError on
+# a bounded-lock timeout. Canonical home is notebooklm.exceptions; re-exported
+# here so CLI/facade callers can catch it without importing exceptions directly
+# (it is also an OSError via TimeoutError — see ADR-0029).
+from .exceptions import LockUnavailableError  # noqa: F401
 from .paths import get_storage_path  # noqa: F401  # kept as a module-level compat alias
 
 logger = logging.getLogger(__name__)
@@ -152,6 +159,7 @@ __all__ = [
     "get_account_email_for_storage",
     "get_authuser_for_storage",
     "GOOGLE_REGIONAL_CCTLDS",
+    "LockUnavailableError",
     "MasterTokenError",
     "mint_cookies",
     "missing_cookies_hint",

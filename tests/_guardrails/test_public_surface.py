@@ -68,6 +68,7 @@ EXPECTED_AUTH_ALL: list[str] = [
     "get_account_email_for_storage",
     "get_authuser_for_storage",
     "GOOGLE_REGIONAL_CCTLDS",
+    "LockUnavailableError",
     "MasterTokenError",
     "mint_cookies",
     "missing_cookies_hint",
