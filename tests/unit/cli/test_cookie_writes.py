@@ -433,10 +433,14 @@ class TestWriteExtractedCookiesDomainFilter:
         ]
         persisted = self._write(tmp_path, raw)
         names = {c["name"] for c in persisted["cookies"]}
-        domains = {c["domain"] for c in persisted["cookies"]}
         assert "GUC_DOMAIN" in names
         assert "GUC_HOST" in names
-        assert "lh3.googleusercontent.com" in domains
+        # Exact-match the host-scoped domain (not substring membership) so the
+        # trusted-subdomain row is asserted precisely; CodeQL flags
+        # ``"host" in <domain-collection>`` as incomplete URL sanitization.
+        assert any(
+            cookie["domain"] == "lh3.googleusercontent.com" for cookie in persisted["cookies"]
+        )
 
     def test_required_cookie_only_on_filtered_domain_fails_before_write(self, tmp_path):
         """Filtering away a required cookie fails loudly instead of writing.
