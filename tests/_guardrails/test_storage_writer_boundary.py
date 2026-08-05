@@ -96,6 +96,8 @@ _REPLACE_FILE_ATOMICALLY_IMPORTERS: frozenset[str] = frozenset(
     {
         "io.py",  # public re-export of the _atomic_io helpers
         "cli/skill_cmd.py",  # writes skill definition files (not storage_state)
+        "migration.py",  # crash-safe legacy-layout migration (#2085); the sole
+        # guardrail-exempt storage_state writer (moves files via temp+rename).
     }
 )
 
