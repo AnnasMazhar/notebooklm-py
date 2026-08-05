@@ -258,7 +258,7 @@ print(notebooklm.__version__)
 
    > **CI notes:**
    > - The mint **bootstraps** `storage_state.json` when none exists, so the token is the only credential you ship. Layer-4 then covers mid-run expiry.
-   > - `master_token.json` is a **full-account credential** — it mints OAuth for many Google services, does not rotate, and stays valid until you change the password or revoke the device. Keep it in a protected environment, `0600` on disk, and `unset` it from the environment once written (a file is not inherited by child processes; an env var is).
+   > - `master_token.json` is a **full-account credential** — it mints OAuth for many Google services and does not rotate. **It survives a password change**: the only remediation for a leaked token is explicit revocation (Google Account → Security → Your devices → remove the device/session), so do not treat a password reset as containment. Use a dedicated/throwaway account, keep it in a protected environment, `0600` on disk, and `unset` it from the environment once written (a file is not inherited by child processes; an env var is). See the security warning under [master-token auth](#alternative-master-token-auth-no-cookie-file-to-ship-survives-expiry).
    > - Requires the `[headless]` extra (`gpsoauth`) on the runner.
    > - This repo's four secret-bearing workflows all use exactly this shape and ship no cookie snapshot ([development.md](development.md#setting-up-nightly-e2e-tests)).
    > - Inline `NOTEBOOKLM_AUTH_JSON` still works for a single short-lived invocation, but it never engages the layer-4 re-mint and cannot persist a rotation, so it is not suitable for scheduled or long-lived jobs. See [master-token auth](#alternative-master-token-auth-no-cookie-file-to-ship-survives-expiry).
