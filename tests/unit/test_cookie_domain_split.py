@@ -2,10 +2,10 @@
 
 Pins the two-layer contract:
 
-* ``REQUIRED_COOKIE_DOMAINS`` is the default *extraction* set fed to
-  rookiepy. This is the canonical enforcement point: sibling-product
-  cookies (YouTube, etc.) never reach ``storage_state.json`` unless
-  the user opts in via ``--include-domains`` on
+* ``REQUIRED_COOKIE_DOMAINS`` is the default *requested extraction* set fed
+  to rookiepy. The write filter then retains boundary-matched trusted Google
+  roots for compatibility, even when an extractor returns host-scoped
+  subdomain cookies. Distinct roots such as YouTube require opt-in on
   ``notebooklm login`` / ``notebooklm auth refresh`` /
   ``notebooklm auth inspect``.
 * The runtime gate consults the full ``REQUIRED ∪ OPTIONAL`` union so
@@ -82,8 +82,8 @@ class TestNeutralBuilderMatchesCliBuilder:
         neutral_domains = _neutral_build_cookie_domain_allowlist(
             include_optional=include_optional, include_domains=include_domains
         )
-        # Order is not significant for the allowlist; compare as sets.
-        assert set(cli_domains) == set(neutral_domains)
+        assert cli_domains == neutral_domains
+        assert cli_domains == sorted(cli_domains)
 
     @pytest.mark.parametrize(
         "labels",
@@ -103,9 +103,8 @@ class TestWriteTimeFilterParity:
     write. The rookiepy/Firefox writers (``cookie_writes._write_extracted_cookies``
     and ``refresh._login_with_browser_cookies``) must apply the identical
     filter — otherwise the two login paths produce different on-disk state
-    (the sibling-product credential-exposure gap: the Firefox extractor
-    suffix-matches ``.google.com``, so extraction-time narrowing alone does
-    not keep mail/docs/myaccount cookies out of the jar).
+    (Firefox suffix-matches ``.google.com``, so both writers must apply the
+    same compatibility-first trusted-root policy).
     """
 
     def test_rookiepy_writers_bind_the_playwright_filter(self):
@@ -250,7 +249,7 @@ class TestRuntimeGate:
             )
 
     def test_runtime_gate_accepts_google_subdomain_optional_siblings(self):
-        """Docs / myaccount / Mail pass via the .google.com suffix tier."""
+        """Google-root siblings and regional subdomains pass the suffix tier."""
         for domain in (
             "docs.google.com",
             ".docs.google.com",
@@ -258,6 +257,10 @@ class TestRuntimeGate:
             ".myaccount.google.com",
             "mail.google.com",
             ".mail.google.com",
+            "drive.usercontent.google.com",
+            "accounts.google.com.hk",
+            "lh3.google.co.uk",
+            "lh3.googleusercontent.com",
         ):
             assert _is_allowed_cookie_domain(domain) is True
 
@@ -266,6 +269,10 @@ class TestRuntimeGate:
         assert _is_allowed_cookie_domain(".not-youtube.com") is False
         assert _is_allowed_cookie_domain("notyoutube.com") is False
         assert _is_allowed_cookie_domain("evil-google.com") is False
+        assert _is_allowed_cookie_domain("evilgoogle.com") is False
+        assert _is_allowed_cookie_domain("google.com.evil.com") is False
+        assert _is_allowed_cookie_domain("google.uk.co") is False
+        assert _is_allowed_cookie_domain("google.co.uk.evil.com") is False
         assert _is_allowed_cookie_domain(".google.zz") is False
 
 
@@ -727,7 +734,8 @@ class TestLoginCliFlag:
             )
 
         assert result.exit_code == 0, result.output
-        assert "sibling-product cookies not included" in result.output
+        assert "sibling-product domains are not explicitly requested" in result.output
+        assert "trusted Google roots may still be retained" in result.output
 
     def test_login_with_include_domains_suppresses_migration_note(self, monkeypatch):
         """The migration note is suppressed once the user opts in."""
@@ -747,7 +755,7 @@ class TestLoginCliFlag:
             )
 
         assert result.exit_code == 0, result.output
-        assert "sibling-product cookies not included" not in result.output
+        assert "sibling-product domains are not explicitly requested" not in result.output
 
     def test_login_include_domains_on_playwright_path_no_longer_warns(self, monkeypatch, tmp_path):
         """``--include-domains`` now applies on the Playwright path (P1-17).

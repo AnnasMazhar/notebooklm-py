@@ -396,6 +396,7 @@ def _sibling_heavy_jar() -> list[dict]:
         _rookiepy_cookie("mail.google.com", "MAIL_OSID"),
         _rookiepy_cookie("docs.google.com", "DOCS_OSID"),
         _rookiepy_cookie("myaccount.google.com", "ACCOUNT_OSID"),
+        _rookiepy_cookie(".youtube.com", "YOUTUBE_SID"),
     ]
 
 
@@ -421,26 +422,25 @@ def _login_and_read_storage(tmp_path, jar: list[dict] | None = None, **login_kwa
     return json.loads(storage_path.read_text())
 
 
-def test_login_with_cookies_drops_sibling_product_cookies(tmp_path) -> None:
-    """Default login: mail/docs/myaccount cookies never reach disk.
-
-    Regression test for the rookiepy write-path credential-exposure gap:
-    the runtime converter suffix-accepts ``*.google.com``, so without the
-    write-time filter these sibling-product session cookies were persisted
-    with no ``--include-domains`` opt-in — unlike the Playwright path.
-    """
+def test_login_with_cookies_keeps_google_subdomains_but_drops_youtube(tmp_path) -> None:
+    """Default login uses trusted-root suffix matching for compatibility."""
     persisted = _login_and_read_storage(tmp_path)
     names = {c["name"] for c in persisted["cookies"]}
-    assert {"SID", "__Secure-1PSIDTS"} <= names
-    assert names.isdisjoint({"MAIL_OSID", "DOCS_OSID", "ACCOUNT_OSID"})
+    assert {
+        "SID",
+        "__Secure-1PSIDTS",
+        "MAIL_OSID",
+        "DOCS_OSID",
+        "ACCOUNT_OSID",
+    } <= names
+    assert "YOUTUBE_SID" not in names
 
 
-def test_login_with_cookies_opt_in_persists_opted_domains(tmp_path) -> None:
-    """``--include-domains=mail`` keeps Mail cookies but not docs/myaccount."""
-    persisted = _login_and_read_storage(tmp_path, include_domains={"mail"})
+def test_login_with_cookies_opt_in_persists_youtube(tmp_path) -> None:
+    """``--include-domains=youtube`` adds the distinct YouTube root."""
+    persisted = _login_and_read_storage(tmp_path, include_domains={"youtube"})
     names = {c["name"] for c in persisted["cookies"]}
-    assert {"SID", "__Secure-1PSIDTS", "MAIL_OSID"} <= names
-    assert names.isdisjoint({"DOCS_OSID", "ACCOUNT_OSID"})
+    assert {"SID", "__Secure-1PSIDTS", "YOUTUBE_SID"} <= names
 
 
 def test_login_with_cookies_functional_domains_survive(tmp_path) -> None:
@@ -449,36 +449,43 @@ def test_login_with_cookies_functional_domains_survive(tmp_path) -> None:
     ``drive.google.com`` (both dotted variants) and
     ``.googleusercontent.com`` are in ``REQUIRED_COOKIE_DOMAINS`` (Drive
     ingest redirects, artifact media downloads), so a default browser-cookie
-    login must persist them unchanged. Host-scoped googleusercontent
-    subdomain rows are dropped — exact parity with the Playwright capture
-    arms, which never persisted them either.
+    login must persist them unchanged. Compatibility suffix matching also
+    keeps the actual Drive download host and host-scoped media domains.
     """
     jar = [
         _rookiepy_cookie(".google.com", "SID"),
         _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
         _rookiepy_cookie("drive.google.com", "DRIVE_HOST"),
         _rookiepy_cookie(".drive.google.com", "DRIVE_DOT"),
+        _rookiepy_cookie("drive.usercontent.google.com", "DRIVE_DOWNLOAD"),
         _rookiepy_cookie(".googleusercontent.com", "GUC_DOMAIN"),
         _rookiepy_cookie("lh3.googleusercontent.com", "GUC_HOST"),
     ]
     persisted = _login_and_read_storage(tmp_path, jar=jar)
     names = {c["name"] for c in persisted["cookies"]}
-    assert {"SID", "__Secure-1PSIDTS", "DRIVE_HOST", "DRIVE_DOT", "GUC_DOMAIN"} <= names
-    assert "GUC_HOST" not in names
+    assert {
+        "SID",
+        "__Secure-1PSIDTS",
+        "DRIVE_HOST",
+        "DRIVE_DOT",
+        "DRIVE_DOWNLOAD",
+        "GUC_DOMAIN",
+        "GUC_HOST",
+    } <= names
 
 
 def test_login_with_cookies_required_only_on_sibling_domain_exits(tmp_path, capsys) -> None:
     """Filtering away a required cookie exits 1 instead of writing.
 
-    The converter suffix-accepts ``*.google.com``, so a jar whose only
-    ``SID`` sits on ``mail.google.com`` passes ``validate_with_recovery``;
+    The converter accepts opted-in runtime domains, so a jar whose only
+    ``SID`` sits on ``youtube.com`` passes ``validate_with_recovery``;
     the write-time filter then drops that row. The post-filter Tier-1
     recheck must exit 1 (writing nothing) rather than persisting unusable
     auth with a success exit.
     """
     storage_path = tmp_path / "storage_state.json"
     jar = [
-        _rookiepy_cookie("mail.google.com", "SID"),
+        _rookiepy_cookie(".youtube.com", "SID"),
         _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
     ]
     deps = _deps(
