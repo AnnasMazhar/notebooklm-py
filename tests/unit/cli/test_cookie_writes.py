@@ -312,33 +312,22 @@ def _sibling_heavy_jar() -> list[dict]:
         _rookiepy_cookie(".google.com", "HSID"),
         _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
         _rookiepy_cookie("notebooklm.google.com", "OSID"),
-        # Sibling-product cookies — must NOT be persisted without opt-in.
+        # Google-hosted siblings are retained by the compatibility-first
+        # trusted-root policy; YouTube remains an explicit opt-in.
         _rookiepy_cookie("mail.google.com", "MAIL_OSID"),
         _rookiepy_cookie(".mail.google.com", "COMPASS"),
         _rookiepy_cookie("docs.google.com", "DOCS_OSID"),
         _rookiepy_cookie("myaccount.google.com", "ACCOUNT_OSID"),
+        _rookiepy_cookie(".youtube.com", "YOUTUBE_SID"),
     ]
 
 
-SIBLING_DOMAINS = {
-    "mail.google.com",
-    ".mail.google.com",
-    "docs.google.com",
-    ".docs.google.com",
-    "myaccount.google.com",
-    ".myaccount.google.com",
-}
-
-
 class TestWriteExtractedCookiesDomainFilter:
-    """Write-time cookie-domain filtering (parity with the Playwright path).
+    """Write-time filtering parity with the Playwright path.
 
-    The runtime converter (``convert_rookiepy_cookies_to_storage_state``) is
-    deliberately permissive over the REQUIRED ∪ OPTIONAL union and
-    suffix-accepts ``*.google.com``, so sibling-product cookies survive
-    validation-with-recovery. The writer must drop them AFTER validation but
-    BEFORE the atomic write, honoring ``--include-domains`` opt-ins — the
-    same allowlist filter the Playwright capture path applies.
+    Trusted Google roots use compatibility-first suffix matching so unknown
+    functional hosts survive. Unrelated domains and non-Google optional
+    products remain excluded unless explicitly requested.
     """
 
     def _write(self, tmp_path, raw, **kwargs):
@@ -361,41 +350,46 @@ class TestWriteExtractedCookiesDomainFilter:
         assert out is None
         return json.loads(storage_path.read_text())
 
-    def test_default_drops_sibling_product_cookies(self, tmp_path):
-        """No ``--include-domains``: mail/docs/myaccount never reach disk."""
+    def test_default_keeps_google_subdomains_but_drops_youtube(self, tmp_path):
+        """Google-hosted siblings survive; the distinct YouTube root does not."""
         persisted = self._write(tmp_path, _sibling_heavy_jar())
         names = {c["name"] for c in persisted["cookies"]}
-        domains = {c["domain"] for c in persisted["cookies"]}
-        # Required auth cookies survive untouched.
-        assert {"SID", "HSID", "__Secure-1PSIDTS", "OSID"} <= names
-        # Sibling-product cookies are gone.
-        assert domains.isdisjoint(SIBLING_DOMAINS)
-        assert names.isdisjoint({"MAIL_OSID", "COMPASS", "DOCS_OSID", "ACCOUNT_OSID"})
+        assert {
+            "SID",
+            "HSID",
+            "__Secure-1PSIDTS",
+            "OSID",
+            "MAIL_OSID",
+            "COMPASS",
+            "DOCS_OSID",
+            "ACCOUNT_OSID",
+        } <= names
+        assert "YOUTUBE_SID" not in names
 
-    def test_opt_in_label_persists_opted_domains_only(self, tmp_path):
-        """``--include-domains=mail`` keeps Mail cookies but not docs/myaccount."""
-        persisted = self._write(tmp_path, _sibling_heavy_jar(), include_domains={"mail"})
+    def test_opt_in_label_persists_youtube(self, tmp_path):
+        """``--include-domains=youtube`` adds the distinct YouTube root."""
+        persisted = self._write(tmp_path, _sibling_heavy_jar(), include_domains={"youtube"})
         names = {c["name"] for c in persisted["cookies"]}
-        assert {"SID", "__Secure-1PSIDTS", "MAIL_OSID", "COMPASS"} <= names
-        assert names.isdisjoint({"DOCS_OSID", "ACCOUNT_OSID"})
+        assert {"SID", "__Secure-1PSIDTS", "YOUTUBE_SID"} <= names
 
     def test_opt_in_all_persists_every_sibling(self, tmp_path):
         """``--include-domains=all`` keeps every optional-label cookie."""
         persisted = self._write(tmp_path, _sibling_heavy_jar(), include_domains={"all"})
         names = {c["name"] for c in persisted["cookies"]}
-        assert {"MAIL_OSID", "COMPASS", "DOCS_OSID", "ACCOUNT_OSID"} <= names
+        assert {"MAIL_OSID", "COMPASS", "DOCS_OSID", "ACCOUNT_OSID", "YOUTUBE_SID"} <= names
 
     def test_regional_cctld_cookies_survive(self, tmp_path):
         """Regional ``.google.<ccTLD>`` variants pass the write-time filter."""
         raw = [
             _rookiepy_cookie(".google.com", "SID"),
             _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
-            _rookiepy_cookie(".google.co.uk", "REG_UK"),
+            _rookiepy_cookie("accounts.google.co.uk", "REG_UK"),
+            _rookiepy_cookie("accounts.google.com.hk", "REG_HK"),
             _rookiepy_cookie(".google.de", "REG_DE"),
         ]
         persisted = self._write(tmp_path, raw)
         names = {c["name"] for c in persisted["cookies"]}
-        assert {"SID", "__Secure-1PSIDTS", "REG_UK", "REG_DE"} <= names
+        assert {"SID", "__Secure-1PSIDTS", "REG_UK", "REG_HK", "REG_DE"} <= names
 
     def test_functional_drive_and_download_domains_survive(self, tmp_path):
         """Drive-ingest and media-download domains pass the write-time filter.
@@ -413,24 +407,24 @@ class TestWriteExtractedCookiesDomainFilter:
             _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
             _rookiepy_cookie("drive.google.com", "DRIVE_HOST"),
             _rookiepy_cookie(".drive.google.com", "DRIVE_DOT"),
+            _rookiepy_cookie("drive.usercontent.google.com", "DRIVE_DOWNLOAD"),
             _rookiepy_cookie(".googleusercontent.com", "GUC_DOMAIN"),
+            _rookiepy_cookie("lh3.googleusercontent.com", "GUC_HOST"),
         ]
         persisted = self._write(tmp_path, raw)
         names = {c["name"] for c in persisted["cookies"]}
-        assert {"SID", "__Secure-1PSIDTS", "DRIVE_HOST", "DRIVE_DOT", "GUC_DOMAIN"} <= names
+        assert {
+            "SID",
+            "__Secure-1PSIDTS",
+            "DRIVE_HOST",
+            "DRIVE_DOT",
+            "DRIVE_DOWNLOAD",
+            "GUC_DOMAIN",
+            "GUC_HOST",
+        } <= names
 
-    def test_host_scoped_googleusercontent_subdomain_dropped_for_parity(self, tmp_path):
-        """Host-scoped ``lh3.googleusercontent.com`` rows are dropped — Playwright parity.
-
-        The write-time filter is exact-match against the allowlist
-        (dot/no-dot equivalent), identical to the Playwright capture arms,
-        which have never persisted host-scoped googleusercontent subdomain
-        rows. Domain-wide ``.googleusercontent.com`` cookies DO survive
-        (previous test) and RFC 6265 sends them to every
-        ``*.googleusercontent.com`` host at download time; the runtime gate
-        additionally stays suffix-permissive for cookies acquired in the
-        live session. This documents the deliberate parity-drop.
-        """
+    def test_host_scoped_googleusercontent_subdomain_survives(self, tmp_path):
+        """Host-scoped Googleusercontent rows follow the trusted-root policy."""
         raw = [
             _rookiepy_cookie(".google.com", "SID"),
             _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
@@ -439,16 +433,20 @@ class TestWriteExtractedCookiesDomainFilter:
         ]
         persisted = self._write(tmp_path, raw)
         names = {c["name"] for c in persisted["cookies"]}
-        domains = {c["domain"] for c in persisted["cookies"]}
         assert "GUC_DOMAIN" in names
-        assert "GUC_HOST" not in names
-        assert "lh3.googleusercontent.com" not in domains
+        assert "GUC_HOST" in names
+        # Exact-match the host-scoped domain (not substring membership) so the
+        # trusted-subdomain row is asserted precisely; CodeQL flags
+        # ``"host" in <domain-collection>`` as incomplete URL sanitization.
+        assert any(
+            cookie["domain"] == "lh3.googleusercontent.com" for cookie in persisted["cookies"]
+        )
 
     def test_required_cookie_only_on_filtered_domain_fails_before_write(self, tmp_path):
         """Filtering away a required cookie fails loudly instead of writing.
 
-        The converter suffix-accepts ``*.google.com``, so a jar whose only
-        ``SID`` sits on ``mail.google.com`` passes ``validate_with_recovery``;
+        The converter accepts opted-in runtime domains, so a jar whose only
+        ``SID`` sits on ``youtube.com`` passes ``validate_with_recovery``;
         the write-time filter then drops that row. The post-filter Tier-1
         recheck must return a validation failure (and write nothing) rather
         than persisting unusable auth with a success exit.
@@ -456,7 +454,7 @@ class TestWriteExtractedCookiesDomainFilter:
         storage_path = tmp_path / "storage_state.json"
         io = make_recording_io(run_async=MagicMock())
         raw = [
-            _rookiepy_cookie("mail.google.com", "SID"),
+            _rookiepy_cookie(".youtube.com", "SID"),
             _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
         ]
         with (
