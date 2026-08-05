@@ -763,3 +763,45 @@ async def test_auth_check_passive_continues_but_keeps_local_route_failure(
     assert result.checks["cookies_present"] is False
     assert result.details["error"]
     passive.assert_awaited_once_with(path, "default")
+
+
+def test_recovery_replacement_preserves_a_stored_same_site(tmp_path: Path) -> None:
+    """A rotation refreshes a cookie's value — it must not erase its SameSite.
+
+    ``_cookie_to_storage_state`` can only emit ``"None"`` because
+    ``http.cookiejar.Cookie`` carries no SameSite attribute, so the recovery
+    replacement path has to preserve the stored attribute the same way the two
+    ordinary merge paths do. Without this the very rows recovery heals are the
+    ones whose ``Lax``/``Strict`` gets downgraded (#2082 review).
+    """
+    path = tmp_path / "storage_state.json"
+    state = _required_state({"expires": 1, "sameSite": "Lax"})
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+    jar = httpx.Cookies()
+    for row in [
+        {"name": "SID", "value": "sid", "domain": ".google.com", "path": "/"},
+        {
+            "name": "__Secure-1PSIDTS",
+            "value": "fresh",
+            "domain": ".google.com",
+            "path": "/",
+            "expires": time.time() + 3600,
+        },
+    ]:
+        jar.jar.set_cookie(cookies._storage_entry_to_cookie(row))
+
+    assert storage.save_cookies_to_storage(
+        jar,
+        path,
+        original_snapshot={},
+        recovery_observation={
+            storage.CookieSnapshotKey("__Secure-1PSIDTS", ".google.com", "/"): frozenset({"psidts"})
+        },
+    )
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    target = [row for row in saved["cookies"] if row["name"] == "__Secure-1PSIDTS"]
+    assert len(target) == 1
+    assert target[0]["value"] == "fresh"
+    assert target[0]["sameSite"] == "Lax"

@@ -626,7 +626,18 @@ def _merge_recovery_target_rows(
 
         if replaceable:
             winner = replaceable[0]
-            replacements[winner] = fresh_state
+            # Same ``sameSite`` preservation the ordinary merges apply: only the
+            # cookie's *value* and expiry are being refreshed by the rotation,
+            # and ``fresh_state`` can only carry the ``"None"`` default, so
+            # taking it wholesale would downgrade a captured ``Lax``/``Strict``
+            # on the one path recovery owns.
+            stored_winner = storage_cookies[winner]
+            replacements[winner] = {
+                **fresh_state,
+                "sameSite": _preserved_same_site(
+                    stored_winner if isinstance(stored_winner, dict) else {}, fresh_state
+                ),
+            }
             removals.update(replaceable[1:])
             updated_count += 1 + len(replaceable[1:])
             handled.add(delta_key)
