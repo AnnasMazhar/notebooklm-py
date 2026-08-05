@@ -39,6 +39,17 @@ from pathlib import Path
 
 NOTEBOOKLM_REFRESH_CMD_ENV = "NOTEBOOKLM_REFRESH_CMD"
 NOTEBOOKLM_REFRESH_CMD_USE_SHELL_ENV = "NOTEBOOKLM_REFRESH_CMD_USE_SHELL"
+# Opt-in gate (default OFF for one release) promoting the refresh-cmd rung
+# (L2.5) into the MID-SESSION recovery ladder, not just cold start
+# (audit refresh-4). Flips to default-on a later release. See
+# ``notebooklm._auth.refresh.try_refresh_cmd_reauth``.
+NOTEBOOKLM_REFRESH_CMD_MIDSESSION_ENV = "NOTEBOOKLM_REFRESH_CMD_MIDSESSION"
+# Opt-in gate (default OFF) that additionally routes the refresh command's
+# captured stdout/stderr to the redacting DEBUG logger. OFF by default because
+# the promotion of the rung into long-lived servers widens the exposure of
+# whatever the command prints (audit refresh-8); the default DEBUG line carries
+# only basename + exit code + byte counts.
+NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT_ENV = "NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT"
 _REFRESH_ATTEMPTED_ENV = "_NOTEBOOKLM_REFRESH_ATTEMPTED"
 
 NOTEBOOKLM_DISABLE_KEEPALIVE_POKE_ENV = "NOTEBOOKLM_DISABLE_KEEPALIVE_POKE"
