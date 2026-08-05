@@ -75,7 +75,33 @@ _resolve_token_route_kwargs = _auth_headers._resolve_token_route_kwargs
 # reference them without an extra hop.
 NOTEBOOKLM_REFRESH_CMD_ENV = _auth_paths.NOTEBOOKLM_REFRESH_CMD_ENV
 NOTEBOOKLM_REFRESH_CMD_USE_SHELL_ENV = _auth_paths.NOTEBOOKLM_REFRESH_CMD_USE_SHELL_ENV
+NOTEBOOKLM_REFRESH_CMD_MIDSESSION_ENV = _auth_paths.NOTEBOOKLM_REFRESH_CMD_MIDSESSION_ENV
+NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT_ENV = _auth_paths.NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT_ENV
 _REFRESH_ATTEMPTED_ENV = _auth_paths._REFRESH_ATTEMPTED_ENV
+
+# First-party secret / credential-equivalent env vars scrubbed from the refresh
+# command's subprocess environment before spawn (audit refresh-6). The refresh
+# command inherits the parent env so it can find PATH/HOME/proxy config and
+# re-invoke this library, but MUST NOT inherit our own credential material:
+#   * NOTEBOOKLM_AUTH_JSON        — inline Playwright storage_state (the child
+#                                   gets the on-disk path instead; #1274).
+#   * NOTEBOOKLM_SERVER_TOKEN     — REST server bearer token.
+#   * NOTEBOOKLM_SERVER_TOKEN_FILE — path to the REST server bearer token file.
+#   * NOTEBOOKLM_MCP_TOKEN        — MCP server bearer token.
+#   * NOTEBOOKLM_MCP_OAUTH_PASSWORD — MCP OAuth static password.
+# These matter especially once the rung fires MID-SESSION in a long-lived
+# server (the server's own auth secret would otherwise leak into every refresh
+# subprocess and its grandchildren, visible via ``/proc/<pid>/environ``).
+_REFRESH_CMD_SCRUBBED_SECRET_ENV = (
+    "NOTEBOOKLM_AUTH_JSON",
+    "NOTEBOOKLM_SERVER_TOKEN",
+    "NOTEBOOKLM_SERVER_TOKEN_FILE",
+    "NOTEBOOKLM_MCP_TOKEN",
+    "NOTEBOOKLM_MCP_OAUTH_PASSWORD",
+    # Pointer to the 0600 file holding issued OAuth tokens + the client
+    # registry — same secret-file-pointer class as SERVER_TOKEN_FILE above.
+    "NOTEBOOKLM_MCP_OAUTH_STATE_PATH",
+)
 
 # ``_poke_session`` lives in ``_auth.keepalive``; aliased here as a local bare
 # name because refresh bodies call it directly. Tests that need to substitute it
@@ -230,6 +256,86 @@ async def _coalesced_run_refresh_cmd(
             return
 
 
+def _midsession_refresh_cmd_enabled() -> bool:
+    """True iff the L2.5 refresh-cmd rung may fire in the MID-SESSION ladder.
+
+    Gated on BOTH the refresh command being configured (``NOTEBOOKLM_REFRESH_CMD``)
+    AND the one-release opt-in ``NOTEBOOKLM_REFRESH_CMD_MIDSESSION=1`` (audit
+    refresh-4). The opt-in defaults OFF for one release to de-risk operators
+    whose commands assume cold-start-only invocation; a later release flips it
+    default-on. The same recursion guards as the cold path
+    (:func:`_should_try_refresh`) apply so a refresh command that re-invokes
+    this library cannot spawn a nested refresh subprocess.
+    """
+    if _REFRESH_ATTEMPTED_CONTEXT.get() or os.environ.get(_REFRESH_ATTEMPTED_ENV) == "1":
+        return False
+    if not os.environ.get(NOTEBOOKLM_REFRESH_CMD_ENV):
+        return False
+    return os.environ.get(NOTEBOOKLM_REFRESH_CMD_MIDSESSION_ENV) == "1"
+
+
+async def try_refresh_cmd_reauth(
+    *,
+    storage_path: Path | None,
+    cookie_jar: httpx.Cookies,
+    profile: str | None = None,
+) -> bool:
+    """L2.5 mid-session rung: run ``NOTEBOOKLM_REFRESH_CMD`` and reload cookies.
+
+    Client-neutral adapter mirroring :func:`notebooklm._auth.recovery.try_headless_reauth`
+    / :func:`~notebooklm._auth.recovery.try_master_token_reauth` so the
+    mid-session ladder (``_auth/session.py:refresh_auth_session``) can slot the
+    refresh-cmd rung between L2 (RotateCookies) and L3 (headless re-mint). It
+    REUSES the same cold-start machinery — the ``single_flight``-coalesced
+    :func:`_coalesced_run_refresh_cmd` and the per-path refresh flock
+    ([refresh-2]) — rather than forking a second implementation, and honours the
+    same env contract (command string, ``NOTEBOOKLM_REFRESH_CMD_USE_SHELL``
+    opt-in, timeout, secret-scrub).
+
+    Opt-in for one release via ``NOTEBOOKLM_REFRESH_CMD_MIDSESSION=1`` (default
+    OFF — see :func:`_midsession_refresh_cmd_enabled`).
+
+    Returns ``True`` when the command ran (or a concurrent flight refreshed the
+    storage) and fresh cookies were reloaded into ``cookie_jar`` — the caller
+    retries the homepage GET once. Returns ``False`` when the rung is
+    unavailable (no opt-in / no command / no storage file) or the command
+    failed; the caller's original dead-cookie error then stands, exactly as when
+    the rung is off (byte-identical default behaviour).
+    """
+    if storage_path is None:
+        return False
+    if not _midsession_refresh_cmd_enabled():
+        return False
+    canonical_path = canonical_storage_key(storage_path)
+    assert canonical_path is not None  # narrowed non-None above
+    refresh_key = str(canonical_path)
+    # In-process recursion guard, same discipline as the cold path: prevents a
+    # retried GET (which could re-enter this rung) from spawning a second
+    # subprocess within the same task/context.
+    refresh_token = _REFRESH_ATTEMPTED_CONTEXT.set(True)
+    try:
+        # Coalesced across loops + serialized across processes by the flock.
+        await _coalesced_run_refresh_cmd(refresh_key, canonical_path, profile)
+        fresh_jar = await asyncio.to_thread(build_httpx_cookies_from_storage, canonical_path)
+    except asyncio.CancelledError:
+        raise
+    except (RuntimeError, OSError, ValueError) as exc:
+        logger.warning(
+            "Mid-session %s rung failed (%s); authentication error stands.",
+            NOTEBOOKLM_REFRESH_CMD_ENV,
+            type(exc).__name__,
+        )
+        return False
+    finally:
+        _REFRESH_ATTEMPTED_CONTEXT.reset(refresh_token)
+    _replace_cookie_jar(cookie_jar, fresh_jar)
+    logger.info(
+        "Mid-session %s rung succeeded; reloaded refreshed cookies for retry.",
+        NOTEBOOKLM_REFRESH_CMD_ENV,
+    )
+    return True
+
+
 _AUTH_ERROR_SIGNALS = (
     "authentication expired",
     "redirected to",
@@ -304,28 +410,39 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
     Environment forwarding:
         The refresh command inherits the **full parent environment** (so it
         can find ``PATH``, ``HOME``, proxy settings, and any custom config the
-        operator relies on), with three deliberate adjustments:
+        operator relies on), with these deliberate adjustments:
 
-        * ``NOTEBOOKLM_AUTH_JSON`` is **scrubbed** — it carries a
-          credential-equivalent storage_state payload the child never needs
-          (the child gets the on-disk storage path via
-          ``NOTEBOOKLM_REFRESH_STORAGE_PATH`` instead). It is the only
-          first-party storage_state credential payload we forward, so it is the
-          one var we can scrub without risking the refresh contract.
+        * A fixed set of **first-party secret / credential-equivalent** env
+          vars is **scrubbed** (see :data:`_REFRESH_CMD_SCRUBBED_SECRET_ENV`):
+          ``NOTEBOOKLM_AUTH_JSON`` (inline storage_state — the child gets the
+          on-disk path via ``NOTEBOOKLM_REFRESH_STORAGE_PATH`` instead),
+          ``NOTEBOOKLM_SERVER_TOKEN`` / ``NOTEBOOKLM_SERVER_TOKEN_FILE`` (REST
+          server bearer token), ``NOTEBOOKLM_MCP_TOKEN`` and
+          ``NOTEBOOKLM_MCP_OAUTH_PASSWORD`` (MCP server auth). None of these is
+          needed by a refresh command, and none should leak down the process
+          tree.
         * ``_NOTEBOOKLM_REFRESH_ATTEMPTED`` is injected as the recursion guard.
         * ``NOTEBOOKLM_REFRESH_PROFILE`` / ``NOTEBOOKLM_REFRESH_STORAGE_PATH``
           are injected so the command refreshes the right profile in place.
 
-        SECURITY: only ``NOTEBOOKLM_AUTH_JSON`` is scrubbed. We deliberately do
-        **not** impose an allowlist, because a refresh command commonly
-        re-invokes this library and legitimately needs much of the inherited
-        env. As a consequence, **any other secret in the launching shell**
-        (e.g. ``GOOGLE_*`` tokens, CI secrets, API keys — and any token the
-        operator embeds in ``NOTEBOOKLM_REFRESH_CMD`` itself) is inherited by
-        the refresh command and every grandchild it spawns, and is visible via
-        ``/proc/<pid>/environ`` to the same UID. Operators MUST NOT keep
-        unrelated secrets in the environment that launches the refresh command;
-        scope secrets to the processes that need them.
+        SECURITY: only the first-party secrets above are scrubbed. We
+        deliberately do **not** impose a hard allowlist, because a refresh
+        command commonly re-invokes this library and legitimately needs much of
+        the inherited env. As a consequence, **any other secret in the
+        launching shell** (e.g. ``GOOGLE_*`` tokens, CI secrets, API keys — and
+        any token the operator embeds in ``NOTEBOOKLM_REFRESH_CMD`` itself) is
+        inherited by the refresh command and every grandchild it spawns, and is
+        visible via ``/proc/<pid>/environ`` to the same UID. Operators MUST NOT
+        keep unrelated secrets in the environment that launches the refresh
+        command; scope secrets to the processes that need them.
+
+        SERVER CONTEXT: this function can now fire MID-SESSION inside a
+        long-lived REST/MCP server (the L2.5 rung — see
+        :func:`try_refresh_cmd_reauth`). Scrubbing the server's own auth
+        secrets (``NOTEBOOKLM_SERVER_TOKEN`` etc.) closes the path by which a
+        mid-session refresh would otherwise hand the server's credential to an
+        operator-supplied subprocess. The redaction of captured stdout/stderr
+        (below) likewise limits what a mid-session refresh writes to logs.
 
     Raises:
         RuntimeError: If the refresh command is missing, parses to an empty
@@ -340,19 +457,23 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
     # forwarding" section of this function's docstring for the SECURITY note
     # on why a hard allowlist is deliberately avoided (issue #1274).
     refresh_env = os.environ.copy()
-    # ``NOTEBOOKLM_AUTH_JSON`` carries the full Playwright storage_state — a
-    # credential-equivalent payload. Forwarding it via ``os.environ.copy()``
-    # into the refresh subprocess would inherit it down the tree (visible via
-    # ``/proc/<pid>/environ`` to the same UID) and into any grandchild the
-    # refresh command spawns. The refresh command already receives the
-    # canonical on-disk storage path via ``NOTEBOOKLM_REFRESH_STORAGE_PATH``
-    # (set just below), so the in-env JSON is not needed by the child. It is the
-    # only first-party storage_state credential payload we forward (audited
-    # #1274); the rest (PROFILE/HOME/BASE_URL/...) are config the child may
-    # legitimately consume when it re-invokes this library, so they stay. Any
-    # token an operator embeds in ``NOTEBOOKLM_REFRESH_CMD`` is intentionally
-    # inherited — see this function's docstring SECURITY note.
-    refresh_env.pop("NOTEBOOKLM_AUTH_JSON", None)
+    # Scrub the first-party secret / credential-equivalent env vars before
+    # spawn (audit refresh-6). ``NOTEBOOKLM_AUTH_JSON`` carries the full
+    # Playwright storage_state; ``NOTEBOOKLM_SERVER_TOKEN`` /
+    # ``NOTEBOOKLM_SERVER_TOKEN_FILE`` / ``NOTEBOOKLM_MCP_TOKEN`` /
+    # ``NOTEBOOKLM_MCP_OAUTH_PASSWORD`` are our own server auth secrets.
+    # Forwarding any of them via ``os.environ.copy()`` would inherit them down
+    # the tree (visible via ``/proc/<pid>/environ`` to the same UID) and into
+    # any grandchild the refresh command spawns — a real exposure now that this
+    # rung can fire mid-session inside a long-lived server. None is needed by
+    # the child: it receives the canonical on-disk storage path via
+    # ``NOTEBOOKLM_REFRESH_STORAGE_PATH`` (set just below). The rest
+    # (PROFILE/HOME/BASE_URL/...) are config the child may legitimately consume
+    # when it re-invokes this library, so they stay. Any token an operator
+    # embeds in ``NOTEBOOKLM_REFRESH_CMD`` is intentionally inherited — see this
+    # function's docstring SECURITY note.
+    for _secret_var in _REFRESH_CMD_SCRUBBED_SECRET_ENV:
+        refresh_env.pop(_secret_var, None)
     refresh_env[_REFRESH_ATTEMPTED_ENV] = "1"
     refresh_env["NOTEBOOKLM_REFRESH_PROFILE"] = resolve_profile(profile)
     refresh_env["NOTEBOOKLM_REFRESH_STORAGE_PATH"] = str(
@@ -422,13 +543,36 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
             executable_basename = os.path.basename(run_target.split()[0])
         else:
             executable_basename = "shell"
+        # Default DEBUG line is metadata-only (audit refresh-8): basename +
+        # exit code + byte counts, never the raw captured output. A refresh
+        # command commonly prints bearer tokens / cookies / credentials-dir
+        # paths, and the redaction filter only collapses KNOWN credential
+        # shapes — so dumping raw ``%r`` here would surface anything the filter
+        # doesn't recognise. This matters more now the rung can fire
+        # mid-session in a long-lived server whose DEBUG log is retained.
+        stdout_bytes = len((result.stdout or "").encode("utf-8", "replace"))
+        stderr_bytes = len((result.stderr or "").encode("utf-8", "replace"))
         logger.debug(
-            "%s exited %d. stdout=%r stderr=%r",
+            "%s exited %d (executable=%s, stdout=%d bytes, stderr=%d bytes)",
             NOTEBOOKLM_REFRESH_CMD_ENV,
             result.returncode,
-            result.stdout,
-            result.stderr,
+            executable_basename,
+            stdout_bytes,
+            stderr_bytes,
         )
+        # Full captured output is available ONLY behind an explicit opt-in env
+        # (``NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT=1``). It still flows through the
+        # package's redacting DEBUG logger (credential SHAPES collapse to
+        # ``***``); the opt-in exists for local diagnosis and defaults OFF so a
+        # server operator does not passively accumulate command output in logs.
+        if os.environ.get(NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT_ENV) == "1":
+            logger.debug(
+                "%s captured output (%s=1): stdout=%r stderr=%r",
+                NOTEBOOKLM_REFRESH_CMD_ENV,
+                NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT_ENV,
+                result.stdout,
+                result.stderr,
+            )
         raise RuntimeError(
             f"{NOTEBOOKLM_REFRESH_CMD_ENV} exited {result.returncode} "
             f"(executable: {executable_basename}). "

@@ -257,6 +257,10 @@ load_auth_from_storage = _auth_tokens.load_auth_from_storage
 # ``notebooklm.auth``.
 NOTEBOOKLM_REFRESH_CMD_ENV = _auth_paths.NOTEBOOKLM_REFRESH_CMD_ENV
 NOTEBOOKLM_REFRESH_CMD_USE_SHELL_ENV = _auth_paths.NOTEBOOKLM_REFRESH_CMD_USE_SHELL_ENV
+# Mid-session refresh-cmd rung opt-in + captured-output opt-in (c-PR4). Kept
+# importable via the facade like the other refresh env-var names.
+NOTEBOOKLM_REFRESH_CMD_MIDSESSION_ENV = _auth_paths.NOTEBOOKLM_REFRESH_CMD_MIDSESSION_ENV
+NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT_ENV = _auth_paths.NOTEBOOKLM_REFRESH_CMD_LOG_OUTPUT_ENV
 _REFRESH_ATTEMPTED_ENV = _auth_paths._REFRESH_ATTEMPTED_ENV
 
 
@@ -340,6 +344,10 @@ _REFRESH_ATTEMPTED_CONTEXT = _auth_refresh._REFRESH_ATTEMPTED_CONTEXT
 # behaviour by patching ``_auth.single_flight`` / ``_auth.refresh`` directly.
 _AUTH_ERROR_SIGNALS = _auth_refresh._AUTH_ERROR_SIGNALS
 _coalesced_run_refresh_cmd = _auth_refresh._coalesced_run_refresh_cmd
+# L2.5 mid-session refresh-cmd rung adapter (c-PR4). Consumed by
+# ``_auth.session.refresh_auth_session``; exposed here for white-box tests.
+try_refresh_cmd_reauth = _auth_refresh.try_refresh_cmd_reauth
+_midsession_refresh_cmd_enabled = _auth_refresh._midsession_refresh_cmd_enabled
 _should_try_refresh = _auth_refresh._should_try_refresh
 _split_refresh_cmd = _auth_refresh._split_refresh_cmd
 _run_refresh_cmd = _auth_refresh._run_refresh_cmd
