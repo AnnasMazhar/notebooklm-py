@@ -77,7 +77,8 @@ _ATOMIC_WRITE_JSON_IMPORTERS: frozenset[str] = frozenset(
         "mcp/_oauth.py",  # writes the MCP OAuth token file
         # Storage-state writers still to be migrated onto storage_writer
         # (tracked; removed as later PRs land — see _STORAGE_STATE_WRITE_EXEMPTIONS).
-        "_auth/browser_capture.py",  # browser-capture re-mint (migrates in b-PR2)
+        # ``_auth/browser_capture.py`` migrated in b-PR2 (now routes through
+        # storage_writer.replace_from_remint) and dropped off this list.
         "cli/services/login/refresh.py",  # CLI login writer (migrates in b-PR3)
         "cli/services/login/cookie_writes.py",  # CLI login writer (migrates in b-PR3)
         "cli/_cookie_import.py",  # CLI auth import-cookies writer (migrates in b-PR3)
@@ -109,7 +110,8 @@ _AUTH_WRITE_PRIMITIVE_IMPORTERS: frozenset[str] = frozenset(
     {
         "_auth/storage_writer.py",  # canonical (writes storage_state.json)
         "_auth/account.py",  # context.json cleanup only (not storage_state)
-        "_auth/browser_capture.py",  # storage_state re-mint — migrates in b-PR2
+        # ``_auth/browser_capture.py`` migrated in b-PR2 — it no longer imports a
+        # write primitive (re-mint now routes through storage_writer).
     }
 )
 
@@ -122,7 +124,8 @@ _AUTH_WRITE_PRIMITIVE_IMPORTERS: frozenset[str] = frozenset(
 _STORAGE_STATE_WRITE_EXEMPTIONS: frozenset[str] = frozenset(
     {
         "migration.py",  # permanent: legacy-profile file migration (#2085)
-        "_auth/browser_capture.py",  # migrates in b-PR2
+        # ``_auth/browser_capture.py`` migrated in b-PR2 (routes through
+        # storage_writer.replace_from_remint).
         "cli/services/login/refresh.py",  # migrates in b-PR3
         "cli/services/login/cookie_writes.py",  # migrates in b-PR3
         "cli/_cookie_import.py",  # migrates in b-PR3

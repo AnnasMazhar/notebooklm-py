@@ -86,6 +86,104 @@ def test_clear_in_band_account_swallows_lock_unavailable(
     assert "notebooklm" in json.loads(path.read_text(encoding="utf-8"))
 
 
+# --- replace_from_remint: browser-capture re-mint (b-PR2) ------------------
+
+
+def _captured_state() -> dict:
+    """A minimal captured storage-state dict (auth cookies on ``.google.com``)."""
+    return {
+        "cookies": [
+            {"name": "SID", "value": "v", "domain": ".google.com", "path": "/"},
+            {"name": "SAPISID", "value": "s", "domain": ".google.com", "path": "/"},
+        ],
+        "origins": [],
+    }
+
+
+def test_replace_from_remint_carry_account_preserves_namespace(tmp_path: Path) -> None:
+    """[capture-1] regression: an unattended (carry_account=True) re-mint keeps
+    the pre-existing ``notebooklm`` account namespace. Pre-b-PR2 the bare
+    ``atomic_write_json`` re-mint dropped it, misrouting the account."""
+    path = tmp_path / "storage_state.json"
+    path.write_text(
+        json.dumps(
+            {
+                "cookies": [{"name": "OLD", "value": "x", "domain": ".google.com"}],
+                "origins": [],
+                "notebooklm": {"version": 1, "account": {"authuser": 3, "email": "keep@x.com"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    outcome = sw.replace_from_remint(path, _captured_state(), carry_account=True)
+    assert outcome.ok
+    data = json.loads(path.read_text(encoding="utf-8"))
+    # Cookies replaced (not merged) …
+    assert {c["name"] for c in data["cookies"]} == {"SID", "SAPISID"}
+    # … and the account binding survived the re-mint.
+    assert data["notebooklm"] == {"version": 1, "account": {"authuser": 3, "email": "keep@x.com"}}
+
+
+def test_replace_from_remint_no_carry_drops_stale_binding(tmp_path: Path) -> None:
+    """The interactive arm (carry_account=False) drops the stale binding — the
+    user may have signed into a different account; the CLI adapter's repair
+    re-establishes it."""
+    path = tmp_path / "storage_state.json"
+    path.write_text(
+        json.dumps(
+            {
+                "cookies": [{"name": "OLD", "value": "x", "domain": ".google.com"}],
+                "origins": [],
+                "notebooklm": {"version": 1, "account": {"authuser": 3, "email": "stale@x.com"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    outcome = sw.replace_from_remint(path, _captured_state(), carry_account=False)
+    assert outcome.ok
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert {c["name"] for c in data["cookies"]} == {"SID", "SAPISID"}
+    assert "notebooklm" not in data  # stale binding dropped
+
+
+def test_replace_from_remint_takes_storage_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """[capture-2] lock-contract: the re-mint write serializes on the storage
+    lock and **fails closed** (no write) when the lock is unavailable, instead of
+    racing a concurrent keepalive with a lockless write."""
+    path = tmp_path / "storage_state.json"
+    _patch_lock_unavailable(monkeypatch)
+    outcome = sw.replace_from_remint(path, _captured_state(), carry_account=True)
+    assert outcome.lock_unavailable
+    assert not path.exists()  # nothing written without the lock
+
+
+def test_replace_from_remint_filters_domains_but_keeps_trusted_subdomains(
+    tmp_path: Path,
+) -> None:
+    """The write-time filter runs INSIDE the writer: an unallowlisted-domain
+    cookie never reaches disk, while trusted Google subdomains
+    (``*.googleusercontent.com`` / ``drive.google.com``) survive
+    (main's preserve-trusted-roots behavior)."""
+    path = tmp_path / "storage_state.json"
+    captured = {
+        "cookies": [
+            {"name": "SID", "value": "v", "domain": ".google.com", "path": "/"},
+            {"name": "MEDIA", "value": "m", "domain": "lh3.googleusercontent.com", "path": "/"},
+            {"name": "DRV", "value": "d", "domain": "drive.google.com", "path": "/"},
+            # Unallowlisted sibling-product cookie — must be dropped.
+            {"name": "YT", "value": "y", "domain": ".youtube.com", "path": "/"},
+        ],
+        "origins": [],
+    }
+    outcome = sw.replace_from_remint(path, captured, carry_account=False)
+    assert outcome.ok
+    names = {c["name"] for c in json.loads(path.read_text(encoding="utf-8"))["cookies"]}
+    assert "YT" not in names  # unallowlisted domain filtered out at the chokepoint
+    assert {"SID", "MEDIA", "DRV"} <= names  # trusted Google roots preserved
+
+
 # --- persist_minted_jar: full replace, fails CLOSED ------------------------
 
 
@@ -106,6 +204,27 @@ def test_persist_minted_jar_replaces_cookies_and_rebinds_account(tmp_path: Path)
     data = json.loads(path.read_text(encoding="utf-8"))
     names = {c["name"] for c in data["cookies"]}
     assert names == {"SID", "APISID", "SAPISID"}  # replaced, not merged
+    assert data["notebooklm"]["account"] == {"authuser": 0, "email": "minted@example.com"}
+
+
+def test_persist_minted_jar_filters_unallowlisted_but_keeps_rebind(tmp_path: Path) -> None:
+    """L4 gap fix (b-PR2): the minted jar is domain-filtered before it reaches
+    disk (an unallowlisted cookie is dropped, trusted Google subdomains survive),
+    while the rebind to the minted account (authuser=0 + minted email) stays."""
+    path = tmp_path / "storage_state.json"
+    jar = httpx.Cookies()
+    for name in ("SID", "APISID", "SAPISID"):
+        jar.set(name, "v", domain=".google.com", path="/")
+    jar.set("MEDIA", "m", domain="lh3.googleusercontent.com", path="/")
+    # An unallowlisted sibling-product cookie that must NOT reach disk.
+    jar.set("YT", "y", domain=".youtube.com", path="/")
+
+    sw.persist_minted_jar(path, jar, email="minted@example.com")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    names = {c["name"] for c in data["cookies"]}
+    assert "YT" not in names  # L4: unallowlisted cookie filtered out at persist
+    assert {"SID", "APISID", "SAPISID", "MEDIA"} <= names  # trusted roots survive
+    # Rebind semantics unchanged by the added filter.
     assert data["notebooklm"]["account"] == {"authuser": 0, "email": "minted@example.com"}
 
 
