@@ -95,6 +95,77 @@ class TestNeutralBuilderMatchesCliBuilder:
         )
 
 
+class TestWriteTimeFilterParity:
+    """Both persist paths run the SAME write-time domain filter.
+
+    The Playwright capture arms filter ``context.storage_state()`` through
+    ``filter_storage_state_cookies_by_domain_policy`` before the atomic
+    write. The rookiepy/Firefox writers (``cookie_writes._write_extracted_cookies``
+    and ``refresh._login_with_browser_cookies``) must apply the identical
+    filter — otherwise the two login paths produce different on-disk state
+    (the sibling-product credential-exposure gap: the Firefox extractor
+    suffix-matches ``.google.com``, so extraction-time narrowing alone does
+    not keep mail/docs/myaccount cookies out of the jar).
+    """
+
+    def test_rookiepy_writers_bind_the_playwright_filter(self):
+        """Identity pin: all three modules reference one filter function."""
+        from notebooklm.cli.services.login import cookie_writes, refresh
+        from notebooklm.cli.services.playwright_login import (
+            filter_storage_state_cookies_by_domain_policy as playwright_filter,
+        )
+
+        assert cookie_writes.filter_storage_state_cookies_by_domain_policy is playwright_filter
+        assert refresh.filter_storage_state_cookies_by_domain_policy is playwright_filter
+
+    @pytest.mark.parametrize("include_domains", [None, {"mail"}, {"all"}])
+    def test_writers_accept_and_reject_the_same_domain_set(self, include_domains):
+        """Behavioral pin: per-domain accept/reject decisions are identical.
+
+        Sweeps required, regional-ccTLD, sibling-product, and lookalike
+        domains through the filter binding each writer module uses and
+        asserts they agree cookie-for-cookie.
+        """
+        from notebooklm.cli.services.login import cookie_writes, refresh
+        from notebooklm.cli.services.playwright_login import (
+            filter_storage_state_cookies_by_domain_policy as playwright_filter,
+        )
+
+        probe_domains = [
+            ".google.com",
+            "google.com",
+            "notebooklm.google.com",
+            "accounts.google.com",
+            ".googleusercontent.com",
+            ".google.co.uk",
+            ".google.de",
+            "mail.google.com",
+            ".mail.google.com",
+            "docs.google.com",
+            "myaccount.google.com",
+            ".youtube.com",
+            "evil-google.com",
+            ".not-youtube.com",
+        ]
+        state = {
+            "cookies": [
+                {"name": f"C{i}", "value": "v", "domain": d, "path": "/"}
+                for i, d in enumerate(probe_domains)
+            ],
+            "origins": [],
+        }
+
+        def _kept(filter_fn):
+            out = filter_fn(state, include_domains=include_domains)
+            return {(c["name"], c["domain"]) for c in out["cookies"]}
+
+        playwright_kept = _kept(playwright_filter)
+        assert _kept(cookie_writes.filter_storage_state_cookies_by_domain_policy) == (
+            playwright_kept
+        )
+        assert _kept(refresh.filter_storage_state_cookies_by_domain_policy) == playwright_kept
+
+
 class TestRequiredVsOptional:
     """REQUIRED is empirically justified; OPTIONAL is opt-in only."""
 

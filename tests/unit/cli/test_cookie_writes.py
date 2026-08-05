@@ -8,6 +8,7 @@ exercise directly.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -270,3 +271,120 @@ class TestWriteExtractedCookies:
             )
         assert out is None
         assert io.emitted == []
+
+
+# ---------------------------------------------------------------------------
+# _write_extracted_cookies — write-time cookie-domain filtering
+# ---------------------------------------------------------------------------
+
+
+def _rookiepy_cookie(domain: str, name: str) -> dict:
+    """A rookiepy-shaped raw cookie row (matches the extractor output)."""
+    return {
+        "domain": domain,
+        "name": name,
+        "value": "v",
+        "path": "/",
+        "secure": True,
+        "expires": None,
+        "http_only": False,
+    }
+
+
+def _sibling_heavy_jar() -> list[dict]:
+    """Required auth cookies plus sibling-product rows.
+
+    Mirrors what the Firefox container extractor can hand the writer: its
+    suffix-based domain match (rookiepy semantics: dot-prefixed = suffix
+    match) returns cookies for every ``*.google.com`` subdomain even when
+    the extraction request contained only ``REQUIRED_COOKIE_DOMAINS``.
+    """
+    return [
+        _rookiepy_cookie(".google.com", "SID"),
+        _rookiepy_cookie(".google.com", "HSID"),
+        _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
+        _rookiepy_cookie("notebooklm.google.com", "OSID"),
+        # Sibling-product cookies — must NOT be persisted without opt-in.
+        _rookiepy_cookie("mail.google.com", "MAIL_OSID"),
+        _rookiepy_cookie(".mail.google.com", "COMPASS"),
+        _rookiepy_cookie("docs.google.com", "DOCS_OSID"),
+        _rookiepy_cookie("myaccount.google.com", "ACCOUNT_OSID"),
+    ]
+
+
+SIBLING_DOMAINS = {
+    "mail.google.com",
+    ".mail.google.com",
+    "docs.google.com",
+    ".docs.google.com",
+    "myaccount.google.com",
+    ".myaccount.google.com",
+}
+
+
+class TestWriteExtractedCookiesDomainFilter:
+    """Write-time cookie-domain filtering (parity with the Playwright path).
+
+    The runtime converter (``convert_rookiepy_cookies_to_storage_state``) is
+    deliberately permissive over the REQUIRED ∪ OPTIONAL union and
+    suffix-accepts ``*.google.com``, so sibling-product cookies survive
+    validation-with-recovery. The writer must drop them AFTER validation but
+    BEFORE the atomic write, honoring ``--include-domains`` opt-ins — the
+    same allowlist filter the Playwright capture path applies.
+    """
+
+    def _write(self, tmp_path, raw, **kwargs):
+        """Run the real validate → filter → write pipeline; return the persisted state."""
+        storage_path = tmp_path / "storage_state.json"
+        io = make_recording_io(run_async=MagicMock())
+        with (
+            patch.object(cookie_writes, "fetch_tokens_with_domains", MagicMock()),
+            patch.object(auth_module, "write_account_metadata"),
+        ):
+            out = cookie_writes._write_extracted_cookies(
+                io,
+                raw,
+                storage_path=storage_path,
+                profile=None,
+                authuser=0,
+                email="a@gmail.com",
+                **kwargs,
+            )
+        assert out is None
+        return json.loads(storage_path.read_text())
+
+    def test_default_drops_sibling_product_cookies(self, tmp_path):
+        """No ``--include-domains``: mail/docs/myaccount never reach disk."""
+        persisted = self._write(tmp_path, _sibling_heavy_jar())
+        names = {c["name"] for c in persisted["cookies"]}
+        domains = {c["domain"] for c in persisted["cookies"]}
+        # Required auth cookies survive untouched.
+        assert {"SID", "HSID", "__Secure-1PSIDTS", "OSID"} <= names
+        # Sibling-product cookies are gone.
+        assert domains.isdisjoint(SIBLING_DOMAINS)
+        assert names.isdisjoint({"MAIL_OSID", "COMPASS", "DOCS_OSID", "ACCOUNT_OSID"})
+
+    def test_opt_in_label_persists_opted_domains_only(self, tmp_path):
+        """``--include-domains=mail`` keeps Mail cookies but not docs/myaccount."""
+        persisted = self._write(tmp_path, _sibling_heavy_jar(), include_domains={"mail"})
+        names = {c["name"] for c in persisted["cookies"]}
+        assert {"SID", "__Secure-1PSIDTS", "MAIL_OSID", "COMPASS"} <= names
+        assert names.isdisjoint({"DOCS_OSID", "ACCOUNT_OSID"})
+
+    def test_opt_in_all_persists_every_sibling(self, tmp_path):
+        """``--include-domains=all`` keeps every optional-label cookie."""
+        persisted = self._write(tmp_path, _sibling_heavy_jar(), include_domains={"all"})
+        names = {c["name"] for c in persisted["cookies"]}
+        assert {"MAIL_OSID", "COMPASS", "DOCS_OSID", "ACCOUNT_OSID"} <= names
+
+    def test_regional_cctld_cookies_survive(self, tmp_path):
+        """Regional ``.google.<ccTLD>`` variants pass the write-time filter."""
+        raw = [
+            _rookiepy_cookie(".google.com", "SID"),
+            _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
+            _rookiepy_cookie(".google.co.uk", "REG_UK"),
+            _rookiepy_cookie(".google.de", "REG_DE"),
+        ]
+        persisted = self._write(tmp_path, raw)
+        names = {c["name"] for c in persisted["cookies"]}
+        assert {"SID", "__Secure-1PSIDTS", "REG_UK", "REG_DE"} <= names

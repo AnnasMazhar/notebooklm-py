@@ -355,3 +355,101 @@ def test_login_with_cookies_verify_unexpected_error_warns(tmp_path, capsys) -> N
         refresh._login_with_browser_cookies(tmp_path / "storage.json", "chrome", deps=deps)
     out = capsys.readouterr().out
     assert "Unexpected error during verification" in out
+
+
+# ---------------------------------------------------------------------------
+# _login_with_browser_cookies — write-time cookie-domain filtering
+# ---------------------------------------------------------------------------
+def _rookiepy_cookie(domain: str, name: str) -> dict:
+    """A rookiepy-shaped raw cookie row (matches the extractor output)."""
+    return {
+        "domain": domain,
+        "name": name,
+        "value": "v",
+        "path": "/",
+        "secure": True,
+        "expires": None,
+        "http_only": False,
+    }
+
+
+def _sibling_heavy_jar() -> list[dict]:
+    """Required auth cookies plus sibling-product rows.
+
+    Mirrors what the Firefox container extractor can hand the writer: its
+    suffix-based domain match (rookiepy semantics: dot-prefixed = suffix
+    match) returns cookies for every ``*.google.com`` subdomain even when
+    the extraction request contained only ``REQUIRED_COOKIE_DOMAINS``.
+    """
+    return [
+        _rookiepy_cookie(".google.com", "SID"),
+        _rookiepy_cookie(".google.com", "__Secure-1PSIDTS"),
+        _rookiepy_cookie("mail.google.com", "MAIL_OSID"),
+        _rookiepy_cookie("docs.google.com", "DOCS_OSID"),
+        _rookiepy_cookie("myaccount.google.com", "ACCOUNT_OSID"),
+    ]
+
+
+def _login_and_read_storage(tmp_path, **login_kwargs) -> dict:
+    """Drive ``_login_with_browser_cookies`` with the real validate → filter →
+    write pipeline (only the network/verification seams stubbed) and return
+    the persisted ``storage_state.json``."""
+    import json
+
+    storage_path = tmp_path / "storage_state.json"
+    deps = _deps(
+        read_browser_cookies=MagicMock(return_value=_sibling_heavy_jar()),
+        sync_server_language_to_config=MagicMock(),
+        fetch_tokens_with_domains=MagicMock(return_value=None),
+    )
+    with (
+        patch.object(auth_module, "clear_account_metadata"),
+        patch.object(playwright_login_io_module, "run_async"),
+    ):
+        refresh._login_with_browser_cookies(storage_path, "chrome", deps=deps, **login_kwargs)
+    return json.loads(storage_path.read_text())
+
+
+def test_login_with_cookies_drops_sibling_product_cookies(tmp_path) -> None:
+    """Default login: mail/docs/myaccount cookies never reach disk.
+
+    Regression test for the rookiepy write-path credential-exposure gap:
+    the runtime converter suffix-accepts ``*.google.com``, so without the
+    write-time filter these sibling-product session cookies were persisted
+    with no ``--include-domains`` opt-in — unlike the Playwright path.
+    """
+    persisted = _login_and_read_storage(tmp_path)
+    names = {c["name"] for c in persisted["cookies"]}
+    assert {"SID", "__Secure-1PSIDTS"} <= names
+    assert names.isdisjoint({"MAIL_OSID", "DOCS_OSID", "ACCOUNT_OSID"})
+
+
+def test_login_with_cookies_opt_in_persists_opted_domains(tmp_path) -> None:
+    """``--include-domains=mail`` keeps Mail cookies but not docs/myaccount."""
+    persisted = _login_and_read_storage(tmp_path, include_domains={"mail"})
+    names = {c["name"] for c in persisted["cookies"]}
+    assert {"SID", "__Secure-1PSIDTS", "MAIL_OSID"} <= names
+    assert names.isdisjoint({"DOCS_OSID", "ACCOUNT_OSID"})
+
+
+def test_refresh_forwards_include_domains_to_writer(tmp_path) -> None:
+    """``_refresh_from_browser_cookies`` threads the opt-in set to the writer."""
+    account = _account("bob@example.com", browser_profile="Default")
+    writer = MagicMock(return_value=None)
+    deps = _deps(
+        enumerate_browser_accounts=MagicMock(return_value=({"Default": ["raw"]}, [account])),
+        read_account_metadata=MagicMock(return_value={"email": "bob@example.com"}),
+        select_refresh_account=MagicMock(return_value=account),
+        write_extracted_cookies=writer,
+        sync_server_language_to_config=MagicMock(),
+    )
+    refresh._refresh_from_browser_cookies(
+        "chrome",
+        storage_path=tmp_path / "storage_state.json",
+        profile=None,
+        quiet=True,
+        include_domains={"youtube"},
+        deps=deps,
+    )
+    writer.assert_called_once()
+    assert writer.call_args.kwargs["include_domains"] == {"youtube"}

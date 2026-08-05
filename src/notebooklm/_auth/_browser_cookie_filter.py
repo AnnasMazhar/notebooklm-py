@@ -1,9 +1,10 @@
 """Filter captured browser cookies before auth storage is persisted.
 
-The Playwright login and headless re-auth arms both capture a complete browser
-storage state. This leaf applies the shared cookie-domain policy and removes
-malformed or exact-identity duplicate rows without depending on Playwright or
-the browser-capture lifecycle.
+The Playwright login and headless re-auth arms capture a complete browser
+storage state; the rookiepy/Firefox CLI writers persist an extracted jar. All
+of them funnel through this leaf, which applies the shared cookie-domain
+policy and removes malformed or exact-identity duplicate rows without
+depending on Playwright or the browser-capture lifecycle.
 """
 
 from __future__ import annotations
@@ -49,10 +50,15 @@ def filter_storage_state_cookies_by_domain_policy(
     Without this filter, sibling-product cookies (``mail.google.com``,
     ``myaccount.google.com``, ``docs.google.com``, ``.youtube.com``) the user
     happens to be signed into leak into the persisted ``storage_state.json``
-    and inflate the blast radius. This applies the same allowlist the rookiepy
-    path uses (:func:`_build_google_cookie_domains`) at write time so both
-    login paths produce equivalent on-disk state, opt-in via
-    ``--include-domains=...``. The match is exact-against-allowlist with
+    and inflate the blast radius. This applies the shared allowlist
+    (:func:`build_cookie_domain_allowlist`, the same set the rookiepy
+    extraction request is built from) at write time; the rookiepy/Firefox
+    persist path (``_write_extracted_cookies`` /
+    ``_login_with_browser_cookies``) runs this same filter before its atomic
+    write — the Firefox extractor suffix-matches dot-prefixed domains, so
+    extraction-time narrowing alone is not enough — so both login paths
+    produce equivalent on-disk state, opt-in via ``--include-domains=...``.
+    The match is exact-against-allowlist with
     leading-dot/no-dot equivalence (``http.cookiejar`` may normalize either);
     sibling subdomains are deliberately NOT matched by a broad ``.google.com``
     suffix — that's the bug being fixed.

@@ -29,6 +29,10 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+# ``browser_capture`` is the one sanctioned ``_auth`` import for the CLI
+# adapter (see tests/_guardrails/test_cli_boundary.py); it re-exports the
+# write-time domain filter from its ``_browser_cookie_filter`` leaf.
+from ...._auth.browser_capture import filter_storage_state_cookies_by_domain_policy
 from ....auth import (
     cookie_names_from_storage,
     fetch_tokens_with_domains,
@@ -186,13 +190,15 @@ def _write_extracted_cookies(
     profile: str | None,
     authuser: int,
     email: str,
+    include_domains: set[str] | None = None,
     quiet: bool = False,
 ) -> BrowserCookieOutcome | None:
     """Write a previously-loaded rookiepy cookie set to ``storage_path``.
 
     Bypasses :func:`_read_browser_cookies` because the caller already has
     the cookies in hand (e.g. ``--all-accounts`` reads once and writes N
-    profiles).
+    profiles). ``include_domains`` is the resolved ``--include-domains``
+    label set; it drives the write-time cookie-domain filter below.
 
     Returns ``None`` on success, or a
     :class:`.outcomes.BrowserCookieOutcome` subclass on failure
@@ -213,6 +219,27 @@ def _write_extracted_cookies(
                 f"{validation_error}\n\n"
                 f"{hint}"
             ),
+        )
+
+    # Write-time blast-radius gate — parity with the Playwright capture path.
+    # The rookiepy/Firefox extractors suffix-match dot-prefixed domains
+    # (rookiepy semantics), so requesting ``.google.com`` also returns
+    # sibling-product cookies (mail/docs/myaccount), and the runtime
+    # converter above is deliberately permissive over the REQUIRED ∪
+    # OPTIONAL union. Filter AFTER ``validate_with_recovery`` (recovery must
+    # see the full jar) and BEFORE the atomic write so only policy-allowed +
+    # opted-in domains reach ``storage_state.json``.
+    pre_filter_count = len(storage_state.get("cookies", []))
+    storage_state = filter_storage_state_cookies_by_domain_policy(
+        storage_state, include_domains=include_domains
+    )
+    dropped = pre_filter_count - len(storage_state["cookies"])
+    if dropped:
+        # Count-only breadcrumb — never cookie names or values.
+        logger.debug(
+            "Dropped %d cookie(s) outside the write-time cookie-domain policy for %s",
+            dropped,
+            storage_path,
         )
 
     try:
