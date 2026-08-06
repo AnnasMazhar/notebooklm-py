@@ -22,7 +22,14 @@ from notebooklm.exceptions import (
     RPCError,
 )
 from notebooklm.rpc import RPCMethod
-from notebooklm.types import AccountLimits, Notebook, NotebookMetadata, Source, SourceType
+from notebooklm.types import (
+    AccountLimits,
+    Notebook,
+    NotebookMetadata,
+    Source,
+    SourceCounts,
+    SourceType,
+)
 
 
 def _make_core(rpc_call: AsyncMock | None = None):
@@ -122,7 +129,12 @@ async def test_direct_notebooks_api_get_metadata_uses_phase8_source_lister() -> 
 
     metadata = await api.get_metadata("nb_123")
 
-    assert metadata.notebook == Notebook(id="nb_123", title="Architecture", sources_count=1)
+    assert metadata.notebook == Notebook(
+        id="nb_123",
+        title="Architecture",
+        sources_count=1,
+        source_counts=SourceCounts(active=1, ready=1, quota_counted=1, total_records=1),
+    )
     assert len(metadata.sources) == 1
     assert metadata.sources[0].kind == SourceType.PDF
     assert metadata.sources[0].title == "Design Paper"
@@ -191,7 +203,12 @@ async def test_get_metadata_uses_injected_source_lister_and_builds_summaries() -
     metadata = await api.get_metadata("nb_123")
 
     assert isinstance(metadata, NotebookMetadata)
-    assert metadata.notebook == Notebook(id="nb_123", title="Architecture", sources_count=1)
+    assert metadata.notebook == Notebook(
+        id="nb_123",
+        title="Architecture",
+        sources_count=1,
+        source_counts=SourceCounts(active=1, ready=1, quota_counted=1, total_records=1),
+    )
     assert len(metadata.sources) == 1
     assert metadata.sources[0].kind == SourceType.WEB_PAGE
     assert metadata.sources[0].title == "Architecture Notes"

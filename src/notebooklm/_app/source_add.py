@@ -35,6 +35,7 @@ from urllib.parse import urlsplit
 from ..exceptions import ValidationError
 from ..types import Source
 from ..urls import is_youtube_url
+from .source_capacity import SourceCapacity, ensure_source_capacity
 
 if TYPE_CHECKING:
     from ..client import NotebookLMClient
@@ -446,6 +447,8 @@ class SourceAddResult:
 async def execute_source_add(
     client: NotebookLMClient,
     plan: SourceAddExecutionPlan,
+    *,
+    capacity: SourceCapacity | None = None,
 ) -> SourceAddResult:
     """Run the ``source add`` workflow and return the added source.
 
@@ -453,6 +456,10 @@ async def execute_source_add(
     messages belong to the command layer. The command wraps this awaitable
     with the desired status context so the spinner still spans the real I/O.
     """
+    if capacity is None:
+        await ensure_source_capacity(client, plan.notebook_id)
+    else:
+        capacity.require_available(plan.notebook_id)
     src = await add_source(
         client.sources,
         notebook_id=plan.notebook_id,

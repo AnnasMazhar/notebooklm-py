@@ -42,11 +42,14 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from notebooklm._app import source_capacity as source_capacity_module  # noqa: E402
+from notebooklm._settings import SettingsAPI  # noqa: E402
 from notebooklm.auth import AuthTokens  # noqa: E402
 from notebooklm.client import NotebookLMClient  # noqa: E402
 from notebooklm.server.app import create_app  # noqa: E402
+from notebooklm.types import AccountLimits, SourceCounts  # noqa: E402
 from tests.integration.conftest import skip_no_cassettes  # noqa: E402
-from tests.vcr_config import notebooklm_vcr  # noqa: E402
+from tests.vcr_config import _is_vcr_record_mode, notebooklm_vcr  # noqa: E402
 
 from .conftest import TEST_TOKEN  # noqa: E402
 
@@ -72,6 +75,25 @@ def _mock_auth() -> AuthTokens:
         csrf_token="mock_csrf_token",
         session_id="mock_session_id",
     )
+
+
+@pytest.fixture(autouse=True)
+def _bridge_pre_capacity_vcr_cassettes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replay add/list cassettes recorded before source-capacity preflight."""
+    if _is_vcr_record_mode():
+        return
+
+    async def capacity_snapshot(*_args, **_kwargs):
+        return source_capacity_module.SourceCapacity(
+            counts=SourceCounts(),
+            source_limit=300,
+        )
+
+    async def account_limits(*_args, **_kwargs):
+        return AccountLimits(source_limit=300)
+
+    monkeypatch.setattr(source_capacity_module, "get_source_capacity", capacity_snapshot)
+    monkeypatch.setattr(SettingsAPI, "get_account_limits", account_limits)
 
 
 @pytest.fixture

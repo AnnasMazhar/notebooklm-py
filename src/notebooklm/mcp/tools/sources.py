@@ -1,19 +1,8 @@
-"""Source MCP tools.
+"""MCP source adapters over the transport-neutral ``_app.source_*`` cores.
 
-Thin adapters over the transport-neutral ``_app.source_*`` cores: resolve the
-notebook (and, where applicable, the source) reference via the Phase 1
-:mod:`._resolve` helpers, drive the ``execute_source_*`` executors, and project
-the typed result to the wire with :func:`to_jsonable`.
-
-``source_add`` is a hybrid over two cores: ``url``/``text``/``file``/``youtube``
-flow through ``_app.source_add`` (``build_source_add_plan`` + ``execute_source_add``);
-``drive`` flows through ``_app.source_mutations.execute_source_add_drive`` (the
-neutral ``source_add`` core has no Drive path). It also has a batch mode
-(``urls=[...]``) that adds many http(s) URLs sequentially and returns an explicit
-per-item result list. ``source_wait`` waits for a subset when ``sources`` is
-given, one source when ``source`` is given, else every source in the notebook.
-
-This module imports NO ``click`` / ``rich`` / ``cli``.
+``source_add`` delegates URL/text/file/YouTube to ``_app.source_add`` and Drive
+to ``_app.source_mutations``; batch mode applies the same URL executor per item.
+``source_wait`` handles a requested subset, one source, or the whole notebook.
 """
 
 from __future__ import annotations
@@ -28,6 +17,7 @@ from mcp.types import TextContent
 
 from ..._app import labels as labels_core
 from ..._app import source_add as add_core
+from ..._app import source_capacity as capacity_core
 from ..._app import source_content as content_core
 from ..._app import source_listing as listing_core
 from ..._app import source_mutations as mut_core
@@ -210,9 +200,13 @@ def register(mcp: Any) -> None:
         client = get_client(ctx)
         with mcp_errors():
             nb_id = await resolve_notebook(client, notebook)
-            sources = await listing_core.fetch_sources(
-                client, nb_id, label_filter=label, label_resolver=labels_core.resolve_label_id
+            snapshot = await listing_core.fetch_sources_with_capacity(
+                client,
+                nb_id,
+                label_filter=label,
+                label_resolver=labels_core.resolve_label_id,
             )
+            sources = snapshot.sources
             # Filter on the raw Source BEFORE serializing, so the projector (which
             # runs to_jsonable) is only paid for the sources that survive the
             # filter. Uses the same source_status_to_str label the rows emit.
@@ -220,7 +214,12 @@ def register(mcp: Any) -> None:
                 sources = [s for s in sources if source_status_to_str(s.status) == status]
             project = _source_compact if detail == "compact" else _source_view
             page, meta = paginate([project(s) for s in sources], limit, offset)
-            return {"notebook_id": nb_id, "sources": page, **meta}
+            return {
+                "notebook_id": nb_id,
+                **snapshot.capacity.to_dict(),
+                "sources": page,
+                **meta,
+            }
 
     @mcp.tool(annotations=READ_ONLY)
     async def source_read(
@@ -828,7 +827,6 @@ async def _add_url_batch(
     5xx — classified by :func:`_app.source_batch.batch_item_is_fatal`, shared with
     the REST route) is re-raised so the whole tool call fails at the top level,
     letting the agent re-auth/retry; only per-URL 4xx-input failures isolate.
-
     Each entry is added with ``source_type="url"`` so :func:`add_core.validate_url`
     enforces the http/https scheme allowlist + SSRF guard per item; a non-URL entry
     (plain text, a local path, ``file://``/``ftp://``) is reported as a per-item
@@ -849,6 +847,7 @@ async def _add_url_batch(
     surface the warning later via ``source_wait``.
     """
     results: list[dict[str, Any]] = []
+    capacity = await capacity_core.get_source_capacity(client, notebook_id)
     # Keep each added item's Source alongside its result dict so a synchronously-ready
     # web-page item can be annotated with the content-sanity warning after the loop,
     # concurrently — never N×fetch in-loop (reuses :func:`_annotate_thin_warnings`).
@@ -863,6 +862,7 @@ async def _add_url_batch(
                 title=None,
                 mime_type=None,
                 allow_internal=allow_internal,
+                capacity=capacity,
             )
         except Exception as exc:  # noqa: BLE001 - per-item isolation; CancelledError (BaseException) still propagates
             # A service/infra failure (auth expiry, rate limit, upstream 5xx) is not
@@ -874,6 +874,7 @@ async def _add_url_batch(
                 raise
             results.append({"input": entry, "status": "error", "error": tool_error_payload(exc)})
         else:
+            capacity = capacity.after_add(src)
             item: dict[str, Any] = {
                 "input": entry,
                 "status": "added",

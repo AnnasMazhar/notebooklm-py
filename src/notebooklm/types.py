@@ -59,6 +59,7 @@ from ._types.research import (
 from ._types.sharing import SharedUser, ShareStatus
 from ._types.sources import (
     Source,
+    SourceCounts,
     SourceFulltext,
     SourceType,
 )
@@ -154,6 +155,7 @@ __all__ = [
     "NotebookMetadata",
     "SuggestedTopic",
     "Source",
+    "SourceCounts",
     "SourceFulltext",
     "SourceSummary",
     "Artifact",

@@ -1,11 +1,10 @@
 """Transport-neutral ``source list`` fetch business logic.
 
 This is the Click-free core of ``cli/services/source_listing.py``: it owns the
-one piece of genuine business logic in the source-list path — **which sources
-to fetch** given an optional label filter. Everything else in the list path
-(the JSON-envelope assembly, the Rich-table column/row shape, the
-``source_summary_payload`` serializer) is presentation that stays in the CLI
-adapter's ``ListSpec`` + ``prepare_list`` pipeline.
+shared business logic in the source-list path: **which sources to fetch** given
+an optional label filter, plus the notebook-wide quota snapshot used by MCP and
+REST list responses. JSON-envelope assembly and Rich-table rendering stay in
+their adapters.
 
 The label ``<id|name>`` resolver is **injected** as a callable
 (``label_resolver``) so this module never imports the Click-coupled
@@ -19,10 +18,17 @@ This module is transport-neutral — no ``click`` / ``rich`` / ``cli`` /
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..types import Source
+from .source_capacity import (
+    SourceCapacity,
+    get_source_capacity,
+    get_source_capacity_with_sources,
+)
 
 if TYPE_CHECKING:
     from ..client import NotebookLMClient
@@ -31,6 +37,14 @@ if TYPE_CHECKING:
 #: supplies its ``cli.services.label_listing.resolve_label_id``-backed
 #: implementation (which raises its own typed ``LabelResolutionError``).
 LabelResolver = Callable[..., Awaitable[str]]
+
+
+@dataclass(frozen=True)
+class SourceListSnapshot:
+    """Returned sources plus notebook-wide quota accounting."""
+
+    sources: list[Source]
+    capacity: SourceCapacity
 
 
 async def fetch_sources(
@@ -61,4 +75,36 @@ async def fetch_sources(
     return await client.sources.list(notebook_id)
 
 
-__all__ = ["LabelResolver", "fetch_sources"]
+async def fetch_sources_with_capacity(
+    client: NotebookLMClient,
+    notebook_id: str,
+    *,
+    label_filter: str | None = None,
+    label_resolver: LabelResolver | None = None,
+    json_output: bool = False,
+) -> SourceListSnapshot:
+    """Fetch a roster and the unfiltered notebook's live capacity in parallel."""
+    if label_filter is None:
+        sources, capacity = await get_source_capacity_with_sources(client, notebook_id)
+        return SourceListSnapshot(sources=sources, capacity=capacity)
+    if label_resolver is None:
+        raise ValueError("label_resolver is required when label_filter is set")
+    sources, capacity = await asyncio.gather(
+        fetch_sources(
+            client,
+            notebook_id,
+            label_filter=label_filter,
+            label_resolver=label_resolver,
+            json_output=json_output,
+        ),
+        get_source_capacity(client, notebook_id),
+    )
+    return SourceListSnapshot(sources=sources, capacity=capacity)
+
+
+__all__ = [
+    "LabelResolver",
+    "SourceListSnapshot",
+    "fetch_sources",
+    "fetch_sources_with_capacity",
+]

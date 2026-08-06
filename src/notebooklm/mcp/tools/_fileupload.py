@@ -34,6 +34,7 @@ from .._errors import mcp_errors
 from .._filelink import UPLOAD_TTL, FileLinkError, FileTransferConfig
 
 if TYPE_CHECKING:
+    from ..._app.source_capacity import SourceCapacity
     from ...client import NotebookLMClient
     from ...types import Source
 
@@ -305,6 +306,7 @@ async def _add_one(
     title: str | None,
     mime_type: str | None,
     allow_internal: bool,
+    capacity: SourceCapacity | None = None,
 ) -> Source:
     """Build the source-add plan + execute it, returning the created ``Source``.
 
@@ -327,6 +329,7 @@ async def _add_one(
     result = await add_core.execute_source_add(
         client,
         add_core.SourceAddExecutionPlan(notebook_id=notebook_id, plan=plan),
+        capacity=capacity,
     )
     return result.source
 

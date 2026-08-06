@@ -48,6 +48,7 @@ from ..exceptions import NotebookLMError, ValidationError
 from ..types import DriveMimeType, Source, SourceType
 from .resolve import FULL_ID_PATTERN
 from .resolve import validate_id as _neutral_validate_id
+from .source_capacity import ensure_source_capacity
 
 if TYPE_CHECKING:
     from ..client import NotebookLMClient
@@ -612,6 +613,7 @@ async def execute_source_add_drive(
         )
     mime = _DRIVE_MIME_MAP[plan.mime_type]
 
+    await ensure_source_capacity(client, plan.notebook_id)
     src = await client.sources.add_drive(plan.notebook_id, plan.file_id, plan.title, mime)
     # Stamp the declared type onto the returned source. The backend returns an
     # ambiguous type code for Drive imports (a Drive-hosted PDF comes back as
@@ -670,6 +672,7 @@ async def execute_source_add_drive_file(
     type, or expired Drive auth surface as :class:`ValidationError` from the
     client, which the surface adapters render.
     """
+    await ensure_source_capacity(client, plan.notebook_id)
     src = await client.sources.add_drive_file(
         plan.notebook_id,
         plan.document_id,

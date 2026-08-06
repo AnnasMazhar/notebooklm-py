@@ -357,6 +357,7 @@ _TOP_LEVEL_TYPE_EXPORTS = [
     "SlideDeckFormat",
     "SlideDeckLength",
     "Source",
+    "SourceCounts",
     "SourceFulltext",
     "SourceGuide",
     "SourceStatus",

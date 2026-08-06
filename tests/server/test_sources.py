@@ -305,6 +305,17 @@ def test_list_and_delete(authed_client: TestClient, fake_client: FakeClient) -> 
     # Shared view: string kind + status_label alongside the raw status int.
     assert row["status_label"] == "ready"
     assert "kind" in row
+    assert listed.json()["source_counts"] == {
+        "active": 1,
+        "ready": 1,
+        "processing": 0,
+        "preparing": 0,
+        "failed": 0,
+        "quota_counted": 1,
+        "total_records": 1,
+    }
+    assert listed.json()["source_limit"] == 50
+    assert listed.json()["remaining_capacity"] == 49
     # Default (no limit) stays unbounded, no meta block.
     assert "meta" not in listed.json()
 
@@ -391,6 +402,32 @@ def test_add_url_returns_enriched_view(authed_client: TestClient) -> None:
     assert "kind" in body
     assert "status_label" in body
     assert body["status_label"] == "processing"
+
+
+def test_quota_boundary_add_is_rejected_before_creating_a_row(
+    authed_client: TestClient, fake_client: FakeClient
+) -> None:
+    fake_client.sources_store["nb-1"] = {
+        **{
+            f"active-{index}": Source(
+                id=f"active-{index}", title=f"S{index}", status=SourceStatus.READY
+            )
+            for index in range(50)
+        },
+        "failed-stub": Source(id="failed-stub", title="Failed", status=SourceStatus.ERROR),
+    }
+
+    response = authed_client.post(
+        "/v1/notebooks/nb-1/sources/url", json={"url": "https://example.com/51"}
+    )
+
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["category"] == "source_add"
+    assert "limit=50" in error["message"]
+    assert "current_active=50" in error["message"]
+    assert "No source row was created" in error["message"]
+    assert len(fake_client.sources_store["nb-1"]) == 51
 
 
 # --- Phase 4: source rename (PATCH) ------------------------------------------
@@ -491,6 +528,29 @@ def test_add_batch_all_valid(authed_client: TestClient, fake_client: FakeClient)
     assert body["results"][0]["input"] == "https://a.example.com"
     assert body["results"][0]["status"] == "added"
     assert "status_label" in body["results"][0]
+
+
+def test_add_batch_tracks_capacity_when_new_rows_are_not_yet_listable(
+    authed_client: TestClient, fake_client: FakeClient
+) -> None:
+    _seed_notebook(fake_client)
+    fake_client.sources_store["nb-1"] = {
+        f"existing-{index}": Source(id=f"existing-{index}", status=SourceStatus.READY)
+        for index in range(49)
+    }
+    fake_client.hide_new_sources = True
+
+    response = authed_client.post(
+        "/v1/notebooks/nb-1/sources/batch",
+        json={"urls": ["https://a.example.com", "https://b.example.com"]},
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["added"] == 1
+    assert body["failed"] == 1
+    assert "current_active=50" in body["results"][1]["error"]["message"]
+    assert fake_client.next_source == 2
 
 
 def test_add_batch_partial_failure_isolated(

@@ -6,11 +6,12 @@ import asyncio
 import builtins
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Protocol
 
 from ._runtime.contracts import RpcCaller
 from ._source.listing import SourceLister as SourceListingService
-from .types import Notebook, NotebookMetadata, Source, SourceSummary
+from .types import Notebook, NotebookMetadata, Source, SourceCounts, SourceSummary
 
 # Preserve the historical warning channel from NotebooksAPI.get_metadata().
 logger = logging.getLogger("notebooklm._notebooks")
@@ -70,6 +71,17 @@ class NotebookMetadataService:
                 notebook_id,
                 notebook.sources_count,
             )
+
+        # Re-project the notebook scalar and rich counters from the SAME
+        # id-bearing, de-duplicated Source list returned alongside it. Failed
+        # imports remain in ``sources`` / ``total_records`` but do not inflate
+        # the active/quota count (#1962).
+        source_counts = SourceCounts.from_sources(sources)
+        notebook = replace(
+            notebook,
+            sources_count=source_counts.quota_counted,
+            source_counts=source_counts,
+        )
 
         return NotebookMetadata(
             notebook=notebook,

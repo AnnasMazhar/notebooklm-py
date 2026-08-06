@@ -136,6 +136,7 @@ def test_real_notebooklm_type_round_trips() -> None:
         "sources_count": 3,
         "is_owner": True,
         "modified_at": None,
+        "source_counts": None,
     }
     json.dumps(result)
 

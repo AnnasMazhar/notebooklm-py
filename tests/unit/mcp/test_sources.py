@@ -35,7 +35,7 @@ from notebooklm.mcp.tools._content_sanity import (  # noqa: E402 - after importo
     _THIN_SOURCE_CHAR_THRESHOLD,
 )
 from notebooklm.rpc.types import SourceStatus  # noqa: E402 - after importorskip guard
-from notebooklm.types import Label, Source  # noqa: E402 - after importorskip guard
+from notebooklm.types import AccountLimits, Label, Source  # noqa: E402 - importorskip guard
 
 from .conftest import AsyncMock  # noqa: E402 - after importorskip guard
 
@@ -164,11 +164,47 @@ async def test_source_list(mcp_call, mock_client) -> None:
     result = await mcp_call("source_list", {"notebook": NB_ID})
     assert result.structured_content == {
         "notebook_id": NB_ID,
+        "source_counts": {
+            "active": 1,
+            "ready": 1,
+            "processing": 0,
+            "preparing": 0,
+            "failed": 0,
+            "quota_counted": 1,
+            "total_records": 1,
+        },
+        "source_limit": None,
+        "remaining_capacity": None,
         "sources": [{"id": SRC_ID, "title": "Doc", "kind": "web_page", "status_label": "ready"}],
         "total": 1,
         "offset": 0,
         "has_more": False,
     }
+
+
+async def test_source_list_exposes_live_limit_and_remaining_capacity(mcp_call, mock_client) -> None:
+    mock_client.sources.list = AsyncMock(
+        return_value=[
+            *[Source(id=f"active-{index}", status=SourceStatus.READY) for index in range(50)],
+            Source(id="failed-stub", status=SourceStatus.ERROR),
+        ]
+    )
+    mock_client.settings.get_account_limits = AsyncMock(return_value=AccountLimits(source_limit=50))
+
+    result = await mcp_call("source_list", {"notebook": NB_ID, "limit": 1})
+
+    payload = result.structured_content
+    assert payload["source_counts"] == {
+        "active": 50,
+        "ready": 50,
+        "processing": 0,
+        "preparing": 0,
+        "failed": 1,
+        "quota_counted": 50,
+        "total_records": 51,
+    }
+    assert payload["source_limit"] == 50
+    assert payload["remaining_capacity"] == 0
     mock_client.sources.list.assert_awaited_once_with(NB_ID)
 
 
@@ -183,6 +219,17 @@ async def test_source_list_status_filter(mcp_call, mock_client) -> None:
     result = await mcp_call("source_list", {"notebook": NB_ID, "status": "error"})
     assert result.structured_content == {
         "notebook_id": NB_ID,
+        "source_counts": {
+            "active": 1,
+            "ready": 1,
+            "processing": 0,
+            "preparing": 0,
+            "failed": 1,
+            "quota_counted": 1,
+            "total_records": 2,
+        },
+        "source_limit": None,
+        "remaining_capacity": None,
         "sources": [
             {
                 "id": SRC2_ID,
@@ -203,6 +250,17 @@ async def test_source_list_status_filter_no_match(mcp_call, mock_client) -> None
     result = await mcp_call("source_list", {"notebook": NB_ID, "status": "error"})
     assert result.structured_content == {
         "notebook_id": NB_ID,
+        "source_counts": {
+            "active": 1,
+            "ready": 1,
+            "processing": 0,
+            "preparing": 0,
+            "failed": 0,
+            "quota_counted": 1,
+            "total_records": 1,
+        },
+        "source_limit": None,
+        "remaining_capacity": None,
         "sources": [],
         "total": 0,
         "offset": 0,
@@ -288,6 +346,17 @@ async def test_source_list_compact(mcp_call, mock_client) -> None:
     result = await mcp_call("source_list", {"notebook": NB_ID, "detail": "compact"})
     assert result.structured_content == {
         "notebook_id": NB_ID,
+        "source_counts": {
+            "active": 1,
+            "ready": 1,
+            "processing": 0,
+            "preparing": 0,
+            "failed": 0,
+            "quota_counted": 1,
+            "total_records": 1,
+        },
+        "source_limit": None,
+        "remaining_capacity": None,
         "sources": [
             {
                 "id": SRC_ID,
@@ -1830,8 +1899,38 @@ async def test_source_add_batch_all_success(mcp_call, mock_client) -> None:
         ],
     }
     assert mock_client.sources.add_url.await_count == 2
+    # One live capacity snapshot serves the whole sequential batch.
+    mock_client.sources.list.assert_awaited_once_with(NB_ID)
+    mock_client.settings.get_account_limits.assert_awaited_once_with()
     # Both ready web_page items were content-checked.
     assert mock_client.sources.get_fulltext.await_count == 2
+
+
+async def test_source_add_batch_tracks_capacity_after_each_success(mcp_call, mock_client) -> None:
+    """A stale source list cannot admit the item after the last local slot is used."""
+    mock_client.sources.list = AsyncMock(
+        return_value=[
+            Source(id=f"existing-{index}", status=SourceStatus.READY) for index in range(49)
+        ]
+    )
+    mock_client.settings.get_account_limits = AsyncMock(return_value=AccountLimits(source_limit=50))
+    mock_client.sources.add_url = AsyncMock(
+        return_value=Source(id="new", title="New", status=SourceStatus.PROCESSING)
+    )
+
+    result = await mcp_call(
+        "source_add",
+        {"notebook": NB_ID, "urls": ["https://example.com/a", "https://example.com/b"]},
+    )
+
+    payload = result.structured_content
+    assert payload["added"] == 1
+    assert payload["failed"] == 1
+    assert payload["results"][1]["error"]["code"] == "SOURCE_ADD"
+    assert "current_active=50" in payload["results"][1]["error"]["message"]
+    mock_client.sources.add_url.assert_awaited_once_with(NB_ID, "https://example.com/a")
+    mock_client.sources.list.assert_awaited_once_with(NB_ID)
+    mock_client.settings.get_account_limits.assert_awaited_once_with()
 
 
 async def test_source_add_batch_partial_failure(mcp_call, mock_client) -> None:

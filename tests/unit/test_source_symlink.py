@@ -33,7 +33,7 @@ import notebooklm.auth as auth_module
 import notebooklm.cli.helpers as helpers_module
 from notebooklm import paths as paths_module
 from notebooklm.notebooklm_cli import cli
-from notebooklm.types import Source
+from notebooklm.types import AccountLimits, Source
 
 
 def inject_client(client, *, recorder=None):
@@ -98,7 +98,16 @@ def _make_client() -> MagicMock:
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=None)
 
-    for ns in ("notebooks", "sources", "artifacts", "chat", "research", "notes", "sharing"):
+    for ns in (
+        "notebooks",
+        "sources",
+        "artifacts",
+        "chat",
+        "research",
+        "notes",
+        "sharing",
+        "settings",
+    ):
         setattr(client, ns, MagicMock())
 
     nb_obj = MagicMock()
@@ -110,6 +119,8 @@ def _make_client() -> MagicMock:
     # Default upload stubs; individual tests override as needed.
     client.sources.add_file = AsyncMock(return_value=Source(id="src_default", title="x"))
     client.sources.add_text = AsyncMock(return_value=Source(id="src_text", title="x"))
+    client.sources.list = AsyncMock(return_value=[])
+    client.settings.get_account_limits = AsyncMock(return_value=AccountLimits(source_limit=50))
     return client
 
 

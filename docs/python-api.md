@@ -992,7 +992,11 @@ async with NotebookLMClient.from_storage(rate_limit_max_retries=0) as client:
 # List all notebooks
 notebooks = await client.notebooks.list()
 for nb in notebooks:
-    print(f"{nb.id}: {nb.title} ({nb.sources_count} sources)")
+    assert nb.source_counts is not None  # populated on decoded API objects
+    print(
+        f"{nb.id}: {nb.title} "
+        f"({nb.source_counts.active} active, {nb.source_counts.failed} failed)"
+    )
 
 # Create and rename
 nb = await client.notebooks.create("Draft")
@@ -2009,9 +2013,29 @@ class Notebook:
     id: str
     title: str
     created_at: Optional[datetime]   # creation time (tz-aware UTC)
-    sources_count: int
+    sources_count: int               # legacy alias for source_counts.quota_counted
     is_owner: bool
     modified_at: Optional[datetime]  # last-modified time (tz-aware UTC)
+    source_counts: Optional[SourceCounts]  # populated on decoded API objects
+```
+
+`Notebook.sources_count` excludes failed imports. Decoded API objects populate
+`source_counts`; it remains `None` only when a caller manually constructs a
+legacy `Notebook` without the richer data. Use it when the distinction between
+usable/quota-counted sources and persistent failed records matters:
+
+```python
+@dataclass(frozen=True)
+class SourceCounts:
+    active: int          # ready + processing + preparing
+    ready: int
+    processing: int
+    preparing: int
+    failed: int          # persistent ERROR records; excluded from active/quota
+    quota_counted: int   # sources counted against source_limit
+    total_records: int   # active + failed, after id validation/deduplication
+
+    def remaining_capacity(self, source_limit: int | None) -> int | None: ...
 ```
 
 ### Source
@@ -2327,6 +2351,16 @@ class AccountLimits:
     source_limit: int | None = None    # Max sources per notebook
     raw_limits: tuple[Any, ...] = ()   # Untouched RPC payload for forensic use
     tier: int | None = None            # Subscription tier enum (opaque; see below)
+```
+
+Pair the live limit with an explicit notebook count; no raw-row interpretation
+is needed:
+
+```python
+limits = await client.settings.get_account_limits()
+counts = (await client.notebooks.get(notebook_id)).source_counts
+assert counts is not None
+remaining = counts.remaining_capacity(limits.source_limit)
 ```
 
 `tier` is the subscription tier read from the same authoritative `GET_USER_SETTINGS`

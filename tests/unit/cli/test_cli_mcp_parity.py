@@ -39,7 +39,7 @@ from notebooklm.mcp._resolve import resolve_notebook  # noqa: E402
 from notebooklm.mcp.server import create_server  # noqa: E402
 from notebooklm.mcp.tools.studio import _passthrough_sources  # noqa: E402
 from notebooklm.notebooklm_cli import cli  # noqa: E402
-from notebooklm.types import Artifact, GenerationState  # noqa: E402
+from notebooklm.types import AccountLimits, Artifact, GenerationState  # noqa: E402
 
 from .conftest import create_mock_client, inject_client  # noqa: E402
 
@@ -155,6 +155,8 @@ def _drive_mcp(
     for ns in _NAMESPACES:
         setattr(client, ns, MagicMock())
     client.artifacts._list_for_download = None
+    client.sources.list = AsyncMock(return_value=[])
+    client.settings.get_account_limits = AsyncMock(return_value=AccountLimits(source_limit=50))
     if setup is not None:
         setup(client)
 

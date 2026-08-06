@@ -27,6 +27,7 @@ from notebooklm.exceptions import (  # noqa: E402 - after importorskip guard
 from notebooklm.types import (  # noqa: E402 - after importorskip guard
     Notebook,
     NotebookMetadata,
+    SourceCounts,
     SourceSummary,
     SourceType,
 )
@@ -188,7 +189,12 @@ async def test_notebook_describe_include_metadata_adds_block(mcp_call, mock_clie
     )
     mock_client.notebooks.get_metadata = AsyncMock(
         return_value=NotebookMetadata(
-            notebook=Notebook(id=NB_ID, title="Research"),
+            notebook=Notebook(
+                id=NB_ID,
+                title="Research",
+                sources_count=1,
+                source_counts=SourceCounts(active=1, ready=1, quota_counted=1, total_records=1),
+            ),
             sources=[SourceSummary(kind=SourceType.PDF, title="Doc", url=None)],
         )
     )
@@ -208,6 +214,15 @@ async def test_notebook_describe_include_metadata_adds_block(mcp_call, mock_clie
             "sources_count": 1,
             "is_owner": True,
             "modified_at": None,
+            "source_counts": {
+                "active": 1,
+                "ready": 1,
+                "processing": 0,
+                "preparing": 0,
+                "failed": 0,
+                "quota_counted": 1,
+                "total_records": 1,
+            },
         },
         "sources": [{"kind": "pdf", "title": "Doc", "url": None}],
     }
@@ -228,7 +243,12 @@ async def test_notebook_describe_metadata_source_count_matches_enumeration(
     mock_client.notebooks.get_metadata = AsyncMock(
         return_value=NotebookMetadata(
             # Raw scalar (168) intentionally disagrees with the filtered list (2).
-            notebook=Notebook(id=NB_ID, title="Research", sources_count=168),
+            notebook=Notebook(
+                id=NB_ID,
+                title="Research",
+                sources_count=2,
+                source_counts=SourceCounts(active=2, ready=2, quota_counted=2, total_records=2),
+            ),
             sources=[
                 SourceSummary(kind=SourceType.PDF, title="A", url=None),
                 SourceSummary(kind=SourceType.PDF, title="B", url=None),

@@ -15,7 +15,14 @@ from notebooklm._notebook_metadata import (
 )
 from notebooklm.exceptions import RPCError
 from notebooklm.rpc import RPCMethod
-from notebooklm.types import Notebook, NotebookMetadata, Source, SourceType
+from notebooklm.types import (
+    Notebook,
+    NotebookMetadata,
+    Source,
+    SourceCounts,
+    SourceStatus,
+    SourceType,
+)
 
 
 class RecordingRpc:
@@ -74,7 +81,12 @@ async def test_metadata_service_uses_injected_lister_and_builds_source_summaries
     metadata = await service.get_metadata("nb_123")
 
     assert isinstance(metadata, NotebookMetadata)
-    assert metadata.notebook == Notebook(id="nb_123", title="Architecture", sources_count=2)
+    assert metadata.notebook == Notebook(
+        id="nb_123",
+        title="Architecture",
+        sources_count=2,
+        source_counts=SourceCounts(active=2, ready=2, quota_counted=2, total_records=2),
+    )
     assert [source.kind for source in metadata.sources] == [
         SourceType.WEB_PAGE,
         SourceType.PDF,
@@ -83,6 +95,34 @@ async def test_metadata_service_uses_injected_lister_and_builds_source_summaries
     assert metadata.sources[0].url == "https://example.com/notes"
     get_notebook.assert_awaited_once_with("nb_123")
     source_lister.list.assert_awaited_once_with("nb_123")
+
+
+@pytest.mark.asyncio
+async def test_metadata_service_separates_failed_rows_from_quota_count() -> None:
+    get_notebook = AsyncMock(
+        return_value=Notebook(id="nb_123", title="At capacity", sources_count=51)
+    )
+    source_lister = MagicMock()
+    source_lister.list = AsyncMock(
+        return_value=[
+            Source(id="ready", status=SourceStatus.READY),
+            Source(id="processing", status=SourceStatus.PROCESSING),
+            Source(id="failed", status=SourceStatus.ERROR),
+        ]
+    )
+    service = NotebookMetadataService(get_notebook, source_lister)
+
+    metadata = await service.get_metadata("nb_123")
+
+    assert metadata.sources_count == 2
+    assert metadata.source_counts == SourceCounts(
+        active=2,
+        ready=1,
+        processing=1,
+        failed=1,
+        quota_counted=2,
+        total_records=3,
+    )
 
 
 @pytest.mark.asyncio

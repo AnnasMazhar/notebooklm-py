@@ -37,7 +37,7 @@ from notebooklm._app.source_add import (
     validate_url,
 )
 from notebooklm.exceptions import ValidationError
-from notebooklm.types import Source
+from notebooklm.types import AccountLimits, Source
 
 # ===========================================================================
 # validate_url — SSRF / local-file-read guard
@@ -427,6 +427,8 @@ async def test_add_source_file_without_path_raises() -> None:
 async def test_execute_source_add_returns_typed_result() -> None:
     client = MagicMock()
     client.sources = _make_sources_facade()
+    client.sources.list = AsyncMock(return_value=[])
+    client.settings.get_account_limits = AsyncMock(return_value=AccountLimits())
     plan = SourceAddPlan(
         content="https://ex.com/a", detected_type="url", title=None, upload_path=None
     )

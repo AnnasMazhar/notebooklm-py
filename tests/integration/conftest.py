@@ -9,7 +9,10 @@ from typing import Any
 import httpx
 import pytest
 
+from notebooklm._app import source_capacity as source_capacity_module
+from notebooklm._settings import SettingsAPI
 from notebooklm.auth import AuthTokens
+from notebooklm.types import AccountLimits, SourceCounts
 
 # Load ``tests/vcr_config.py`` by file path. ``from tests.vcr_config import ...``
 # now resolves in pytest via ``pythonpath = ["."]`` (pyproject, #1482); loading
@@ -220,6 +223,35 @@ def _disable_keepalive_poke_for_vcr(request, monkeypatch):
     if request.node.get_closest_marker("vcr") is None:
         return
     monkeypatch.setenv("NOTEBOOKLM_DISABLE_KEEPALIVE_POKE", "1")
+
+
+@pytest.fixture(autouse=True)
+def _bridge_pre_capacity_vcr_cassettes(request, monkeypatch):
+    """Keep legacy replay cassettes focused on their originally recorded RPC.
+
+    Source-capacity preflight landed after the add cassettes were recorded. In
+    replay mode, supply a deterministic below-limit snapshot instead of asking
+    those immutable recordings for new GET_NOTEBOOK / GET_USER_SETTINGS calls.
+    Dedicated unit and server-fake regressions exercise the real preflight and
+    quota rejection. Recording mode is never patched, so refreshed cassettes
+    will capture the complete production flow.
+    """
+    if _vcr_record_mode or request.node.get_closest_marker("vcr") is None:
+        return
+
+    async def capacity_snapshot(
+        *_args: Any, **_kwargs: Any
+    ) -> source_capacity_module.SourceCapacity:
+        return source_capacity_module.SourceCapacity(
+            counts=SourceCounts(),
+            source_limit=300,
+        )
+
+    async def account_limits(*_args: Any, **_kwargs: Any) -> AccountLimits:
+        return AccountLimits(source_limit=300)
+
+    monkeypatch.setattr(source_capacity_module, "get_source_capacity", capacity_snapshot)
+    monkeypatch.setattr(SettingsAPI, "get_account_limits", account_limits)
 
 
 # =============================================================================

@@ -10,6 +10,7 @@
   "NotebookMetadata",
   "SuggestedTopic",
   "Source",
+  "SourceCounts",
   "SourceFulltext",
   "SourceSummary",
   "Artifact",

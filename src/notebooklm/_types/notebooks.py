@@ -8,9 +8,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from .._row_adapters.sources import SourceRow
 from ..rpc import RPCMethod, safe_index
 from .common import _datetime_from_timestamp
-from .sources import SourceType
+from .sources import SourceCounts, SourceType
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +46,27 @@ class SourceSummary:
         }
 
 
-def _extract_notebook_sources_count(data: list[Any]) -> int:
-    """Extract the embedded source count from a notebook API payload."""
-    sources = (
+def _extract_notebook_source_counts(data: list[Any]) -> SourceCounts:
+    """Count valid, unique source records embedded in a notebook payload."""
+    raw_sources = (
         safe_index(data, 1, method_id=_NOTEBOOK_METHOD_ID, source="Notebook.sources_count")
         if len(data) > 1
         else None
     )
-    return len(sources) if isinstance(sources, list) else 0
+    if not isinstance(raw_sources, list):
+        return SourceCounts()
+
+    seen_ids: set[str] = set()
+    statuses = []
+    for raw_source in raw_sources:
+        if not isinstance(raw_source, list) or not raw_source:
+            continue
+        row = SourceRow.from_entry(raw_source, method_id=_NOTEBOOK_METHOD_ID)
+        if not row.has_id or row.id in seen_ids:
+            continue
+        seen_ids.add(row.id)
+        statuses.append(row.status)
+    return SourceCounts.from_statuses(statuses)
 
 
 @dataclass
@@ -67,6 +81,9 @@ class Notebook:
     # ``modified_at`` is appended at the END of the field list so positional
     # construction stays unaffected (additive, defaults to ``None``).
     modified_at: datetime | None = None
+    # Explicit definitions for active/quota-counted vs failed/total records.
+    # Appended after every historical field to preserve positional construction.
+    source_counts: SourceCounts | None = None
 
     @classmethod
     def from_api_response(cls, data: list[Any]) -> Notebook:
@@ -78,7 +95,7 @@ class Notebook:
         )
         raw_title = title_slot if isinstance(title_slot, str) else ""
         title = raw_title.replace("thought\n", "").strip()
-        sources_count = _extract_notebook_sources_count(data)
+        source_counts = _extract_notebook_source_counts(data)
         # ``data[2]`` is the notebook id. A short row / ``None`` slot keeps
         # the historical silent ``""``-degrade — this factory parses rows out
         # of whole-list responses, so raising would abort sibling rows. A
@@ -154,9 +171,10 @@ class Notebook:
             id=notebook_id,
             title=title,
             created_at=created_at,
-            sources_count=sources_count,
+            sources_count=source_counts.quota_counted,
             is_owner=is_owner,
             modified_at=modified_at,
+            source_counts=source_counts,
         )
 
 
@@ -238,6 +256,16 @@ class NotebookMetadata:
         """Get owner status."""
         return self.notebook.is_owner
 
+    @property
+    def sources_count(self) -> int:
+        """Get the legacy scalar quota-counted source total."""
+        return self.notebook.sources_count
+
+    @property
+    def source_counts(self) -> SourceCounts | None:
+        """Get the explicit source-state counters."""
+        return self.notebook.source_counts
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -246,5 +274,7 @@ class NotebookMetadata:
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "modified_at": self.modified_at.isoformat() if self.modified_at else None,
             "is_owner": self.is_owner,
+            "sources_count": self.sources_count,
+            "source_counts": self.source_counts.to_dict() if self.source_counts else None,
             "sources": [s.to_dict() for s in self.sources],
         }

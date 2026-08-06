@@ -15,12 +15,14 @@ import notebooklm.cli.helpers as helpers_module
 import notebooklm.cli.resolve as resolve_module
 import notebooklm.cli.services.session_context as session_context_module
 from notebooklm.types import (
+    AccountLimits,
     MindMapResult,
     ResearchSource,
     ResearchStart,
     ResearchStatus,
     ResearchTask,
     SourceGuide,
+    SourceStatus,
 )
 
 
@@ -268,6 +270,7 @@ class MockSource:
     def __init__(self, id: str, title: str = "Mock Source"):
         self.id = id
         self.title = title
+        self.status = SourceStatus.READY
 
 
 class MockArtifact:
@@ -319,6 +322,7 @@ def create_mock_client():
     mock_client.research = MagicMock()
     mock_client.notes = MagicMock()
     mock_client.sharing = MagicMock()
+    mock_client.settings = MagicMock()
     mock_client.mind_maps = MagicMock()
     # Default: no mind maps, so non-mind-map flows (e.g. ``artifact rename`` of a
     # regular artifact) fall through without an unmocked-await on ``mind_maps.list``.
@@ -399,6 +403,7 @@ def create_mock_client():
 
     mock_client.notebooks.list = AsyncMock(side_effect=make_notebook_list)
     mock_client.sources.list = AsyncMock(side_effect=make_source_list)
+    mock_client.settings.get_account_limits = AsyncMock(return_value=AccountLimits(source_limit=50))
     mock_client.artifacts.list = AsyncMock(side_effect=make_artifact_list)
     mock_client.notes.list = AsyncMock(side_effect=make_note_list)
 

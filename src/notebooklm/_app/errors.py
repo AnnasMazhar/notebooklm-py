@@ -165,9 +165,10 @@ CATEGORY_HINTS: dict[ErrorCategory, str | None] = {
     ),
     ErrorCategory.SOURCE_ADD: (
         "NotebookLM could not add this source (invalid/inaccessible URL, paywalled, empty, "
-        "or unparseable); fix the input and retry — a failed source stub may have been "
-        "created, so list the notebook's sources filtered to the error status to "
-        "find and remove it."
+        "unparseable, or over quota); fix the input, or delete an active source when the "
+        "message reports a source limit. If the backend was reached, a failed source stub "
+        "may have been created, so list the notebook's sources filtered to the error status "
+        "to find and remove it."
     ),
     ErrorCategory.LIBRARY: None,
     ErrorCategory.UNEXPECTED: None,

@@ -46,7 +46,7 @@ from notebooklm._app.source_mutations import (
     resolve_source_for_delete,
 )
 from notebooklm.exceptions import NotebookLMError, ValidationError
-from notebooklm.types import DriveMimeType, Source, SourceType
+from notebooklm.types import AccountLimits, DriveMimeType, Source, SourceType
 
 _FULL_UUID = "11111111-2222-3333-4444-555555555555"
 
@@ -59,6 +59,7 @@ def _client(*, sources: list[Source] | None = None) -> MagicMock:
     client.sources.rename = AsyncMock()
     client.sources.refresh = AsyncMock(return_value=None)
     client.sources.add_drive = AsyncMock()
+    client.settings.get_account_limits = AsyncMock(return_value=AccountLimits())
     return client
 
 

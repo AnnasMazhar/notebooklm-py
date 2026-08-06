@@ -22,7 +22,9 @@ from notebooklm.types import (
     NotebookDescription,
     ReportSuggestion,
     Source,
+    SourceCounts,
     SourceFulltext,
+    SourceStatus,
     SourceType,
     UnknownTypeWarning,
     _is_valid_artifact_url,
@@ -340,12 +342,44 @@ class TestNotebook:
 
         assert notebook.sources_count == 3
 
+    def test_from_api_response_exposes_consistent_source_counts(self):
+        """Failed, duplicate, and id-less records do not inflate quota usage."""
+        data = [
+            "My Notebook",
+            [
+                [["ready"], "Ready", None, [None, SourceStatus.READY]],
+                [["failed"], "Failed", None, [None, SourceStatus.ERROR]],
+                [["ready"], "Duplicate", None, [None, SourceStatus.READY]],
+                [[None], "Placeholder", None, [None, SourceStatus.READY]],
+            ],
+            "nb_123",
+        ]
+
+        notebook = Notebook.from_api_response(data)
+
+        assert notebook.sources_count == 1
+        assert notebook.source_counts == SourceCounts(
+            active=1,
+            ready=1,
+            processing=0,
+            preparing=0,
+            failed=1,
+            quota_counted=1,
+            total_records=2,
+        )
+
     def test_from_api_response_none_sources_count_defaults_to_zero(self):
         """Test parsing notebook source count when source entries are absent."""
         data = ["My Notebook", None, "nb_123", "📓"]
         notebook = Notebook.from_api_response(data)
 
         assert notebook.sources_count == 0
+
+    def test_manual_legacy_notebook_does_not_fabricate_status_counts(self):
+        notebook = Notebook(id="nb_123", title="Notebook", sources_count=51)
+
+        assert notebook.sources_count == 51
+        assert notebook.source_counts is None
 
     def test_from_api_response_with_timestamp(self):
         """Test parsing notebook with timestamp.
@@ -2218,6 +2252,8 @@ class TestNotebookMetadata:
             "created_at": "2024-01-01T12:00:00",
             "modified_at": "2024-01-02T09:30:00",
             "is_owner": True,
+            "sources_count": 0,
+            "source_counts": None,
             "sources": [
                 {"type": "pdf", "title": "test.pdf", "url": None},
                 {"type": "web_page", "title": "Example", "url": "https://example.com"},
@@ -2244,6 +2280,8 @@ class TestNotebookMetadata:
         assert metadata.created_at == datetime(2024, 2, 1)
         assert metadata.modified_at == datetime(2024, 3, 1)
         assert metadata.is_owner is False
+        assert metadata.sources_count == 0
+        assert metadata.source_counts is None
 
     def test_to_dict_with_none_created_at(self):
         """Test serialization when created_at is None."""

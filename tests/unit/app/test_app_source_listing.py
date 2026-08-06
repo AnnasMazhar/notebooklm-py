@@ -1,8 +1,8 @@
 """Unit tests for the transport-neutral ``notebooklm._app.source_listing`` core.
 
-These pin the one piece of genuine ``source list`` business logic at the
-``_app`` boundary (independent of the Click adapter): :func:`fetch_sources` and
-its label-filter branch — which sources to fetch given an optional label filter.
+These pin ``source list`` business logic at the ``_app`` boundary (independent
+of adapters): :func:`fetch_sources`, its label-filter branch, and the
+notebook-wide capacity snapshot returned alongside a filtered roster.
 
 * No filter → ``client.sources.list(notebook_id)``.
 * ``label_filter`` set → injected ``label_resolver`` resolves the ``<id|name>``
@@ -21,14 +21,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from notebooklm._app.source_listing import fetch_sources
-from notebooklm.types import Source
+from notebooklm._app.source_listing import fetch_sources, fetch_sources_with_capacity
+from notebooklm.types import AccountLimits, Source, SourceStatus
 
 
 def _client() -> MagicMock:
     client = MagicMock()
     client.sources = MagicMock()
     client.labels = MagicMock()
+    client.settings = MagicMock()
     return client
 
 
@@ -94,3 +95,60 @@ async def test_label_resolver_receives_client_first() -> None:
     assert captured[0] is client
     assert captured[1] == "nb_1"
     assert captured[2] == "x"
+
+
+@pytest.mark.asyncio
+async def test_capacity_snapshot_counts_full_unfiltered_roster() -> None:
+    client = _client()
+    sources = [
+        Source(id="ready", status=SourceStatus.READY),
+        Source(id="failed", status=SourceStatus.ERROR),
+    ]
+    client.sources.list = AsyncMock(return_value=sources)
+    client.settings.get_account_limits = AsyncMock(return_value=AccountLimits(source_limit=50))
+
+    snapshot = await fetch_sources_with_capacity(client, "nb_1")
+
+    assert snapshot.sources == sources
+    client.sources.list.assert_awaited_once_with("nb_1")
+    assert snapshot.capacity.counts.active == 1
+    assert snapshot.capacity.counts.failed == 1
+    assert snapshot.capacity.remaining_capacity == 49
+
+
+@pytest.mark.asyncio
+async def test_capacity_snapshot_keeps_roster_when_settings_fail() -> None:
+    client = _client()
+    sources = [Source(id="ready", status=SourceStatus.READY)]
+    client.sources.list = AsyncMock(return_value=sources)
+    client.settings.get_account_limits = AsyncMock(side_effect=RuntimeError("settings down"))
+
+    snapshot = await fetch_sources_with_capacity(client, "nb_1")
+
+    assert snapshot.sources == sources
+    assert snapshot.capacity.counts.active == 1
+    assert snapshot.capacity.source_limit is None
+    assert snapshot.capacity.remaining_capacity is None
+
+
+@pytest.mark.asyncio
+async def test_label_capacity_snapshot_keeps_counts_notebook_wide() -> None:
+    client = _client()
+    member = Source(id="member", status=SourceStatus.READY)
+    client.labels.sources = AsyncMock(return_value=[member])
+    client.sources.list = AsyncMock(
+        return_value=[member, Source(id="other", status=SourceStatus.PROCESSING)]
+    )
+    client.settings.get_account_limits = AsyncMock(return_value=AccountLimits(source_limit=50))
+    resolver = AsyncMock(return_value="label-1")
+
+    snapshot = await fetch_sources_with_capacity(
+        client,
+        "nb_1",
+        label_filter="Papers",
+        label_resolver=resolver,
+    )
+
+    assert snapshot.sources == [member]
+    assert snapshot.capacity.counts.active == 2
+    assert snapshot.capacity.remaining_capacity == 48

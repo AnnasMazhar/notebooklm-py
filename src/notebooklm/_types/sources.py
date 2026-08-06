@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -42,6 +43,90 @@ class SourceType(str, Enum):
     IMAGE = "image"
     MEDIA = "media"
     UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class SourceCounts:
+    """Documented source-record counts for one notebook.
+
+    ``active`` and ``quota_counted`` intentionally exclude failed imports
+    (``status=ERROR``), while ``total_records`` includes those persistent error
+    rows. ``processing`` and ``preparing`` remain separate so every known source
+    status has an explicit counter. These definitions are shared by the Python,
+    CLI, MCP, and REST projections; callers no longer need to infer quota usage
+    from a raw row count.
+    """
+
+    active: int = 0
+    ready: int = 0
+    processing: int = 0
+    preparing: int = 0
+    failed: int = 0
+    quota_counted: int = 0
+    total_records: int = 0
+
+    @classmethod
+    def from_sources(cls, sources: Iterable[Source]) -> SourceCounts:
+        """Count unique, id-bearing source records by status."""
+        seen_ids: set[str] = set()
+        statuses: list[SourceStatus] = []
+        for source in sources:
+            if not source.id or source.id in seen_ids:
+                continue
+            seen_ids.add(source.id)
+            statuses.append(source.status)
+        return cls.from_statuses(statuses)
+
+    @classmethod
+    def from_statuses(cls, statuses: Iterable[SourceStatus]) -> SourceCounts:
+        """Count already-validated source statuses."""
+        ready = 0
+        processing = 0
+        preparing = 0
+        failed = 0
+        total_records = 0
+        for status in statuses:
+            total_records += 1
+            if status == SourceStatus.ERROR:
+                failed += 1
+            elif status == SourceStatus.PROCESSING:
+                processing += 1
+            elif status == SourceStatus.PREPARING:
+                preparing += 1
+            else:
+                # SourceRow deliberately degrades unknown status codes to READY;
+                # keep that established decoder policy here rather than inventing
+                # an unreachable second "unknown" interpretation.
+                ready += 1
+
+        active = ready + processing + preparing
+        return cls(
+            active=active,
+            ready=ready,
+            processing=processing,
+            preparing=preparing,
+            failed=failed,
+            quota_counted=active,
+            total_records=total_records,
+        )
+
+    def remaining_capacity(self, source_limit: int | None) -> int | None:
+        """Return remaining add capacity for a server-reported limit."""
+        if source_limit is None:
+            return None
+        return max(source_limit - self.quota_counted, 0)
+
+    def to_dict(self) -> dict[str, int]:
+        """Return the stable public counter shape used by JSON adapters."""
+        return {
+            "active": self.active,
+            "ready": self.ready,
+            "processing": self.processing,
+            "preparing": self.preparing,
+            "failed": self.failed,
+            "quota_counted": self.quota_counted,
+            "total_records": self.total_records,
+        }
 
 
 _warned_source_types: set[int] = set()

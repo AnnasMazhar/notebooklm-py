@@ -20,6 +20,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from notebooklm.types import AccountLimits
+
 
 # The canonical contributor install (`uv sync --frozen --extra browser --extra dev
 # --extra markdown`) omits the `mcp` extra, so `fastmcp` may be absent. A bare
@@ -82,6 +84,10 @@ def mock_client() -> MagicMock:
     # ``get_account_email`` is awaited, ``get_account_authuser`` is sync.
     client.get_account_email = AsyncMock(return_value=None)
     client.get_account_authuser = MagicMock(return_value=0)
+    # Source-add executors preflight the notebook's explicit active/quota
+    # counts against the live account limit before issuing a create RPC.
+    client.sources.list = AsyncMock(return_value=[])
+    client.settings.get_account_limits = AsyncMock(return_value=AccountLimits())
     return client
 
 

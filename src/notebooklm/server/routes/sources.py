@@ -33,7 +33,9 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Respon
 from pydantic import BaseModel
 
 from ..._app import source_add as add_core
+from ..._app import source_capacity as capacity_core
 from ..._app import source_content as content_core
+from ..._app import source_listing as listing_core
 from ..._app import source_mutations as mut_core
 from ..._app import source_wait as wait_core
 from ..._app.source_batch import MAX_BATCH_URLS, batch_item_is_fatal
@@ -224,10 +226,16 @@ async def list_sources(
     to the full collection under ``sources`` (unchanged); supply ``?limit=`` to
     slice and add a ``meta`` block, ``?offset=`` to page forward.
     """
-    sources = await client.sources.list(notebook_id)
+    snapshot = await listing_core.fetch_sources_with_capacity(client, notebook_id)
+    sources = snapshot.sources
     data = [source_view(s) for s in sources]
     return paginate_envelope(
-        data, key="sources", limit=limit, offset=offset, notebook_id=notebook_id
+        data,
+        key="sources",
+        limit=limit,
+        offset=offset,
+        notebook_id=notebook_id,
+        **snapshot.capacity.to_dict(),
     )
 
 
@@ -461,7 +469,8 @@ async def add_batch(
     SEQUENTIALLY (concurrent bulk writes
     invite backend rate-limiting) with ``source_type="url"`` so the http/https
     SSRF guard runs per item. Results are positional (``results[i]`` ↔
-    ``urls[i]``).
+    ``urls[i]``). One live capacity snapshot is advanced after every successful
+    result, avoiding per-item quota reads and stale-list over-admission.
 
     The top-level ``status`` is ``"added"`` once at least one source was added,
     else ``"error"`` (every item failed) — so the envelope can't claim success
@@ -475,6 +484,7 @@ async def add_batch(
     # swallowed into a 201-all-errored body. Letting it raise here routes it
     # through the normal classify → 404 / 401 contract.
     await client.notebooks.get(notebook_id)
+    capacity = await capacity_core.get_source_capacity(client, notebook_id)
     results: list[dict[str, Any]] = []
     for entry in body.urls:
         try:
@@ -489,7 +499,9 @@ async def add_batch(
                 allow_internal=body.allow_internal,
             )
             result = await add_core.execute_source_add(
-                client, add_core.SourceAddExecutionPlan(notebook_id=notebook_id, plan=plan)
+                client,
+                add_core.SourceAddExecutionPlan(notebook_id=notebook_id, plan=plan),
+                capacity=capacity,
             )
         except Exception as exc:  # noqa: BLE001 - per-item isolation; CancelledError still propagates
             # Re-raise service/infra failures (auth / rate-limit / server /
@@ -503,6 +515,7 @@ async def add_batch(
             # carries no raw exception/stack detail (CodeQL information-exposure).
             results.append({"input": entry, "status": "error", "error": error_item(exc)})
         else:
+            capacity = capacity.after_add(result.source)
             pending.record(notebook_id, result.source.id)
             view = source_view(result.source)
             results.append(
