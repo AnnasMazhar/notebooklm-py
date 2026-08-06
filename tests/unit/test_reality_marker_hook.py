@@ -17,14 +17,14 @@ class _Config:
             hasplugin=lambda name: xdist and name == "xdist",
         )
 
-    def getoption(self, name: str) -> bool:
+    def getoption(self, name: str, default=None) -> bool:
         if name == "--require-reality":
             return self.required
         if name == "numprocesses":
             return 2 if self.pluginmanager.hasplugin("xdist") else None
         if name == "dist":
             return "loadfile" if self.pluginmanager.hasplugin("xdist") else "no"
-        raise AssertionError(name)
+        return default
 
 
 def _item(nodeid: str, *markers: str) -> SimpleNamespace:
