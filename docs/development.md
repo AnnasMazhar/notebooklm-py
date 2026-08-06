@@ -266,14 +266,22 @@ left on disk after release — both lock implementations reuse them).
 
 Design notes:
 
-- **Three layered storage locks (not one), all keyed on `canonical_storage_key`.**
-  The `.lock`, `.rotate.lock`, and `.refresh.lock` files protect the *same*
-  `storage_state.json` but serve different access patterns: a full-replace
-  write must not block — or be blocked by — a best-effort rotation poke or a
-  refresh-cmd subprocess. Keeping them separate prevents any one from queueing
-  behind another. All three canonicalize the storage path first
-  (`_auth/paths.py::canonical_storage_key`), so relative/symlinked/`~`-expanded
-  spellings of one profile collapse onto the same lock instead of fragmenting.
+- **Three layered storage locks (not one).** The `.lock`, `.rotate.lock`, and
+  `.refresh.lock` files protect the *same* `storage_state.json` but serve
+  different access patterns: a full-replace write must not block — or be
+  blocked by — a best-effort rotation poke or a refresh-cmd subprocess.
+  Keeping them separate prevents any one from queueing behind another.
+- **Only the rotation and refresh-cmd locks canonicalize their path.** The
+  rotate (`.rotate.lock`) and refresh-cmd (`.refresh.lock`) sentinels are
+  derived from `_auth/paths.py::canonical_storage_key`, so relative /
+  symlinked / `~`-expanded spellings of one profile collapse onto the same
+  lock. The main `.storage_state.json.lock` does **not**: `storage_writer`'s
+  writers (`merge_cookie_delta` and the full-replace intents) derive
+  `_storage_state_lock_path` from the caller's raw path, so two processes
+  reaching the same file through different path spellings (e.g. a symlink vs.
+  its resolved target) can take different main-write locks and race. Callers
+  are expected to reach a profile's storage file through one consistent path
+  (`paths.py`'s resolvers), which holds in every in-tree call site today.
 - **Per-intent fail-open/fail-closed split ([ADR-0029](adr/0029-canonical-storage-writer.md)).**
   The cookie CAS merge and the rotation/refresh-cmd pokes fail **open** on lock
   infrastructure failure (read-only home dir, NFS without `flock`, permission

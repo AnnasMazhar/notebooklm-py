@@ -59,9 +59,12 @@ fully-automatic layer that revives a fully-expired session with no browser.**
 L3 it needs no browser at refresh time, and unlike L5/L6 it is fully automatic.
 One durable master token — one human sign-in, then good for months — re-mints web
 cookies on demand and self-heals an expired session in-process, coalesced across
-event loops and processes through the `single_flight` core
-([ADR-0030](adr/0030-one-recovery-ladder.md)); live mid-session RPCs keep their
-own, deliberately untouched `AuthRefreshCoordinator` single-flight. See
+event loops **within one process** through the `single_flight` core
+([ADR-0030](adr/0030-one-recovery-ladder.md)) — re-mint rungs deliberately take
+no cross-process flock, so concurrent processes each still re-mint their own
+session (unlike the L5 refresh-cmd rung, §6.2, which is cross-process
+serialized); live mid-session RPCs keep their own, deliberately untouched
+`AuthRefreshCoordinator` single-flight. See
 [§4.4](#44-l4--master-token-re-mint) and
 [ADR-0023](adr/0023-master-token-headless-auth.md).
 

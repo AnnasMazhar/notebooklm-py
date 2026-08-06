@@ -452,10 +452,15 @@ omits the large report by default — pass `include_report=true` to fetch it onc
 
 `research_import` is timeout-tolerant: a deep import that times out is reconciled
 against what the server actually committed (rather than reported as if nothing
-imported). It's also idempotent: sources already present (matched by URL) are
-skipped and reported as `already_present` rather than re-added — re-importing
-the same task is safe to retry. Pass `allow_duplicate=true` to re-add them
-anyway. Pass `cited_only=true` to import only the sources the report cites, or
+imported). It's also idempotent — unless `allow_duplicate=true`, sources already
+present (matched by URL) are skipped and reported as `already_present` rather
+than re-added, so re-importing the same task is normally safe to retry. That
+pre-filter needs a successful pre-import source-list snapshot: if the baseline
+`sources.list` call itself fails (network/RPC error), the import proceeds
+without it, and a retry in that state can re-add already-present sources.
+Entries with no dedupable URL (report-only / pasted-text sources) are always
+imported regardless. Pass `allow_duplicate=true` to skip the pre-filter and
+re-add matching sources anyway. Pass `cited_only=true` to import only the sources the report cites, or
 `max_sources=N` to cap how many are imported (applied after `cited_only`) so one
 call can't blow the notebook's source cap.
 

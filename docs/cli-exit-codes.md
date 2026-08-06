@@ -15,9 +15,9 @@ rationale for the post-parse `ClickException` rules called out below.
 
 For the canonical implementation, see the `handle_errors` context manager in
 [`src/notebooklm/cli/error_handler.py`](../src/notebooklm/cli/error_handler.py)
-— the policy table lives in its docstring and the `KeyboardInterrupt` clause
-sits immediately below (at the time of writing, around lines 215-218 and :232;
-rely on the symbol names rather than the line numbers if they drift).
+— the policy table lives in its docstring (around lines 215-218 at the time of
+writing) and the `KeyboardInterrupt` clause sits a few lines below it (around
+line 232); rely on the symbol names rather than the line numbers if they drift.
 
 ## Standard exit codes
 
