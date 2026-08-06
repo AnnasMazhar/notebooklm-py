@@ -61,7 +61,10 @@ async def test_mcp_notebook_list_crosses_adapter_to_client_boundary() -> None:
     assert isinstance(notebooks, list) and notebooks
     assert isinstance(notebooks[0], dict)
     assert notebooks[0]["id"] == "f66923f0-1df4-4ffe-9822-3ed63c558b1c"
-    assert notebooks[0]["title"] == "GENERATION: Claude Code Deep Dive: Skills, Agents, Commands & Plugins"
+    assert (
+        notebooks[0]["title"]
+        == "GENERATION: Claude Code Deep Dive: Skills, Agents, Commands & Plugins"
+    )
 
 
 @pytest.mark.asyncio

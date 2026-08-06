@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+import notebooklm.config as notebooklm_config
+
 pytestmark = pytest.mark.repo_lint
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -62,6 +64,11 @@ def _class(*, members: dict | None = None, signature: dict | None = None) -> dic
         "members": members or {},
         "enum_members": {},
     }
+
+
+def _constant(value_repr: str) -> dict:
+    """A value-tracked module constant entry (VALUE_TRACKED_CONSTANTS)."""
+    return {"kind": "str", "signature": None, "constant_value": value_repr}
 
 
 def _manifest(exports: dict) -> dict:
@@ -425,6 +432,83 @@ def test_compare_manifests_detects_enum_value_change(script):
 
     assert [item.code for item in breaks] == ["changed-enum-value"]
     assert breaks[0].object == "notebooklm.SourceType.PDF"
+
+
+def test_compare_manifests_detects_changed_constant_value(script):
+    """A value-tracked constant rebound to a different value is a reviewable break.
+
+    Before this, a public constant carried only its ``kind`` into the manifest, so
+    repointing ``DEFAULT_BASE_URL`` at a different host compared as "str vs str" —
+    identical — and the audit stayed green through the host flip.
+    """
+    baseline = _manifest({"DEFAULT_BASE_URL": _constant("'https://old.example'")})
+    current = _manifest({"DEFAULT_BASE_URL": _constant("'https://new.example'")})
+
+    breaks = script.compare_manifests(baseline, current)
+
+    assert [item.code for item in breaks] == ["changed-constant-value"]
+    assert breaks[0].object == "notebooklm.DEFAULT_BASE_URL"
+    assert "old.example" in breaks[0].detail and "new.example" in breaks[0].detail
+
+
+def test_compare_manifests_ignores_untracked_constant(script):
+    """Only names in ``VALUE_TRACKED_CONSTANTS`` carry a fingerprint.
+
+    Both sides lack ``constant_value``, so nothing is compared — adding or removing
+    a name from the tracked set must not fire a break by itself.
+    """
+    baseline = _manifest({"SOME_CONSTANT": {"kind": "str"}})
+    current = _manifest({"SOME_CONSTANT": {"kind": "str"}})
+
+    assert script.compare_manifests(baseline, current) == []
+
+
+def test_compare_manifests_ignores_one_sided_constant_fingerprint(script):
+    """Newly tracking a constant is not itself a break.
+
+    The baseline predates the name being tracked, so only one side has a
+    fingerprint and there is nothing to compare against.
+    """
+    baseline = _manifest({"DEFAULT_BASE_URL": {"kind": "str"}})
+    current = _manifest({"DEFAULT_BASE_URL": _constant("'https://new.example'")})
+
+    assert script.compare_manifests(baseline, current) == []
+
+
+def test_collect_manifest_captures_tracked_constant_values(script):
+    """The tracked cookie-domain / host constants really do carry a fingerprint."""
+    manifest = script.collect_manifest(REPO_ROOT)
+
+    config_exports = manifest["modules"]["notebooklm.config"]["exports"]
+    assert config_exports["DEFAULT_BASE_URL"]["constant_value"] == repr(
+        notebooklm_config.DEFAULT_BASE_URL
+    )
+
+    auth_exports = manifest["modules"]["notebooklm.auth"]["exports"]
+    required = auth_exports["REQUIRED_COOKIE_DOMAINS"]["constant_value"]
+    assert ".google.com" in required
+    # Untracked public exports stay fingerprint-free — the capture is opt-in.
+    assert "constant_value" not in auth_exports["AuthTokens"]
+
+
+def test_collect_manifest_constant_fingerprint_is_hash_seed_stable(script, monkeypatch):
+    """Set/dict fingerprints must not depend on PYTHONHASHSEED.
+
+    ``REQUIRED_COOKIE_DOMAINS`` is a frozenset, and each collection runs in a fresh
+    subprocess. A raw ``repr()`` would order its members by hash and differ between
+    the baseline run and the current run, reporting a break on every invocation
+    while the value never changed.
+    """
+
+    def _tracked_constants(seed: str) -> dict[str, str]:
+        monkeypatch.setenv("PYTHONHASHSEED", seed)
+        exports = script.collect_manifest(REPO_ROOT)["modules"]["notebooklm.auth"]["exports"]
+        return {
+            name: exports[name]["constant_value"]
+            for name in script.VALUE_TRACKED_CONSTANTS["notebooklm.auth"]
+        }
+
+    assert _tracked_constants("1") == _tracked_constants("2")
 
 
 def test_compare_manifests_detects_removed_enum_member(script):
