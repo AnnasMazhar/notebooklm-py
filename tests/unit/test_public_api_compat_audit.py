@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import sys
@@ -509,6 +510,63 @@ def test_collect_manifest_constant_fingerprint_is_hash_seed_stable(script, monke
         }
 
     assert _tracked_constants("1") == _tracked_constants("2")
+
+
+def _stable_value_repr(script):
+    """Return the real ``stable_value_repr`` from the collector source.
+
+    The function lives inside the ``_COLLECTOR`` script that the audit runs in a
+    subprocess, so it is not an attribute of the loaded module. Lift the actual
+    function definition out of that source rather than re-implementing it here —
+    a copy would happily keep passing after the shipped one regressed.
+    """
+    tree = ast.parse(script._COLLECTOR)
+    node = next(
+        item
+        for item in tree.body
+        if isinstance(item, ast.FunctionDef) and item.name == "stable_value_repr"
+    )
+    namespace: dict = {}
+    exec(compile(ast.Module(body=[node], type_ignores=[]), "<collector>", "exec"), namespace)
+    return namespace["stable_value_repr"]
+
+
+def test_stable_value_repr_is_order_insensitive_for_containers(script):
+    """Set and dict members render sorted, so iteration order cannot leak in."""
+    stable_value_repr = _stable_value_repr(script)
+
+    assert stable_value_repr(frozenset({"b", "a"})) == stable_value_repr(frozenset({"a", "b"}))
+    assert stable_value_repr({"b": 1, "a": 2}) == stable_value_repr({"a": 2, "b": 1})
+    # Sequences keep their order — reordering a public tuple IS a change.
+    assert stable_value_repr(("a", "b")) != stable_value_repr(("b", "a"))
+
+
+def test_stable_value_repr_distinguishes_container_types(script):
+    """A ``frozenset`` and a ``set`` with equal members must not fingerprint alike.
+
+    Swapping the container of a published constant is a real contract change —
+    a ``set`` lets callers mutate the library's own state — so an untagged
+    ``{...}`` rendering (which also collides with an empty dict) would let it pass
+    as no change.
+    """
+    stable_value_repr = _stable_value_repr(script)
+
+    assert stable_value_repr(frozenset({"a"})) != stable_value_repr({"a"})
+    assert stable_value_repr(frozenset()) != stable_value_repr({})
+    # Nested, too: the members are equal, only the inner container type differs.
+    assert stable_value_repr({"k": frozenset({"a"})}) != stable_value_repr({"k": {"a"}})
+
+
+def test_compare_manifests_detects_nested_container_type_change(script):
+    """The nested change above reaches ``compare_manifests`` as a break."""
+    stable_value_repr = _stable_value_repr(script)
+    baseline = _manifest({"TIERS": _constant(stable_value_repr({"k": frozenset({"a"})}))})
+    current = _manifest({"TIERS": _constant(stable_value_repr({"k": {"a"}}))})
+
+    breaks = script.compare_manifests(baseline, current)
+
+    assert [item.code for item in breaks] == ["changed-constant-value"]
+    assert breaks[0].object == "notebooklm.TIERS"
 
 
 def test_compare_manifests_detects_removed_enum_member(script):

@@ -66,6 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot fingerprint differently under a different `PYTHONHASHSEED` — and a change
   surfaces as a `changed-constant-value` break requiring an allowlist entry. The
   three real changes above are recorded there now rather than being invisible.
+
+- **`NOTEBOOKLM_AUTH_JSON` is now read through a single helper.** The env var was
   checked at ~7 auth-layer call sites that had drifted on
   presence-vs-truthiness (the #2057 / #2083 class of bug, where a *set-but-empty*
   value fell through to a profile file at some sites and raised at others). All

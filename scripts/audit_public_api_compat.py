@@ -313,15 +313,21 @@ def kind_of(obj) -> str:
 # script that runs in a subprocess, so a triple-quoted string here would end it.)
 def stable_value_repr(value) -> str:
     if isinstance(value, (frozenset, set)):
-        return "{" + ", ".join(sorted(stable_value_repr(item) for item in value)) + "}"
+        # Tag the container type: a bare "{...}" would render a set, a frozenset
+        # and an empty dict identically, so swapping a public constant's container
+        # (frozenset -> set makes it mutable by callers) would fingerprint as no
+        # change at all.
+        rendered = ", ".join(sorted(stable_value_repr(item) for item in value))
+        label = "frozenset" if isinstance(value, frozenset) else "set"
+        return f"{label}({{{rendered}}})"
     if isinstance(value, dict):
         return (
-            "{"
+            "dict({"
             + ", ".join(
                 f"{key!r}: {stable_value_repr(item)}"
                 for key, item in sorted(value.items(), key=lambda kv: repr(kv[0]))
             )
-            + "}"
+            + "})"
         )
     if isinstance(value, (list, tuple)):
         # Order IS meaningful for sequences — render in place.
