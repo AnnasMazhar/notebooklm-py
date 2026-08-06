@@ -295,8 +295,11 @@ def register(mcp: Any) -> None:
                 "report_truncated": report_truncated,
             }
             # Explanation + remediation for a run that did not succeed (#1964).
-            # Added only when populated, so a successful poll's payload is
-            # unchanged (matching the ``cancelled`` / ``deprecation`` keys).
+            # Conditional, matching the ``cancelled`` / ``deprecation`` keys, so
+            # a successful poll carries no empty explanation. (``status_code``
+            # and ``termination_reason`` above are unconditional — a successful
+            # payload does gain ``termination_reason: "completed"``, which is
+            # additive but visible to an exact-shape consumer.)
             if result.reason_message is not None:
                 payload["reason_message"] = result.reason_message
             if result.hint is not None:

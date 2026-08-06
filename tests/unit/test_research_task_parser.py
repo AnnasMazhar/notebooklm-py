@@ -362,10 +362,26 @@ class TestExtractSourceType:
         cannot masquerade as the web (1) tag."""
         with caplog.at_level(logging.WARNING):
             assert _extract_source_type([None, ["query", True], None, [], 2]) is None
+        assert "task_info[1][1] is not an int source tag" in caplog.text
 
     def test_none_when_tag_is_non_int(self, caplog):
         with caplog.at_level(logging.WARNING):
             assert _extract_source_type([None, ["query", "drive"], None, [], 2]) is None
+        assert "task_info[1][1] is not an int source tag" in caplog.text
+
+    def test_absent_tag_is_not_warned(self, caplog):
+        """A query block that simply omits the tag is normal, not drift — it
+        must degrade silently rather than logging a warning on every poll."""
+        with caplog.at_level(logging.WARNING):
+            assert _extract_source_type([None, ["query"], None, [], 2]) is None
+        assert caplog.text == ""
+
+    def test_absent_query_block_raises_like_query_text(self):
+        """``task_info[1]`` is a guaranteed descent, so its absence is drift and
+        raises — the same contract ``_extract_query_text`` has (only the TAG
+        inside the block is advisory)."""
+        with pytest.raises(UnknownRPCMethodError):
+            _extract_source_type([None])
 
 
 class TestTerminationReason:
@@ -410,8 +426,8 @@ class TestTerminationReason:
         assert "the web" in task.reason_message
 
     def test_cancelled_run_is_distinguished_from_no_results(self):
-        """A cancelled deep run reports code 4 — the distinction that makes
-        mapping code 3 to ``no_results`` safe."""
+        """A cancelled deep run reports code 4, a distinct code from the 3 seen
+        on an empty Drive search — the observation that separates the two."""
         task_info = [None, ["battery electrolytes", 1], 1, None, 4]
         task = parse_research_task_models([[["task_c", task_info]]])[0]
         assert task.status == "failed"
@@ -441,6 +457,9 @@ class TestTerminationReason:
         assert task.status == "failed"
         assert task.termination_reason == "unknown"
         assert "99" in task.reason_message
+        # Must not assert the run ENDED — an unrecognised code could be a
+        # future non-terminal state; report only what was observed.
+        assert "reported an unrecognised" in task.reason_message
         assert task.hint is not None
 
     def test_missing_status_code_yields_no_reason(self):
@@ -453,15 +472,44 @@ class TestTerminationReason:
         assert task.reason_message is None
         assert task.hint is None
 
-    def test_missing_source_tag_still_produces_a_message(self):
-        """A drifted/absent source tag must not suppress the explanation — it
-        only falls back to the source-agnostic wording."""
+    def test_missing_source_tag_falls_back_to_source_agnostic_wording(self):
+        """A drifted/absent source tag must not suppress the explanation, and
+        must NOT be narrated as a web search — we simply do not know which
+        corpus was searched."""
         task_info = [None, ["query"], 1, None, 3]
         task = parse_research_task_models([[["task_d", task_info]]])[0]
         assert task.source_type is None
         assert task.is_drive_search is False
+        assert task.is_web_search is False
         assert task.termination_reason == "no_results"
-        assert task.reason_message is not None
+        assert task.reason_message == "The search found no matches for 'query'."
+        assert "the web" not in task.reason_message
+        assert "Google Drive" not in task.reason_message
+        # The generic query advice is true either way; Drive-specific advice
+        # would not be.
+        assert task.hint == "Try a broader or differently-worded query."
+
+    def test_unrecognised_source_tag_is_not_narrated_as_web(self):
+        """An unknown tag is preserved verbatim for diagnostics but never
+        *interpreted* as one of the two known corpora."""
+        task_info = [None, ["query", 99], 1, None, 3]
+        task = parse_research_task_models([[["task_e", task_info]]])[0]
+        assert task.source_type == 99
+        assert task.is_drive_search is False
+        assert task.is_web_search is False
+        assert "the web" not in task.reason_message
+        assert "Google Drive" not in task.reason_message
+
+    def test_no_results_code_with_sources_degrades_to_unknown(self):
+        """Defensive: three live captures are evidence, not proof. If code 3
+        ever arrives WITH sources, reporting "found no matches" beside those
+        matches would be self-contradictory — fall back to ``unknown``."""
+        sources = [["https://example.com", "A result", "desc", 2]]
+        task_info = [None, ["query", 2], 1, [sources, "summary"], 3]
+        task = parse_research_task_models([[["task_f", task_info]]])[0]
+        assert len(task.sources) == 1
+        assert task.termination_reason == "unknown"
+        assert "no matches" not in task.reason_message
 
     def test_placeholder_tasks_have_no_reason(self):
         assert ResearchTask.empty().termination_reason is None

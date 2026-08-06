@@ -50,9 +50,11 @@ RESEARCH_SOURCE_TYPE_DRIVE = 2
 #   2  fast web + fast drive runs that returned sources
 #   3  drive runs whose query matched no Drive file — reproduced 3x with
 #      distinct queries, always with an empty ``[None, None, None, None, 1]``
-#      sources bundle and zero sources. Never observed on a web run: a web
-#      search with the same gibberish query still returned code 2 with
-#      loosely-related results, so 3 is Drive's genuine "no matches" signal.
+#      sources bundle and zero sources. Not seen on a web run in these probes:
+#      a web search with the same gibberish query still returned code 2 with
+#      loosely-related results. Three captures are strong evidence, not proof,
+#      that 3 means "no matches" — so the decode only asserts it inside the
+#      envelope it was observed in (see ``ResearchTask.termination_reason``).
 #   4  a deep run cancelled mid-flight via CANCEL_RESEARCH
 #   6  deep research completion (pre-existing knowledge, unchanged)
 #
@@ -80,16 +82,16 @@ class ResearchTerminationReason(str, Enum):
 
     ``UNKNOWN`` is the honest default for a terminal code this client has not
     live-captured: the run ended, we can't say why. It is distinct from
-    ``None`` (no code at all — the ``no_research`` / ``not_found``
-    placeholders), and from :attr:`FAILED`, which is not currently produced by
-    code mapping but is reserved for a code confirmed to mean a hard error.
+    ``None``, which means there was no code to map at all (the ``no_research``
+    / ``not_found`` placeholders, or a malformed row). There is deliberately no
+    generic ``FAILED`` member: the coarse :class:`ResearchStatus` already says
+    that much, so a member here would only restate it.
     """
 
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     NO_RESULTS = "no_results"
     CANCELLED = "cancelled"
-    FAILED = "failed"
     UNKNOWN = "unknown"
 
     def __str__(self) -> str:  # pragma: no cover - trivial
@@ -252,13 +254,42 @@ class ResearchTask:
         run (``CANCELLED``) and from a terminal code this client has not
         captured (``UNKNOWN``) — all three of which :attr:`status` flattens to
         ``FAILED``. ``None`` when the poll carried no code.
+
+        The ``NO_RESULTS`` mapping is only asserted inside the envelope it was
+        observed in — a code-3 row that nonetheless carries sources falls back
+        to ``UNKNOWN`` rather than reporting "found no matches" alongside the
+        matches it found. Three live captures are good evidence for what code 3
+        means, not proof, so the decode refuses to contradict itself.
         """
-        return termination_reason_from_code(self.status_code)
+        reason = termination_reason_from_code(self.status_code)
+        if reason == ResearchTerminationReason.NO_RESULTS and self.sources:
+            return ResearchTerminationReason.UNKNOWN
+        return reason
 
     @property
     def is_drive_search(self) -> bool:
-        """Whether this run searched Google Drive rather than the web."""
+        """Whether this run is KNOWN to have searched Google Drive."""
         return self.source_type == RESEARCH_SOURCE_TYPE_DRIVE
+
+    @property
+    def is_web_search(self) -> bool:
+        """Whether this run is KNOWN to have searched the web."""
+        return self.source_type == RESEARCH_SOURCE_TYPE_WEB
+
+    @property
+    def _searched_label(self) -> str | None:
+        """Name of the searched corpus, or ``None`` when the tag is unknown.
+
+        Deliberately tri-state. ``source_type`` is preserved verbatim (an
+        unrecognised int is kept for diagnostics, as ``status_code`` is), but
+        only the two live-captured tags are *interpreted* — anything else, and
+        the absent-tag case, must not be silently narrated as a web search.
+        """
+        if self.is_drive_search:
+            return "Google Drive"
+        if self.is_web_search:
+            return "the web"
+        return None
 
     @property
     def reason_message(self) -> str | None:
@@ -273,16 +304,18 @@ class ResearchTask:
             ResearchTerminationReason.IN_PROGRESS,
         ):
             return None
-        where = "Google Drive" if self.is_drive_search else "the web"
+        where = self._searched_label
         quoted = f" for {self.query!r}" if self.query else ""
         if reason == ResearchTerminationReason.NO_RESULTS:
-            return f"The search of {where} found no matches{quoted}."
+            scope = f" of {where}" if where else ""
+            return f"The search{scope} found no matches{quoted}."
         if reason == ResearchTerminationReason.CANCELLED:
             return f"The research run{quoted} was cancelled before it completed."
-        if reason == ResearchTerminationReason.FAILED:
-            return f"The research run{quoted} failed."
+        # Deliberately does NOT assert the run ended: an unrecognised code may
+        # turn out to be a future non-terminal state, so report only what was
+        # actually observed.
         return (
-            f"The research run{quoted} ended with an unrecognised backend status "
+            f"The research run{quoted} reported an unrecognised backend status "
             f"code ({self.status_code})."
         )
 
@@ -301,11 +334,13 @@ class ResearchTask:
                     "Try the exact Drive filename, the document URL, or add the "
                     "document directly by its document id."
                 )
+            # Correct for a web search, and the safe advice when the search
+            # source is unknown — never Drive-specific on an unknown tag.
             return "Try a broader or differently-worded query."
         if reason == ResearchTerminationReason.CANCELLED:
             return "Start a new research run if you still need these sources."
-        if reason in (ResearchTerminationReason.FAILED, ResearchTerminationReason.UNKNOWN):
-            return "Retry the run; if it keeps ending this way, try a different query."
+        if reason == ResearchTerminationReason.UNKNOWN:
+            return "Poll again; if the status persists, start a new run."
         return None
 
     @classmethod

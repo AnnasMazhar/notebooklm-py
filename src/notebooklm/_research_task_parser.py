@@ -117,9 +117,16 @@ def _extract_source_type(task_info: Any) -> int | None:
     """Return the search-source tag at ``task_info[1][1]`` (1=web, 2=drive), else ``None``.
 
     Read for issue #1964 so a terminal run can carry source-specific
-    remediation guidance. Purely advisory — an absent or drifted tag degrades
-    to ``None`` (the hint falls back to its source-agnostic wording) rather
-    than failing the parse.
+    remediation guidance. The TAG is purely advisory: absent, non-int, or
+    drifted, it degrades to ``None`` and the hint falls back to its
+    source-agnostic wording.
+
+    The enclosing ``task_info[1]`` block is not advisory, though — it is the
+    same guaranteed descent :func:`_extract_query_text` makes, so an absent
+    slot raises ``UnknownRPCMethodError`` from :func:`safe_index` exactly as it
+    does there. In the parse loop that is unreachable in practice, since
+    ``_extract_query_text`` runs first on the same ``task_info`` and raises for
+    the identical input.
     """
     query_info = safe_index(task_info, 1, method_id=_POLL_METHOD_ID, source=_POLL_SOURCE)
     if not isinstance(query_info, list):

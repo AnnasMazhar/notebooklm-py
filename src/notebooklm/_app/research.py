@@ -150,7 +150,10 @@ async def poll_importable_research(
 
     * ``not_found`` — the pinned run is not among the polled runs (nothing to
       import; the typed ``NOT_FOUND`` sentinel, not a fallback to the current run);
-    * ``failed`` — the run will not complete;
+    * ``failed`` — the run produced no importable sources. The raised message
+      names WHY when the poll carried a termination reason (a Drive search that
+      matched nothing reads very differently from a cancelled or broken run —
+      issue #1964), falling back to the generic wording when it did not;
     * any non-``completed`` status (e.g. ``in_progress`` / ``no_research``) —
       only a completed run has a final source set;
     * ``completed`` with no sources — refuse the silent empty import.
@@ -354,6 +357,12 @@ class ResearchWaitResult:
     sources: list[dict[str, Any]] = field(default_factory=list)
     report: str = ""
     import_result: ResearchImportLike | None = None
+    # Why a ``failed`` wait ended, plus its remediation (issue #1964). Carried
+    # so the CLI can say "your Drive query matched nothing, try the filename"
+    # instead of a bare "Research failed"; ``None`` on success and whenever the
+    # poll carried no termination reason.
+    reason_message: str | None = None
+    hint: str | None = None
 
     @property
     def sources_count(self) -> int:
@@ -469,13 +478,22 @@ async def execute_research_wait(
 
     if status_val == "no_research":
         return _terminal("no_research")
+    # Both non-success exits carry the differentiated reason (#1964) so the
+    # renderer never has to show a bare "Research failed".
+    failure_detail: dict[str, Any] = {
+        "query": query,
+        "sources": sources,
+        "report": report,
+        "reason_message": status.reason_message,
+        "hint": status.hint,
+    }
     if status_val == "failed":
-        return _terminal("failed", query=query, sources=sources, report=report)
+        return _terminal("failed", **failure_detail)
 
     # wait_for_completion only returns completed/no_research/failed; keep a
     # narrow fallback so future terminal statuses cannot be rendered as success.
     if status_val != "completed":
-        return _terminal("failed", query=query, sources=sources, report=report)
+        return _terminal("failed", **failure_detail)
 
     import_result: ResearchImportLike | None = None
     if plan.import_all and sources and task_id:

@@ -111,6 +111,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Research that finds nothing is no longer an undifferentiated `failed`.** A
+  Google Drive research run whose query matched no file came back as
+  `status: failed` with no sources, no code, no message and no remediation —
+  indistinguishable from a genuine error, so a caller could not tell "refine the
+  query" from "fix permissions" or "back off" (issue #1964). The backend status
+  codes were live-captured against the serving API and are now documented in
+  `docs/rpc-reference.md`: `1` in-flight, `2` completed, `3` no matches (observed
+  only on Drive), `4` cancelled, `6` completed (deep). `ResearchTask` gains a
+  `termination_reason` (`no_results` / `cancelled` / `completed` / `in_progress`
+  / `unknown`) plus a `reason_message` and a source-specific `hint` — an empty
+  Drive search now suggests the exact filename, document URL, or document id,
+  while an empty web search suggests broadening the query. The coarse `status`
+  field is **unchanged**, so existing `status == "failed"` checks keep working;
+  an unrecognised terminal code maps to `unknown` rather than being guessed at.
+  The MCP `research_status` tool surfaces all three fields (and now reports a
+  cancelled run from the wire code alone, so a cancel from another process — or
+  from before a server restart — is still reported honestly), and
+  `research_import`'s refusal message no longer tells you to "start a new
+  research session" when your query simply matched nothing.
+
 - **`NOTEBOOKLM_AUTH_JSON` now beats a profile everywhere, as documented.** The
   precedence `--storage` > `NOTEBOOKLM_AUTH_JSON` > profile file is stated in
   `docs/configuration.md`, drawn in `docs/architecture.md`, and implemented by

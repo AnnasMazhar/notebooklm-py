@@ -22,7 +22,11 @@ from fastmcp import Client  # noqa: E402 - after importorskip guard
 from fastmcp.exceptions import ToolError  # noqa: E402 - after importorskip guard
 
 from notebooklm import ResearchStartUnavailableError  # noqa: E402 - after importorskip guard
-from notebooklm.types import ResearchTask  # noqa: E402 - after importorskip guard
+from notebooklm.types import (  # noqa: E402 - after importorskip guard
+    ResearchSource,
+    ResearchStatus,
+    ResearchTask,
+)
 
 from .conftest import AsyncMock  # noqa: E402 - after importorskip guard
 
@@ -73,14 +77,37 @@ class FakeResearchTask:
     status_code: int | None = None
     source_type: int | None = None
 
-    # Reuse the REAL derivations (#1964) rather than restating them: these
-    # properties read only ``status_code`` / ``source_type`` / ``query``, all of
-    # which this fake carries, so the fake cannot drift from the shipped
-    # reason/message/hint logic the tool depends on.
-    is_drive_search = ResearchTask.is_drive_search
-    termination_reason = ResearchTask.termination_reason
-    reason_message = ResearchTask.reason_message
-    hint = ResearchTask.hint
+    # Delegate the #1964 derivations to a REAL ``ResearchTask`` rather than
+    # restating them here, so this fake cannot drift from the shipped
+    # reason/message/hint logic the tool depends on. Delegation (not
+    # class-attribute aliasing of each property) keeps working when the real
+    # model grows an internal helper the derivations call.
+    @property
+    def _derived(self) -> ResearchTask:
+        """Real model carrying exactly the inputs the derivations read."""
+        return ResearchTask(
+            task_id=self.task_id,
+            # Not read by any derived property, but a real value keeps the
+            # model valid if that ever changes.
+            status=ResearchStatus.FAILED,
+            query=self.query,
+            # Only emptiness matters (the code-3-with-sources guard).
+            sources=tuple(ResearchSource(url=s.url, title=s.title) for s in self.sources),
+            status_code=self.status_code,
+            source_type=self.source_type,
+        )
+
+    @property
+    def termination_reason(self) -> Any:
+        return self._derived.termination_reason
+
+    @property
+    def reason_message(self) -> str | None:
+        return self._derived.reason_message
+
+    @property
+    def hint(self) -> str | None:
+        return self._derived.hint
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
