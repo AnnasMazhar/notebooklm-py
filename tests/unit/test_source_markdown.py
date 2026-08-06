@@ -54,6 +54,12 @@ def test_simple_math_emphasis_overlap_is_repaired() -> None:
     assert output == "$x = y$"
 
 
+def test_math_asterisks_without_emphasis_are_preserved() -> None:
+    output = html_to_markdown("<p>$a**b$</p>")
+
+    assert output == "$a**b$"
+
+
 @pytest.mark.parametrize(
     ("html", "expected"),
     [

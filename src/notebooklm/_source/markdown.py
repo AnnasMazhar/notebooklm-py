@@ -81,12 +81,14 @@ def _repair_mangled_math(text: str) -> str:
 
     def fix(match: re.Match[str]) -> str:
         body = match.group("body")
+        lead, trail = match.group("lead"), match.group("trail")
+        if not (lead or trail):
+            return match.group(0)
         if not (_has_math_signal(body) or _BOLD_RUN.search(body)):
             return match.group(0)
 
         body = body.replace("\\_", "_").replace("\\*", "*")
         body = _BOLD_RUN.sub("", body)
-        lead, trail = match.group("lead"), match.group("trail")
         if lead and trail:
             return f"{lead}${body}${trail}"
         return f"${body}$"
