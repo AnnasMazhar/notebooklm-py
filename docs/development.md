@@ -377,6 +377,62 @@ These are valuable release/CI guardrails but cost ~30–45s locally. See
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#fast-local-loop-skip-repo-wide-audit-checks)
 for the canonical fast-loop guidance.
 
+### Testing across boundaries and against reality
+
+The test pyramid has three distinct jobs:
+
+1. **Unit/component tests** use deterministic collaborators and synthetic
+   outputs to cover branches, error handling, and security contracts.
+2. **Composition/replay tests** cross the real in-process boundary, such as
+   CLI → client → RPC, REST → client → RPC, or MCP → client. VCR replay proves
+   that the recorded wire shape is handled; it does not prove that a fixture
+   reflects the current external service.
+3. **Reality probes** run an external executable or environment that production
+   code interprets. They are required for assumptions about subprocess output,
+   browser/tool availability, platform behavior, or third-party strings.
+
+Synthetic subprocess output is still appropriate for tier-1 tests. It is not
+evidence that the real executable emits that output. The initial runtime seam
+audit is intentionally bounded to production behavior that interprets external
+results:
+
+| Seam | Evidence/disposition |
+| --- | --- |
+| `NotebookLMClient.notebooks.list()` → RPC executor → decoder | `tests/integration/test_rpc_seam_matrix.py` asserts the RPC ID, encoded `f.req` envelope, CSRF form field, and typed adapter result; response RPC-ID drift fails through the same path. |
+| CLI `source list` → source service → client | `tests/unit/cli/test_source.py::TestSourceList::test_source_list_composes_cli_service_and_client_boundary` invokes the real Click command and verifies the client-backed result, so fabricated command output cannot pass. |
+| MCP `notebook_list` → app/client → RPC | `tests/integration/mcp_vcr/test_notebooks.py::test_mcp_notebook_list_crosses_adapter_to_client_boundary` drives an in-memory FastMCP client through the real client and an existing RPC cassette. |
+| REST `POST /v1/notebooks/{id}/sources/url` → source service → client | `tests/server/test_integration_real_client.py::TestRestSeamMatrix::test_url_add_crosses_rest_to_client_boundary` drives the real FastAPI route, client, decoder, and response projection through an existing cassette. |
+| `cli/services/playwright_login.py::ensure_chromium_installed` | The programmatic probe is checked against real Playwright, and a separate required Chromium launch smoke checks usability. |
+| Playwright launch/error classification | Synthetic classification tests remain valid; add a reality probe only when claiming a specific third-party message shape. |
+| `_auth/refresh.py` custom refresh command | Classification/security contract only; the command is operator-supplied, so there is no fixed third-party output contract. |
+| Auth refresh composition (`AuthRefreshCoordinator` → `NotebookLMClient.refresh_auth` → `_auth/session.py`) | `tests/unit/test_auth_refresh_seam.py` crosses the production assembly with a deterministic homepage response; the existing VCR test covers the stale-RPC → homepage-refresh → retry path. No live reality probe is used because it would require mutable authenticated external state and would not provide a stable CI contract. |
+| `_version_info.py` git lookup | Local-tool lookup with fallback behavior; synthetic and fallback tests are sufficient. |
+| `scripts/` subprocesses | Audited `audit_public_api_compat.py`, `regen_baselines.py`, and `audit_test_suite.py`: each invokes a local developer/CI tool, not a product boundary. Their wrappers are covered by `tests/unit/test_ci_audit_scripts.py` and related audit tests; no external-output reality probe is claimed. |
+
+The bounded MCP seam-matrix slice is
+[`tests/integration/mcp_vcr/test_notebooks.py::test_mcp_notebook_list_crosses_adapter_to_client_boundary`](../tests/integration/mcp_vcr/test_notebooks.py).
+It drives the in-memory FastMCP client through the registered MCP tool, the
+real `NotebookLMClient.notebooks.list()` service, RPC decoding, and the MCP
+structured-content projection. VCR replays the existing notebook-list
+recording, so this composition check uses no live credentials or network while
+still failing if the adapter bypasses or mis-wires the client boundary.
+
+The two Playwright probes are marked `reality` and named in the required-mode
+contract. In the browser-enabled CI lane, run them explicitly and serially:
+
+```bash
+uv run pytest tests/unit/cli/test_playwright_login_coverage.py \
+  -m reality --require-reality
+```
+
+`--require-reality` fails when an expected probe is missing, filtered out,
+skipped, xfailed, errors during setup/teardown, or does not produce exactly one
+passing call-phase result. Ordinary local runs retain actionable dependency
+skips. The required lane is deliberately serial and rejects xdist, because the
+controller must own complete collection and phase accounting. This distinction
+is deliberate: a skipped reality probe must never look like evidence that the
+external assumption was tested.
+
 ### Selecting a profile for E2E tests
 
 The E2E suite picks up the active NotebookLM profile from (highest precedence first):
