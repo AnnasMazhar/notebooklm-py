@@ -377,6 +377,47 @@ These are valuable release/CI guardrails but cost ~30–45s locally. See
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#fast-local-loop-skip-repo-wide-audit-checks)
 for the canonical fast-loop guidance.
 
+### Testing across boundaries and against reality
+
+The test pyramid has three distinct jobs:
+
+1. **Unit/component tests** use deterministic collaborators and synthetic
+   outputs to cover branches, error handling, and security contracts.
+2. **Composition/replay tests** cross the real in-process boundary, such as
+   CLI → client → RPC, REST → client → RPC, or MCP → client. VCR replay proves
+   that the recorded wire shape is handled; it does not prove that a fixture
+   reflects the current external service.
+3. **Reality probes** run an external executable or environment that production
+   code interprets. They are required for assumptions about subprocess output,
+   browser/tool availability, platform behavior, or third-party strings.
+
+Synthetic subprocess output is still appropriate for tier-1 tests. It is not
+evidence that the real executable emits that output. The initial runtime seam
+audit is intentionally bounded to production behavior that interprets external
+results:
+
+| Seam | Evidence/disposition |
+| --- | --- |
+| `cli/services/playwright_login.py::ensure_chromium_installed` | The programmatic probe is checked against real Playwright, and a separate required Chromium launch smoke checks usability. |
+| Playwright launch/error classification | Synthetic classification tests remain valid; add a reality probe only when claiming a specific third-party message shape. |
+| `_auth/refresh.py` custom refresh command | Classification/security contract only; the command is operator-supplied, so there is no fixed third-party output contract. |
+| `_version_info.py` git lookup | Local-tool lookup with fallback behavior; synthetic and fallback tests are sufficient. |
+| `scripts/` subprocesses | Test/release infrastructure, outside the product seam audit. |
+
+The two Playwright probes are marked `reality` and named in the required-mode
+contract. In the browser-enabled CI lane, run them explicitly and serially:
+
+```bash
+uv run pytest tests/unit/cli/test_playwright_login_coverage.py \
+  -m reality --require-reality
+```
+
+`--require-reality` fails when an expected probe is missing, filtered out,
+skipped, xfailed, errors during setup/teardown, or does not produce exactly one
+passing call-phase result. Ordinary local runs retain actionable dependency
+skips. This distinction is deliberate: a skipped reality probe must never look
+like evidence that the external assumption was tested.
+
 ### Selecting a profile for E2E tests
 
 The E2E suite picks up the active NotebookLM profile from (highest precedence first):
