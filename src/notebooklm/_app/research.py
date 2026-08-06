@@ -73,6 +73,15 @@ class ResearchStatusResult:
     # The MCP ``research_status`` tool surfaces it so an agent can distinguish
     # failure sub-codes the coarse ``status`` flattens into ``failed``.
     status_code: int | None = None
+    # Differentiated termination reason + remediation, derived from the raw
+    # code and the run's search source (issue #1964). ``termination_reason`` is
+    # the string value of ``ResearchTerminationReason`` (``no_results`` /
+    # ``cancelled`` / ``unknown`` / …) so adapters can serialize it directly;
+    # ``reason_message`` and ``hint`` are populated only for a run that did not
+    # succeed, so a caller never renders a bare ``failed`` with nothing to say.
+    termination_reason: str | None = None
+    reason_message: str | None = None
+    hint: str | None = None
 
 
 def _classify_status_kind(status_val: str) -> ResearchStatusKind:
@@ -104,6 +113,7 @@ async def poll_and_classify(
     # lowercase code the CLI render branches + the original status command keyed
     # off (matches ``execute_research_wait``'s ``status.status.value``).
     status_val = status.status.value
+    reason = status.termination_reason
     return ResearchStatusResult(
         kind=_classify_status_kind(status_val),
         status=status_val,
@@ -114,6 +124,9 @@ async def poll_and_classify(
         public_dict=status.to_public_dict(),
         task_id=status.task_id,
         status_code=status.status_code,
+        termination_reason=reason.value if reason is not None else None,
+        reason_message=status.reason_message,
+        hint=status.hint,
     )
 
 
@@ -162,6 +175,14 @@ async def poll_importable_research(
     # in_progress/no_research/failed snapshot would import a partial/empty set as
     # a "success" — refuse with an action-appropriate message.
     if status.status == "failed":
+        # A run that simply matched nothing is NOT a broken run, and telling the
+        # caller to "start a new research session" is the wrong remediation for
+        # it (issue #1964). Lead with the differentiated reason + its hint when
+        # the poll carried one, and keep the historical wording as the fallback
+        # for a failure we cannot name.
+        detail = " ".join(part for part in (status.reason_message, status.hint) if part)
+        if detail:
+            raise ValidationError(f"Research run {run_id!r} has no sources to import. {detail}")
         raise ValidationError(
             f"Research run {run_id!r} failed; it will not complete — start a new "
             "research session rather than polling."

@@ -177,17 +177,19 @@ def register(mcp: Any) -> None:
         """Check a notebook's research status. Accepts a notebook name or ID.
 
         Returns ``status`` (no_research|in_progress|completed|failed|not_found),
-        ``poll_task_id``, the ``sources``, and report metadata. Poll until
+        ``poll_task_id``, ``sources``, and report metadata. Poll until
         ``completed``, then pass ``poll_task_id`` to ``research_import``.
 
-        ``report`` and each source's ``report_markdown`` are omitted by default;
-        set ``include_report=True`` (optionally ``report_max_chars``) to include
-        them, truncated to that length. ``report_char_count`` is the full size;
-        ``report_truncated`` flags an omitted/truncated ``report``.
-        ``source_limit`` / ``source_offset`` page ``sources``.
+        ``termination_reason`` (no_results|cancelled|unknown) splits
+        ``failed`` into empty-search vs real error; see ``hint``.
 
-        ``poll_task_id`` (optional) pins one of several in-flight tasks; omit it
-        for a single task (ambiguous with two+ running). An unmatched pin reports
+        ``report`` and per-source ``report_markdown`` are omitted unless
+        ``include_report=True`` (truncated to ``report_max_chars``).
+        ``report_char_count`` is the full size; ``report_truncated`` flags an
+        omitted/truncated one. ``source_limit``/``source_offset`` page ``sources``.
+
+        ``poll_task_id`` (optional) pins one of several in-flight tasks; omit
+        for a single task (ambiguous with two+). An unmatched pin reports
         ``not_found``. ``task_id`` is a deprecated alias (removed in v0.9.0).
         """
         client = get_client(ctx)
@@ -237,6 +239,12 @@ def register(mcp: Any) -> None:
                 cancelled = hit and result.status == "failed"
                 for key in candidates:
                     intents.discard(key)
+            # The wire now corroborates the client-side tracker: a cancelled run
+            # carries its own status code (issue #1964), so a cancel issued by a
+            # different process — or before this server restarted, which loses
+            # the in-memory intent — is still reported honestly.
+            if result.termination_reason == "cancelled":
+                cancelled = True
 
             # Report content lives in TWO places — the top-level ``report`` AND
             # each source's ``report_markdown`` — so BOTH are gated by
@@ -271,6 +279,11 @@ def register(mcp: Any) -> None:
                 # ``None`` when the poll carried no code. Lets an agent tell a
                 # "no matches" failure sub-code from a genuine error.
                 "status_code": result.status_code,
+                # The named form of that code (#1964): ``no_results`` /
+                # ``cancelled`` / ``completed`` / ``in_progress`` / ``unknown``.
+                # An agent should branch on this rather than the coarse
+                # ``status``, which flattens every one of them into ``failed``.
+                "termination_reason": result.termination_reason,
                 "query": result.query,
                 "sources": windowed,
                 "sources_total": sources_total,
@@ -281,6 +294,13 @@ def register(mcp: Any) -> None:
                 "report_char_count": report_char_count,
                 "report_truncated": report_truncated,
             }
+            # Explanation + remediation for a run that did not succeed (#1964).
+            # Added only when populated, so a successful poll's payload is
+            # unchanged (matching the ``cancelled`` / ``deprecation`` keys).
+            if result.reason_message is not None:
+                payload["reason_message"] = result.reason_message
+            if result.hint is not None:
+                payload["hint"] = result.hint
             # Only annotate a failure known to be user-cancelled (F9, #1922);
             # absence means "not a tracked cancel", so a genuine failure stays
             # un-annotated.

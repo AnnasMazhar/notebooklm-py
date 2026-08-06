@@ -22,6 +22,7 @@ from fastmcp import Client  # noqa: E402 - after importorskip guard
 from fastmcp.exceptions import ToolError  # noqa: E402 - after importorskip guard
 
 from notebooklm import ResearchStartUnavailableError  # noqa: E402 - after importorskip guard
+from notebooklm.types import ResearchTask  # noqa: E402 - after importorskip guard
 
 from .conftest import AsyncMock  # noqa: E402 - after importorskip guard
 
@@ -70,6 +71,16 @@ class FakeResearchTask:
     report: str = ""
     task_id: str = TASK_ID
     status_code: int | None = None
+    source_type: int | None = None
+
+    # Reuse the REAL derivations (#1964) rather than restating them: these
+    # properties read only ``status_code`` / ``source_type`` / ``query``, all of
+    # which this fake carries, so the fake cannot drift from the shipped
+    # reason/message/hint logic the tool depends on.
+    is_drive_search = ResearchTask.is_drive_search
+    termination_reason = ResearchTask.termination_reason
+    reason_message = ResearchTask.reason_message
+    hint = ResearchTask.hint
 
     def to_public_dict(self) -> dict[str, Any]:
         return {
@@ -722,6 +733,89 @@ async def test_research_status_status_code_none_when_absent(mcp_call, mock_clien
     )
     result = await mcp_call("research_status", {"notebook": NB_ID})
     assert result.structured_content["status_code"] is None
+
+
+# ---------------------------------------------------------------------------
+# #1964: an empty Drive search is differentiated from a genuine failure
+# ---------------------------------------------------------------------------
+
+
+async def test_research_status_empty_drive_search_reports_no_results(mcp_call, mock_client) -> None:
+    """The reported bug: a Drive run that matched nothing arrived as an
+    undifferentiated ``failed`` with no reason and no remediation."""
+    mock_client.research.poll = AsyncMock(
+        return_value=FakeResearchTask(
+            status=FakeResearchStatus.FAILED,
+            query="Example Document.md",
+            status_code=3,
+            source_type=2,
+        )
+    )
+    result = await mcp_call("research_status", {"notebook": NB_ID})
+    content = result.structured_content
+    assert content["status"] == "failed"
+    assert content["termination_reason"] == "no_results"
+    assert "no matches" in content["reason_message"]
+    assert "document id" in content["hint"]
+    # A query that found nothing is not a cancelled run.
+    assert "cancelled" not in content
+
+
+async def test_research_status_reason_distinguishes_cancel_from_no_results(
+    mcp_call, mock_client
+) -> None:
+    mock_client.research.poll = AsyncMock(
+        return_value=FakeResearchTask(
+            status=FakeResearchStatus.FAILED, query="q", status_code=4, source_type=1
+        )
+    )
+    result = await mcp_call("research_status", {"notebook": NB_ID})
+    assert result.structured_content["termination_reason"] == "cancelled"
+    # The wire code alone is enough to report the cancel — no prior
+    # ``research_cancel`` call was made in this process.
+    assert result.structured_content["cancelled"] is True
+
+
+async def test_research_status_unknown_terminal_code_is_not_guessed(mcp_call, mock_client) -> None:
+    """An uncaptured code must surface as ``unknown`` — never folded into
+    ``no_results``, which would tell an agent to rewrite a fine query."""
+    mock_client.research.poll = AsyncMock(
+        return_value=FakeResearchTask(status=FakeResearchStatus.FAILED, query="q", status_code=7)
+    )
+    content = (await mcp_call("research_status", {"notebook": NB_ID})).structured_content
+    assert content["termination_reason"] == "unknown"
+    assert content["status_code"] == 7
+    assert content["hint"] is not None
+
+
+async def test_research_status_success_omits_reason_message_and_hint(mcp_call, mock_client) -> None:
+    """A successful poll's payload is unchanged — the explanation keys appear
+    only when there is something to explain."""
+    mock_client.research.poll = AsyncMock(
+        return_value=FakeResearchTask(status=FakeResearchStatus.COMPLETED, status_code=2)
+    )
+    content = (await mcp_call("research_status", {"notebook": NB_ID})).structured_content
+    assert content["termination_reason"] == "completed"
+    assert "reason_message" not in content
+    assert "hint" not in content
+
+
+async def test_research_import_empty_drive_search_error_is_actionable(
+    mcp_call, mock_client
+) -> None:
+    """Importing a run that matched nothing must explain why rather than
+    telling the caller their run broke."""
+    mock_client.research.poll = AsyncMock(
+        return_value=FakeResearchTask(
+            status=FakeResearchStatus.FAILED,
+            query="Example Document.md",
+            status_code=3,
+            source_type=2,
+        )
+    )
+    with pytest.raises(ToolError) as excinfo:
+        await mcp_call("research_import", {"notebook": NB_ID, "poll_task_id": TASK_ID})
+    assert "no matches" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------

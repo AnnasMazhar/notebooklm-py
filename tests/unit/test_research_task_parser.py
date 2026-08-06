@@ -8,6 +8,7 @@ from notebooklm._research_task_parser import (
     ResearchSource,
     ResearchTask,
     _extract_query_text,
+    _extract_source_type,
     _extract_sources_and_summary,
     _extract_status_code,
     _extract_task_id,
@@ -331,3 +332,153 @@ class TestParseResearchTasks:
         assert tasks[0]["report"] == "# Current"
         assert tasks[0]["sources"][0]["report_markdown"] == "# Current"
         assert "report_markdown" not in tasks[0]["sources"][1]
+
+
+class TestExtractSourceType:
+    """Tests for ``_extract_source_type`` (issue #1964).
+
+    The tag lives at ``task_info[1][1]`` and is purely advisory (it selects the
+    remediation hint), so every malformed shape degrades to ``None`` rather
+    than failing the parse.
+    """
+
+    def test_web_tag(self):
+        assert _extract_source_type([None, ["query", 1], None, [], 2]) == 1
+
+    def test_drive_tag(self):
+        assert _extract_source_type([None, ["query", 2], None, [], 2]) == 2
+
+    def test_none_when_query_block_has_no_tag(self):
+        assert _extract_source_type([None, ["query"], None, [], 2]) is None
+
+    def test_none_when_query_block_empty(self):
+        assert _extract_source_type([None, [], None, [], 2]) is None
+
+    def test_none_when_query_block_not_a_list(self):
+        assert _extract_source_type([None, "query", None, [], 2]) is None
+
+    def test_none_when_tag_is_bool(self, caplog):
+        """``bool`` is an ``int`` subclass — reject it so a drifted flag slot
+        cannot masquerade as the web (1) tag."""
+        with caplog.at_level(logging.WARNING):
+            assert _extract_source_type([None, ["query", True], None, [], 2]) is None
+
+    def test_none_when_tag_is_non_int(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            assert _extract_source_type([None, ["query", "drive"], None, [], 2]) is None
+
+
+class TestTerminationReason:
+    """End-to-end reason/message/hint derivation from live-captured wire rows.
+
+    Every row below is the shape actually observed against the serving backend
+    while investigating issue #1964 (see docs/rpc-reference.md).
+    """
+
+    # Verbatim from the live capture: an empty Drive search carries code 3 and a
+    # ``[None, None, None, None, 1]`` sources bundle.
+    DRIVE_NO_MATCH = [None, ["no-such-file-9f3a2b7c", 2], 1, [None, None, None, None, 1], 3]
+
+    def test_drive_no_match_is_no_results_not_generic_failure(self):
+        tasks = parse_research_task_models([[["task_a", self.DRIVE_NO_MATCH]]])
+        task = tasks[0]
+        # The coarse status is unchanged (no behavior break for existing callers)...
+        assert task.status == "failed"
+        assert task.sources == ()
+        # ...but the reason now differentiates it.
+        assert task.status_code == 3
+        assert task.termination_reason == "no_results"
+        assert task.is_drive_search is True
+
+    def test_drive_no_match_carries_message_and_drive_specific_hint(self):
+        task = parse_research_task_models([[["task_a", self.DRIVE_NO_MATCH]]])[0]
+        assert task.reason_message is not None
+        assert "no matches" in task.reason_message
+        assert "Google Drive" in task.reason_message
+        assert "no-such-file-9f3a2b7c" in task.reason_message
+        assert task.hint is not None
+        assert "document id" in task.hint
+
+    def test_web_no_results_gets_query_advice_not_drive_advice(self):
+        """The hint is source-specific: 'add it by document id' is meaningless
+        for a web search."""
+        task_info = [None, ["some query", 1], 1, [None], 3]
+        task = parse_research_task_models([[["task_w", task_info]]])[0]
+        assert task.termination_reason == "no_results"
+        assert task.is_drive_search is False
+        assert task.hint == "Try a broader or differently-worded query."
+        assert "the web" in task.reason_message
+
+    def test_cancelled_run_is_distinguished_from_no_results(self):
+        """A cancelled deep run reports code 4 — the distinction that makes
+        mapping code 3 to ``no_results`` safe."""
+        task_info = [None, ["battery electrolytes", 1], 1, None, 4]
+        task = parse_research_task_models([[["task_c", task_info]]])[0]
+        assert task.status == "failed"
+        assert task.termination_reason == "cancelled"
+        assert "cancelled" in task.reason_message
+        assert task.hint == "Start a new research run if you still need these sources."
+
+    def test_completed_run_has_no_message_or_hint(self):
+        task_info = [None, ["notes", 2], 1, [[["u", "t", "d", 2]], "summary"], 2]
+        task = parse_research_task_models([[["task_ok", task_info]]])[0]
+        assert task.termination_reason == "completed"
+        assert task.reason_message is None
+        assert task.hint is None
+
+    def test_in_progress_run_has_no_message_or_hint(self):
+        task_info = [None, ["notes", 2], 1, None, 1]
+        task = parse_research_task_models([[["task_p", task_info]]])[0]
+        assert task.termination_reason == "in_progress"
+        assert task.reason_message is None
+        assert task.hint is None
+
+    def test_unrecognised_terminal_code_is_unknown_not_guessed(self):
+        """An uncaptured code must never be silently folded into a named reason
+        — these are undocumented, volatile Google internals."""
+        task_info = [None, ["query", 2], 1, None, 99]
+        task = parse_research_task_models([[["task_u", task_info]]])[0]
+        assert task.status == "failed"
+        assert task.termination_reason == "unknown"
+        assert "99" in task.reason_message
+        assert task.hint is not None
+
+    def test_missing_status_code_yields_no_reason(self):
+        """No code at all (empty/not-found placeholder) is not a termination
+        reason of ``unknown`` — there is simply nothing to report."""
+        task_info = [None, ["query", 2], 1, None, "weird"]
+        task = parse_research_task_models([[["task_n", task_info]]])[0]
+        assert task.status_code is None
+        assert task.termination_reason is None
+        assert task.reason_message is None
+        assert task.hint is None
+
+    def test_missing_source_tag_still_produces_a_message(self):
+        """A drifted/absent source tag must not suppress the explanation — it
+        only falls back to the source-agnostic wording."""
+        task_info = [None, ["query"], 1, None, 3]
+        task = parse_research_task_models([[["task_d", task_info]]])[0]
+        assert task.source_type is None
+        assert task.is_drive_search is False
+        assert task.termination_reason == "no_results"
+        assert task.reason_message is not None
+
+    def test_placeholder_tasks_have_no_reason(self):
+        assert ResearchTask.empty().termination_reason is None
+        assert ResearchTask.not_found("abc").termination_reason is None
+        assert ResearchTask.not_found("abc").reason_message is None
+
+    def test_public_dict_shape_is_unchanged(self):
+        """The new fields are attribute-only — the CLI ``--json`` payload must
+        stay byte-stable (same guarantee ``status_code`` was given in #1922)."""
+        task = parse_research_task_models([[["task_a", self.DRIVE_NO_MATCH]]])[0]
+        public = task.to_public_dict()
+        assert set(public) == {
+            "task_id",
+            "status",
+            "query",
+            "sources",
+            "summary",
+            "report",
+            "tasks",
+        }

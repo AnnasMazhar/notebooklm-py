@@ -2152,10 +2152,10 @@ await rpc_call(
 # [
 #     [task_id, [
 #         ...,
-#         query_info,           # [1]: [query_text, ...]
+#         query_info,           # [1]: [query_text, source_type]  (1=web, 2=drive)
 #         ...,
 #         sources_and_summary,  # [3]: [[sources], summary_text]
-#         status_code,          # [4]: 2=completed, 6=completed (deep), other=in_progress
+#         status_code,          # [4]: see the status-code table below
 #     ]],
 #     ...
 # ]
@@ -2178,6 +2178,35 @@ await rpc_call(
 # - For deep research, sources parsed from poll() carry `research_task_id`, which is
 #   later used by IMPORT_RESEARCH.
 ```
+
+#### Task status codes (`task_info[4]`)
+
+Live-captured against the serving backend for issue #1964. `ResearchStatus`
+coarsens these into `in_progress` / `completed` / `failed`;
+`ResearchTask.termination_reason` keeps the distinction the coarse status loses.
+
+| Code | Meaning | Termination reason | Observed in |
+| --- | --- | --- | --- |
+| `1` | Run in flight | `in_progress` | Every run, before it settles |
+| `2` | Completed with results | `completed` | Fast web and fast Drive runs |
+| `3` | **No matches** — terminal, zero sources | `no_results` | Drive runs only |
+| `4` | Cancelled via `CANCEL_RESEARCH` | `cancelled` | A deep run cancelled mid-flight |
+| `6` | Completed (deep research) | `completed` | Deep research |
+
+Notes:
+
+- **Code `3` is Drive's "found nothing" signal, not an error.** It arrives with
+  an empty `[None, None, None, None, 1]` sources bundle and zero sources. It was
+  reproduced with three distinct non-matching Drive queries, and never appeared
+  on a web run: a web search for the same gibberish still returned code `2` with
+  loosely-related results, because web research always synthesizes *something*.
+  Treating it as an undifferentiated failure is what issue #1964 fixed.
+- **A cancelled run is code `4`, distinct from `3`.** Confirmed by cancelling a
+  deep run mid-flight. Fast runs finish server-side before a cancel can land, so
+  a fast run cancelled immediately after start still completes with code `2`.
+- Any other terminal code maps to the `unknown` reason rather than being guessed
+  at — these codes are undocumented Google internals in the same volatility class
+  as the RPC method ids.
 
 ### RPC: IMPORT_RESEARCH (LBwxtb)
 

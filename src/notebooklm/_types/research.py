@@ -33,6 +33,91 @@ _RESEARCH_RESULT_TYPE_ALIASES = {
 
 ResearchResultType = int | str
 
+# Numeric search-source tags echoed back on a task's query block
+# (``task_info[1][1]``) — the same tags ``ResearchAPI.start`` sends.
+RESEARCH_SOURCE_TYPE_WEB = 1
+RESEARCH_SOURCE_TYPE_DRIVE = 2
+
+# ---------------------------------------------------------------------------
+# Backend task status codes (``task_info[4]``)
+# ---------------------------------------------------------------------------
+# Live-captured against POLL_RESEARCH for issue #1964 (see
+# docs/rpc-reference.md). Issue #1922 deliberately refused to *infer* a
+# no-results state from an unexplained code; these five are the codes that
+# probe actually observed, each tied to a reproduced scenario:
+#
+#   1  in-flight run, polled repeatedly before it settled
+#   2  fast web + fast drive runs that returned sources
+#   3  drive runs whose query matched no Drive file — reproduced 3x with
+#      distinct queries, always with an empty ``[None, None, None, None, 1]``
+#      sources bundle and zero sources. Never observed on a web run: a web
+#      search with the same gibberish query still returned code 2 with
+#      loosely-related results, so 3 is Drive's genuine "no matches" signal.
+#   4  a deep run cancelled mid-flight via CANCEL_RESEARCH
+#   6  deep research completion (pre-existing knowledge, unchanged)
+#
+# These are undocumented Google internals and can change without notice — the
+# same volatility class as the RPC method ids. An unrecognised code stays a
+# generic terminal failure rather than being guessed at.
+RESEARCH_STATUS_CODE_IN_PROGRESS = 1
+RESEARCH_STATUS_CODE_COMPLETED = 2
+RESEARCH_STATUS_CODE_NO_RESULTS = 3
+RESEARCH_STATUS_CODE_CANCELLED = 4
+RESEARCH_STATUS_CODE_COMPLETED_DEEP = 6
+
+
+class ResearchTerminationReason(str, Enum):
+    """Why a research run ended — the differentiated view of :class:`ResearchStatus`.
+
+    :class:`ResearchStatus` stays deliberately coarse (a Drive run that matched
+    nothing and a genuinely broken run are both ``FAILED``), which left callers
+    unable to tell "refine the query" from "something went wrong" (issue
+    #1964). This enum carries that distinction alongside — it does **not**
+    change ``status``, so existing ``status == "failed"`` checks keep working.
+
+    A ``str`` enum, so ``reason == "no_results"`` compares equal to
+    :attr:`NO_RESULTS`, matching :class:`ResearchStatus`'s ergonomics.
+
+    ``UNKNOWN`` is the honest default for a terminal code this client has not
+    live-captured: the run ended, we can't say why. It is distinct from
+    ``None`` (no code at all — the ``no_research`` / ``not_found``
+    placeholders), and from :attr:`FAILED`, which is not currently produced by
+    code mapping but is reserved for a code confirmed to mean a hard error.
+    """
+
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    NO_RESULTS = "no_results"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+
+    def __str__(self) -> str:  # pragma: no cover - trivial
+        return self.value
+
+
+_TERMINATION_REASON_BY_CODE = {
+    RESEARCH_STATUS_CODE_IN_PROGRESS: ResearchTerminationReason.IN_PROGRESS,
+    RESEARCH_STATUS_CODE_COMPLETED: ResearchTerminationReason.COMPLETED,
+    RESEARCH_STATUS_CODE_NO_RESULTS: ResearchTerminationReason.NO_RESULTS,
+    RESEARCH_STATUS_CODE_CANCELLED: ResearchTerminationReason.CANCELLED,
+    RESEARCH_STATUS_CODE_COMPLETED_DEEP: ResearchTerminationReason.COMPLETED,
+}
+
+
+def termination_reason_from_code(status_code: int | None) -> ResearchTerminationReason | None:
+    """Map a raw ``task_info[4]`` status code to a termination reason.
+
+    Returns ``None`` when there is no code to map (the ``no_research`` /
+    ``not_found`` placeholders, or a malformed row), and
+    :attr:`ResearchTerminationReason.UNKNOWN` for a terminal code outside the
+    live-captured set — an unrecognised code means the run ended for a reason
+    this client cannot name, which is reported as such rather than guessed.
+    """
+    if status_code is None:
+        return None
+    return _TERMINATION_REASON_BY_CODE.get(status_code, ResearchTerminationReason.UNKNOWN)
+
 
 def parse_result_type(value: Any) -> ResearchResultType:
     """Normalize known research source type tags while preserving unknown tags."""
@@ -150,6 +235,78 @@ class ResearchTask:
     # the CLI ``--json`` shape stays byte-stable — the MCP ``research_status``
     # tool surfaces it directly from the attribute.
     status_code: int | None = None
+    # Search source the run was started with, echoed back on the query block
+    # (``task_info[1][1]``): 1 = web, 2 = drive (issue #1964). ``None`` when the
+    # poll carried no tag. Drives the source-specific remediation :attr:`hint`
+    # — "no matches" means something different for a Drive filename search than
+    # for a web search. Also omitted from the public dict shapes for the same
+    # byte-stability reason as ``status_code``.
+    source_type: int | None = None
+
+    @property
+    def termination_reason(self) -> ResearchTerminationReason | None:
+        """Why this run ended, differentiating the coarse :attr:`status` (#1964).
+
+        Derived from the raw :attr:`status_code`, so a Drive run that simply
+        matched nothing (``NO_RESULTS``) is distinguishable from a cancelled
+        run (``CANCELLED``) and from a terminal code this client has not
+        captured (``UNKNOWN``) — all three of which :attr:`status` flattens to
+        ``FAILED``. ``None`` when the poll carried no code.
+        """
+        return termination_reason_from_code(self.status_code)
+
+    @property
+    def is_drive_search(self) -> bool:
+        """Whether this run searched Google Drive rather than the web."""
+        return self.source_type == RESEARCH_SOURCE_TYPE_DRIVE
+
+    @property
+    def reason_message(self) -> str | None:
+        """Human-readable explanation of a non-successful outcome, else ``None``.
+
+        Every run that ends without results carries one, so a caller never has
+        to render a bare ``failed`` with nothing to show a user (#1964).
+        """
+        reason = self.termination_reason
+        if reason is None or reason in (
+            ResearchTerminationReason.COMPLETED,
+            ResearchTerminationReason.IN_PROGRESS,
+        ):
+            return None
+        where = "Google Drive" if self.is_drive_search else "the web"
+        quoted = f" for {self.query!r}" if self.query else ""
+        if reason == ResearchTerminationReason.NO_RESULTS:
+            return f"The search of {where} found no matches{quoted}."
+        if reason == ResearchTerminationReason.CANCELLED:
+            return f"The research run{quoted} was cancelled before it completed."
+        if reason == ResearchTerminationReason.FAILED:
+            return f"The research run{quoted} failed."
+        return (
+            f"The research run{quoted} ended with an unrecognised backend status "
+            f"code ({self.status_code})."
+        )
+
+    @property
+    def hint(self) -> str | None:
+        """Remediation guidance matched to :attr:`termination_reason`, else ``None``.
+
+        The advice genuinely differs by search source: an empty Drive search is
+        usually a filename-matching problem with a direct workaround (add the
+        document by id), whereas an empty web search calls for a broader query.
+        """
+        reason = self.termination_reason
+        if reason == ResearchTerminationReason.NO_RESULTS:
+            if self.is_drive_search:
+                return (
+                    "Try the exact Drive filename, the document URL, or add the "
+                    "document directly by its document id."
+                )
+            return "Try a broader or differently-worded query."
+        if reason == ResearchTerminationReason.CANCELLED:
+            return "Start a new research run if you still need these sources."
+        if reason in (ResearchTerminationReason.FAILED, ResearchTerminationReason.UNKNOWN):
+            return "Retry the run; if it keeps ending this way, try a different query."
+        return None
 
     @classmethod
     def empty(cls) -> ResearchTask:

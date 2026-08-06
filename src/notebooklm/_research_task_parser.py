@@ -113,6 +113,32 @@ def _extract_query_text(task_info: Any) -> str | None:
     return None
 
 
+def _extract_source_type(task_info: Any) -> int | None:
+    """Return the search-source tag at ``task_info[1][1]`` (1=web, 2=drive), else ``None``.
+
+    Read for issue #1964 so a terminal run can carry source-specific
+    remediation guidance. Purely advisory — an absent or drifted tag degrades
+    to ``None`` (the hint falls back to its source-agnostic wording) rather
+    than failing the parse.
+    """
+    query_info = safe_index(task_info, 1, method_id=_POLL_METHOD_ID, source=_POLL_SOURCE)
+    if not isinstance(query_info, list):
+        return None
+    value = ResearchTaskInfoRow.query_source_type(query_info)
+    # ``bool`` is an ``int`` subclass; reject it so a drifted flag slot cannot
+    # masquerade as the web (1) / drive (2) tag.
+    if isinstance(value, bool) or not isinstance(value, int):
+        if value is not None:
+            logger.warning(
+                "task_info[1][1] is not an int source tag (method_id=%r, source=%r): %r",
+                _POLL_METHOD_ID,
+                _POLL_SOURCE,
+                type(value).__name__,
+            )
+        return None
+    return value
+
+
 def _extract_status_code(task_info: Any) -> int | None:
     """Return ``task_info[4]`` as an int status code, else ``None``."""
     value = safe_index(task_info, 4, method_id=_POLL_METHOD_ID, source=_POLL_SOURCE)
@@ -258,6 +284,7 @@ def parse_research_task_models(result: Any) -> list[ResearchTask]:
         query_text = _extract_query_text(task_info) or ""
         sources_data, summary_opt = _extract_sources_and_summary(task_info)
         status_code = _extract_status_code(task_info)
+        source_type = _extract_source_type(task_info)
 
         parsed_sources: list[ResearchSource] = []
         report = ""
@@ -282,6 +309,9 @@ def parse_research_task_models(result: Any) -> list[ResearchTask]:
                 # ``status`` enum (issue #1922, F10) so a caller can distinguish
                 # failure sub-codes the enum flattens into ``FAILED``.
                 status_code=status_code,
+                # Search source (1=web, 2=drive) backing the source-specific
+                # remediation hint on a terminal run (issue #1964).
+                source_type=source_type,
             )
         )
 

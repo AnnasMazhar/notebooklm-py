@@ -42,6 +42,8 @@ def _task(
     sources: list[dict[str, Any]] | None = None,
     summary: str = "",
     report: str = "",
+    status_code: int | None = None,
+    source_type: int | None = None,
 ) -> ResearchTask:
     coerced = tuple(ResearchSource.from_public_dict(s) for s in (sources or []))
     return ResearchTask(
@@ -51,6 +53,8 @@ def _task(
         sources=coerced,
         summary=summary,
         report=report,
+        status_code=status_code,
+        source_type=source_type,
     )
 
 
@@ -218,6 +222,83 @@ async def test_poll_importable_refuses_completed_empty() -> None:
     client = _client(poll=_task(status=ResearchStatus.COMPLETED, sources=[]))
     with pytest.raises(ValidationError):
         await poll_importable_research(client, "nb_1", "run_1")
+
+
+# ---------------------------------------------------------------------------
+# Differentiated termination reasons (#1964)
+# ---------------------------------------------------------------------------
+
+
+async def test_poll_and_classify_surfaces_reason_message_and_hint() -> None:
+    """An empty Drive search reaches the adapter with a reason and remediation,
+    not a bare ``failed``."""
+    client = _client(
+        poll=_task(
+            status=ResearchStatus.FAILED,
+            query="Example Document.md",
+            status_code=3,
+            source_type=2,
+        )
+    )
+    result = await poll_and_classify(client, "nb_1", "run_1")
+    assert result.status == "failed"
+    assert result.status_code == 3
+    assert result.termination_reason == "no_results"
+    assert "no matches" in result.reason_message
+    assert "document id" in result.hint
+
+
+async def test_poll_and_classify_leaves_reason_fields_none_on_success() -> None:
+    client = _client(poll=_task(status=ResearchStatus.COMPLETED, status_code=2, source_type=1))
+    result = await poll_and_classify(client, "nb_1", "run_1")
+    assert result.termination_reason == "completed"
+    assert result.reason_message is None
+    assert result.hint is None
+
+
+async def test_poll_and_classify_reason_none_without_status_code() -> None:
+    client = _client(poll=_task(status=ResearchStatus.NO_RESEARCH))
+    result = await poll_and_classify(client, "nb_1", "run_1")
+    assert result.termination_reason is None
+    assert result.reason_message is None
+
+
+async def test_poll_importable_empty_drive_search_explains_instead_of_misdirecting() -> None:
+    """Regression for #1964: the old message told the caller to 'start a new
+    research session', which is the wrong remediation for a query that simply
+    matched nothing."""
+    client = _client(
+        poll=_task(
+            status=ResearchStatus.FAILED,
+            query="Example Document.md",
+            status_code=3,
+            source_type=2,
+        )
+    )
+    with pytest.raises(ValidationError) as excinfo:
+        await poll_importable_research(client, "nb_1", "run_1")
+    message = str(excinfo.value)
+    assert "no matches" in message
+    assert "document id" in message
+    assert "start a new research session" not in message
+
+
+async def test_poll_importable_cancelled_run_says_it_was_cancelled() -> None:
+    client = _client(
+        poll=_task(status=ResearchStatus.FAILED, query="q", status_code=4, source_type=1)
+    )
+    with pytest.raises(ValidationError) as excinfo:
+        await poll_importable_research(client, "nb_1", "run_1")
+    assert "cancelled" in str(excinfo.value)
+
+
+async def test_poll_importable_unnameable_failure_keeps_historical_message() -> None:
+    """With no status code there is no reason to report, so the original
+    wording stands rather than inventing one."""
+    client = _client(poll=_task(status=ResearchStatus.FAILED, query="q"))
+    with pytest.raises(ValidationError) as excinfo:
+        await poll_importable_research(client, "nb_1", "run_1")
+    assert "start a new research session" in str(excinfo.value)
 
 
 # ===========================================================================
