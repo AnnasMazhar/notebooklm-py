@@ -126,7 +126,7 @@ ChatGoal, ChatResponseLength, ChatMode
 DriveMimeType, ExportType
 
 # Auth
-AuthTokens
+AuthTokens                # also re-exported as notebooklm.auth.AuthTokens
 notebooklm.paths.get_storage_path()
 
 # Logging and Correlation
@@ -149,7 +149,19 @@ notebooklm.auth.convert_rookiepy_cookies_to_storage_state  # requires `pip insta
 notebooklm.auth.REQUIRED_COOKIE_DOMAINS
 notebooklm.auth.OPTIONAL_COOKIE_DOMAINS
 notebooklm.auth.OPTIONAL_COOKIE_DOMAINS_BY_LABEL
+
+# Storage-writer failure - imported from notebooklm.auth
+notebooklm.auth.LockUnavailableError  # canonical home: notebooklm.exceptions; also an OSError via TimeoutError (ADR-0029)
 ```
+
+Every `notebooklm.auth.<name>` above is **exactly** the `__all__` of the
+`notebooklm.auth` module: `test_auth_all_matches_documented_public_surface`
+(`tests/_guardrails/test_public_surface.py`) parses this section and fails the
+build if the module publishes a name this list does not, or vice versa. The rest
+of `notebooklm.auth` — including the ~30 helpers `cli/` and `_app/` import across
+the package boundary — is internal and may change without notice; those are
+tracked as `AUTH_CROSS_BOUNDARY_NAMES` in the same test module, which grants
+importability without any stability promise.
 
 ### Internal helpers exported for compatibility
 
@@ -173,7 +185,7 @@ UnknownTypeWarning        # Warning category emitted when .kind falls back to UN
 # These are NOT part of the public API:
 notebooklm.rpc.*          # RPC protocol internals, except documented power-user imports
 notebooklm._*.py          # All underscore-prefixed modules
-notebooklm.auth.*         # Auth internals (except documented AuthTokens, cookie conversion, and cookie-domain constants)
+notebooklm.auth.*         # Auth internals (except the six documented names listed above: AuthTokens, cookie conversion, the cookie-domain constants, and LockUnavailableError)
 ```
 
 For raw-RPC power-user calls, import the documented RPC helpers explicitly:
