@@ -339,12 +339,18 @@ def pytest_collection_modifyitems(config, items):
 
 
 def _chromium_available() -> bool:
-    """Return whether Playwright resolves an installed Chromium executable."""
+    """Return whether Playwright can launch the installed Chromium executable."""
     try:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as playwright:
-            return os.path.isfile(playwright.chromium.executable_path)
+            if not os.path.isfile(playwright.chromium.executable_path):
+                return False
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                return True
+            finally:
+                browser.close()
     except Exception:
         return False
 
