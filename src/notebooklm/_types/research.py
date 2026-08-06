@@ -14,11 +14,14 @@ wire-row parsing logic.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Numeric ``result_type`` tags carried on a research source row. Web is the
 # default; deep-research report entries use the report tag.
@@ -34,7 +37,9 @@ _RESEARCH_RESULT_TYPE_ALIASES = {
 ResearchResultType = int | str
 
 # Numeric search-source tags echoed back on a task's query block
-# (``task_info[1][1]``) — the same tags ``ResearchAPI.start`` sends.
+# (``task_info[1][1]``) — the same tags ``ResearchAPI.start`` sends. Distinct
+# axis from ``RESEARCH_RESULT_TYPE_*`` above despite sharing the values 1/2:
+# those tag an individual RESULT ROW's origin, these tag what the RUN searched.
 RESEARCH_SOURCE_TYPE_WEB = 1
 RESEARCH_SOURCE_TYPE_DRIVE = 2
 
@@ -43,8 +48,8 @@ RESEARCH_SOURCE_TYPE_DRIVE = 2
 # ---------------------------------------------------------------------------
 # Live-captured against POLL_RESEARCH for issue #1964 (see
 # docs/rpc-reference.md). Issue #1922 deliberately refused to *infer* a
-# no-results state from an unexplained code; these five are the codes that
-# probe actually observed, each tied to a reproduced scenario:
+# no-results state from an unexplained code; codes 1-4 below were observed by
+# that probe, each tied to a reproduced scenario (6 was already known):
 #
 #   1  in-flight run, polled repeatedly before it settled
 #   2  fast web + fast drive runs that returned sources
@@ -78,7 +83,10 @@ class ResearchTerminationReason(str, Enum):
     change ``status``, so existing ``status == "failed"`` checks keep working.
 
     A ``str`` enum, so ``reason == "no_results"`` compares equal to
-    :attr:`NO_RESULTS`, matching :class:`ResearchStatus`'s ergonomics.
+    :attr:`NO_RESULTS`, matching :class:`ResearchStatus`'s ergonomics. The
+    flip side: because both are ``str`` enums, ``ResearchTerminationReason.
+    COMPLETED == ResearchStatus.COMPLETED`` is ``True`` (likewise
+    ``IN_PROGRESS``). Compare a reason against a reason.
 
     ``UNKNOWN`` is the honest default for a terminal code this client has not
     live-captured: the run ended, we can't say why. It is distinct from
@@ -107,6 +115,32 @@ _TERMINATION_REASON_BY_CODE = {
 }
 
 
+def status_from_termination_reason(
+    reason: ResearchTerminationReason | None,
+) -> ResearchStatus:
+    """Coarsen a termination reason into the lifecycle :class:`ResearchStatus`.
+
+    The SINGLE source of truth for "which wire codes mean in-flight /
+    completed / failed". :func:`_research_task_parser._status_from_code` used to
+    carry a second, independent copy of that table written in bare literals;
+    two tables meant a future code added to only one of them could produce a
+    self-contradictory task (``status="completed"`` alongside
+    ``termination_reason="unknown"`` and a "retry the run" hint on a run that
+    succeeded). Deriving one from the other makes that state unrepresentable.
+
+    ``None`` (no code to map) coarsens to ``IN_PROGRESS``, preserving the
+    historical treatment of a poll that carried no status code.
+    """
+    if reason is None or reason == ResearchTerminationReason.IN_PROGRESS:
+        return ResearchStatus.IN_PROGRESS
+    if reason == ResearchTerminationReason.COMPLETED:
+        return ResearchStatus.COMPLETED
+    # NO_RESULTS / CANCELLED / UNKNOWN are all terminal non-successes. Unknown
+    # codes stay FAILED so wait loops do not spin until timeout after the
+    # backend rejects a task.
+    return ResearchStatus.FAILED
+
+
 def termination_reason_from_code(status_code: int | None) -> ResearchTerminationReason | None:
     """Map a raw ``task_info[4]`` status code to a termination reason.
 
@@ -118,7 +152,19 @@ def termination_reason_from_code(status_code: int | None) -> ResearchTermination
     """
     if status_code is None:
         return None
-    return _TERMINATION_REASON_BY_CODE.get(status_code, ResearchTerminationReason.UNKNOWN)
+    reason = _TERMINATION_REASON_BY_CODE.get(status_code)
+    if reason is None:
+        # These codes are undocumented Google internals in the same volatility
+        # class as the RPC method ids, and an unmapped one is the cheapest
+        # signal that the vocabulary moved. Every sibling drift path in the
+        # parser logs; this one should too.
+        logger.warning(
+            "unmapped research status code %r (POLL_RESEARCH task_info[4]); "
+            "reporting termination_reason=unknown",
+            status_code,
+        )
+        return ResearchTerminationReason.UNKNOWN
+    return reason
 
 
 def parse_result_type(value: Any) -> ResearchResultType:
@@ -236,6 +282,14 @@ class ResearchTask:
     # deliberately absent from :meth:`to_public_dict` / :meth:`_to_task_dict` so
     # the CLI ``--json`` shape stays byte-stable — the MCP ``research_status``
     # tool surfaces it directly from the attribute.
+    #
+    # Both this and ``source_type`` are ordinary dataclass fields, so they take
+    # part in the generated ``__eq__`` / ``__hash__`` / ``__repr__``: a parsed
+    # task does not compare equal to one hand-built without them. That is
+    # deliberate rather than an oversight — ``termination_reason``,
+    # ``reason_message`` and ``hint`` all derive from these two, so excluding
+    # them from comparison would let two "equal" tasks carry different
+    # explanations and different remediation.
     status_code: int | None = None
     # Search source the run was started with, echoed back on the query block
     # (``task_info[1][1]``): 1 = web, 2 = drive (issue #1964). ``None`` when the
@@ -295,8 +349,12 @@ class ResearchTask:
     def reason_message(self) -> str | None:
         """Human-readable explanation of a non-successful outcome, else ``None``.
 
-        Every run that ends without results carries one, so a caller never has
-        to render a bare ``failed`` with nothing to show a user (#1964).
+        Every run whose termination reason is NOT success-or-in-flight carries
+        one, so a caller never has to render a bare ``failed`` with nothing to
+        show a user (#1964). Note this keys off the REASON, not the source
+        count: a run that completed normally with zero sources is a
+        ``completed`` outcome and returns ``None`` here — the empty-import
+        refusal for that case lives in ``_app.research``.
         """
         reason = self.termination_reason
         if reason is None or reason in (
@@ -334,13 +392,26 @@ class ResearchTask:
                     "Try the exact Drive filename, the document URL, or add the "
                     "document directly by its document id."
                 )
-            # Correct for a web search, and the safe advice when the search
-            # source is unknown — never Drive-specific on an unknown tag.
-            return "Try a broader or differently-worded query."
+            if self.is_web_search:
+                return "Try a broader or differently-worded query."
+            # Search source unknown: offer BOTH remediations rather than
+            # guessing. Emitting only the web advice here would hand a Drive
+            # run whose tag drifted the one hint that cannot help it — the
+            # exact complaint #1964 was filed about.
+            return (
+                "Try a broader or differently-worded query; if this searched "
+                "Drive, try the exact filename, the document URL, or the "
+                "document id."
+            )
         if reason == ResearchTerminationReason.CANCELLED:
             return "Start a new research run if you still need these sources."
         if reason == ResearchTerminationReason.UNKNOWN:
-            return "Poll again; if the status persists, start a new run."
+            # The MESSAGE deliberately does not assert the run ended (the code
+            # is unrecognised, so we cannot know). The HINT states what this
+            # client actually does with it: ``status_from_termination_reason``
+            # coarsens UNKNOWN to FAILED, so wait loops stop rather than spin —
+            # advising "poll again" would contradict our own handling.
+            return "This client treats an unrecognised code as terminal — start a new run."
         return None
 
     @classmethod

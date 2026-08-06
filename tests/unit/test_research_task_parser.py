@@ -13,10 +13,12 @@ from notebooklm._research_task_parser import (
     _extract_status_code,
     _extract_task_id,
     _extract_task_info,
+    _status_from_code,
     extract_legacy_report_chunks,
     parse_research_task_models,
     parse_research_tasks,
     parse_result_type,
+    termination_reason_from_code,
 )
 from notebooklm.exceptions import UnknownRPCMethodError
 
@@ -408,12 +410,16 @@ class TestTerminationReason:
 
     def test_drive_no_match_carries_message_and_drive_specific_hint(self):
         task = parse_research_task_models([[["task_a", self.DRIVE_NO_MATCH]]])[0]
-        assert task.reason_message is not None
-        assert "no matches" in task.reason_message
-        assert "Google Drive" in task.reason_message
-        assert "no-such-file-9f3a2b7c" in task.reason_message
-        assert task.hint is not None
-        assert "document id" in task.hint
+        # Asserted in FULL, not by substring: a substring match still passes on
+        # a message that has become ungrammatical, double-quotes the query, or
+        # drops the corpus name.
+        assert task.reason_message == (
+            "The search of Google Drive found no matches for 'no-such-file-9f3a2b7c'."
+        )
+        assert task.hint == (
+            "Try the exact Drive filename, the document URL, or add the "
+            "document directly by its document id."
+        )
 
     def test_web_no_results_gets_query_advice_not_drive_advice(self):
         """The hint is source-specific: 'add it by document id' is meaningless
@@ -485,20 +491,30 @@ class TestTerminationReason:
         assert task.reason_message == "The search found no matches for 'query'."
         assert "the web" not in task.reason_message
         assert "Google Drive" not in task.reason_message
-        # The generic query advice is true either way; Drive-specific advice
-        # would not be.
-        assert task.hint == "Try a broader or differently-worded query."
+        # With the source unknown, BOTH remediations are offered — emitting
+        # only the web advice would strand a Drive run whose tag drifted.
+        assert task.hint == (
+            "Try a broader or differently-worded query; if this searched Drive, "
+            "try the exact filename, the document URL, or the document id."
+        )
 
-    def test_unrecognised_source_tag_is_not_narrated_as_web(self):
-        """An unknown tag is preserved verbatim for diagnostics but never
-        *interpreted* as one of the two known corpora."""
-        task_info = [None, ["query", 99], 1, None, 3]
+    @pytest.mark.parametrize("tag", [0, 5, 99, -1])
+    def test_unrecognised_source_tag_is_not_narrated_as_web(self, tag):
+        """A DRIFTED tag (not merely an absent one) must fail both predicates.
+
+        Before the tri-state fix, ``source_type=5`` parsed as 5, left
+        ``is_drive_search`` False, and was narrated as "the web" — the same
+        wrong output as the absent-tag path, reached by a different input.
+        """
+        task_info = [None, ["query", tag], 1, None, 3]
         task = parse_research_task_models([[["task_e", task_info]]])[0]
-        assert task.source_type == 99
+        assert task.source_type == tag
         assert task.is_drive_search is False
         assert task.is_web_search is False
         assert "the web" not in task.reason_message
         assert "Google Drive" not in task.reason_message
+        # And the remediation must not be the web-only one.
+        assert "if this searched Drive" in task.hint
 
     def test_no_results_code_with_sources_degrades_to_unknown(self):
         """Defensive: three live captures are evidence, not proof. If code 3
@@ -530,3 +546,71 @@ class TestTerminationReason:
             "report",
             "tasks",
         }
+
+
+class TestStatusCodeTableIsSingleSourced:
+    """The lifecycle status and the termination reason must never disagree.
+
+    They were two independent hand-written tables (#1964 review): adding a
+    future code to only one could emit ``status="completed"`` alongside
+    ``termination_reason="unknown"`` and a "retry the run" hint on a run that
+    actually succeeded. ``_status_from_code`` now derives from the reason
+    table; these tests pin both the derivation and each individual code, so a
+    dropped table entry cannot slip through (the code-6 entry previously had
+    NO test at all and could be deleted with the whole suite still green).
+    """
+
+    @pytest.mark.parametrize(
+        ("code", "expected_status", "expected_reason"),
+        [
+            (1, "in_progress", "in_progress"),
+            (2, "completed", "completed"),
+            (3, "failed", "no_results"),
+            (4, "failed", "cancelled"),
+            # Deep-research completion. Pinned explicitly: without this row the
+            # entry can be deleted and every deep run silently reports
+            # "unrecognised backend status code (6)" while still saying
+            # ``completed``.
+            (6, "completed", "completed"),
+            (0, "failed", "unknown"),
+            (5, "failed", "unknown"),
+            (7, "failed", "unknown"),
+            (99, "failed", "unknown"),
+        ],
+    )
+    def test_each_code_maps_to_both_tables(self, code, expected_status, expected_reason):
+        task_info = [None, ["query", 1], 1, None, code]
+        task = parse_research_task_models([[["task_x", task_info]]])[0]
+        assert task.status == expected_status
+        assert task.termination_reason == expected_reason
+
+    def test_absent_code_is_in_progress_with_no_reason(self):
+        task_info = [None, ["query", 1], 1, None, "not-an-int"]
+        task = parse_research_task_models([[["task_x", task_info]]])[0]
+        assert task.status == "in_progress"
+        assert task.termination_reason is None
+
+    @pytest.mark.parametrize("code", [None, 0, 1, 2, 3, 4, 5, 6, 7, 42, -1, 99])
+    def test_status_never_contradicts_reason(self, code):
+        """A ``completed`` status must never carry a non-success reason, and a
+        successful reason must never surface as ``failed``."""
+        reason = termination_reason_from_code(code)
+        status = _status_from_code(code)
+        if status == "completed":
+            assert reason == "completed", f"code {code}: completed status, reason {reason}"
+        if reason == "completed":
+            assert status == "completed", f"code {code}: completed reason, status {status}"
+        # A run we cannot name must never be reported as a success.
+        if reason == "unknown":
+            assert status == "failed"
+
+    def test_deep_completion_produces_no_misleading_explanation(self):
+        """The concrete payload the code-6 gap would have produced: a
+        successful deep run told to retry itself."""
+        sources = [[None, ["Deep Report", "# Report"], None, 1]]
+        task_info = [None, ["deep query", 1], 1, [sources], 6]
+        task = parse_research_task_models([[["task_deep", task_info]]])[0]
+        assert task.status == "completed"
+        assert task.termination_reason == "completed"
+        assert task.reason_message is None
+        assert task.hint is None

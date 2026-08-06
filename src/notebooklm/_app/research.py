@@ -178,17 +178,26 @@ async def poll_importable_research(
     # in_progress/no_research/failed snapshot would import a partial/empty set as
     # a "success" — refuse with an action-appropriate message.
     if status.status == "failed":
-        # A run that simply matched nothing is NOT a broken run, and telling the
-        # caller to "start a new research session" is the wrong remediation for
-        # it (issue #1964). Lead with the differentiated reason + its hint when
-        # the poll carried one, and keep the historical wording as the fallback
-        # for a failure we cannot name.
+        # A run that simply matched nothing, or was cancelled, is NOT a broken
+        # run — telling the caller to "start a new research session" is the
+        # wrong remediation for it (issue #1964). Those two NAMED outcomes lead
+        # with their own explanation.
+        #
+        # Everything else keeps the historical guidance verbatim: an
+        # unrecognised code is coarsened to FAILED and treated as terminal, so
+        # "it will not complete" remains exactly the right advice — it just
+        # gains the observed code. (Review caught the first cut sending every
+        # code-carrying failure down the differentiated path, which silently
+        # dropped that guidance for genuinely-broken runs.)
         detail = " ".join(part for part in (status.reason_message, status.hint) if part)
-        if detail:
-            raise ValidationError(f"Research run {run_id!r} has no sources to import. {detail}")
+        if status.termination_reason in ("no_results", "cancelled") and detail:
+            # "cannot be imported" rather than "has no sources": a run cancelled
+            # mid-flight can carry partially-discovered sources.
+            raise ValidationError(f"Research run {run_id!r} cannot be imported. {detail}")
+        suffix = f" {status.reason_message}" if status.reason_message else ""
         raise ValidationError(
             f"Research run {run_id!r} failed; it will not complete — start a new "
-            "research session rather than polling."
+            f"research session rather than polling.{suffix}"
         )
     if status.status != "completed":
         raise ValidationError(

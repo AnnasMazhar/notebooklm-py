@@ -782,8 +782,15 @@ async def test_research_status_empty_drive_search_reports_no_results(mcp_call, m
     content = result.structured_content
     assert content["status"] == "failed"
     assert content["termination_reason"] == "no_results"
-    assert "no matches" in content["reason_message"]
-    assert "document id" in content["hint"]
+    # Full-text, not substring: a substring still passes on a message that has
+    # gone ungrammatical or dropped the corpus name.
+    assert content["reason_message"] == (
+        "The search of Google Drive found no matches for 'Example Document.md'."
+    )
+    assert content["hint"] == (
+        "Try the exact Drive filename, the document URL, or add the "
+        "document directly by its document id."
+    )
     # A query that found nothing is not a cancelled run.
     assert "cancelled" not in content
 
@@ -812,7 +819,16 @@ async def test_research_status_unknown_terminal_code_is_not_guessed(mcp_call, mo
     content = (await mcp_call("research_status", {"notebook": NB_ID})).structured_content
     assert content["termination_reason"] == "unknown"
     assert content["status_code"] == 7
-    assert content["hint"] is not None
+    # Assert the UNKNOWN texts specifically — `is not None` passes on the Drive
+    # hint just as happily, which would hide a mis-routed reason.
+    assert content["reason_message"] == (
+        "The research run for 'q' reported an unrecognised backend status code (7)."
+    )
+    assert content["hint"] == (
+        "This client treats an unrecognised code as terminal — start a new run."
+    )
+    # An unnameable failure is not a cancel.
+    assert "cancelled" not in content
 
 
 async def test_research_status_success_omits_reason_message_and_hint(mcp_call, mock_client) -> None:

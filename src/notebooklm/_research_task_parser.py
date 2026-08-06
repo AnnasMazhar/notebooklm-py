@@ -26,6 +26,8 @@ from ._types.research import (
     ResearchStatus,
     ResearchTask,
     parse_result_type,
+    status_from_termination_reason,
+    termination_reason_from_code,
 )
 from .rpc import RPCMethod, safe_index
 
@@ -200,14 +202,16 @@ def _extract_sources_and_summary(task_info: Any) -> tuple[list[Any], str | None]
 
 
 def _status_from_code(status_code: int | None) -> ResearchStatus:
-    # Research: 1=in_progress, 2=completed, 6=completed (deep research).
-    # Unknown non-null codes are terminal failures so wait loops do not spin
-    # until timeout after the backend rejects a task.
-    if status_code in (2, 6):
-        return ResearchStatus.COMPLETED
-    if status_code == 1 or status_code is None:
-        return ResearchStatus.IN_PROGRESS
-    return ResearchStatus.FAILED
+    """Coarsen a raw ``task_info[4]`` code into the lifecycle status.
+
+    Derived from the SAME code table that produces the termination reason
+    (``_types/research.py``) rather than restating it in literals: a second
+    hand-written copy could drift and emit a task whose ``status`` and
+    ``termination_reason`` disagree (e.g. ``completed`` alongside a "retry the
+    run" hint). Behavior is unchanged — 1 → in_progress, 2/6 → completed,
+    every other non-null code → failed, ``None`` → in_progress.
+    """
+    return status_from_termination_reason(termination_reason_from_code(status_code))
 
 
 def _parse_source_row(

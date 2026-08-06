@@ -129,7 +129,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cancelled run from the wire code alone, so a cancel from another process — or
   from before a server restart — is still reported honestly), and
   `research_import`'s refusal message no longer tells you to "start a new
-  research session" when your query simply matched nothing.
+  research session" when your query simply matched nothing. The CLI
+  (`research status` / `research wait` / `source add-research`) and the REST
+  `GET .../research/{run_id}` route report the same reason, so no surface is
+  left showing a bare `failed`. `research status --json` is deliberately
+  unchanged — it emits the byte-stable public dict, as `status_code` did.
+
+  `ResearchTask` also gains `source_type` (the search source echoed by the
+  backend) and `is_drive_search` / `is_web_search`. Both `source_type` and the
+  existing `status_code` are ordinary dataclass fields, so they participate in
+  `ResearchTask.__eq__` / `__hash__` / `__repr__`: a parsed task no longer
+  compares equal to one hand-built without them. That is deliberate — the
+  reason, message and hint all derive from those two fields, so excluding them
+  would let two "equal" tasks carry different explanations.
 
 - **`NOTEBOOKLM_AUTH_JSON` now beats a profile everywhere, as documented.** The
   precedence `--storage` > `NOTEBOOKLM_AUTH_JSON` > profile file is stated in

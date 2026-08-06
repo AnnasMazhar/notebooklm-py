@@ -293,12 +293,70 @@ async def test_poll_importable_cancelled_run_says_it_was_cancelled() -> None:
 
 
 async def test_poll_importable_unnameable_failure_keeps_historical_message() -> None:
-    """With no status code there is no reason to report, so the original
-    wording stands rather than inventing one."""
+    """A FAILED task carrying no status code keeps the original wording.
+
+    Defensive rather than observed: the parser only produces FAILED from a
+    non-null code, so this pairing should not arise from a real poll. It pins
+    the branch against a hand-built or future task that reaches it.
+    """
     client = _client(poll=_task(status=ResearchStatus.FAILED, query="q"))
     with pytest.raises(ValidationError) as excinfo:
         await poll_importable_research(client, "nb_1", "run_1")
     assert "start a new research session" in str(excinfo.value)
+
+
+async def test_poll_importable_unknown_code_keeps_terminal_guidance() -> None:
+    """An unrecognised code is coarsened to FAILED and treated as terminal, so
+    "it will not complete" is still the right advice — the first cut sent every
+    code-carrying failure down the differentiated path and silently dropped it
+    for genuinely-broken runs.
+    """
+    client = _client(
+        poll=_task(status=ResearchStatus.FAILED, query="q", status_code=7, source_type=1)
+    )
+    with pytest.raises(ValidationError) as excinfo:
+        await poll_importable_research(client, "nb_1", "run_1")
+    message = str(excinfo.value)
+    assert "it will not complete" in message
+    assert "start a new research session" in message
+    # ...and it still reports what was actually observed.
+    assert "unrecognised backend status code (7)" in message
+
+
+async def test_poll_importable_cancelled_run_with_partial_sources_wording() -> None:
+    """A cancelled run can carry partially-discovered sources, so the refusal
+    must not assert it "has no sources"."""
+    client = _client(
+        poll=_task(
+            status=ResearchStatus.FAILED,
+            query="q",
+            sources=[{"title": "Partial", "url": "http://example.com/1"}],
+            status_code=4,
+            source_type=1,
+        )
+    )
+    with pytest.raises(ValidationError) as excinfo:
+        await poll_importable_research(client, "nb_1", "run_1")
+    message = str(excinfo.value)
+    assert "cannot be imported" in message
+    assert "has no sources" not in message
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_reason"),
+    [(1, "in_progress"), (2, "completed"), (3, "no_results"), (4, "cancelled"), (7, "unknown")],
+)
+async def test_poll_and_classify_converts_every_reason_to_its_string(
+    status_code: int, expected_reason: str
+) -> None:
+    """The enum→str narrowing at the _app boundary must hold for every reason,
+    not just the two the happy-path tests exercise."""
+    client = _client(
+        poll=_task(status=ResearchStatus.FAILED, query="q", status_code=status_code, source_type=1)
+    )
+    result = await poll_and_classify(client, "nb_1", "run_1")
+    assert result.termination_reason == expected_reason
+    assert isinstance(result.termination_reason, str)
 
 
 # ===========================================================================

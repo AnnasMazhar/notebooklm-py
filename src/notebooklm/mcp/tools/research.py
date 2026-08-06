@@ -47,6 +47,7 @@ from ..._app.serialize import to_jsonable
 from ..._deprecation import warn_deprecated
 from ...exceptions import ValidationError
 from ...research import select_cited_sources
+from ...types import ResearchTerminationReason
 from .._confirm import READ_ONLY
 from .._context import get_cancelled_research, get_client
 from .._errors import mcp_errors
@@ -180,8 +181,8 @@ def register(mcp: Any) -> None:
         ``poll_task_id``, ``sources``, and report metadata. Poll until
         ``completed``, then pass ``poll_task_id`` to ``research_import``.
 
-        ``termination_reason`` (no_results|cancelled|unknown) splits
-        ``failed`` into empty-search vs real error; see ``hint``.
+        ``termination_reason`` splits ``failed`` into no_results|cancelled|
+        unknown (else completed|in_progress); see ``hint``.
 
         ``report`` and per-source ``report_markdown`` are omitted unless
         ``include_report=True`` (truncated to ``report_max_chars``).
@@ -220,9 +221,12 @@ def register(mcp: Any) -> None:
             nb_id = await resolve_notebook(client, notebook)
             result = await research_core.poll_and_classify(client, nb_id, poll_task_id)
 
-            # F9 (#1922): a user-cancelled run surfaces as a generic ``failed``
-            # with no distinct wire code, so consult the client-side cancel-intent
-            # tracker recorded by ``research_cancel``. Match on the pinned id AND
+            # F9 (#1922): the client-side cancel-intent tracker recorded by
+            # ``research_cancel``. The wire DOES carry a distinct cancelled code
+            # (4, live-captured for #1964 — see the corroboration below), but the
+            # tracker still earns its keep: a fast run usually completes
+            # server-side before the cancel lands, so it settles on 2 with the
+            # user's intent visible nowhere on the wire. Match on the pinned id AND
             # the polled task_id (an unfiltered poll resolves the id only in the
             # result), keyed by notebook so ids never cross notebooks. On ANY
             # terminal poll (failed / completed) evict the intent so the
@@ -243,7 +247,7 @@ def register(mcp: Any) -> None:
             # carries its own status code (issue #1964), so a cancel issued by a
             # different process — or before this server restarted, which loses
             # the in-memory intent — is still reported honestly.
-            if result.termination_reason == "cancelled":
+            if result.termination_reason == ResearchTerminationReason.CANCELLED.value:
                 cancelled = True
 
             # Report content lives in TWO places — the top-level ``report`` AND
@@ -304,8 +308,9 @@ def register(mcp: Any) -> None:
                 payload["reason_message"] = result.reason_message
             if result.hint is not None:
                 payload["hint"] = result.hint
-            # Only annotate a failure known to be user-cancelled (F9, #1922);
-            # absence means "not a tracked cancel", so a genuine failure stays
+            # Only annotate a failure known to be user-cancelled — either by
+            # the wire code (#1964) or the intent tracker (F9, #1922). Absence
+            # means neither signal fired, so a genuine failure stays
             # un-annotated.
             if cancelled:
                 payload["cancelled"] = True
@@ -373,10 +378,11 @@ def register(mcp: Any) -> None:
             # cancel from an unconfirmed (lag-or-unknown) one.
             await client.research.cancel(nb_id, poll_task_id)
             # Record the cancel intent (F9, #1922) so a later ``research_status``
-            # poll can annotate the resulting generic ``failed`` as ``cancelled``
-            # (the backend surfaces a cancelled run as FAILED with no distinct
-            # wire code). Keyed by notebook so ids never cross notebooks; the
-            # tracker is bounded (evict-on-terminal + hard FIFO cap).
+            # poll can annotate the resulting ``failed`` as ``cancelled`` even
+            # when the wire cannot say so itself — a deep run cancelled
+            # mid-flight reports code 4, but a fast run typically finishes before
+            # the cancel lands and settles on 2. Keyed by notebook so ids never
+            # cross notebooks; bounded (evict-on-terminal + hard FIFO cap).
             get_cancelled_research(ctx).record((nb_id, poll_task_id))
             result = {
                 "status": "cancel_requested",
