@@ -54,6 +54,12 @@ def test_simple_math_emphasis_overlap_is_repaired() -> None:
     assert output == "$x = y$"
 
 
+def test_italic_math_emphasis_overlap_is_repaired() -> None:
+    output = html_to_markdown("<p><em>$x_1</em>$</p>")
+
+    assert output == "$x_1$"
+
+
 def test_math_asterisks_without_emphasis_are_preserved() -> None:
     output = html_to_markdown("<p>$a**b$</p>")
 
@@ -66,6 +72,8 @@ def test_math_asterisks_without_emphasis_are_preserved() -> None:
         ("<p>prices $5 and $10</p>", "prices $5 and $10"),
         ("<p>bold price <strong>$5</strong></p>", "bold price **$5**"),
         ("<p>display $$E=mc^2$$</p>", "display $$E=mc^2$$"),
+        ("<p>$x+\\$y_1$</p>", "$x+\\$y_1$"),
+        ("<p>$file\\_name$</p>", "$file\\_name$"),
         (
             "<p>We have $5 and we need$10*2 dollars</p>",
             "We have $5 and we need$10\\*2 dollars",
