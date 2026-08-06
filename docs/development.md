@@ -401,8 +401,17 @@ results:
 | `cli/services/playwright_login.py::ensure_chromium_installed` | The programmatic probe is checked against real Playwright, and a separate required Chromium launch smoke checks usability. |
 | Playwright launch/error classification | Synthetic classification tests remain valid; add a reality probe only when claiming a specific third-party message shape. |
 | `_auth/refresh.py` custom refresh command | Classification/security contract only; the command is operator-supplied, so there is no fixed third-party output contract. |
+| Auth refresh composition (`AuthRefreshCoordinator` → `NotebookLMClient.refresh_auth` → `_auth/session.py`) | `tests/unit/test_auth_refresh_seam.py` crosses the production assembly with a deterministic homepage response; the existing VCR test covers the stale-RPC → homepage-refresh → retry path. No live reality probe is used because it would require mutable authenticated external state and would not provide a stable CI contract. |
 | `_version_info.py` git lookup | Local-tool lookup with fallback behavior; synthetic and fallback tests are sufficient. |
 | `scripts/` subprocesses | Test/release infrastructure, outside the product seam audit. |
+
+The bounded MCP seam-matrix slice is
+[`tests/integration/mcp_vcr/test_notebooks.py::test_mcp_notebook_list_crosses_adapter_to_client_boundary`](../tests/integration/mcp_vcr/test_notebooks.py).
+It drives the in-memory FastMCP client through the registered MCP tool, the
+real `NotebookLMClient.notebooks.list()` service, RPC decoding, and the MCP
+structured-content projection. VCR replays the existing notebook-list
+recording, so this composition check uses no live credentials or network while
+still failing if the adapter bypasses or mis-wires the client boundary.
 
 The two Playwright probes are marked `reality` and named in the required-mode
 contract. In the browser-enabled CI lane, run them explicitly and serially:
