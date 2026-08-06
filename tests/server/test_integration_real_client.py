@@ -160,9 +160,9 @@ class TestRestSeamMatrix:
 
         assert resp.status_code == 201
         body = resp.json()
-        assert isinstance(body["id"], str) and body["id"]
-        assert isinstance(body["kind"], str)
-        assert isinstance(body["status_label"], str)
+        assert body["id"] == "20d66b0b-787f-480e-a9c1-6823f7a12d8e"
+        assert body["kind"] == "web_page"
+        assert body["status_label"] == "ready"
 
 
 class TestChatAndArtifacts:
