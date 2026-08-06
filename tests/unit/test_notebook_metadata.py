@@ -174,6 +174,8 @@ async def test_metadata_service_preserves_empty_source_warning(
         metadata = await service.get_metadata("nb_123")
 
     assert metadata.sources == []
+    assert metadata.notebook.sources_count == 2
+    assert metadata.notebook.source_counts is None
     assert "Notebook nb_123 reports 2 sources but listing returned empty" in caplog.text
 
 

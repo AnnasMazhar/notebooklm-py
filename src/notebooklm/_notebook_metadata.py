@@ -65,23 +65,25 @@ class NotebookMetadataService:
             self._source_lister.list(notebook_id),
         )
 
-        if notebook.sources_count > 0 and len(sources) == 0:
+        roster_is_anomalously_empty = notebook.sources_count > 0 and len(sources) == 0
+        if roster_is_anomalously_empty:
             logger.warning(
                 "Notebook %s reports %d sources but listing returned empty",
                 notebook_id,
                 notebook.sources_count,
             )
-
-        # Re-project the notebook scalar and rich counters from the SAME
-        # id-bearing, de-duplicated Source list returned alongside it. Failed
-        # imports remain in ``sources`` / ``total_records`` but do not inflate
-        # the active/quota count (#1962).
-        source_counts = SourceCounts.from_sources(sources)
-        notebook = replace(
-            notebook,
-            sources_count=source_counts.quota_counted,
-            source_counts=source_counts,
-        )
+            notebook = replace(notebook, source_counts=None)
+        else:
+            # Re-project the notebook scalar and rich counters from the SAME
+            # id-bearing, de-duplicated Source list returned alongside it. Failed
+            # imports remain in ``sources`` / ``total_records`` but do not inflate
+            # the active/quota count (#1962).
+            source_counts = SourceCounts.from_sources(sources)
+            notebook = replace(
+                notebook,
+                sources_count=source_counts.quota_counted,
+                source_counts=source_counts,
+            )
 
         return NotebookMetadata(
             notebook=notebook,
