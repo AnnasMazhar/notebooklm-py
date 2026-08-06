@@ -992,11 +992,13 @@ async with NotebookLMClient.from_storage(rate_limit_max_retries=0) as client:
 # List all notebooks
 notebooks = await client.notebooks.list()
 for nb in notebooks:
-    assert nb.source_counts is not None  # populated on decoded API objects
-    print(
-        f"{nb.id}: {nb.title} "
-        f"({nb.source_counts.active} active, {nb.source_counts.failed} failed)"
-    )
+    if nb.source_counts is None:
+        print(f"{nb.id}: {nb.title} ({nb.sources_count} records; states unavailable)")
+    else:
+        print(
+            f"{nb.id}: {nb.title} "
+            f"({nb.source_counts.active} active, {nb.source_counts.failed} failed)"
+        )
 
 # Create and rename
 nb = await client.notebooks.create("Draft")
@@ -2013,16 +2015,20 @@ class Notebook:
     id: str
     title: str
     created_at: Optional[datetime]   # creation time (tz-aware UTC)
-    sources_count: int               # legacy alias for source_counts.quota_counted
+    sources_count: int               # quota-counted when states are available;
+                                     # unique records in compact notebook-list rows
     is_owner: bool
     modified_at: Optional[datetime]  # last-modified time (tz-aware UTC)
-    source_counts: Optional[SourceCounts]  # populated on decoded API objects
+    source_counts: Optional[SourceCounts]  # None when upstream rows omit states
 ```
 
-`Notebook.sources_count` excludes failed imports. Decoded API objects populate
-`source_counts`; it remains `None` only when a caller manually constructs a
-legacy `Notebook` without the richer data. Use it when the distinction between
-usable/quota-counted sources and persistent failed records matters:
+When `source_counts` is populated, `Notebook.sources_count` is its
+`quota_counted` value and excludes failed imports. Some notebook RPC rows supply
+source IDs but no states; those objects leave `source_counts=None` and preserve
+the legacy unique-record scalar instead of fabricating a status breakdown.
+Manually constructed legacy objects may also leave it unset. Use a full source
+roster when the distinction between usable/quota-counted sources and persistent
+failed records matters:
 
 ```python
 @dataclass(frozen=True)
@@ -2358,8 +2364,7 @@ is needed:
 
 ```python
 limits = await client.settings.get_account_limits()
-counts = (await client.notebooks.get(notebook_id)).source_counts
-assert counts is not None
+counts = SourceCounts.from_sources(await client.sources.list(notebook_id))
 remaining = counts.remaining_capacity(limits.source_limit)
 ```
 

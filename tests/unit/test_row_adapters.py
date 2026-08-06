@@ -1704,10 +1704,12 @@ class TestSourceRowStatus:
 
     def test_status_ready_when_status_block_absent(self) -> None:
         row = SourceRow.from_entry(_entry(status_code=None))
+        assert row.has_explicit_status is False
         assert row.status == SourceStatus.READY
 
     def test_status_processing(self) -> None:
         row = SourceRow.from_entry(_entry(status_code=SourceStatus.PROCESSING))
+        assert row.has_explicit_status is True
         assert row.status == SourceStatus.PROCESSING
 
     def test_status_error(self) -> None:
@@ -1721,6 +1723,7 @@ class TestSourceRowStatus:
     def test_unknown_status_falls_back_to_ready(self) -> None:
         """Status codes outside the known enum coerce to READY."""
         row = SourceRow.from_entry(_entry(status_code=999))
+        assert row.has_explicit_status is False
         assert row.status == SourceStatus.READY
 
     def test_non_list_status_block_falls_back_to_ready(self) -> None:

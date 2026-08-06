@@ -117,8 +117,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   then rejects at `quota_counted >= source_limit` before any create RPC. The
   error names the exact limit, active/quota count, failed count, and total
   records. Source accounting is explicit and shared: decoded public `Notebook`
-  objects expose `source_counts`, the legacy decoded `sources_count` means
-  `quota_counted`, and MCP/REST source-list responses add notebook-wide `source_counts`,
+  objects expose `source_counts`; when full state rows are available, the
+  legacy decoded `sources_count` means `quota_counted`. Compact notebook-list
+  rows leave `source_counts` null rather than fabricating states. MCP/REST
+  source-list responses add notebook-wide `source_counts`,
   `source_limit`, and `remaining_capacity`. Failed `ERROR` rows remain visible
   under `failed`/`total_records` but do not inflate active quota usage
   ([#1962](https://github.com/teng-lin/notebooklm-py/issues/1962)).

@@ -642,6 +642,21 @@ class SourceRow:
         return url
 
     @property
+    def has_explicit_status(self) -> bool:
+        """Whether this row carries a recognized status code."""
+        if (
+            len(self._raw) <= self._STATUS_BLOCK_POS
+            or not isinstance(self._raw[self._STATUS_BLOCK_POS], list)
+            or len(self._raw[self._STATUS_BLOCK_POS]) <= self._STATUS_INNER_POS
+        ):
+            return False
+        try:
+            SourceStatus(self._raw[self._STATUS_BLOCK_POS][self._STATUS_INNER_POS])
+        except ValueError:
+            return False
+        return True
+
+    @property
     def status(self) -> SourceStatus:
         """Processing status from ``self._raw[3][1]``.
 
@@ -659,18 +674,11 @@ class SourceRow:
         member tuple so the adapter automatically accepts any new values
         added to :class:`SourceStatus` without a parallel update here.
         """
-        if (
-            len(self._raw) <= self._STATUS_BLOCK_POS
-            or not isinstance(self._raw[self._STATUS_BLOCK_POS], list)
-            or len(self._raw[self._STATUS_BLOCK_POS]) <= self._STATUS_INNER_POS
-        ):
+        if not self.has_explicit_status:
             return SourceStatus.READY
 
         status_code = self._raw[self._STATUS_BLOCK_POS][self._STATUS_INNER_POS]
-        try:
-            return SourceStatus(status_code)
-        except ValueError:
-            return SourceStatus.READY
+        return SourceStatus(status_code)
 
 
 @dataclass(frozen=True)

@@ -46,18 +46,19 @@ class SourceSummary:
         }
 
 
-def _extract_notebook_source_counts(data: list[Any]) -> SourceCounts:
-    """Count valid, unique source records embedded in a notebook payload."""
+def _extract_notebook_source_counts(data: list[Any]) -> tuple[int, SourceCounts | None]:
+    """Count embedded records, returning states only when the rows carry them."""
     raw_sources = (
         safe_index(data, 1, method_id=_NOTEBOOK_METHOD_ID, source="Notebook.sources_count")
         if len(data) > 1
         else None
     )
     if not isinstance(raw_sources, list):
-        return SourceCounts()
+        return 0, SourceCounts()
 
     seen_ids: set[str] = set()
     statuses = []
+    statuses_are_explicit = True
     for raw_source in raw_sources:
         if not isinstance(raw_source, list) or not raw_source:
             continue
@@ -65,8 +66,14 @@ def _extract_notebook_source_counts(data: list[Any]) -> SourceCounts:
         if not row.has_id or row.id in seen_ids:
             continue
         seen_ids.add(row.id)
+        statuses_are_explicit = statuses_are_explicit and row.has_explicit_status
         statuses.append(row.status)
-    return SourceCounts.from_statuses(statuses)
+    if not seen_ids:
+        return 0, SourceCounts()
+    if not statuses_are_explicit:
+        return len(seen_ids), None
+    source_counts = SourceCounts.from_statuses(statuses)
+    return source_counts.quota_counted, source_counts
 
 
 @dataclass
@@ -95,7 +102,7 @@ class Notebook:
         )
         raw_title = title_slot if isinstance(title_slot, str) else ""
         title = raw_title.replace("thought\n", "").strip()
-        source_counts = _extract_notebook_source_counts(data)
+        sources_count, source_counts = _extract_notebook_source_counts(data)
         # ``data[2]`` is the notebook id. A short row / ``None`` slot keeps
         # the historical silent ``""``-degrade — this factory parses rows out
         # of whole-list responses, so raising would abort sibling rows. A
@@ -171,7 +178,7 @@ class Notebook:
             id=notebook_id,
             title=title,
             created_at=created_at,
-            sources_count=source_counts.quota_counted,
+            sources_count=sources_count,
             is_owner=is_owner,
             modified_at=modified_at,
             source_counts=source_counts,

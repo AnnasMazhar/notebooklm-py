@@ -531,7 +531,10 @@ Client-actionable follow-ups are tracked in
   row. Other backend failures can still leave a persistent `status="error"`
   record. `source_list` reports those separately in `source_counts.failed` and
   `total_records`; they do not inflate `active`, `quota_counted`, or the legacy
-  notebook `sources_count` ([#1962](https://github.com/teng-lin/notebooklm-py/issues/1962)).
+  notebook `sources_count` when full state rows are available. The compact
+  `notebook_list` upstream payload has IDs but no states, so it returns
+  `source_counts=null`; call `source_list` for authoritative capacity fields
+  ([#1962](https://github.com/teng-lin/notebooklm-py/issues/1962)).
 - **Deep research does not hard-enforce a primary-source / authority preference.**
   Discovery and ranking happen server-side; a query that asks for "authoritative" or
   "primary" sources steers the model but is **advisory**, not a hard filter. There is no

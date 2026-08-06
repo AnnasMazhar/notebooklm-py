@@ -77,14 +77,6 @@
     "sources_count": 1,
     "is_owner": true,
     "modified_at": "2024-01-02T00:00:00+00:00",
-    "source_counts": {
-      "active": 1,
-      "ready": 1,
-      "processing": 0,
-      "preparing": 0,
-      "failed": 0,
-      "quota_counted": 1,
-      "total_records": 1
-    }
+    "source_counts": null
   }
 }

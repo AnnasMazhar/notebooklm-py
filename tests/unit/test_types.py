@@ -164,6 +164,7 @@ _PUBLIC_MOVABLE_CLASSES = [
     "SharedUser",
     "ShareStatus",
     "Source",
+    "SourceCounts",
     "SourceFulltext",
     "SourceSummary",
     "SourceType",
@@ -341,6 +342,7 @@ class TestNotebook:
         notebook = Notebook.from_api_response(data)
 
         assert notebook.sources_count == 3
+        assert notebook.source_counts is None
 
     def test_from_api_response_exposes_consistent_source_counts(self):
         """Failed, duplicate, and id-less records do not inflate quota usage."""

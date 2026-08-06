@@ -276,6 +276,7 @@ for _public_moved_type in (
     SharedUser,
     ShareStatus,
     Source,
+    SourceCounts,
     SourceFulltext,
     SourceGuide,
     SourceSummary,
