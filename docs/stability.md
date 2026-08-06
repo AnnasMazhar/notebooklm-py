@@ -1,7 +1,7 @@
 # API Stability and Versioning
 
 **Status:** Active
-**Last Updated:** 2026-07-04
+**Last Updated:** 2026-08-05
 
 This document describes the stability guarantees and versioning policy for `notebooklm-py`.
 
@@ -68,15 +68,16 @@ NotebookLMClient.settings
 NotebookLMClient.sharing
 NotebookLMClient.labels
 NotebookLMClient.mind_maps
+NotebookLMClient.collections
 NotebookLMClient.rpc_call()
 
 # Types
-Notebook, Source, Artifact, Note, Label, MindMap
+Notebook, Source, Artifact, Note, Label, MindMap, Collection
 GenerationState, GenerationStatus, AskResult
 NotebookDescription, ConversationTurn
-ShareStatus, SharedUser, SourceFulltext
+ShareStatus, SharedUser, SourceFulltext, SourceGuide
 NotebookMetadata, SourceSummary
-AccountLimits
+AccountLimits, UserSettings
 ChatReference, ReportSuggestion, PromptSuggestion, SuggestedTopic
 MindMapKind, MindMapResult
 ResearchStart, ResearchStatus, ResearchTask, ResearchSource
@@ -86,9 +87,10 @@ ClientMetricsSnapshot, ConnectionLimits, RpcTelemetryEvent
 NotebookLMError                    # Base exception
 NotFoundError                      # Cross-domain umbrella for *NotFoundError
 WaitTimeoutError                   # Cross-domain umbrella for wait/poll timeouts (also a built-in TimeoutError)
-RPCError, AuthError, RateLimitError, RPCTimeoutError, ServerError
+RPCError, AuthError, RateLimitError, RPCTimeoutError, RPCResponseTooLargeError, ServerError
 NetworkError, DecodingError, UnknownRPCMethodError
-ClientError, ConfigurationError, ValidationError
+ClientError, ConfigurationError, ValidationError, MissingDependencyError
+NonIdempotentRetryError            # Raised by idempotent=True calls on a non-idempotent retry
 # Domain-specific
 # Note: *NotFoundError classes mix in RPCError (catchable as either RPCError
 # or the domain base). v0.6.0 restored this symmetry across all three "not
@@ -101,13 +103,14 @@ SourceError, SourceAddError, SourceProcessingError, SourceTimeoutError, SourceNo
 NotebookError, NotebookNotFoundError
 ArtifactError, ArtifactDownloadError, ArtifactFeatureUnavailableError, ArtifactNotFoundError, ArtifactNotReadyError, ArtifactParseError
 ArtifactTimeoutError, ArtifactPendingTimeoutError, ArtifactInProgressTimeoutError
-ResearchError, ResearchTimeoutError, ResearchTaskMismatchError, AmbiguousResearchTaskError
+ResearchError, ResearchTimeoutError, ResearchTaskMismatchError, AmbiguousResearchTaskError, ResearchStartUnavailableError
 # Note: notes.get/update/delete and mind_maps.get/rename/delete now raise
 # their domain *NotFoundError on a missing target; use get_or_none() for
 # warning-free None-on-miss lookups.
 NoteError, NoteNotFoundError
 MindMapError, MindMapNotFoundError
 LabelError, LabelNotFoundError
+CollectionError, CollectionNotFoundError
 ChatError, ChatResponseParseError
 
 # Enums
@@ -368,7 +371,7 @@ When Google changes their internal APIs:
 
 ### Automated RPC Health Check
 
-A nightly GitHub Action (`rpc-health.yml`) monitors all 35+ RPC methods for ID
+A nightly GitHub Action (`rpc-health.yml`) monitors all 47 RPC methods for ID
 changes on `main`. Release branches use the same workflow through manual
 dispatch.
 
