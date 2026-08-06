@@ -111,6 +111,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Chat turn numbers now come from server history instead of the client-local
+  cache.** Stateless remote MCP requests create a fresh client for each call, so
+  a real continuation could previously report the contradictory pair
+  `is_follow_up=True, turn_number=1`. `chat.ask()` now counts complete
+  newest-first server history by user-question rows under the conversation lock,
+  reuses that count for `is_follow_up`, and assigns the new answer the next
+  ordinal. Explicit-conversation asks use the same source of truth, and stale
+  local cache entries no longer control the result
+  ([#1976](https://github.com/teng-lin/notebooklm-py/issues/1976)).
+
 - **`NOTEBOOKLM_AUTH_JSON` now beats a profile everywhere, as documented.** The
   precedence `--storage` > `NOTEBOOKLM_AUTH_JSON` > profile file is stated in
   `docs/configuration.md`, drawn in `docs/architecture.md`, and implemented by

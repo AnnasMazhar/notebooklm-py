@@ -2253,8 +2253,8 @@ if final.is_complete and final.url:
 class AskResult:
     answer: str                        # The answer text with inline citations [1], [2], etc.
     conversation_id: str               # ID for follow-up questions
-    turn_number: int                   # Turn number in conversation
-    is_follow_up: bool                 # Whether this was a follow-up question
+    turn_number: int                   # Server-derived turn number in conversation
+    is_follow_up: bool                 # Whether this request targeted a prior conversation
     references: list[ChatReference]    # Source references cited in the answer
     raw_response: str                  # First 1000 chars of raw API response
 
