@@ -12,7 +12,7 @@ import asyncio
 from pathlib import Path
 
 from ..auth import MasterTokenError, generate_android_id, read_master_token
-from ..paths import get_master_token_path, get_storage_path
+from ..paths import get_storage_path
 from .error_handler import exit_with_code
 from .rendering import console
 from .services.login import master_token as mt_service
@@ -33,7 +33,13 @@ def run_master_token_login(
     """Bootstrap or refresh headless master-token auth (see ``login --master-token``)."""
     profile = ctx.obj.get("profile") if ctx.obj else None
     storage_path = Path(storage) if storage else get_storage_path(profile=profile)
-    master_token_path = get_master_token_path(profile)
+    # Sibling invariant (#2103): master_token.json lives beside storage_state.json.
+    # Every reader derives it from the storage path (_auth/recovery.py L4 rung,
+    # _app/auth_check.py, cli/services/auth_refresh.py), so the writer must too —
+    # ``get_master_token_path(profile)`` ignores a ``--storage`` override and would
+    # write the token where no reader ever looks. Identical to the old behavior
+    # when ``--storage`` is absent (both paths then live in the profile dir).
+    master_token_path = storage_path.with_name("master_token.json")
 
     try:
         if refresh:

@@ -45,6 +45,54 @@ def test_master_token_refresh_calls_service(tmp_path, monkeypatch):
     assert result.output.strip() == f"Re-minted cookies -> {storage}"
 
 
+def test_master_token_refresh_storage_override_keeps_sibling_token_path(tmp_path, monkeypatch):
+    """#2103: ``--storage`` must relocate master_token.json alongside the storage.
+
+    Every reader (the L4 recovery rung, ``auth check``, the missing-storage
+    bootstrap) derives the token path as a sibling of the storage path; before
+    the fix the login writer resolved it from the profile dir instead, writing
+    the token where no reader ever looks.
+    """
+    monkeypatch.setenv("NOTEBOOKLM_HOME", str(tmp_path))
+    override_dir = tmp_path / "elsewhere"
+    override_dir.mkdir()
+    storage = override_dir / "foo.json"
+    storage.write_text(json.dumps({"cookies": []}), encoding="utf-8")
+    with patch.object(mt_service, "refresh", new=AsyncMock()) as ref:
+        result = CliRunner().invoke(
+            cli, ["login", "--master-token-refresh", "--storage", str(storage)]
+        )
+    assert result.exit_code == 0, result.output
+    ref.assert_awaited_once_with(
+        storage_path=storage,
+        master_token_path=storage.with_name("master_token.json"),
+    )
+
+
+def test_master_token_bootstrap_storage_override_keeps_sibling_token_path(tmp_path, monkeypatch):
+    """#2103: the bootstrap path pair must honor ``--storage`` for both files."""
+    monkeypatch.setenv("NOTEBOOKLM_HOME", str(tmp_path))
+    storage = tmp_path / "elsewhere" / "foo.json"
+    storage.parent.mkdir()
+    with patch.object(mt_service, "bootstrap", new=AsyncMock(return_value=7)) as boot:
+        result = CliRunner().invoke(
+            cli,
+            [
+                "login",
+                "--master-token",
+                "--account",
+                "e@x.com",
+                "--oauth-token",
+                "TOK",
+                "--storage",
+                str(storage),
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert boot.call_args.kwargs["storage_path"] == storage
+    assert boot.call_args.kwargs["master_token_path"] == storage.with_name("master_token.json")
+
+
 def test_master_token_refresh_help_marks_forced_route_legacy():
     result = CliRunner().invoke(cli, ["login", "--help"])
 

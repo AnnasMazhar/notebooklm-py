@@ -148,6 +148,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`login --master-token` now honors `--storage` for `master_token.json` too
+  (#2103).** The login writer resolved the storage path from `--storage` but the
+  master-token path from the profile dir, so under a `--storage` override the
+  durable token landed where no reader ever looks — the L4 master-token recovery
+  rung silently reported "no token", `auth check` reported `present: False`
+  immediately after a successful login, and the full-account credential was
+  written into the default profile dir the user had explicitly redirected away
+  from. The writer now derives the token path as a sibling of the storage path,
+  matching every reader (`_auth/recovery.py`, `_app/auth_check.py`,
+  `cli/services/auth_refresh.py`). Behavior without `--storage` is unchanged.
+  The same fix covers `login --master-token-refresh --storage …`, and the
+  account-ownership guard now checks the token that actually sits beside the
+  target storage instead of the active profile's.
+
 - **`NOTEBOOKLM_AUTH_JSON` now beats a profile everywhere, as documented.** The
   precedence `--storage` > `NOTEBOOKLM_AUTH_JSON` > profile file is stated in
   `docs/configuration.md`, drawn in `docs/architecture.md`, and implemented by
