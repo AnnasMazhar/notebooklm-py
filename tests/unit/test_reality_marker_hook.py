@@ -10,13 +10,21 @@ import tests.conftest as test_config
 
 
 class _Config:
-    def __init__(self, *, required: bool = True) -> None:
+    def __init__(self, *, required: bool = True, xdist: bool = False) -> None:
         self.required = required
-        self.pluginmanager = SimpleNamespace(get_plugin=lambda _name: None)
+        self.pluginmanager = SimpleNamespace(
+            get_plugin=lambda _name: None,
+            hasplugin=lambda name: xdist and name == "xdist",
+        )
 
     def getoption(self, name: str) -> bool:
-        assert name == "--require-reality"
-        return self.required
+        if name == "--require-reality":
+            return self.required
+        if name == "numprocesses":
+            return 2 if self.pluginmanager.hasplugin("xdist") else None
+        if name == "dist":
+            return "loadfile" if self.pluginmanager.hasplugin("xdist") else "no"
+        raise AssertionError(name)
 
 
 def _item(nodeid: str, *markers: str) -> SimpleNamespace:
@@ -28,8 +36,10 @@ def _session(*items: SimpleNamespace) -> SimpleNamespace:
 
 
 _PROBE_MARKERS = {
-    nodeid: ("requires_chromium" if "launches" in nodeid else "requires_playwright")
-    for nodeid in test_config.REQUIRED_REALITY_PROBES
+    "tests/unit/cli/test_playwright_login_coverage.py::"
+    "test_probe_source_detects_both_states_against_real_playwright": "requires_playwright",
+    "tests/unit/cli/test_playwright_login_coverage.py::"
+    "test_chromium_launches_headless_against_real_playwright": "requires_chromium",
 }
 
 
@@ -40,6 +50,11 @@ def test_required_collection_rejects_deselected_expected_probe(monkeypatch) -> N
 
     with pytest.raises(pytest.UsageError, match="missing expected probes"):
         test_config.pytest_collection_finish(session)
+
+
+def test_required_mode_rejects_xdist() -> None:
+    with pytest.raises(pytest.UsageError, match="cannot be combined with xdist"):
+        test_config.pytest_configure(_Config(xdist=True))
 
 
 def test_required_collection_rejects_unrecognized_dependency(monkeypatch) -> None:

@@ -272,6 +272,15 @@ def update_baselines(request) -> bool:
 
 def pytest_configure(config):
     """Register custom markers and configure test environment."""
+    xdist_active = (
+        config.getoption("numprocesses", default=None) not in (None, 0)
+        or config.getoption("dist", default="no") != "no"
+    )
+    if config.getoption("--require-reality") and xdist_active:
+        raise pytest.UsageError(
+            "--require-reality cannot be combined with xdist; run the required "
+            "reality lane serially so the controller can account for every probe"
+        )
     config.addinivalue_line(
         "markers",
         "vcr: marks tests that use VCR cassettes (may be skipped if cassettes unavailable)",
