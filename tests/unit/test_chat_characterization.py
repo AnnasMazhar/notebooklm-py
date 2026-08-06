@@ -893,6 +893,7 @@ class TestChatAskErrorHandling:
         # Empty answer: turn_number equals len(turns) (0), not len(turns)+1
         assert result.answer == ""
         assert result.turn_number == 0
+        assert result.is_follow_up is True
         # Caller-supplied conversation_id is preserved across the empty response.
         assert result.conversation_id == "existing-conv-id"
 

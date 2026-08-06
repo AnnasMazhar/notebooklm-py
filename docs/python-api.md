@@ -2254,7 +2254,7 @@ class AskResult:
     answer: str                        # The answer text with inline citations [1], [2], etc.
     conversation_id: str               # ID for follow-up questions
     turn_number: int                   # Server-derived turn number in conversation
-    is_follow_up: bool                 # Whether this request targeted a prior conversation
+    is_follow_up: bool                 # Explicit ID => True; implicit => prior server turns exist
     references: list[ChatReference]    # Source references cited in the answer
     raw_response: str                  # First 1000 chars of raw API response
 
