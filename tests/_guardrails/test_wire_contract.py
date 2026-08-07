@@ -196,7 +196,14 @@ def test_declared_enum_gaps_still_exist(client_enum: str) -> None:
     If a gap is closed in the client, its entry should be moved from ``ENUM_GAPS``
     into ``ENUM_BINDINGS`` rather than deleted.
     """
-    backend_name, _ = ENUM_BINDINGS[client_enum]
+    # A gap-only enum (declared in ENUM_GAPS but not ENUM_BINDINGS) would raise
+    # KeyError here and surface as a traceback rather than a usable message.
+    binding = ENUM_BINDINGS.get(client_enum)
+    assert binding is not None, (
+        f"ENUM_GAPS declares {client_enum!r} but ENUM_BINDINGS does not. Add the "
+        "backend enum name there first — the gap list is checked against it."
+    )
+    backend_name, _ = binding
     backend = load_enums().get(backend_name, {})
     wrong = [
         f"  declared gap {value} ({member!r}) is not a backend member of {backend_name}"

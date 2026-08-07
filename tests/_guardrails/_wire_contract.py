@@ -19,10 +19,20 @@ This registry makes the claim explicit and checkable. Each :class:`Mapping` says
 
 Adding a constant
 -----------------
-Every ``_*_POS`` constant in ``src/notebooklm/_row_adapters/`` must appear in
-either :data:`MAPPINGS` or :data:`UNMAPPED`. The coverage test fails otherwise,
-so a new positional read cannot enter the codebase without someone stating what
-it points at — or stating, on the record, that they don't know.
+Every ``_*_POS`` constant in the scanned modules must appear in exactly one of
+three places, in descending order of how much is actually known:
+
+* :data:`MAPPINGS` — you can name the protobuf field it reads. Asserted against
+  the schema (``constant == tag - 1``).
+* :data:`PINNED` — the proto has no name for the slot (an ``addUnused()``
+  reservation), but live evidence establishes the meaning. The value is frozen
+  and the evidence recorded; a change-detector, not a validation.
+* :data:`UNMAPPED` — you don't know. Nothing is asserted, but the reason is on
+  the record.
+
+The coverage test fails otherwise, so a new positional read cannot enter the
+codebase without someone stating what it points at — or stating, on the record,
+that they don't know.
 
 An honest ``UNMAPPED`` entry is much better than a guessed ``MAPPINGS`` entry.
 A wrong mapping here is worse than no mapping: it would lend false confidence to
@@ -232,7 +242,9 @@ MAPPINGS: tuple[Mapping, ...] = (
         "_NOTEBOOK_LIMIT_INDEX",
         "TierLimits",
         tag=2,
-        note="maxProjects — name unrecovered; tag from BuilderInfo, verified live on both transports",
+        note=(
+            "maxProjects — name unrecovered; tag from BuilderInfo, verified live on both transports"
+        ),
     ),
     Mapping(
         "_settings",
