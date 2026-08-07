@@ -331,8 +331,6 @@ class TestFromHttpx:
         assert jar.to_domain_map()[("SID", ".google.com", "/")] == "s"
 
     def test_from_httpx_preserves_expires_and_secure(self) -> None:
-        import httpx
-
         h = httpx.Cookies()
         h.set("SID", "s", domain=".google.com", path="/")
         for c in h.jar:
@@ -349,3 +347,21 @@ class TestFromHttpx:
     def test_from_httpx_answers_binding_questions(self) -> None:
         jar = CookieJar.from_httpx(self._httpx_jar(SID="s", APISID="a", SAPISID="sa", LSID="l"))
         assert jar.has_secondary_binding() is True
+
+    def test_from_httpx_excludes_non_auth_domain_cookies(self) -> None:
+        """A non-auth-domain cookie with an auth name must not leak in.
+
+        ``from_httpx`` applies the same allowed-auth-domain filter as
+        ``_cookie_map_from_jar`` (which builds ``AuthTokens.cookies``). Without
+        it, an ``OSID`` on an unrelated domain would make ``.jar`` report a
+        secondary binding the filtered ``cookies`` view correctly excludes.
+        """
+        jar = httpx.Cookies()
+        jar.set("OSID", "impostor", domain=".evil.example", path="/")
+        result = CookieJar.from_httpx(jar)
+        assert "OSID" not in result.names()
+        assert result.has_secondary_binding() is False
+        # A legitimate auth-domain cookie in the same jar still projects through.
+        jar.set("SID", "real", domain=".google.com", path="/")
+        mixed = CookieJar.from_httpx(jar)
+        assert mixed.names() == {"SID"}
