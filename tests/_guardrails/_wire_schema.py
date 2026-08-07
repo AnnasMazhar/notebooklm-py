@@ -1,11 +1,11 @@
 """Parsers for the mobile-derived wire reference data.
 
 Two reference artifacts, both recovered from the official NotebookLM Android
-app and checked into ``docs/``:
+app and checked into ``docs/mobile/``:
 
-* ``docs/mobile-api-schema.proto`` — protobuf messages with real field names and
+* ``docs/mobile/schema.proto`` — protobuf messages with real field names and
   tag numbers, recovered from the Dart AOT ``BuilderInfo`` disassembly.
-* ``docs/mobile-api-enums.txt`` — every ``ProtobufEnum`` value with its exact
+* ``docs/mobile/enums.txt`` — every ``ProtobufEnum`` value with its exact
   integer, merged from the snapshot object pool **and** the object store.
 
 Why this matters for a positional JSON client
@@ -44,8 +44,8 @@ from functools import lru_cache
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-PROTO_PATH = _REPO_ROOT / "docs" / "mobile-api-schema.proto"
-ENUMS_PATH = _REPO_ROOT / "docs" / "mobile-api-enums.txt"
+PROTO_PATH = _REPO_ROOT / "docs" / "mobile" / "schema.proto"
+ENUMS_PATH = _REPO_ROOT / "docs" / "mobile" / "enums.txt"
 
 #: Emitted by the upstream schema extractor when a field name could not be
 #: recovered. Not a real field name — see the module docstring.
@@ -109,7 +109,7 @@ class AmbiguousMessageError(LookupError):
 
 @dataclass
 class ProtoSchema:
-    """All messages parsed from ``docs/mobile-api-schema.proto``."""
+    """All messages parsed from ``docs/mobile/schema.proto``."""
 
     messages: list[ProtoMessage] = field(default_factory=list)
 

@@ -23,9 +23,9 @@ source of truth:
 * **C. Enum values agree.** Client enum members match the recovered backend enum,
   and known gaps stay declared.
 
-The reference data lives in ``docs/mobile-api-schema.proto`` and
-``docs/mobile-api-enums.txt``. Both are recovered artifacts, not guesses — see
-``docs/mobile-api-endpoints.md`` for the recovery method, and
+The reference data lives in ``docs/mobile/schema.proto`` and
+``docs/mobile/enums.txt``. Both are recovered artifacts, not guesses — see
+``docs/mobile/endpoints.md`` for the recovery method, and
 ``tests/_guardrails/_wire_schema.py`` for the index↔tag equivalence this relies on.
 """
 
@@ -177,7 +177,7 @@ def test_enum_values_match_backend(client_enum: str) -> None:
     """C. Declared enum members match the recovered backend enum."""
     backend_name, bindings = ENUM_BINDINGS[client_enum]
     backend = load_enums().get(backend_name)
-    assert backend, f"{backend_name} missing from docs/mobile-api-enums.txt"
+    assert backend, f"{backend_name} missing from docs/mobile/enums.txt"
 
     mismatches = [
         f"  {client_enum}({value}) claims {member!r}, backend has {backend.get(value)!r}"

@@ -15,7 +15,7 @@ the wire, so they could only ever confirm the bug.
 This registry makes the claim explicit and checkable. Each :class:`Mapping` says
 "constant ``X`` on class ``Y`` reads protobuf field ``M.f``", and
 ``test_wire_contract.py`` asserts ``constant == tag - 1`` against
-``docs/mobile-api-schema.proto``.
+``docs/mobile/schema.proto``.
 
 Adding a constant
 -----------------
@@ -90,7 +90,7 @@ class Pinned:
     """A constant whose meaning is known from LIVE evidence but not from the proto.
 
     These read ``addUnused()`` slots: the mobile ``BuilderInfo`` reserves the field
-    but records no name, so the tag is absent from ``mobile-api-schema.proto`` and
+    but records no name, so the tag is absent from ``mobile/schema.proto`` and
     cannot be checked against it. What we *can* do is record what the slot means,
     cite the observation that established it, and freeze the value so an
     accidental change is caught.

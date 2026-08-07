@@ -9,12 +9,12 @@ field-named by Google
 cross-referenced to the web API; **22 methods** were exercised live and their wire shapes decoded
 here. The **complete protobuf schema** — 282 messages / 767 fields with real field names, tags,
 types, and cardinality — was recovered by decompiling the Flutter binary with a Dart-3.13-ported
-blutter, and is checked in at **[mobile-api-schema.proto](mobile-api-schema.proto)**. The inline
+blutter, and is checked in at **[mobile/schema.proto](mobile/schema.proto)**. The inline
 shapes below keep their wire-capture form (field `#N` + type); the `.proto` file is authoritative
 for names. Read paths were driven on real notebooks, all mutations on a throwaway notebook.
 
 This document is the schema-recovery follow-up to
-[docs/mobile-api-capture.md](mobile-api-capture.md), which explains how the `.pb`
+[docs/mobile/capture.md](mobile/capture.md), which explains how the `.pb`
 bodies were captured. Regenerate the raw shapes with:
 
 ```bash
@@ -157,7 +157,7 @@ cross-check for naming mobile fields.
 ## Common building blocks
 
 These shapes recur across methods. Field numbers are stable; **names below are now the real ones
-recovered from the binary** (see [mobile-api-schema.proto](mobile-api-schema.proto)) — the earlier
+recovered from the binary** (see [mobile/schema.proto](mobile/schema.proto)) — the earlier
 `(inferred)` guesses are annotated where they differed.
 
 ### UUID string (`str[36]`)
@@ -179,7 +179,7 @@ Seconds are ~`1.78e9` (mid-2026), which is how the decoder recognises them.
 
 Almost every request carries this sub-message (`RequestContext`, from
 `labs.language.tailwind.common.protos`). **Its field number differs per method** (this is pitfall
-#2 in [CLAUDE.md](../CLAUDE.md) — position-sensitive nesting). Real field names (was inferred):
+#2 in [CLAUDE.md](../../CLAUDE.md) — position-sensitive nesting). Real field names (was inferred):
 
 ```proto
 message RequestContext {
@@ -713,9 +713,9 @@ Graduated options, cheapest first:
 
    **Outcome (2026-07-22): success — full schema recovered.** blutter was ported to Dart 3.13 and
    run to completion; the recovered schema is checked in at
-   [docs/mobile-api-schema.proto](mobile-api-schema.proto) (**282 messages, 767 fields**, field
+   [docs/mobile/schema.proto](mobile/schema.proto) (**282 messages, 767 fields**, field
    numbers/names/types/cardinality from the binary). The port took two kinds of change, captured as
-   a patch in [docs/blutter-dart3.13.patch](blutter-dart3.13.patch):
+   a patch in [docs/mobile/blutter-dart3.13.patch](blutter-dart3.13.patch):
 
    - **Snapshot loading** (the novel part): `extract_dart_info.py` reads the snapshot header from the
      renamed `.symtab` symbol; `ElfHelper.cpp::findSnapshots` scans `.symtab` and maps the combined
@@ -731,13 +731,13 @@ Graduated options, cheapest first:
 
    Build with `--no-analysis` for the class/field structure (fast); build **with** analysis to
    disassemble each `BuilderInfo._i()` and recover exact tag↔name↔type — that is what
-   [scripts/parse_pbschema.py](../scripts/parse_pbschema.py) parses into the `.proto`. Every RPC
+   [scripts/parse_pbschema.py](../../scripts/parse_pbschema.py) parses into the `.proto`. Every RPC
    request/response message cross-checks cleanly against the wire-capture shapes above.
 3. **Dynamic (frida):** hook protobuf (de)serialization to dump field maps at runtime — **not
    viable here**, frida's native hooks crash this app (see the capture runbook's "What did not work").
 
 Result: enums came from string-mining; the full field-named schema came from the ported blutter —
-see [docs/mobile-api-schema.proto](mobile-api-schema.proto).
+see [docs/mobile/schema.proto](mobile/schema.proto).
 
 ## Recovered vs. still unknown
 
@@ -752,7 +752,7 @@ client-context envelope, repeated-field structure, account-limits block, two-pha
 generate→poll, and the server-streaming chat-answer frame model are all solid.
 
 **Field names/tags/types — recovered:** the full protobuf schema (282 messages, 767 fields) is in
-[mobile-api-schema.proto](mobile-api-schema.proto), decompiled from the binary. This supersedes the
+[mobile/schema.proto](mobile/schema.proto), decompiled from the binary. This supersedes the
 `(inferred)` names in the inline shapes — including every message not reachable from the mobile UI
 (`CreateNote`/`MutateNote`/`DeleteNotes`, `ActOnSources`, artifact ops, the WebRTC Live messages,
 `PrototypeNotebookSearch`). Enum *value* names are in [Enums](#enums-recovered-from-the-binary).
