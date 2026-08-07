@@ -14,6 +14,7 @@ from . import cookies as _auth_cookies
 from . import psidts_recovery as _auth_psidts_recovery
 from . import refresh as _auth_refresh
 from . import storage as _auth_storage
+from .cookie_types import CookieJar
 
 DomainCookieMap: TypeAlias = _auth_cookies.DomainCookieMap
 FlatCookieMap: TypeAlias = _auth_cookies.FlatCookieMap
@@ -232,6 +233,24 @@ class AuthTokens:
     def account_route(self) -> str:
         """Return the value to send in NotebookLM ``authuser`` routing fields."""
         return _auth_account.format_authuser_value(self.authuser, self.account_email)
+
+    @property
+    def jar(self) -> CookieJar:
+        """Return a typed, read-only :class:`CookieJar` view of the current cookies.
+
+        The forward-looking accessor for new code (ADR-0032). Projected fresh
+        from the live ``cookie_jar`` each access, so it never goes stale — but it
+        is a **read-only question view** (``names`` / ``validate_required`` /
+        ``has_secondary_binding`` / ``missing_hint``), not the live jar. Mutating
+        the live session still goes through ``cookie_jar`` (the httpx jar the
+        transport owns); persistence still goes through the storage writer.
+
+        ``same_site``-lossy by construction (:meth:`CookieJar.from_httpx`), so it
+        must never be persisted — the SameSite the wire cookies carry is not
+        recoverable from ``http.cookiejar``. This is why ``jar`` answers
+        questions rather than replacing ``cookie_jar``.
+        """
+        return CookieJar.from_httpx(self.cookie_jar) if self.cookie_jar is not None else CookieJar()
 
     @property
     def flat_cookies(self) -> FlatCookieMap:

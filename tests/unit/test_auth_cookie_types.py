@@ -11,6 +11,7 @@ even though the jar's own behavior might look self-consistent.
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from notebooklm._auth import cookie_policy as _cookie_policy
@@ -312,3 +313,39 @@ class TestContainerAndSafety:
         before = jar.names()
         jar.to_domain_map()[("INJECTED", "x", "/")] = "v"
         assert jar.names() == before
+
+
+class TestFromHttpx:
+    """ADR-0032 Phase A: snapshot a live httpx jar for read-only questions."""
+
+    @staticmethod
+    def _httpx_jar(**cookies: str) -> httpx.Cookies:
+        jar = httpx.Cookies()
+        for name, value in cookies.items():
+            jar.set(name, value, domain=".google.com", path="/")
+        return jar
+
+    def test_from_httpx_preserves_names_and_values(self) -> None:
+        jar = CookieJar.from_httpx(self._httpx_jar(SID="s", HSID="h"))
+        assert jar.names() == {"SID", "HSID"}
+        assert jar.to_domain_map()[("SID", ".google.com", "/")] == "s"
+
+    def test_from_httpx_preserves_expires_and_secure(self) -> None:
+        import httpx
+
+        h = httpx.Cookies()
+        h.set("SID", "s", domain=".google.com", path="/")
+        for c in h.jar:
+            c.expires, c.secure = 1900000000, True
+        cookie = next(iter(CookieJar.from_httpx(h)))
+        assert cookie.expires == 1900000000
+        assert cookie.secure is True
+
+    def test_from_httpx_loses_same_site_by_construction(self) -> None:
+        """http.cookiejar can't carry SameSite — every Cookie gets None."""
+        cookie = next(iter(CookieJar.from_httpx(self._httpx_jar(SID="s"))))
+        assert cookie.same_site is None
+
+    def test_from_httpx_answers_binding_questions(self) -> None:
+        jar = CookieJar.from_httpx(self._httpx_jar(SID="s", APISID="a", SAPISID="sa", LSID="l"))
+        assert jar.has_secondary_binding() is True

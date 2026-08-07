@@ -102,3 +102,27 @@ def test_rebind_handles_edge_case_values(value: str) -> None:
     assert auth.cookie_jar is not None
     jar_names = {c.name for c in auth.cookie_jar.jar}
     assert (got is not None) == ("SID" in jar_names)
+
+
+class TestJarProjection:
+    """ADR-0032 Phase A: AuthTokens.jar is a fresh, never-stale question view."""
+
+    def test_jar_reflects_the_current_live_jar(self) -> None:
+        auth = _auth(SID="old")
+        assert auth.jar.names() == {"SID"}
+        auth.replace_cookie_jar(_jar(SID="new", HSID="h"))
+        # Fresh projection each access — no staleness, unlike the old .cookies bug.
+        assert auth.jar.names() == {"SID", "HSID"}
+        assert auth.jar.to_domain_map()[("SID", ".google.com", "/")] == "new"
+
+    def test_jar_is_a_cookiejar_not_the_live_httpx_jar(self) -> None:
+        from notebooklm._auth.cookie_types import CookieJar
+
+        auth = _auth(SID="s")
+        assert isinstance(auth.jar, CookieJar)
+        # Distinct object each access (a projection, not the live jar).
+        assert auth.jar is not auth.jar
+
+    def test_jar_answers_questions(self) -> None:
+        auth = _auth(SID="s", APISID="a", SAPISID="sa", LSID="l")
+        assert auth.jar.has_secondary_binding() is True
