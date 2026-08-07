@@ -85,7 +85,9 @@ introduce its objects and operations in independently shippable stages:
   the free function that owns it, pinned by equivalence tests. A shrink-only
   ratchet (`tests/_guardrails/test_cookie_conversion_ratchet.py`) blocks *new*
   bespoke conversion call sites; the five existing ones are grandfathered with
-  the stage that retires each, and the allowlist may only shrink.
+  the stage that retires each, pinned at their measured call counts so a module
+  already on the list cannot grow a second one for free, and the allowlist may
+  only shrink.
 
   **The flat `name -> value` shape is deliberately not on the type.** It
   collapses the path component (#369) and picks an arbitrary winner among
