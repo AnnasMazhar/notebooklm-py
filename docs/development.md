@@ -571,7 +571,10 @@ A representative slice (run `ls tests/_guardrails/` for the full set):
   only shrinks (e.g. `test_module_size_ratchet.py`,
   `tests/scripts/check_method_coverage.py`). The rule lands without a giant
   cleanup PR, and the gate fails when an allowlisted entry becomes clean so it
-  gets removed.
+  gets removed. (One recorded exception:
+  [ADR-0033](adr/0033-auth-consolidation-policy.md) sanctioned-merge entries
+  under `src/notebooklm/_auth/`, where a consolidation may add or raise an
+  annotated entry at its measured LOC — see that gate's own docstring.)
 - **Scan yourself too.** A gate that shows the *wrong* form in its examples
   should use placeholders (or build them at runtime) rather than excluding its
   own file, so it still polices its own references
