@@ -75,11 +75,28 @@ introduce its objects and operations in independently shippable stages:
   `_rotate_post_sync` / `_rotation_http_client`); the four former sites are
   thin policy wrappers. Enforced by
   `tests/_guardrails/test_rotate_wire_contract.py`.
-- **Stage 1: `CookieJar`** — one canonical cookie type with constructors
-  (`from_storage_state` / `from_rookiepy` / `from_flat`) and converters
-  (`to_httpx` / `to_storage_state`), introduced as a non-breaking wrapper
-  delegating to today's free functions. New code uses jar methods; a ratchet
-  blocks new imports of the legacy conversion functions.
+- **Stage 1: `CookieJar`** — one canonical cookie type
+  (`_auth/cookie_types.py`, completing the `cookie_semantics` /
+  `cookie_policy` family) with constructors (`from_storage_state` /
+  `from_rookiepy` / `from_domain_map`), converters (`to_httpx` /
+  `to_storage_state` / `to_domain_map`), and the policy questions as methods
+  (`names` / `validate_required` / `has_secondary_binding` / `is_rotatable` /
+  `missing_hint`). A non-breaking wrapper: every decision still delegates to
+  the free function that owns it, pinned by equivalence tests. A shrink-only
+  ratchet (`tests/_guardrails/test_cookie_conversion_ratchet.py`) blocks *new*
+  bespoke conversion call sites; the five existing ones are grandfathered with
+  the stage that retires each, and the allowlist may only shrink.
+
+  **The flat `name -> value` shape is deliberately not on the type.** It
+  collapses the path component (#369) and picks an arbitrary winner among
+  same-tier domains, so the survivor changes when `storage_state` is reordered
+  (#2054) — `AuthTokens.flat_cookies` documents itself as "lossy, and not
+  correct for building a request". Every remaining caller is back-compat (the
+  public property, and `_update_cookie_input`'s write-back into a
+  legacy-shaped caller dict). Carrying it onto the canonical type would import
+  the footgun into the model meant to retire it, so it stays reachable only
+  through the legacy free function, and `to_httpx()` is the path- and
+  domain-correct route for cookies on the wire.
 - **Stage 2: `validate` / `heal` split** — `validate(jar) → ValidationResult`
   is pure (extends the closed-enum reason
   `RequiredCookieValidationError` grew in #2061); `heal` is the explicit
