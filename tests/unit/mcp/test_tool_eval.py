@@ -31,8 +31,14 @@ pytest.importorskip("fastmcp")
 #: to ~36.0k). Move these DOWN as the surface gets leaner; a rise means
 #: description/param bloat that must be justified, not rubber-stamped.
 SCHEMA_CHAR_BUDGET = (
-    39_050  # total serialized inputSchema + description chars (current 39_015; +35 slack)
+    39_050  # total serialized inputSchema + description chars (current 39_002; +48 slack)
 )
+# #2100 documented chat_ask's new ``turn_number`` result field (+66 chars), which
+# merged individually-green against an older base but breached this cap combined
+# with the then-current surface (39_081 > 39_050) — the same skew as #1912/#1913.
+# Fixed in #2109 by trimming redundant chat_ask prose (the "server-derived"
+# qualifier and the ``raw_response``-never-included aside, both behavior-pinned by
+# tests, not docs): 39_081 → 39_002. Cap held at 39_050, no behavior change.
 # #1896 folded studio_get_prompt into studio_list (each artifact's generation_prompt
 # rides the default summary listing / the item= single-fetch), a net −1 tool and
 # −367 schema chars. Ratcheted DOWN from 39_400 to the new 39_015 actual (don't leave
