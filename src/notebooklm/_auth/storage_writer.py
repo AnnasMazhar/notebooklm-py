@@ -623,7 +623,7 @@ def replace_from_remint(
         bounded storage-lock acquire timed out / the lock infra failed.
     """
     from . import account as _account  # lazy: avoid the account<->writer cycle
-    from ._browser_cookie_filter import (  # noqa: PLC0415 (leaf; avoid import cycle)
+    from ._browser_cookie_filter import (  # noqa: PLC0415 (deferred; true leaf, no cycle either way)
         filter_storage_state_cookies_by_domain_policy,
     )
 
@@ -740,10 +740,10 @@ def replace_from_login(
     """
     del io_policy  # reserved; see docstring
     from . import account as _account  # lazy: avoid the account<->writer cycle
-    from ._browser_cookie_filter import (  # noqa: PLC0415 (leaf; avoid import cycle)
+    from ._browser_cookie_filter import (  # noqa: PLC0415 (deferred; true leaf, no cycle either way)
         filter_storage_state_cookies_by_domain_policy,
     )
-    from .cookie_policy import (  # noqa: PLC0415 (leaf; avoid import cycle)
+    from .cookie_policy import (  # noqa: PLC0415 (deferred; true leaf, no cycle either way)
         MINIMUM_REQUIRED_COOKIES,
         cookie_names_from_storage,
     )
@@ -893,7 +893,7 @@ def persist_minted_jar(
     """
     from . import account as _account  # noqa: PLC0415 (avoid the account<->writer cycle)
     from . import master_token as _master_token  # lazy: avoid import cycle
-    from ._browser_cookie_filter import (  # noqa: PLC0415 (leaf; avoid import cycle)
+    from ._browser_cookie_filter import (  # noqa: PLC0415 (deferred; true leaf, no cycle either way)
         filter_storage_state_cookies_by_domain_policy,
     )
 
