@@ -114,10 +114,11 @@ class TestRepairAccountMetadataPokeSession:
             calls.append(kwargs)
             return [Account(authuser=0, email="alice@example.com", is_default=True)]
 
+        from notebooklm._auth import cookies as _auth_cookies
+
         monkeypatch.setattr(_auth_account, "enumerate_accounts", fake_enumerate)
         monkeypatch.setattr(
-            "notebooklm._auth.cookies.build_httpx_cookies_from_storage",
-            lambda path: httpx.Cookies(),
+            _auth_cookies, "build_httpx_cookies_from_storage", lambda path: httpx.Cookies()
         )
 
         storage_path = tmp_path / "storage_state.json"
