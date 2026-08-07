@@ -784,11 +784,15 @@ async def repair_account_metadata_from_playwright_storage(
     the result is set.
     """
     from .cookies import build_httpx_cookies_from_storage
+    from .keepalive import _poke_session
 
     active_email = extract_email_from_html(page_html) if isinstance(page_html, str) else None
     try:
         jar = build_httpx_cookies_from_storage(storage_path)
-        accounts = await enumerate_accounts(jar)
+        # ``poke_session`` matches what the ``notebooklm.auth`` facade's own
+        # ``enumerate_accounts`` wrapper injects — this internal call must not
+        # silently drop the keepalive session-freshness poke.
+        accounts = await enumerate_accounts(jar, poke_session=_poke_session)
         selected, reason = _select_playwright_account(accounts, active_email=active_email)
         if selected is None:
             clear_account_metadata(storage_path)
