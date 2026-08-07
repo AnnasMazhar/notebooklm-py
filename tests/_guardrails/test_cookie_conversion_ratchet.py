@@ -94,6 +94,21 @@ def _local_bindings(tree: ast.AST) -> dict[str, str]:
     real function regardless of what a caller called it. The re-export
     statements themselves are ``ast.Assign``, not ``ast.Call``, so recognizing
     them here does not make them count as call sites.
+
+    **Assignments are honored only at module level, deliberately.** ``ast.walk``
+    flattens every scope into one view, so a function-local ``alias = mod.f``
+    would otherwise resolve an unrelated ``alias(...)`` in a *different*
+    function as a conversion — a binding Python never shared. The accepted cost
+    is a narrow false negative: a function-local rebind is no longer caught.
+    That trade is the right way round for a block-new-debt ratchet. A missed
+    obscure local alias costs one uncaught call; reding on unrelated code costs
+    the gate its credibility and teaches people to route around it. Every real
+    binding in this repo today (``auth.py`` 126-131, ``_auth/refresh.py`` 59) is
+    module level.
+
+    Resolution is also one hop only: ``g = mod.f`` binds, but a chain through
+    it (``h = g``) does not, since ``g`` is not itself a ratcheted name. Both
+    idioms present in this repo are one hop, so that is where the gate stops.
     """
     bindings: dict[str, str] = {}
     for node in ast.walk(tree):
@@ -101,7 +116,8 @@ def _local_bindings(tree: ast.AST) -> dict[str, str]:
             for alias in node.names:
                 if alias.name in _RATCHETED and alias.asname:
                     bindings[alias.asname] = alias.name
-        elif isinstance(node, ast.Assign):
+    for node in tree.body if isinstance(tree, ast.Module) else []:
+        if isinstance(node, ast.Assign):
             source = _callee_name(node.value)
             if source in _RATCHETED:
                 for target in node.targets:
@@ -239,6 +255,25 @@ def test_grandfathered_entries_are_all_live() -> None:
             for (module, func), (count, ceiling) in sorted(slack.items())
         )
     )
+
+
+def test_function_local_rebinding_does_not_leak_across_scopes() -> None:
+    """A binding made inside one function must not resolve a call in another.
+
+    ``ast.walk`` flattens scopes, so without the module-level restriction the
+    ``alias`` bound in ``a`` would resolve ``b``'s unrelated ``alias`` parameter
+    as a conversion — a false positive on code that converts nothing. Also pins
+    the accepted cost: ``a``'s own in-scope call is not counted either.
+    """
+    tree = ast.parse(
+        "import x\n"
+        "def a():\n"
+        "    alias = x.normalize_cookie_map\n"
+        "    return alias({})\n"
+        "def b(alias):\n"
+        "    return alias({})\n"
+    )
+    assert _module_call_sites("_auth/probe.py", tree) == Counter()
 
 
 def test_a_reexport_assignment_is_not_a_call_site() -> None:
