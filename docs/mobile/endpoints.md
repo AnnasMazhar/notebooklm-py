@@ -6,15 +6,15 @@ field-named by Google
 **Last verified:** 2026-07-21
 
 **Scope:** the **full 49-method surface** (4 gRPC services) is enumerated from the app binary and
-cross-referenced to the web API; **22 methods** were exercised live and their wire shapes decoded
+cross-referenced to the web API; **21 methods** were exercised live and their wire shapes decoded
 here. The **complete protobuf schema** — 282 messages / 767 fields with real field names, tags,
 types, and cardinality — was recovered by decompiling the Flutter binary with a Dart-3.13-ported
-blutter, and is checked in at **[mobile/schema.proto](mobile/schema.proto)**. The inline
+blutter, and is checked in at **[mobile/schema.proto](schema.proto)**. The inline
 shapes below keep their wire-capture form (field `#N` + type); the `.proto` file is authoritative
 for names. Read paths were driven on real notebooks, all mutations on a throwaway notebook.
 
 This document is the schema-recovery follow-up to
-[docs/mobile/capture.md](mobile/capture.md), which explains how the `.pb`
+[docs/mobile/capture.md](capture.md), which explains how the `.pb`
 bodies were captured. Regenerate the raw shapes with:
 
 ```bash
@@ -42,7 +42,7 @@ Most methods are unary (single request message, single response message);
 
 ## Complete service surface (from the app binary)
 
-The 20 RPCs whose shapes are documented below are the ones the mobile UI actually calls.
+The 21 RPCs whose shapes are documented below are the ones the mobile UI actually calls.
 The **full** API surface is larger: extracting method-path strings from the Flutter AOT
 library (`lib/arm64-v8a/libNotebookLM_prod_android_library_flutter_artifacts.so` in
 `split_config.arm64_v8a.apk`) enumerates **49 methods across 4 gRPC services** compiled into
@@ -157,7 +157,7 @@ cross-check for naming mobile fields.
 ## Common building blocks
 
 These shapes recur across methods. Field numbers are stable; **names below are now the real ones
-recovered from the binary** (see [mobile/schema.proto](mobile/schema.proto)) — the earlier
+recovered from the binary** (see [mobile/schema.proto](schema.proto)) — the earlier
 `(inferred)` guesses are annotated where they differed.
 
 ### UUID string (`str[36]`)
@@ -713,7 +713,7 @@ Graduated options, cheapest first:
 
    **Outcome (2026-07-22): success — full schema recovered.** blutter was ported to Dart 3.13 and
    run to completion; the recovered schema is checked in at
-   [docs/mobile/schema.proto](mobile/schema.proto) (**282 messages, 767 fields**, field
+   [docs/mobile/schema.proto](schema.proto) (**282 messages, 767 fields**, field
    numbers/names/types/cardinality from the binary). The port took two kinds of change, captured as
    a patch in [docs/mobile/blutter-dart3.13.patch](blutter-dart3.13.patch):
 
@@ -737,7 +737,7 @@ Graduated options, cheapest first:
    viable here**, frida's native hooks crash this app (see the capture runbook's "What did not work").
 
 Result: enums came from string-mining; the full field-named schema came from the ported blutter —
-see [docs/mobile/schema.proto](mobile/schema.proto).
+see [docs/mobile/schema.proto](schema.proto).
 
 ## Recovered vs. still unknown
 
@@ -745,14 +745,14 @@ see [docs/mobile/schema.proto](mobile/schema.proto).
 app binary (see [Complete service surface](#complete-service-surface-from-the-app-binary)), and
 cross-referenced to the web `batchexecute` `rpcid`s (see [Mobile ⇄ web cross-reference](#mobile--web-cross-reference)).
 
-**Shapes recovered (high confidence):** request/response top-level shapes for **22 methods** —
+**Shapes recovered (high confidence):** request/response top-level shapes for **21 methods** —
 the UI-reachable read/write/research/chat set plus the `LabsTailwindSharingService` pair
 (`ShareProject`, `GetProjectDetails`). Entity-ID placement, `Timestamp` shape, the shared
 client-context envelope, repeated-field structure, account-limits block, two-phase source-add,
 generate→poll, and the server-streaming chat-answer frame model are all solid.
 
 **Field names/tags/types — recovered:** the full protobuf schema (282 messages, 767 fields) is in
-[mobile/schema.proto](mobile/schema.proto), decompiled from the binary. This supersedes the
+[mobile/schema.proto](schema.proto), decompiled from the binary. This supersedes the
 `(inferred)` names in the inline shapes — including every message not reachable from the mobile UI
 (`CreateNote`/`MutateNote`/`DeleteNotes`, `ActOnSources`, artifact ops, the WebRTC Live messages,
 `PrototypeNotebookSearch`). Enum *value* names are in [Enums](#enums-recovered-from-the-binary).

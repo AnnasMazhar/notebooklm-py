@@ -126,6 +126,10 @@ def merge(fields: list[tuple[int, int, object]], schema: dict[int, Node], depth:
                 node.scalars.add(payload)
         elif wt == 5 and isinstance(payload, (bytes, bytearray)):
             node.scalars.add(struct.unpack("<I", payload)[0])
+        elif wt == 1 and isinstance(payload, (bytes, bytearray)):
+            # fixed64. WIRE declares this type, so omitting it here silently
+            # dropped every i64 sample from the reported scalars.
+            node.scalars.add(struct.unpack("<Q", payload)[0])
         elif wt == 2 and isinstance(payload, (bytes, bytearray)):
             kind, info = classify_len(bytes(payload), depth)
             node.kinds.add(kind)

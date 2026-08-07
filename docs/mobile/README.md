@@ -28,7 +28,6 @@ themselves.
 | [`enums.txt`](enums.txt) | **generated** | 77 enums / ~1900 values with exact integers. **Parsed by CI.** |
 | [`endpoints.md`](endpoints.md) | reference | The gRPC method surface, and the mobile ⇄ web cross-reference. Start here. |
 | [`capture.md`](capture.md) | runbook | How to intercept the app's HTTP/2 gRPC traffic (emulator, VPN, Mockttp). |
-| [`auth-research.md`](auth-research.md) | investigation | How the app obtains OAuth tokens, and how to mint an equivalent bearer. |
 | [`blutter-dart3.13.patch`](blutter-dart3.13.patch) | tooling | Port of [blutter](https://github.com/worawit/blutter) to Dart 3.13, needed to decompile this app's snapshot. |
 
 `schema.proto` and `enums.txt` are **regenerable artifacts, not hand-written docs**.
