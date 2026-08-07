@@ -99,11 +99,35 @@ introduce its objects and operations in independently shippable stages:
   the footgun into the model meant to retire it, so it stays reachable only
   through the legacy free function, and `to_httpx()` is the path- and
   domain-correct route for cookies on the wire.
-- **Stage 2: `validate` / `heal` split** — `validate(jar) → ValidationResult`
-  is pure (extends the closed-enum reason
-  `RequiredCookieValidationError` grew in #2061); `heal` is the explicit
-  composition point whose only strategy today is the Stage-0 rotate.
-  `validate_with_recovery` survives as a compatibility wrapper.
+- **Stage 2: `validate` / `heal` split** —
+  `validate(rows) → tuple[dict[str, Any], ValidationResult]` is pure (no
+  network, no mutation; wraps the closed-enum
+  `RequiredCookieValidationError` #2061 introduced rather than replacing it).
+  It returns the **converted storage state alongside** the result, not the
+  result alone, so a caller that needs the converted form — as every caller of
+  the wrapper does — does not pay for a second conversion. `heal(rows) → bool`
+  is the named seam whose only strategy today is the Stage-0
+  rotate. `validate_with_recovery` survives unchanged as the compatibility
+  wrapper — it has four first-party callers, a `RefreshDeps` injection seam,
+  an entry in the cross-boundary ledger, and an in-place mutation contract
+  `cli/services/login/refresh.py` depends on.
+
+  Splitting it surfaced an asymmetry the fused control flow hid: the post-heal
+  re-check runs the Tier-1 **presence** check only, never the RFC 6265 routing
+  preflight. That is intentional (the heal exists to mint a PSIDTS that routes,
+  so a successful rotation already established what the preflight would
+  re-litigate) but it was previously invisible. It is now documented and pinned
+  by a test that fails on the naive "just re-run `validate()`" refactor.
+
+  **Stage 2 does not adopt the Stage-1 `CookieJar` at this seam.** `validate`
+  and `heal` still take the raw rookiepy `list[dict[str, Any]]` rows. The
+  routing preflight deliberately reads those rows rather than the converted
+  state — the two shapes spell the http-only flag differently (`http_only` vs
+  `httpOnly`) — and the in-place mutation contract
+  `cli/services/login/refresh.py` depends on *is* a mutation of the caller's
+  row list. Moving this seam onto `CookieJar` is deferred to a later stage
+  rather than folded in here, so that the "identical behavior" claim this
+  stage rests on stays checkable.
 - **Stage 3: `ProfileStore`** — the eight free functions in
   `storage_writer.py` become transactions on one object owning the
   lock-acquire → read → mutate → atomic-write template they each hand-roll
