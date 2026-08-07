@@ -247,6 +247,9 @@ _ACCOUNT_CONTEXT_KEY = _auth_account._ACCOUNT_CONTEXT_KEY
 # ``_auth.account`` solely as the private site of the legacy-key scrub and the
 # one-shot promotion (whitebox tests patch the canonical home directly).
 extract_email_from_html = _auth_account.extract_email_from_html
+repair_account_metadata_from_playwright_storage = (
+    _auth_account.repair_account_metadata_from_playwright_storage
+)
 _probe_authuser = _auth_account._probe_authuser
 read_account_metadata = _auth_account.read_account_metadata
 # ``read_account_metadata_from_storage_state`` is no longer aliased here: its
@@ -266,6 +269,13 @@ format_authuser_value = _auth_account.format_authuser_value
 authuser_query = _auth_account.authuser_query
 write_account_metadata = _auth_account.write_account_metadata
 clear_account_metadata = _auth_account.clear_account_metadata
+# ``write_account_metadata`` / ``clear_account_metadata`` / ``extract_email_from_html``
+# above: their last cli/_app facade importer
+# (``cli/services/playwright_login.py::repair_playwright_account_metadata``)
+# switched to ``repair_account_metadata_from_playwright_storage`` (auth
+# cross-boundary ledger shrink, follow-up to #2103); all three stay importable
+# here for the frozen first-party compatibility manifest
+# (``_AUTH_FIRST_PARTY_COMPATIBILITY_NAMES``) and existing test callers.
 # The legacy sibling ``context.json[account]`` READ path was removed (the reader
 # is in-band-only); ``promote_legacy_account`` in ``_auth.account`` owns the
 # one-shot in-band migration, invoked from the standard cookie-load path and the
