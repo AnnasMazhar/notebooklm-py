@@ -512,10 +512,14 @@ def _contains_user_displayable_error(obj: Any, max_depth: int = 20) -> bool:
         True if UserDisplayableError pattern is found
     """
     if max_depth <= 0:
-        logger.warning("Max recursion depth reached in UserDisplayableError detection")
         return False
     if isinstance(obj, str):
         return "UserDisplayableError" in obj
+    if isinstance(obj, (list, dict)) and max_depth == 1:
+        # Stop at the container itself so a wide list/dict at the boundary
+        # logs a single warning instead of one per child.
+        logger.warning("Max recursion depth reached in UserDisplayableError detection")
+        return False
     if isinstance(obj, list):
         return any(_contains_user_displayable_error(item, max_depth - 1) for item in obj)
     if isinstance(obj, dict):
@@ -626,7 +630,11 @@ def extract_rpc_result(chunks: list[Any], rpc_id: str) -> Any:
                 if isinstance(result_data, str):
                     try:
                         parsed: Any = json.loads(result_data)
-                    except json.JSONDecodeError:
+                    except (json.JSONDecodeError, RecursionError):
+                        # RecursionError: pathologically deep JSON inside the
+                        # result_data string — same server-controlled-depth
+                        # hardening as parse_chunked_response (#2107). Fall
+                        # back to the raw string like any unparseable payload.
                         parsed = result_data
                 else:
                     parsed = result_data
