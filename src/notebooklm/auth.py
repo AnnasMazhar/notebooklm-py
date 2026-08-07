@@ -52,8 +52,8 @@ from ._auth import tokens as _auth_tokens
 #
 # #2103 PR-2 structural follow-up: the CLI now invokes whole audited
 # TRANSACTIONS (``master_token_bootstrap`` / ``master_token_remint`` /
-# ``master_token_bootstrap_storage`` / ``assert_account_writable``) rather than
-# assembling them from primitives itself. ``exchange_master_token`` /
+# ``bootstrap_missing_storage_from_master_token`` / ``assert_account_writable``)
+# rather than assembling them from primitives itself. ``exchange_master_token`` /
 # ``mint_cookies`` / ``persist_minted_jar`` / ``write_master_token`` /
 # ``generate_android_id`` are de-blessed accordingly (kept importable —
 # ``_AUTH_DEBLESSED_KEEP_IMPORTABLE`` — for the documented low-level recipe and
@@ -61,10 +61,16 @@ from ._auth import tokens as _auth_tokens
 # them from ``notebooklm._auth.master_token`` below for that reason: they stay
 # reachable via ``notebooklm.auth.<name>`` (attribute access, unaffected by
 # ``__all__``) without being re-blessed as this facade's primary surface.
+#
+# ``BootstrapOutcome`` is deliberately NOT re-exported here (auth
+# cross-boundary ledger shrink): its only real first-party importer collapsed
+# it to a bool immediately, so ``bootstrap_missing_storage_from_master_token``
+# below does that collapse inside ``_auth`` instead of publishing the enum
+# across the boundary for one caller that never needed the fine-grained type.
 from ._auth.master_token import (  # noqa: F401
-    BootstrapOutcome,
     MasterTokenError,
     assert_account_writable,  # noqa: F401
+    bootstrap_missing_storage_from_master_token,
     exchange_master_token,
     generate_android_id,
     mint_cookies,
@@ -73,9 +79,6 @@ from ._auth.master_token import (  # noqa: F401
     write_master_token,
 )
 from ._auth.master_token import bootstrap_from_oauth_token as master_token_bootstrap  # noqa: F401
-from ._auth.master_token import (  # noqa: F401
-    bootstrap_storage_from_master_token as master_token_bootstrap_storage,
-)
 from ._auth.master_token import remint_from_stored_token as master_token_remint  # noqa: F401
 
 # Canonical login/import storage writer (refactor (b), b-PR3). Re-exported here

@@ -4,7 +4,7 @@
 (bootstrap / re-mint / ownership guard) out of the CLI and into
 ``_auth/master_token.py``: ``cli/`` now calls the coarse, audited ops
 (``master_token_bootstrap`` / ``master_token_remint`` /
-``master_token_bootstrap_storage`` / ``assert_account_writable``) via the
+``bootstrap_missing_storage_from_master_token`` / ``assert_account_writable``) via the
 ``notebooklm.auth`` facade instead of assembling ``exchange_master_token`` +
 ``mint_cookies`` + ``persist_minted_jar`` + ``write_master_token`` itself.
 Those four primitives are de-blessed (``_AUTH_DEBLESSED_KEEP_IMPORTABLE`` in
@@ -197,7 +197,7 @@ def test_no_cli_module_imports_minting_primitives() -> None:
 
     assert not violations, (
         "cli/ must call the audited coarse ops (master_token_bootstrap / "
-        "master_token_remint / master_token_bootstrap_storage / "
+        "master_token_remint / bootstrap_missing_storage_from_master_token / "
         "assert_account_writable) instead of assembling minting primitives "
         "itself (#2103 PR-2/PR-3):\n"
         + "\n".join(f"  {path}: {names}" for path, names in violations.items())

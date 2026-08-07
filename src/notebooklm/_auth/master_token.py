@@ -611,6 +611,26 @@ async def bootstrap_storage_from_master_token(storage_path: Path) -> BootstrapOu
     return outcome
 
 
+async def bootstrap_missing_storage_from_master_token(storage_path: Path) -> bool:
+    """Mint initial storage when only the sibling master token exists,
+    collapsed to the boolean ``cli/services/auth_refresh.py`` has always
+    used (auth cross-boundary ledger shrink, follow-up to #2103 PR-2/PR-3):
+    ``MINTED`` and ``PRESENT_AFTER_WAIT`` both mean "storage is ready, take
+    the mandatory passive-validation path"; ``PRESENT_ON_ENTRY`` and
+    ``NO_TOKEN`` both mean "nothing was bootstrapped here, enter ordinary
+    recovery".
+
+    ``BootstrapOutcome`` itself stays internal to this module — its only
+    real first-party importer collapsed it to a bool immediately after the
+    call, so publishing the enum across the CLI boundary bought no caller
+    anything (the DEBUG log two lines up already gives the fine-grained
+    observability the type was introduced for). Callers that need the raw
+    4-state result should call :func:`bootstrap_storage_from_master_token`
+    directly (available inside ``_auth``, not across the boundary)."""
+    outcome = await bootstrap_storage_from_master_token(storage_path)
+    return outcome in (BootstrapOutcome.MINTED, BootstrapOutcome.PRESENT_AFTER_WAIT)
+
+
 async def _resolve_bootstrap_outcome(storage_path: Path) -> BootstrapOutcome:
     # Preserve the healthy-storage fast path: profiles that already have a jar
     # should not pay for a lock merely because they also retain a master token.
