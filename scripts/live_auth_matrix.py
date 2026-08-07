@@ -145,22 +145,27 @@ class Matrix:
             self.phase_fault_injection()
             self.phase_crash_safety()
         finally:
-            report = {
-                "revision": self.revision(),
-                "profile": self.args.profile,
-                "account": self.args.account,
-                "browser": self.args.browser,
-                "base_url": self.args.base_url,
-                "browser_cells": "skipped" if self.args.skip_browser else "executed",
-                **self.worktree_info(),
-                "results": self.results,
-                "temporary_home": str(self.temp),
-            }
-            output = json.dumps(report, indent=2, sort_keys=True)
-            if self.args.output:
-                self.args.output.write_text(output + "\n", encoding="utf-8")
-            print(output)
-            shutil.rmtree(self.temp, ignore_errors=True)
+            try:
+                report = {
+                    "revision": self.revision(),
+                    "profile": self.args.profile,
+                    "account": self.args.account,
+                    "browser": self.args.browser,
+                    "base_url": self.args.base_url,
+                    "browser_cells": "skipped" if self.args.skip_browser else "executed",
+                    **self.worktree_info(),
+                    "results": self.results,
+                    "temporary_home": str(self.temp),
+                }
+                output = json.dumps(report, indent=2, sort_keys=True)
+                if self.args.output:
+                    self.args.output.write_text(output + "\n", encoding="utf-8")
+                print(output)
+            finally:
+                # Always remove the disposable home — it holds copied live
+                # credentials, so a failure serializing/writing/printing the
+                # report must never leave them on disk.
+                shutil.rmtree(self.temp, ignore_errors=True)
         return 0 if all(item["status"] == "pass" for item in self.results) else 1
 
     def worktree_info(self) -> dict[str, Any]:
@@ -300,25 +305,34 @@ class Matrix:
                 env=self.env(home),
                 text=True,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
             )
             for _ in range(4)
         ]
         statuses: list[int] = []
+        stderrs: list[str] = []
         for proc in processes:
             try:
-                statuses.append(proc.wait(timeout=self.args.timeout))
+                _out, err = proc.communicate(timeout=self.args.timeout)
+                statuses.append(proc.returncode)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                proc.wait()
+                _out, err = proc.communicate()
                 statuses.append(-1)
-        self.results.append(
-            {
-                "name": "concurrent-refresh",
-                "status": "pass" if statuses == [0] * 4 else "fail",
-                "returncodes": statuses,
-            }
-        )
+            stderrs.append(err or "")
+        entry: dict[str, Any] = {
+            "name": "concurrent-refresh",
+            "status": "pass" if statuses == [0] * 4 else "fail",
+            "returncodes": statuses,
+        }
+        if entry["status"] == "fail":
+            # Honor the report contract: attach bounded stderr tails for the
+            # cells that failed. The CLI logs cookie names/diagnostics only,
+            # never values, so a 2000-char tail carries no credential material.
+            entry["stderr_tails"] = [
+                err[-2000:] for status, err in zip(statuses, stderrs, strict=True) if status != 0
+            ]
+        self.results.append(entry)
         proc = self.cli(home, "auth", "check", "--test", "--passive", "--json", profile="shared")
         self.record("concurrent-refresh-final-check", proc, expect_json=True)
 
@@ -411,6 +425,11 @@ class Matrix:
         )
 
     def phase_fault_injection(self) -> None:
+        # Isolate NOTEBOOKLM_HOME even for the pytest cell: base_env leaves it
+        # unset, so a test that writes profile state could otherwise touch the
+        # caller's real home, breaking the disposable-home guarantee.
+        home = self.temp / "fault-injection"
+        home.mkdir(parents=True, exist_ok=True)
         command = [
             "uv",
             "run",
@@ -424,7 +443,7 @@ class Matrix:
             proc = subprocess.run(
                 command,
                 cwd=ROOT,
-                env=self.base_env,
+                env=self.env(home),
                 text=True,
                 capture_output=True,
                 timeout=self.args.timeout,
