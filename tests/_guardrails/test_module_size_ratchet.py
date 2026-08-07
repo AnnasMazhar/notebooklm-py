@@ -20,6 +20,30 @@ splits):
    the saved ground can never be re-accreted. The allowlist can only get
    smaller and its ceilings can only get tighter.
 
+   *One sanctioned exception* (``docs/adr/0033-auth-consolidation-policy.md``):
+   a **structural consolidation under** ``src/notebooklm/_auth/`` may add its
+   merged module at its *measured* LOC — and may raise an existing ``_auth``
+   entry when a **later** sanctioned merge lands in the same module — annotated
+   ``# sanctioned merge (ADR-0033)`` with the absorbed modules and the PR.
+   "Structural consolidation" is narrow and means one of exactly two things: the
+   recipient **absorbs a sibling** ``_auth`` **module in full** (the sibling is
+   deleted, or reduced to a one-line re-export shim, in the same PR), or it takes
+   a **relocation that shrinks the donor by what it grows the recipient** — the
+   gate only ever sees the recipient, so the annotation must name the donor for
+   the reviewer to check. Inbound code that leaves no donor smaller is ordinary
+   growth and is forbidden. The
+   cap was acting as the module boundary inside ``_auth`` rather than the seams
+   (several modules' own docstrings cite this budget as their reason to exist),
+   so ADR-0033 scopes the cap to *file size* and lets the seams decide the
+   files. Nothing else moves: :data:`MODULE_SIZE_BUDGET` is unchanged and still
+   global, un-merged ``_auth`` modules stay under it (``cookies.py`` must not
+   silently grow), and each entry is **shrink-locked at its pin** the moment it
+   lands — from then on it ratchets down like any other. Entries are pinned at
+   *measured* LOC in the PR that lands the merge, never pre-registered at an
+   end-state estimate: check 2's slack arm below fails on any ceiling above the
+   current count, so ceiling and measurement must agree in the same commit.
+   Outside ``_auth/`` there is no exception — split the module.
+
 3. **No stale allowlist entries.** Every allowlisted path must still exist (a
    rename/delete must update the allowlist).
 
@@ -59,6 +83,26 @@ MODULE_SIZE_BUDGET = 1000
 #
 # DO NOT raise a ceiling to make room for new code in a fat module — split it.
 # DO lower a ceiling when a module shrinks (the gate will tell you the value).
+#
+# The ONE exception (ADR-0033, ``docs/adr/0033-auth-consolidation-policy.md``):
+# a deliberate consolidation under ``src/notebooklm/_auth/`` may ADD its merged
+# module here — or RAISE its existing entry when a later sanctioned merge lands
+# in the same module — at the *measured* LOC of that PR, annotated
+# ``# sanctioned merge (ADR-0033)`` naming the absorbed modules and the PR.
+# That annotation is what distinguishes a sanctioned merge from ordinary
+# growth; an unannotated raise is the thing this comment forbids. After the
+# entry lands it is shrink-only like every other, the 1000-line budget is
+# unchanged, and un-merged ``_auth`` modules stay under it. No other directory
+# has this exception.
+#
+# The merge PR must be a PURE MOVE: new code, simplifications, and behavior
+# changes land in separate commits (ideally separate PRs) so the pin measures
+# the merge and not the merge plus growth. Nothing mechanical enforces that —
+# this gate compares a count to a number and cannot see WHY lines exist, so a
+# ceiling raise is only as trustworthy as the reviewer who read the diff.
+# The pin is also EXACT, so it leaves zero headroom: a module that will keep
+# growing under a governing plan takes its pin AFTER that growth, or takes the
+# growth in the same PR as the pin.
 ALLOWLISTED_CEILINGS: dict[str, int] = {
     # The single remaining oversized module, pinned at its measured LOC.
     # ``_chat/api.py``, ``_research.py``, ``cli/source_cmd.py``, ``_sources.py``,
@@ -150,6 +194,12 @@ def test_no_new_modules_over_budget() -> None:
     re-accreting unchecked. Split the module, or — only if it is a genuinely
     irreducible existing module — add it to :data:`ALLOWLISTED_CEILINGS` at its
     measured LOC with a justification in review.
+
+    This is the check a consolidation PR hits first. A sanctioned ``_auth``
+    consolidation clears it the same way — by adding the merged module to
+    :data:`ALLOWLISTED_CEILINGS` at its measured LOC — but under rule 2's
+    exception above (ADR-0033), which additionally requires the
+    ``# sanctioned merge (ADR-0033)`` annotation naming the absorbed modules.
     """
     offenders = _over_budget_offenders(_measure_all(), ALLOWLISTED_CEILINGS, MODULE_SIZE_BUDGET)
     assert offenders == {}, (
