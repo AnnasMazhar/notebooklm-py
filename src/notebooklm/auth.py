@@ -249,9 +249,19 @@ _ACCOUNT_CONTEXT_KEY = _auth_account._ACCOUNT_CONTEXT_KEY
 extract_email_from_html = _auth_account.extract_email_from_html
 _probe_authuser = _auth_account._probe_authuser
 read_account_metadata = _auth_account.read_account_metadata
-read_account_metadata_from_storage_state = _auth_account.read_account_metadata_from_storage_state
+# ``read_account_metadata_from_storage_state`` is no longer aliased here: its
+# only facade importers (cli/auth_runtime.py, _app/auth_check.py) now call
+# ``resolve_account_identity`` instead (auth cross-boundary ledger shrink,
+# follow-up to #2103); tests that exercise it import the canonical
+# ``notebooklm._auth.account`` home directly.
 get_authuser_for_storage = _auth_account.get_authuser_for_storage
 get_account_email_for_storage = _auth_account.get_account_email_for_storage
+# Both kept importable here for the frozen first-party compatibility manifest
+# (tests/_guardrails/test_public_surface_manifest.py::_AUTH_FIRST_PARTY_COMPATIBILITY_NAMES)
+# even though no cli/_app caller reaches them through the facade anymore — see
+# ``resolve_account_identity`` below and ``_AUTH_DEBLESSED_KEEP_IMPORTABLE`` in
+# test_public_surface.py.
+resolve_account_identity = _auth_account.resolve_account_identity
 format_authuser_value = _auth_account.format_authuser_value
 authuser_query = _auth_account.authuser_query
 write_account_metadata = _auth_account.write_account_metadata

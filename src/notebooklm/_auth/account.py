@@ -540,6 +540,40 @@ def get_account_email_for_storage(storage_path: Path | None) -> str | None:
     return None
 
 
+def resolve_account_identity(
+    *,
+    has_env_auth: bool,
+    storage_path: Path | None = None,
+    env_auth_storage_state: Any = None,
+) -> dict[str, Any]:
+    """Resolve the persisted ``{email, authuser}`` identity for a profile.
+
+    Consolidates a sanitization recipe that used to be duplicated verbatim at
+    ``cli/auth_runtime.py::get_auth_tokens`` and ``_app/auth_check.py::_account_info``
+    (auth cross-boundary ledger shrink, follow-up to #2103): both callers read the
+    in-band account record then apply the identical authuser/email cleanup — an
+    ``int`` authuser clamped to ``>= 0`` (default 0; ``bool`` excluded since it is
+    an ``int`` subclass), and an email stripped-or-``None``.
+
+    The two callers differ only in WHERE the record comes from, not in what they
+    do with it: env-var auth carries no profile directory, so the caller must pass
+    its own already-parsed ``env_auth_storage_state`` (``_app/`` never reads
+    ``os.environ`` directly, and ``cli/auth_runtime.py`` already has the CLI's
+    consolidated ``read_env_auth_json()`` payload in hand by the time it gets
+    here); file-based auth resolves straight from ``storage_path`` via
+    :func:`read_account_metadata`.
+    """
+    if has_env_auth:
+        meta = read_account_metadata_from_storage_state(env_auth_storage_state)
+    else:
+        meta = read_account_metadata(storage_path)
+    raw_email = meta.get("email")
+    email = raw_email.strip() if isinstance(raw_email, str) else ""
+    raw_authuser = meta.get("authuser")
+    authuser = raw_authuser if type(raw_authuser) is int and raw_authuser >= 0 else 0
+    return {"email": email or None, "authuser": authuser}
+
+
 def format_authuser_value(authuser: int = 0, account_email: str | None = None) -> str:
     """Return the explicit NotebookLM auth routing value.
 
