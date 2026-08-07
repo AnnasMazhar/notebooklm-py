@@ -294,16 +294,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cross-account re-mint.
 
 - **`notebooklm auth refresh`'s missing-storage bootstrap no longer conflates
-  four different outcomes into one boolean (#2103 structural follow-up,
-  PR-2).** The flock/shield/recheck machinery moved from
+  four different outcomes into one boolean internally (#2103 structural
+  follow-up, PR-2).** The flock/shield/recheck machinery moved from
   `cli/services/auth_refresh.py` into `notebooklm._auth.master_token` as
   `bootstrap_storage_from_master_token`, returning an explicit
   `BootstrapOutcome` (`MINTED` / `PRESENT_AFTER_WAIT` / `PRESENT_ON_ENTRY` /
   `NO_TOKEN`) instead of a bool that could not distinguish "this call minted
   it" from "a concurrent leader already had", nor "nothing to do because
-  storage already existed" from "nothing to do because there's no token".
-  External behavior for `notebooklm auth refresh` is unchanged — the CLI maps
-  the same two outcome pairs onto the same boolean as before.
+  storage already existed" from "nothing to do because there's no token" —
+  each outcome is now logged at DEBUG. The CLI reaches the collapsed
+  boolean directly via `bootstrap_missing_storage_from_master_token`
+  (auth cross-boundary ledger shrink: `BootstrapOutcome` never needed to
+  cross the CLI boundary, since the CLI always collapsed it immediately).
+  External behavior for `notebooklm auth refresh` is unchanged.
 
 ### Changed
 
