@@ -148,6 +148,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Chat turn numbers now come from server history instead of the client-local
+  cache.** Stateless remote MCP requests create a fresh client for each call, so
+  a real continuation could previously report the contradictory pair
+  `is_follow_up=True, turn_number=1`. `chat.ask()` now counts complete
+  newest-first server history by user-question rows under the conversation lock,
+  uses that count to classify implicit continuations, and assigns the new answer
+  the next ordinal. Explicit-conversation asks retain explicit follow-up intent
+  while using the same server count for their ordinal, and stale local cache
+  entries no longer control the result
+  ([#1976](https://github.com/teng-lin/notebooklm-py/issues/1976)).
 - **Research that finds nothing is no longer an undifferentiated `failed`.** A
   Google Drive research run whose query matched no file came back as
   `status: failed` with no sources, no code, no message and no remediation —
