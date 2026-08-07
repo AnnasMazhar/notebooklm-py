@@ -4,9 +4,10 @@
 (bootstrap / re-mint / ownership guard) out of the CLI and into
 ``_auth/master_token.py``: ``cli/`` now calls the coarse, audited ops
 (``master_token_bootstrap`` / ``master_token_remint`` /
-``bootstrap_missing_storage_from_master_token`` / ``assert_account_writable``) via the
-``notebooklm.auth`` facade instead of assembling ``exchange_master_token`` +
-``mint_cookies`` + ``persist_minted_jar`` + ``write_master_token`` itself.
+``bootstrap_missing_storage_from_master_token`` / ``assert_account_writable``)
+via the ``notebooklm.auth`` facade instead of assembling
+``exchange_master_token`` + ``mint_cookies`` + ``persist_minted_jar`` +
+``write_master_token`` itself.
 Those four primitives are de-blessed (``_AUTH_DEBLESSED_KEEP_IMPORTABLE`` in
 ``tests/_guardrails/test_public_surface.py``) but stay importable from
 ``notebooklm.auth`` for the documented low-level recipe and any external

@@ -125,7 +125,7 @@ browser `oauth_token` capture (Directive B) stays CLI-side.
   do because there is no token" — each outcome is logged at DEBUG, closing
   the observability gap the enum exists to fix. The CLI never needs the
   fine-grained type: `bootstrap_missing_storage_from_master_token` (also in
-  `_auth/master_token.py`, the only name that actually crosses the CLI
+  `_auth/master_token.py`, the only one of the two that crosses the CLI
   boundary) does the `{MINTED, PRESENT_AFTER_WAIT} → True` /
   `{PRESENT_ON_ENTRY, NO_TOKEN} → False` collapse internally — identical
   external behavior to before this amendment, now backed by an explicit

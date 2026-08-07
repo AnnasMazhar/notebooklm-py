@@ -7,9 +7,9 @@ live in :mod:`notebooklm._auth.master_token` now — this module previously
 did the collapse itself, importing both ``BootstrapOutcome`` and the
 enum-returning coarse op across the ``cli/`` boundary to do it. Re-exported
 here (rather than imported directly by ``cli/playwright_login_io.py``) to
-preserve the existing patch-target path
-(``auth_refresh_service.bootstrap_missing_storage_from_master_token``) test
-seams already rely on.
+preserve the existing call path
+(``auth_refresh_service.bootstrap_missing_storage_from_master_token``) tests
+already exercise.
 """
 
 from __future__ import annotations
