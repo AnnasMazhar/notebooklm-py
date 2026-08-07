@@ -53,11 +53,14 @@ works (#2150), never compared so a source that cannot populate it cannot manufac
 compared fields `(name, domain, path)` + `(value, expires, secure, http_only)` are exactly
 `CookieSnapshotKey + CookieSnapshotValue`, which it therefore unifies.
 
-**`CookieJar`** — immutable, ordered set of `Cookie`. The type for cookie **inputs, baselines, and
-questions** — never the live jar, never a `Mapping`.
-- construct: `from_storage_state / from_rookiepy / from_domain_map / from_httpx` (the last is
+**`CookieJar`** — immutable, ordered *sequence* of `Cookie`; duplicate identities are permitted and
+resolve first-occurrence-wins at the `to_domain_map()` projection (matching
+`extract_cookies_with_domains`). The type for cookie **inputs, baselines, and questions** — never the
+live jar, never a `Mapping`.
+- construct: `from_storage_state / from_rookiepy / from_domain_map` (exist) + `from_httpx` (new;
   `same_site`-lossy and barred from persistence/baseline paths).
-- convert: `to_httpx() / to_storage_state()->dict / as_map()->view` (no `to_flat_map` — lossy, #2054).
+- convert: `to_httpx() / to_storage_state()->dict / to_domain_map()->dict` (all exist; no
+  `to_flat_map` — lossy, #2054).
 - ask: `names() / has_secondary_binding() / is_rotatable() / validate_required() / missing_hint()`,
   delegating to the `cookie_policy` tables, which stay a module (they are consumed at extraction
   *failure*, where no jar exists).
@@ -65,7 +68,8 @@ questions** — never the live jar, never a `Mapping`.
 **`MasterToken`** — pure value: `email, android_id, secret` + trivial accessors. No network, no file
 I/O, and no writability logic — `assert_account_writable` reads two disk sources and is only advisory
 (the authoritative, TOCTOU-free check is under the write lock), so it belongs to the coordinator, not
-the value.
+the value. `__repr__` is redacted (email + android_id only) like `CookieJar`'s; `secret` never reaches
+repr, logs, or errors — its only serialization is `master_token.json` (0600).
 
 **`ProfileStore`** — the persistence boundary: the six `storage_writer` transactions (one lock
 template, ADR-0031 Stage 3) plus read/write of `master_token.json` plus the snapshot/delta/CAS
@@ -112,9 +116,10 @@ live-cookie authority** — an audit found that persistence reads `kernel.cookie
 *writing* it (`_runtime/auth.py:316`), and no internal code *reads* it as live. `auth.cookie_jar` is
 already a vestigial public shadow.
 
-- **Phase A — now, non-breaking (no public change).** Repoint the remaining internal readers to the
-  kernel's jar / `.jar`; the one legitimate read (`_kernel.py:88` seeding the initial client jar) is
-  exactly the `initial_cookies` role. Label the line-316 sync-back compat-only. After this,
+- **Phase A — now, non-breaking (no public change).** Repoint post-open readers to `kernel.cookies`;
+  `.jar` is a read projection of the `cookies` map and is read only at the bootstrap seed
+  (`_kernel.py:88`), which is exactly the `initial_cookies` role. Label the line-316 sync-back
+  compat-only. After this,
   `AuthTokens` is *behaviorally* the frozen bootstrap credential above, wearing a mutable-dataclass
   costume for the public surface.
 - **Next minor — deprecate, non-breaking.** Runtime `DeprecationWarning` on `flat_cookies` (a plain
