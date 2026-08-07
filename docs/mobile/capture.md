@@ -4,8 +4,10 @@
 
 **Last Verified:** 2026-07-21
 
-**Scope:** Read-only discovery against the official NotebookLM Android app, without APK
-patching or re-signing
+**Scope:** Traffic discovery against the official NotebookLM Android app, without APK
+patching or re-signing. Mostly read-only, but [Exercising write paths](#exercising-write-paths-throwaway-notebook-only)
+deliberately drives create / delete / share / chat RPCs — **always against a disposable
+notebook**, never real data.
 
 This runbook records the setup that successfully captured and split NotebookLM Android's
 HTTP/2 gRPC traffic into raw protobuf messages. It also records failed approaches so the
@@ -390,7 +392,20 @@ recorder.
 Route through the loopback + an `adb reverse` tunnel instead — this path was verified on
 2026-07-22:
 
+> **Remove the primary rule first.** The `10.0.2.2` DNAT added above is appended to the same
+> `OUTPUT` chain and also matches `--dport 8000`, so it wins on ordering and this fallback would
+> never fire while it is still installed.
+
 ```bash
+# 1. drop the primary 10.0.2.2 DNAT so it cannot shadow the loopback rule
+adb shell "iptables -t nat -D OUTPUT \
+  -p tcp -d 10.0.2.2 --dport 8000 \
+  -m owner --uid-owner $notebooklm_vpn_uid \
+  -j DNAT --to-destination 10.0.2.2:8081" 2>/dev/null || true
+
+# 2. record the prior value so cleanup can restore it
+prior_route_localnet=$(adb shell su 0 cat /proc/sys/net/ipv4/conf/all/route_localnet | tr -d '\r')
+
 adb shell su 0 sh -c 'echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet'
 adb reverse tcp:8081 tcp:8081          # device 127.0.0.1:8081 -> host 8081 (Mockttp)
 # divert the companion to device loopback rather than 10.0.2.2:
@@ -547,13 +562,38 @@ for the exact Dart-3.13 changes and build steps.
 
 ## Stopping and restoring HTTP Toolkit
 
-Remove the DNAT rule before stopping the recorder so the VPN never points at a closed port:
+Remove the DNAT rule before stopping the recorder so the VPN never points at a closed port.
+**Run whichever block matches the path you used** — the loopback fallback leaves three pieces of
+state behind, not one, and a leftover DNAT rule or a device left at `route_localnet=1` will
+silently misroute later sessions.
+
+Primary path (`10.0.2.2` DNAT):
 
 ```bash
 adb shell "iptables -t nat -D OUTPUT \
   -p tcp -d 10.0.2.2 --dport 8000 \
   -m owner --uid-owner $notebooklm_vpn_uid \
   -j DNAT --to-destination 10.0.2.2:8081"
+```
+
+Loopback fallback path — remove the rule, the tunnel, **and** restore `route_localnet`:
+
+```bash
+adb shell su 0 iptables -t nat -D OUTPUT -p tcp --dport 8000 \
+  -m owner --uid-owner "$notebooklm_vpn_uid" \
+  -j DNAT --to-destination 127.0.0.1:8081
+
+adb reverse --remove tcp:8081
+
+# restore the value captured before the fallback was installed (default is 0)
+adb shell su 0 sh -c "echo ${prior_route_localnet:-0} > /proc/sys/net/ipv4/conf/all/route_localnet"
+```
+
+Verify nothing is left behind:
+
+```bash
+adb shell su 0 iptables -t nat -S OUTPUT | grep 8000   # expect no output
+adb reverse --list                                      # expect no 8081 entry
 ```
 
 Press `Ctrl-C` in the recorder terminal. Then restart NotebookLM to open a fresh connection to

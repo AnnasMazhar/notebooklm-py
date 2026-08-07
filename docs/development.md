@@ -609,19 +609,29 @@ over gRPC — where fields are tag-addressed rather than positional. The two lin
 exactly: **JSON index `i` == protobuf tag `i + 1`**. That equivalence is what lets
 a positional client be checked against a named schema.
 
-Three checks run:
+Four checks run:
 
 - **Declared mappings hold** — for each entry in `_wire_contract.MAPPINGS`,
   `constant == tag - 1`. Known-wrong entries are `xfail` with an issue reference;
   the fixing PR removes the marker.
 - **Nothing escapes review** — every `_*_POS`-style constant in the scanned
-  modules must appear in `MAPPINGS` or `UNMAPPED`. A new positional read cannot
-  land without someone recording what it points at.
+  modules must appear in `MAPPINGS`, `UNMAPPED`, or `PINNED`. A new positional
+  read cannot land without someone recording what it points at.
+- **Pinned values stay frozen** — entries in `PINNED` read `addUnused()` slots the
+  proto cannot confirm, so the check freezes the value rather than validating it.
+  A change-detector, not a validation.
 - **Enums agree** — client enum members match the recovered backend enum, and
   declared gaps stay honest.
 
-**Adding a constant.** Put it in `MAPPINGS` if you can name the protobuf field it
-reads; otherwise put it in `UNMAPPED` with a real reason. *An honest `UNMAPPED`
+**Adding a constant.** Three destinations, in descending order of strength:
+
+| destination | when | what the test does |
+|---|---|---|
+| `MAPPINGS` | you can name the protobuf field it reads | asserts `constant == tag - 1` |
+| `PINNED` | the proto has no name for the slot (`addUnused()`), but live evidence establishes the meaning | freezes the value; record the evidence |
+| `UNMAPPED` | you don't know | nothing — but the reason is on the record |
+
+*An honest `UNMAPPED`
 entry is better than a guessed mapping* — a wrong mapping lends false confidence
 to exactly the defect class this gate exists to catch. Several `UNMAPPED` reasons
 carry hard-won warnings (e.g. one index collides with a block that is only safe
