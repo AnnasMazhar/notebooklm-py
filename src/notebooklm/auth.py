@@ -252,11 +252,15 @@ repair_account_metadata_from_playwright_storage = (
 )
 _probe_authuser = _auth_account._probe_authuser
 read_account_metadata = _auth_account.read_account_metadata
-# ``read_account_metadata_from_storage_state`` is no longer aliased here: its
-# only facade importers (cli/auth_runtime.py, _app/auth_check.py) now call
-# ``resolve_account_identity`` instead (auth cross-boundary ledger shrink,
-# follow-up to #2103); tests that exercise it import the canonical
-# ``notebooklm._auth.account`` home directly.
+# ``read_account_metadata_from_storage_state``'s only facade importers
+# (cli/auth_runtime.py, _app/auth_check.py) now call ``resolve_account_identity``
+# instead (auth cross-boundary ledger shrink, follow-up to #2103), so it drops
+# out of ``AUTH_CROSS_BOUNDARY_NAMES`` — but the alias below stays: unlike the
+# other names this PR moved to ``_AUTH_DEBLESSED_KEEP_IMPORTABLE``,
+# ``scripts/api-compat-allowlist.json`` explicitly records this one as
+# retained/importable, a promise dropping the alias would silently break
+# (caught in review — PR #2139).
+read_account_metadata_from_storage_state = _auth_account.read_account_metadata_from_storage_state
 get_authuser_for_storage = _auth_account.get_authuser_for_storage
 get_account_email_for_storage = _auth_account.get_account_email_for_storage
 # Both kept importable here for the frozen first-party compatibility manifest

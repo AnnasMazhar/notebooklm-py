@@ -144,6 +144,13 @@ AUTH_CROSS_BOUNDARY_NAMES: list[str] = [
 # (``tests/_guardrails/test_public_surface_manifest.py``'s
 # ``_AUTH_FIRST_PARTY_COMPATIBILITY_NAMES``), so they land here rather than
 # disappearing from the facade entirely.
+#
+# ``read_account_metadata_from_storage_state`` joined the same follow-up for a
+# different reason: it is not in ``_AUTH_FIRST_PARTY_COMPATIBILITY_NAMES``, but
+# ``scripts/api-compat-allowlist.json`` explicitly records it as a "de-advertisement,
+# not removal" that stays importable — dropping the facade alias entirely (as an
+# earlier revision of this PR did) silently broke that documented promise with no
+# guardrail catching it, since the audit script only diffs ``__all__`` membership.
 _AUTH_DEBLESSED_KEEP_IMPORTABLE: list[str] = [
     "advance_cookie_snapshot_after_save",
     "ALLOWED_COOKIE_DOMAINS",
@@ -176,6 +183,7 @@ _AUTH_DEBLESSED_KEEP_IMPORTABLE: list[str] = [
     "NOTEBOOKLM_REFRESH_CMD_ENV",
     "NOTEBOOKLM_REFRESH_CMD_USE_SHELL_ENV",
     "persist_minted_jar",
+    "read_account_metadata_from_storage_state",
     "recover_psidts_in_memory",
     "save_cookies_to_storage",
     "snapshot_cookie_jar",
@@ -483,9 +491,12 @@ def test_auth_deblessed_names_stay_importable_but_unblessed() -> None:
     / ``extract_email_from_html`` / ``write_account_metadata``, whose last cli/_app
     facade importers switched to ``resolve_account_identity`` /
     ``repair_account_metadata_from_playwright_storage`` in the auth
-    cross-boundary ledger shrink (follow-up to #2103).
+    cross-boundary ledger shrink (follow-up to #2103), plus
+    ``read_account_metadata_from_storage_state``, whose facade alias the same
+    follow-up must keep per ``scripts/api-compat-allowlist.json``'s explicit
+    retained-and-importable promise.
     """
-    assert len(_AUTH_DEBLESSED_KEEP_IMPORTABLE) == 36
+    assert len(_AUTH_DEBLESSED_KEEP_IMPORTABLE) == 37
     assert len(_AUTH_DEBLESSED_KEEP_IMPORTABLE) == len(set(_AUTH_DEBLESSED_KEEP_IMPORTABLE)), (
         "_AUTH_DEBLESSED_KEEP_IMPORTABLE must not contain duplicates"
     )

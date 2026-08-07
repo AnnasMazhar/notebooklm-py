@@ -168,6 +168,30 @@ def test_repair_metadata_clear_failure_is_logged(tmp_path, caplog) -> None:
     )
 
 
+def test_repair_metadata_degrades_on_run_async_runtime_error(tmp_path) -> None:
+    """A ``RuntimeError`` from ``io.run_async`` itself (e.g. the nested-event-loop
+    guard) must degrade to the same best-effort warning as an error from inside
+    the coroutine, not abort the caller (review finding on PR #2139: the
+    consolidation moved the try/except inside the coroutine, which does not
+    cover a ``run_async`` scheduling failure happening outside it)."""
+
+    class _RaisingRunAsyncIO(_FakeLoginIO):
+        def run_async(self, coro: Any) -> Any:
+            coro.close()
+            raise RuntimeError("cannot run_async from a running event loop")
+
+    storage_path = tmp_path / "storage.json"
+    io = _RaisingRunAsyncIO()
+
+    result = repair_playwright_account_metadata(storage_path, io, page_html=None, quiet=False)
+
+    assert result is False
+    assert any(
+        "account metadata was not written" in str(args) and "Details:" in str(args)
+        for args, _ in io.emitted
+    )
+
+
 # ---------------------------------------------------------------------------
 # windows_playwright_event_loop — win32 policy swap (500-505)
 # ---------------------------------------------------------------------------

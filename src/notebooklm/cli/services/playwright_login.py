@@ -40,6 +40,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn, Protocol
 
+import httpx
+
 from ..._auth.browser_capture import (
     BROWSER_CLOSED_HELP,
     CHANNEL_BROWSERS,
@@ -123,15 +125,30 @@ def repair_playwright_account_metadata(
     :func:`notebooklm._auth.account.repair_account_metadata_from_playwright_storage`
     (auth cross-boundary ledger shrink, follow-up to #2103) — this wrapper owns
     only the ``LoginIO``-mediated presentation, keyed off which field of the
-    returned result is set.
+    returned result is set. ``io.run_async`` itself is still wrapped here (not
+    just the coroutine's own try/except): a ``RuntimeError`` from ``run_async``
+    scheduling the coroutine (e.g. the nested-event-loop guard) happens outside
+    the coroutine's own exception handling, and must degrade to the same
+    best-effort warning the pre-consolidation code gave the whole sequence
+    rather than aborting login/refresh (review finding on PR #2139).
     """
     from ...auth import repair_account_metadata_from_playwright_storage
 
     if not quiet:
         io.emit("[dim]Identifying Google account...[/dim]")
-    result = io.run_async(
-        repair_account_metadata_from_playwright_storage(storage_path, page_html=page_html)
-    )
+    try:
+        result = io.run_async(
+            repair_account_metadata_from_playwright_storage(storage_path, page_html=page_html)
+        )
+    except (OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+        if not quiet:
+            io.emit(
+                "[yellow]Warning: account metadata was not written. "
+                "NotebookLM auth still saved, but multi-account routing may "
+                "fall back to authuser=0. "
+                f"{ACCOUNT_METADATA_REMEDIATION} Details: {exc}[/yellow]"
+            )
+        return False
     if not result.written:
         if not quiet:
             if result.error is not None:
