@@ -54,6 +54,10 @@ class Cookie:
     distinct domains or paths are independent entries, never one shadowing the
     other (issue #369). ``expires`` is the Playwright epoch-seconds convention
     where ``-1`` means a session cookie.
+
+    ``same_site`` is carried rather than defaulted: dropping a stored value is
+    the exact regression ``storage._preserved_same_site`` exists to prevent, so
+    ``None`` here means "the row carried none", never "assume ``None``".
     """
 
     name: str
@@ -63,6 +67,7 @@ class Cookie:
     expires: float | int | None = None
     http_only: bool = False
     secure: bool = False
+    same_site: str | None = None
 
     @property
     def identity(self) -> tuple[str, str, str]:
@@ -165,21 +170,23 @@ class CookieJar:
         Reproduces the jar's *filtered* view, not any original file — see the
         module docstring. ``origins`` is empty: this type models cookies only.
         """
-        return {
-            "cookies": [
-                {
-                    "name": c.name,
-                    "value": c.value,
-                    "domain": c.domain,
-                    "path": c.path,
-                    "expires": -1 if c.expires is None else c.expires,
-                    "httpOnly": c.http_only,
-                    "secure": c.secure,
-                }
-                for c in self._cookies
-            ],
-            "origins": [],
-        }
+        rows: list[dict[str, Any]] = []
+        for c in self._cookies:
+            row: dict[str, Any] = {
+                "name": c.name,
+                "value": c.value,
+                "domain": c.domain,
+                "path": c.path,
+                "expires": -1 if c.expires is None else c.expires,
+                "httpOnly": c.http_only,
+                "secure": c.secure,
+            }
+            # Emitted only when the source row carried one, so this never
+            # invents a value the way a bare default would.
+            if c.same_site is not None:
+                row["sameSite"] = c.same_site
+            rows.append(row)
+        return {"cookies": rows, "origins": []}
 
     # -- queries -----------------------------------------------------------
 
@@ -243,6 +250,7 @@ def _cookie_from_entry(entry: Mapping[str, Any]) -> Cookie:
     ``_sanitized_auth_entries`` / ``sanitize_cookie_entry``: identity and value
     fields are trusted here, and ``path`` has already been defaulted to ``/``.
     """
+    same_site = entry.get("sameSite", entry.get("same_site"))
     return Cookie(
         name=entry["name"],
         domain=entry["domain"],
@@ -251,4 +259,5 @@ def _cookie_from_entry(entry: Mapping[str, Any]) -> Cookie:
         expires=entry.get("expires"),
         http_only=bool(entry.get("httpOnly", entry.get("http_only", False))),
         secure=bool(entry.get("secure", False)),
+        same_site=same_site if isinstance(same_site, str) else None,
     )

@@ -175,6 +175,57 @@ class TestConverterEquivalence:
         assert row["httpOnly"] is True
         assert row["secure"] is True
 
+    def test_to_storage_state_preserves_same_site(self) -> None:
+        """A stored ``sameSite`` survives the jar.
+
+        Losing one is the regression ``storage._preserved_same_site`` exists to
+        prevent, and ``convert_rookiepy_cookies_to_storage_state`` documents
+        preserving it — so a jar that silently dropped it would reintroduce the
+        bug through the type meant to become canonical.
+        """
+        jar = CookieJar.from_storage_state(
+            {
+                "cookies": [
+                    {
+                        "name": "SID",
+                        "value": "s",
+                        "domain": ".google.com",
+                        "path": "/",
+                        "sameSite": "Lax",
+                    }
+                ]
+            }
+        )
+        assert next(iter(jar)).same_site == "Lax"
+        assert jar.to_storage_state()["cookies"][0]["sameSite"] == "Lax"
+
+    def test_to_storage_state_omits_same_site_when_the_row_had_none(self) -> None:
+        """Absent stays absent: the jar must not invent a default.
+
+        ``_preserved_same_site`` treats a missing value as "nothing to keep";
+        emitting an invented ``"None"`` here would turn that into a real
+        downgrade on the next merge.
+        """
+        jar = CookieJar.from_storage_state(
+            {"cookies": [{"name": "SID", "value": "s", "domain": ".google.com", "path": "/"}]}
+        )
+        assert next(iter(jar)).same_site is None
+        assert "sameSite" not in jar.to_storage_state()["cookies"][0]
+
+    def test_from_rookiepy_matches_the_converters_same_site(self) -> None:
+        """The jar route and the legacy converter agree on ``sameSite``."""
+        rows = [
+            {
+                "name": "SID",
+                "value": "s",
+                "domain": ".google.com",
+                "path": "/",
+                "sameSite": "Strict",
+            }
+        ]
+        legacy = _auth_cookies.convert_rookiepy_cookies_to_storage_state(rows)
+        assert CookieJar.from_rookiepy(rows).to_storage_state() == legacy
+
 
 class TestQueryEquivalence:
     def test_names_matches_cookie_names_from_storage(self) -> None:
