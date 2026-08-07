@@ -313,7 +313,10 @@ class AuthRefreshCoordinator(LoopBoundPrimitive):
             RuntimeError: If the kernel's HTTP client is not initialised (the
                 error originates from :meth:`Kernel.get_http_client`).
         """
-        auth.cookie_jar = kernel.get_http_client().cookies
+        # Rebinds the derived ``auth.cookies`` map alongside the jar. Assigning
+        # ``auth.cookie_jar`` directly here left the public ``auth.cookies``
+        # describing the pre-refresh session (ADR-0031 Stage 4).
+        auth.replace_cookie_jar(kernel.get_http_client().cookies)
 
     # ------------------------------------------------------------------
     # Single-flight refresh task.

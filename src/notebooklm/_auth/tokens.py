@@ -87,6 +87,25 @@ class AuthTokens:
                 storage_path=self.storage_path,
             )
 
+    def replace_cookie_jar(self, cookie_jar: httpx.Cookies) -> None:
+        """Rebind the live jar **and** the derived map together (ADR-0031 Stage 4).
+
+        ``cookies`` and ``cookie_jar`` hold the same information in two shapes,
+        synced once at construction. Rebinding only the jar — which is what the
+        mid-session refresh does — leaves ``cookies`` describing the *previous*
+        session, and ``AuthTokens`` is public API, so a caller reading
+        ``auth.cookies`` after a refresh silently gets stale values. Nothing
+        inside the library noticed, because the one internal reader
+        (``_kernel.py``) prefers ``cookie_jar`` and only falls back to
+        ``cookies`` when the jar is ``None``, which construction makes
+        impossible.
+
+        Every rebind goes through here so the two cannot diverge. Enforced by
+        ``tests/_guardrails/test_authtokens_jar_sync.py``.
+        """
+        self.cookie_jar = cookie_jar
+        self.cookies = _auth_cookies._cookie_map_from_jar(cookie_jar)
+
     def __repr__(self) -> str:
         """Return a redacted representation safe for logs and pytest diffs.
 
