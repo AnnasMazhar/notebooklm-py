@@ -1,10 +1,15 @@
-"""Coverage-focused tests for ``notebooklm._auth.account`` branches.
+"""Coverage-focused tests for the ``_auth.account`` / ``_auth.storage`` account branches.
 
 Targets the read/clear/migration helpers and error-handling branches that the
 concern-aligned ``test_auth_account.py`` suite does not exercise: malformed /
 non-dict storage payloads, the ``_probe_authuser`` non-200 path, legacy
 ``context.json`` migration cleanup, the corrupt-storage ``RuntimeError`` guard,
 and the in-band clear helper's no-op / lock branches.
+
+ADR-0033 PR 5.2 relocated the account *record* helpers to ``_auth.storage``;
+only the NETWORK identity half (``_probe_authuser``, page-email extraction)
+still lives in ``_auth.account``. The imports below are split accordingly, so
+read the module each subject is imported from rather than assuming ``account``.
 
 New file per ADR-0007: patches owning modules at the bare-name call site rather
 than editing the existing concern-aligned test file.
@@ -21,24 +26,31 @@ import pytest
 
 from notebooklm._auth import account as _auth_account
 from notebooklm._auth import keepalive as _auth_keepalive
+from notebooklm._auth import storage as _auth_storage_mod
 from notebooklm._auth.account import (
     Account,
-    _clear_in_band_account,
+    _probe_authuser,
+    enumerate_accounts,
+    format_authuser_value,
+    repair_account_metadata_from_playwright_storage,
+)
+
+# The account RECORD helpers moved to ``_auth.storage`` in ADR-0033 PR 5.2 (the
+# network-identity half above stayed in ``_auth.account``). Imported from their
+# owning module so the whitebox patches below land where the calls resolve.
+from notebooklm._auth.storage import (
     _drop_legacy_account_key,
     _load_storage_state_for_write,
-    _probe_authuser,
     _read_in_band_account,
     _read_legacy_account,
     clear_account_metadata,
-    enumerate_accounts,
-    format_authuser_value,
     get_account_email_for_storage,
     promote_legacy_account,
     read_account_metadata,
     read_account_metadata_from_storage_state,
-    repair_account_metadata_from_playwright_storage,
     write_account_metadata,
 )
+from notebooklm._auth.storage import clear_in_band_account as _clear_in_band_account
 
 
 class TestProbeAuthuserNon200:
@@ -311,7 +323,7 @@ class TestPromoteLegacyAccount:
         def _boom(*args, **kwargs):
             raise RuntimeError("simulated unexpected failure during cleanup")
 
-        monkeypatch.setattr(_auth_account, "_drop_legacy_account_key", _boom)
+        monkeypatch.setattr(_auth_storage_mod, "_drop_legacy_account_key", _boom)
 
         assert promote_legacy_account(storage) is True
         in_band = json.loads(storage.read_text(encoding="utf-8"))["notebooklm"]["account"]
@@ -339,7 +351,7 @@ class TestPromoteLegacyAccount:
             json.dumps({"account": {"authuser": 2, "email": "stale@example.com"}}),
             encoding="utf-8",
         )
-        real_read_legacy = _auth_account._read_legacy_account
+        real_read_legacy = _auth_storage_mod._read_legacy_account
 
         def _read_legacy_then_race_a_fresh_write(path):
             legacy = real_read_legacy(path)
@@ -349,7 +361,9 @@ class TestPromoteLegacyAccount:
             return legacy
 
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(_auth_account, "_read_legacy_account", _read_legacy_then_race_a_fresh_write)
+            mp.setattr(
+                _auth_storage_mod, "_read_legacy_account", _read_legacy_then_race_a_fresh_write
+            )
             assert promote_legacy_account(storage) is False  # lost the race, not "nothing to do"
 
         in_band = json.loads(storage.read_text(encoding="utf-8"))["notebooklm"]["account"]
@@ -434,7 +448,7 @@ class TestPromoteLegacyAccount:
         assert any(
             r.levelno == logging.WARNING and "disk full" in r.message for r in caplog.records
         )
-        assert not hasattr(_auth_account, "_PROMOTION_WARNED_PATHS")
+        assert not hasattr(_auth_storage_mod, "_PROMOTION_WARNED_PATHS")
 
     def test_read_account_metadata_derives_legacy_when_promotion_fails(self, tmp_path, monkeypatch):
         """A failing durable write must not collapse ``read_account_metadata``
@@ -465,7 +479,7 @@ class TestPromoteLegacyAccount:
         # Never {} — and sanitized (malformed authuser -> 0, blank email dropped)
         # exactly as ``_sanitize_legacy_account_record`` would embed it.
         assert result == {"authuser": 0}
-        _auth_account._drain_promotions_for_tests()
+        _auth_storage_mod._drain_promotions_for_tests()
         # The legacy record is untouched — nothing was scrubbed on a failure.
         assert _read_legacy_account(storage) == {"authuser": -1, "email": "  "}
         # And the read still answers identically after the failed attempt.
@@ -532,7 +546,7 @@ class TestDropLegacyAccountKey:
             def __exit__(self, *exc):
                 return False
 
-        monkeypatch.setattr(_auth_account, "FileLock", _BoomLock)
+        monkeypatch.setattr(_auth_storage_mod, "FileLock", _BoomLock)
         _drop_legacy_account_key(storage)  # swallows OSError, no raise
         # Untouched because the lock failed before any read/write.
         assert json.loads(context.read_text(encoding="utf-8")) == {"account": {"authuser": 1}}

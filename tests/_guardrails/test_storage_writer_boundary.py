@@ -98,14 +98,17 @@ _ATOMIC_WRITE_JSON_IMPORTERS: frozenset[str] = frozenset(
     {
         # Legitimate NON-storage-state writers (permanent).
         "io.py",  # public re-export of the _atomic_io helpers
-        "_auth/account.py",  # writes the legacy sibling context.json (not storage_state)
         "cli/context.py",  # CLI context.json / config.json
         "mcp/_oauth.py",  # writes the MCP OAuth token file
-        # NOTE: the canonical writer ``_auth/storage.py`` no longer imports
-        # the PUBLIC ``atomic_write_json`` — since b-PR3 the public helper rejects
-        # ``storage_state.json`` paths at runtime, and the writer uses the
-        # module-private bypass ``_atomic_write_json_unchecked`` instead (tracked
-        # by _ATOMIC_WRITE_JSON_BYPASS_IMPORTERS below).
+        # ``_auth/storage.py`` imports the PUBLIC helper too, alongside the
+        # module-private bypass it uses for ``storage_state.json`` (tracked by
+        # _ATOMIC_WRITE_JSON_BYPASS_IMPORTERS below). ADR-0033 PR 5.2 relocated
+        # ``_drop_legacy_account_key`` in from ``_auth/account.py`` — the one
+        # writer there that targets the SIBLING ``context.json``, never
+        # ``storage_state.json``, so it must go through the guarded public
+        # primitive exactly as it did in its donor. ``_auth/account.py`` dropped
+        # off this list in the same commit (it no longer writes anything).
+        "_auth/storage.py",
         # The three CLI login/import writers migrated in b-PR3 (they now route
         # through storage.replace_from_login via the auth facade) and
         # ``_auth/browser_capture.py`` migrated in b-PR2 — all dropped off here.
@@ -205,7 +208,10 @@ _AUTH_WRITE_PRIMITIVE_IMPORTERS: frozenset[str] = frozenset(
         # Was ``_auth/storage_writer.py`` until ADR-0033's persistence merge
         # folded that module into ``storage.py`` (1:1 relocation, not a widening).
         "_auth/storage.py",
-        "_auth/account.py",  # context.json cleanup only (not storage_state)
+        # ``_auth/account.py`` dropped off in ADR-0033 PR 5.2: its context.json
+        # cleanup (``_drop_legacy_account_key``) relocated into ``storage.py``
+        # with the rest of the account-record persistence, so ``account.py``
+        # imports no write primitive at all any more.
         # ``_auth/browser_capture.py`` migrated in b-PR2 — it no longer imports a
         # write primitive (re-mint now routes through _auth/storage).
     }
@@ -243,7 +249,7 @@ _WRITE_PRIMITIVE_SEAM_BINDINGS: frozenset[str] = frozenset()
 # ``from .. import _atomic_io`` / ``from notebooklm import _atomic_io``), as
 # distinct from ``from .._atomic_io import <primitive>`` (a NAME import — clauses
 # (i)/(iv)). VERIFIED by grep (2026-08): the set is currently **empty** — every
-# legitimate user (io.py, _auth/storage.py, account.py, migration.py,
+# legitimate user (io.py, _auth/storage.py, cli/context.py, migration.py,
 # mcp/_oauth.py) imports the primitive NAMES, never the module object. Frozen
 # empty so the FIRST module to pull in the ``_atomic_io`` module (which could then
 # reach ``_atomic_write_json_unchecked`` via attribute access, skipping the public
@@ -984,3 +990,144 @@ def test_storage_state_write_exemptions_are_atomic_write_json_importers() -> Non
             f"{rel} is a storage-state exemption but not an atomic_write_json importer; "
             "the two tracking lists have drifted."
         )
+
+
+_STORAGE_FILELOCK_USERS: frozenset[str] = frozenset(
+    {
+        # Writes the SIBLING ``context.json``, not ``storage_state.json`` — the
+        # one place in this module that legitimately holds a different sentinel
+        # with a different mechanism. Its docstring (plan section 5) records why
+        # the two lock stacks are deliberately NOT unified.
+        "_drop_legacy_account_key",
+    }
+)
+
+
+def _filelock_bindings(tree: ast.Module) -> tuple[set[str], set[str]]:
+    """``(bare_names, module_names)`` for every ``filelock`` binding in a module.
+
+    All spellings, because a gate that scans for one of them is a gate someone
+    silently walks around: ``from filelock import FileLock``, the same with an
+    ``asname``, and ``import filelock [as f]`` (matched as an attribute access
+    on the module binding).
+    """
+    names: set[str] = set()
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "filelock":
+            for alias in node.names:
+                names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] == "filelock":
+                    modules.add(alias.asname or alias.name.split(".")[0])
+    return names, modules
+
+
+def _filelock_references(tree: ast.Module) -> tuple[dict[str, list[int]], list[int]]:
+    """``(users_by_function, module_level)`` for every ``filelock`` reference.
+
+    Attribution mirrors the bypass scan: a reference inside a nested closure
+    credits the enclosing top-level function, and ``async def`` counts —
+    ``AsyncFunctionDef`` is not a ``FunctionDef`` subclass, so matching only the
+    latter would leave an open door. Import lines themselves are not uses.
+    """
+    bare, dotted = _filelock_bindings(tree)
+    if not bare and not dotted:
+        return {}, []
+    import_lines = {
+        node.lineno for node in ast.walk(tree) if isinstance(node, ast.Import | ast.ImportFrom)
+    }
+
+    def _refs(scope: ast.AST) -> list[int]:
+        hits: list[int] = []
+        for node in ast.walk(scope):
+            if (isinstance(node, ast.Name) and node.id in bare) or (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in dotted
+            ):
+                hits.append(node.lineno)
+        return [line for line in hits if line not in import_lines]
+
+    users: dict[str, list[int]] = {}
+    seen: set[int] = set()
+    for func in _enclosing_function_defs(tree):
+        lines = _refs(func)
+        if lines:
+            users[func.name] = sorted(lines)
+        seen.update(lines)
+    return users, sorted(line for line in _refs(tree) if line not in seen)
+
+
+def test_filelock_use_in_the_canonical_writer_is_frozen() -> None:
+    """``filelock`` may not spread inside the single sanctioned writer module.
+
+    ADR-0033 PR 5.2 moved the account-record writers into ``_auth/storage.py``
+    and, with them, ``filelock`` — which now lives in the module its own
+    docstring calls the single sanctioned home for ``storage_state.json``
+    mutations, co-resident with ``_file_lock``. The two stacks are deliberately
+    not unified (they interoperate on POSIX only by both bottoming out in
+    ``fcntl.flock``, which does not hold on Windows), and until now that
+    non-unification was documented but unenforced: nothing stopped an existing
+    allowlisted writer from quietly switching mechanism, which would take a
+    DIFFERENT sentinel and silently stop serializing against every other writer.
+    """
+    users, module_level = _filelock_references(_storage_tree())
+    assert set(users) == set(_STORAGE_FILELOCK_USERS), (
+        f"``filelock`` use in {_STORAGE_MODULE} drifted from the frozen allowlist. "
+        f"Unexpected: {sorted(set(users) - _STORAGE_FILELOCK_USERS)}; "
+        f"stale: {sorted(_STORAGE_FILELOCK_USERS - set(users))}. "
+        "Every ``storage_state.json`` mutator must take the sentinel through "
+        "``_file_lock`` / ``_acquire_storage_lock`` (ADR-0029); ``filelock`` is "
+        "reserved for the sibling ``context.json``."
+    )
+    assert module_level == [], (
+        f"``filelock`` is referenced at module scope in {_STORAGE_MODULE}:{module_level} "
+        "— outside every allowlisted function."
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("from filelock import FileLock\ndef w(p):\n    FileLock(p)\n", {"w"}),
+        # asname: a literal "FileLock" scan would miss this entirely.
+        ("from filelock import FileLock as FL\ndef w(p):\n    FL(p)\n", {"w"}),
+        # module import + attribute access, plain and aliased.
+        ("import filelock\ndef w(p):\n    filelock.FileLock(p)\n", {"w"}),
+        ("import filelock as fl\ndef w(p):\n    fl.FileLock(p)\n", {"w"}),
+        # async def is not a FunctionDef subclass.
+        ("from filelock import FileLock\nasync def w(p):\n    FileLock(p)\n", {"w"}),
+        # nested closure credits the ENCLOSING top-level writer.
+        (
+            "from filelock import FileLock\n"
+            "def w(p):\n"
+            "    def _inner():\n"
+            "        FileLock(p)\n"
+            "    return _inner\n",
+            {"w"},
+        ),
+        # a bare reference handed around is still use.
+        ("from filelock import FileLock\ndef w():\n    return FileLock\n", {"w"}),
+        # an unrelated lock primitive of similar shape is not a hit.
+        ("from filelock import FileLock\ndef w(p):\n    _file_lock(p)\n", set()),
+        # no filelock import at all -> nothing governed, nothing reported.
+        ("def w(p):\n    FileLock(p)\n", set()),
+    ],
+)
+def test_filelock_detector_self_check(body: str, expected: set[str]) -> None:
+    """Self-test of the ``filelock`` detector across every spelling it must see."""
+    users, _module_level = _filelock_references(ast.parse(body))
+    assert set(users) == expected
+
+
+def test_filelock_detector_bites_on_an_injected_second_user() -> None:
+    """Injection-prove it: a NEW writer taking a filelock must be reported."""
+    injected = (SRC_ROOT / _STORAGE_MODULE).read_text("utf-8") + (
+        "\n\ndef _sneaky_lock(path):\n    with FileLock(str(path) + '.lock'):\n        pass\n"
+    )
+    users, _module_level = _filelock_references(ast.parse(injected))
+    assert "_sneaky_lock" in users, (
+        "a new filelock user in the canonical writer must be reported; the detector is not biting."
+    )

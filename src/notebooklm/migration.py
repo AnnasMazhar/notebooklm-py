@@ -223,12 +223,12 @@ def _migrate_to_profiles_locked(home: Path) -> bool:
     # runs for a pre-v0.5.0 two-file HOME layout, so profiles created after
     # that (and the ``NOTEBOOKLM_AUTH_JSON`` env-auth path) never reach it.
     # Durable promotion for every other profile hangs off the read path itself
-    # (``account._schedule_legacy_promotion``); correctness for all of them
+    # (``storage._schedule_legacy_promotion``); correctness for all of them
     # hangs off neither, because ``read_account_metadata`` derives the same
     # record read-only. Best-effort — never fails the migration.
     migrated_storage = default_dir / "storage_state.json"
     if migrated_storage.exists():
-        from ._auth.account import promote_legacy_account  # local: keep import cost off startup
+        from ._auth.storage import promote_legacy_account  # local: keep import cost off startup
 
         try:
             promote_legacy_account(migrated_storage)

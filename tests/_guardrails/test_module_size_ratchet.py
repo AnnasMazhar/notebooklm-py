@@ -179,7 +179,7 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # No behaviour changed: same function objects, same ``notebooklm.auth``
     # logger (both modules bound it by NAME, so no log-emission point moved).
     # Pinned at its MEASURED post-relocation LOC; shrink-locked from here on.
-    # PR 5.2's account-record relocation is the last planned raise.
+    # PR 5.2's account-record relocation, annotated below, is the last raise.
     #
     # RATCHETED DOWN 2419 -> 2412 by PR 5.1 (the account-read write-timing
     # move). ``update_account_metadata`` lost its ``deadline_seconds``
@@ -189,7 +189,44 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # longer runs there, so the override had no caller and its rationale had
     # become false. This is an ordinary shrink, not a sanctioned class — the
     # ratchet demanded it, and the ground is now locked.
-    "_auth/storage.py": 2412,
+    #
+    # sanctioned merge (ADR-0033) — the account-record relocation, the THIRD
+    # and LAST planned consolidation into this module (PR 5.2): 2412 -> 3102.
+    # DONOR: ``_auth/account.py``, 980 -> 355 (-625). This is the
+    # donor-shrinking relocation class (the same one PR 4.2 used), not the
+    # intra-module template class: ``account.py`` was two modules wearing one
+    # name. The NETWORK identity half — ``enumerate_accounts``,
+    # ``_probe_authuser``, ``extract_email_from_html``, the ``authuser`` wire
+    # formatters, and ``repair_account_metadata_from_playwright_storage``,
+    # which recomposes over both halves — stayed there and is now the whole
+    # file. The account RECORD half (readers, ``_sanitize_legacy_account_record``,
+    # the detached promotion one-shot with its ``atexit`` drain,
+    # ``write_account_metadata`` / ``clear_account_metadata``, and the sibling
+    # ``context.json`` scrub) is persistence: same document, same lock, driving
+    # the two in-band account writers already here.
+    #
+    # The evidence the split was structural and not cosmetic: it cost a
+    # BIDIRECTIONAL function-local import pair — 3 ``from . import storage``
+    # sites in ``account.py``, 5 ``from . import account as _account`` sites
+    # here — and this commit deletes all 8, leaving one module-scope edge
+    # (``account`` -> ``storage``) in a single direction. (Note for the record:
+    # the governing plan said "8 sites, verified exact" and was RIGHT; a
+    # mid-flight recount that reported 4 had missed the parenthesised
+    # multi-line ``from . import (\\n    account as _account,\\n)`` spelling.)
+    #
+    # +690 here against the donor's -625 leaves a 65-line gap, and like PR 4.2's
+    # 29 it is deliberate: the ``SECTION 7b`` banner and the module-docstring
+    # entry that say WHY persistence code lives beside the writers, eight new
+    # ``__all__`` entries, the ``atexit``-registration-moved-modules paragraph
+    # (the single riskiest thing in the move — see ``_drain_promotions_at_exit``),
+    # and the ``_drop_legacy_account_key`` note explaining why the ONE writer
+    # here that does not touch ``storage_state.json`` uses the guarded public
+    # ``atomic_write_json`` and a ``filelock`` sibling lock. No behaviour
+    # changed: same function objects, same ``notebooklm.auth`` logger (both
+    # modules bound it by NAME), same facade names at the same identities.
+    # Pinned at its MEASURED post-relocation LOC; shrink-locked from here on,
+    # and the plan schedules no further raise for this module.
+    "_auth/storage.py": 3102,
     # sanctioned merge (ADR-0033) — the `_auth` load-composition merge:
     # ``_auth/browser_cookie_recovery.py`` (142) was absorbed in full and reduced
     # to a re-export shim in the same change. It held the captured-cookie

@@ -49,7 +49,7 @@ front (see :data:`_STORAGE_STATE_FILENAME`). The ``config.json`` /
 only ``storage_state.json`` is special-cased. Cookie/account writers must use
 the dedicated locked writers in :mod:`notebooklm._auth`
 (``save_cookies_to_storage`` / ``write_account_metadata`` /
-``_clear_in_band_account``), which all share ``_storage_state_lock_path``.
+``clear_in_band_account``), which all share ``_storage_state_lock_path``.
 """
 
 from __future__ import annotations
@@ -421,7 +421,7 @@ def atomic_update_json(
             "diverges from the canonical dotted '.storage_state.json.lock' sentinel "
             "(_storage_state_lock_path, #1215), so it would acquire the wrong lock "
             "and risk a lost-update race. Use the dedicated notebooklm._auth writers "
-            "(save_cookies_to_storage / write_account_metadata / _clear_in_band_account) "
+            "(save_cookies_to_storage / write_account_metadata / clear_in_band_account) "
             "instead."
         )
     lock_path = path.with_suffix(path.suffix + ".lock")

@@ -263,7 +263,7 @@ left on disk after release — both lock implementations reuse them).
 | `<profile>/.storage_state.json.refresh.lock` | `_auth/refresh.py` (via `_auth/single_flight.py`) | Cross-process dedup of the `NOTEBOOKLM_REFRESH_CMD` subprocess (cold-start, and mid-session when `NOTEBOOKLM_REFRESH_CMD_MIDSESSION=1`) | Non-blocking exclusive (`LOCK_NB`); skip on contention, waiter polls with jittered backoff |
 | `<profile>/.storage_state.json.lock.bootstrap` | `_auth/master_token.py::bootstrap_storage_from_master_token` | Cross-process exclusion for the FIRST-TIME mint of a profile that has only a `master_token.json` — held across the mint, whose persist takes `.storage_state.json.lock` *inside* this section (so the two must never share a path) | Non-blocking exclusive (`filelock`), retried on a 50ms sleep so the event loop keeps running |
 | `<home>/.migration.lock` | `migration.py::migrate_to_profiles` | One-shot legacy→profile layout migration on startup | Blocking exclusive, 30s timeout (raises `MigrationLockTimeoutError`) |
-| `<profile>/context.json.lock` | `_atomic_io.py::atomic_update_json` through CLI context helpers; also `_auth/account.py::_drop_legacy_account_key` for the legacy `account` key cleanup | Read-modify-write of the active-notebook/account-routing context for a profile | Blocking exclusive, 10s timeout (`filelock`) |
+| `<profile>/context.json.lock` | `_atomic_io.py::atomic_update_json` through CLI context helpers; also `_auth/storage.py::_drop_legacy_account_key` for the legacy `account` key cleanup | Read-modify-write of the active-notebook/account-routing context for a profile | Blocking exclusive, 10s timeout (`filelock`) |
 
 Design notes:
 

@@ -37,15 +37,14 @@ from typing import Any
 
 import pytest
 
-from notebooklm._auth import account as _auth_account
 from notebooklm._auth import storage as _auth_storage
-from notebooklm._auth.account import (
+from notebooklm._auth.paths import canonical_storage_key
+from notebooklm._auth.storage import (
     _drain_promotions_for_tests,
     get_account_email_for_storage,
     get_authuser_for_storage,
     read_account_metadata,
 )
-from notebooklm._auth.paths import canonical_storage_key
 
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 
@@ -226,7 +225,7 @@ class TestReadTakesNoLocks:
             encoding="utf-8",
         )
         counting = _CountingLock()
-        monkeypatch.setattr(_auth_account, "_PROMOTION_LOCK", counting)
+        monkeypatch.setattr(_auth_storage, "_PROMOTION_LOCK", counting)
 
         def _fail(*args, **kwargs):
             raise AssertionError("the read must not enter the storage writer")
@@ -237,15 +236,15 @@ class TestReadTakesNoLocks:
             assert read_account_metadata(storage) == {"authuser": 4, "email": "i@x.com"}
 
         assert counting.acquisitions == 0
-        assert not _auth_account._PROMOTION_ONCE_PATHS
-        assert not _auth_account._PROMOTION_THREADS
+        assert not _auth_storage._PROMOTION_ONCE_PATHS
+        assert not _auth_storage._PROMOTION_THREADS
 
     def test_empty_profile_fast_path_takes_no_lock(self, tmp_path, monkeypatch):
         """No in-band record AND no legacy sibling — the fresh-profile case."""
         storage = tmp_path / "storage_state.json"
         storage.write_text(json.dumps({"cookies": [], "origins": []}), encoding="utf-8")
         counting = _CountingLock()
-        monkeypatch.setattr(_auth_account, "_PROMOTION_LOCK", counting)
+        monkeypatch.setattr(_auth_storage, "_PROMOTION_LOCK", counting)
 
         assert read_account_metadata(storage) == {}
         assert counting.acquisitions == 0
@@ -278,7 +277,7 @@ class TestReadTakesNoLocks:
 
     def test_worker_is_a_daemon_so_it_cannot_wedge_interpreter_shutdown(self, tmp_path):
         storage = _legacy_profile(tmp_path, {"authuser": 1})
-        worker = _auth_account._schedule_legacy_promotion(storage)
+        worker = _auth_storage._schedule_legacy_promotion(storage)
         assert worker is not None
         assert worker.daemon is True
         worker.join(30.0)
@@ -323,7 +322,7 @@ class TestSingleFlightOneShot:
         assert len(results) == readers
         assert all(r == {"authuser": 3, "email": "k@example.com"} for r in results)
         assert len(calls) == 1, f"expected exactly one promotion, got {len(calls)}"
-        assert sorted(_auth_account._PROMOTION_ONCE_PATHS) == [_canonical(storage)]
+        assert sorted(_auth_storage._PROMOTION_ONCE_PATHS) == [_canonical(storage)]
 
     def test_a_failed_promotion_is_not_retried_by_later_reads(self, tmp_path, monkeypatch):
         """One-shot, not a retry loop.
@@ -411,11 +410,11 @@ class TestPromotionCannotAffectTheRead:
         def _explode(_path):
             raise BaseException("not even an Exception")  # noqa: TRY002
 
-        monkeypatch.setattr(_auth_account, "promote_legacy_account", _explode)
+        monkeypatch.setattr(_auth_storage, "promote_legacy_account", _explode)
         storage = _legacy_profile(tmp_path, {"authuser": 1})
         assert read_account_metadata(storage) == {"authuser": 1}
         _drain_promotions_for_tests()
-        assert not _auth_account._PROMOTION_THREADS
+        assert not _auth_storage._PROMOTION_THREADS
 
 
 class TestInBandAlwaysWins:
@@ -440,7 +439,7 @@ class TestInBandAlwaysWins:
         def _fail(*args, **kwargs):
             raise AssertionError("the legacy sibling must not even be consulted")
 
-        monkeypatch.setattr(_auth_account, "_read_legacy_account", _fail)
+        monkeypatch.setattr(_auth_storage, "_read_legacy_account", _fail)
         assert read_account_metadata(storage) == {"authuser": 9, "email": "new@x.com"}
 
     def test_a_login_landing_during_the_sibling_read_still_wins(self, tmp_path):
@@ -454,7 +453,7 @@ class TestInBandAlwaysWins:
         own check-then-act race.
         """
         storage = _legacy_profile(tmp_path, {"authuser": 1, "email": "old@x.com"})
-        real_read_legacy = _auth_account._read_legacy_account
+        real_read_legacy = _auth_storage._read_legacy_account
 
         def _read_then_race_a_login(path):
             legacy = real_read_legacy(path)
@@ -462,11 +461,11 @@ class TestInBandAlwaysWins:
             return legacy
 
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(_auth_account, "_read_legacy_account", _read_then_race_a_login)
+            mp.setattr(_auth_storage, "_read_legacy_account", _read_then_race_a_login)
             assert read_account_metadata(storage) == {"authuser": 8, "email": "fresh@x.com"}
 
         # No promotion was scheduled — in-band won before we got that far.
-        assert not _auth_account._PROMOTION_ONCE_PATHS
+        assert not _auth_storage._PROMOTION_ONCE_PATHS
 
 
 class TestAllThreeEntryPathsReachTheOneShot:
@@ -484,7 +483,7 @@ class TestAllThreeEntryPathsReachTheOneShot:
         storage = _legacy_profile(tmp_path, {"authuser": 3, "email": "route@example.com"})
         kwargs = _refresh._resolve_token_route_kwargs(storage, authuser=None, account_email=None)
         assert kwargs == {"authuser": 3, "account_email": "route@example.com"}
-        assert sorted(_auth_account._PROMOTION_ONCE_PATHS) == [_canonical(storage)]
+        assert sorted(_auth_storage._PROMOTION_ONCE_PATHS) == [_canonical(storage)]
         _drain_promotions_for_tests()
         assert _in_band_on_disk(storage) == {"authuser": 3, "email": "route@example.com"}
 
@@ -514,7 +513,7 @@ class TestAllThreeEntryPathsReachTheOneShot:
         assert [(e.name, e.account, e.authenticated) for e in entries] == [
             ("default", "cli@example.com", True)
         ]
-        assert sorted(_auth_account._PROMOTION_ONCE_PATHS) == [_canonical(storage)]
+        assert sorted(_auth_storage._PROMOTION_ONCE_PATHS) == [_canonical(storage)]
         _drain_promotions_for_tests()
         assert _in_band_on_disk(storage) == {"authuser": 4, "email": "cli@example.com"}
 
@@ -536,8 +535,8 @@ class TestAllThreeEntryPathsReachTheOneShot:
         assert read_account_metadata(None) == {}
         kwargs = _refresh._resolve_token_route_kwargs(None, authuser=None, account_email=None)
         assert kwargs == {"authuser": 5, "account_email": "env@example.com"}
-        assert not _auth_account._PROMOTION_ONCE_PATHS
-        assert not _auth_account._PROMOTION_THREADS
+        assert not _auth_storage._PROMOTION_ONCE_PATHS
+        assert not _auth_storage._PROMOTION_THREADS
 
 
 def test_short_lived_process_still_lands_the_durable_promotion(tmp_path: Path) -> None:
@@ -568,7 +567,7 @@ def test_short_lived_process_still_lands_the_durable_promotion(tmp_path: Path) -
             sys.executable,
             "-c",
             "from pathlib import Path\n"
-            "from notebooklm._auth.account import read_account_metadata\n"
+            "from notebooklm._auth.storage import read_account_metadata\n"
             f"read_account_metadata(Path({str(storage)!r}))\n",
         ],
         env=env,
