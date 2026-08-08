@@ -1,0 +1,462 @@
+{
+  "sites": [
+    {
+      "attribute": "_probe_authuser",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "account"
+    },
+    {
+      "attribute": "enumerate_accounts",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "account"
+    },
+    {
+      "attribute": "enumerate_accounts",
+      "count": 8,
+      "idiom": "patch.object",
+      "module": "account"
+    },
+    {
+      "attribute": "extract_email_from_html",
+      "count": 3,
+      "idiom": "patch.object",
+      "module": "account"
+    },
+    {
+      "attribute": "get_base_host",
+      "count": 1,
+      "idiom": "patch.object",
+      "module": "browser_capture"
+    },
+    {
+      "attribute": "time",
+      "count": 1,
+      "idiom": "patch.object",
+      "module": "browser_capture"
+    },
+    {
+      "attribute": "MINIMUM_REQUIRED_COOKIES",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "cookie_policy"
+    },
+    {
+      "attribute": "_EXTRACTION_HINT",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "cookie_policy"
+    },
+    {
+      "attribute": "_SECONDARY_BINDING_WARNED",
+      "count": 4,
+      "idiom": "assignment",
+      "module": "cookie_policy"
+    },
+    {
+      "attribute": "_has_valid_secondary_binding",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "cookie_policy"
+    },
+    {
+      "attribute": "_load_cookies_pure",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "cookies"
+    },
+    {
+      "attribute": "build_httpx_cookies_from_storage",
+      "count": 5,
+      "idiom": "monkeypatch.setattr",
+      "module": "cookies"
+    },
+    {
+      "attribute": "build_httpx_cookies_from_storage",
+      "count": 5,
+      "idiom": "patch.object",
+      "module": "cookies"
+    },
+    {
+      "attribute": "get_storage_path",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "cookies"
+    },
+    {
+      "attribute": "_get_drive_record",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "headless_reauth"
+    },
+    {
+      "attribute": "_playwright_installed",
+      "count": 16,
+      "idiom": "monkeypatch.setattr",
+      "module": "headless_reauth"
+    },
+    {
+      "attribute": "attempt_headless_reauth",
+      "count": 9,
+      "idiom": "monkeypatch.setattr",
+      "module": "headless_reauth"
+    },
+    {
+      "attribute": "run_browser_capture",
+      "count": 17,
+      "idiom": "monkeypatch.setattr",
+      "module": "headless_reauth"
+    },
+    {
+      "attribute": "run_cdp_capture",
+      "count": 7,
+      "idiom": "monkeypatch.setattr",
+      "module": "headless_reauth"
+    },
+    {
+      "attribute": "_KEEPALIVE_RATE_LIMIT_SECONDS",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "keepalive"
+    },
+    {
+      "attribute": "_file_lock_try_exclusive",
+      "count": 3,
+      "idiom": "monkeypatch.setattr",
+      "module": "keepalive"
+    },
+    {
+      "attribute": "_rotate_cookies",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "keepalive"
+    },
+    {
+      "attribute": "mint_cookies",
+      "count": 12,
+      "idiom": "patch.object",
+      "module": "master_token"
+    },
+    {
+      "attribute": "persist_minted_jar",
+      "count": 1,
+      "idiom": "patch.object",
+      "module": "master_token"
+    },
+    {
+      "attribute": "remint_from_stored_token",
+      "count": 14,
+      "idiom": "patch.object",
+      "module": "master_token"
+    },
+    {
+      "attribute": "_check_routable",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "psidts_recovery"
+    },
+    {
+      "attribute": "_file_lock_try_exclusive",
+      "count": 3,
+      "idiom": "monkeypatch.setattr",
+      "module": "psidts_recovery"
+    },
+    {
+      "attribute": "_load_storage_state",
+      "count": 5,
+      "idiom": "monkeypatch.setattr",
+      "module": "psidts_recovery"
+    },
+    {
+      "attribute": "_recover_psidts_inline",
+      "count": 4,
+      "idiom": "monkeypatch.setattr",
+      "module": "psidts_recovery"
+    },
+    {
+      "attribute": "_try_claim_rotation",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "psidts_recovery"
+    },
+    {
+      "attribute": "load_with_recovery",
+      "count": 3,
+      "idiom": "monkeypatch.setattr",
+      "module": "psidts_recovery"
+    },
+    {
+      "attribute": "recover_psidts_in_memory",
+      "count": 7,
+      "idiom": "monkeypatch.setattr",
+      "module": "psidts_recovery"
+    },
+    {
+      "attribute": "coalesced_cold_recovery",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "recovery"
+    },
+    {
+      "attribute": "try_headless_reauth",
+      "count": 4,
+      "idiom": "monkeypatch.setattr",
+      "module": "recovery"
+    },
+    {
+      "attribute": "try_headless_reauth",
+      "count": 3,
+      "idiom": "patch.object",
+      "module": "recovery"
+    },
+    {
+      "attribute": "try_master_token_reauth",
+      "count": 4,
+      "idiom": "monkeypatch.setattr",
+      "module": "recovery"
+    },
+    {
+      "attribute": "try_master_token_reauth",
+      "count": 2,
+      "idiom": "patch.object",
+      "module": "recovery"
+    },
+    {
+      "attribute": "_coalesced_run_refresh_cmd",
+      "count": 12,
+      "idiom": "monkeypatch.setattr",
+      "module": "refresh"
+    },
+    {
+      "attribute": "_fetch_tokens_with_jar",
+      "count": 17,
+      "idiom": "monkeypatch.setattr",
+      "module": "refresh"
+    },
+    {
+      "attribute": "_fetch_tokens_with_refresh",
+      "count": 4,
+      "idiom": "monkeypatch.setattr",
+      "module": "refresh"
+    },
+    {
+      "attribute": "_poke_session",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "refresh"
+    },
+    {
+      "attribute": "_replace_cookie_jar",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "refresh"
+    },
+    {
+      "attribute": "_run_refresh_cmd",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "refresh"
+    },
+    {
+      "attribute": "build_httpx_cookies_from_storage",
+      "count": 11,
+      "idiom": "monkeypatch.setattr",
+      "module": "refresh"
+    },
+    {
+      "attribute": "build_httpx_cookies_from_storage",
+      "count": 1,
+      "idiom": "patch.object",
+      "module": "refresh"
+    },
+    {
+      "attribute": "get_storage_path",
+      "count": 8,
+      "idiom": "monkeypatch.setattr",
+      "module": "refresh"
+    },
+    {
+      "attribute": "save_cookies_to_storage",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "refresh"
+    },
+    {
+      "attribute": "snapshot_cookie_jar",
+      "count": 9,
+      "idiom": "monkeypatch.setattr",
+      "module": "refresh"
+    },
+    {
+      "attribute": "read_success_epoch",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "single_flight"
+    },
+    {
+      "attribute": "FileLock",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "_FLOCK_UNAVAILABLE_WARNED",
+      "count": 4,
+      "idiom": "assignment",
+      "module": "storage"
+    },
+    {
+      "attribute": "_FLOCK_UNAVAILABLE_WARNED",
+      "count": 3,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "_LOCK_ACQUIRE_DEADLINE_SECONDS",
+      "count": 3,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "_PROMOTION_LOCK",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "_cookie_is_http_only",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "_drop_legacy_account_key",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "_file_lock",
+      "count": 8,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "_read_legacy_account",
+      "count": 4,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "clear_account_metadata",
+      "count": 2,
+      "idiom": "patch.object",
+      "module": "storage"
+    },
+    {
+      "attribute": "promote_legacy_account",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "read_account_metadata",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "replace_from_remint",
+      "count": 1,
+      "idiom": "patch.object",
+      "module": "storage"
+    },
+    {
+      "attribute": "save_cookies_to_storage",
+      "count": 9,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "update_account_metadata",
+      "count": 10,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "write_account_metadata",
+      "count": 2,
+      "idiom": "patch.object",
+      "module": "storage"
+    }
+  ],
+  "summary": {
+    "TOTAL": {
+      "private": 109,
+      "public": 171,
+      "total": 280
+    },
+    "account": {
+      "private": 2,
+      "public": 12,
+      "total": 14
+    },
+    "browser_capture": {
+      "private": 0,
+      "public": 2,
+      "total": 2
+    },
+    "cookie_policy": {
+      "private": 6,
+      "public": 2,
+      "total": 8
+    },
+    "cookies": {
+      "private": 1,
+      "public": 11,
+      "total": 12
+    },
+    "headless_reauth": {
+      "private": 17,
+      "public": 33,
+      "total": 50
+    },
+    "keepalive": {
+      "private": 6,
+      "public": 0,
+      "total": 6
+    },
+    "master_token": {
+      "private": 0,
+      "public": 27,
+      "total": 27
+    },
+    "psidts_recovery": {
+      "private": 14,
+      "public": 10,
+      "total": 24
+    },
+    "recovery": {
+      "private": 0,
+      "public": 15,
+      "total": 15
+    },
+    "refresh": {
+      "private": 37,
+      "public": 31,
+      "total": 68
+    },
+    "single_flight": {
+      "private": 0,
+      "public": 1,
+      "total": 1
+    },
+    "storage": {
+      "private": 26,
+      "public": 27,
+      "total": 53
+    }
+  },
+  "version": 1
+}
