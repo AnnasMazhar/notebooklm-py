@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Reading a profile's account binding no longer writes to disk.** On a
+  pre-v0.5.0 two-file profile (account metadata in a sibling `context.json`),
+  every read of the account binding — including the one that runs on **every
+  RPC** to pick the `authuser` a request routes to — used to perform the
+  one-shot migration inline, taking the storage write lock. It now derives the
+  same record read-only and returns immediately; the durable migration runs
+  once per profile in the background. The values callers see are unchanged
+  (`notebooklm profile list`, `auth check`, `client.get_account_email` and the
+  request routing all report exactly what they did before, and exactly what the
+  migrated file will contain). Two things are observable: the legacy
+  `context.json[account]` key is scrubbed a moment *after* the first read
+  rather than during it, and a profile whose migration keeps failing (read-only
+  profile directory, full disk) now logs its warning once per trigger instead
+  of being throttled to once per process — the migration is attempted once per
+  profile per run, so it can no longer flood the log. No configuration changes.
 - **Cold-start recovery now runs `NOTEBOOKLM_REFRESH_CMD` before the re-mint
   rungs.** On a dead-cookie cold start, the external refresh command (rung
   "L2.5") previously ran only *after* headless re-auth (L3) and master-token

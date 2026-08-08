@@ -195,19 +195,6 @@ class TestPromoteLegacyAccount:
     sanitization of a malformed legacy record.
     """
 
-    @pytest.fixture(autouse=True)
-    def _clear_promotion_warn_throttle(self):
-        """``_PROMOTION_WARNED_PATHS`` is per-process module state, never
-        cleared by production code (it's a warn-once-per-path throttle for
-        the process lifetime). These tests only pass today because each
-        ``tmp_path`` gives a distinct path key — an implicit coupling
-        CodeRabbit flagged on the combined PR review. Clearing it makes the
-        warning-throttle assertions independent of path uniqueness, test
-        order, and repeated runs."""
-        _auth_account._PROMOTION_WARNED_PATHS.clear()
-        yield
-        _auth_account._PROMOTION_WARNED_PATHS.clear()
-
     def test_missing_storage_file_is_a_noop_never_creates_it(self, tmp_path):
         """MAJOR (#2103 PR-0 review): a plain read must never CREATE
         ``storage_state.json``. Without this guard, promoting into a
@@ -265,17 +252,28 @@ class TestPromoteLegacyAccount:
         in_band = json.loads(storage.read_text(encoding="utf-8"))["notebooklm"]["account"]
         assert in_band == {"authuser": 7}  # untouched — in-band already won
 
-    def test_promotion_write_uses_a_short_lock_deadline_not_the_90s_default(
-        self, tmp_path, monkeypatch
-    ):
-        """#2103 PR-0 review (MAJOR): promotion now runs inside
-        ``read_account_metadata``, which many ``async`` callers
-        (``client.get_account_email``, token-route resolution) treat as a
-        fast, lock-free read. Blocking one of those for up to the usual 90s
-        full-file-RMW deadline on lock contention would freeze an event loop.
-        Pins that the write is issued with the short promotion-specific
-        deadline, not the default, by capturing what
-        ``update_account_metadata`` actually receives."""
+    def test_promotion_write_takes_the_standard_full_rmw_lock_deadline(self, tmp_path, monkeypatch):
+        """Inverse of the pin this replaces (ADR-0033 PR 5.1).
+
+        Promotion used to shorten the storage-lock deadline to 2s because it
+        ran INSIDE ``read_account_metadata``, where a 90s acquire would freeze
+        an event loop mid-"read". It no longer runs there — the read schedules
+        a detached worker — so the override is gone and the standard full-file
+        RMW deadline applies. Waiting out real contention is now strictly
+        better than giving up, because the one-shot never retries in-process.
+
+        Pinned by capturing what ``update_account_metadata`` receives: no
+        ``deadline_seconds`` at all, and the parameter no longer exists on the
+        writer to pass."""
+        import inspect
+
+        import notebooklm._auth.storage as _storage_mod
+
+        assert (
+            "deadline_seconds"
+            not in inspect.signature(_storage_mod.update_account_metadata).parameters
+        )
+
         storage = tmp_path / "storage_state.json"
         storage.write_text(json.dumps({"cookies": [], "origins": []}), encoding="utf-8")
         (tmp_path / "context.json").write_text(
@@ -283,20 +281,17 @@ class TestPromoteLegacyAccount:
             encoding="utf-8",
         )
 
-        import notebooklm._auth.storage as _storage_mod
-
         real_update = _storage_mod.update_account_metadata
         captured: dict[str, object] = {}
 
-        def _capture_deadline(*args, **kwargs):
-            captured["deadline_seconds"] = kwargs.get("deadline_seconds")
+        def _capture(*args, **kwargs):
+            captured["kwargs"] = dict(kwargs)
             return real_update(*args, **kwargs)
 
-        monkeypatch.setattr(_storage_mod, "update_account_metadata", _capture_deadline)
+        monkeypatch.setattr(_storage_mod, "update_account_metadata", _capture)
 
         assert promote_legacy_account(storage) is True
-        assert captured["deadline_seconds"] == _auth_account._PROMOTION_LOCK_DEADLINE_SECONDS
-        assert captured["deadline_seconds"] < 90.0  # strictly short, not the full-RMW default
+        assert "deadline_seconds" not in captured["kwargs"]
 
     def test_strip_failure_after_successful_embed_still_returns_true(self, tmp_path, monkeypatch):
         """The embed's success is independent of the strip's outcome: a
@@ -406,14 +401,18 @@ class TestPromoteLegacyAccount:
             r.levelno == logging.WARNING and "disk full" in r.message for r in caplog.records
         )
 
-    def test_promotion_failure_logs_warning_once_then_debug(self, tmp_path, monkeypatch, caplog):
-        """#2103 PR-0 review (MINOR): ``read_account_metadata`` (and this
-        function transitively) is on the request path — token-route
-        resolution reads it per RPC call via ``get_authuser_for_storage`` /
-        ``get_account_email_for_storage``. A persistently failing promotion
-        must not warn on every single request forever; only the first
-        failure per storage path per process logs at WARNING, subsequent
-        ones at DEBUG (so ``-v``/``--debug`` still shows every occurrence)."""
+    def test_promotion_failure_warns_every_time_no_throttle(self, tmp_path, monkeypatch, caplog):
+        """The warn-once-per-path throttle is GONE (ADR-0033 PR 5.1).
+
+        It existed because promotion ran on the per-RPC read path, where a
+        persistently failing profile would have warned twice per request
+        forever. The one-shot makes that structurally impossible — a read
+        schedules at most ONE promotion per path per process — so the throttle
+        was compensating for a problem that no longer exists, and suppressing
+        the second warning now only hides the startup-migration and
+        ``replace_from_login`` failures from an operator.
+
+        Pinned by calling promotion directly twice: both failures warn."""
         storage = tmp_path / "storage_state.json"
         storage.write_text(json.dumps({"cookies": [], "origins": []}), encoding="utf-8")
         (tmp_path / "context.json").write_text(
@@ -428,22 +427,26 @@ class TestPromoteLegacyAccount:
         monkeypatch.setattr(_storage_mod, "update_account_metadata", _boom)
 
         with caplog.at_level(logging.DEBUG, logger="notebooklm.auth"):
-            promote_legacy_account(storage)  # 1st failure -> WARNING
+            promote_legacy_account(storage)
             caplog.clear()
-            promote_legacy_account(storage)  # 2nd failure, same path -> DEBUG only
+            promote_legacy_account(storage)  # same path, still a WARNING
 
-        assert not any(r.levelno == logging.WARNING for r in caplog.records)
-        assert any(r.levelno == logging.DEBUG and "disk full" in r.message for r in caplog.records)
+        assert any(
+            r.levelno == logging.WARNING and "disk full" in r.message for r in caplog.records
+        )
+        assert not hasattr(_auth_account, "_PROMOTION_WARNED_PATHS")
 
-    def test_read_account_metadata_falls_back_to_legacy_on_promotion_failure(
-        self, tmp_path, monkeypatch
-    ):
-        """#2103 PR-0 follow-up: a transient write failure must not collapse
-        ``read_account_metadata`` to ``{}`` — that would silently reintroduce
-        the wrong-account-routing hazard this migration exists to close, just
-        via a different trigger (a failed promotion instead of a missed
-        fallback). It must fall back to the legacy record it already read,
-        sanitized identically to what a successful promotion would embed."""
+    def test_read_account_metadata_derives_legacy_when_promotion_fails(self, tmp_path, monkeypatch):
+        """A failing durable write must not collapse ``read_account_metadata``
+        to ``{}`` — that would silently reintroduce the wrong-account-routing
+        hazard this migration exists to close, just via a different trigger.
+
+        Since ADR-0033 PR 5.1 the read never waits for the write at all: it
+        derives the record read-only and returns, so the write's outcome is
+        invisible to it. This test keeps the pin on the *observable* contract
+        (never ``{}``, always sanitized exactly as a promotion would embed)
+        and additionally drains the worker to show the failure changed
+        nothing."""
         storage = tmp_path / "storage_state.json"
         storage.write_text(json.dumps({"cookies": [], "origins": []}), encoding="utf-8")
         (tmp_path / "context.json").write_text(
@@ -462,8 +465,11 @@ class TestPromoteLegacyAccount:
         # Never {} — and sanitized (malformed authuser -> 0, blank email dropped)
         # exactly as ``_sanitize_legacy_account_record`` would embed it.
         assert result == {"authuser": 0}
+        _auth_account._drain_promotions_for_tests()
         # The legacy record is untouched — nothing was scrubbed on a failure.
         assert _read_legacy_account(storage) == {"authuser": -1, "email": "  "}
+        # And the read still answers identically after the failed attempt.
+        assert read_account_metadata(storage) == {"authuser": 0}
 
 
 class TestDropLegacyAccountKey:

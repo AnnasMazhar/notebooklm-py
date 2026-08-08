@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import json
 import logging
 import re
+import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +20,7 @@ from filelock import FileLock
 from .._atomic_io import atomic_write_json
 from .._env import get_base_url
 from .._url_utils import is_google_auth_redirect
+from .paths import canonical_storage_key
 
 logger = logging.getLogger("notebooklm.auth")
 
@@ -51,24 +54,47 @@ class Account:
 # session; ten covers every realistic case and bounds the worst-case probe.
 MAX_AUTHUSER_PROBE = 10
 
-# Bound on how long promote_legacy_account's write will contend for the
-# storage lock (#2103 PR-0 review). Deliberately short, unlike the usual 90s
-# full-file-RMW deadline: promote_legacy_account now runs inside
-# read_account_metadata, called from many `async` code paths that assume a
-# fast, lock-free read (client.get_account_email, token-route resolution).
-# Promotion is best-effort by design — a failed/timed-out promotion falls
-# back to the legacy record, never breaks the read — so giving up fast under
-# contention and taking that fallback is strictly the right trade-off.
-_PROMOTION_LOCK_DEADLINE_SECONDS = 2.0
-
-# Per-process log-spam throttle for promotion failures (#2103 PR-0 review):
-# read_account_metadata (and transitively this) is now on the request path
-# (token-route resolution reads it per RPC call), so a persistently failing
-# promotion must not warn twice per request forever. Values are canonical
-# storage_path strings that have already logged one WARNING; unbounded
-# growth is not a concern — real deployments have a handful of profiles, not
-# an unbounded set of distinct paths.
-_PROMOTION_WARNED_PATHS: set[str] = set()
+# --- Detached one-shot legacy-account promotion (ADR-0033 PR 5.1) ------------
+#
+# ``read_account_metadata`` is a READ. It is called per RPC on the token-route
+# path (``refresh._resolve_token_route_kwargs`` -> ``get_authuser_for_storage``),
+# so it must never take the storage WRITE lock. Durable promotion of a
+# pre-v0.5.0 sibling record is therefore fired off the read path as a detached
+# one-shot: the read derives its answer read-only from the legacy record (see
+# :func:`_sanitize_legacy_account_record` — byte-identical to what promotion
+# embeds) and returns immediately, while a background worker does the write.
+#
+# Two pieces of process-global state, both guarded by ONE plain
+# ``threading.Lock``:
+#
+# * ``_PROMOTION_ONCE_PATHS`` — canonical ``storage_path`` strings a promotion
+#   has already been scheduled for in this process. This IS the single flight:
+#   N concurrent reads of one profile schedule exactly ONE promotion, and a
+#   promotion that fails is not retried in-process. Retrying would buy nothing
+#   — the read already returns the right record without it — and would put a
+#   failing write back on a per-RPC path, which is the whole problem. Unbounded
+#   growth is not a concern: real deployments have a handful of profiles.
+# * ``_PROMOTION_THREADS`` — the workers still in flight, so tests can join
+#   them deterministically (:func:`_drain_promotions_for_tests`). Production
+#   never joins; each worker deregisters itself when it finishes.
+#
+# ``_PROMOTION_LOCK`` is a *scheduling* lock, not a storage lock: it is taken
+# only on the legacy-only branch of the read, is held for a set lookup plus a
+# ``Thread.start()``, and is never held across file I/O. The in-band fast path
+# every per-RPC read walks takes NO lock at all (pinned by
+# ``test_auth_account_promotion.py``).
+#
+# Deliberately ``threading``, not ``asyncio``: ``read_account_metadata`` is a
+# synchronous function reached from CLI code with no running event loop as
+# often as from ``async`` code, and the work it defers (``filelock`` acquire +
+# atomic write) is blocking I/O. ``_auth.single_flight`` is the coalescing core
+# for *awaitable* work — it requires a running loop (``asyncio.get_running_loop``
+# in ``_claim``) and would leave the CLI entry path uncovered. Using threads
+# also keeps this module free of lazily-constructed loop-bound primitives (the
+# #1196 class the loop-affinity guard polices).
+_PROMOTION_LOCK = threading.Lock()
+_PROMOTION_ONCE_PATHS: set[str] = set()
+_PROMOTION_THREADS: set[threading.Thread] = set()
 
 # Local-parts of well-known non-user emails that NotebookLM may embed in page
 # chrome (footer links, support contacts) and must not be misread as the
@@ -292,6 +318,11 @@ def _read_legacy_account(storage_path: Path) -> dict[str, Any]:
 def read_account_metadata(storage_path: Path | None) -> dict[str, Any]:
     """Read profile account metadata, self-healing a legacy two-file profile.
 
+    **This is a read. It takes no lock and issues no write.** Per-RPC token
+    routing calls it on every request (``_resolve_token_route_kwargs`` ->
+    :func:`get_authuser_for_storage`), so the durable half of the legacy
+    migration is *detached* from it: see :func:`_schedule_legacy_promotion`.
+
     Unified layout: account metadata lives inside ``storage_state.json``
     under the ``notebooklm`` namespace key. This reader never returns a raw
     pass-through of the pre-v0.5.0 sibling ``context.json`` record — a
@@ -300,32 +331,39 @@ def read_account_metadata(storage_path: Path | None) -> dict[str, Any]:
     the fallback missed, or a stale one it kept trusting forever, could
     silently route requests to a different signed-in Google account).
 
-    Instead, every call is the single chokepoint for
-    :func:`promote_legacy_account`: the fast path (in-band already present —
-    the overwhelming majority of calls, once any profile has been read once)
-    costs one dict lookup; only a not-yet-migrated legacy profile pays for the
-    one-shot promotion (a context.json read, and — the FIRST time only — an
-    atomic in-band write). This is strictly safer than the pre-PR-0 behavior:
-    the result is always genuinely in-band truth, migrated once and durably,
-    rather than a value re-derived from an unmigrated file on every call.
+    Instead the three branches are:
+
+    1. **In-band present** — the overwhelming majority of calls, and the only
+       one per-RPC routing walks once any profile has been read: one file read
+       plus a dict lookup, zero locks, zero threads.
+    2. **Nothing anywhere** — ``{}`` (``authuser=0`` downstream), unchanged.
+    3. **Legacy-only** — the record is DERIVED read-only, through the very
+       function promotion itself uses to build what it embeds
+       (:func:`_sanitize_legacy_account_record`), so the caller sees a
+       genuinely in-band-shaped record — never a raw legacy pass-through —
+       whether or not the durable write has happened yet. The durable write is
+       then scheduled once per path, in the background, and the read returns
+       without waiting for it.
+
+    That derivation is the anti-wrong-account contract, and it is what makes
+    the promotion's timing irrelevant to correctness: a promotion that is
+    slow, contended, or permanently failing (read-only profile dir, full disk)
+    changes nothing a caller can observe except how long the sibling
+    ``context.json`` survives on disk. ``tests/unit/test_auth_account_promotion.py``
+    pins field-by-field equality between the derived record and the one a
+    completed promotion leaves behind.
 
     The ``account`` object records the Google ``authuser`` index used when
     the profile was authenticated. Profiles from before account-binding
     shipped (and profiles for users with a single Google account) have no
     account metadata and use ``authuser=0``.
 
-    A transient promotion failure (disk full, permission error, lock
-    timeout) does NOT collapse to ``{}`` — this reader falls back to the
-    legacy record it already read successfully, sanitized identically to
-    what promotion would have embedded (see
-    :func:`_sanitize_legacy_account_record`). Returning ``{}`` on a write
-    failure would reintroduce, via a different trigger, the exact
-    wrong-account-routing hazard this migration exists to close.
-
     Args:
         storage_path: Path to ``storage_state.json``. ``None`` means the
             profile is loaded from ``NOTEBOOKLM_AUTH_JSON`` (no sibling to
-            promote from — env-auth profiles skip promotion entirely).
+            promote from — env-auth profiles skip promotion entirely; the
+            env-auth record is read from the parsed payload by
+            :func:`read_account_metadata_from_storage_state`).
 
     Returns:
         Parsed metadata dict, or ``{}`` only when no legacy OR in-band
@@ -339,30 +377,144 @@ def read_account_metadata(storage_path: Path | None) -> dict[str, Any]:
     legacy = _read_legacy_account(storage_path)
     if not legacy:
         return {}
-    promote_legacy_account(storage_path)
-    # Re-check in-band regardless of promote_legacy_account's return value —
-    # another caller may have promoted+scrubbed this same profile concurrently
-    # even when OUR call found "nothing to do" (a benign race, not a failure).
-    # Only fall back to the legacy record already in hand when in-band is
-    # STILL absent after that recheck: promotion for THIS profile genuinely
-    # did not land (a transient write/lock error — logged inside
-    # promote_legacy_account). Returning {} here instead of the record we
-    # already read successfully would collapse a transient infra failure into
-    # "no account", silently causing exactly the wrong-account-routing hazard
-    # this migration exists to close.
+    # Re-read in-band before trusting the legacy record. A concurrent fresh
+    # login / account-switch (or this process's own promotion worker) may have
+    # committed one while we were reading the sibling, and in-band ALWAYS wins:
+    # it is the newer, authoritative binding, and preferring a stale legacy
+    # record over it is precisely the wrong-account-routing hazard. Cheap —
+    # this branch is only reached on a not-yet-migrated profile.
     in_band_after = _read_in_band_account(storage_path)
     if in_band_after:
         return in_band_after
+    _schedule_legacy_promotion(storage_path)
     return _sanitize_legacy_account_record(legacy)
 
 
+def _schedule_legacy_promotion(storage_path: Path) -> threading.Thread | None:
+    """Fire the durable promotion in the background, once per canonical path.
+
+    The caller has already derived its answer read-only, so this exists purely
+    to make the migration *durable* (and to scrub the legacy sibling, a privacy
+    obligation). Nothing downstream of the read depends on it succeeding, or on
+    when it finishes.
+
+    Single-flight: the ``_PROMOTION_ONCE_PATHS`` membership test and the
+    insertion happen under one ``_PROMOTION_LOCK`` hold, so N concurrent
+    readers of the same profile produce exactly ONE worker. It is a one-shot,
+    not a retry loop — a failed promotion is not re-attempted in this process
+    (see the state block above for why).
+
+    ``Thread.start()`` runs INSIDE the lock so a concurrent
+    :func:`_drain_promotions_for_tests` can never observe a worker that is
+    registered but not yet started (``join`` on an unstarted thread raises).
+    ``start()`` returns as soon as the worker is bootstrapped, not when it
+    finishes, so the reader is not made to wait on the write.
+
+    Returns:
+        The worker that was started, or ``None`` when this path had already
+        scheduled one (test/diagnostic affordance; production ignores it).
+    """
+    # Keyed on the CANONICAL path, like every other in-process dedupe in
+    # ``_auth`` (the keepalive throttle, the poke-lock registry, the refresh
+    # flock): two spellings of one file — relative vs absolute, ``~``-prefixed,
+    # or through a symlink — must collapse to one key or the single flight is
+    # silently bypassed.
+    canonical = str(canonical_storage_key(storage_path))
+    with _PROMOTION_LOCK:
+        if canonical in _PROMOTION_ONCE_PATHS:
+            return None
+        _PROMOTION_ONCE_PATHS.add(canonical)
+        worker = threading.Thread(
+            target=_run_promotion_once,
+            args=(storage_path,),
+            name="notebooklm-account-promotion",
+            daemon=True,
+        )
+        _PROMOTION_THREADS.add(worker)
+        worker.start()
+    return worker
+
+
+def _run_promotion_once(storage_path: Path) -> None:
+    """Worker body: promote durably, then deregister.
+
+    :func:`promote_legacy_account` is already best-effort and swallows every
+    realistic failure itself. The broad guard here is for the two things it
+    cannot promise a *detached* caller: an unexpected exception has no caller
+    to surface it to (it would land in ``threading``'s excepthook as a stray
+    traceback), and a daemon worker torn down mid-interpreter-shutdown can
+    raise from arbitrary places.
+    """
+    try:
+        promote_legacy_account(storage_path)
+    except BaseException as e:  # noqa: BLE001 — a detached worker must never escape
+        logger.debug("Background legacy account promotion crashed for %s: %s", storage_path, e)
+    finally:
+        with _PROMOTION_LOCK:
+            _PROMOTION_THREADS.discard(threading.current_thread())
+
+
+def _drain_promotions(timeout: float) -> None:
+    """Join every in-flight promotion worker, each bounded by ``timeout``."""
+    with _PROMOTION_LOCK:
+        workers = list(_PROMOTION_THREADS)
+    for worker in workers:
+        worker.join(timeout)
+
+
+def _drain_promotions_for_tests(timeout: float = 30.0) -> None:
+    """Join every in-flight promotion worker (test/diagnostic helper).
+
+    No production READ waits on this — the whole point of the one-shot is that
+    the durable write never sits on the read path. Tests use it to make the
+    durable half observable, and ``tests/conftest.py`` drains + clears the
+    process-global state between tests so a worker started by one test cannot
+    write into another's ``tmp_path``.
+    """
+    _drain_promotions(timeout)
+
+
+#: Bound on how long interpreter exit will wait for the durable half.
+#: Short by design: a wedged write must not hold a CLI process open, and the
+#: worker stays a daemon so a hung one is still killed if this is skipped.
+_PROMOTION_EXIT_JOIN_SECONDS = 2.0
+
+
+@atexit.register
+def _drain_promotions_at_exit() -> None:
+    """Let the detached promotion land before a short-lived process exits.
+
+    Without this the one-shot is effectively dead in the CLI, which is where
+    legacy profiles actually live. Measured on the first draft: a real
+    ``notebooklm profile list`` against a legacy-only profile migrated it 0
+    times out of 6, and ``auth check`` 1 out of 6 — a pure timing race that
+    real commands lose, because they read the account binding at the very end
+    of their work and the process exits before a daemon worker gets scheduled.
+    The READ was correct every time; what silently never happened was the
+    durable promotion and, with it, the privacy scrub that removes a stale
+    account email from ``context.json`` at rest.
+
+    ``atexit`` handlers run BEFORE daemon threads are torn down, so joining
+    here is what makes the write land. It is bounded and best-effort: a
+    hard-killed process, ``os._exit`` or a fatal signal skips it, and the next
+    read schedules a fresh one-shot — the promotion is idempotent.
+    """
+    _drain_promotions(_PROMOTION_EXIT_JOIN_SECONDS)
+
+
 def _sanitize_legacy_account_record(legacy: dict[str, Any]) -> dict[str, Any]:
-    """Normalize a raw legacy ``context.json[account]`` dict identically to how
-    :func:`promote_legacy_account` sanitizes it before embedding in-band, so a
-    caller sees the same values whether promotion succeeded or (on a
-    transient write failure) the caller fell back to the legacy record
-    directly. Mirrors ``get_authuser_for_storage`` / ``get_account_email_for_storage``'s
-    own sanitization rules."""
+    """Normalize a raw legacy ``context.json[account]`` dict into the exact
+    record :func:`promote_legacy_account` embeds in-band.
+
+    This is the anti-wrong-account contract's load-bearing piece, and the
+    reason it is ONE function rather than two agreeing implementations:
+    :func:`read_account_metadata` returns this on a legacy-only profile
+    *before* (and, if promotion never lands, instead of) the durable write, so
+    "derived read-only" and "read back after promotion" must be
+    indistinguishable field-for-field. Keeping it shared makes them so by
+    construction; ``tests/unit/test_auth_account_promotion.py`` proves it over
+    a matrix of malformed legacy shapes. Mirrors ``get_authuser_for_storage`` /
+    ``get_account_email_for_storage``'s own sanitization rules."""
     raw_authuser = legacy.get("authuser")
     result: dict[str, Any] = {
         "authuser": raw_authuser if type(raw_authuser) is int and raw_authuser >= 0 else 0
@@ -379,11 +531,18 @@ def promote_legacy_account(storage_path: Path) -> bool:
     The pre-v0.5.0 two-file layout stored account metadata (``authuser`` /
     ``email``) in the sibling ``context.json``. This helper promotes that
     record into ``storage_state.json`` via the canonical storage writer and
-    strips the legacy key, so :func:`read_account_metadata` never loses a
-    user's account binding — it prefers the promoted in-band record but
-    falls back to the (still-present-on-failure) legacy record if this
-    function returns ``False`` because a write attempt failed rather than
-    because there was nothing to promote.
+    strips the legacy key.
+
+    **Never called on a read's own thread.** Its three callers are the
+    detached one-shot worker :func:`_run_promotion_once` (scheduled by
+    :func:`read_account_metadata`), the startup layout migration
+    (``migration.py``, which only fires for pre-v0.5.0 two-file profiles), and
+    ``storage.replace_from_login``'s ``KEEP_ACCOUNT``-with-no-in-band-record
+    arm, where promoting instead of scrubbing is what stops
+    ``auth import-cookies`` from permanently destroying a legacy profile's only
+    copy of its binding. The read's correctness does not depend on any of them:
+    it derives the same record read-only (:func:`_sanitize_legacy_account_record`)
+    and this function only makes that durable.
 
     Ordering is crash-safe for the BINDING (never lost), not for the RESIDUE
     (not guaranteed promptly cleaned up): the in-band embed commits first
@@ -393,12 +552,13 @@ def promote_legacy_account(storage_path: Path) -> bool:
     correctness property this function exists for. But the NEXT call does
     NOT reliably take a strip-only branch: :func:`read_account_metadata`'s
     fast path (``if in_band: return in_band``) returns as soon as in-band is
-    present and never calls this function again, so a crash-mid-flight
-    residue can survive indefinitely rather than being cleaned up on the very
-    next read. This is a privacy nicety, not a correctness gap (the
-    authoritative binding is the in-band record, already committed) — it is
-    NOT worth a ``context.json`` existence probe on every read's fast path to
-    close eagerly. A subsequent ``write_account_metadata`` /
+    present and never calls this function again (and the one-shot would not
+    schedule a second worker for that path even if it did), so a
+    crash-mid-flight residue can survive indefinitely rather than being cleaned
+    up on the very next read. This is a privacy nicety, not a correctness gap
+    (the authoritative binding is the in-band record, already committed) — it
+    is NOT worth a ``context.json`` existence probe on every read's fast path
+    to close eagerly. A subsequent ``write_account_metadata`` /
     ``clear_account_metadata`` call for the same profile does still strip it
     (both call ``_drop_legacy_account_key`` unconditionally).
 
@@ -418,12 +578,13 @@ def promote_legacy_account(storage_path: Path) -> bool:
     it had already captured — reintroducing the wrong-account hazard this
     whole migration exists to close, via a race instead of a stale read.
 
-    Best-effort by design — called from :func:`read_account_metadata` (the
-    account chokepoint) on every read where in-band is absent, so a promotion
-    failure must degrade to the pre-promotion state, never break the read.
-    Returns ``True`` only when a legacy record was embedded by THIS call
-    (``False`` both when there was nothing to promote and when a concurrent
-    writer won the race — either way no action was needed from this call).
+    Best-effort by design — it must degrade to the pre-promotion state rather
+    than raise, both because ``migration.py`` and ``replace_from_login`` treat
+    it as a completeness step and because its detached worker has no caller to
+    report to. Returns ``True`` only when a legacy record was embedded by THIS
+    call (``False`` both when there was nothing to promote and when a
+    concurrent writer won the race — either way no action was needed from this
+    call).
 
     Never creates ``storage_state.json``: if it doesn't exist yet, promotion
     is skipped (returning ``False``) rather than synthesizing a cookie-less
@@ -457,42 +618,30 @@ def promote_legacy_account(storage_path: Path) -> bool:
         # would let a concurrent fresh login/account-switch land in the gap
         # and then be silently overwritten by these stale legacy values.
         #
-        # deadline_seconds is short (NOT the usual 90s full-file-RMW deadline):
-        # this call now runs inside read_account_metadata, which many `async`
-        # callers (client.get_account_email, token-route resolution) treat as
-        # a fast, lock-free read. On contention, give up quickly and take the
-        # legacy-record fallback rather than freeze an event loop for up to
-        # 90s over a best-effort migration.
+        # No deadline override: the usual 90s full-file-RMW deadline applies.
+        # It used to be shortened to 2s because this ran INSIDE
+        # read_account_metadata, where a 90s lock wait would freeze an event
+        # loop mid-"read". It no longer does (ADR-0033 PR 5.1) — the caller is
+        # a detached worker with nobody waiting on it, and waiting out real
+        # contention is strictly better than giving up, because the one-shot
+        # never retries in this process.
         promoted = storage.update_account_metadata(
             storage_path,
             authuser=sanitized["authuser"],
             email=sanitized.get("email"),
             only_if_absent=True,
-            deadline_seconds=_PROMOTION_LOCK_DEADLINE_SECONDS,
         )
-    except Exception as e:  # noqa: BLE001 — load path must not fail on promotion
-        # WARNING (once per path per process), not debug: a persistent cause
-        # (read-only profile dir, full disk) means every read of this profile
-        # falls back to the legacy record (read_account_metadata) — an
-        # operator needs a default-visible signal that migration is stuck
-        # failing, not one gated behind -v/--debug. But this now runs on the
-        # request path (token-route resolution reads it per RPC call, via
-        # get_authuser_for_storage / get_account_email_for_storage), so an
-        # UNTHROTTLED warning on a persistently failing profile would log
-        # twice per request forever — throttled to the first occurrence per
-        # path per process; every subsequent failure for the same path still
-        # logs, at debug, so -v/--debug retains full detail.
-        canonical = str(storage_path)
-        if canonical not in _PROMOTION_WARNED_PATHS:
-            _PROMOTION_WARNED_PATHS.add(canonical)
-            logger.warning(
-                "Legacy account promotion failed for %s: %s (further failures for this "
-                "profile are logged at debug level)",
-                storage_path,
-                e,
-            )
-        else:
-            logger.debug("Legacy account promotion failed for %s: %s", storage_path, e)
+    except Exception as e:  # noqa: BLE001 — promotion must never raise at its callers
+        # Plain WARNING, no per-path throttle: a persistent cause (read-only
+        # profile dir, full disk) leaves the profile un-migrated, so an
+        # operator needs a default-visible signal rather than one gated behind
+        # -v/--debug. The throttle this replaced existed because promotion ran
+        # on the per-RPC read path and would otherwise have warned twice per
+        # request forever; the one-shot makes that structurally impossible —
+        # a read schedules at most ONE promotion per path per process, so this
+        # branch can fire at most once per path from the read path (plus at
+        # most one each from startup migration and replace_from_login).
+        logger.warning("Legacy account promotion failed for %s: %s", storage_path, e)
         return False
     # Reached whether we promoted or lost a race to a concurrent writer —
     # either way in-band now holds a real record, so the legacy residue is
