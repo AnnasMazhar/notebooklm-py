@@ -124,6 +124,17 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # fail-closed lock exception; ADR-0029 — replaces ``filelock.Timeout`` and
     # must be public so callers catch it) — all irreducible additions to this home.
     "exceptions.py": 1599,
+    # sanctioned merge (ADR-0033) — the `_auth` persistence merge: the seam that
+    # was spelled as three cap-split files becomes one deep module.
+    # ``_auth/storage_writer.py`` (981) and ``_auth/storage_transaction.py``
+    # (183) were absorbed in full and reduced to re-export shims in the
+    # same change; the merged module carries the lock primitives, the bounded acquire,
+    # the transaction template, the snapshot types, the CAS/merge math and the
+    # seven intent writers. Pinned at its MEASURED post-merge LOC (a sanctioned
+    # entry is a pin, not a budget: shrink-locked from here on). Later sanctioned
+    # merges into this same module (the write-time cookie-filter relocation and the
+    # account-record relocation) raise it under their own fresh annotations.
+    "_auth/storage.py": 2149,
     # ``mcp/tools/sources.py`` was allowlisted at 1020 (over the 1000-line budget after
     # #1871's shared source-policy wiring + the await_upload era). #1890 folded
     # source_add_and_wait + source_upload_bytes BACK into source_add — removing the two

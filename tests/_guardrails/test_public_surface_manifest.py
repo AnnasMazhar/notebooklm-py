@@ -1355,3 +1355,33 @@ def test_public_shim_all_contract(shim_name: str, internal_name: str) -> None:
     assert len(all_list) == len(declared), (
         f"{shim_name}.__all__ contains duplicates: {sorted(all_list)}"
     )
+
+
+def test_persistence_shims_are_identity_reexports() -> None:
+    """``storage_writer`` / ``storage_transaction`` must keep re-exporting the real objects.
+
+    The persistence merge (ADR-0033) turned both modules into re-export shims for
+    one release. Nothing in ``src/``, ``tests/`` or ``scripts/`` imports them any
+    more, so their ``from .storage import (...)`` blocks have **zero** coverage:
+    a later consolidation PR that renames one of these names would break the shim
+    with an ``ImportError`` raised only at import time, and no test would notice.
+    Several such PRs are scheduled (the writer conversions, the cookie-filter
+    relocation, the account-record relocation), so this pins the shims to the
+    canonical objects until they are removed at the next major.
+    """
+    import notebooklm._auth.storage as canonical
+    import notebooklm._auth.storage_transaction as transaction_shim
+    import notebooklm._auth.storage_writer as writer_shim
+
+    for shim in (writer_shim, transaction_shim):
+        exported = getattr(shim, "__all__", None)
+        assert exported, f"{shim.__name__} must declare __all__ so this gate can bite"
+        for name in exported:
+            assert hasattr(shim, name), f"{shim.__name__} re-exports missing name {name!r}"
+            assert hasattr(canonical, name), (
+                f"{shim.__name__} re-exports {name!r}, which no longer exists on "
+                f"{canonical.__name__} — the shim is broken"
+            )
+            assert getattr(shim, name) is getattr(canonical, name), (
+                f"{shim.__name__}.{name} is not the canonical {canonical.__name__}.{name} object"
+            )

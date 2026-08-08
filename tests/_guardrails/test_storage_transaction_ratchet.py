@@ -1,10 +1,12 @@
 """Shrink-only ratchet: storage writers take the lock via the transaction template.
 
-ADR-0031 Stage 3. Six writers in ``_auth/storage_writer.py`` USED TO each
+ADR-0031 Stage 3. Six writers in ``_auth/storage.py`` USED TO each
 hand-roll the same four-step preamble — secure the parent dir, derive the
 sentinel lock path, take the bounded lock, branch on whether it was held.
-:func:`~notebooklm._auth.storage_transaction.in_storage_transaction` now owns
-those four steps. **Three of the six route through it today**; the other three
+:func:`~notebooklm._auth.storage.in_storage_transaction` now owns
+those four steps. (Both the writers and the template lived in their own
+cap-split modules until ADR-0033's persistence merge folded them into
+``storage.py``; this gate now scans one file where it used to scan two.) **Three of the six route through it today**; the other three
 are pinned in :data:`_UNCONVERTED` below and convert in a later pass. The fourth
 step (the not-held branch) is supplied by the caller because it genuinely
 differs three ways:
@@ -36,10 +38,43 @@ import pytest
 pytestmark = pytest.mark.repo_lint
 
 _AUTH = Path(__file__).resolve().parents[2] / "src" / "notebooklm" / "_auth"
-_WRITER = _AUTH / "storage_writer.py"
-#: The template + its three policies were split out of ``storage_writer`` to
-#: stay under the ADR-0008 module-size budget.
-_TEMPLATE = _AUTH / "storage_transaction.py"
+#: ADR-0033's persistence merge folded ``storage_writer.py`` AND
+#: ``storage_transaction.py`` into ``storage.py``, so the writers and the
+#: template they route through are now scanned in the same file. The two former
+#: modules survive only as re-export shims and define nothing.
+_WRITER = _AUTH / "storage.py"
+_TEMPLATE = _AUTH / "storage.py"
+
+#: Excluded from the direct-call scan: ``in_storage_transaction`` IS the
+#: template, so of course it calls ``_acquire_storage_lock``. Before the merge
+#: that call was invisible to this gate because it crossed a module boundary
+#: (a function-local ``from .storage_writer import _acquire_storage_lock``);
+#: same-module now, it would otherwise read as the template hand-rolling the
+#: very lock it exists to own.
+_TEMPLATE_FUNCTIONS: frozenset[str] = frozenset({"in_storage_transaction"})
+
+
+def test_template_exemption_is_frozen_and_real() -> None:
+    """The blanket exemption must name exactly the template, and it must exist.
+
+    Two holes this closes, both verified to slip otherwise: adding a NEW writer's
+    name here would grant it a silent blanket exemption from the direct-call
+    scan, and renaming :func:`in_storage_transaction` would leave a stale entry
+    exempting nothing while the gate still reported green. Every other allowlist
+    in this file and its sibling is equality-asserted for the same reason.
+    """
+    assert frozenset({"in_storage_transaction"}) == _TEMPLATE_FUNCTIONS
+    defined = {
+        node.name
+        for node in ast.parse(_TEMPLATE.read_text("utf-8")).body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    missing = sorted(_TEMPLATE_FUNCTIONS - defined)
+    assert missing == [], (
+        f"exempted name(s) not defined in {_TEMPLATE.name}: {missing} — a rename "
+        "left a stale blanket exemption"
+    )
+
 
 #: Functions still calling ``_acquire_storage_lock`` directly. SHRINK-ONLY —
 #: never add. Each is a candidate for conversion; the three below are the
@@ -105,9 +140,11 @@ def _functions_calling_directly() -> set[str]:
         # written stops being a ratchet the moment someone adds a new shape.
         if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
-        # The template itself lives in ``storage_transaction.py`` now, so
-        # nothing in THIS module should be calling the primitive except the
-        # writers still awaiting conversion.
+        # The template now lives in this same module (ADR-0033), so it is
+        # excluded by name; nothing else here should call the primitive except
+        # the writers still awaiting conversion.
+        if node.name in _TEMPLATE_FUNCTIONS:
+            continue
         for inner in ast.walk(node):
             if (
                 isinstance(inner, ast.Call)

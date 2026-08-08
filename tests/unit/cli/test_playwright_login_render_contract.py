@@ -262,9 +262,9 @@ def _drive_login(
         # The synthetic ``_STORAGE`` path is never created on disk; stub the
         # persist so the success paths don't touch the filesystem. The persist
         # step moved into the neutral browser-capture core and now routes through
-        # ``storage_writer.replace_from_remint`` (b-PR2); stub that, returning an
+        # ``storage.replace_from_remint`` (b-PR2); stub that, returning an
         # OK outcome so the lock-unavailable fail-closed branch is not taken.
-        from notebooklm._auth import storage_writer as _sw
+        from notebooklm._auth import storage as _sw
 
         stack.enter_context(
             patch.object(

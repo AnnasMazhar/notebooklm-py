@@ -671,21 +671,21 @@ def run_browser_capture(
             # from them on the next command.
             # NOT a cycle break, despite what this comment used to claim:
             # there is no module-level import edge between browser_capture
-            # and storage_writer in EITHER direction (verified, ADR-0033
+            # and storage in EITHER direction (verified, ADR-0033
             # PR 0.2), so a top-level import would be legal. It stays
             # function-local to keep the writer stack off this module's
             # import path; the noqa silences PLC0415, which flags any
             # non-top-level import.
-            from . import storage_writer  # noqa: PLC0415 (deferred; see above)
+            from . import storage  # noqa: PLC0415 (deferred; see above)
 
-            outcome = storage_writer.replace_from_remint(
+            outcome = storage.replace_from_remint(
                 storage_path,
                 filtered_state,
                 carry_account=headless,
                 include_domains=include_domains,
             )
             if outcome.lock_unavailable:
-                raise storage_writer.LockUnavailableError(
+                raise storage.LockUnavailableError(
                     f"browser capture: storage lock unavailable at {storage_path}"
                 )
             if heal_error is not None:
@@ -911,21 +911,21 @@ def run_cdp_capture(
             # from them on the next command.
             # NOT a cycle break, despite what this comment used to claim:
             # there is no module-level import edge between browser_capture
-            # and storage_writer in EITHER direction (verified, ADR-0033
+            # and storage in EITHER direction (verified, ADR-0033
             # PR 0.2), so a top-level import would be legal. It stays
             # function-local to keep the writer stack off this module's
             # import path; the noqa silences PLC0415, which flags any
             # non-top-level import.
-            from . import storage_writer  # noqa: PLC0415 (deferred; see above)
+            from . import storage  # noqa: PLC0415 (deferred; see above)
 
-            outcome = storage_writer.replace_from_remint(
+            outcome = storage.replace_from_remint(
                 storage_path,
                 filtered_state,
                 carry_account=False,
                 include_domains=include_domains,
             )
             if outcome.lock_unavailable:
-                raise storage_writer.LockUnavailableError(
+                raise storage.LockUnavailableError(
                     f"CDP capture: storage lock unavailable at {storage_path}"
                 )
             if heal_error is not None:

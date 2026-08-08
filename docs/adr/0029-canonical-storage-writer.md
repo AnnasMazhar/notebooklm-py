@@ -8,6 +8,15 @@ writers onto `replace_from_login`, lands the runtime `atomic_write_json`
 storage-state rejection + module-private bypass, and shrinks the storage-state
 exemption to `{migration.py}`).
 
+**Amended by [ADR-0033](0033-auth-consolidation-policy.md) (persistence merge):**
+the single sanctioned home is now `_auth/storage.py`, which absorbed this
+module; `storage_writer.py` remains only as a re-export shim. The boundary this
+ADR establishes is unchanged in substance but is now enforced at **function**
+granularity — an equality-asserted allowlist of the intent-writer function names
+permitted to reach the `_atomic_io` bypass — because a module-granular assertion
+over the merged persistence module would no longer constrain much. The Decision
+below is left as written: it records what was decided then.
+
 Scope of b-PR1 (per plan §b.6): **relocations + additive enforcement + the
 [storage-F3] save-ordering guard**. The relocations are behaviour-preserving for
 the happy path; the additive parts that DO change observable behaviour are, by
@@ -216,5 +225,7 @@ back-compat (de-blessed, not removed). `replace_from_login` / `LoginWriteOutcome
 ## Related references
 
 - [Architecture](../architecture.md) — layered design and the `_auth/` file index.
+- [ADR-0033](0033-auth-consolidation-policy.md) — the persistence merge that relocated this
+  writer into `_auth/storage.py` and moved the boundary to function granularity.
 - ADR-0017 — public facade / private implementation (the delegate-seam pattern).
 - #1215 — `atomic_update_json` storage-state rejection (the enforced-invariant precedent).
