@@ -886,17 +886,41 @@ def test_auth_headers_facade_delegates_to_private_module() -> None:
     assert auth._resolve_token_route_kwargs is headers._resolve_token_route_kwargs
 
 
-def test_auth_subpackage_init_wires_new_seam_modules() -> None:
-    """The ``_auth`` package re-exports the new seam modules so that
-    ``from notebooklm._auth import extraction`` style imports keep working."""
+def test_auth_seam_modules_are_importable_from_the_subpackage() -> None:
+    """``from notebooklm._auth import <seam>`` keeps working for every seam
+    module, so the facade and the white-box suites can reach their bodies.
+
+    Rewritten in ADR-0033's PR 0.2, which deleted the eager submodule
+    re-exports from ``_auth/__init__.py``. This test previously spelled the
+    contract as ``hasattr(_auth, "paths")`` and justified it as what makes
+    ``from notebooklm._auth import extraction`` work. Both halves were wrong:
+
+    * The import system resolves ``from <package> import <submodule>`` by
+      importing the submodule, with or without a re-export — so the re-export
+      was never what kept these imports working.
+    * ``hasattr`` on the package is satisfied *transitively*: importing any
+      module that itself imports ``notebooklm._auth.paths`` binds ``paths`` as
+      an attribute of the package. Under the full suite the assertions
+      therefore passed no matter what ``__init__`` contained, which is the
+      "guardrail that asserts nothing" failure mode.
+
+    The contract that actually matters — each seam module exists at its
+    canonical dotted path and is reachable by name — is asserted directly via
+    :func:`importlib.import_module`, which is immune to import-order pollution
+    and still fails loudly if a seam module is deleted or renamed without its
+    consumers being migrated.
+    """
+    import importlib
+
     from notebooklm import _auth
 
-    assert hasattr(_auth, "paths")
-    assert hasattr(_auth, "extraction")
-    assert hasattr(_auth, "headers")
-    # Tier-10 PR-B-high additions:
-    assert hasattr(_auth, "keepalive")
-    assert hasattr(_auth, "refresh")
+    seam_modules = ("extraction", "headers", "keepalive", "paths", "refresh", "tokens")
+    for name in seam_modules:
+        module = importlib.import_module(f"notebooklm._auth.{name}")
+        assert module.__name__ == f"notebooklm._auth.{name}"
+        # The ``from notebooklm._auth import <name>`` form must resolve to the
+        # very same module object the dotted path does.
+        assert getattr(_auth, name) is module
 
 
 def test_auth_validation_is_identity_re_export() -> None:

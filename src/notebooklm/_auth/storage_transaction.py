@@ -163,7 +163,15 @@ def in_storage_transaction(
     — the read-decide-write sequence must not be re-entered by a concurrent
     writer partway through.
     """
-    from .storage_writer import _acquire_storage_lock, _ensure_secure_parent_dir
+    # Breaks the storage_writer <-> storage_transaction cycle: ``storage_writer``
+    # imports this template at module scope (its intent writers wrap their
+    # bodies in it), so the lock primitives have to come back the other way
+    # function-locally. ADR-0033's PR 1.1 merges both modules into
+    # ``storage.py``, at which point this becomes a same-module call.
+    from .storage_writer import (  # noqa: PLC0415 (cycle: storage_writer -> storage_transaction)
+        _acquire_storage_lock,
+        _ensure_secure_parent_dir,
+    )
 
     _ensure_secure_parent_dir(path)
     lock_path = _storage_state_lock_path(path)

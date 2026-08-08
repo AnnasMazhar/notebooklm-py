@@ -308,8 +308,38 @@ def write_master_token(path: Path, *, email: str, master_token: str, android_id:
 
 
 async def _verify_by_listing_notebooks(storage_path: Path) -> int:
-    """Smoke-test a minted session: list notebooks. Returns the count."""
-    from ..client import NotebookLMClient  # noqa: PLC0415 (avoid import cycle)
+    """Smoke-test a minted session: list notebooks. Returns the count.
+
+    This is the ONLY place ``_auth`` reaches up to the top-level client, and
+    ADR-0033's PR 0.2 set out to delete the edge by injecting the verifier from
+    the call site. Investigation says it is irreducible at this layer, so it is
+    documented rather than faked:
+
+    * The sole caller is :func:`bootstrap_from_oauth_token`, which is itself the
+      outermost entry point — it is public surface, re-exported as
+      ``notebooklm.auth.master_token_bootstrap`` and called by library users
+      directly, not only by ``cli/master_token_login.py``.
+    * ``verify=True`` is that function's DEFAULT, and the behaviour that default
+      names is precisely "open a ``NotebookLMClient`` and list notebooks". So a
+      caller-supplied verifier can only remove this import if supplying one
+      becomes mandatory — a breaking signature change for every existing
+      ``master_token_bootstrap(verify=True)`` call — or if the default body
+      moves up into the ``notebooklm.auth`` facade, which would turn an
+      identity re-export into a wrapper and change the facade surface (plan §1
+      non-goal). Neither is available to a behaviour-frozen mechanical PR.
+    * The deferral is load-bearing, and the original ``(avoid import cycle)``
+      note is accurate here — unlike the two ``browser_capture`` sites this PR
+      corrected. Verified by hoisting it: ``client`` does
+      ``from .auth import AuthTokens`` at module scope (``client.py``) and
+      ``notebooklm.auth`` imports THIS module, so a top-level import closes
+      ``_auth.master_token -> client -> notebooklm.auth -> _auth.master_token``
+      and fails at import time with a partially-initialized ``notebooklm.auth``.
+
+    Removing the edge for real belongs with the ADR-0032 facade work that is
+    already licensed to reshape ``notebooklm.auth``; it is recorded here so the
+    next attempt does not re-derive the same dead end.
+    """
+    from ..client import NotebookLMClient  # noqa: PLC0415 (cycle via notebooklm.auth)
 
     async with NotebookLMClient.from_storage(path=str(storage_path)) as client:
         return len(await client.notebooks.list())

@@ -82,8 +82,10 @@ logger = logging.getLogger("notebooklm.auth")
 _PSIDTS_COOKIE = "__Secure-1PSIDTS"
 # Rows whose pre-POST value recovery observes for the compare-and-set that
 # decides whether a rotated row may replace a stored one.  PSIDTS only: these
-# are the cookies the gate reasons about as present/absent/unusable.
-_RECOVERY_TARGET_COOKIE_NAMES = frozenset({_PSIDTS_COOKIE, "__Secure-3PSIDTS"})
+# are the cookies the gate reasons about as present/absent/unusable.  Defined
+# once in the ``cookie_policy`` leaf and shared with ``storage``, whose
+# ``_merge_recovery_target_rows`` merges the deltas this module observes.
+_RECOVERY_TARGET_COOKIE_NAMES = _cookie_policy._RECOVERY_TARGET_COOKIE_NAMES
 # Rows merged back out of a rotated jar.  Strictly wider than the observation
 # set — see the ``LSID`` rationale at the merge loop in
 # :func:`recover_psidts_in_memory` (#1977).

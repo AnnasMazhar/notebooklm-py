@@ -669,7 +669,14 @@ def run_browser_capture(
             # sign-in the user just completed — the cookies are still the best
             # material available, and the disk-based cold-start recovery retries
             # from them on the next command.
-            from . import storage_writer  # noqa: PLC0415 (avoid import cycle)
+            # NOT a cycle break, despite what this comment used to claim:
+            # there is no module-level import edge between browser_capture
+            # and storage_writer in EITHER direction (verified, ADR-0033
+            # PR 0.2), so a top-level import would be legal. It stays
+            # function-local to keep the writer stack off this module's
+            # import path; the noqa silences PLC0415, which flags any
+            # non-top-level import.
+            from . import storage_writer  # noqa: PLC0415 (deferred; see above)
 
             outcome = storage_writer.replace_from_remint(
                 storage_path,
@@ -902,7 +909,14 @@ def run_cdp_capture(
             # sign-in the user just completed — the cookies are still the best
             # material available, and the disk-based cold-start recovery retries
             # from them on the next command.
-            from . import storage_writer  # noqa: PLC0415 (avoid import cycle)
+            # NOT a cycle break, despite what this comment used to claim:
+            # there is no module-level import edge between browser_capture
+            # and storage_writer in EITHER direction (verified, ADR-0033
+            # PR 0.2), so a top-level import would be legal. It stays
+            # function-local to keep the writer stack off this module's
+            # import path; the noqa silences PLC0415, which flags any
+            # non-top-level import.
+            from . import storage_writer  # noqa: PLC0415 (deferred; see above)
 
             outcome = storage_writer.replace_from_remint(
                 storage_path,

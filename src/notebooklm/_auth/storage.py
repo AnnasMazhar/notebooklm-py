@@ -29,6 +29,10 @@ _cookie_key_variants = _auth_cookies._cookie_key_variants
 _cookie_to_storage_state = _auth_cookies._cookie_to_storage_state
 _find_cookie_for_storage = _auth_cookies._find_cookie_for_storage
 _is_allowed_cookie_domain = _cookie_policy._is_allowed_cookie_domain
+# Recovery-target rows: one definition in the ``cookie_policy`` leaf, shared
+# with ``psidts_recovery`` (which observes these rows before the RotateCookies
+# POST that produces the deltas ``_merge_recovery_target_rows`` below merges).
+_RECOVERY_TARGET_COOKIE_NAMES = _cookie_policy._RECOVERY_TARGET_COOKIE_NAMES
 
 
 class CookieSnapshotKey(NamedTuple):
@@ -639,9 +643,6 @@ def _merge_cookies_legacy(cookie_jar: httpx.Cookies, storage_data: dict[str, Any
         updated_count += 1
 
     return updated_count
-
-
-_RECOVERY_TARGET_COOKIE_NAMES = frozenset({"__Secure-1PSIDTS", "__Secure-3PSIDTS"})
 
 
 def _merge_recovery_target_rows(

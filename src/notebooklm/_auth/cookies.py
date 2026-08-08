@@ -110,7 +110,10 @@ def _validate_routable_entries(
 
     # Keep the cookies -> recovery dependency acyclic.  Recovery owns the
     # actual request-jar projection and the #2057 duplicate/routing predicate.
-    from . import psidts_recovery
+    # Breaks the cookies <-> psidts_recovery cycle: ``psidts_recovery`` imports
+    # THIS module at module scope (it reuses the loaders/converters here), so
+    # the reverse edge has to stay function-local.
+    from . import psidts_recovery  # noqa: PLC0415 (cycle: psidts_recovery -> cookies)
 
     if not psidts_recovery._psidts_routes_to_rotate(entries, to_cookie=to_cookie):
         raise RequiredCookieValidationError(
@@ -580,7 +583,10 @@ def build_httpx_cookies_from_storage(path: Path | None = None) -> httpx.Cookies:
         # this, ``AuthTokens.from_storage`` and ``NotebookLMClient.from_storage``
         # would still hit the closed loop because they use this loader
         # directly, bypassing ``load_auth_from_storage``.
-        from . import psidts_recovery
+        # Breaks the cookies <-> psidts_recovery cycle (same reason as the
+        # routing preflight above): ``psidts_recovery`` imports this module at
+        # module scope, so this edge must stay function-local.
+        from . import psidts_recovery  # noqa: PLC0415 (cycle: psidts_recovery -> cookies)
 
         if not psidts_recovery._recover_psidts_inline(path):
             # Recovery declined — no writable backing store (inline
