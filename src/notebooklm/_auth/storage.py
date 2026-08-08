@@ -33,7 +33,7 @@ The file is organised in labelled sections mirroring the former modules:
    :func:`filter_storage_state_cookies_by_domain_policy` and its value-free
    malformed-row diagnostics, relocated here from ``_browser_cookie_filter.py``
    (ADR-0033 PR 4.2). It is write-time policy, not browser code: three of its
-   five call sites are the intent writers below, which apply it *under the
+   six call sites are the intent writers below, which apply it *under the
    lock* as ADR-0029's entry-path-independent guarantee.
 8. **The intent writers** — the seven sanctioned mutations of
    ``storage_state.json`` and its sibling credential files.
@@ -969,7 +969,7 @@ def save_cookies_to_storage(
         )
 
     # Canonical patch seam: the CAS delta merge body lives in
-    # :func:`merge_cookie_delta` (section 7 below). This module-level
+    # :func:`merge_cookie_delta` (section 5 below). This module-level
     # ``save_cookies_to_storage`` symbol stays here as the monkeypatchable
     # delegate (~18 test files patch it; ``_runtime/lifecycle.py`` late-binds it).
     # Before ADR-0033's persistence merge the delegate reached the body through a
@@ -1737,13 +1737,16 @@ def clear_in_band_account(storage_path: Path) -> None:
 
 # --- Write-time cookie-domain filter (relocated from ``_browser_cookie_filter.py``) ---
 #
-# ADR-0033 PR 4.2. This is write-time policy, not browser code: three of its five
-# call sites are the intent writers immediately below (``replace_from_remint``,
+# ADR-0033. This is write-time policy, not browser code: three of its SIX call
+# sites are the intent writers immediately below (``replace_from_remint``,
 # ``replace_from_login``, ``persist_minted_jar``), which is why it now lives
-# beside them instead of behind a ``browser_``-prefixed leaf. The two remaining
-# call sites are the capture arms in :mod:`notebooklm._auth.browser_capture`,
-# which re-export these names and filter BEFORE their in-memory PSIDTS heal (see
-# the comments there for why that pass is NOT the writer's pass repeated).
+# beside them instead of behind a ``browser_``-prefixed leaf. The other three:
+# the two capture arms in :mod:`notebooklm._auth.browser_capture`, which
+# re-export these names and filter BEFORE their in-memory PSIDTS heal (see the
+# comments there for why that pass is NOT the writer's pass repeated); and
+# ``cli/_cookie_import.py``, which reaches this function through the
+# ``playwright_login`` re-export and filters immediately before persisting —
+# itself a write path, so it strengthens rather than dilutes the thesis.
 #
 # Logger note (ADR-0030 c-PR5): the dropped-cookie / malformed-row warnings below
 # must reach the documented ``notebooklm.auth`` namespace operators subscribe to,

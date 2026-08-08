@@ -159,16 +159,16 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     #
     # sanctioned merge (ADR-0033) — the write-time cookie-filter relocation, the
     # SECOND sanctioned consolidation into this module (PR 4.2): 2183 -> 2416.
-    # DONOR: ``_auth/_browser_cookie_filter.py``, 214 -> 29 (-185), reduced to a
+    # DONOR: ``_auth/_browser_cookie_filter.py``, 233 -> 29 (-204), reduced to a
     # re-export shim in the same commit. This is the donor-shrinking relocation
     # class, not the intra-module template class above: the filter
     # (``filter_storage_state_cookies_by_domain_policy`` + its value-free
     # malformed-row diagnostics) is write-time policy that only wore a
     # ``browser_`` name because the capture arms were its first callers — three
-    # of its five call sites are the intent writers here, each of which reached
+    # of its six call sites are the intent writers here, each of which reached
     # it through a function-local import that this commit deletes.
     #
-    # The +233 exceeds the donor's -185 by 48 lines, and the gap is deliberate,
+    # The +233 exceeds the donor's -204 by 29 lines, and the gap is deliberate,
     # not slop: this PR's other half is the ADR-0033 D3 comment correction. The
     # old prose framed the writer's filter pass as "idempotent with the call
     # above" — i.e. as redundancy, the exact reading that would get one of the
@@ -180,7 +180,7 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # logger (both modules bound it by NAME, so no log-emission point moved).
     # Pinned at its MEASURED post-relocation LOC; shrink-locked from here on.
     # PR 5.2's account-record relocation is the last planned raise.
-    "_auth/storage.py": 2416,
+    "_auth/storage.py": 2419,
     # sanctioned merge (ADR-0033) — the `_auth` load-composition merge:
     # ``_auth/browser_cookie_recovery.py`` (142) was absorbed in full and reduced
     # to a re-export shim in the same change. It held the captured-cookie

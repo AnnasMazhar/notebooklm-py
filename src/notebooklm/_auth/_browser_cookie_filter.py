@@ -2,7 +2,7 @@
 
 ADR-0033 PR 4.2 relocated this module's content into
 :mod:`notebooklm._auth.storage`, beside the intent writers that apply it. The
-filter was never browser code: three of its five call sites are writer intents
+filter was never browser code: three of its six call sites are writer intents
 (``replace_from_remint`` / ``replace_from_login`` / ``persist_minted_jar``), each
 of which had to reach it through a function-local import from this leaf. It is
 write-time policy that happened to carry a ``browser_`` name because the two
