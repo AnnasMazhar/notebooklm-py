@@ -9,10 +9,9 @@ in-process outcome-based re-mint coalescing; c-PR4 lands the opt-in mid-session
 refresh-cmd rung (L2.5) plus the refresh-cmd logging/env hardening and the
 `refresh_auth` join semantics; c-PR5 is docs + cleanup only).
 
-**Amended 2026-08-07** — cold start's rung order is **to be aligned** to the
-documented ladder (L2.5 → L3 → L4); until the alignment ships, cold start runs
-L3 → L4 → L2.5. See the amendment note under "One ladder, rung availability as
-policy".
+**Amended 2026-08-07, executed 2026-08-08** — cold start's rung order is now
+**aligned** to the documented ladder (L2.5 → L3 → L4); it ran L3 → L4 → L2.5
+before. See the amendment note under "One ladder, rung availability as policy".
 
 Companion to [ADR-0029](0029-canonical-storage-writer.md) (refactor (b), the
 single canonical `storage_state.json` writer). Where ADR-0029 unifies the
@@ -154,12 +153,13 @@ mid-session get the rungs as configured.
   the throttle map, the poke lock, and the flock derivation, closing
   [refresh-5].
 
-*Amended (cold-start rung-order alignment, `_auth` consolidation):* the order
-above is the one **mid-session** follows; **cold start does not**.
-`refresh._fetch_tokens_with_refresh` runs L3/L4 first — via
+*Amended (cold-start rung-order alignment, `_auth` consolidation); **executed
+2026-08-08**, so the divergence described next is history:* the order above is
+the one **mid-session** follows; **cold start did not**.
+`refresh._fetch_tokens_with_refresh` ran L3/L4 first — via
 `recovery.coalesced_cold_recovery`, whose `_run_cold_recovery` sequences headless
-then master-token — and reaches the refresh-cmd rung only afterwards, further
-down the *same* `except ValueError` arm. The effective cold order is therefore
+then master-token — and reached the refresh-cmd rung only afterwards, further
+down the *same* `except ValueError` arm. The effective cold order was therefore
 **L3 → L4 → L2.5**: the reverse of `session.refresh_auth_session`'s explicit
 L2.5 → L3 → L4 if-chain, and the reverse of this ADR's own ladder.
 
@@ -200,6 +200,24 @@ therefore convert an L2.5 failure into a fall-through to L3/L4, matching the
 mid-session bool-per-rung shape — otherwise a broken or timing-out
 `NOTEBOOKLM_REFRESH_CMD` would mask the two re-mint rungs an operator recovers by
 today.
+
+*As executed (2026-08-08):* the fall-through **stashes** the L2.5 exception and
+re-raises it only when the re-mint rungs do not recover either. Mid-session's
+`False` lets the caller's own dead-cookie error stand, which is right there
+because the mid-session ladder has a caller holding that error; cold start has no
+such holder, and a bare fall-through would have replaced today's actionable
+`NOTEBOOKLM_REFRESH_CMD exited N (executable: …)` with the generic
+"Authentication expired" on every fully-exhausted ladder. Stashing keeps the
+exhausted-ladder error **byte-identical to the pre-alignment order** — where the
+rung ran last and raised. The alignment's observable deltas are therefore the
+rung order itself, the fact that an L2.5 failure no longer ends the ladder, and
+the two consequences recorded below: an L2.5-first success returns without
+entering `_run_cold_recovery`, so the cold generation never advances and that
+fast path stays disarmed on hosts where the command works; and the rung's
+warning now prints the original error where the pre-alignment rung printed the
+rebound retry error. The
+`raise` happens inside the caller's `except`, so the original `ValueError`
+remains the `__context__`.
 
 Where no command is configured the new first rung costs a predicate miss and
 nothing else: `_should_try_refresh` reads one `ContextVar` and two environment
@@ -313,6 +331,11 @@ its single unkeyed task slot; its internals are untouched.
   false-`SUCCESS`.
 - The refresh-cmd rung is reachable mid-session (opt-in for one release), with
   tighter default logging and full secret-env scrubbing for server contexts.
+- Cold start and mid-session now walk the **same** rung order (L2.5 → L3 → L4),
+  so "the ladder" is one sequence rather than two. With a command configured, a
+  dead-cookie cold start pays the operator's command (and its per-path flock)
+  before the re-mint rungs and before `_run_cold_recovery`'s generation-bump
+  revalidate; with none, the extra rung costs one predicate miss.
 - Two whitebox pinning suites (`test_refresh_lock_registry.py`,
   `test_refresh_cmd_race.py`) were **migrated** in c-PR2 — each pinned guarantee
   (the four epochs above, plus lock identity) is re-expressed against
