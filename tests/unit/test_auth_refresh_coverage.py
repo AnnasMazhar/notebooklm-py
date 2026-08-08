@@ -262,7 +262,7 @@ class TestSettleCallbackCancel:
             await asyncio.sleep(10)
 
         # Injected, not monkeypatched (plan §7 deps record).
-        deps = _auth_refresh.RefreshDeps(run_refresh_cmd=_slow_refresh)
+        deps = _auth_refresh.RefreshCmdDeps(run_refresh_cmd=_slow_refresh)
 
         async def _drive():
             await _auth_refresh._coalesced_run_refresh_cmd(

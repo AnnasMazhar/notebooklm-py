@@ -144,6 +144,16 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # together: a sanctioned entry is a pin, not a budget, so it leaves ZERO
     # headroom and the module may cross the 1000-line budget only ONCE. Pinned at
     # its MEASURED post-PR LOC; shrink-locked from here on.
+    #
+    # CONSTRAINT ON THE NEXT CHANGE TO THIS MODULE: the ladder-alignment change
+    # edits ``_cold_fallbacks`` here and MUST land net-neutral-or-negative in
+    # LOC. A shrink legally re-pins downward (the gate prints the value); GROWTH
+    # HAS NO LEGAL FIX — a sanctioned behavior change is not a merge, and
+    # ADR-0033's raise classes reach only merges and donor-shrinking
+    # relocations. It removes the post-ladder second invocation, so the net
+    # direction is plausible but not assured; the dead function-local imports
+    # and the paragraph the reorder obsoletes are the obvious trims if it needs
+    # them.
     "_auth/refresh.py": 1200,
     # ``mcp/tools/sources.py`` was allowlisted at 1020 (over the 1000-line budget after
     # #1871's shared source-policy wiring + the await_upload era). #1890 folded

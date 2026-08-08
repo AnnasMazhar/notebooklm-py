@@ -114,7 +114,7 @@ def _patch_refresh_cmd_machinery(
         resolved_path: Path,
         profile: str | None,
         *,
-        deps: refresh_mod.RefreshDeps | None = None,
+        deps: refresh_mod.RefreshCmdDeps | None = None,
     ) -> None:
         calls.append(refresh_key)
         if heal is not None:
@@ -322,7 +322,7 @@ async def test_rung_threads_work_profile_from_storage_path(
         resolved_path: Path,
         profile: str | None,
         *,
-        deps: refresh_mod.RefreshDeps | None = None,
+        deps: refresh_mod.RefreshCmdDeps | None = None,
     ) -> None:
         captured["profile"] = profile
 

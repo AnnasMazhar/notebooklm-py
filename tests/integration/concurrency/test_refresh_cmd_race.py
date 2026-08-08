@@ -87,9 +87,9 @@ async def test_failed_refresh_does_not_skip_concurrent_waiter(monkeypatch, tmp_p
     def fake_snapshot(_j):
         return None
 
-    # The subprocess runner is INJECTED via ``RefreshDeps`` rather than
+    # The subprocess runner is INJECTED via ``RefreshCmdDeps`` rather than
     # monkeypatched onto the module (plan §7 deps record).
-    deps = _auth_refresh.RefreshDeps(run_refresh_cmd=fake_run_refresh_cmd)
+    deps = _auth_refresh.RefreshCmdDeps(run_refresh_cmd=fake_run_refresh_cmd)
     monkeypatch.setattr(_auth_refresh, "_fetch_tokens_with_jar", fake_fetch_tokens_with_jar)
     monkeypatch.setattr(_auth_refresh, "build_httpx_cookies_from_storage", fake_build)
     monkeypatch.setattr(_auth_refresh, "snapshot_cookie_jar", fake_snapshot)
@@ -146,9 +146,9 @@ async def test_sibling_success_between_epoch_read_and_claim_skips_subprocess(mon
         nonlocal this_caller_subprocess_calls
         this_caller_subprocess_calls += 1
 
-    # The subprocess runner is INJECTED via ``RefreshDeps`` rather than
+    # The subprocess runner is INJECTED via ``RefreshCmdDeps`` rather than
     # monkeypatched onto the module (plan §7 deps record).
-    deps = _auth_refresh.RefreshDeps(run_refresh_cmd=fake_run_refresh_cmd)
+    deps = _auth_refresh.RefreshCmdDeps(run_refresh_cmd=fake_run_refresh_cmd)
 
     # The sibling already ran its subprocess and bumped the real epoch to 1.
     _single_flight.note_success(path_key)  # models the sibling's one subprocess
@@ -209,9 +209,9 @@ async def test_concurrent_refresh_failure_followup_sees_attempt(monkeypatch, tmp
     def fake_snapshot(_j):
         return None
 
-    # The subprocess runner is INJECTED via ``RefreshDeps`` rather than
+    # The subprocess runner is INJECTED via ``RefreshCmdDeps`` rather than
     # monkeypatched onto the module (plan §7 deps record).
-    deps = _auth_refresh.RefreshDeps(run_refresh_cmd=fake_run_refresh_cmd)
+    deps = _auth_refresh.RefreshCmdDeps(run_refresh_cmd=fake_run_refresh_cmd)
     monkeypatch.setattr(_auth_refresh, "_fetch_tokens_with_jar", fake_fetch_tokens_with_jar)
     monkeypatch.setattr(_auth_refresh, "build_httpx_cookies_from_storage", fake_build)
     monkeypatch.setattr(_auth_refresh, "snapshot_cookie_jar", fake_snapshot)
@@ -304,9 +304,9 @@ async def test_waiter_cancellation_does_not_kill_inflight_subprocess(monkeypatch
     def fake_snapshot(_j):
         return None
 
-    # The subprocess runner is INJECTED via ``RefreshDeps`` rather than
+    # The subprocess runner is INJECTED via ``RefreshCmdDeps`` rather than
     # monkeypatched onto the module (plan §7 deps record).
-    deps = _auth_refresh.RefreshDeps(run_refresh_cmd=fake_run_refresh_cmd)
+    deps = _auth_refresh.RefreshCmdDeps(run_refresh_cmd=fake_run_refresh_cmd)
     monkeypatch.setattr(_auth_refresh, "_fetch_tokens_with_jar", fake_fetch_tokens_with_jar)
     monkeypatch.setattr(_auth_refresh, "build_httpx_cookies_from_storage", fake_build)
     monkeypatch.setattr(_auth_refresh, "snapshot_cookie_jar", fake_snapshot)
@@ -390,9 +390,9 @@ async def test_cancel_settle_race_does_not_bump_on_failure(monkeypatch, tmp_path
     def fake_snapshot(_j):
         return None
 
-    # The subprocess runner is INJECTED via ``RefreshDeps`` rather than
+    # The subprocess runner is INJECTED via ``RefreshCmdDeps`` rather than
     # monkeypatched onto the module (plan §7 deps record).
-    deps = _auth_refresh.RefreshDeps(run_refresh_cmd=fake_run_refresh_cmd)
+    deps = _auth_refresh.RefreshCmdDeps(run_refresh_cmd=fake_run_refresh_cmd)
     monkeypatch.setattr(_auth_refresh, "_fetch_tokens_with_jar", fake_fetch_tokens_with_jar)
     monkeypatch.setattr(_auth_refresh, "build_httpx_cookies_from_storage", fake_build)
     monkeypatch.setattr(_auth_refresh, "snapshot_cookie_jar", fake_snapshot)

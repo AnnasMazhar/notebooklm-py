@@ -166,7 +166,7 @@ class _RefreshFlock(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class RefreshDeps:
+class RefreshCmdDeps:
     """Collaborators of the refresh-cmd rung, injectable per call.
 
     Every field is optional and ``None`` means "use production". The production
@@ -178,7 +178,7 @@ class RefreshDeps:
        silently defeating the module-attribute patch seam the whitebox
        concurrency suites still use for the collaborators this record does not
        carry; and
-    2. it keeps a partially-specified record useful — ``RefreshDeps(
+    2. it keeps a partially-specified record useful — ``RefreshCmdDeps(
        run_refresh_cmd=fake)`` overrides one collaborator and leaves the other
        two on production, which is how nearly every test wants to use it.
     """
@@ -208,7 +208,7 @@ class RefreshDeps:
 
 # One shared empty record, so the default path allocates nothing per call. It
 # carries no captured functions (every field is ``None``), so it cannot stale.
-_PRODUCTION_REFRESH_DEPS = RefreshDeps()
+_PRODUCTION_REFRESH_CMD_DEPS = RefreshCmdDeps()
 
 
 async def _refresh_cmd_leader_body(
@@ -216,7 +216,7 @@ async def _refresh_cmd_leader_body(
     resolved_storage_path: Path,
     profile: str | None,
     *,
-    deps: RefreshDeps = _PRODUCTION_REFRESH_DEPS,
+    deps: RefreshCmdDeps = _PRODUCTION_REFRESH_CMD_DEPS,
 ) -> None:
     """Leader-only body: run ``_run_refresh_cmd`` under a cross-process flock.
 
@@ -262,7 +262,7 @@ async def _coalesced_run_refresh_cmd(
     resolved_storage_path: Path,
     profile: str | None,
     *,
-    deps: RefreshDeps = _PRODUCTION_REFRESH_DEPS,
+    deps: RefreshCmdDeps = _PRODUCTION_REFRESH_CMD_DEPS,
 ) -> None:
     """Run the refresh-cmd once across all loops for ``refresh_key``.
 
@@ -369,7 +369,7 @@ async def try_refresh_cmd_reauth(
     storage_path: Path | None,
     cookie_jar: httpx.Cookies,
     profile: str | None = None,
-    deps: RefreshDeps = _PRODUCTION_REFRESH_DEPS,
+    deps: RefreshCmdDeps = _PRODUCTION_REFRESH_CMD_DEPS,
 ) -> bool:
     """L2.5 mid-session rung: run ``NOTEBOOKLM_REFRESH_CMD`` and reload cookies.
 
@@ -748,7 +748,7 @@ async def _fetch_tokens_with_refresh(
     force_authuser_query: bool = False,
     allow_headless: bool = False,
     env_auth: bool = False,
-    deps: RefreshDeps = _PRODUCTION_REFRESH_DEPS,
+    deps: RefreshCmdDeps = _PRODUCTION_REFRESH_CMD_DEPS,
 ) -> tuple[str, str, bool, _auth_storage.CookieSnapshot | None]:
     """Fetch tokens, optionally running NOTEBOOKLM_REFRESH_CMD on auth expiry.
 
@@ -807,7 +807,7 @@ async def _cold_fallbacks(
     env_auth: bool,
     allow_headless: bool,
     resolve_route: Callable[[Path | None], dict[str, Any]],
-    deps: RefreshDeps = _PRODUCTION_REFRESH_DEPS,
+    deps: RefreshCmdDeps = _PRODUCTION_REFRESH_CMD_DEPS,
 ) -> tuple[str, str, bool, _auth_storage.CookieSnapshot | None]:
     """The cold-start fallback SEQUENCE, in one place, reading top to bottom.
 

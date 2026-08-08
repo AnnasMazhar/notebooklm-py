@@ -370,10 +370,10 @@ class TestCrossLoopCoalescing:
         def fake_snapshot(jar):
             return None
 
-        # The subprocess runner is INJECTED via ``RefreshDeps`` (plan §7 deps
+        # The subprocess runner is INJECTED via ``RefreshCmdDeps`` (plan §7 deps
         # record). Both threads pass the SAME record, which is what the module
         # attribute used to give them implicitly.
-        deps = _auth_refresh.RefreshDeps(run_refresh_cmd=fake_run_refresh_cmd)
+        deps = _auth_refresh.RefreshCmdDeps(run_refresh_cmd=fake_run_refresh_cmd)
         monkeypatch.setattr(_auth_refresh, "_fetch_tokens_with_jar", fake_fetch_tokens_with_jar)
         monkeypatch.setattr(
             _auth_refresh, "build_httpx_cookies_from_storage", fake_build_httpx_cookies
@@ -484,13 +484,13 @@ class TestFlockLoserWaitsThenReloads:
             ran.append(path)
 
         # The leader body's acquire + lock-path derivation + subprocess runner
-        # are INJECTED (``RefreshDeps``), not monkeypatched onto the module —
+        # are INJECTED (``RefreshCmdDeps``), not monkeypatched onto the module —
         # the ``_file_lock_try_exclusive`` / ``_refresh_lock_path`` aliases that
         # existed purely as a patching protocol are gone. The wait poll still
         # resolves the flock through ``keepalive`` (it lives there), so install
         # the SAME stateful fake on that name too: one counter must span the
         # leader's acquire AND the poll loop.
-        deps = _auth_refresh.RefreshDeps(
+        deps = _auth_refresh.RefreshCmdDeps(
             run_refresh_cmd=fake_run,
             acquire_refresh_flock=fake_try,
             derive_refresh_lock_path=lambda p: tmp_path / ".x.lock",
