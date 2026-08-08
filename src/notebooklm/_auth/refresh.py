@@ -29,7 +29,7 @@ import logging
 import os
 import shlex
 import subprocess
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
@@ -719,88 +719,152 @@ async def _fetch_tokens_with_refresh(
         csrf, session_id = await _fetch_tokens_with_jar(cookie_jar, storage_path, **route_kwargs)
         return csrf, session_id, False, None
     except ValueError as err:
-        if isinstance(err, _auth_extraction._LoginRedirectError) and storage_path is not None:
+        return await _cold_fallbacks(
+            err,
+            cookie_jar,
+            storage_path,
+            profile,
+            env_auth=env_auth,
+            allow_headless=allow_headless,
+            resolve_route=resolve_route,
+        )
 
-            async def validate_recovered_jar(recovered_jar: httpx.Cookies) -> None:
-                await _fetch_tokens_with_jar(
-                    recovered_jar,
-                    storage_path,
-                    **_resolve_token_route_kwargs(storage_path, authuser=None, account_email=None),
-                )
 
+async def _cold_fallbacks(
+    err: ValueError,
+    cookie_jar: httpx.Cookies,
+    storage_path: Path | None,
+    profile: str | None,
+    *,
+    env_auth: bool,
+    allow_headless: bool,
+    resolve_route: Callable[[Path | None], dict[str, Any]],
+) -> tuple[str, str, bool, _auth_storage.CookieSnapshot | None]:
+    """The cold-start fallback SEQUENCE, in one place, reading top to bottom.
+
+    Called only from :func:`_fetch_tokens_with_refresh`'s ``except ValueError``
+    arm, whose failure it is handling. The two rungs it sequences are:
+
+    1. **L3 → L4 cold recovery** (``recovery.coalesced_cold_recovery``), for a
+       confirmed login redirect on a real storage path, followed by a
+       revalidation retry of the token fetch against the recovered jar.
+    2. **L2.5 refresh-cmd** (``NOTEBOOKLM_REFRESH_CMD``), gated on
+       :func:`_should_try_refresh`.
+
+    Why this lives here and not in :mod:`notebooklm._auth.recovery`
+    ---------------------------------------------------------------
+    ``recovery._run_cold_recovery`` stays where it is as the flight-leader body.
+    Only the *sequence and policy* move into one visible function, because the
+    L2.5 arm's entry surface is strictly WIDER than a ladder rung and moving it
+    would silently narrow it:
+
+    * it fires on **any** ``_should_try_refresh``-eligible ``ValueError``, not
+      only on a login redirect — the path both whitebox concurrency suites
+      drive;
+    * it runs in the ``storage_path is None`` default-profile case, which
+      ``_run_cold_recovery``'s typed contract cannot accept; and
+    * it doubles as the **post-ladder backstop** when a successful L3/L4 re-mint
+      then fails its revalidation retry (the ``err = retry_err`` rebinds below).
+
+    Moving it into ``recovery.py`` would also create a ``recovery`` ↔ ``refresh``
+    module cycle, and injecting it into ``_run_cold_recovery`` would stack the
+    cold flight's coalescing + per-loop lock onto a path that never had them —
+    a concurrency-semantics change. Colocating here preserves BOTH coalescing
+    boundaries exactly as they are: the ``(path, allow_headless)`` cold flight
+    around L3/L4, and the single-flight + per-path flock around L2.5.
+
+    Rung ORDER is deliberately unchanged here (L3→L4, then L2.5). Aligning cold
+    start to ADR-0030's documented L2.5→L3→L4 is a sanctioned behavior change
+    that ships separately, with its own live verification.
+
+    On the failure paths this re-raises with a **bare** ``raise``, which
+    re-raises the ``ValueError`` the CALLER is handling — not necessarily the
+    ``err`` argument. That distinction is load-bearing and pre-existing: ``err``
+    is rebound to a retry error to drive the ``_should_try_refresh`` predicate
+    and the log line, while the exception that reaches the caller stays the
+    ORIGINAL one (an inner ``except`` block that has already ended does not
+    change the handled exception). ``sys.exc_info()`` is inherited by an awaited
+    coroutine, so the extraction preserves this bit-for-bit; spelling it
+    ``raise err`` would be a behavior change.
+    """
+    if isinstance(err, _auth_extraction._LoginRedirectError) and storage_path is not None:
+
+        async def validate_recovered_jar(recovered_jar: httpx.Cookies) -> None:
+            await _fetch_tokens_with_jar(
+                recovered_jar,
+                storage_path,
+                **_resolve_token_route_kwargs(storage_path, authuser=None, account_email=None),
+            )
+
+        try:
+            recovery = await _auth_recovery.coalesced_cold_recovery(
+                storage_path=storage_path,
+                allow_headless=allow_headless,
+                validate=validate_recovered_jar,
+                initial_error=err,
+            )
+        except _auth_extraction._LoginRedirectError as retry_err:
+            err = retry_err
+        else:
+            _replace_cookie_jar(cookie_jar, recovery.cookie_jar)
             try:
-                recovery = await _auth_recovery.coalesced_cold_recovery(
-                    storage_path=storage_path,
-                    allow_headless=allow_headless,
-                    validate=validate_recovered_jar,
-                    initial_error=err,
+                csrf, session_id = await _fetch_tokens_with_jar(
+                    cookie_jar,
+                    storage_path,
+                    **resolve_route(storage_path),
                 )
             except _auth_extraction._LoginRedirectError as retry_err:
                 err = retry_err
             else:
-                _replace_cookie_jar(cookie_jar, recovery.cookie_jar)
-                try:
-                    csrf, session_id = await _fetch_tokens_with_jar(
-                        cookie_jar,
-                        storage_path,
-                        **resolve_route(storage_path),
-                    )
-                except _auth_extraction._LoginRedirectError as retry_err:
-                    err = retry_err
-                else:
-                    return csrf, session_id, True, recovery.snapshot
-        if not _should_try_refresh(err):
-            raise
-        if env_auth:
-            # No writable backing store: the fallback below would lock, rewrite
-            # and then read a profile file this caller bypassed. The refresh
-            # command cannot help anyway — NOTEBOOKLM_AUTH_JSON is scrubbed from
-            # its environment, so it cannot re-mint the credential in use (#2083).
-            logger.debug("Skipping %s: env auth has no file", NOTEBOOKLM_REFRESH_CMD_ENV)
-            raise
-        logger.warning(
-            "NotebookLM auth failed (%s). Running %s to refresh cookies.",
-            err,
-            NOTEBOOKLM_REFRESH_CMD_ENV,
+                return csrf, session_id, True, recovery.snapshot
+    if not _should_try_refresh(err):
+        raise
+    if env_auth:
+        # No writable backing store: the fallback below would lock, rewrite
+        # and then read a profile file this caller bypassed. The refresh
+        # command cannot help anyway — NOTEBOOKLM_AUTH_JSON is scrubbed from
+        # its environment, so it cannot re-mint the credential in use (#2083).
+        logger.debug("Skipping %s: env auth has no file", NOTEBOOKLM_REFRESH_CMD_ENV)
+        raise
+    logger.warning(
+        "NotebookLM auth failed (%s). Running %s to refresh cookies.",
+        err,
+        NOTEBOOKLM_REFRESH_CMD_ENV,
+    )
+    # Canonicalize the storage path so different representations of the
+    # same physical file (relative vs absolute, with or without symlinks,
+    # ``~`` shorthand) hash to the same flight / success-epoch key
+    # ([refresh-5]). ``get_storage_path`` already returns a resolved path,
+    # but a caller-supplied ``storage_path`` may be relative or a symlink.
+    refresh_storage_path = canonical_storage_key(storage_path or get_storage_path(profile=profile))
+    # Both operands above are non-None in this branch (``env_auth`` already
+    # handled the no-file case); canonicalizing a real path yields a Path.
+    assert refresh_storage_path is not None
+    refresh_key = str(refresh_storage_path)
+    refresh_token = _REFRESH_ATTEMPTED_CONTEXT.set(True)
+    try:
+        # Coalesce the refresh-cmd across ALL event loops and serialize it
+        # across processes via the per-path flock — all delegated to
+        # ``_coalesced_run_refresh_cmd`` (single_flight core). It returns
+        # when the storage is, or has just been, refreshed; raises the
+        # subprocess exception on genuine failure; and propagates
+        # ``CancelledError`` (after settling the shared subprocess) on
+        # caller-side cancellation.
+        await _coalesced_run_refresh_cmd(refresh_key, refresh_storage_path, profile)
+        # Offloaded off the loop: an inline read + POST would freeze the
+        # loop (refresh-1 / HIGH#2).
+        fresh_jar = await asyncio.to_thread(build_httpx_cookies_from_storage, refresh_storage_path)
+        _replace_cookie_jar(cookie_jar, fresh_jar)
+        # Capture the baseline NOW — after the wholesale replacement but
+        # before the retry fetch can mutate the jar.
+        post_refresh_snapshot = snapshot_cookie_jar(cookie_jar)
+        route_kwargs = resolve_route(refresh_storage_path)
+        csrf, session_id = await _fetch_tokens_with_jar(
+            cookie_jar, refresh_storage_path, **route_kwargs
         )
-        # Canonicalize the storage path so different representations of the
-        # same physical file (relative vs absolute, with or without symlinks,
-        # ``~`` shorthand) hash to the same flight / success-epoch key
-        # ([refresh-5]). ``get_storage_path`` already returns a resolved path,
-        # but a caller-supplied ``storage_path`` may be relative or a symlink.
-        refresh_storage_path = canonical_storage_key(
-            storage_path or get_storage_path(profile=profile)
-        )
-        # Both operands above are non-None in this branch (``env_auth`` already
-        # handled the no-file case); canonicalizing a real path yields a Path.
-        assert refresh_storage_path is not None
-        refresh_key = str(refresh_storage_path)
-        refresh_token = _REFRESH_ATTEMPTED_CONTEXT.set(True)
-        try:
-            # Coalesce the refresh-cmd across ALL event loops and serialize it
-            # across processes via the per-path flock — all delegated to
-            # ``_coalesced_run_refresh_cmd`` (single_flight core). It returns
-            # when the storage is, or has just been, refreshed; raises the
-            # subprocess exception on genuine failure; and propagates
-            # ``CancelledError`` (after settling the shared subprocess) on
-            # caller-side cancellation.
-            await _coalesced_run_refresh_cmd(refresh_key, refresh_storage_path, profile)
-            # Offloaded off the loop: an inline read + POST would freeze the
-            # loop (refresh-1 / HIGH#2).
-            fresh_jar = await asyncio.to_thread(
-                build_httpx_cookies_from_storage, refresh_storage_path
-            )
-            _replace_cookie_jar(cookie_jar, fresh_jar)
-            # Capture the baseline NOW — after the wholesale replacement but
-            # before the retry fetch can mutate the jar.
-            post_refresh_snapshot = snapshot_cookie_jar(cookie_jar)
-            route_kwargs = resolve_route(refresh_storage_path)
-            csrf, session_id = await _fetch_tokens_with_jar(
-                cookie_jar, refresh_storage_path, **route_kwargs
-            )
-            return csrf, session_id, True, post_refresh_snapshot
-        finally:
-            _REFRESH_ATTEMPTED_CONTEXT.reset(refresh_token)
+        return csrf, session_id, True, post_refresh_snapshot
+    finally:
+        _REFRESH_ATTEMPTED_CONTEXT.reset(refresh_token)
 
 
 async def _fetch_tokens_with_jar(
