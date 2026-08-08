@@ -262,4 +262,3 @@ Line count alone is never the trigger; any of the above is.
   persistence merge realizes as one module.
 - [Architecture](../architecture.md) — layered design and the `_auth/` file index, updated by each
   consolidation step as modules merge.
-- [Architecture](../architecture.md) — layered design and the `_auth/` file index.
