@@ -37,6 +37,17 @@ from typing import Any
 import httpx
 from filelock import FileLock, Timeout
 
+# The bootstrap lock's PATH is derived by the one shared credential-lock
+# derivation in ``paths.py`` (ADR-0033 PR 1.3) — this module used to hand-roll
+# its own ``expanduser().resolve()`` + f-string sibling, the fourth and last
+# spelling of a computation whose filenames must never drift apart. Its
+# MECHANISM stays ``filelock.FileLock`` here, unchanged and deliberately not
+# unified with ``storage._file_lock`` (plan §1/§5: a cross-version and
+# cross-platform interop event this effort does not take). ``paths`` imports
+# nothing from this package, so this is a plain module-level import, not one of
+# the deferred cycle-breaks below.
+from .paths import _bootstrap_lock_path
+
 # perform_oauth for the OAuthLogin token rides the Chromecast app + signature
 # (the spike confirmed the labs-tailwind app's sig downscopes; chromecast yields
 # a uberauth-capable token; the labs-tailwind app's sig downscopes to email).
@@ -557,25 +568,6 @@ class BootstrapOutcome(enum.Enum):
     was attempted."""
     NO_TOKEN = "no_token"
     """No sibling master token exists, so there is nothing to bootstrap from."""
-
-
-def _bootstrap_lock_path(storage_path: Path) -> Path:
-    """Return the canonical lock that serializes first-time session minting.
-
-    Degrades to a best-effort (non-canonicalized) path on a circular symlink
-    rather than raising, matching :func:`notebooklm.paths.master_token_path_for`
-    (#2103 PR-1): ``Path.resolve()`` raises ``RuntimeError`` (not ``OSError``)
-    on a symlink loop on Python 3.10-3.12 (fixed upstream in 3.13). Found by
-    CodeRabbit during the combined PR review — this call site does its own
-    separate ``expanduser().resolve()`` rather than going through the shared
-    chokepoint (it derives a *lock* path, not the master-token sibling), so it
-    hadn't inherited PR-1's fix."""
-    expanded = storage_path.expanduser()
-    try:
-        canonical_path = expanded.resolve()
-    except (OSError, RuntimeError):
-        canonical_path = expanded
-    return canonical_path.with_name(f".{canonical_path.name}.lock.bootstrap")
 
 
 async def _acquire_bootstrap_lock(lock: FileLock) -> None:

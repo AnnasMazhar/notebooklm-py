@@ -545,11 +545,26 @@ def promote_legacy_account(storage_path: Path) -> bool:
     and this function only makes that durable.
 
     Ordering is crash-safe for the BINDING (never lost), not for the RESIDUE
-    (not guaranteed promptly cleaned up): the in-band embed commits first
-    (atomic, under the canonical storage lock), the legacy strip second
-    (atomic, under the context lock). A crash in between leaves both records
-    present — the account binding is never lost either way, which is the
-    correctness property this function exists for. But the NEXT call does
+    (not guaranteed promptly cleaned up). **Two files, two locks, no shared
+    critical section** — the window is structural, not an oversight:
+
+    * step 1 embeds into ``storage_state.json`` under the dotted storage
+      sentinel ``.storage_state.json.lock`` (``storage._file_lock``, via
+      ``storage.update_account_metadata``);
+    * step 2 strips ``context.json[account]`` under the *separate*
+      ``context.json.lock`` (``filelock.FileLock``, via
+      :func:`_drop_legacy_account_key`).
+
+    Nothing spans both, and nothing may: the two files are locked by two
+    different sentinels held by two different mechanisms, and widening either
+    hold to cover the other step would either invert an existing lock order or
+    unify mechanisms (ADR-0033 plan §1/§5 rules both out). The compensation is
+    therefore *ordering*, not atomicity: embed-then-strip means a crash in
+    between leaves both records present, never neither — the account binding is
+    never lost, which is the correctness property this function exists for. The
+    reverse order would have a window in which the binding exists nowhere.
+
+    What that compensation does NOT buy is prompt cleanup. The NEXT call does
     NOT reliably take a strip-only branch: :func:`read_account_metadata`'s
     fast path (``if in_band: return in_band``) returns as soon as in-band is
     present and never calls this function again (and the one-shot would not
