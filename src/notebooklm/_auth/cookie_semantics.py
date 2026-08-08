@@ -75,7 +75,7 @@ def validate_cookie_shape(
     spellings are adapters over this one, differing only in how they report a
     defect: :func:`notebooklm._auth.cookies._sanitize_cookie_entry` returns
     ``None`` and logs a redacted diagnostic, the write-time domain filter
-    (:mod:`notebooklm._auth._browser_cookie_filter`) maps
+    (:func:`notebooklm._auth.storage.filter_storage_state_cookies_by_domain_policy`) maps
     :attr:`CookieRowError.field` to a bounded per-field warning, and callers that
     want the raise take it straight.  Keeping the *checks* here and the *failure
     mode* at the boundary is what stops "is this row usable" from being
