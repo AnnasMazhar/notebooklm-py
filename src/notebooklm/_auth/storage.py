@@ -2038,9 +2038,9 @@ def _drain_promotions_for_tests(timeout: float = 30.0) -> None:
     _drain_promotions(timeout)
 
 
-#: Bound on how long interpreter exit will wait for the durable half.
-#: Short by design: a wedged write must not hold a CLI process open, and the
-#: worker stays a daemon so a hung one is still killed if this is skipped.
+#: PER-WORKER bound on the interpreter-exit wait, NOT an aggregate:
+#: :func:`_drain_promotions` joins sequentially, so N legacy profiles wait up to
+#: N times this. Workers are daemons, so a hung one is killed, not waited on.
 _PROMOTION_EXIT_JOIN_SECONDS = 2.0
 
 
