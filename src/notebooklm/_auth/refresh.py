@@ -9,6 +9,14 @@ compatibility names, but production no longer mirrors facade-level rebindings;
 tests that substitute moved refresh bodies should patch
 ``notebooklm._auth.refresh`` directly.
 
+It also owns :func:`_resolve_token_route_kwargs`, absorbed from the former
+``_auth/headers.py`` (ADR-0033 sanctioned merge). That module held exactly one
+function whose only call sites are the token-fetch entry points below, so it
+failed the deletion test as a standalone file; it existed as a separate module
+only because the routing glue was too small to justify one and too
+entry-point-specific to live in ``_auth.account`` next to the authuser helpers
+it composes.
+
 Logger name is pinned to ``"notebooklm.auth"`` (NOT ``__name__``) so existing
 ``caplog`` assertions targeting ``notebooklm.auth`` keep matching the records
 emitted from the moved bodies.
@@ -32,13 +40,13 @@ from .._env import get_base_url
 from ..paths import get_storage_path, resolve_profile
 from . import cookies as _auth_cookies
 from . import extraction as _auth_extraction
-from . import headers as _auth_headers
 from . import keepalive as _keepalive
 from . import paths as _auth_paths
 from . import recovery as _auth_recovery
 from . import single_flight as _single_flight
 from . import storage as _auth_storage
-from .account import authuser_query
+from .account import authuser_query, get_account_email_for_storage, get_authuser_for_storage
+from .paths import resolve_auth_json_env
 
 logger = logging.getLogger("notebooklm.auth")
 
@@ -69,7 +77,6 @@ extract_session_id_from_html = _auth_extraction.extract_session_id_from_html
 # hand-rolled pre-check this module used to carry, and message formatting now
 # lives entirely behind the classifier.
 _url_only_extraction_failure = _auth_extraction._url_only_extraction_failure
-_resolve_token_route_kwargs = _auth_headers._resolve_token_route_kwargs
 
 # Env-var names live in ``_auth.paths``; aliased so the refresh bodies can
 # reference them without an extra hop.
@@ -603,6 +610,66 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
             "the command's captured stdout/stderr in the debug log."
         )
     logger.info("NotebookLM cookies refreshed via %s", NOTEBOOKLM_REFRESH_CMD_ENV)
+
+
+# --- Token-route resolution (absorbed from _auth/headers.py) -----------------
+# Most authuser/header helpers live in :mod:`notebooklm._auth.account`
+# (``authuser_query``, ``format_authuser_value``, ``get_authuser_for_storage``,
+# ``get_account_email_for_storage``). What follows is the higher-level *routing*
+# glue that combines them for the token-fetch entry points below, preserving
+# explicit caller intent vs. resolved-from-storage defaults. It used to live in
+# a 68-line ``_auth/headers.py`` whose only three call sites are in this module;
+# ADR-0033's sanctioned merge folded it in.
+
+
+def _resolve_token_route_kwargs(
+    storage_path: Path | None,
+    *,
+    authuser: int | None,
+    account_email: str | None,
+) -> dict[str, Any]:
+    """Resolve token-fetch routing while preserving explicit caller intent."""
+    explicit_authuser = authuser is not None
+    env_auth_present = storage_path is None and resolve_auth_json_env() is not None
+    env_authuser = 0
+    env_account_email: str | None = None
+    if env_auth_present and authuser is None:
+        from .account import read_account_metadata_from_storage_state
+        from .cookies import _load_storage_state
+
+        try:
+            metadata = read_account_metadata_from_storage_state(_load_storage_state(None))
+        except (OSError, ValueError, TypeError):
+            metadata = {}
+        raw_authuser = metadata.get("authuser")
+        raw_email = metadata.get("email")
+        if type(raw_authuser) is int and raw_authuser >= 0:
+            env_authuser = raw_authuser
+        if isinstance(raw_email, str) and raw_email.strip():
+            env_account_email = raw_email.strip()
+
+    resolved_authuser = (
+        authuser
+        if authuser is not None
+        else env_authuser
+        if env_auth_present
+        else get_authuser_for_storage(storage_path)
+    )
+    if account_email is not None:
+        resolved_account_email = account_email
+    elif explicit_authuser:
+        resolved_account_email = None
+    else:
+        resolved_account_email = (
+            env_account_email if env_auth_present else get_account_email_for_storage(storage_path)
+        )
+
+    route_kwargs: dict[str, Any] = {"authuser": resolved_authuser}
+    if resolved_account_email is not None:
+        route_kwargs["account_email"] = resolved_account_email
+    if explicit_authuser:
+        route_kwargs["force_authuser_query"] = True
+    return route_kwargs
 
 
 async def _fetch_tokens_with_refresh(

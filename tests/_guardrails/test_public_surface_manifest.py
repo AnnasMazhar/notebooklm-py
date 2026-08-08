@@ -877,13 +877,29 @@ def test_auth_extract_email_from_html_still_routed_via_account_module() -> None:
     assert not hasattr(extraction, "extract_email_from_html")
 
 
-def test_auth_headers_facade_delegates_to_private_module() -> None:
-    """``_resolve_token_route_kwargs`` lives in ``_auth.headers`` but stays
-    reachable through ``notebooklm.auth`` for internal callers and tests."""
-    import notebooklm.auth as auth
-    from notebooklm._auth import headers
+def test_auth_token_route_resolver_facade_delegates_to_private_module() -> None:
+    """``_resolve_token_route_kwargs`` stays reachable through ``notebooklm.auth``.
 
-    assert auth._resolve_token_route_kwargs is headers._resolve_token_route_kwargs
+    Rewritten by ADR-0033's ``headers.py`` fold. The helper used to live in
+    ``_auth/headers.py`` — a 68-line module holding exactly this one function,
+    whose only three call sites are the token-fetch entry points in
+    ``_auth/refresh.py``. That module is gone and ``refresh.py`` now *defines*
+    the function, so this clause asserts identity against its new owner.
+
+    The two assertions this replaced (``from notebooklm._auth import headers``
+    plus ``hasattr(_auth, "headers")``) are deliberately NOT re-pointed at
+    ``refresh``: module existence is already covered by the seam-module clause
+    below, and re-adding it here would assert the same thing twice. What is
+    load-bearing and kept is the **identity** — ``notebooklm.auth`` must expose
+    the very same function object, because white-box tests and the internal
+    callers resolve it through the facade.
+    """
+    import notebooklm.auth as auth
+    from notebooklm._auth import refresh
+
+    assert auth._resolve_token_route_kwargs is refresh._resolve_token_route_kwargs
+    # ...and it is genuinely defined here now, not re-aliased from elsewhere.
+    assert refresh._resolve_token_route_kwargs.__module__ == "notebooklm._auth.refresh"
 
 
 def test_auth_seam_modules_are_importable_from_the_subpackage() -> None:
@@ -914,7 +930,11 @@ def test_auth_seam_modules_are_importable_from_the_subpackage() -> None:
 
     from notebooklm import _auth
 
-    seam_modules = ("extraction", "headers", "keepalive", "paths", "refresh", "tokens")
+    # ``headers`` left this set when ADR-0033's fold deleted the module (its one
+    # function now lives in ``refresh``). Shrink-only, per the plan's guardrail
+    # bookkeeping rule — a seam module may leave the set when it is deleted, but
+    # the set never grows.
+    seam_modules = ("extraction", "keepalive", "paths", "refresh", "tokens")
     for name in seam_modules:
         module = importlib.import_module(f"notebooklm._auth.{name}")
         assert module.__name__ == f"notebooklm._auth.{name}"

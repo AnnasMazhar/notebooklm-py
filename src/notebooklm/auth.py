@@ -37,7 +37,6 @@ from ._auth import account as _auth_account
 from ._auth import cookie_policy as _cookie_policy
 from ._auth import cookies as _auth_cookies
 from ._auth import extraction as _auth_extraction
-from ._auth import headers as _auth_headers
 from ._auth import keepalive as _auth_keepalive
 from ._auth import paths as _auth_paths
 from ._auth import psidts_recovery as _auth_psidts_recovery
@@ -233,11 +232,13 @@ extract_csrf_from_html = _auth_extraction.extract_csrf_from_html
 extract_session_id_from_html = _auth_extraction.extract_session_id_from_html
 extract_wiz_field = _auth_extraction.extract_wiz_field
 
-# Token-route resolver lives in ``notebooklm._auth.headers``; re-exported so
-# internal callers (``fetch_tokens``, ``fetch_tokens_with_domains`` — now in
-# ``_auth.refresh``) and white-box tests keep resolving the helper against
-# ``notebooklm.auth``.
-_resolve_token_route_kwargs = _auth_headers._resolve_token_route_kwargs
+# Token-route resolver. It used to live in ``notebooklm._auth.headers``; that
+# module was folded into ``_auth.refresh`` (ADR-0033 sanctioned merge) because
+# its sole function's only call sites are the token-fetch entry points there.
+# Still re-exported here so internal callers (``fetch_tokens``,
+# ``fetch_tokens_with_domains``) and white-box tests keep resolving the helper
+# against ``notebooklm.auth``.
+_resolve_token_route_kwargs = _auth_refresh._resolve_token_route_kwargs
 
 
 Account = _auth_account.Account
