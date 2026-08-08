@@ -274,9 +274,12 @@ Design notes:
   Keeping them separate prevents any one from queueing behind another. The
   fourth sibling, `.lock.bootstrap`, is separate for a harder reason than
   throughput: the mint it guards acquires `.storage_state.json.lock` *inside*
-  its critical section, and `storage._file_lock` takes a per-path in-process
-  `threading.Lock` before the OS lock, so sharing one path would self-deadlock
-  (guaranteed-unavailable, not merely contended).
+  its critical section — and the two sides use different mechanisms
+  (`filelock.FileLock` outside, `storage._file_lock` inside), so the in-process
+  lock registry never sees the outer hold. What makes sharing one path fatal is
+  the OS lock: both take an exclusive `flock` on the sentinel, and `flock`
+  conflicts between two open file descriptions even inside one process, so the
+  inner acquire would be guaranteed-unavailable rather than merely contended.
 - **One derivation, four files, three different base-path policies.** Every
   credential lock path is `.<name>.<kind>` next to the storage file, computed in
   exactly one place (`_auth/paths.py::_lock_sibling`). What differs per lock is

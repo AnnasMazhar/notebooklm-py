@@ -118,9 +118,12 @@ def _lock_sibling(base_path: Path, kind: str) -> Path:
     ``lock.bootstrap``), so the four filenames stay four distinct files — they
     must, because :func:`notebooklm._auth.master_token.bootstrap_storage_from_master_token`
     acquires the storage lock *inside* the bootstrap lock's critical section and
-    ``storage._file_lock`` takes a per-path in-process ``threading.Lock`` before
-    the OS lock, so collapsing two of these paths self-deadlocks rather than
-    merely contending.
+    the two sides use DIFFERENT mechanisms — ``filelock.FileLock`` outside,
+    ``storage._file_lock`` inside — so the in-process ``threading.Lock``
+    registry never sees the outer hold. What makes collapsing them fatal is the
+    OS lock: both sides take an exclusive ``flock`` on the sentinel, and ``flock`` conflicts
+    between two open file descriptions even inside ONE process, so the inner
+    storage acquire would be guaranteed-unavailable rather than merely contended.
     """
     return base_path.with_name(f".{base_path.name}.{kind}")
 
@@ -153,7 +156,7 @@ def _rotation_lock_path(storage_path: Path | None) -> Path | None:
     Base: the caller's path as given. The keepalive route hands it an already
     canonicalized path (``_client_assembly`` canonicalizes the keepalive storage
     path once, at client assembly); the PSIDTS rotation-recovery route
-    (``psidts_recovery._recover_psidts_via_rotation``) passes the load path
+    (``psidts_recovery._recover_psidts_inline``) passes the load path
     through unchanged. ``None`` (env-var auth) has no file to anchor a sentinel
     to and yields ``None``, which every caller treats as "no cross-process
     flock, fall back to the in-process claim".
@@ -189,9 +192,11 @@ def _bootstrap_lock_path(storage_path: Path) -> Path:
 
     Held by ``master_token.bootstrap_storage_from_master_token`` around the
     mint, and deliberately NOT the storage sentinel: the mint's persist takes
-    ``.storage_state.json.lock`` while this one is still held, so one shared
-    path would self-deadlock on ``storage._file_lock``'s per-path in-process
-    lock (guaranteed-unavailable, not mere contention).
+    ``.storage_state.json.lock`` while this one is still held. The two use
+    different mechanisms (``filelock.FileLock`` here, ``storage._file_lock``
+    there), so the in-process lock registry is NOT what saves us — both sides take an exclusive ``flock`` on the sentinel, and ``flock`` conflicts
+    between two open file descriptions even inside ONE process, so the inner
+    storage acquire would be guaranteed-unavailable rather than merely contended.
 
     Base: the CANONICAL path — the only one of the four that canonicalizes
     here rather than at its caller, because its callers are cold-start entry
