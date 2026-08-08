@@ -63,7 +63,7 @@
     {
       "scope": "module",
       "source": "cookie_types",
-      "target": "cookies"
+      "target": "cookie_semantics"
     },
     {
       "scope": "module",
@@ -74,6 +74,11 @@
       "scope": "module",
       "source": "cookies",
       "target": "cookie_semantics"
+    },
+    {
+      "scope": "module",
+      "source": "cookies",
+      "target": "cookie_types"
     },
     {
       "scope": "module",
@@ -383,17 +388,17 @@
       "path": "src/notebooklm/_auth/cookie_policy.py"
     },
     {
-      "lines": 132,
+      "lines": 254,
       "name": "cookie_semantics",
       "path": "src/notebooklm/_auth/cookie_semantics.py"
     },
     {
-      "lines": 309,
+      "lines": 380,
       "name": "cookie_types",
       "path": "src/notebooklm/_auth/cookie_types.py"
     },
     {
-      "lines": 911,
+      "lines": 847,
       "name": "cookies",
       "path": "src/notebooklm/_auth/cookies.py"
     },
@@ -487,10 +492,10 @@
   },
   "summary": {
     "function_local_edges": 14,
-    "module_edges": 54,
+    "module_edges": 55,
     "modules": 26,
-    "total_lines": 13745,
-    "unique_edges": 68
+    "total_lines": 13874,
+    "unique_edges": 69
   },
   "version": 1
 }

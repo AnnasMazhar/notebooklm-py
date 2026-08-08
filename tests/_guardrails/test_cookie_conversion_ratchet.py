@@ -15,7 +15,8 @@ thirteenth bespoke call.
 Sanctioned homes (never flagged):
 
 * ``_auth/cookies.py`` — where these functions are defined and compose.
-* ``_auth/cookie_types.py`` — the wrapper whose whole job is delegating to them.
+* ``_auth/cookie_types.py`` — the value owner, which now reaches only downward
+  to pure semantics and policy rather than back up through these adapters.
 
 Everything else is in :data:`_GRANDFATHERED`, which pins each surviving call
 site at its **measured call count** and is **shrink-only** in both directions:
@@ -304,19 +305,81 @@ def test_a_migrated_call_must_lower_its_pin() -> None:
     assert not _slack(dict(_GRANDFATHERED))
 
 
-def test_cookie_jar_is_the_sanctioned_wrapper() -> None:
-    """``cookie_types`` really does delegate — the premise of the whole gate.
+_FORBIDDEN_COOKIE_TYPE_SIBLINGS = frozenset(
+    path.stem
+    for path in (_SRC_ROOT / "_auth").glob("*.py")
+    if path.stem not in {"cookie_types", "cookie_policy", "cookie_semantics"}
+)
 
-    If a future edit reimplemented a conversion inline instead of delegating,
-    the ratchet would be pointing callers at a second implementation rather
-    than at the single owner.
-    """
+
+def _import_targets(tree: ast.AST) -> set[str]:
+    """Return normalized import targets from every lexical scope."""
+    targets: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            targets.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            prefix = "." * node.level + (node.module or "")
+            targets.add(prefix)
+            targets.update(f"{prefix}.{alias.name}".strip(".") for alias in node.names)
+    return targets
+
+
+def _forbidden_cookie_type_imports(tree: ast.AST) -> set[str]:
+    """Find upward imports from the dependency-bottom value module."""
+    forbidden: set[str] = set()
+    for target in _import_targets(tree):
+        normalized = target.lstrip(".")
+        parts = normalized.split(".")
+        local_module = parts[0]
+        absolute_auth_module = (
+            parts[2] if len(parts) > 2 and parts[:2] == ["notebooklm", "_auth"] else None
+        )
+        if (
+            local_module in _FORBIDDEN_COOKIE_TYPE_SIBLINGS
+            or absolute_auth_module in _FORBIDDEN_COOKIE_TYPE_SIBLINGS
+        ):
+            forbidden.add(target)
+            continue
+        if normalized in {"auth", "_cookie_persistence", "_runtime", "cli"}:
+            forbidden.add(target)
+            continue
+        if normalized.startswith(("_runtime.", "cli.")):
+            forbidden.add(target)
+            continue
+        if normalized.startswith(
+            (
+                "notebooklm.auth",
+                "notebooklm._cookie_persistence",
+                "notebooklm._runtime",
+                "notebooklm.cli",
+            )
+        ):
+            forbidden.add(target)
+    return forbidden
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("from . import cookies\n", id="relative-compatibility"),
+        pytest.param(
+            "def lazy():\n    from .storage import merge_cookie_delta\n",
+            id="lazy-persistence",
+        ),
+        pytest.param("import notebooklm.auth\n", id="facade"),
+        pytest.param("from notebooklm import _cookie_persistence\n", id="persistence-owner"),
+        pytest.param("from notebooklm._runtime import lifecycle\n", id="runtime"),
+        pytest.param("from notebooklm.cli import main\n", id="cli"),
+        pytest.param("from .._runtime import lifecycle\n", id="parent-relative-runtime"),
+        pytest.param("from ..cli import main\n", id="parent-relative-cli"),
+    ],
+)
+def test_cookie_type_upward_import_detector_bites(source: str) -> None:
+    assert _forbidden_cookie_type_imports(ast.parse(source))
+
+
+def test_cookie_types_import_only_leaf_value_dependencies() -> None:
     source = (_SRC_ROOT / "_auth" / "cookie_types.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    delegated = {
-        node.func.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-    }
-    missing = {"normalize_cookie_map", "build_cookie_jar"} - delegated
-    assert not missing, f"cookie_types.py stopped delegating to: {sorted(missing)}"
+    forbidden = _forbidden_cookie_type_imports(ast.parse(source))
+    assert not forbidden, f"cookie_types.py imports upward to: {sorted(forbidden)}"
