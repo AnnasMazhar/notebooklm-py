@@ -283,16 +283,16 @@ class TestPromoteLegacyAccount:
             encoding="utf-8",
         )
 
-        import notebooklm._auth.storage_writer as _storage_writer
+        import notebooklm._auth.storage as _storage_mod
 
-        real_update = _storage_writer.update_account_metadata
+        real_update = _storage_mod.update_account_metadata
         captured: dict[str, object] = {}
 
         def _capture_deadline(*args, **kwargs):
             captured["deadline_seconds"] = kwargs.get("deadline_seconds")
             return real_update(*args, **kwargs)
 
-        monkeypatch.setattr(_storage_writer, "update_account_metadata", _capture_deadline)
+        monkeypatch.setattr(_storage_mod, "update_account_metadata", _capture_deadline)
 
         assert promote_legacy_account(storage) is True
         assert captured["deadline_seconds"] == _auth_account._PROMOTION_LOCK_DEADLINE_SECONDS
@@ -348,7 +348,7 @@ class TestPromoteLegacyAccount:
 
         def _read_legacy_then_race_a_fresh_write(path):
             legacy = real_read_legacy(path)
-            from notebooklm._auth import storage_writer as _sw
+            from notebooklm._auth import storage as _sw
 
             _sw.update_account_metadata(path, authuser=0, email="fresh@example.com")
             return legacy
@@ -392,12 +392,12 @@ class TestPromoteLegacyAccount:
         def _boom(*args, **kwargs):
             raise OSError("disk full")
 
-        # ``promote_legacy_account`` does ``from . import storage_writer`` (binds
+        # ``promote_legacy_account`` does ``from . import storage`` (binds
         # the MODULE), so patching the module's function attribute — not a
         # from-import binding in account.py — is what actually takes effect.
-        import notebooklm._auth.storage_writer as _storage_writer
+        import notebooklm._auth.storage as _storage_mod
 
-        monkeypatch.setattr(_storage_writer, "update_account_metadata", _boom)
+        monkeypatch.setattr(_storage_mod, "update_account_metadata", _boom)
 
         with caplog.at_level(logging.WARNING, logger="notebooklm.auth"):
             assert promote_legacy_account(storage) is False
@@ -420,12 +420,12 @@ class TestPromoteLegacyAccount:
             json.dumps({"account": {"authuser": 4, "email": "dana@example.com"}}),
             encoding="utf-8",
         )
-        import notebooklm._auth.storage_writer as _storage_writer
+        import notebooklm._auth.storage as _storage_mod
 
         def _boom(*args, **kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(_storage_writer, "update_account_metadata", _boom)
+        monkeypatch.setattr(_storage_mod, "update_account_metadata", _boom)
 
         with caplog.at_level(logging.DEBUG, logger="notebooklm.auth"):
             promote_legacy_account(storage)  # 1st failure -> WARNING
@@ -451,12 +451,12 @@ class TestPromoteLegacyAccount:
             encoding="utf-8",
         )
 
-        import notebooklm._auth.storage_writer as _storage_writer
+        import notebooklm._auth.storage as _storage_mod
 
         def _boom(*args, **kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(_storage_writer, "update_account_metadata", _boom)
+        monkeypatch.setattr(_storage_mod, "update_account_metadata", _boom)
 
         result = read_account_metadata(storage)
         # Never {} — and sanitized (malformed authuser -> 0, blank email dropped)
@@ -746,7 +746,7 @@ class TestDropLegacyTocTouRecheck:
 class TestClearInBandLockFailure:
     """Best-effort lock-unavailable handling in ``_clear_in_band_account``.
 
-    The in-band clear now delegates to ``storage_writer.clear_in_band_account``,
+    The in-band clear now delegates to ``storage.clear_in_band_account``,
     which serializes on the unified ``storage._file_lock`` primitive. When the
     lock is unavailable the clear stays best-effort (swallows, never raises) and
     leaves the file untouched — the legacy reader still resolves the record.

@@ -83,8 +83,8 @@ def _local_bindings(tree: ast.AST) -> dict[str, str]:
     only matched literal names would have a real bypass rather than a
     theoretical one — both idioms are live in this package:
 
-    * ``from … import f as g`` — ``_auth/storage_writer.py`` imports
-      ``_atomic_write_json_unchecked as atomic_write_json``.
+    * ``from … import f as g`` — ``_auth/storage.py`` imports
+      ``_atomic_write_json_unchecked as _write_state_unchecked``.
     * ``g = mod.f`` — the compat re-export surface in ``auth.py`` rebinds ALL
       FOUR ratcheted names this way, and ``_auth/refresh.py`` rebinds
       ``flatten_cookie_map``. Neither module calls its rebind today, but the

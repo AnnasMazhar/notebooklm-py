@@ -449,7 +449,7 @@ def promote_legacy_account(storage_path: Path) -> bool:
         return False
     sanitized = _sanitize_legacy_account_record(legacy)
     try:
-        from . import storage_writer  # local import: avoid the account<->writer cycle
+        from . import storage  # local import: avoid the account<->storage cycle
 
         # only_if_absent=True: the decision "should this write happen" is made
         # HERE, under the writer's own lock, not by a separate unlocked
@@ -463,7 +463,7 @@ def promote_legacy_account(storage_path: Path) -> bool:
         # a fast, lock-free read. On contention, give up quickly and take the
         # legacy-record fallback rather than freeze an event loop for up to
         # 90s over a best-effort migration.
-        promoted = storage_writer.update_account_metadata(
+        promoted = storage.update_account_metadata(
             storage_path,
             authuser=sanitized["authuser"],
             email=sanitized.get("email"),
@@ -604,7 +604,7 @@ def _drop_legacy_account_key(storage_path: Path) -> None:
     survives purely as a privacy scrub — a stale legacy key would leave the
     account email at rest forever with no reader and no writer to remove it.
     Called by ``write_account_metadata`` / ``clear_account_metadata`` /
-    ``promote_legacy_account`` (this module) and ``storage_writer.replace_from_login``
+    ``promote_legacy_account`` (this module) and ``storage.replace_from_login``
     (the CLI login writer, after its own atomic write).
     """
     context_path = _account_context_path(storage_path)
@@ -659,9 +659,9 @@ def write_account_metadata(storage_path: Path, *, authuser: int, email: str | No
     # ``notebooklm.auth``-exported facade symbol; it keeps its raise-on-lock-
     # failure semantics (the writer raises ``LockUnavailableError`` — the
     # documented replacement for the former ``filelock.Timeout``).
-    from . import storage_writer  # local import: avoid the account<->writer cycle
+    from . import storage  # local import: avoid the account<->storage cycle
 
-    storage_writer.update_account_metadata(storage_path, authuser=authuser, email=email)
+    storage.update_account_metadata(storage_path, authuser=authuser, email=email)
 
     # Best-effort: drop the legacy account key from sibling context.json so
     # the next reader doesn't see the same data in two places.
@@ -713,9 +713,9 @@ def _clear_in_band_account(storage_path: Path) -> None:
     errors, matching the pre-refactor semantics). No-op if the file is missing,
     unreadable, or doesn't carry an in-band record.
     """
-    from . import storage_writer  # local import: avoid the account<->writer cycle
+    from . import storage  # local import: avoid the account<->storage cycle
 
-    storage_writer.clear_in_band_account(storage_path)
+    storage.clear_in_band_account(storage_path)
 
 
 def _select_playwright_account(

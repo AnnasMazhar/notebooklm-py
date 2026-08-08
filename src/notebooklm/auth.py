@@ -87,7 +87,7 @@ from ._auth.master_token import remint_from_stored_token as master_token_remint 
 # the three CLI writers reach ``replace_from_login`` (and its ``account`` sentinel
 # / value-free outcome) ONLY through this facade, exactly like
 # ``save_cookies_to_storage`` / ``write_account_metadata`` / ``persist_minted_jar``.
-from ._auth.storage_writer import (  # noqa: F401
+from ._auth.storage import (  # noqa: F401
     CLEAR_ACCOUNT,
     KEEP_ACCOUNT,
     AccountRecord,

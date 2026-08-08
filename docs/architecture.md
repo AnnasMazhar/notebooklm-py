@@ -524,9 +524,9 @@ the default dependency.
 |--------|----------------|
 | [`_auth/tokens.py`](../src/notebooklm/_auth/tokens.py) | Token dataclass + storage-loading helpers. |
 | [`_auth/paths.py`](../src/notebooklm/_auth/paths.py) | Storage paths and filesystem helpers. |
-| [`_auth/storage.py`](../src/notebooklm/_auth/storage.py) | Profile/state persistence on disk: cookie snapshot/delta CAS math + the file-lock primitive; `save_cookies_to_storage` is the monkeypatchable delegate seam onto `storage_writer`. |
-| [`_auth/storage_writer.py`](../src/notebooklm/_auth/storage_writer.py) | Canonical `storage_state.json` writer (ADR-0029): the only `_auth` module that performs the atomic write; intent-shaped API (CAS merge, account metadata, master-token persist) on the unified bounded storage lock. |
-| [`_auth/storage_transaction.py`](../src/notebooklm/_auth/storage_transaction.py) | The storage-write transaction template (ADR-0031 Stage 3): `in_storage_transaction` owns the secure-parent-dir / lock-path / bounded-acquire / not-held preamble the writers each hand-rolled, with the lock-failure policy (`raise_` / `skip_` / `report_on_lock_unavailable`) supplied by the caller because the six writers genuinely differ there. Split out of `storage_writer.py` for the ADR-0008 size budget; never imports the `_atomic_io` primitives, so the single-writer boundary holds. |
+| [`_auth/storage.py`](../src/notebooklm/_auth/storage.py) | **One deep module for the whole `storage_state.json` seam** (ADR-0033 sanctioned merge — absorbed `storage_writer.py` and `storage_transaction.py`), in labelled sections: (1) the file-lock primitives; (2) secure-parent-dir prep + the platform-neutral bounded acquire; (3) the write transaction template `in_storage_transaction` + its `raise_`/`skip_`/`report_on_lock_unavailable` policies (ADR-0031 Stage 3); (4) the snapshot types; (5) the cookie snapshot/delta CAS merge math plus `save_cookies_to_storage`, the monkeypatchable delegate seam; (6) the value-free writer outcome types; (7) the **canonical `storage_state.json` writer** (ADR-0029) — the only `_auth` module that performs the atomic write, with an intent-shaped API (CAS merge, account metadata, login/re-mint full replace, master-token persist) on the unified bounded storage lock. The write boundary is pinned at *function* granularity by `tests/_guardrails/test_storage_writer_boundary.py`. |
+| [`_auth/storage_writer.py`](../src/notebooklm/_auth/storage_writer.py) | **Shim** — re-exports the writer API from `_auth/storage.py`; defines nothing. Removed at the next major. |
+| [`_auth/storage_transaction.py`](../src/notebooklm/_auth/storage_transaction.py) | **Shim** — re-exports `in_storage_transaction` + the lock-failure policies from `_auth/storage.py`; defines nothing. Removed at the next major. |
 | [`_auth/extraction.py`](../src/notebooklm/_auth/extraction.py) | Cookie/token extraction from browser sessions. |
 | [`_auth/headers.py`](../src/notebooklm/_auth/headers.py) | HTTP header construction. |
 | [`_auth/cookies.py`](../src/notebooklm/_auth/cookies.py) | Cookie maps + `_update_cookie_input` helper. |
@@ -1197,9 +1197,9 @@ src/notebooklm/
 │   ├── headless_reauth.py       # Layer-3 headless re-auth (opt-in; typed outcomes; local-unattended-only)
 │   ├── account.py               # Account profile + multi-account switching
 │   ├── session.py               # Auth-session refresh implementation via `refresh_auth_session()` and explicit collaborators
-│   ├── storage.py               # Profile/state persistence: CAS merge math + file-lock primitive + save_cookies_to_storage delegate seam
-│   ├── storage_writer.py        # Canonical storage_state.json writer (ADR-0029): sole atomic-write owner, unified bounded lock
-│   ├── storage_transaction.py   # Storage-write transaction template + lock-failure policies (ADR-0031 Stage 3)
+│   ├── storage.py               # One persistence module (ADR-0033 merge): lock primitives + bounded acquire + transaction template + snapshot types + CAS merge math + save_cookies_to_storage delegate seam + the canonical storage_state.json writers (ADR-0029)
+│   ├── storage_writer.py        # Shim: re-exports the writer API from storage.py (removed at next major)
+│   ├── storage_transaction.py   # Shim: re-exports in_storage_transaction + lock policies from storage.py (removed at next major)
 │   ├── keepalive.py             # Cookie keepalive + __Secure-1PSIDTS rotation
 │   ├── psidts_recovery.py       # Inline PSIDTS recovery for cold-start (issue #865)
 │   ├── master_token.py          # Headless master-token auth: minting primitives + the audited bootstrap/re-mint transaction (ADR-0023)

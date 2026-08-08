@@ -245,7 +245,7 @@ def persist_minted_jar(
     a re-mint is a brand-new session.
 
     Delegates the storage-state write to the canonical
-    :func:`notebooklm._auth.storage_writer.persist_minted_jar`, which routes the
+    :func:`notebooklm._auth.storage.persist_minted_jar`, which routes the
     write through ``_atomic_io`` (fsync durability + temp cleanup, closing
     [storage-F5]) under the unified bounded storage lock. This function stays as
     the ``notebooklm.auth``-exported facade symbol.
@@ -258,11 +258,11 @@ def persist_minted_jar(
     entirely) and closes the TOCTOU window a check-before-mint pre-check alone
     cannot. ``refuse_unknown_owner`` (default ``True``) additionally refuses
     existing storage with NO recorded owner at all; see
-    :func:`notebooklm._auth.storage_writer.persist_minted_jar` for why
+    :func:`notebooklm._auth.storage.persist_minted_jar` for why
     ``remint_from_stored_token`` passes ``False`` here."""
-    from . import storage_writer  # noqa: PLC0415 (avoid import cycle)
+    from . import storage  # noqa: PLC0415 (avoid import cycle)
 
-    storage_writer.persist_minted_jar(
+    storage.persist_minted_jar(
         path, jar, email=email, force=force, refuse_unknown_owner=refuse_unknown_owner
     )
 
@@ -290,16 +290,14 @@ def read_master_token(path: Path) -> dict[str, Any] | None:
 def write_master_token(path: Path, *, email: str, master_token: str, android_id: str) -> None:
     """Persist a master-token record at mode 0600 (full-account credential).
 
-    Delegates to :func:`notebooklm._auth.storage_writer.write_master_token`,
+    Delegates to :func:`notebooklm._auth.storage.write_master_token`,
     which routes the write through ``_atomic_io`` (atomic + fsync-durable + temp
     cleanup) under a bounded sibling lock — closing the lockless-write half of
     [storage-F5]. This function stays as the ``notebooklm.auth``-exported facade
     symbol."""
-    from . import storage_writer  # noqa: PLC0415 (avoid import cycle)
+    from . import storage  # noqa: PLC0415 (avoid import cycle)
 
-    storage_writer.write_master_token(
-        path, email=email, master_token=master_token, android_id=android_id
-    )
+    storage.write_master_token(path, email=email, master_token=master_token, android_id=android_id)
 
 
 # --- the transaction (relocated from cli/services/login/master_token.py,
@@ -364,7 +362,7 @@ def assert_account_writable(*, email: str, storage_path: Path, force: bool = Fal
     instead of after a full sign-in. It cannot itself close the TOCTOU window
     between this check and the mint completing (the mint hasn't started yet).
     The AUTHORITATIVE, race-free enforcement lives under the storage-write
-    lock in :func:`notebooklm._auth.storage_writer.persist_minted_jar`
+    lock in :func:`notebooklm._auth.storage.persist_minted_jar`
     (#2103 PR-2 D6) — this function is a courtesy, not the guard."""
     if force:
         return
@@ -439,7 +437,7 @@ async def bootstrap_from_oauth_token(
     account (``--account`` mismatch) unless ``force`` — minting writes a full
     session + durable token into the profile, so a wrong profile silently
     clobbers it. See :func:`assert_account_writable` for the fail-fast
-    pre-check and :func:`notebooklm._auth.storage_writer.persist_minted_jar`
+    pre-check and :func:`notebooklm._auth.storage.persist_minted_jar`
     for the authoritative, lock-guarded enforcement.
 
     ``android_id`` defaults to ``None``, resolved explicit -> stored -> fresh

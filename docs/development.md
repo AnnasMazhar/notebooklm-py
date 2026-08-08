@@ -257,8 +257,8 @@ left on disk after release — both lock implementations reuse them).
 
 | Lock file | Owner | Scope | Acquisition |
 |---|---|---|---|
-| `<profile>/.storage_state.json.lock` | `_auth/storage_writer.py` (the sole canonical writer; `storage.save_cookies_to_storage` is the monkeypatchable delegate seam onto it) | Every mutation of `storage_state.json`: the cookie CAS delta merge, in-band account-metadata read-modify-write, and the L3/L4 re-mint full-replace | CAS merge: blocking exclusive, fail-open. Full-replace intents (account metadata, re-mint): platform-neutral bounded acquire — non-blocking probe + deadline/jitter retry, 90s deadline, fail-closed (raises `LockUnavailableError`) |
-| `<profile>/.master_token.json.lock` | `_auth/storage_writer.py::write_master_token` | Writes to `master_token.json` (the durable L4 credential) | Same bounded acquire as above (90s deadline), fail-closed. Previously lockless. |
+| `<profile>/.storage_state.json.lock` | `_auth/storage.py` (the sole canonical writer; `storage.save_cookies_to_storage` is the monkeypatchable delegate seam onto it) | Every mutation of `storage_state.json`: the cookie CAS delta merge, in-band account-metadata read-modify-write, and the L3/L4 re-mint full-replace | CAS merge: blocking exclusive, fail-open. Full-replace intents (account metadata, re-mint): platform-neutral bounded acquire — non-blocking probe + deadline/jitter retry, 90s deadline, fail-closed (raises `LockUnavailableError`) |
+| `<profile>/.master_token.json.lock` | `_auth/storage.py::write_master_token` | Writes to `master_token.json` (the durable L4 credential) | Same bounded acquire as above (90s deadline), fail-closed. Previously lockless. |
 | `<profile>/.storage_state.json.rotate.lock` | `_auth/keepalive.py::_poke_session` | Cross-process dedup of the `accounts.google.com/RotateCookies` keepalive POST | Non-blocking exclusive (`LOCK_NB`); skip on contention |
 | `<profile>/.storage_state.json.refresh.lock` | `_auth/refresh.py` (via `_auth/single_flight.py`) | Cross-process dedup of the `NOTEBOOKLM_REFRESH_CMD` subprocess (cold-start, and mid-session when `NOTEBOOKLM_REFRESH_CMD_MIDSESSION=1`) | Non-blocking exclusive (`LOCK_NB`); skip on contention, waiter polls with jittered backoff |
 | `<home>/.migration.lock` | `migration.py::migrate_to_profiles` | One-shot legacy→profile layout migration on startup | Blocking exclusive, 30s timeout (raises `MigrationLockTimeoutError`) |
@@ -275,7 +275,7 @@ Design notes:
   rotate (`.rotate.lock`) and refresh-cmd (`.refresh.lock`) sentinels are
   derived from `_auth/paths.py::canonical_storage_key`, so relative /
   symlinked / `~`-expanded spellings of one profile collapse onto the same
-  lock. The main `.storage_state.json.lock` does **not**: `storage_writer`'s
+  lock. The main `.storage_state.json.lock` does **not**: `_auth/storage.py`'s
   writers (`merge_cookie_delta` and the full-replace intents) derive
   `_storage_state_lock_path` from the caller's raw path, so two processes
   reaching the same file through different path spellings (e.g. a symlink vs.
