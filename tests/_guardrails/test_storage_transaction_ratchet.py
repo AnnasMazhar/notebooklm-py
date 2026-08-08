@@ -53,6 +53,29 @@ _TEMPLATE = _AUTH / "storage.py"
 #: very lock it exists to own.
 _TEMPLATE_FUNCTIONS: frozenset[str] = frozenset({"in_storage_transaction"})
 
+
+def test_template_exemption_is_frozen_and_real() -> None:
+    """The blanket exemption must name exactly the template, and it must exist.
+
+    Two holes this closes, both verified to slip otherwise: adding a NEW writer's
+    name here would grant it a silent blanket exemption from the direct-call
+    scan, and renaming :func:`in_storage_transaction` would leave a stale entry
+    exempting nothing while the gate still reported green. Every other allowlist
+    in this file and its sibling is equality-asserted for the same reason.
+    """
+    assert frozenset({"in_storage_transaction"}) == _TEMPLATE_FUNCTIONS
+    defined = {
+        node.name
+        for node in ast.parse(_TEMPLATE.read_text("utf-8")).body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    missing = sorted(_TEMPLATE_FUNCTIONS - defined)
+    assert missing == [], (
+        f"exempted name(s) not defined in {_TEMPLATE.name}: {missing} — a rename "
+        "left a stale blanket exemption"
+    )
+
+
 #: Functions still calling ``_acquire_storage_lock`` directly. SHRINK-ONLY —
 #: never add. Each is a candidate for conversion; the three below are the
 #: delicate ones deliberately left for a focused pass rather than converted in

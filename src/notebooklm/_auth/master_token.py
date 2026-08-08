@@ -260,7 +260,7 @@ def persist_minted_jar(
     existing storage with NO recorded owner at all; see
     :func:`notebooklm._auth.storage.persist_minted_jar` for why
     ``remint_from_stored_token`` passes ``False`` here."""
-    from . import storage  # noqa: PLC0415 (avoid import cycle)
+    from . import storage  # noqa: PLC0415 (deferred; no cycle either way (verified))
 
     storage.persist_minted_jar(
         path, jar, email=email, force=force, refuse_unknown_owner=refuse_unknown_owner
@@ -295,7 +295,7 @@ def write_master_token(path: Path, *, email: str, master_token: str, android_id:
     cleanup) under a bounded sibling lock — closing the lockless-write half of
     [storage-F5]. This function stays as the ``notebooklm.auth``-exported facade
     symbol."""
-    from . import storage  # noqa: PLC0415 (avoid import cycle)
+    from . import storage  # noqa: PLC0415 (deferred; no cycle either way (verified))
 
     storage.write_master_token(path, email=email, master_token=master_token, android_id=android_id)
 

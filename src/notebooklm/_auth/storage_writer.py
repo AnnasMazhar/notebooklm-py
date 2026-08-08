@@ -20,6 +20,7 @@ from __future__ import annotations
 from .storage import (
     CLEAR_ACCOUNT,
     KEEP_ACCOUNT,
+    AccountArg,
     AccountRecord,
     LockUnavailableError,
     LoginWriteOutcome,
@@ -38,6 +39,7 @@ from .storage import (
 __all__ = [
     "CLEAR_ACCOUNT",
     "KEEP_ACCOUNT",
+    "AccountArg",
     "AccountRecord",
     "LockUnavailableError",
     "LoginWriteOutcome",

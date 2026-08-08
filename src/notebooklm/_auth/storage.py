@@ -1641,7 +1641,9 @@ def update_account_metadata(
         and an in-band record was already present under the lock (no-op —
         the caller's stale values were correctly discarded).
     """
-    from . import account as _account  # lazy: avoid the account<->writer cycle
+    from . import (
+        account as _account,
+    )  # deferred; no cycle either way (verified)
 
     account_payload: dict[str, Any] = {"authuser": authuser}
     if email:
@@ -1682,7 +1684,9 @@ def clear_in_band_account(storage_path: Path) -> None:
     pre-refactor semantics (the reader falls back to the legacy record). No-op if
     the file is missing, unreadable, or carries no in-band record.
     """
-    from . import account as _account  # lazy: avoid the account<->writer cycle
+    from . import (
+        account as _account,
+    )  # deferred; no cycle either way (verified)
 
     if not storage_path.exists():
         return
@@ -1781,7 +1785,9 @@ def replace_from_remint(
         :class:`WriteOutcome` — ``ok`` on success, ``lock_unavailable`` if the
         bounded storage-lock acquire timed out / the lock infra failed.
     """
-    from . import account as _account  # lazy: avoid the account<->writer cycle
+    from . import (
+        account as _account,
+    )  # deferred; no cycle either way (verified)
     from ._browser_cookie_filter import (  # noqa: PLC0415 (deferred; true leaf, no cycle either way)
         filter_storage_state_cookies_by_domain_policy,
     )
@@ -1818,7 +1824,9 @@ def replace_from_remint(
     return WriteOutcome(WriteStatus.OK)
 
 
-# --- Login / import full-replace (hoisted from the CLI login/import writers) -
+# --- Login / import full-replace -------------------------------------------
+# Hoisted from the CLI ``cli/services/login`` and ``cli/_cookie_import``
+# writers — the #2086 filter + revalidation moved HERE.
 
 
 def replace_from_login(
@@ -1895,7 +1903,9 @@ def replace_from_login(
         :class:`LoginWriteOutcome`.
     """
     del io_policy  # reserved; see docstring
-    from . import account as _account  # lazy: avoid the account<->writer cycle
+    from . import (
+        account as _account,
+    )  # deferred; no cycle either way (verified)
     from ._browser_cookie_filter import (  # noqa: PLC0415 (deferred; true leaf, no cycle either way)
         filter_storage_state_cookies_by_domain_policy,
     )
@@ -2045,8 +2055,10 @@ def persist_minted_jar(
     the default: minting into an existing, unrecorded-owner profile is
     exactly the ambiguous case worth refusing without an explicit ``force``.
     """
-    from . import account as _account  # noqa: PLC0415 (avoid the account<->writer cycle)
-    from . import master_token as _master_token  # lazy: avoid import cycle
+    from . import account as _account  # noqa: PLC0415 (deferred; no cycle either way (verified))
+    from . import (
+        master_token as _master_token,
+    )  # deferred; no cycle either way (verified)
     from ._browser_cookie_filter import (  # noqa: PLC0415 (deferred; true leaf, no cycle either way)
         filter_storage_state_cookies_by_domain_policy,
     )
@@ -2112,7 +2124,9 @@ def write_master_token(path: Path, *, email: str, master_token: str, android_id:
     by a bounded sibling ``.master_token.json.lock`` — it was previously lockless
     (part of [storage-F5]). RMW intent: **fails closed**.
     """
-    from . import master_token as _master_token  # lazy: avoid import cycle
+    from . import (
+        master_token as _master_token,
+    )  # deferred; no cycle either way (verified)
 
     payload = {
         "version": _master_token._MASTER_TOKEN_VERSION,

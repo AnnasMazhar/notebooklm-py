@@ -449,7 +449,7 @@ def promote_legacy_account(storage_path: Path) -> bool:
         return False
     sanitized = _sanitize_legacy_account_record(legacy)
     try:
-        from . import storage  # local import: avoid the account<->storage cycle
+        from . import storage  # deferred; no cycle either way (verified)
 
         # only_if_absent=True: the decision "should this write happen" is made
         # HERE, under the writer's own lock, not by a separate unlocked
@@ -659,7 +659,7 @@ def write_account_metadata(storage_path: Path, *, authuser: int, email: str | No
     # ``notebooklm.auth``-exported facade symbol; it keeps its raise-on-lock-
     # failure semantics (the writer raises ``LockUnavailableError`` — the
     # documented replacement for the former ``filelock.Timeout``).
-    from . import storage  # local import: avoid the account<->storage cycle
+    from . import storage  # deferred; no cycle either way (verified)
 
     storage.update_account_metadata(storage_path, authuser=authuser, email=email)
 
@@ -713,7 +713,7 @@ def _clear_in_band_account(storage_path: Path) -> None:
     errors, matching the pre-refactor semantics). No-op if the file is missing,
     unreadable, or doesn't carry an in-band record.
     """
-    from . import storage  # local import: avoid the account<->storage cycle
+    from . import storage  # deferred; no cycle either way (verified)
 
     storage.clear_in_band_account(storage_path)
 

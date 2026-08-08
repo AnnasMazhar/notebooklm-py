@@ -953,7 +953,14 @@ def test_write_primitive_literal_detector_self_check(snippet: str, should_flag: 
 def test_no_storage_state_literal_write_primitive_calls() -> None:
     """Clause (iii): no write-primitive call on a ``storage_state.json`` literal
     outside the canonical writer / migration."""
-    allowed = {"_auth/storage.py", "migration.py"}
+    # ``_auth/storage.py`` is deliberately NOT exempt. Before the persistence
+    # merge the exemption covered a 981-line single-purpose writer module; it
+    # would now cover the whole 2,100-line persistence seam, including every read
+    # path — exactly the by-construction erosion ADR-0033 warns about. Clause (vi)
+    # does not backstop this one (it tracks only the ``_write_state_unchecked``
+    # binding, not raw primitives), and dropping the exemption is free: neither
+    # this module nor its pre-merge sources ever used the shape it permitted.
+    allowed = {"migration.py"}
     violations: dict[str, list[int]] = {}
     for path in _iter_src_files():
         rel = _rel(path)
@@ -964,7 +971,7 @@ def test_no_storage_state_literal_write_primitive_calls() -> None:
             violations[rel] = hits
     assert violations == {}, (
         "write-primitive call(s) targeting a storage_state.json literal outside "
-        f"_auth/storage.py / migration.py: {violations}"
+        f"migration.py: {violations}"
     )
 
 
