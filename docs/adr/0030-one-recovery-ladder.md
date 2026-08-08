@@ -209,8 +209,13 @@ such holder, and a bare fall-through would have replaced today's actionable
 `NOTEBOOKLM_REFRESH_CMD exited N (executable: …)` with the generic
 "Authentication expired" on every fully-exhausted ladder. Stashing keeps the
 exhausted-ladder error **byte-identical to the pre-alignment order** — where the
-rung ran last and raised — so the alignment's only observable deltas are the rung
-order itself and the fact that an L2.5 failure no longer ends the ladder. The
+rung ran last and raised. The alignment's observable deltas are therefore the
+rung order itself, the fact that an L2.5 failure no longer ends the ladder, and
+the two consequences recorded below: an L2.5-first success returns without
+entering `_run_cold_recovery`, so the cold generation never advances and that
+fast path stays disarmed on hosts where the command works; and the rung's
+warning now prints the original error where the pre-alignment rung printed the
+rebound retry error. The
 `raise` happens inside the caller's `except`, so the original `ValueError`
 remains the `__context__`.
 

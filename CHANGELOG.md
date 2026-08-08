@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Cold-start recovery now runs `NOTEBOOKLM_REFRESH_CMD` before the re-mint
+  rungs.** On a dead-cookie cold start, the external refresh command (rung
+  "L2.5") previously ran only *after* headless re-auth (L3) and master-token
+  re-mint (L4) had both failed. It now runs first, matching the order
+  mid-session recovery has always used and the order
+  [ADR-0030](docs/adr/0030-one-recovery-ladder.md) documents; cold start had
+  never matched its own ADR. Operators with a configured command will see it
+  invoked earlier. A **failing** command no longer ends the ladder — L3 and L4
+  still run after it, so a broken or timing-out refresh command cannot mask the
+  re-mint rungs — and the command is invoked at most once per recovery. When the
+  whole ladder is exhausted the error is unchanged: the command's actionable
+  exit-code message is preserved rather than being replaced by a generic
+  "Authentication expired". Where no command is configured, nothing changes.
+
 ### Added
 
 - **Mid-session `NOTEBOOKLM_REFRESH_CMD` (opt-in for one release).** The external

@@ -48,7 +48,9 @@ of a tiered recovery design that escalates as failure modes get harder.
 
 The recovery ladder runs cheapest-to-heaviest — **L1** per-call `RotateCookies`
 POST, **L2** background keepalive, **L3** headless re-auth / loopback CDP, **L4**
-master-token re-mint, **L5** `NOTEBOOKLM_REFRESH_CMD`, **L6** manual `notebooklm
+master-token re-mint, **L5** `NOTEBOOKLM_REFRESH_CMD` (which, when configured,
+runs *before* L3/L4 on a **cold start** — rung "L2.5" in the code's escalation
+order, see [ADR-0030](adr/0030-one-recovery-ladder.md)), **L6** manual `notebooklm
 login`, **L7** scheduled `notebooklm auth refresh` (the same taxonomy as
 [troubleshooting.md](troubleshooting.md#authentication-errors); per-layer detail in
 [§4](#4--the-recovery-ladder)). L1/L2 keep a live session fresh but can't revive a
