@@ -5,6 +5,8 @@ from __future__ import annotations
 __all__ = ["CookiePersistence", "SaveCookiesToStorage"]
 
 import itertools
+import json
+import logging
 import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -12,6 +14,8 @@ from typing import Protocol
 
 import httpx
 
+from ._auth.cookie_policy import RequiredCookieValidationError
+from ._auth.cookies import StorageStateValidationError, load_httpx_cookies
 from ._auth.paths import canonical_storage_key
 from ._auth.storage import (
     CookieSaveResult,
@@ -20,6 +24,8 @@ from ._auth.storage import (
     snapshot_cookie_jar,
 )
 from .auth import AuthTokens
+
+logger = logging.getLogger("notebooklm.auth")
 
 
 class SaveCookiesToStorage(Protocol):
@@ -65,7 +71,8 @@ class CookiePersistence:
         self.auth = auth
         self.default_path = default_path
         self.save_lock = save_lock if save_lock is not None else threading.Lock()
-        self.loaded_cookie_snapshot: CookieSnapshot | None = None
+        self._default_key = canonical_storage_key(default_path) or default_path
+        self._loaded_cookie_snapshots: dict[Path | None, CookieSnapshot] = {}
         # Save-ordering guard [storage-F3 / refresh-F3]: each save() dispatch is
         # stamped from a monotonic counter (``__next__`` is GIL-atomic — the
         # ordering does not rest on the unenforced one-loop-per-client contract).
@@ -76,6 +83,19 @@ class CookiePersistence:
         # a newer save to path B never drops an older save to path A.
         self._save_seq = itertools.count()
         self._last_applied_seq: dict[Path, int] = {}
+
+    @property
+    def loaded_cookie_snapshot(self) -> CookieSnapshot | None:
+        """Compatibility view of the baseline for ``default_path`` only."""
+        return self._loaded_cookie_snapshots.get(self._default_key)
+
+    @loaded_cookie_snapshot.setter
+    def loaded_cookie_snapshot(self, snapshot: CookieSnapshot | None) -> None:
+        if snapshot is None:
+            self._loaded_cookie_snapshots.pop(self._default_key, None)
+        else:
+            self._loaded_cookie_snapshots[self._default_key] = snapshot
+        self.auth.cookie_snapshot = snapshot
 
     def capture_open_snapshot(self, jar: httpx.Cookies) -> CookieSnapshot:
         """Capture and publish the baseline used for later delta saves."""
@@ -142,7 +162,26 @@ class CookiePersistence:
                 last_applied = persistence._last_applied_seq.get(key, -1)
                 if dispatch_seq < last_applied:
                     return
-                snap = persistence.loaded_cookie_snapshot
+                if (
+                    key not in persistence._loaded_cookie_snapshots
+                    and key != persistence._default_key
+                ):
+                    try:
+                        loaded_jar = load_httpx_cookies(p)
+                    except (
+                        OSError,
+                        UnicodeDecodeError,
+                        json.JSONDecodeError,
+                        StorageStateValidationError,
+                        RequiredCookieValidationError,
+                    ) as exc:
+                        logger.warning(
+                            "Skipping cookie save: override baseline initialization failed (%s)",
+                            type(exc).__name__,
+                        )
+                        return
+                    persistence._loaded_cookie_snapshots[key] = snapshot_cookie_jar(loaded_jar)
+                snap = persistence._loaded_cookie_snapshots.get(key)
                 result = save_cookies_to_storage(
                     s,
                     p,
@@ -155,27 +194,32 @@ class CookiePersistence:
                 # keys) does not advance, so the older worker above may proceed.
                 if _apply_ran_merge(result) and dispatch_seq > last_applied:
                     persistence._last_applied_seq[key] = dispatch_seq
-                persistence._advance_baseline_after_save(snap, post, result)
+                persistence._advance_baseline_after_save(key, snap, post, result)
 
         await to_thread(_save)
 
     def _advance_baseline_after_save(
         self,
+        key: Path,
         original_snapshot: CookieSnapshot | None,
         post_save_snapshot: CookieSnapshot,
         result: bool | CookieSaveResult,
     ) -> None:
+        advanced_snapshot: CookieSnapshot | None = None
         if isinstance(result, CookieSaveResult):
             if result.ok:
-                self.loaded_cookie_snapshot = post_save_snapshot
+                advanced_snapshot = post_save_snapshot
             elif result.cas_rejected_keys:
-                self.loaded_cookie_snapshot = advance_cookie_snapshot_after_save(
+                advanced_snapshot = advance_cookie_snapshot_after_save(
                     original_snapshot,
                     post_save_snapshot,
                     result.cas_rejected_keys,
                 )
-            if self.loaded_cookie_snapshot is not None:
-                self.auth.cookie_snapshot = self.loaded_cookie_snapshot
         elif result:
-            self.loaded_cookie_snapshot = post_save_snapshot
-            self.auth.cookie_snapshot = post_save_snapshot
+            advanced_snapshot = post_save_snapshot
+
+        if advanced_snapshot is None:
+            return
+        self._loaded_cookie_snapshots[key] = advanced_snapshot
+        if key == self._default_key:
+            self.auth.cookie_snapshot = advanced_snapshot
