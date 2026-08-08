@@ -533,7 +533,7 @@ the default dependency.
 | [`_auth/cookie_policy.py`](../src/notebooklm/_auth/cookie_policy.py) | Domain allowlist, cookie-domain builder (`build_cookie_domain_allowlist`), and cookie policy decisions. |
 | [`_auth/cookie_semantics.py`](../src/notebooklm/_auth/cookie_semantics.py) | Shared cookie-shape and expiry semantics used by sanitized auth loaders and persistence boundaries. |
 | [`_auth/cookie_types.py`](../src/notebooklm/_auth/cookie_types.py) | The canonical `Cookie` / `CookieJar` types (ADR-0031 Stage 1): constructors from every input shape, converters to httpx/storage-state, and the cookie-set policy questions as methods. A delegating wrapper — policy still lives in `cookie_policy`/`cookies`. |
-| [`_auth/browser_cookie_recovery.py`](../src/notebooklm/_auth/browser_cookie_recovery.py) | Leaf bridge that validates captured browser cookies and retries in-memory PSIDTS recovery. |
+| [`_auth/browser_cookie_recovery.py`](../src/notebooklm/_auth/browser_cookie_recovery.py) | **Shim** — re-exports `validate` / `heal` / `validate_with_recovery` + `ValidationResult` from `_auth/psidts_recovery.py`; defines nothing. Removed at the next major. |
 | [`_auth/browser_state_validation.py`](../src/notebooklm/_auth/browser_state_validation.py) | Best-effort in-memory PSIDTS heal for Playwright-captured state, preserving cookie attributes. Returns `(state, error)` and never raises, so a failed heal cannot discard a completed sign-in. |
 | [`_auth/browser_capture.py`](../src/notebooklm/_auth/browser_capture.py) | Transport-neutral browser launch→navigate→capture→filter→persist core (lazy `playwright`); shared by the interactive CLI login adapter and the layer-3 headless re-auth layer (ADR-0021). The headless arm classifies the landing URL (authenticated→capture, redirected-to-login→`HeadlessLoginRequiredError`). `run_cdp_capture` is an alternative credential source: attach to an operator-pointed already-running Chrome over CDP (`connect_over_cdp`, disconnect-only teardown) using the SAME landing classification + cookie-domain allowlist. |
 | [`_auth/_browser_cookie_filter.py`](../src/notebooklm/_auth/_browser_cookie_filter.py) | Pure storage-state cookie filter shared by browser-capture arms: applies the domain policy, skips malformed rows with value-free diagnostics, and deduplicates exact RFC 6265 identities. |
@@ -546,7 +546,7 @@ the default dependency.
 | [`_auth/session.py`](../src/notebooklm/_auth/session.py) | `refresh_auth_session(auth=..., kernel=..., auth_coord=..., lifecycle=..., cookie_persistence=...)` implementation called by `AuthRefreshCoordinator`. Takes five explicit keyword-only collaborators instead of a Session-shaped owner Protocol; the previous `RefreshAuthCore` Protocol and the `update_auth_tokens` / `update_auth_headers` Session-level forwards have been removed. |
 | [`_auth/refresh.py`](../src/notebooklm/_auth/refresh.py) | Token refresh driver (external login command, secret redaction). Coalesces refresh-cmd runs across loops via the `single_flight` core and serializes the subprocess across processes with a per-path refresh flock ([refresh-2]). |
 | [`_auth/keepalive.py`](../src/notebooklm/_auth/keepalive.py) | Cookie keepalive + `__Secure-1PSIDTS` rotation. |
-| [`_auth/psidts_recovery.py`](../src/notebooklm/_auth/psidts_recovery.py) | Inline PSIDTS recovery for cold-start (see issue #865). Invoked from the loader **wrapper** bodies, never the network-free pure loader ([ADR-0030](./adr/0030-one-recovery-ladder.md)); its env-var check shares `paths.resolve_auth_json_env`. |
+| [`_auth/psidts_recovery.py`](../src/notebooklm/_auth/psidts_recovery.py) | Inline PSIDTS recovery for cold-start (see issue #865) **plus the one load→validate→heal→retry composition** (`load_with_recovery` / `load_session_jar` / `HealPolicy`) that `cookies.build_httpx_cookies_from_storage` and `tokens.load_auth_from_storage` delegate to. Recovery is composed in the loader **wrapper** bodies, never the network-free pure loader ([ADR-0030](./adr/0030-one-recovery-ladder.md)); its env-var check shares `paths.resolve_auth_json_env`. Also owns the captured-browser-cookie `validate` / `heal` / `validate_with_recovery` seam (ADR-0031 Stage 2), absorbed from `browser_cookie_recovery.py` (ADR-0033 sanctioned merge). |
 | [`_auth/master_token.py`](../src/notebooklm/_auth/master_token.py) | Headless master-token auth: minting primitives (exchange/mint/persist) PLUS the whole audited transaction (`bootstrap_from_oauth_token`, `remint_from_stored_token` — the shared kernel L4's re-mint and the CLI's operator refresh both call, `bootstrap_storage_from_master_token` returning a `BootstrapOutcome` kept internal, `bootstrap_missing_storage_from_master_token` collapsing it to the bool the CLI actually crosses the boundary with, `assert_account_writable`), relocated here from the CLI by #2103's PR-2 structural follow-up (ADR-0023). |
 
 The cookie lifecycle — what gets written, who rotates, what the
@@ -1004,7 +1004,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_auth/cookie_policy.py` | Cookie-domain allowlist, `build_cookie_domain_allowlist` builder, and policy decisions |
 | `_auth/cookie_semantics.py` | Shared cookie-shape and expiry semantics at loader/persistence boundaries |
 | `_auth/cookie_types.py` | Canonical `Cookie`/`CookieJar` domain types (ADR-0031 Stage 1); delegating wrapper over the cookie conversions + policy |
-| `_auth/browser_cookie_recovery.py` | Captured-cookie validation and in-memory PSIDTS recovery bridge |
+| `_auth/browser_cookie_recovery.py` | Shim: re-exports the captured-cookie validate/heal seam from `psidts_recovery.py` (removed at next major) |
 | `_auth/browser_state_validation.py` | Best-effort PSIDTS heal for captured state; returns `(state, error)`, never raises |
 | `_auth/browser_capture.py` | Transport-neutral browser launch→capture→filter→persist core (lazy `playwright`); shared by the interactive CLI login adapter (`cli/services/playwright_login.py`) and the layer-3 headless re-auth layer (ADR-0021) |
 | `_auth/_browser_cookie_filter.py` | Pure storage-state cookie filter shared by browser-capture arms; applies domain policy and normalizes malformed/duplicate rows |
@@ -1188,7 +1188,7 @@ src/notebooklm/
 │   ├── cookie_policy.py         # Domain allowlist + cookie-domain builder and policy
 │   ├── cookie_semantics.py      # Shared cookie-shape and expiry semantics
 │   ├── cookie_types.py          # Canonical Cookie/CookieJar types (ADR-0031 Stage 1)
-│   ├── browser_cookie_recovery.py # Captured-cookie validation + in-memory PSIDTS recovery bridge
+│   ├── browser_cookie_recovery.py # Shim: re-exports validate/heal/validate_with_recovery from psidts_recovery.py (removed at next major)
 │   ├── browser_state_validation.py # Best-effort PSIDTS heal for captured state (never raises)
 │   ├── browser_capture.py       # Transport-neutral browser launch→capture→filter→persist core (lazy playwright)
 │   ├── _browser_cookie_filter.py # Shared storage-state cookie-domain filter + row normalization
@@ -1201,7 +1201,7 @@ src/notebooklm/
 │   ├── storage_writer.py        # Shim: re-exports the writer API from storage.py (removed at next major)
 │   ├── storage_transaction.py   # Shim: re-exports in_storage_transaction + lock policies from storage.py (removed at next major)
 │   ├── keepalive.py             # Cookie keepalive + __Secure-1PSIDTS rotation
-│   ├── psidts_recovery.py       # Inline PSIDTS recovery for cold-start (issue #865)
+│   ├── psidts_recovery.py       # Inline PSIDTS recovery (issue #865) + the one load→heal→retry composition + the captured-cookie validate/heal seam
 │   ├── master_token.py          # Headless master-token auth: minting primitives + the audited bootstrap/re-mint transaction (ADR-0023)
 │   ├── recovery.py              # Client-neutral cold-start L3/L4 adapters (consume single_flight; keep per-loop revalidate epoch)
 │   ├── single_flight.py         # Cross-loop coalescing core: (path, policy) flight registry + per-path success_epoch

@@ -43,6 +43,43 @@ def _safe_cookie_shape(cookie: dict[str, Any]) -> str:
     return f"keys={keys} types={{{types}}}"
 
 
+#: ``CookieRowError.field`` -> the bounded warning this module emits for it.
+#: The *checks* live in :func:`notebooklm._auth.cookie_semantics.sanitize_cookie_entry`
+#: (the one row-shape predicate); only the failure mode is local. Every message
+#: takes exactly one ``%s`` — the value-free shape from :func:`_safe_cookie_shape`.
+_MALFORMED_ROW_WARNINGS: dict[str, str] = {
+    "name": "Skipping storage_state cookie with missing/empty/non-str name (%s)",
+    "domain": "Skipping storage_state cookie with non-str domain (%s)",
+    "path": "Skipping storage_state cookie with non-str path (%s)",
+    "expires": "Skipping storage_state cookie with unusable expires (%s)",
+}
+
+
+def _report_malformed_row(cookie: Any, exc: _cookie_semantics.CookieRowError) -> None:
+    """Log one bounded, value-free warning for a row the predicate rejected.
+
+    ``exc.field == "row"`` means the entry is not a dict at all, so
+    :func:`_safe_cookie_shape` cannot describe it — log the Python type instead.
+    Never log the row itself: a cookie ``value`` is a live credential and, on the
+    CDP arm, comes straight from the operator's running browser.
+
+    An absent or empty-string ``domain`` is dropped **silently**: such a row is
+    never on the allowlist, so it was dropped without a warning before the shared
+    predicate started rejecting it up front, and a warning here would be new
+    noise on every domain-less row a browser exports.
+    """
+    if exc.field == "row":
+        logger.warning(
+            "Skipping malformed storage_state cookie entry (not a dict): type=%s",
+            type(cookie).__name__,
+        )
+        return
+    if exc.field == "domain" and isinstance(cookie.get("domain", ""), str):
+        return
+    message = _MALFORMED_ROW_WARNINGS.get(exc.field, "Skipping malformed storage_state cookie (%s)")
+    logger.warning(message, _safe_cookie_shape(cookie))
+
+
 def filter_storage_state_cookies_by_domain_policy(
     state: dict[str, Any],
     *,
@@ -133,61 +170,33 @@ def filter_storage_state_cookies_by_domain_policy(
     index_by_identity: dict[tuple[str, str, Any], int] = {}
 
     for cookie in state.get("cookies", []):
-        if not isinstance(cookie, dict):
-            # Never log the row itself — a cookie's ``value`` is a live
-            # credential and (for the CDP arm) comes straight from the
-            # operator's running browser. Log only the offending Python type.
-            logger.warning(
-                "Skipping malformed storage_state cookie entry (not a dict): type=%s",
-                type(cookie).__name__,
-            )
-            continue
-        domain = cookie.get("domain", "")
-        if not isinstance(domain, str):
-            logger.warning(
-                "Skipping storage_state cookie with non-str domain (%s)",
-                _safe_cookie_shape(cookie),
-            )
-            continue
-        name = cookie.get("name")
-        if not isinstance(name, str) or not name:
-            logger.warning(
-                "Skipping storage_state cookie with missing/empty/non-str name (%s)",
-                _safe_cookie_shape(cookie),
-            )
-            continue
-        # ``path`` participates in the dedup identity below and is normalized
-        # with ``or "/"``; a present-but-non-str path (int, list) would slip
-        # past that and later crash http.cookiejar/httpx path matching, so
-        # treat it as malformed. ``None``/absent is fine — it normalizes to
-        # the root path, matching the loaders.
-        path = cookie.get("path")
-        if path is not None and not isinstance(path, str):
-            logger.warning(
-                "Skipping storage_state cookie with non-str path (%s)",
-                _safe_cookie_shape(cookie),
-            )
-            continue
-        # A row whose ``expires`` cannot be normalized is unusable: every
-        # loader that later rebuilds it goes through ``int(float(expires))``
-        # inside ``http.cookiejar.Cookie``, which raises. Dropping it at
-        # capture time keeps the persisted state loadable rather than
+        # ONE row-shape predicate, shared with every loader (ADR-0033 PR 2.1).
+        # It rejects a non-dict entry, a missing/empty/non-str ``name`` or
+        # ``domain``, a present-but-non-str ``path`` (which would slip past the
+        # ``or "/"`` normalization below and later crash http.cookiejar/httpx
+        # path matching), and an ``expires`` that cannot be normalized — the
+        # last one because every loader that rebuilds the row goes through
+        # ``int(float(expires))`` inside ``http.cookiejar.Cookie``, so dropping
+        # it at capture time keeps the persisted state loadable instead of
         # deferring the failure to the first authed call (#2061).
+        #
+        # ``check_value=False``: this filter is domain policy, not a request
+        # jar. It has never inspected ``value`` and must not start — a row's
+        # value is a credential it only ever copies through.
         try:
-            _cookie_semantics.normalize_cookie_expiry(cookie.get("expires"))
-        except _cookie_semantics.CookieRowError:
-            logger.warning(
-                "Skipping storage_state cookie with unusable expires (%s)",
-                _safe_cookie_shape(cookie),
-            )
+            normalized = _cookie_semantics.sanitize_cookie_entry(cookie, check_value=False)
+        except _cookie_semantics.CookieRowError as exc:
+            _report_malformed_row(cookie, exc)
             continue
+        name = normalized["name"]
+        domain = normalized["domain"]
         if not _is_allowed(domain):
             continue
 
-        # Full RFC 6265 identity. ``or "/"`` mirrors the path normalization
-        # the loaders and the save_cookies_to_storage merge key use, so an
+        # Full RFC 6265 identity. The predicate's ``path or "/"`` normalization
+        # mirrors the loaders and the save_cookies_to_storage merge key, so an
         # empty-path twin can't survive as a phantom duplicate row.
-        identity = (name, domain, path or "/")
+        identity = (name, domain, normalized["path"])
         existing = index_by_identity.get(identity)
         if existing is None:
             index_by_identity[identity] = len(filtered_cookies)

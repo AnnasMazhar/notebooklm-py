@@ -453,37 +453,29 @@ def load_auth_from_storage(path: Path | None = None) -> dict[str, str]:
         # export NOTEBOOKLM_AUTH_JSON='{"cookies":[...]}'
         cookies = load_auth_from_storage()
     """
-    try:
-        return _load_auth_cookies_pure(path, require_routable=True)
-    except _auth_cookies.RequiredCookieValidationError:
-        # Inline ``__Secure-1PSIDTS`` recovery (issue #865). Playwright login
-        # can land a ``storage_state.json`` that carries SID + secondary
-        # binding but lacks PSIDTS, because Google only mints PSIDTS
-        # deterministically in response to the dedicated ``RotateCookies``
-        # POST — not on the passive ``goto()`` navigations the login flow
-        # uses. The preflight then rejects before the keepalive's RotateCookies
-        # path can heal the state. When the recovery preconditions hold, fire
-        # one POST + persist before re-raising — see
-        # :mod:`notebooklm._auth.psidts_recovery` for the precondition list.
-        # ``_recover_psidts_inline`` resolves the effective storage path
-        # itself (default file when ``path is None`` and env-var unset), so
-        # we pass ``path`` through verbatim — including ``None`` for the
-        # default-profile case.
-        #
-        # The recovery invocation lives HERE, in the public wrapper body — the
-        # network-free :func:`_load_auth_cookies_pure` never triggers it (issue
-        # #2061 / event-loop-blocking fix). Sync callers (CLI) keep this inline
-        # recovery; an async caller must offload the wrapper via
-        # ``asyncio.to_thread``.
-        if not _auth_psidts_recovery._recover_psidts_inline(path):
-            # Recovery declined, so the routing half of the preflight has no
-            # heal to trigger and must not harden into a failure this call
-            # cannot repair. Re-run name-only: it re-raises when a required
-            # cookie is genuinely absent, and otherwise returns exactly what
-            # this function returned before #2061. See
-            # ``_build_httpx_cookies_from_storage_state`` for the rule.
-            return _load_auth_cookies_pure(path, require_routable=False)
-        return _load_auth_cookies_pure(path, require_routable=False)
+    # Inline ``__Secure-1PSIDTS`` recovery (issue #865). Playwright login can
+    # land a ``storage_state.json`` that carries SID + secondary binding but
+    # lacks PSIDTS, because Google only mints PSIDTS deterministically in
+    # response to the dedicated ``RotateCookies`` POST — not on the passive
+    # ``goto()`` navigations the login flow uses. The preflight then rejects
+    # before the keepalive's RotateCookies path can heal the state.
+    #
+    # The sequence (strict load -> heal -> name-only retry) has ONE owner,
+    # :func:`notebooklm._auth.psidts_recovery.load_with_recovery`; this wrapper
+    # supplies the flat-map loader and keeps its own name, signature and patch
+    # seam (ADR-0017). It used to be a second copy of that control flow, and by
+    # #2154 the copy had decayed: both arms of its ``if not recovered:`` returned
+    # the identical name-only call, distinguishable only by their comments.
+    #
+    # The recovery invocation stays in a WRAPPER body — the network-free
+    # :func:`_load_auth_cookies_pure` never triggers it (issue #2061 /
+    # event-loop-blocking fix). Sync callers (CLI) keep this inline recovery; an
+    # async caller must offload the wrapper via ``asyncio.to_thread``.
+    return _auth_psidts_recovery.load_with_recovery(
+        path,
+        _auth_psidts_recovery.HealPolicy.HEAL_THEN_NAME_ONLY,
+        load=_load_auth_cookies_pure,
+    )
 
 
 def _load_auth_cookies_pure(

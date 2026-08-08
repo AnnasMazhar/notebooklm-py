@@ -1357,23 +1357,35 @@ def test_public_shim_all_contract(shim_name: str, internal_name: str) -> None:
     )
 
 
-def test_persistence_shims_are_identity_reexports() -> None:
-    """``storage_writer`` / ``storage_transaction`` must keep re-exporting the real objects.
+def test_consolidation_shims_are_identity_reexports() -> None:
+    """Every ADR-0033 merge shim must keep re-exporting the real objects.
 
-    The persistence merge (ADR-0033) turned both modules into re-export shims for
+    The consolidation merges turn the absorbed modules into re-export shims for
     one release. Nothing in ``src/``, ``tests/`` or ``scripts/`` imports them any
-    more, so their ``from .storage import (...)`` blocks have **zero** coverage:
-    a later consolidation PR that renames one of these names would break the shim
-    with an ``ImportError`` raised only at import time, and no test would notice.
-    Several such PRs are scheduled (the writer conversions, the cookie-filter
-    relocation, the account-record relocation), so this pins the shims to the
-    canonical objects until they are removed at the next major.
+    more, so their ``from .<canonical> import (...)`` blocks have **zero**
+    coverage: a later consolidation PR that renames one of these names would break
+    the shim with an ``ImportError`` raised only at import time, and no test would
+    notice. Several such PRs are scheduled (the writer conversions, the
+    cookie-filter relocation, the account-record relocation), so this pins each
+    shim to the canonical objects until they are removed at the next major.
+
+    Add a ``(shim, canonical)`` pair here in the same PR as each new merge shim.
     """
-    import notebooklm._auth.storage as canonical
+    import notebooklm._auth.browser_cookie_recovery as browser_cookie_recovery_shim
+    import notebooklm._auth.psidts_recovery as psidts_recovery
+    import notebooklm._auth.storage as storage
     import notebooklm._auth.storage_transaction as transaction_shim
     import notebooklm._auth.storage_writer as writer_shim
 
-    for shim in (writer_shim, transaction_shim):
+    pairs = [
+        # the persistence merge
+        (writer_shim, storage),
+        (transaction_shim, storage),
+        # the load-composition merge
+        (browser_cookie_recovery_shim, psidts_recovery),
+    ]
+
+    for shim, canonical in pairs:
         exported = getattr(shim, "__all__", None)
         assert exported, f"{shim.__name__} must declare __all__ so this gate can bite"
         for name in exported:
