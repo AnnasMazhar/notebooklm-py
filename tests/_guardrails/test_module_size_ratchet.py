@@ -180,7 +180,16 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # logger (both modules bound it by NAME, so no log-emission point moved).
     # Pinned at its MEASURED post-relocation LOC; shrink-locked from here on.
     # PR 5.2's account-record relocation is the last planned raise.
-    "_auth/storage.py": 2419,
+    #
+    # RATCHETED DOWN 2419 -> 2412 by PR 5.1 (the account-read write-timing
+    # move). ``update_account_metadata`` lost its ``deadline_seconds``
+    # parameter and the paragraph justifying it: the only caller that ever
+    # passed one was ``account.promote_legacy_account``, which shortened the
+    # lock deadline to 2s purely because it ran inside a per-RPC READ. It no
+    # longer runs there, so the override had no caller and its rationale had
+    # become false. This is an ordinary shrink, not a sanctioned class — the
+    # ratchet demanded it, and the ground is now locked.
+    "_auth/storage.py": 2412,
     # sanctioned merge (ADR-0033) — the `_auth` load-composition merge:
     # ``_auth/browser_cookie_recovery.py`` (142) was absorbed in full and reduced
     # to a re-export shim in the same change. It held the captured-cookie

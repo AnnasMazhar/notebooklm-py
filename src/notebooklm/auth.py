@@ -282,13 +282,15 @@ clear_account_metadata = _auth_account.clear_account_metadata
 # here for the frozen first-party compatibility manifest
 # (``_AUTH_FIRST_PARTY_COMPATIBILITY_NAMES``) and existing test callers.
 # The legacy sibling ``context.json[account]`` READ path was removed (the reader
-# is in-band-only); ``promote_legacy_account`` in ``_auth.account`` owns the
-# one-shot in-band migration, invoked from the standard cookie-load path and the
-# startup layout migration. The legacy-key scrub survives INSIDE
-# ``write_account_metadata`` / ``clear_account_metadata`` (privacy: a stale key
-# must not leave the account email at rest), so the CLI login writers no longer
-# call a facade helper after their writes — ``drop_legacy_account_key`` remains
-# importable here for back-compat only (de-blessed; no first-party importer).
+# derives an in-band-shaped record instead of passing the sibling through);
+# ``promote_legacy_account`` in ``_auth.account`` owns the durable one-shot
+# in-band migration, run off the read path by a detached worker (ADR-0033
+# PR 5.1) and also by the startup layout migration. The legacy-key scrub
+# survives INSIDE ``write_account_metadata`` / ``clear_account_metadata``
+# (privacy: a stale key must not leave the account email at rest), so the CLI
+# login writers no longer call a facade helper after their writes —
+# ``drop_legacy_account_key`` remains importable here for back-compat only
+# (de-blessed; no first-party importer).
 drop_legacy_account_key = _auth_account._drop_legacy_account_key
 
 

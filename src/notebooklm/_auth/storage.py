@@ -1611,7 +1611,6 @@ def update_account_metadata(
     authuser: int,
     email: str | None = None,
     only_if_absent: bool = False,
-    deadline_seconds: float = _LOCK_ACQUIRE_DEADLINE_SECONDS,
 ) -> bool:
     """Persist account metadata atomically inside ``storage_state.json``.
 
@@ -1634,19 +1633,14 @@ def update_account_metadata(
     the whole point of a real login) always passes ``only_if_absent=False``
     (the default); only the promotion caller opts in.
 
-    ``deadline_seconds`` lets an opportunistic caller bound how long it will
-    contend for the lock. The default (90s, matching every other full-file
-    RMW intent) is right for an intentional login. It is WRONG for
-    :func:`account.promote_legacy_account`: that function now runs inside
-    :func:`account.read_account_metadata`, which many callers — including
-    ``async`` code paths (``client.get_account_email``, token-route
-    resolution) — call assuming a fast, lock-free read. Blocking one of those
-    for up to 90s on lock contention would freeze the event loop for far
-    longer than the "read" it thinks it's doing. Promotion is best-effort by
-    design (a failed promotion falls back to the legacy record, never breaks
-    the read — see ``promote_legacy_account``), so a short deadline that gives
-    up fast and takes that fallback is strictly the right trade-off; only the
-    promotion caller passes a short one.
+    There is no ``deadline_seconds`` override: every caller takes the standard
+    90s full-file-RMW deadline. One used to pass 2s —
+    :func:`account.promote_legacy_account`, back when it ran INSIDE
+    :func:`account.read_account_metadata` and a 90s lock wait would have frozen
+    an event loop in the middle of what its callers treat as a fast, lock-free
+    read. ADR-0033 PR 5.1 moved promotion off that read path onto a detached
+    one-shot worker, so nothing is waiting on this acquire any more and
+    outlasting real contention beats giving up (the one-shot does not retry).
 
     Returns:
         ``True`` if a write happened; ``False`` if ``only_if_absent`` was set
@@ -1683,7 +1677,6 @@ def update_account_metadata(
             _write,
             log_prefix="write_account_metadata",
             on_unavailable=raise_on_lock_unavailable("write_account_metadata"),
-            deadline_seconds=deadline_seconds,
         )
     )
 
