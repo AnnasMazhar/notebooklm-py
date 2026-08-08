@@ -43,7 +43,7 @@ from typing import Any
 
 import pytest
 
-from notebooklm._auth.account import (
+from notebooklm._auth.storage import (
     _drain_promotions_for_tests,
     clear_account_metadata,
     get_account_email_for_storage,

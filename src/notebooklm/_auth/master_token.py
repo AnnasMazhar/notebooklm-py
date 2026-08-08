@@ -236,7 +236,7 @@ def storage_state_from_jar(jar: httpx.Cookies, *, email: str | None = None) -> d
         "origins": [],
     }
     if email is not None:
-        # Mirrors _auth/account.write_account_metadata's namespace shape.
+        # Mirrors _auth/storage.write_account_metadata's namespace shape.
         state["notebooklm"] = {"version": 1, "account": {"authuser": 0, "email": email}}
     return state
 
@@ -383,7 +383,10 @@ def assert_account_writable(*, email: str, storage_path: Path, force: bool = Fal
         # a raw AttributeError from `email.casefold()` below (#2103 PR-2 review).
         raise MasterTokenError("assert_account_writable requires a non-empty email.")
     from ..paths import master_token_path_for  # noqa: PLC0415 (avoid import cycle)
-    from .account import get_account_email_for_storage  # noqa: PLC0415 (avoid import cycle)
+
+    # Reader relocated from ``.account`` to ``.storage`` by ADR-0033 PR 5.2;
+    # kept deferred to match this module's two other ``storage`` imports.
+    from .storage import get_account_email_for_storage  # noqa: PLC0415 (no cycle either way)
 
     master_token_path = master_token_path_for(storage_path)
     try:

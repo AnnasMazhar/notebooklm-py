@@ -43,7 +43,7 @@ class AuthTokens:
             pre-multi-account behavior. A pre-v0.5.0 profile's account
             metadata in the legacy sibling ``context.json`` is derived into
             in-band shape on load (and promoted in-band durably by a detached
-            one-shot) — see ``notebooklm._auth.account`` — rather than read
+            one-shot) — see ``notebooklm._auth.storage`` — rather than read
             from here.
         account_email: Stable Google account identity for routing. When set,
             NotebookLM requests use it as the ``authuser`` value instead of the
@@ -315,7 +315,7 @@ class AuthTokens:
         if path is None:
             authuser = 0
             account_email = None
-            account_metadata = _auth_account.read_account_metadata_from_storage_state(
+            account_metadata = _auth_storage.read_account_metadata_from_storage_state(
                 _auth_cookies._load_storage_state(path)
             )
             raw_authuser = account_metadata.get("authuser")
@@ -325,8 +325,8 @@ class AuthTokens:
             if isinstance(raw_email, str) and raw_email.strip():
                 account_email = raw_email.strip()
         else:
-            authuser = _auth_account.get_authuser_for_storage(path)
-            account_email = _auth_account.get_account_email_for_storage(path)
+            authuser = _auth_storage.get_authuser_for_storage(path)
+            account_email = _auth_storage.get_account_email_for_storage(path)
         # Build the cookie jar via the lossless loader so path/secure/httpOnly
         # survive into the live jar. The earlier
         # extract_cookies_with_domains -> build_cookie_jar pipeline only carried
@@ -399,8 +399,8 @@ class AuthTokens:
         cookies = _auth_cookies._cookie_map_from_jar(jar)
 
         if refreshed and path is not None:
-            authuser = _auth_account.get_authuser_for_storage(path)
-            account_email = _auth_account.get_account_email_for_storage(path)
+            authuser = _auth_storage.get_authuser_for_storage(path)
+            account_email = _auth_storage.get_account_email_for_storage(path)
 
         return cls(
             cookies=cookies,

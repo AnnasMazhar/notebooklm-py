@@ -14,8 +14,8 @@ It also owns :func:`_resolve_token_route_kwargs`, absorbed from the former
 function whose only call sites are the token-fetch entry points below, so it
 failed the deletion test as a standalone file; it existed as a separate module
 only because the routing glue was too small to justify one and too
-entry-point-specific to live in ``_auth.account`` next to the authuser helpers
-it composes.
+entry-point-specific to live next to the authuser helpers it composes (split
+across ``_auth.account`` and ``_auth.storage`` since ADR-0033 PR 5.2).
 
 Logger name is pinned to ``"notebooklm.auth"`` (NOT ``__name__``) so existing
 ``caplog`` assertions targeting ``notebooklm.auth`` keep matching the records
@@ -47,8 +47,9 @@ from . import paths as _auth_paths
 from . import recovery as _auth_recovery
 from . import single_flight as _single_flight
 from . import storage as _auth_storage
-from .account import authuser_query, get_account_email_for_storage, get_authuser_for_storage
+from .account import authuser_query
 from .paths import resolve_auth_json_env
+from .storage import get_account_email_for_storage, get_authuser_for_storage
 
 logger = logging.getLogger("notebooklm.auth")
 
@@ -679,9 +680,8 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
 
 
 # --- Token-route resolution (absorbed from _auth/headers.py) -----------------
-# Most authuser/header helpers live in :mod:`notebooklm._auth.account`
-# (``authuser_query``, ``format_authuser_value``, ``get_authuser_for_storage``,
-# ``get_account_email_for_storage``). What follows is the higher-level *routing*
+# Most authuser helpers live in :mod:`notebooklm._auth.account` (wire formatters)
+# and :mod:`notebooklm._auth.storage` (record readers). What follows is the *routing*
 # glue that combines them for the token-fetch entry points below, preserving
 # explicit caller intent vs. resolved-from-storage defaults. It used to live in
 # a 68-line ``_auth/headers.py`` whose only three call sites are in this module;
@@ -700,8 +700,8 @@ def _resolve_token_route_kwargs(
     env_authuser = 0
     env_account_email: str | None = None
     if env_auth_present and authuser is None:
-        from .account import read_account_metadata_from_storage_state
         from .cookies import _load_storage_state
+        from .storage import read_account_metadata_from_storage_state
 
         try:
             metadata = read_account_metadata_from_storage_state(_load_storage_state(None))

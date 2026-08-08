@@ -98,14 +98,17 @@ _ATOMIC_WRITE_JSON_IMPORTERS: frozenset[str] = frozenset(
     {
         # Legitimate NON-storage-state writers (permanent).
         "io.py",  # public re-export of the _atomic_io helpers
-        "_auth/account.py",  # writes the legacy sibling context.json (not storage_state)
         "cli/context.py",  # CLI context.json / config.json
         "mcp/_oauth.py",  # writes the MCP OAuth token file
-        # NOTE: the canonical writer ``_auth/storage.py`` no longer imports
-        # the PUBLIC ``atomic_write_json`` — since b-PR3 the public helper rejects
-        # ``storage_state.json`` paths at runtime, and the writer uses the
-        # module-private bypass ``_atomic_write_json_unchecked`` instead (tracked
-        # by _ATOMIC_WRITE_JSON_BYPASS_IMPORTERS below).
+        # ``_auth/storage.py`` imports the PUBLIC helper too, alongside the
+        # module-private bypass it uses for ``storage_state.json`` (tracked by
+        # _ATOMIC_WRITE_JSON_BYPASS_IMPORTERS below). ADR-0033 PR 5.2 relocated
+        # ``_drop_legacy_account_key`` in from ``_auth/account.py`` — the one
+        # writer there that targets the SIBLING ``context.json``, never
+        # ``storage_state.json``, so it must go through the guarded public
+        # primitive exactly as it did in its donor. ``_auth/account.py`` dropped
+        # off this list in the same commit (it no longer writes anything).
+        "_auth/storage.py",
         # The three CLI login/import writers migrated in b-PR3 (they now route
         # through storage.replace_from_login via the auth facade) and
         # ``_auth/browser_capture.py`` migrated in b-PR2 — all dropped off here.
@@ -205,7 +208,10 @@ _AUTH_WRITE_PRIMITIVE_IMPORTERS: frozenset[str] = frozenset(
         # Was ``_auth/storage_writer.py`` until ADR-0033's persistence merge
         # folded that module into ``storage.py`` (1:1 relocation, not a widening).
         "_auth/storage.py",
-        "_auth/account.py",  # context.json cleanup only (not storage_state)
+        # ``_auth/account.py`` dropped off in ADR-0033 PR 5.2: its context.json
+        # cleanup (``_drop_legacy_account_key``) relocated into ``storage.py``
+        # with the rest of the account-record persistence, so ``account.py``
+        # imports no write primitive at all any more.
         # ``_auth/browser_capture.py`` migrated in b-PR2 — it no longer imports a
         # write primitive (re-mint now routes through _auth/storage).
     }
@@ -243,7 +249,7 @@ _WRITE_PRIMITIVE_SEAM_BINDINGS: frozenset[str] = frozenset()
 # ``from .. import _atomic_io`` / ``from notebooklm import _atomic_io``), as
 # distinct from ``from .._atomic_io import <primitive>`` (a NAME import — clauses
 # (i)/(iv)). VERIFIED by grep (2026-08): the set is currently **empty** — every
-# legitimate user (io.py, _auth/storage.py, account.py, migration.py,
+# legitimate user (io.py, _auth/storage.py, cli/context.py, migration.py,
 # mcp/_oauth.py) imports the primitive NAMES, never the module object. Frozen
 # empty so the FIRST module to pull in the ``_atomic_io`` module (which could then
 # reach ``_atomic_write_json_unchecked`` via attribute access, skipping the public
