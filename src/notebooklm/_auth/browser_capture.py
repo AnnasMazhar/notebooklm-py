@@ -92,10 +92,11 @@ from ..exceptions import HeadlessLoginRequiredError
 from . import cookies as _auth_cookies
 from . import psidts_recovery as _psidts_recovery
 
-# The storage-state filter is a pure leaf shared by the headed and headless
-# capture arms; the historical names remain re-exported from this module.
-from ._browser_cookie_filter import _safe_cookie_shape as _safe_cookie_shape
-from ._browser_cookie_filter import filter_storage_state_cookies_by_domain_policy
+# The canonical writer both capture arms persist through. Deferred until
+# ADR-0033 PR 4.2 put the write-time cookie filter in ``storage`` too, making
+# the module-level edge unavoidable (still no cycle: ``storage`` imports nothing
+# from here). Bound as the MODULE, so the writers stay late-bound (patch seam).
+from . import storage
 
 # ``CHANNEL_BROWSERS`` and the launch-failure triage live in the
 # ``browser_launch_errors`` leaf (ADR-0008). ``CHANNEL_BROWSERS`` is re-exported
@@ -111,6 +112,11 @@ from .browser_launch_errors import CHANNEL_BROWSERS, classify_launch_failure
 # cookie-refresh advice (``cli/services/login/cookie_jar.py``) must not grow a
 # second, drifting copy of that caveat.
 from .cookie_policy import app_host_scope_note
+
+# The storage-state cookie filter is WRITE-time policy and lives beside the
+# writers applying it (ADR-0033 PR 4.2); re-exported here, the CLI's import site.
+from .storage import _safe_cookie_shape as _safe_cookie_shape
+from .storage import filter_storage_state_cookies_by_domain_policy
 
 if TYPE_CHECKING:
     from playwright.sync_api import BrowserContext, Page
@@ -903,6 +909,10 @@ def run_browser_capture(
             # myaccount, docs, youtube) the user is signed into in the same
             # browser session don't leak into ``storage_state.json`` (opt-in via
             # ``--include-domains=...``).
+            # NOT the writer's pass repeated — do not delete it as redundant
+            # (ADR-0033 D3). It runs BEFORE ``heal_captured_state``, so the heal's
+            # routing preflight and recovery-jar build see domain-filtered rows,
+            # not sibling-product cookies + domain-variant name collisions (#2054).
             playwright_state = context.storage_state()
             filtered_state: dict[str, Any] = filter_storage_state_cookies_by_domain_policy(
                 dict(playwright_state), include_domains=include_domains
@@ -914,21 +924,14 @@ def run_browser_capture(
             # the existing account namespace forward (carry_account=True — fixes
             # [capture-1]); the interactive arm may have signed into a different
             # account, so it drops the stale binding (carry_account=False) and
-            # the CLI adapter's repair re-establishes it. The writer re-applies
-            # the same domain filter internally (idempotent with the call above).
+            # the CLI adapter's repair re-establishes it. The writer filters
+            # again under the lock: ADR-0029's entry-path-independent guarantee,
+            # a DIFFERENT obligation from the pre-heal pass above (it holds for
+            # callers that never filtered). Neither pass may be dropped.
             # Persist unconditionally. A failed heal must never discard the
             # sign-in the user just completed — the cookies are still the best
             # material available, and the disk-based cold-start recovery retries
             # from them on the next command.
-            # NOT a cycle break, despite what this comment used to claim:
-            # there is no module-level import edge between browser_capture
-            # and storage in EITHER direction (verified, ADR-0033
-            # PR 0.2), so a top-level import would be legal. It stays
-            # function-local to keep the writer stack off this module's
-            # import path; the noqa silences PLC0415, which flags any
-            # non-top-level import.
-            from . import storage  # noqa: PLC0415 (deferred; see above)
-
             outcome = storage.replace_from_remint(
                 storage_path,
                 filtered_state,
@@ -1138,6 +1141,10 @@ def run_cdp_capture(
             # capture path, so the on-disk state is equivalent regardless of the
             # credential source. Capture from the operator's CONTEXT (its cookie
             # jar), not from our temporary page.
+            # As in the launch arm, this pass feeds ``heal_captured_state``
+            # filtered rows (ADR-0033 D3) — and matters most here: CDP attaches
+            # to the operator's DAILY Chrome, the richest source of sibling-
+            # product cookies and domain-variant name collisions (#2054).
             playwright_state = context.storage_state()
             filtered_state: dict[str, Any] = filter_storage_state_cookies_by_domain_policy(
                 dict(playwright_state), include_domains=include_domains
@@ -1159,16 +1166,9 @@ def run_cdp_capture(
             # Persist unconditionally. A failed heal must never discard the
             # sign-in the user just completed — the cookies are still the best
             # material available, and the disk-based cold-start recovery retries
-            # from them on the next command.
-            # NOT a cycle break, despite what this comment used to claim:
-            # there is no module-level import edge between browser_capture
-            # and storage in EITHER direction (verified, ADR-0033
-            # PR 0.2), so a top-level import would be legal. It stays
-            # function-local to keep the writer stack off this module's
-            # import path; the noqa silences PLC0415, which flags any
-            # non-top-level import.
-            from . import storage  # noqa: PLC0415 (deferred; see above)
-
+            # from them on the next command. And as in the launch arm, the
+            # writer's own pass under the lock is ADR-0029's entry-path-
+            # independent guarantee, not a repeat of the pre-heal pass above.
             outcome = storage.replace_from_remint(
                 storage_path,
                 filtered_state,

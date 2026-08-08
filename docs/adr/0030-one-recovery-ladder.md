@@ -278,6 +278,13 @@ its single unkeyed task slot; its internals are untouched.
 - `_auth/_browser_cookie_filter.py` logs to `notebooklm.auth`
   (not `__name__`) so its dropped-cookie / malformed-row warnings reach the
   documented auth logger (core-F10 / ADR-0016).
+  **Amended (ADR-0033 PR 4.2):** the filter now lives in `_auth/storage.py`
+  (`_auth/_browser_cookie_filter.py` is a re-export shim). The contract is
+  unchanged and still holds — `storage.py` binds its logger by the same
+  `notebooklm.auth` *name*, not `__name__`, so no warning changed namespace in
+  the move. Any future relocation of this code must preserve that; a module
+  whose logger follows `__name__` would silently reroute these warnings to a
+  private child no operator subscribes to.
 
 ### Boundary — what this ADR does NOT touch
 

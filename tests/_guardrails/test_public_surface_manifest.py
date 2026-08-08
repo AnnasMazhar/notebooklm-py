@@ -1385,12 +1385,13 @@ def test_consolidation_shims_are_identity_reexports() -> None:
     more, so their ``from .<canonical> import (...)`` blocks have **zero**
     coverage: a later consolidation PR that renames one of these names would break
     the shim with an ``ImportError`` raised only at import time, and no test would
-    notice. Several such PRs are scheduled (the writer conversions, the
-    cookie-filter relocation, the account-record relocation), so this pins each
-    shim to the canonical objects until they are removed at the next major.
+    notice. A further such PR is scheduled (the account-record relocation), so
+    this pins each shim to the canonical objects until they are removed at the
+    next major.
 
     Add a ``(shim, canonical)`` pair here in the same PR as each new merge shim.
     """
+    import notebooklm._auth._browser_cookie_filter as cookie_filter_shim
     import notebooklm._auth.browser_cookie_recovery as browser_cookie_recovery_shim
     import notebooklm._auth.psidts_recovery as psidts_recovery
     import notebooklm._auth.storage as storage
@@ -1403,6 +1404,8 @@ def test_consolidation_shims_are_identity_reexports() -> None:
         (transaction_shim, storage),
         # the load-composition merge
         (browser_cookie_recovery_shim, psidts_recovery),
+        # the write-side cookie-filter relocation (PR 4.2)
+        (cookie_filter_shim, storage),
     ]
 
     for shim, canonical in pairs:
