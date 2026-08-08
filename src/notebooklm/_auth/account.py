@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import json
 import logging
 import re
@@ -453,19 +454,52 @@ def _run_promotion_once(storage_path: Path) -> None:
             _PROMOTION_THREADS.discard(threading.current_thread())
 
 
-def _drain_promotions_for_tests(timeout: float = 30.0) -> None:
-    """Join every in-flight promotion worker (test/diagnostic helper).
-
-    Production never calls this: the whole point of the one-shot is that no
-    read waits on it. Tests use it to make the durable half observable — and
-    ``tests/conftest.py`` drains + clears the process-global state between
-    tests so a worker started by one test cannot write into another's
-    ``tmp_path``.
-    """
+def _drain_promotions(timeout: float) -> None:
+    """Join every in-flight promotion worker, each bounded by ``timeout``."""
     with _PROMOTION_LOCK:
         workers = list(_PROMOTION_THREADS)
     for worker in workers:
         worker.join(timeout)
+
+
+def _drain_promotions_for_tests(timeout: float = 30.0) -> None:
+    """Join every in-flight promotion worker (test/diagnostic helper).
+
+    No production READ waits on this — the whole point of the one-shot is that
+    the durable write never sits on the read path. Tests use it to make the
+    durable half observable, and ``tests/conftest.py`` drains + clears the
+    process-global state between tests so a worker started by one test cannot
+    write into another's ``tmp_path``.
+    """
+    _drain_promotions(timeout)
+
+
+#: Bound on how long interpreter exit will wait for the durable half.
+#: Short by design: a wedged write must not hold a CLI process open, and the
+#: worker stays a daemon so a hung one is still killed if this is skipped.
+_PROMOTION_EXIT_JOIN_SECONDS = 2.0
+
+
+@atexit.register
+def _drain_promotions_at_exit() -> None:
+    """Let the detached promotion land before a short-lived process exits.
+
+    Without this the one-shot is effectively dead in the CLI, which is where
+    legacy profiles actually live. Measured on the first draft: a real
+    ``notebooklm profile list`` against a legacy-only profile migrated it 0
+    times out of 6, and ``auth check`` 1 out of 6 — a pure timing race that
+    real commands lose, because they read the account binding at the very end
+    of their work and the process exits before a daemon worker gets scheduled.
+    The READ was correct every time; what silently never happened was the
+    durable promotion and, with it, the privacy scrub that removes a stale
+    account email from ``context.json`` at rest.
+
+    ``atexit`` handlers run BEFORE daemon threads are torn down, so joining
+    here is what makes the write land. It is bounded and best-effort: a
+    hard-killed process, ``os._exit`` or a fatal signal skips it, and the next
+    read schedules a fresh one-shot — the promotion is idempotent.
+    """
+    _drain_promotions(_PROMOTION_EXIT_JOIN_SECONDS)
 
 
 def _sanitize_legacy_account_record(legacy: dict[str, Any]) -> dict[str, Any]:

@@ -27,6 +27,9 @@ the proof, in four parts:
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -43,6 +46,8 @@ from notebooklm._auth.account import (
     read_account_metadata,
 )
 from notebooklm._auth.paths import canonical_storage_key
+
+_SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 
 # Legacy ``context.json[account]`` payloads, paired with the record every
 # reader must see for them. Deliberately includes the malformed shapes, because
@@ -533,3 +538,52 @@ class TestAllThreeEntryPathsReachTheOneShot:
         assert kwargs == {"authuser": 5, "account_email": "env@example.com"}
         assert not _auth_account._PROMOTION_ONCE_PATHS
         assert not _auth_account._PROMOTION_THREADS
+
+
+def test_short_lived_process_still_lands_the_durable_promotion(tmp_path: Path) -> None:
+    """A real process must migrate and scrub before it exits.
+
+    This is a SUBPROCESS test on purpose. Every in-process test here drains the
+    worker explicitly, so all of them passed while the durable half was, in
+    practice, dead: measured on the first draft, a real ``notebooklm profile
+    list`` against a legacy-only profile migrated it 0 times out of 6. The read
+    was correct every time — what silently never happened was the promotion and
+    the privacy scrub that removes a stale account email from ``context.json``
+    at rest. Only spawning a process that exits can see that.
+    """
+    home = tmp_path / "home"
+    profile = home / "profiles" / "default"
+    profile.mkdir(parents=True)
+    storage = profile / "storage_state.json"
+    context = profile / "context.json"
+    storage.write_text(json.dumps({"cookies": [], "origins": []}), encoding="utf-8")
+    context.write_text(
+        json.dumps({"account": {"authuser": 3, "email": "alice@example.com"}}),
+        encoding="utf-8",
+    )
+
+    env = {**os.environ, "NOTEBOOKLM_HOME": str(home), "PYTHONPATH": str(_SRC_ROOT)}
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from pathlib import Path\n"
+            "from notebooklm._auth.account import read_account_metadata\n"
+            f"read_account_metadata(Path({str(storage)!r}))\n",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+
+    embedded = json.loads(storage.read_text(encoding="utf-8"))
+    assert (embedded.get("notebooklm") or {}).get("account") == {
+        "authuser": 3,
+        "email": "alice@example.com",
+    }, "the durable promotion did not land before the process exited"
+    scrubbed = not context.exists() or "account" not in json.loads(
+        context.read_text(encoding="utf-8") or "{}"
+    )
+    assert scrubbed, "the stale account email was left in context.json at rest"
