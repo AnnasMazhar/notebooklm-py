@@ -107,7 +107,7 @@ NOTEBOOKLM_HEADLESS_REAUTH_CDP_URL_ENV = "NOTEBOOKLM_HEADLESS_REAUTH_CDP_URL"
 
 @dataclass
 class _DriveRecord:
-    """Per-storage-path single-flight state for the headless browser drive.
+    """Per-(storage path, credential source) drive-coalescing state for the headless browser drive.
 
     The in-process coalescing primitive for one ``storage_state.json``. It
     bundles the drive lock that serializes browser drives with the typed
@@ -139,18 +139,26 @@ class _DriveRecord:
       reach ``claim()``. This coalesces correctly in a spike, but it makes the
       documented sync entry raise ``RuntimeError: asyncio.run() cannot be
       called from a running event loop`` for any caller that invokes it from
-      inside a coroutine — a public-API regression — and it spends a fresh
+      inside a coroutine, and it spends a fresh and it spends a fresh
       event loop plus a second thread hop per browser drive (loop → to_thread →
       new loop → to_thread → blocking drive) to replace one ``threading.Lock``.
     * **Hoist the claim** into the async ``recovery.try_headless_reauth``. That
-      loses both things this record exists for. (1) *Coverage*: the sync entry
-      is public and is driven concurrently from bare threads that have no loop
-      at all (``test_concurrent_explicit_attempts_coalesce_to_one_browser``);
-      those callers would stop coalescing entirely. (2) *Keying*: the ``source``
+      narrows one thing this record exists for and complicates another.
+      (1) *Coverage*: every PRODUCTION path already funnels through
+      ``recovery.try_headless_reauth``, so a hoisted claim would still coalesce
+      all of them. What it drops is the SYNC entry's own coalescing for direct,
+      loop-less callers — today that is its whitebox tests
+      (``test_concurrent_explicit_attempts_coalesce_to_one_browser``) and any
+      future non-``recovery`` caller. The entry is private
+      (``notebooklm._auth``, fenced off from the CLI by ``test_cli_boundary``),
+      so that residual is small but real. (2) *Keying*: the ``source``
       discriminator (``"profile"`` vs ``"cdp"``) is resolved INSIDE
       :func:`attempt_headless_reauth` by :func:`resolve_cdp_url`, which also
       enforces the LOCAL-UNATTENDED-ONLY loopback boundary — ``recovery`` would
-      have to duplicate that security decision to build a correct flight key, or
+      have to CALL that gate itself to build a correct flight key (it is a pure
+      module-level function, so this is a call, not a reimplementation — the
+      real residual is that a rejected non-loopback endpoint resolves to
+      ``None``, so the rejection warning would move), or
       collapse the two sources into one key (the exact cross-source false-FAILED
       bug the per-``(path, source)`` key fixes; see :func:`_get_drive_record`).
 
@@ -218,7 +226,7 @@ class _DriveRecord:
             return None
 
 
-# Per-storage-path single-flight for the (blocking, sync) browser drive.
+# In-process drive coalescer for the (blocking, sync) browser drive.
 #
 # The mid-RPC cascade already coalesces through
 # ``AuthRefreshCoordinator.await_refresh``, but the explicit
@@ -711,8 +719,11 @@ def attempt_headless_reauth(
         include_domains=include_domains,
     )
 
-    # Per-storage-path single-flight: within this process, at most one browser
-    # drives a given storage file at a time, and a follower coalesces onto the
+    # Per-(storage path, source) coalescing: within this process, at most one
+    # browser drives a given storage file PER CREDENTIAL SOURCE at a time — a
+    # profile drive and a CDP drive against the same storage_state.json each
+    # hold their own record, deliberately (see _get_drive_record). A follower
+    # coalesces onto the
     # leader's TYPED outcome (only one produced by a drive that completed during
     # its wait) instead of launching a redundant browser. This covers the
     # explicit ``refresh_auth(allow_headless=True)`` entry and multi-client
@@ -721,7 +732,7 @@ def attempt_headless_reauth(
 
 
 def _get_drive_record(storage_path: Path, *, source: str) -> _DriveRecord:
-    """Return the per-(resolved-storage-path, source) single-flight drive record.
+    """Return the per-(resolved-storage-path, source) drive record.
 
     Get-or-create is atomic under :data:`_DRIVE_REGISTRY_LOCK` so the worker
     threads ``asyncio.to_thread`` may use all share one :class:`_DriveRecord`
@@ -750,7 +761,7 @@ def _drive_capture_coalesced(
     *,
     cdp_url: str | None = None,
 ) -> HeadlessReauthResult:
-    """Drive the headless capture under the per-path single-flight + outcome coalescing.
+    """Drive the headless capture under the per-(path, source) drive lock + outcome coalescing.
 
     Snapshots the completed-drive count BEFORE blocking on the drive lock
     (:meth:`_DriveRecord.snapshot_completed`). After acquiring the lock, a
