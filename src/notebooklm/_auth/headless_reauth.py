@@ -116,8 +116,52 @@ class _DriveRecord:
     outcome — never on file mtime — so a sibling write that merely touches the
     storage file can never be mistaken for a successful re-mint.
 
-    The structure is deliberately self-contained (its own state lock, its own
-    sequence) so a later shared single-flight core can reuse it wholesale.
+    **Why this is NOT** :mod:`notebooklm._auth.single_flight`. An earlier
+    version of this docstring promised the opposite — that the structure was
+    kept self-contained "so a later shared single-flight core can reuse it
+    wholesale". That core landed (ADR-0030 c-PR2) and this record did not adopt
+    it. The promise was wrong, not merely unfulfilled, and is retired here.
+
+    ``single_flight`` coalesces callers that each have a RUNNING EVENT LOOP:
+    ``claim()`` calls ``asyncio.get_running_loop()`` to create the leader
+    ``asyncio.Task``. This drive has no loop at its coalescing point and
+    structurally cannot get one. :func:`attempt_headless_reauth` is a SYNC
+    entry, and its only production caller deliberately runs it *off* the loop —
+    ``asyncio.to_thread(attempt_headless_reauth, ...)`` in
+    :func:`notebooklm._auth.recovery.try_headless_reauth` — because the browser
+    drive blocks. Inside that worker thread ``claim()`` raises ``RuntimeError:
+    no running event loop`` (measured, not inferred; pinned by
+    ``test_single_flight_is_unreachable_from_the_sync_drive_entry``).
+
+    Neither escape route is free:
+
+    * **Spin a throwaway loop** (``asyncio.run``) inside the sync entry just to
+      reach ``claim()``. This coalesces correctly in a spike, but it makes the
+      documented sync entry raise ``RuntimeError: asyncio.run() cannot be
+      called from a running event loop`` for any caller that invokes it from
+      inside a coroutine — a public-API regression — and it spends a fresh
+      event loop plus a second thread hop per browser drive (loop → to_thread →
+      new loop → to_thread → blocking drive) to replace one ``threading.Lock``.
+    * **Hoist the claim** into the async ``recovery.try_headless_reauth``. That
+      loses both things this record exists for. (1) *Coverage*: the sync entry
+      is public and is driven concurrently from bare threads that have no loop
+      at all (``test_concurrent_explicit_attempts_coalesce_to_one_browser``);
+      those callers would stop coalescing entirely. (2) *Keying*: the ``source``
+      discriminator (``"profile"`` vs ``"cdp"``) is resolved INSIDE
+      :func:`attempt_headless_reauth` by :func:`resolve_cdp_url`, which also
+      enforces the LOCAL-UNATTENDED-ONLY loopback boundary — ``recovery`` would
+      have to duplicate that security decision to build a correct flight key, or
+      collapse the two sources into one key (the exact cross-source false-FAILED
+      bug the per-``(path, source)`` key fixes; see :func:`_get_drive_record`).
+
+    For the record, what ``single_flight`` would NOT have broken: the typed
+    closed-enum outcome rides a flight future unchanged; nothing jar-bearing is
+    retained either way (a :class:`HeadlessReauthResult` carries status, reason
+    and a path — no credential); and the [capture-3] stale-outcome guarantee is
+    structural there too, since ``claim`` joins only a not-yet-done flight and
+    prompt-pops settled ones. The blocker is the event loop, not the contract —
+    so this record stays, with its own state lock and its own sequence, as the
+    THREAD-level coalescer that ``single_flight``'s task-level model cannot be.
 
     Attributes:
         drive_lock: Serializes browser drives against this storage file; the
@@ -590,9 +634,12 @@ def attempt_headless_reauth(
     This function performs the *recovery*, not the retry. On ``SUCCESS`` the
     caller re-runs the normal auth path (L1 token refresh) which now finds the
     freshly-persisted cookies. It is a recovery, not the hot path. Browser
-    drives are coalesced in two places: mid-RPC callers join the existing
-    refresh single-flight, and explicit ``attempt_headless_reauth`` callers
-    serialize per storage path in :func:`_drive_capture_coalesced`.
+    drives are coalesced in two places: mid-RPC callers join
+    ``AuthRefreshCoordinator.await_refresh``'s loop-bound single-flight, and
+    every caller of THIS function — including the bare-thread ones that have no
+    event loop — serializes per ``(storage path, credential source)`` in
+    :func:`_drive_capture_coalesced`. That second one is deliberately not
+    :mod:`notebooklm._auth.single_flight`; :class:`_DriveRecord` records why.
 
     Args:
         storage_path: ``storage_state.json`` to (re)write on success.
