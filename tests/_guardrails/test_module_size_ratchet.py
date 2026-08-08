@@ -192,15 +192,16 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # headroom and the module may cross the 1000-line budget only ONCE. Pinned at
     # its MEASURED post-PR LOC; shrink-locked from here on.
     #
-    # CONSTRAINT ON THE NEXT CHANGE TO THIS MODULE: the ladder-alignment change
-    # edits ``_cold_fallbacks`` here and MUST land net-neutral-or-negative in
-    # LOC. A shrink legally re-pins downward (the gate prints the value); GROWTH
-    # HAS NO LEGAL FIX — a sanctioned behavior change is not a merge, and
-    # ADR-0033's raise classes reach only merges and donor-shrinking
-    # relocations. It removes the post-ladder second invocation, so the net
-    # direction is plausible but not assured; the dead function-local imports
-    # and the paragraph the reorder obsoletes are the obvious trims if it needs
-    # them.
+    # The ladder-alignment change (cold start reordered to ADR-0030's L2.5 → L3
+    # → L4) landed against this pin at EXACTLY 1200 — net-neutral, as it had to
+    # be: growth has no legal fix here, since a sanctioned behavior change is
+    # not a merge and ADR-0033's raise classes reach only merges and
+    # donor-shrinking relocations. It paid for the fall-through wrapper by
+    # deleting the ``err = retry_err`` rebinds the reorder made dead, collapsing
+    # the L3/L4 arm's two nested ``try`` blocks into one, and folding the
+    # docstring paragraphs the reorder obsoleted into ADR-0030's amendment. The
+    # ceiling stays shrink-only: the next change to this module still has to
+    # come in at or below 1200.
     "_auth/refresh.py": 1200,
     # sanctioned merge (ADR-0033) — the `_auth` browser-cluster merge (PR 4.1):
     # ``_auth/browser_state_validation.py`` (56) and ``_auth/login_wait_trace.py``
