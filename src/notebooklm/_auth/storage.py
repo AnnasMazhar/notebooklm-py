@@ -480,12 +480,12 @@ def _file_lock_exclusive(lock_path: Path) -> Iterator[None]:
     :func:`notebooklm._auth.paths._storage_state_lock_path`), since locking the
     storage file itself would interfere with the atomic temp-rename below.
 
-    ``_auth/account.py`` holds this *same* sentinel via ``filelock.FileLock``
-    when it writes account metadata into ``storage_state.json``. The two
-    mechanisms interoperate because ``filelock.FileLock`` also uses
-    ``fcntl.flock`` on POSIX, so an exclusive hold from either side blocks the
-    other — that cross-mechanism compatibility is what lets cookie saves and
-    account-metadata writes serialize on one file.
+    Every ``storage_state.json`` mutator now lives in THIS module and takes
+    this sentinel through ``_file_lock`` / :func:`_acquire_storage_lock` — the
+    account-metadata writers included (ADR-0033 PR 5.2 moved them here). No
+    ``filelock.FileLock`` holder of this sentinel remains, so the old
+    cross-mechanism POSIX interop is no longer load-bearing; this module's one
+    remaining ``filelock`` use targets the *sibling* ``context.json``.
 
     The lock is per-process: threads within one process aren't serialized —
     that's the intra-process ``threading.Lock`` held by the client. If the

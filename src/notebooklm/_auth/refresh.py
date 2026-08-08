@@ -701,10 +701,10 @@ def _resolve_token_route_kwargs(
     env_account_email: str | None = None
     if env_auth_present and authuser is None:
         from .cookies import _load_storage_state
-        from .storage import read_account_metadata_from_storage_state
 
         try:
-            metadata = read_account_metadata_from_storage_state(_load_storage_state(None))
+            state = _load_storage_state(None)
+            metadata = _auth_storage.read_account_metadata_from_storage_state(state)
         except (OSError, ValueError, TypeError):
             metadata = {}
         raw_authuser = metadata.get("authuser")

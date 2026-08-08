@@ -1193,7 +1193,7 @@ src/notebooklm/
 │   ├── headless_reauth.py       # Layer-3 headless re-auth (opt-in; typed outcomes; local-unattended-only)
 │   ├── account.py               # Account NETWORK identity: authuser=N probing, page-email extraction, authuser wire formatting, Playwright account repair (the persisted account RECORD lives in storage.py — ADR-0033 PR 5.2)
 │   ├── session.py               # Auth-session refresh implementation via `refresh_auth_session()` and explicit collaborators
-│   ├── storage.py               # One persistence module (ADR-0033 merge): lock primitives + bounded acquire + transaction template + snapshot types + CAS merge math + save_cookies_to_storage delegate seam + the write-time cookie-domain filter + the canonical storage_state.json writers (ADR-0029)
+│   ├── storage.py               # One persistence module (ADR-0033 merge): lock primitives + bounded acquire + transaction template + snapshot types + CAS merge math + save_cookies_to_storage delegate seam + the write-time cookie-domain filter + the canonical storage_state.json writers (ADR-0029) + the account records (SECTION 7b: read_account_metadata, the legacy promotion one-shot and its atexit drain, write/clear_account_metadata, the context.json scrub — ADR-0033 PR 5.2)
 │   ├── storage_writer.py        # Shim: re-exports the writer API from storage.py (removed at next major)
 │   ├── storage_transaction.py   # Shim: re-exports in_storage_transaction + lock policies from storage.py (removed at next major)
 │   ├── keepalive.py             # Cookie keepalive + __Secure-1PSIDTS rotation

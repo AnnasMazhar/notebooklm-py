@@ -1,10 +1,15 @@
-"""Coverage-focused tests for ``notebooklm._auth.account`` branches.
+"""Coverage-focused tests for the ``_auth.account`` / ``_auth.storage`` account branches.
 
 Targets the read/clear/migration helpers and error-handling branches that the
 concern-aligned ``test_auth_account.py`` suite does not exercise: malformed /
 non-dict storage payloads, the ``_probe_authuser`` non-200 path, legacy
 ``context.json`` migration cleanup, the corrupt-storage ``RuntimeError`` guard,
 and the in-band clear helper's no-op / lock branches.
+
+ADR-0033 PR 5.2 relocated the account *record* helpers to ``_auth.storage``;
+only the NETWORK identity half (``_probe_authuser``, page-email extraction)
+still lives in ``_auth.account``. The imports below are split accordingly, so
+read the module each subject is imported from rather than assuming ``account``.
 
 New file per ADR-0007: patches owning modules at the bare-name call site rather
 than editing the existing concern-aligned test file.
