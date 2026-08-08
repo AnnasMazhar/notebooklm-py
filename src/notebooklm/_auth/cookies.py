@@ -19,6 +19,7 @@ import httpx
 from ..paths import get_storage_path
 from . import cookie_policy as _cookie_policy
 from . import cookie_semantics as _cookie_semantics
+from .cookie_types import CookieIdentity
 from .paths import resolve_auth_json_env
 
 logger = logging.getLogger("notebooklm.auth")
@@ -134,28 +135,17 @@ def normalize_cookie_map(cookies: CookieInput | None) -> DomainCookieMap:
     - Flat ``name -> value`` — assigned to ``.google.com`` / ``/`` for backward
       compatibility with very old callers.
     """
-    normalized: DomainCookieMap = {}
-    if not cookies:
-        return normalized
 
-    for key, value in cookies.items():
-        if isinstance(key, tuple):
-            if len(key) == 3:
-                name, domain, path = key
-            elif len(key) == 2:
-                name, domain = key
-                path = "/"
-            else:
-                logger.warning(
-                    "Dropping malformed cookie key %r (expected (name, domain[, path]))",
-                    key,
-                )
-                continue
-        else:
-            name, domain, path = key, ".google.com", "/"
-        if name:
-            normalized[(name, domain or ".google.com", path or "/")] = value
-    return normalized
+    def warn_invalid_key(key: Any) -> None:
+        logger.warning(
+            "Dropping malformed cookie key %r (expected (name, domain[, path]))",
+            key,
+        )
+
+    return _cookie_semantics.normalize_legacy_cookie_map(
+        cookies,
+        on_invalid_key=warn_invalid_key,
+    )
 
 
 def flatten_cookie_map(cookies: CookieInput | None) -> FlatCookieMap:
@@ -218,26 +208,7 @@ def convert_rookiepy_cookies_to_storage_state(
         if normalized is None or not _is_allowed_auth_domain(normalized["domain"]):
             continue
 
-        path = normalized["path"]
-        http_only = bool(normalized.get("http_only", False))
-        secure = bool(normalized.get("secure", False))
-
-        same_site = normalized.get("sameSite", normalized.get("same_site"))
-        if same_site not in {"Strict", "Lax", "None"}:
-            same_site = "None"
-
-        converted.append(
-            {
-                "name": normalized["name"],
-                "value": normalized["value"],
-                "domain": normalized["domain"],
-                "path": path,
-                "expires": -1 if normalized["expires"] is None else normalized["expires"],
-                "httpOnly": http_only,
-                "secure": secure,
-                "sameSite": same_site,
-            }
-        )
+        converted.append(_cookie_semantics.rookiepy_row_to_storage_row(normalized))
     return {"cookies": converted, "origins": []}
 
 
@@ -611,9 +582,9 @@ def _build_httpx_cookies_from_storage_state(
     """
     entries = _sanitized_auth_entries(storage_state)
     cookies = httpx.Cookies()
-    seen_keys: set[CookieKey] = set()
+    seen_keys: set[CookieIdentity] = set()
     for entry in entries:
-        key = (entry["name"], entry["domain"], entry["path"])
+        key = CookieIdentity(entry["name"], entry["domain"], entry["path"])
         if key in seen_keys:
             continue
         cookie = _safe_to_cookie(entry)
@@ -684,35 +655,17 @@ def build_cookie_jar(
 
 def _cookie_is_http_only(cookie: Any) -> bool:
     """Return whether an http.cookiejar.Cookie has the HttpOnly marker."""
-    try:
-        return bool(
-            cookie.has_nonstandard_attr("HttpOnly") or cookie.has_nonstandard_attr("httponly")
-        )
-    except AttributeError:
-        return False
+    return _cookie_semantics.cookie_is_http_only(cookie)
 
 
 def _cookie_to_storage_state(cookie: Any) -> dict[str, Any]:
     """Convert an http.cookiejar.Cookie to a Playwright storage_state cookie."""
-    expires = cookie.expires
-    if expires is None:
-        stored_expires: int | float = -1
-    elif expires == -1:
-        # A dated -1 must not become Playwright's session sentinel on a
-        # persistence round-trip.
-        stored_expires = -1.0
-    else:
-        stored_expires = expires
-    return {
-        "name": cookie.name,
-        "value": cookie.value,
-        "domain": cookie.domain,
-        "path": cookie.path or "/",
-        "expires": stored_expires,
-        "httpOnly": _cookie_is_http_only(cookie),
-        "secure": cookie.secure,
-        "sameSite": "None",
-    }
+    return _cookie_semantics.cookie_to_storage_row(
+        cookie,
+        http_only=_cookie_is_http_only(cookie),
+        same_site="None",
+        include_same_site=True,
+    )
 
 
 def _storage_entry_to_cookie(entry: dict[str, Any]) -> http.cookiejar.Cookie:
@@ -734,26 +687,9 @@ def _cookie_from_normalized_entry(
     normalized: dict[str, Any], *, http_only_key: str
 ) -> http.cookiejar.Cookie:
     """Build a ``Cookie`` from a row normalized by ``cookie_semantics``."""
-    expires_value = normalized["expires"]
-    domain = normalized["domain"]
-    rest: dict[str, str] = {"HttpOnly": ""} if normalized.get(http_only_key) else {}
-    return http.cookiejar.Cookie(
-        version=0,
-        name=normalized["name"],
-        value=normalized["value"],
-        port=None,
-        port_specified=False,
-        domain=domain,
-        domain_specified=bool(domain),
-        domain_initial_dot=domain.startswith("."),
-        path=normalized["path"],
-        path_specified=True,
-        secure=bool(normalized.get("secure", False)),
-        expires=expires_value,
-        discard=expires_value is None,
-        comment=None,
-        comment_url=None,
-        rest=rest,
+    return _cookie_semantics.cookie_from_normalized_entry(
+        normalized,
+        http_only_key=http_only_key,
     )
 
 

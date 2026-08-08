@@ -92,12 +92,20 @@ def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
         "modules": 26,
-        "total_lines": 13745,
-        "unique_edges": 68,
-        "module_edges": 54,
+        "total_lines": 13874,
+        "unique_edges": 69,
+        "module_edges": 55,
         "function_local_edges": 14,
     }
     assert result["sccs"] == {
         "module_level": [],
         "all_scopes": [["cookies", "keepalive", "master_token", "psidts_recovery", "storage"]],
     }
+    edges = {(edge["source"], edge["target"], edge["scope"]) for edge in result["edges"]}
+    assert ("cookie_types", "cookies", "module") not in edges
+    assert {
+        ("cookie_types", "cookie_policy", "module"),
+        ("cookie_types", "cookie_semantics", "module"),
+        ("cookies", "cookie_types", "module"),
+        ("cookies", "cookie_semantics", "module"),
+    } <= edges
