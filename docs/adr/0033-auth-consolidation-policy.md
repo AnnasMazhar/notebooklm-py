@@ -9,6 +9,14 @@ policy amendment are that effort's first step; they carry no source change. Each
 below by what it does, so this ADR stands on its own — the working plan is not a tracked document
 (`docs/plans/` was deliberately removed in #1572).
 
+**Amended during PR 1.2 (2026-08-08):** decision 1 gains a **third** sanctioned class, *template
+adoption*. The effort's plan assumed PR 1.2 would shrink `storage.py`; it does not — converting a
+hand-rolled preamble onto a shared template is net-additive in lines, as #2152 already demonstrated
+before this ADR was written. With ceilings pinned exactly, the two original classes left no legal
+way to finish ADR-0031 Stage 3, so the class was added rather than the measurement bent. See
+decision 1 for its narrowing condition (a companion ratchet's exception list must shrink in the same
+commit) and the reasoning.
+
 Amends [ADR-0008](0008-cli-services-extraction-pattern.md)'s module-size ratchet for
 `src/notebooklm/_auth/` only. Refines [ADR-0029](0029-canonical-storage-writer.md)'s enforcement
 granularity without weakening its guarantee. Supersedes-by-deferral
@@ -82,13 +90,24 @@ consolidation under `src/notebooklm/_auth/`** may register its merged module in
 `# sanctioned merge (ADR-0033)` with a one-line note naming the absorbed modules and the PR.
 
 This is the **one** exception to the ratchet's "the allowlist only shrinks and ceilings only
-tighten" convention, and it covers two cases:
+tighten" convention, and it covers three cases:
 
 - a **new** entry for a module that crosses the budget by absorbing a cap-split sibling, **or by
-  taking a relocation that shrinks its donor by what it grows the recipient**; and
+  taking a relocation that shrinks its donor by what it grows the recipient**;
 - a **later raise** of an existing entry when a second sanctioned merge lands in the same module.
   `storage.py` takes three over the effort — the persistence merge, the write-time cookie-filter
-  relocation, and the account-record relocation — each a fresh annotation.
+  relocation, and the account-record relocation — each a fresh annotation; and
+- a **raise for template adoption inside an already-sanctioned module**: converting hand-rolled
+  logic onto a shared template removes duplication but is *net-additive in lines*, because the call
+  site, the `body` closure header, and the explicit success return together cost more than the
+  inline preamble they replace. Measured precedent: #2152, which introduced the storage-write
+  transaction template and converted three writers, grew its module by 22 lines (959 → 981). Unlike
+  the first two cases this class has **no donor**, so it must not be annotated as one — the growth
+  is intra-module by construction. The machine-checkable evidence that duplication really was
+  removed is the ratchet's own `_UNCONVERTED` list shrinking; a raise under this class is only
+  legitimate when that list shrinks in the same commit. ADR-0031 Stage 3's completion (PR 1.2, which
+  takes `_UNCONVERTED` to empty) is the first and — with the list now exhausted — the last use of
+  this class for `storage.py`.
 
 Entries are pinned at **measured LOC per PR, never pre-registered at an end-state estimate** — the
 ratchet's slack check (`test_allowlisted_ceilings_ratchet_down`) fails on any ceiling above the
@@ -113,8 +132,16 @@ the effort takes its pin **after** that growth, or takes the growth in the **sam
 pin. Concretely, `refresh.py` sits at exactly 1000 today, and the plan both folds `headers.py` into
 it and later restructures its cold-fallback path — those must land together (or the fold last), not
 as two separately pinned steps. Structural *moves* between `_auth` modules under this plan (whole-
-module absorption, or a relocation that shrinks the donor by what it grows the recipient) may re-pin
-under a fresh annotation; **new** code never may.
+module absorption, or a relocation that shrinks the donor by what it grows the recipient), and
+template adoptions evidenced by a shrinking `_UNCONVERTED` list, may re-pin under a fresh
+annotation; **new** code never may.
+
+The same zero-headroom property is what made the template-adoption class necessary rather than
+optional. `storage.py` took its pin in PR 1.1 at the measured 2149; PR 1.2 then completed ADR-0031
+Stage 3 inside it, and conversion is additive. With no third class the only ways out would have been
+to delete ~34 lines of lock-policy prose to make the number fit — trading documented credential-write
+semantics for a line count, the exact perverse incentive this ADR warns about above — or to leave
+three writers hand-rolling the lock forever.
 
 Everything else about the ratchet is unchanged and continues to apply to `_auth`:
 
