@@ -105,6 +105,25 @@ def test_template_exemption_is_frozen_and_real() -> None:
 _UNCONVERTED: frozenset[str] = frozenset()
 
 
+def test_unconverted_list_is_exhausted() -> None:
+    """A drained list is not self-locking (ADR-0007's stays-empty precedent).
+
+    Verified to matter: a function that genuinely hand-rolls the acquire, with
+    its name re-added here, satisfies BOTH
+    :func:`test_no_new_hand_rolled_storage_lock` (which *subtracts* this set)
+    and :func:`test_unconverted_list_is_shrink_only` (which only rejects STALE
+    entries). Re-adding a name would also manufacture the "``_UNCONVERTED``
+    shrinks" evidence ADR-0033's third cap-lift class requires, so this gate is
+    load-bearing for the ceiling policy too. A new writer converts; it does not
+    get re-pinned.
+    """
+    assert frozenset() == _UNCONVERTED, (
+        "_UNCONVERTED is exhausted (ADR-0033 template-adoption class) — a new "
+        "hand-rolled acquire must route through in_storage_transaction, not be "
+        f"re-listed: {sorted(_UNCONVERTED)}"
+    )
+
+
 #: The three not-held policies the template exposes.
 _POLICIES: tuple[str, ...] = (
     "raise_on_lock_unavailable",
@@ -136,6 +155,31 @@ def _policy_call_counts() -> dict[str, int]:
                 if node.func.id in counts:
                     counts[node.func.id] += 1
     return counts
+
+
+def _policy_callers() -> dict[str, set[str]]:
+    """Attribute each policy call site to its enclosing function.
+
+    A bare COUNT is defeated by a compensating swap (verified): converting a
+    designated writer to ``raise_on_lock_unavailable`` while a non-designated
+    writer reaches for ``report_on_lock_unavailable`` keeps the total at two and
+    the gate green — which is precisely the double failure the assertion's own
+    message claims to catch.
+    """
+    callers: dict[str, set[str]] = {policy: set() for policy in _POLICIES}
+    for source_file in sorted(_AUTH.glob("*.py")):
+        tree = ast.parse(source_file.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for inner in ast.walk(node):
+                if (
+                    isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Name)
+                    and inner.func.id in callers
+                ):
+                    callers[inner.func.id].add(node.name)
+    return callers
 
 
 def _functions_calling_directly() -> set[str]:
@@ -203,6 +247,34 @@ def test_merge_cookie_delta_is_not_expected_to_convert() -> None:
     assert "merge_cookie_delta" not in _UNCONVERTED
     assert "merge_cookie_delta" not in _functions_calling_directly()
 
+    # Both assertions above are satisfied by ABSENCE — verified: renaming the
+    # function leaves this test green, and with _UNCONVERTED empty the first is
+    # permanently vacuous. Assert positively that the writer exists and still
+    # takes the BLOCKING lock, which is the semantics the exemption rests on.
+    writer = next(
+        (
+            node
+            for node in ast.parse(_WRITER.read_text(encoding="utf-8")).body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "merge_cookie_delta"
+        ),
+        None,
+    )
+    assert writer is not None, (
+        "merge_cookie_delta is missing or renamed — its exemption from the "
+        "transaction template rests on its blocking-lock semantics, so the "
+        "exemption must not outlive the function it names"
+    )
+    blocking_calls = {
+        inner.func.id
+        for inner in ast.walk(writer)
+        if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
+    }
+    assert "_file_lock_exclusive" in blocking_calls, (
+        "merge_cookie_delta no longer takes the blocking _file_lock_exclusive — "
+        "the reason it is exempt from in_storage_transaction no longer holds"
+    )
+
 
 def test_the_three_lock_policies_are_all_defined() -> None:
     """Each policy still exists — deleting one silently is a semantic change."""
@@ -255,17 +327,18 @@ def test_report_policy_is_pinned_until_its_writers_convert() -> None:
     reading was wrong — one of them never had a caller at all.
     """
     converted = _REPORT_POLICY_WRITERS - _UNCONVERTED
-    callers = _policy_call_counts()["report_on_lock_unavailable"]
-    # Each CONVERTED designated writer must call the report policy exactly once;
-    # unconverted ones contribute zero. Pinning to the converted count (rather
-    # than branching all-or-nothing on ``pending``) is what permits a correct
-    # one-writer-at-a-time migration: with one of the two converted, the
-    # expectation is 1, not the impossible "zero callers while a converted
-    # writer must call it" (CodeRabbit finding on #2152).
-    assert callers == len(converted), (
+    callers = _policy_callers()["report_on_lock_unavailable"]
+    # Compare the caller SET, not a count. A count is defeated by a compensating
+    # swap — converting a designated writer to ``raise_`` while a non-designated
+    # writer reaches for ``report_`` keeps the total at two — which is exactly
+    # the double failure this assertion's message claims to catch. Comparing
+    # sets still permits a correct one-writer-at-a-time migration: with one of
+    # the two converted, the expectation is that one name (CodeRabbit finding
+    # on #2152).
+    assert callers == converted, (
         "report_on_lock_unavailable caller count drifted from its converted "
         f"writers.\n  converted report-policy writers: {sorted(converted) or '(none)'}\n"
-        f"  expected callers: {len(converted)}  actual: {callers}\n"
+        f"  expected callers: {sorted(converted) or '(none)'}  actual: {sorted(callers) or '(none)'}\n"
         "If a caller appeared from a writer NOT in the designated set, that "
         "writer's return channel cannot express the report — use "
         "raise_on_lock_unavailable. If a designated writer converted without a "

@@ -719,3 +719,53 @@ def test_writer_intent_retightens_loose_parent_dir(tmp_path: Path) -> None:
     )
 
     assert (parent.stat().st_mode & 0o777) == 0o700
+
+
+def test_replace_from_login_failed_write_leaves_legacy_account_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A write that did nothing must not reach the legacy-account scrub.
+
+    Before the transaction conversion this was STRUCTURAL: both non-OK returns
+    sat inside the ``with``, so the post-lock legacy step was unreachable on a
+    failed write. Routed through ``in_storage_transaction`` they became the
+    transaction's return value, and reachability now rests entirely on the
+    explicit post-transaction ``status is not OK`` guard — the only new control
+    flow the conversion introduced, and (until this test) the only part of it
+    nothing covered: deleting the guard left the whole relevant suite green.
+
+    Without it, a ``CLEAR_ACCOUNT`` login whose required cookies were dropped,
+    or that never got the lock, scrubs the legacy ``context.json`` account key
+    after writing nothing — ``_drop_legacy_account_key`` removes the file once
+    it is empty. That is the #2103 data-loss class re-opened from the other
+    side, so the guard is load-bearing rather than tidy.
+    """
+    dropped_state = {
+        "cookies": [
+            {"name": "SID", "value": "s", "domain": ".youtube.com", "path": "/"},
+            {"name": "__Secure-1PSIDTS", "value": "p", "domain": ".google.com", "path": "/"},
+        ],
+        "origins": [],
+    }
+    legacy = {"account": {"authuser": 3, "email": "legacy@example.com"}}
+
+    for label in ("required_dropped", "lock_unavailable"):
+        path = tmp_path / label / "storage_state.json"
+        path.parent.mkdir(parents=True)
+        context_path = path.with_name("context.json")
+        context_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+        with monkeypatch.context() as patch:
+            if label == "lock_unavailable":
+                _patch_lock_unavailable(patch)
+                state = _login_state()
+            else:
+                state = dropped_state
+            outcome = storage_mod.replace_from_login(
+                path, state, include_domains=None, account=storage_mod.CLEAR_ACCOUNT
+            )
+
+        assert outcome.status is not storage_mod.LoginWriteStatus.OK, label
+        # The legacy record — and the file itself — must survive a no-op write.
+        assert context_path.exists(), f"{label}: context.json was deleted by a failed write"
+        assert json.loads(context_path.read_text(encoding="utf-8")) == legacy, label
