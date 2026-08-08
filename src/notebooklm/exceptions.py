@@ -786,6 +786,12 @@ class NotebookNotFoundError(NotFoundError, RPCError, NotebookError):
         method_id: The RPC method ID (inherited from :class:`RPCError`).
         raw_response: First 80 chars of the raw response, if any
             (``NOTEBOOKLM_DEBUG=1`` preserves the full body).
+        rpc_code / found_ids: Wire diagnostics, when the absence came from a
+            typed rejection rather than a degenerate payload (both inherited
+            from :class:`RPCError`).
+        detail: Appended to the message. A status-5 miss can mean "belongs to
+            another signed-in account" and adapters render only ``str(exc)``
+            (#114 / #294); callers pass text their layer already scrubbed.
     """
 
     def __init__(
@@ -794,12 +800,17 @@ class NotebookNotFoundError(NotFoundError, RPCError, NotebookError):
         *,
         method_id: str | None = None,
         raw_response: str | None = None,
+        rpc_code: str | int | None = None,
+        found_ids: list[str] | None = None,
+        detail: str | None = None,
     ):
         self.notebook_id = notebook_id
         super().__init__(
-            f"Notebook not found: {notebook_id}",
+            f"Notebook not found: {notebook_id}" + (f" — {detail}" if detail else ""),
             method_id=method_id,
             raw_response=raw_response,
+            rpc_code=rpc_code,
+            found_ids=found_ids,
         )
 
 

@@ -22,6 +22,7 @@ from ._sharing_manager import ShareManager
 from ._source.upload_payloads import build_template_block
 from .exceptions import (
     AuthError,
+    ClientError,
     DecodingError,
     NetworkError,
     NotebookLimitError,
@@ -31,7 +32,7 @@ from .exceptions import (
     ServerError,
     ValidationError,
 )
-from .rpc import RPCMethod, safe_index
+from .rpc import GrpcStatusCode, RPCMethod, normalize_grpc_status, safe_index
 from .types import (
     AccountLimits,
     Notebook,
@@ -700,17 +701,43 @@ class NotebooksAPI:
             Notebook object with details.
 
         Raises:
-            NotebookNotFoundError: If the notebook does not exist. The backend
-                returns an empty / degenerate payload (missing ``id`` and
-                ``title``) for unknown IDs rather than a proper RPC error, so
-                this method post-validates the parsed response.
+            NotebookNotFoundError: If the notebook does not exist. Both backend
+                signals are handled, so the ADR-0019 contract holds either way:
+                a proper RPC error (gRPC status ``5``, surfaced by the decoder
+                as ``ClientError`` and translated below), or the historical
+                empty / degenerate payload with no RPC error at all, which the
+                post-validation further down still catches.
         """
         params = build_get_notebook_params(notebook_id)
-        result = await self._rpc.rpc_call(
-            RPCMethod.GET_NOTEBOOK,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-        )
+        try:
+            result = await self._rpc.rpc_call(
+                RPCMethod.GET_NOTEBOOK,
+                params,
+                source_path=f"/notebook/{notebook_id}",
+            )
+        except ClientError as exc:
+            # Translate the status-5 rejection into this method's documented
+            # miss signal: ``ClientError`` and ``NotebookNotFoundError`` are
+            # siblings under ``RPCError``, not ancestor/descendant, so
+            # ``get_or_none``'s ``except`` never sees it (#2132, ADR-0019).
+            # Narrow on purpose -- ``PERMISSION_DENIED`` comes through this
+            # same branch and must keep propagating.
+            #
+            # ``detail`` carries the decoder's guidance onto the typed error
+            # rather than leaving it on ``__cause__``: status 5 also means
+            # "belongs to a different signed-in account" (#114 / #294),
+            # ``server/_errors.py`` promises the 404 body keeps that verbatim,
+            # and every adapter renders ``str(exc)``.
+            if normalize_grpc_status(exc.rpc_code) is GrpcStatusCode.NOT_FOUND:
+                raise NotebookNotFoundError(
+                    notebook_id,
+                    method_id=RPCMethod.GET_NOTEBOOK.value,
+                    raw_response=exc.raw_response,
+                    rpc_code=exc.rpc_code,
+                    found_ids=exc.found_ids,
+                    detail=str(exc),
+                ) from exc
+            raise
         # get_notebook returns [nb_info, ...] where nb_info contains the notebook
         # data. The ``[0]`` read is fully guarded (truthy + list + non-empty), so
         # ``safe_index`` cannot raise here; it keeps the envelope-unwrap position
@@ -750,6 +777,14 @@ class NotebooksAPI:
         ``None``; transport, auth, and decode faults — including the broader
         :class:`~notebooklm.exceptions.RPCError` subtree
         :class:`NotebookNotFoundError` also inherits — propagate unchanged.
+
+        Status-5 policy: **both** its meanings collapse to ``None`` here. The
+        backend sends that one status whether the notebook is absent or lives
+        under a *different* signed-in account (#114 / #294), so the
+        account-routing guidance is unobservable on this API by construction.
+        Use :meth:`get` when that matters — it raises with the guidance in the
+        message, the ``rpc_code``, and the original rejection as ``__cause__``.
+        ``PERMISSION_DENIED`` is folded in neither place.
 
         Args:
             notebook_id: The notebook ID.
