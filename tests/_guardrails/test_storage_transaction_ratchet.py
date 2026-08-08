@@ -6,10 +6,10 @@ sentinel lock path, take the bounded lock, branch on whether it was held.
 :func:`~notebooklm._auth.storage.in_storage_transaction` now owns
 those four steps. (Both the writers and the template lived in their own
 cap-split modules until ADR-0033's persistence merge folded them into
-``storage.py``; this gate now scans one file where it used to scan two.) **Three of the six route through it today**; the other three
-are pinned in :data:`_UNCONVERTED` below and convert in a later pass. The fourth
-step (the not-held branch) is supplied by the caller because it genuinely
-differs three ways:
+``storage.py``; this gate now scans one file where it used to scan two.) **All six
+route through it** as of ADR-0033 PR 1.2, which completed ADR-0031 Stage 3, so
+:data:`_UNCONVERTED` is empty. The fourth step (the not-held branch) is supplied
+by the caller because it genuinely differs three ways:
 
 * **raise** ``LockUnavailableError`` — fail closed, where proceeding without the
   lock could lose a concurrent writer's commit;
@@ -21,8 +21,10 @@ A template that picked one of those would be a silent semantic change in a
 credential-write path, which is why the policy is a parameter and why this gate
 checks *routing through the template*, not uniformity of behavior.
 
-Migration is opportunistic per this repo's ratchet convention: the gate blocks a
-NEW hand-rolled acquire and pins the remaining ones so the list can only shrink.
+Migration was opportunistic per this repo's ratchet convention: the gate blocked
+a NEW hand-rolled acquire and pinned the remaining ones so the list could only
+shrink. It has now shrunk to nothing, so the gate is absolute — ANY function
+hand-rolling the acquire is red, with no pre-approved exceptions left.
 ``merge_cookie_delta`` is exempt by design — it takes the BLOCKING
 ``storage._file_lock_exclusive`` rather than the bounded acquire, which is a
 different operation, not a variant.
@@ -77,23 +79,30 @@ def test_template_exemption_is_frozen_and_real() -> None:
 
 
 #: Functions still calling ``_acquire_storage_lock`` directly. SHRINK-ONLY —
-#: never add. Each is a candidate for conversion; the three below are the
-#: delicate ones deliberately left for a focused pass rather than converted in
-#: bulk, because their bodies carry semantics worth converting under their own
-#: differential tests:
+#: never add. **Now empty.** The three writers #2152 held back from its bulk pass
+#: converted in ADR-0033 PR 1.2, each proven behavior-identical against the
+#: pre-conversion implementation rather than converted on the template's say-so,
+#: because their bodies carry semantics the bulk pass would not have exercised:
+#:   * ``replace_from_remint`` — the browser-capture re-mint, which carries or
+#:     drops the account namespace under the same lock. Converted with
+#:     ``report_on_lock_unavailable``, so its value-carrying
+#:     ``WriteOutcome(lock_unavailable)`` contract is unchanged.
+#:   * ``replace_from_login`` — the login/import full-replace, whose write-time
+#:     domain filter and required-cookie revalidation run INSIDE the lock while
+#:     its legacy-account promote/drop step runs OUTSIDE it. Converted with
+#:     ``report_on_lock_unavailable`` for the same value-carrying reason; the
+#:     in/out-of-lock split survives as an explicit post-transaction branch.
 #:   * ``persist_minted_jar`` — the #2108 cross-account ownership guard and the
 #:     write-ordering it depends on; sits on the client's own L4 recovery path.
-#:   * ``replace_from_login`` — the login/import full-replace, whose write-time
-#:     domain filter and required-cookie revalidation run inside the lock.
-#:   * ``replace_from_remint`` — the browser-capture re-mint, which carries or
-#:     drops the account namespace under the same lock.
-_UNCONVERTED: frozenset[str] = frozenset(
-    {
-        "replace_from_remint",
-        "replace_from_login",
-        "persist_minted_jar",
-    }
-)
+#:     Converted with ``raise_on_lock_unavailable`` (its return type is ``None``,
+#:     so there is no channel to report into), preserving the exception type and
+#:     message verbatim — ``raise_on_lock_unavailable`` formats the identical
+#:     string the writer used to build inline.
+#:
+#: Kept as an (empty) frozenset rather than deleted: it is what
+#: :func:`test_no_new_hand_rolled_storage_lock` subtracts, so empty is the
+#: STRONGEST form of this gate, not a vestige.
+_UNCONVERTED: frozenset[str] = frozenset()
 
 
 #: The three not-held policies the template exposes.
@@ -103,10 +112,12 @@ _POLICIES: tuple[str, ...] = (
     "report_on_lock_unavailable",
 )
 
-#: The writers that will use ``report_on_lock_unavailable`` when they convert —
-#: the only two whose return type (``WriteOutcome`` / ``LoginWriteOutcome``) has
-#: room for a distinct ``LOCK_UNAVAILABLE`` status. Every other writer returns
-#: ``None`` or a ``bool`` already spoken for, so it must raise instead.
+#: The writers that use ``report_on_lock_unavailable`` — the only two whose
+#: return type (``WriteOutcome`` / ``LoginWriteOutcome``) has room for a distinct
+#: ``LOCK_UNAVAILABLE`` status. Every other writer returns ``None`` or a ``bool``
+#: already spoken for, so it must raise instead. Both converted in PR 1.2, so the
+#: caller-count assertion below is now live at its full expected value of two
+#: rather than vacuously satisfied at zero.
 _REPORT_POLICY_WRITERS: frozenset[str] = frozenset({"replace_from_login", "replace_from_remint"})
 
 
@@ -225,10 +236,11 @@ def test_in_use_policies_have_real_callers() -> None:
 def test_report_policy_is_pinned_until_its_writers_convert() -> None:
     """``report_on_lock_unavailable`` is self-retiring, in both directions.
 
-    It has ZERO callers today, which is correct but only *while* the two
-    full-replace writers that will use it are unconverted — they are the only
-    writers with a rich enough outcome type to report into. So the expectation
-    is conditional on :data:`_UNCONVERTED`, not a fixed number:
+    Its caller count is not a fixed number: it tracks how many of the two
+    full-replace writers have converted — they are the only writers with a rich
+    enough outcome type to report into. So the expectation is conditional on
+    :data:`_UNCONVERTED` (it was ZERO while both were unconverted, and reaches
+    two when both have):
 
     * while they are pinned, a caller appearing means someone reached for the
       report policy from a writer whose return channel cannot express it;

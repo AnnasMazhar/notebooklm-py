@@ -25,13 +25,23 @@ splits):
    merged module at its *measured* LOC — and may raise an existing ``_auth``
    entry when a **later** sanctioned merge lands in the same module — annotated
    ``# sanctioned merge (ADR-0033)`` with the absorbed modules and the PR.
-   "Structural consolidation" is narrow and means one of exactly two things: the
-   recipient **absorbs a sibling** ``_auth`` **module in full** (the sibling is
-   deleted, or reduced to a one-line re-export shim, in the same PR), or it takes
+   "Structural consolidation" is narrow and means one of exactly three things:
+   the recipient **absorbs a sibling** ``_auth`` **module in full** (the sibling
+   is deleted, or reduced to a one-line re-export shim, in the same PR); it takes
    a **relocation that shrinks the donor by what it grows the recipient** — the
    gate only ever sees the recipient, so the annotation must name the donor for
-   the reviewer to check. Inbound code that leaves no donor smaller is ordinary
-   growth and is forbidden. The
+   the reviewer to check; or it is a **template adoption**, where hand-rolled
+   logic inside the module converts onto a shared template. That third class has
+   **no donor** (the change is intra-module) and is still net-additive in lines,
+   because a template call site plus its ``body`` closure header and explicit
+   success return cost more than the inline preamble they replace — measured:
+   #2152 grew the same code 22 lines while converting three writers. What keeps
+   it from becoming "any growth I call a refactor" is that its evidence must be
+   machine-checkable: a raise under this class is legitimate **only** when a
+   companion ratchet's exception list shrinks in the same commit (for the storage
+   writers, ``test_storage_transaction_ratchet._UNCONVERTED``). Inbound code that
+   leaves no donor smaller and converts nothing is ordinary growth and is
+   forbidden. The
    cap was acting as the module boundary inside ``_auth`` rather than the seams
    (several modules' own docstrings cite this budget as their reason to exist),
    so ADR-0033 scopes the cap to *file size* and lets the seams decide the
@@ -134,7 +144,19 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # entry is a pin, not a budget: shrink-locked from here on). Later sanctioned
     # merges into this same module (the write-time cookie-filter relocation and the
     # account-record relocation) raise it under their own fresh annotations.
-    "_auth/storage.py": 2149,
+    #
+    # sanctioned template adoption (ADR-0033 decision 1, third class) — PR 1.2
+    # 2149 -> 2183. ADR-0031 Stage 3 finished here: the last three writers still
+    # hand-rolling the four-step lock preamble (``replace_from_remint``,
+    # ``replace_from_login``, ``persist_minted_jar``) now route through
+    # ``in_storage_transaction``. This class has NO donor — the growth is
+    # intra-module, because a template call site plus its ``body`` closure header
+    # and explicit success return cost more lines than the inline preamble they
+    # replace (measured precedent: #2152 grew the same code by 22 lines while
+    # converting three writers). The evidence the duplication really went is
+    # test_storage_transaction_ratchet's ``_UNCONVERTED``, which this commit takes
+    # to EMPTY — so this class is now exhausted for this module.
+    "_auth/storage.py": 2183,
     # ``mcp/tools/sources.py`` was allowlisted at 1020 (over the 1000-line budget after
     # #1871's shared source-policy wiring + the await_upload era). #1890 folded
     # source_add_and_wait + source_upload_bytes BACK into source_add — removing the two

@@ -551,13 +551,14 @@ def _acquire_storage_lock(
 
 # Six of this module's writers each hand-rolled the same four-step preamble —
 # secure the parent dir, derive the sentinel lock path, take the bounded lock,
-# and branch on whether it was held. **Three of those six route through this
-# template today**; the remaining three are pinned in the shrink-only ratchet
-# ``tests/_guardrails/test_storage_transaction_ratchet.py`` and convert in a later
-# pass. Only the last step differs, and it differs in three genuinely incompatible
-# ways, so the policy is a parameter rather than a decision baked into the
-# template: a version that picked one behavior would be a silent semantic change
-# in a credential-write path.
+# and branch on whether it was held. **All six route through this template**
+# since ADR-0033 PR 1.2, and the ratchet
+# ``tests/_guardrails/test_storage_transaction_ratchet.py`` now has an EMPTY
+# exception list, so a seventh writer cannot hand-roll it. Only the last step
+# differs, and it differs in three genuinely incompatible ways, so the policy is
+# a parameter rather than a decision baked into the template: a version that
+# picked one behavior would be a silent semantic change in a credential-write
+# path.
 #
 # ``merge_cookie_delta`` deliberately does NOT use this. It takes the BLOCKING
 # ``_file_lock_exclusive`` rather than the bounded acquire, and skips the
@@ -627,12 +628,13 @@ def report_on_lock_unavailable(outcome: Any) -> _LockUnavailablePolicy:
     :class:`LoginWriteOutcome`), so the value comes from the caller.
 
     .. note::
-       This has **no caller yet** — ``replace_from_login`` and
-       ``replace_from_remint`` are the only writers whose return type can carry
-       a distinct lock-unavailable status, and both are still unconverted. That
-       is pinned rather than merely noted: the ratchet asserts zero callers
-       while they are unconverted, and at least one once they are, so this
-       helper cannot quietly outlive its reason to exist.
+       The designated callers are ``replace_from_remint`` and
+       ``replace_from_login`` — the only writers whose return type can carry a
+       distinct lock-unavailable status. That is pinned rather than merely
+       noted: the ratchet asserts exactly one caller per CONVERTED member of
+       that pair, so this helper can neither be reached from a writer whose
+       return channel cannot express the report, nor quietly outlive its reason
+       to exist.
     """
 
     def _policy(lock_path: Path) -> Any:
@@ -1792,12 +1794,7 @@ def replace_from_remint(
         filter_storage_state_cookies_by_domain_policy,
     )
 
-    _ensure_secure_parent_dir(path)
-    lock_path = _storage_state_lock_path(path)
-    with _acquire_storage_lock(lock_path, log_prefix="replace_from_remint") as state:
-        if state != "held":
-            return WriteOutcome(WriteStatus.LOCK_UNAVAILABLE)
-
+    def _replace() -> WriteOutcome:
         # Carry the existing account namespace BEFORE overwriting (read under the
         # same lock so it can't tear against a concurrent writer).
         carried_namespace: dict[str, Any] | None = None
@@ -1821,7 +1818,19 @@ def replace_from_remint(
         if carried_namespace is not None:
             filtered[_account._STORAGE_NAMESPACE_KEY] = carried_namespace
         _write_state_unchecked(path, filtered)
-    return WriteOutcome(WriteStatus.OK)
+        return WriteOutcome(WriteStatus.OK)
+
+    # MUST-KNOW via RETURN VALUE, not exception: ``WriteOutcome`` has a distinct
+    # ``LOCK_UNAVAILABLE`` status, and the capture callers branch on it. Using
+    # ``raise_on_lock_unavailable`` here would turn fail-closed-by-return into
+    # fail-closed-by-raise — a breaking change for every caller of this writer.
+    outcome: WriteOutcome = in_storage_transaction(
+        path,
+        _replace,
+        log_prefix="replace_from_remint",
+        on_unavailable=report_on_lock_unavailable(WriteOutcome(WriteStatus.LOCK_UNAVAILABLE)),
+    )
+    return outcome
 
 
 # --- Login / import full-replace -------------------------------------------
@@ -1914,11 +1923,13 @@ def replace_from_login(
         cookie_names_from_storage,
     )
 
-    _ensure_secure_parent_dir(path)
-    lock_path = _storage_state_lock_path(path)
-    with _acquire_storage_lock(lock_path, log_prefix="replace_from_login") as lock_state:
-        if lock_state != "held":
-            return LoginWriteOutcome(LoginWriteStatus.LOCK_UNAVAILABLE)
+    # Hoisted out of ``_replace`` so the post-lock legacy-account step can read
+    # it: that step branches on whether an account key was embedded, and the
+    # writer's return value must stay the outcome the template propagates.
+    namespace: dict[str, Any] = {}
+
+    def _replace() -> LoginWriteOutcome:
+        nonlocal namespace
 
         # (1) Write-time domain filter (preserve-trusted-roots). Returns a fresh
         # ``{"cookies": [...], "origins": []}`` — the browser/import state never
@@ -1945,7 +1956,7 @@ def replace_from_login(
             )
 
         # (3) + (4) Build the ``notebooklm`` namespace (account + opt-ins).
-        namespace: dict[str, Any] = {}
+        namespace = {}
         if account is KEEP_ACCOUNT:
             existing_ns = state.get(_account._STORAGE_NAMESPACE_KEY)
             if isinstance(existing_ns, dict):
@@ -1977,6 +1988,24 @@ def replace_from_login(
             backup_path = candidate
 
         _write_state_unchecked(path, filtered)
+        return LoginWriteOutcome(LoginWriteStatus.OK, backup_path=backup_path)
+
+    # MUST-KNOW via RETURN VALUE, not exception: ``LoginWriteOutcome`` has a
+    # distinct ``LOCK_UNAVAILABLE`` status the CLI already branches on, so
+    # ``raise_on_lock_unavailable`` here would be a breaking change.
+    outcome: LoginWriteOutcome = in_storage_transaction(
+        path,
+        _replace,
+        log_prefix="replace_from_login",
+        on_unavailable=report_on_lock_unavailable(
+            LoginWriteOutcome(LoginWriteStatus.LOCK_UNAVAILABLE)
+        ),
+    )
+    # Both non-OK outcomes (lock unavailable, required cookies dropped) wrote
+    # nothing, so neither reaches the legacy-account step below.
+    if outcome.status is not LoginWriteStatus.OK:
+        return outcome
+
     # Outside the storage lock (its own sibling ``.lock``, matching
     # ``write_account_metadata``'s ordering): the in-band write just committed
     # (or explicitly cleared) the account binding.
@@ -2000,7 +2029,7 @@ def replace_from_login(
         _account.promote_legacy_account(path)
     else:
         _account._drop_legacy_account_key(path)
-    return LoginWriteOutcome(LoginWriteStatus.OK, backup_path=backup_path)
+    return outcome
 
 
 # --- Master-token writers (relocated from ``master_token.py``) --------------
@@ -2063,13 +2092,7 @@ def persist_minted_jar(
         filter_storage_state_cookies_by_domain_policy,
     )
 
-    _ensure_secure_parent_dir(path)
-    lock_path = _storage_state_lock_path(path)
-    with _acquire_storage_lock(lock_path, log_prefix="persist_minted_jar") as state:
-        if state != "held":
-            raise LockUnavailableError(
-                f"persist_minted_jar: storage lock unavailable at {lock_path}"
-            )
+    def _persist() -> None:
         data: dict[str, Any] = {}
         existed = path.exists()
         if existed:
@@ -2114,6 +2137,17 @@ def persist_minted_jar(
         ns["account"] = {"authuser": 0, **({"email": email} if email else {})}
         data["notebooklm"] = ns
         _write_state_unchecked(path, data)
+
+    # MUST-KNOW via exception: the return type is ``None``, so there is no
+    # channel to report into. ``raise_on_lock_unavailable`` formats the message
+    # this writer raised when it hand-rolled the branch, verbatim; the #2108
+    # ownership guard and its write ordering stay inside ``_persist``, untouched.
+    in_storage_transaction(
+        path,
+        _persist,
+        log_prefix="persist_minted_jar",
+        on_unavailable=raise_on_lock_unavailable("persist_minted_jar"),
+    )
 
 
 def write_master_token(path: Path, *, email: str, master_token: str, android_id: str) -> None:
