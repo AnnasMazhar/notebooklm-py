@@ -2,10 +2,11 @@
 
 The script is the source of the ADR-0033 patch-site metric quoted in review and
 in PR descriptions, and it has already miscounted twice: once by resolving
-aliases too loosely, and once (caught by review on #2156) by reading only
-POSITIONAL arguments, so every keyword-form ``monkeypatch.setattr`` and
-``patch.object`` went uncounted. Both failure modes are silent and both bias the
-number DOWNWARD, which reads as "the metric improved".
+aliases too loosely, and twice more under review on #2156: it read only
+POSITIONAL arguments, so every keyword-form ``monkeypatch.setattr`` /
+``patch.object`` went uncounted; and it credited a function-local that merely
+SHADOWED a module alias, which over-counted by 44 sites. The first biases the
+number down and the second up, and both are silent.
 
 A detector nobody tests is a number nobody can trust, so these pin the shapes it
 must see and the shapes it must not count.
@@ -124,6 +125,9 @@ _STRING_TARGET_FIXTURE = (
 def test_counted_shapes(script, tmp_path, label, body, expected):
     sites = _sites(script, tmp_path, body, auth_module="storage", module_body=_MODULE_BODY)
     assert {(s.module, s.attribute) for s in sites} == expected
+    # Cardinality too: a set comparison collapses duplicates, so a collector that
+    # reported one source site twice would inflate the metric and still pass.
+    assert len(sites) == len(expected)
 
 
 @pytest.mark.parametrize(
@@ -138,15 +142,40 @@ def test_counted_shapes(script, tmp_path, label, body, expected):
         # String-target patching is a separately-banned idiom, not this metric's
         # subject. See _STRING_TARGET_FIXTURE for why it is assembled.
         ("string-target", _STRING_TARGET_FIXTURE),
-        # A local that merely SHADOWS a module alias is not a module patch. The
-        # alias map is file-global but Python bindings are function-scoped, so
-        # without the module-level-name check this would be a false positive.
+        # A local that merely SHADOWS a module alias is not a module patch. Note
+        # the attribute is a REAL module-level name: an earlier version of this
+        # fixture used an invented one, which passed for the wrong reason (the
+        # module-level-name check rejected it) and so never exercised shadowing
+        # at all. With a real name it is the genuine false positive, and it was
+        # one until the scope check landed.
         (
-            "local-shadowing-a-module-alias",
+            "shadowed-local-assignment",
             "from notebooklm._auth import storage\n"
             "def test_x():\n"
             "    storage = object()\n"
-            "    storage.NOT_A_REAL_MODULE_NAME = 1\n",
+            "    storage.SEAM = 1\n",
+        ),
+        (
+            "shadowed-local-setattr",
+            "from notebooklm._auth import storage\n"
+            "def test_x(monkeypatch):\n"
+            "    storage = object()\n"
+            "    monkeypatch.setattr(storage, 'SEAM', 1)\n",
+        ),
+        # A nested scope reads the ENCLOSING local, not the module.
+        (
+            "shadowed-in-enclosing-scope",
+            "from notebooklm._auth import storage\n"
+            "def test_x():\n"
+            "    storage = object()\n"
+            "    def inner():\n"
+            "        storage.SEAM = 1\n"
+            "    inner()\n",
+        ),
+        # A parameter shadows just as effectively as an assignment.
+        (
+            "shadowed-by-parameter",
+            "from notebooklm._auth import storage\ndef test_x(storage):\n    storage.SEAM = 1\n",
         ),
         ("unrelated-module", "import os\ndef test_x():\n    os.environ = {}\n"),
     ],
@@ -167,7 +196,9 @@ def test_private_and_public_are_split(script, tmp_path):
         _sites(script, tmp_path, body, auth_module="storage", module_body=_MODULE_BODY)
     )
     assert summary["storage"] == {"public": 1, "private": 1, "total": 2}
-    assert summary["TOTAL"]["total"] == 2
+    # The whole row: a regression in aggregate public/private split would slip
+    # past a bare total.
+    assert summary["TOTAL"] == {"public": 1, "private": 1, "total": 2}
 
 
 def test_missing_auth_dir_is_loud_not_a_silent_zero(script, tmp_path):
@@ -175,8 +206,11 @@ def test_missing_auth_dir_is_loud_not_a_silent_zero(script, tmp_path):
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir()
     (tests_dir / "test_fake.py").write_text("", encoding="utf-8")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc_info:
         script.main(["--tests-dir", str(tests_dir), "--auth-dir", str(tmp_path / "nope")])
+    # A bare ``raises(SystemExit)`` also accepts a CLEAN exit, which is exactly
+    # the "silently counted nothing" outcome this guards against.
+    assert exc_info.value.code not in (None, 0)
 
 
 def test_script_parses_and_exposes_its_contract(script):

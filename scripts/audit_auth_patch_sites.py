@@ -34,12 +34,18 @@ private-attribute coupling specifically.
 
 Baseline (2026-08-07, PR 0.2 — the figures §9's reduction target measures against)
 ---------------------------------------------------------------------------------
-TOTAL 155 public / 107 private / 262 sites. The three modules scoped for deps
-records in plan §7 carry 142 of those and 71 of the private ones::
+TOTAL 131 public / 87 private / 218 sites. The three modules scoped for deps
+records in plan §7 carry 127 of those and 66 of the private ones::
 
     refresh           31 public / 41 private /  72
-    headless_reauth   33 public / 17 private /  50
-    psidts_recovery    7 public / 13 private /  20
+    headless_reauth   23 public / 13 private /  36
+    psidts_recovery    7 public / 12 private /  19
+
+These figures REPLACE an earlier 155/107/262 baseline, which was inflated by
+function-scoped shadowing in the call idioms (see below) — 44 sites that were
+never module patches at all. The correction moved both sides of the comparison
+by the same amount, so deltas measured against the old baseline still hold; the
+absolute numbers do not. Re-measure rather than quoting either from memory.
 
 Re-run this script to compare; do not trust a number quoted elsewhere.
 
@@ -53,10 +59,13 @@ This is a static count, so two things can move it without the coupling changing:
 * **Helper indirection.** Collapsing N patches into one shared fixture reduces the
   count to 1 while the coupling is unchanged. A falling count next to a new
   conftest helper deserves a look at the helper, not applause.
-* **Function-scoped shadowing** in the *call* idioms (see above) can still
-  mis-attribute a site whose local name shadows a module alias elsewhere in the
-  same file. The assignment idiom is guarded; the call idioms are not, because
-  they additionally require a string-literal attribute that a mock rarely matches.
+* **Function-scoped shadowing** is now rejected for BOTH idioms: a scope that
+  rebinds a module alias (assignment, walrus, ``for``/``with``/``except`` target,
+  parameter, nested import) no longer resolves through it, and nested scopes
+  inherit that. Before this, ``storage = object()`` followed by
+  ``storage.SEAM = 1`` counted as a patch of the real module whenever ``SEAM``
+  happened to be a genuine module-level name — the ``mock.return_value`` shape,
+  and 44 of the original 262 sites.
 
 Deliberate exclusions
 ---------------------
@@ -140,6 +149,76 @@ def _dotted_name(node: ast.AST) -> str | None:
         return None
     parts.append(current.id)
     return ".".join(reversed(parts))
+
+
+def _locally_shadowed_aliases(tree: ast.Module, aliases: dict[str, str]) -> dict[int, set[str]]:
+    """Per function scope, which module aliases it REBINDS to something local.
+
+    ``load_module_level_names`` was the first half of keeping the ``assignment``
+    idiom honest: it rejects ``storage.NOT_A_REAL_NAME = 1`` because the alias
+    map is file-global while a Python binding is function-scoped. It cannot
+    reject ``storage = object()`` followed by ``storage.SEAM = 1``, because
+    ``SEAM`` *is* a real module-level name — so that shadowed local was counted
+    as a patch of the module it merely shares a name with, inflating the metric.
+    This is the other half: a scope that rebinds the alias no longer resolves
+    through it.
+
+    Keyed by ``id(scope_node)``. Rebinding means anything that makes the name
+    local: assignment, walrus, ``for`` target, ``with ... as``, ``except ... as``,
+    a parameter, or a nested import — not merely reading it.
+    """
+    shadowed: dict[int, set[str]] = {}
+    for scope in ast.walk(tree):
+        if not isinstance(scope, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            continue
+        names: set[str] = set()
+        args = scope.args
+        for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs):
+            names.add(arg.arg)
+        for extra in (args.vararg, args.kwarg):
+            if extra is not None:
+                names.add(extra.arg)
+        for node in ast.walk(scope):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                if node is not scope:
+                    names.add(node.name)
+                continue
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                names.add(node.id)
+            elif isinstance(node, ast.alias):
+                names.add((node.asname or node.name).split(".")[0])
+            elif isinstance(node, ast.ExceptHandler) and node.name:
+                names.add(node.name)
+        hits = names & set(aliases)
+        if hits:
+            shadowed[id(scope)] = hits
+    return shadowed
+
+
+def _is_shadowed(target: ast.AST, shadowed: frozenset[str]) -> bool:
+    """Does this target expression start from a locally-rebound alias?"""
+    dotted = _dotted_name(target)
+    return dotted is not None and dotted.split(".")[0] in shadowed
+
+
+def _shadow_context(tree: ast.Module, aliases: dict[str, str]) -> dict[int, frozenset[str]]:
+    """Per NODE, the aliases shadowed by the scope chain enclosing it.
+
+    Accumulated down the chain so a nested function inherits its enclosing
+    scope's shadowing — the inner body reads the outer local, not the module.
+    """
+    shadowed = _locally_shadowed_aliases(tree, aliases)
+    context: dict[int, frozenset[str]] = {}
+
+    def _descend(node: ast.AST, active: frozenset[str]) -> None:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            active = active | shadowed.get(id(node), set())
+        context[id(node)] = active
+        for child in ast.iter_child_nodes(node):
+            _descend(child, active)
+
+    _descend(tree, frozenset())
+    return context
 
 
 def _build_alias_map(tree: ast.Module) -> dict[str, str]:
@@ -330,6 +409,7 @@ def collect_sites(tests_dir: Path, auth_dir: Path | None = None) -> list[PatchSi
         aliases = _build_alias_map(tree)
         if not aliases:
             continue
+        shadow = _shadow_context(tree, aliases)
         try:
             rel = path.relative_to(REPO_ROOT).as_posix()
         except ValueError:
@@ -353,6 +433,8 @@ def collect_sites(tests_dir: Path, auth_dir: Path | None = None) -> list[PatchSi
                     targets = [node.target] if node.value is not None else []
                 for target_node in targets:
                     if not isinstance(target_node, ast.Attribute):
+                        continue
+                    if _is_shadowed(target_node.value, shadow.get(id(node), frozenset())):
                         continue
                     module = _resolve_target(target_node.value, aliases, source_aliases)
                     if module is None:
@@ -393,6 +475,8 @@ def collect_sites(tests_dir: Path, auth_dir: Path | None = None) -> list[PatchSi
             if isinstance(target, ast.Constant):
                 continue
             if not (isinstance(attr_node, ast.Constant) and isinstance(attr_node.value, str)):
+                continue
+            if _is_shadowed(target, shadow.get(id(node), frozenset())):
                 continue
             module = _resolve_target(target, aliases, source_aliases)
             if module is None:
