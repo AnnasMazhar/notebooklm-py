@@ -154,9 +154,14 @@ class TestDerivedRecordEqualsPromotedRecord:
     ):
         storage = _legacy_profile(tmp_path, legacy)
 
-        # (a) Derived read-only, before any write has landed.
+        # (a) Derived read-only. Deliberately NO assertion that the on-disk
+        # record is still absent here: the promotion is detached, so on a fast
+        # or loaded machine the worker can legitimately have committed before
+        # this line runs. That is a race against the scheduler, not a property
+        # of the read. "The read does not write" is a claim about the READER'S
+        # THREAD, and it is pinned by
+        # ``test_legacy_read_never_enters_the_storage_writer_on_the_readers_thread``.
         derived = read_account_metadata(storage)
-        assert _in_band_on_disk(storage) is None, "the read must not have written anything"
 
         # (b) Let the detached one-shot commit the durable record.
         _drain_promotions_for_tests()
@@ -269,7 +274,15 @@ class TestReadTakesNoLocks:
         reader = threading.current_thread()
 
         assert read_account_metadata(storage) == {"authuser": 9, "email": "j@example.com"}
-        assert threads_seen == [], "the durable write happened on the reader's thread"
+        # The claim is about WHICH THREAD writes, not about whether the write
+        # has landed yet. Asserting ``threads_seen == []`` here would also
+        # forbid the detached worker from having finished already — a race
+        # against the scheduler that fails on fast/loaded machines while
+        # reporting "the durable write happened on the reader's thread", which
+        # is the opposite of what actually happened.
+        assert all(t is not reader for t in threads_seen), (
+            "the durable write happened on the reader's thread"
+        )
 
         _drain_promotions_for_tests()
         assert threads_seen, "the durable write never happened at all"
@@ -281,6 +294,75 @@ class TestReadTakesNoLocks:
         assert worker is not None
         assert worker.daemon is True
         worker.join(30.0)
+
+
+class TestPromotionRacingTheReader:
+    """The reader samples two files; a promotion may commit between the samples.
+
+    Promotion is embed-then-strip across ``storage_state.json`` and the sibling
+    ``context.json``, under two different locks, so at no INSTANT is the binding
+    absent from both. That is not enough for a reader, which does not sample the
+    two files at the same instant: an in-band sample taken before the embed plus
+    a sibling sample taken after the strip observes a state that never existed on
+    disk. Returning ``{}`` there means ``authuser=0`` and routes requests to a
+    different signed-in Google account — the #2103 hazard reached by timing.
+
+    Deterministic by construction: the promotion is driven from inside the
+    reader's own sibling read, so it does not depend on scheduling. The bug this
+    pins was originally caught by CI flaking on four runners.
+    """
+
+    def test_promotion_committing_between_the_two_samples_keeps_the_binding(
+        self, tmp_path, monkeypatch
+    ):
+        storage = _legacy_profile(tmp_path, {"authuser": 7, "email": "race@example.com"})
+        real_read_legacy = _auth_storage._read_legacy_account
+        promoted_during_read: list[bool] = []
+
+        promoting: list[bool] = []
+
+        def _promote_mid_read(path: Path) -> dict[str, Any]:
+            """Let a full promotion land, THEN take the sibling sample.
+
+            This is the exact interleaving. The caller already sampled in-band
+            and found it absent; by the time it samples the sibling, both the
+            embed and the strip have happened, so the sibling reads empty. The
+            reader is now holding two samples that were never simultaneously
+            true, and neither one carries the binding.
+
+            ``promoting`` is a re-entrancy guard: ``promote_legacy_account``
+            reads the sibling itself, and those nested reads must see the real
+            pre-strip record or the promotion has nothing to promote.
+            """
+            if promoted_during_read or promoting:
+                return real_read_legacy(path)
+            promoting.append(True)
+            try:
+                promoted_during_read.append(True)
+                assert _auth_storage.promote_legacy_account(path) is True
+            finally:
+                promoting.pop()
+            legacy = real_read_legacy(path)
+            # The premise of the interleaving: this sample is empty.
+            assert legacy == {}, "the strip did not happen; test would be vacuous"
+            return legacy
+
+        monkeypatch.setattr(_auth_storage, "_read_legacy_account", _promote_mid_read)
+
+        record = read_account_metadata(storage)
+
+        assert promoted_during_read, "the interleaving never happened; test is vacuous"
+        assert record == {"authuser": 7, "email": "race@example.com"}, (
+            "a promotion landing between the in-band and sibling samples dropped "
+            "the account binding — authuser would fall back to 0 and route to a "
+            "different Google account"
+        )
+
+    def test_a_genuinely_empty_profile_still_reads_empty(self, tmp_path):
+        """The re-read must not invent a record where there never was one."""
+        storage = tmp_path / "storage_state.json"
+        storage.write_text(json.dumps({"cookies": [], "origins": []}), encoding="utf-8")
+        assert read_account_metadata(storage) == {}
 
 
 class TestSingleFlightOneShot:

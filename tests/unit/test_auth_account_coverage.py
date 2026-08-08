@@ -401,9 +401,11 @@ class TestPromoteLegacyAccount:
         def _boom(*args, **kwargs):
             raise OSError("disk full")
 
-        # ``promote_legacy_account`` does ``from . import storage`` (binds
-        # the MODULE), so patching the module's function attribute — not a
-        # from-import binding in account.py — is what actually takes effect.
+        # Since ADR-0033 PR 5.2 both functions live in ``_auth/storage.py``, so
+        # the call resolves through that module's own global namespace at call
+        # time. Patching the module attribute is still what takes effect — but
+        # for that reason, not the old cross-module ``from . import storage``
+        # one, which no longer exists.
         import notebooklm._auth.storage as _storage_mod
 
         monkeypatch.setattr(_storage_mod, "update_account_metadata", _boom)

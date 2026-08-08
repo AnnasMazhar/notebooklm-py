@@ -223,7 +223,11 @@ path, scheduled from the read and joined by nobody
 - Observable delta for operators: on a legacy profile the sibling
   `context.json[account]` is scrubbed a moment *after* the first read rather
   than during it, and a profile whose promotion keeps failing is now warned
-  about once per path per trigger instead of once per path per process. No
+  about by a plain, default-visible WARNING rather than one gated behind a
+  per-path throttle. The frequency is unchanged in the worst case and lower in
+  practice: the one-shot is single-flight per canonical path and never retries
+  in-process, so the read path can emit this at most once per path per process
+  (plus at most one each from startup migration and `replace_from_login`). No
   returned value changes — `tests/unit/test_auth_account_promotion.py` pins
   derived-vs-promoted equality field-by-field across a matrix of malformed
   legacy shapes.

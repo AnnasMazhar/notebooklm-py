@@ -21,9 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   migrated file will contain). Two things are observable: the legacy
   `context.json[account]` key is scrubbed a moment *after* the first read
   rather than during it, and a profile whose migration keeps failing (read-only
-  profile directory, full disk) now logs its warning once per trigger instead
-  of being throttled to once per process — the migration is attempted once per
-  profile per run, so it can no longer flood the log. No configuration changes.
+  profile directory, full disk) now logs a plain, default-visible warning
+  instead of one gated behind a per-path throttle. That throttle existed only
+  because promotion used to run on the per-RPC read path and would otherwise
+  warn on every request; the one-shot is single-flight per profile and does not
+  retry in-process, so the warning fires at most once per profile per run and
+  cannot flood the log. No configuration changes.
 - **Cold-start recovery now runs `NOTEBOOKLM_REFRESH_CMD` before the re-mint
   rungs.** On a dead-cookie cold start, the external refresh command (rung
   "L2.5") previously ran only *after* headless re-auth (L3) and master-token

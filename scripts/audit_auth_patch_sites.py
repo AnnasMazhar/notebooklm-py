@@ -341,8 +341,16 @@ def collect_sites(tests_dir: Path, auth_dir: Path | None = None) -> list[PatchSi
             # because pytest never restores it. Counting only the call idioms would
             # let a later PR "improve" the metric by converting monkeypatch calls
             # into assignments while making the coupling worse.
-            if isinstance(node, (ast.Assign, ast.AugAssign)):
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+                # AnnAssign carries ONE target and may have no value at all
+                # (``x.y: int``) — a bare annotation rebinds nothing, so it is
+                # not a patch site.
+                if isinstance(node, ast.Assign):
+                    targets = node.targets
+                elif isinstance(node, ast.AugAssign):
+                    targets = [node.target]
+                else:
+                    targets = [node.target] if node.value is not None else []
                 for target_node in targets:
                     if not isinstance(target_node, ast.Attribute):
                         continue
@@ -366,9 +374,21 @@ def collect_sites(tests_dir: Path, auth_dir: Path | None = None) -> list[PatchSi
             if not isinstance(node, ast.Call):
                 continue
             idiom = _patch_idiom(node)
-            if idiom is None or len(node.args) < 2:
+            if idiom is None:
                 continue
-            target, attr_node = node.args[0], node.args[1]
+            # Both idioms accept their first two arguments by KEYWORD:
+            # ``monkeypatch.setattr(target=..., name="x")`` and
+            # ``patch.object(target=..., attribute="x")``. A positional-only
+            # scan silently under-counts, which reads as "the metric improved".
+            keywords = {kw.arg: kw.value for kw in node.keywords if kw.arg}
+            target = node.args[0] if node.args else keywords.get("target")
+            attr_node = (
+                node.args[1]
+                if len(node.args) > 1
+                else keywords.get("name") or keywords.get("attribute")
+            )
+            if target is None or attr_node is None:
+                continue
             # String targets are a different, separately-banned idiom.
             if isinstance(target, ast.Constant):
                 continue

@@ -1887,51 +1887,49 @@ def read_account_metadata(storage_path: Path | None) -> dict[str, Any]:
     :func:`get_authuser_for_storage`), so the durable half of the legacy
     migration is *detached* from it: see :func:`_schedule_legacy_promotion`.
 
-    Unified layout: account metadata lives inside ``storage_state.json``
-    under the ``notebooklm`` namespace key. This reader never returns a raw
-    pass-through of the pre-v0.5.0 sibling ``context.json`` record — a
-    standing read fallback that silently trusted an unmigrated legacy value
-    was the wrong-account hazard #2103's PR-0 closes (a legacy ``authuser``
-    the fallback missed, or a stale one it kept trusting forever, could
-    silently route requests to a different signed-in Google account).
+    Unified layout: account metadata lives inside ``storage_state.json`` under
+    the ``notebooklm`` namespace key. This reader never returns a raw
+    pass-through of the pre-v0.5.0 sibling ``context.json`` — a standing read
+    fallback trusting an unmigrated value is #2103's hazard.
 
     Instead the three branches are:
 
     1. **In-band present** — the overwhelming majority of calls, and the only
-       one per-RPC routing walks once any profile has been read: one file read
-       plus a dict lookup, zero locks, zero threads.
-    2. **Nothing anywhere** — ``{}`` (``authuser=0`` downstream), unchanged.
+       one per-RPC routing walks once any profile has been read: one file read,
+       one dict lookup, zero locks, zero threads.
+    2. **Nothing anywhere** — ``{}``, but only after a SECOND in-band read. A
+       promotion committing between this reader's two file samples would
+       otherwise leave it holding a pre-embed in-band sample and a post-strip
+       sibling sample, neither carrying the binding — ``authuser=0``, i.e.
+       #2103 reached by timing rather than staleness. The strip follows the
+       embed, so a vanished sibling implies a committed record; the re-read
+       finds it. ``TestPromotionRacingTheReader`` spells out the interleaving.
     3. **Legacy-only** — the record is DERIVED read-only, through the very
-       function promotion itself uses to build what it embeds
-       (:func:`_sanitize_legacy_account_record`), so the caller sees a
-       genuinely in-band-shaped record — never a raw legacy pass-through —
-       whether or not the durable write has happened yet. The durable write is
-       then scheduled once per path, in the background, and the read returns
-       without waiting for it.
+       function promotion uses to build what it embeds
+       (:func:`_sanitize_legacy_account_record`), so the caller sees a genuinely
+       in-band-shaped record — never a raw pass-through — whether or not the
+       durable write has landed. That write is scheduled once per path, in the
+       background; the read does not wait.
 
-    That derivation is the anti-wrong-account contract, and it is what makes
-    the promotion's timing irrelevant to correctness: a promotion that is
-    slow, contended, or permanently failing (read-only profile dir, full disk)
-    changes nothing a caller can observe except how long the sibling
-    ``context.json`` survives on disk. ``tests/unit/test_auth_account_promotion.py``
-    pins field-by-field equality between the derived record and the one a
-    completed promotion leaves behind.
+    That derivation is the anti-wrong-account contract, and it makes promotion
+    timing irrelevant to correctness: one that is slow, contended, or
+    permanently failing (read-only dir, full disk) changes nothing observable
+    except how long the sibling survives. ``test_auth_account_promotion.py``
+    pins the derived record field-by-field against the promoted one.
 
-    The ``account`` object records the Google ``authuser`` index used when
-    the profile was authenticated. Profiles from before account-binding
-    shipped (and profiles for users with a single Google account) have no
-    account metadata and use ``authuser=0``.
+    The ``account`` object records the Google ``authuser`` index used when the
+    profile was authenticated. Profiles from before account-binding shipped
+    (and single-Google-account users) have none, and use ``authuser=0``.
 
     Args:
-        storage_path: Path to ``storage_state.json``. ``None`` means the
-            profile is loaded from ``NOTEBOOKLM_AUTH_JSON`` (no sibling to
-            promote from — env-auth profiles skip promotion entirely; the
-            env-auth record is read from the parsed payload by
-            :func:`read_account_metadata_from_storage_state`).
+        storage_path: Path to ``storage_state.json``. ``None`` means the profile
+            is loaded from ``NOTEBOOKLM_AUTH_JSON`` — no sibling to promote
+            from, so env-auth skips promotion and its record is read from the
+            parsed payload by :func:`read_account_metadata_from_storage_state`.
 
     Returns:
-        Parsed metadata dict, or ``{}`` only when no legacy OR in-band
-        record exists at all.
+        Parsed metadata dict, or ``{}`` only when no legacy OR in-band record
+        exists at all.
     """
     if storage_path is None:
         return {}
@@ -1940,7 +1938,9 @@ def read_account_metadata(storage_path: Path | None) -> dict[str, Any]:
         return in_band
     legacy = _read_legacy_account(storage_path)
     if not legacy:
-        return {}
+        # Never ``{}`` outright — a promotion may have landed between our two
+        # samples. See branch 2.
+        return _read_in_band_account(storage_path)
     # Re-read in-band before trusting the legacy record. A concurrent fresh
     # login / account-switch (or this process's own promotion worker) may have
     # committed one while we were reading the sibling, and in-band ALWAYS wins:

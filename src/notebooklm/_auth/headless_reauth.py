@@ -139,7 +139,7 @@ class _DriveRecord:
       reach ``claim()``. This coalesces correctly in a spike, but it makes the
       documented sync entry raise ``RuntimeError: asyncio.run() cannot be
       called from a running event loop`` for any caller that invokes it from
-      inside a coroutine, and it spends a fresh and it spends a fresh
+      inside a coroutine, and it spends a fresh
       event loop plus a second thread hop per browser drive (loop → to_thread →
       new loop → to_thread → blocking drive) to replace one ``threading.Lock``.
     * **Hoist the claim** into the async ``recovery.try_headless_reauth``. That

@@ -910,7 +910,7 @@ async def _cold_fallbacks(
             await _fetch_tokens_with_jar(
                 recovered_jar,
                 storage_path,
-                **_resolve_token_route_kwargs(storage_path, authuser=None, account_email=None),
+                **resolve_route(storage_path),
             )
 
         try:
