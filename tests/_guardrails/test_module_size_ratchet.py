@@ -135,6 +135,16 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # merges into this same module (the write-time cookie-filter relocation and the
     # account-record relocation) raise it under their own fresh annotations.
     "_auth/storage.py": 2149,
+    # sanctioned merge (ADR-0033) — the `_auth` token-route fold: ``_auth/headers.py``
+    # (68 lines, one function — ``_resolve_token_route_kwargs`` — whose only three
+    # call sites are the token-fetch entry points here) was absorbed in full and
+    # DELETED in the same change, so the donor is gone entirely. The same PR also
+    # colocated the cold-start fallback sequence (``_cold_fallbacks``) and landed
+    # the refresh deps record, which is why the fold and that work had to ship
+    # together: a sanctioned entry is a pin, not a budget, so it leaves ZERO
+    # headroom and the module may cross the 1000-line budget only ONCE. Pinned at
+    # its MEASURED post-PR LOC; shrink-locked from here on.
+    "_auth/refresh.py": 1200,
     # ``mcp/tools/sources.py`` was allowlisted at 1020 (over the 1000-line budget after
     # #1871's shared source-policy wiring + the await_upload era). #1890 folded
     # source_add_and_wait + source_upload_bytes BACK into source_add — removing the two

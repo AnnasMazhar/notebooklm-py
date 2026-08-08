@@ -30,9 +30,11 @@ import os
 import shlex
 import subprocess
 from collections.abc import Callable, Coroutine
+from contextlib import AbstractContextManager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
@@ -139,21 +141,82 @@ _REFRESH_FLIGHT_POLICY = "refresh-cmd"
 # A direct leader-failure and the success-epoch reload short-circuit before this.
 _MAX_REFRESH_FOLLOW_RETRIES = 3
 
-# Cross-process rotation-style flock primitive, aliased from keepalive so the
-# leader body can serialize the refresh-cmd subprocess across processes
-# ([refresh-2]). Tests substitute it by patching this bare name.
-_file_lock_try_exclusive = _keepalive._file_lock_try_exclusive
 # Bounded async wait for another process's refresh flock to release (flock-loser
 # reloads-fresh-not-stale fix); lives next to the flock primitive in ``keepalive``.
 _wait_for_refresh_holder = _keepalive._wait_for_refresh_holder
-_refresh_lock_path = _auth_paths._refresh_lock_path
 canonical_storage_key = _auth_paths.canonical_storage_key
+
+
+# --- Injected collaborators (plan §7 deps record) -----------------------------
+# ``_file_lock_try_exclusive = _keepalive._file_lock_try_exclusive`` and
+# ``_refresh_lock_path = _auth_paths._refresh_lock_path`` used to sit here as
+# module-scope aliases whose only *documented* purpose was "tests substitute
+# this by patching the bare name on this module". That patching protocol is
+# replaced by the record below: the three collaborators the refresh-cmd rung's
+# tests actually replace — the subprocess runner, the flock acquirer, and the
+# lock-path deriver — are threaded keyword-only from the entry points down to
+# the leader body, so a test constructs a record instead of mutating module
+# state that pytest may or may not restore.
+
+
+class _RefreshFlock(Protocol):
+    """Non-blocking exclusive flock: a context manager yielding "acquired?"."""
+
+    def __call__(self, lock_path: Path) -> AbstractContextManager[bool]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshDeps:
+    """Collaborators of the refresh-cmd rung, injectable per call.
+
+    Every field is optional and ``None`` means "use production". The production
+    value is resolved **late**, through this module's namespace, at the moment
+    of use (:meth:`runner`, :meth:`flock`, :meth:`lock_path`) — deliberately
+    NOT captured into a field default at import time. Two reasons:
+
+    1. a frozen record built at import time would freeze the function objects,
+       silently defeating the module-attribute patch seam the whitebox
+       concurrency suites still use for the collaborators this record does not
+       carry; and
+    2. it keeps a partially-specified record useful — ``RefreshDeps(
+       run_refresh_cmd=fake)`` overrides one collaborator and leaves the other
+       two on production, which is how nearly every test wants to use it.
+    """
+
+    run_refresh_cmd: Callable[[Path, str | None], Coroutine[Any, Any, None]] | None = None
+    acquire_refresh_flock: _RefreshFlock | None = None
+    derive_refresh_lock_path: Callable[[Path | None], Path | None] | None = None
+
+    def runner(self) -> Callable[[Path, str | None], Coroutine[Any, Any, None]]:
+        """The ``NOTEBOOKLM_REFRESH_CMD`` subprocess runner."""
+        if self.run_refresh_cmd is not None:
+            return self.run_refresh_cmd
+        return _run_refresh_cmd
+
+    def flock(self) -> _RefreshFlock:
+        """The cross-process refresh flock acquirer ([refresh-2])."""
+        if self.acquire_refresh_flock is not None:
+            return self.acquire_refresh_flock
+        return _keepalive._file_lock_try_exclusive
+
+    def lock_path(self) -> Callable[[Path | None], Path | None]:
+        """The per-storage-path refresh lock-file deriver."""
+        if self.derive_refresh_lock_path is not None:
+            return self.derive_refresh_lock_path
+        return _auth_paths._refresh_lock_path
+
+
+# One shared empty record, so the default path allocates nothing per call. It
+# carries no captured functions (every field is ``None``), so it cannot stale.
+_PRODUCTION_REFRESH_DEPS = RefreshDeps()
 
 
 async def _refresh_cmd_leader_body(
     path_key: str,
     resolved_storage_path: Path,
     profile: str | None,
+    *,
+    deps: RefreshDeps = _PRODUCTION_REFRESH_DEPS,
 ) -> None:
     """Leader-only body: run ``_run_refresh_cmd`` under a cross-process flock.
 
@@ -172,14 +235,14 @@ async def _refresh_cmd_leader_body(
     (wait-then-reload) or failed attempt leaves waiters retrying (single_flight
     guarantee 2).
     """
-    lock_path = _refresh_lock_path(resolved_storage_path)
+    lock_path = deps.lock_path()(resolved_storage_path)
     if lock_path is None:
-        await _run_refresh_cmd(resolved_storage_path, profile)
+        await deps.runner()(resolved_storage_path, profile)
         _single_flight.note_success(path_key)
         return
-    with _file_lock_try_exclusive(lock_path) as acquired:
+    with deps.flock()(lock_path) as acquired:
         if acquired:
-            await _run_refresh_cmd(resolved_storage_path, profile)
+            await deps.runner()(resolved_storage_path, profile)
             _single_flight.note_success(path_key)
             return
     # Lost the cross-process flock: another process holds it and is refreshing
@@ -198,6 +261,8 @@ async def _coalesced_run_refresh_cmd(
     refresh_key: str,
     resolved_storage_path: Path,
     profile: str | None,
+    *,
+    deps: RefreshDeps = _PRODUCTION_REFRESH_DEPS,
 ) -> None:
     """Run the refresh-cmd once across all loops for ``refresh_key``.
 
@@ -239,7 +304,7 @@ async def _coalesced_run_refresh_cmd(
     epoch_before = _single_flight.read_success_epoch(path_key)
 
     def _factory() -> Coroutine[Any, Any, None]:
-        return _refresh_cmd_leader_body(path_key, resolved_storage_path, profile)
+        return _refresh_cmd_leader_body(path_key, resolved_storage_path, profile, deps=deps)
 
     # A PERSISTENTLY failing refresh-cmd with N concurrent waiters would run up to
     # N sequential leader subprocesses (each failed leader's follower becomes a
@@ -304,6 +369,7 @@ async def try_refresh_cmd_reauth(
     storage_path: Path | None,
     cookie_jar: httpx.Cookies,
     profile: str | None = None,
+    deps: RefreshDeps = _PRODUCTION_REFRESH_DEPS,
 ) -> bool:
     """L2.5 mid-session rung: run ``NOTEBOOKLM_REFRESH_CMD`` and reload cookies.
 
@@ -343,7 +409,7 @@ async def try_refresh_cmd_reauth(
     refresh_token = _REFRESH_ATTEMPTED_CONTEXT.set(True)
     try:
         # Coalesced across loops + serialized across processes by the flock.
-        await _coalesced_run_refresh_cmd(refresh_key, canonical_path, profile)
+        await _coalesced_run_refresh_cmd(refresh_key, canonical_path, profile, deps=deps)
         fresh_jar = await asyncio.to_thread(build_httpx_cookies_from_storage, canonical_path)
     except asyncio.CancelledError:
         raise
@@ -682,6 +748,7 @@ async def _fetch_tokens_with_refresh(
     force_authuser_query: bool = False,
     allow_headless: bool = False,
     env_auth: bool = False,
+    deps: RefreshDeps = _PRODUCTION_REFRESH_DEPS,
 ) -> tuple[str, str, bool, _auth_storage.CookieSnapshot | None]:
     """Fetch tokens, optionally running NOTEBOOKLM_REFRESH_CMD on auth expiry.
 
@@ -727,6 +794,7 @@ async def _fetch_tokens_with_refresh(
             env_auth=env_auth,
             allow_headless=allow_headless,
             resolve_route=resolve_route,
+            deps=deps,
         )
 
 
@@ -739,6 +807,7 @@ async def _cold_fallbacks(
     env_auth: bool,
     allow_headless: bool,
     resolve_route: Callable[[Path | None], dict[str, Any]],
+    deps: RefreshDeps = _PRODUCTION_REFRESH_DEPS,
 ) -> tuple[str, str, bool, _auth_storage.CookieSnapshot | None]:
     """The cold-start fallback SEQUENCE, in one place, reading top to bottom.
 
@@ -850,7 +919,7 @@ async def _cold_fallbacks(
         # subprocess exception on genuine failure; and propagates
         # ``CancelledError`` (after settling the shared subprocess) on
         # caller-side cancellation.
-        await _coalesced_run_refresh_cmd(refresh_key, refresh_storage_path, profile)
+        await _coalesced_run_refresh_cmd(refresh_key, refresh_storage_path, profile, deps=deps)
         # Offloaded off the loop: an inline read + POST would freeze the
         # loop (refresh-1 / HIGH#2).
         fresh_jar = await asyncio.to_thread(build_httpx_cookies_from_storage, refresh_storage_path)
