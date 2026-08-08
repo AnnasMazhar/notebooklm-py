@@ -120,6 +120,13 @@ _STRING_TARGET_FIXTURE = (
             "    monkeypatch.setattr(_st, '_PRIVATE_SEAM', 1)\n",
             {("storage", "_PRIVATE_SEAM")},
         ),
+        (
+            "function-local-auth-import",
+            "def test_x(monkeypatch):\n"
+            "    from notebooklm._auth import storage as local_storage\n"
+            "    monkeypatch.setattr(local_storage, 'SEAM', 1)\n",
+            {("storage", "SEAM")},
+        ),
     ],
 )
 def test_counted_shapes(script, tmp_path, label, body, expected):
@@ -201,6 +208,180 @@ def test_private_and_public_are_split(script, tmp_path):
     assert summary["TOTAL"] == {"public": 1, "private": 1, "total": 2}
 
 
+def test_real_function_local_import_sites_are_not_dropped(script):
+    sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src" / "notebooklm" / "_auth")
+    actual = {(site.path, site.module, site.attribute) for site in sites}
+    assert {
+        ("tests/unit/test_warning_dedupe.py", "storage", "_file_lock"),
+        ("tests/unit/test_profile_atomic_write.py", "storage", "_file_lock"),
+        ("tests/unit/test_auth_account_coverage.py", "storage", "_file_lock"),
+    } <= actual
+
+
+def test_definition_headers_resolve_in_the_enclosing_scope(script, tmp_path):
+    body = (
+        "from unittest.mock import patch\n"
+        "from notebooklm._auth import storage\n"
+        "@patch.object(storage, 'SEAM')\n"
+        "def decorated(\n"
+        "    value: patch.object(storage, 'SEAM') = patch.object(storage, 'SEAM'),\n"
+        ") -> patch.object(storage, 'SEAM'):\n"
+        "    pass\n"
+        "@patch.object(storage, 'SEAM')\n"
+        "class HeaderClass(\n"
+        "    patch.object(storage, 'SEAM'),\n"
+        "    metaclass=patch.object(storage, 'SEAM'),\n"
+        "):\n"
+        "    pass\n"
+    )
+    sites = _sites(script, tmp_path, body, auth_module="storage", module_body=_MODULE_BODY)
+    assert len(sites) == 7
+    assert {(site.module, site.attribute, site.idiom) for site in sites} == {
+        ("storage", "SEAM", "patch.object")
+    }
+
+
+def test_comprehension_scope_does_not_poison_outer_alias(script, tmp_path):
+    body = (
+        "from notebooklm._auth import storage\n"
+        "[storage for storage in values]\n"
+        "monkeypatch.setattr(storage, 'SEAM', 1)\n"
+    )
+    sites = _sites(script, tmp_path, body, auth_module="storage", module_body=_MODULE_BODY)
+    assert [(site.module, site.attribute) for site in sites] == [("storage", "SEAM")]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        (
+            "from notebooklm._auth import storage\n"
+            "[monkeypatch.setattr(storage, 'SEAM', 1) for storage in values]\n"
+        ),
+        (
+            "from notebooklm._auth import storage\n"
+            "match value:\n"
+            "    case storage:\n"
+            "        monkeypatch.setattr(storage, 'SEAM', 1)\n"
+        ),
+        (
+            "from notebooklm._auth import storage\n"
+            "storage = object()\n"
+            "monkeypatch.setattr(storage, 'SEAM', 1)\n"
+        ),
+    ],
+    ids=("comprehension-capture", "match-capture", "later-rebinding"),
+)
+def test_sequential_captures_and_rebindings_are_not_false_sites(script, tmp_path, body):
+    assert _sites(script, tmp_path, body, auth_module="storage", module_body=_MODULE_BODY) == []
+
+
+def test_function_global_auth_import_resolves_inside_that_scope(script, tmp_path):
+    body = (
+        "def test_x(monkeypatch):\n"
+        "    global storage\n"
+        "    from notebooklm._auth import storage\n"
+        "    monkeypatch.setattr(storage, 'SEAM', 1)\n"
+    )
+    sites = _sites(script, tmp_path, body, auth_module="storage", module_body=_MODULE_BODY)
+    assert [(site.module, site.attribute) for site in sites] == [("storage", "SEAM")]
+
+
+def test_projection_aggregates_idiom_counts_without_paths_or_lines(script, tmp_path):
+    body = (
+        "from notebooklm._auth import storage\n"
+        "def test_x(monkeypatch):\n"
+        "    monkeypatch.setattr(storage, 'SEAM', 1)\n"
+        "    monkeypatch.setattr(storage, 'SEAM', 2)\n"
+        "    storage._PRIVATE_SEAM = 3\n"
+    )
+    sites = _sites(script, tmp_path, body, auth_module="storage", module_body=_MODULE_BODY)
+    assert script.build_projection(sites) == {
+        "version": 1,
+        "summary": {
+            "storage": {"public": 2, "private": 1, "total": 3},
+            "TOTAL": {"public": 2, "private": 1, "total": 3},
+        },
+        "sites": [
+            {
+                "module": "storage",
+                "attribute": "SEAM",
+                "idiom": "monkeypatch.setattr",
+                "count": 2,
+            },
+            {
+                "module": "storage",
+                "attribute": "_PRIVATE_SEAM",
+                "idiom": "assignment",
+                "count": 1,
+            },
+        ],
+    }
+
+
+def test_projection_bites_on_changed_idiom_and_count(script, tmp_path):
+    monkeypatch_body = (
+        "from notebooklm._auth import storage\n"
+        "def test_x(monkeypatch):\n"
+        "    monkeypatch.setattr(storage, 'SEAM', 1)\n"
+    )
+    assignment_body = "from notebooklm._auth import storage\ndef test_x():\n    storage.SEAM = 1\n"
+    doubled_monkeypatch_body = (
+        "from notebooklm._auth import storage\n"
+        "def test_x(monkeypatch):\n"
+        "    monkeypatch.setattr(storage, 'SEAM', 1)\n"
+        "    monkeypatch.setattr(storage, 'SEAM', 2)\n"
+    )
+    (tmp_path / "one").mkdir()
+    (tmp_path / "two").mkdir()
+    (tmp_path / "three").mkdir()
+    first = script.build_projection(
+        _sites(
+            script,
+            tmp_path / "one",
+            monkeypatch_body,
+            auth_module="storage",
+            module_body=_MODULE_BODY,
+        )
+    )
+    second = script.build_projection(
+        _sites(
+            script,
+            tmp_path / "two",
+            assignment_body,
+            auth_module="storage",
+            module_body=_MODULE_BODY,
+        )
+    )
+    increased_count = script.build_projection(
+        _sites(
+            script,
+            tmp_path / "three",
+            doubled_monkeypatch_body,
+            auth_module="storage",
+            module_body=_MODULE_BODY,
+        )
+    )
+    assert first != second
+    assert first["sites"] == [
+        {
+            "module": "storage",
+            "attribute": "SEAM",
+            "idiom": "monkeypatch.setattr",
+            "count": 1,
+        }
+    ]
+    assert increased_count["sites"] == [
+        {
+            "module": "storage",
+            "attribute": "SEAM",
+            "idiom": "monkeypatch.setattr",
+            "count": 2,
+        }
+    ]
+    assert increased_count != first
+
+
 def test_missing_auth_dir_is_loud_not_a_silent_zero(script, tmp_path):
     """A renamed/missing ``_auth`` must not read as "the metric went down"."""
     tests_dir = tmp_path / "tests"
@@ -215,6 +396,12 @@ def test_missing_auth_dir_is_loud_not_a_silent_zero(script, tmp_path):
 
 def test_script_parses_and_exposes_its_contract(script):
     """Guards the loader itself: the API these tests drive must exist."""
-    for name in ("collect_sites", "summarize", "main", "load_module_level_names"):
+    for name in (
+        "build_projection",
+        "collect_sites",
+        "summarize",
+        "main",
+        "load_module_level_names",
+    ):
         assert hasattr(script, name), f"{name} disappeared from the audit script"
     ast.parse(SCRIPT_PATH.read_text(encoding="utf-8"))
