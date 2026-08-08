@@ -1385,3 +1385,35 @@ def test_persistence_shims_are_identity_reexports() -> None:
             assert getattr(shim, name) is getattr(canonical, name), (
                 f"{shim.__name__}.{name} is not the canonical {canonical.__name__}.{name} object"
             )
+
+
+def test_browser_cluster_shims_are_identity_reexports() -> None:
+    """``browser_state_validation`` / ``login_wait_trace`` must re-export the real objects.
+
+    Same reasoning as :func:`test_persistence_shims_are_identity_reexports`, for
+    the browser-cluster merge (ADR-0033 PR 4.1). Both modules existed only to keep
+    ``browser_capture`` under the ADR-0008 line cap, and both are now one-line
+    re-export shims. Nothing in ``src/``, ``tests/`` or ``scripts/`` imports them
+    any more, so their ``from .browser_capture import (...)`` blocks have **zero**
+    coverage: renaming ``trace_url`` or ``heal_captured_state`` in a later PR would
+    break the shim with an ``ImportError`` raised only at import time, and no test
+    would notice. A later browser-cluster PR (the write-side cookie-filter
+    relocation) is scheduled, so this pins the shims until they are removed at the
+    next major.
+    """
+    import notebooklm._auth.browser_capture as canonical
+    import notebooklm._auth.browser_state_validation as validation_shim
+    import notebooklm._auth.login_wait_trace as trace_shim
+
+    for shim in (validation_shim, trace_shim):
+        exported = getattr(shim, "__all__", None)
+        assert exported, f"{shim.__name__} must declare __all__ so this gate can bite"
+        for name in exported:
+            assert hasattr(shim, name), f"{shim.__name__} re-exports missing name {name!r}"
+            assert hasattr(canonical, name), (
+                f"{shim.__name__} re-exports {name!r}, which no longer exists on "
+                f"{canonical.__name__} — the shim is broken"
+            )
+            assert getattr(shim, name) is getattr(canonical, name), (
+                f"{shim.__name__}.{name} is not the canonical {canonical.__name__}.{name} object"
+            )

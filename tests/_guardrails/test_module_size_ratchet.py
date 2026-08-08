@@ -135,6 +135,19 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # merges into this same module (the write-time cookie-filter relocation and the
     # account-record relocation) raise it under their own fresh annotations.
     "_auth/storage.py": 2149,
+    # sanctioned merge (ADR-0033) — the `_auth` browser-cluster merge (PR 4.1):
+    # ``_auth/browser_state_validation.py`` (56) and ``_auth/login_wait_trace.py``
+    # (181) were absorbed in full and reduced to re-export shims in the same
+    # change. Both existed only to keep this file under the budget — the capture
+    # core was already the sole consumer of each (the validation bridge's two
+    # callers and the tracing's three call sites are all in this module), which is
+    # why the leaves failed the deletion test. ``browser_launch_errors.py`` is NOT
+    # part of this merge: ``classify_launch_failure`` has a second, independent
+    # consumer in ``cli/services/login/master_token.py``, so it stays a real leaf.
+    # Pinned at its MEASURED post-merge LOC (a sanctioned entry is a pin, not a
+    # budget: shrink-locked from here on, and the plan schedules no further growth
+    # of this module).
+    "_auth/browser_capture.py": 1240,
     # ``mcp/tools/sources.py`` was allowlisted at 1020 (over the 1000-line budget after
     # #1871's shared source-policy wiring + the await_upload era). #1890 folded
     # source_add_and_wait + source_upload_bytes BACK into source_add — removing the two
