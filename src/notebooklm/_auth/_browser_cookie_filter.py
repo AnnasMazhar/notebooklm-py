@@ -64,9 +64,19 @@ def _report_malformed_row(cookie: Any, exc: _cookie_semantics.CookieRowError) ->
     CDP arm, comes straight from the operator's running browser.
 
     An absent or empty-string ``domain`` is dropped **silently**: such a row is
-    never on the allowlist, so it was dropped without a warning before the shared
-    predicate started rejecting it up front, and a warning here would be new
-    noise on every domain-less row a browser exports.
+    never on the allowlist, and a warning here would be new noise on every
+    domain-less row a browser exports.
+
+    Be precise about what changed, because the obvious reading is wrong. Before
+    the shared predicate, ``domain`` was checked for ``isinstance(str)`` only and
+    LAST, so a domain-less row fell through to the ``name`` / ``path`` /
+    ``expires`` checks and could still warn about one of those. The shared
+    predicate rejects an empty ``domain`` up front, so this branch now also
+    swallows the ``expires`` diagnostic such a row used to get. Rows dropped are
+    identical either way; only the diagnostic is quieter. A row malformed in BOTH
+    ``name`` and ``domain`` now reports the name defect rather than the domain
+    defect, because the shared predicate iterates ``(name, domain)`` in that
+    order.
     """
     if exc.field == "row":
         logger.warning(

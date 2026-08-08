@@ -71,8 +71,8 @@ def validate_cookie_shape(
 ) -> dict[str, Any]:
     """Validate identity/value fields and return a shallow normalized copy.
 
-    The single "is this row usable?" predicate.  Every other spelling in the
-    package is an adapter over this one, differing only in how it reports a
+    The canonical "is this row usable?" predicate.  The load- and write-path
+    spellings are adapters over this one, differing only in how they report a
     defect: :func:`notebooklm._auth.cookies._sanitize_cookie_entry` returns
     ``None`` and logs a redacted diagnostic, the write-time domain filter
     (:mod:`notebooklm._auth._browser_cookie_filter`) maps
@@ -91,6 +91,11 @@ def validate_cookie_shape(
     Expiry is intentionally not touched here.  Recovery's persisted-liveness
     predicate needs to recognize a structurally valid row with a malformed
     expiry as present on disk, while routing and conversion must reject it.
+
+    Not yet universal: ``_auth/storage.py``'s snapshot helper still re-derives
+    the same four checks with a third failure mode (silent ``None``). Routing it
+    is a follow-up — ``cookie_semantics`` is a leaf with no first-party imports,
+    so the edge would be cycle-free.
     """
     if not isinstance(entry, dict):
         raise CookieRowError("row", "not a dict")

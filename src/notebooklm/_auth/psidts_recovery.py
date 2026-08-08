@@ -855,6 +855,7 @@ def load_with_recovery(
     policy: HealPolicy,
     *,
     load: Callable[..., _LoadedT],
+    heal: Callable[[Path | None], bool] | None = None,
 ) -> _LoadedT:
     """Run ``load`` under ``policy``, healing once if the routing preflight fails.
 
@@ -900,7 +901,13 @@ def load_with_recovery(
         # ``_recover_psidts_inline`` resolves the effective storage path itself
         # (the default profile file when ``path is None`` and the env var is
         # unset), so ``path`` is passed through verbatim — including ``None``.
-        if not _recover_psidts_inline(path):
+        # Resolve the heal at CALL time, never as a default argument value: the
+        # 87-test PSIDTS suite patches the module attribute, and a def-time
+        # default would silently ignore those patches. ``heal`` is the injection
+        # seam for new tests, so they need not add module-attribute patches to a
+        # codebase whose whole point is removing them.
+        heal_fn = heal if heal is not None else _recover_psidts_inline
+        if not heal_fn(path):
             logger.debug(
                 "PSIDTS is present but does not route to the rotate URL and recovery "
                 "declined; continuing with the unrotatable cookie set"
@@ -911,6 +918,8 @@ def load_with_recovery(
 def load_session_jar(
     path: Path | None = None,
     policy: HealPolicy = HealPolicy.HEAL_THEN_NAME_ONLY,
+    *,
+    heal: Callable[[Path | None], bool] | None = None,
 ) -> httpx.Cookies:
     """Load the session cookie jar from storage under ``policy``.
 
@@ -923,7 +932,7 @@ def load_session_jar(
     so tests patching ``notebooklm._auth.cookies._load_cookies_pure`` keep
     biting.
     """
-    return load_with_recovery(path, policy, load=_auth_cookies._load_cookies_pure)
+    return load_with_recovery(path, policy, load=_auth_cookies._load_cookies_pure, heal=heal)
 
 
 def _rookiepy_entry_to_cookie(entry: dict[str, Any]) -> http.cookiejar.Cookie:

@@ -60,9 +60,9 @@ class TestPolicyArms:
         def _must_not_run(_path: object) -> bool:
             raise AssertionError("NAME_ONLY fired a heal")
 
-        monkeypatch.setattr(_auth_psidts_recovery, "_recover_psidts_inline", _must_not_run)
-
-        jar = _auth_psidts_recovery.load_session_jar(storage_file, HealPolicy.NAME_ONLY)
+        jar = _auth_psidts_recovery.load_session_jar(
+            storage_file, HealPolicy.NAME_ONLY, heal=_must_not_run
+        )
 
         assert "__Secure-1PSIDTS" in {c.name for c in jar.jar}
         assert httpx_mock.get_requests() == []
@@ -77,9 +77,9 @@ class TestPolicyArms:
             calls.append(path)
             return False
 
-        monkeypatch.setattr(_auth_psidts_recovery, "_recover_psidts_inline", _decline)
+        # injected, not patched — see load_with_recovery's heal seam
 
-        jar = _auth_psidts_recovery.load_session_jar(storage_file)
+        jar = _auth_psidts_recovery.load_session_jar(storage_file, heal=_decline)
 
         assert calls == [storage_file]
         assert "__Secure-1PSIDTS" in {c.name for c in jar.jar}
@@ -95,7 +95,7 @@ class TestPolicyArms:
             heals += 1
             return True
 
-        monkeypatch.setattr(_auth_psidts_recovery, "_recover_psidts_inline", _heal)
+        # injected, not patched — see load_with_recovery's heal seam
 
         strict_passes = 0
         real_loader = _auth_cookies._load_cookies_pure
@@ -108,7 +108,7 @@ class TestPolicyArms:
 
         monkeypatch.setattr(_auth_cookies, "_load_cookies_pure", _counting)
 
-        _auth_psidts_recovery.load_session_jar(storage_file)
+        _auth_psidts_recovery.load_session_jar(storage_file, heal=_heal)
 
         assert heals == 1
         assert strict_passes == 1, "the post-heal retry must not re-ask the routing question"
@@ -125,10 +125,14 @@ class TestBothWrappersUseTheOneComposition:
 
         def _spy(path: object, policy: object, **kwargs: Any) -> Any:
             seen.append((path, policy))
+            # Inject the declining heal rather than patching the module
+            # attribute — the delegate under test only needs the heal not to
+            # fire, and this PR should not add private patch sites to a codebase
+            # whose acceptance criterion is removing them.
+            kwargs.setdefault("heal", lambda _p: False)
             return real(path, policy, **kwargs)
 
         monkeypatch.setattr(_auth_psidts_recovery, "load_with_recovery", _spy)
-        monkeypatch.setattr(_auth_psidts_recovery, "_recover_psidts_inline", lambda _p: False)
 
         _auth_cookies.build_httpx_cookies_from_storage(storage_file)
 
@@ -142,10 +146,14 @@ class TestBothWrappersUseTheOneComposition:
 
         def _spy(path: object, policy: object, **kwargs: Any) -> Any:
             seen.append((path, policy))
+            # Inject the declining heal rather than patching the module
+            # attribute — the delegate under test only needs the heal not to
+            # fire, and this PR should not add private patch sites to a codebase
+            # whose acceptance criterion is removing them.
+            kwargs.setdefault("heal", lambda _p: False)
             return real(path, policy, **kwargs)
 
         monkeypatch.setattr(_auth_psidts_recovery, "load_with_recovery", _spy)
-        monkeypatch.setattr(_auth_psidts_recovery, "_recover_psidts_inline", lambda _p: False)
 
         cookies = _auth_tokens.load_auth_from_storage(storage_file)
 
