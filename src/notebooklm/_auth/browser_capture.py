@@ -44,10 +44,21 @@ with a single consumer that was always inside this file:
 * the **captured-state heal bridge** (from ``browser_state_validation.py``) —
   :func:`heal_captured_state`.
 
-``browser_launch_errors.py`` deliberately stays a separate leaf: it has a second,
-independent consumer (``cli/services/login/master_token.py`` imports
-``classify_launch_failure`` from it directly), so it passes the deletion test on
-its own.
+``browser_launch_errors.py`` stays a separate leaf — but NOT for the reason the
+consolidation plan gave. The plan claimed a second independent consumer, on the
+strength of ``cli/services/login/master_token.py`` using
+``classify_launch_failure``. That import comes through THIS module's re-export,
+not from the leaf: the CLI-boundary guardrail sanctions exactly one ``_auth``
+path (``_auth/browser_capture``), so a CLI module cannot import the leaf
+directly even in principle. It therefore has a single consumer and would pass
+the deletion test the same way its two absorbed siblings did.
+
+It is kept because it is genuinely cohesive and self-contained — a channel
+registry plus a pure string-in/string-out classifier, with no Playwright import,
+no I/O and no CLI dependency — so folding it buys nothing beyond a smaller file
+count, and its independence is what lets the launch-failure triage be tested
+without a browser. A future fold is defensible; an inherited false justification
+is not.
 """
 
 from __future__ import annotations
