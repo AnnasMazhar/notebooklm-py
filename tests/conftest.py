@@ -145,18 +145,14 @@ def _reset_poke_state():
     # PR-2 retired the ``_AuthFacadeModule`` write-through. Reset on the
     # owner directly; the auth-module re-export captured at import time was
     # never the canonical store.
-    # ``_FLOCK_UNAVAILABLE_WARNED`` is reset for the same reason — the
-    # storage seam owns the flag.
     _auth._LAST_POKE_ATTEMPT_MONOTONIC.clear()
     _auth._POKE_LOCKS_BY_LOOP.clear()
     _cookie_policy._SECONDARY_BINDING_WARNED = False
-    _auth_storage._FLOCK_UNAVAILABLE_WARNED = False
     _auth_storage._PROMOTION_ONCE_PATHS.clear()
     yield
     _auth._LAST_POKE_ATTEMPT_MONOTONIC.clear()
     _auth._POKE_LOCKS_BY_LOOP.clear()
     _cookie_policy._SECONDARY_BINDING_WARNED = False
-    _auth_storage._FLOCK_UNAVAILABLE_WARNED = False
     # Join first, then clear — clearing while a worker is mid-write would let
     # it land in the next test's world.
     _auth_storage._drain_promotions_for_tests()

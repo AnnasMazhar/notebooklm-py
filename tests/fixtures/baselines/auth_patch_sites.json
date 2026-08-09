@@ -121,6 +121,18 @@
       "module": "keepalive"
     },
     {
+      "attribute": "_LOCK_ACQUIRE_DEADLINE_SECONDS",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "keepalive"
+    },
+    {
+      "attribute": "_STORAGE_LOCKS",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "keepalive"
+    },
+    {
       "attribute": "_file_lock_try_exclusive",
       "count": 3,
       "idiom": "monkeypatch.setattr",
@@ -301,26 +313,20 @@
       "module": "storage"
     },
     {
-      "attribute": "_FLOCK_UNAVAILABLE_WARNED",
-      "count": 4,
+      "attribute": "_PROMOTION_LOCK",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
+      "attribute": "_STORAGE_LOCKS",
+      "count": 2,
       "idiom": "assignment",
       "module": "storage"
     },
     {
-      "attribute": "_FLOCK_UNAVAILABLE_WARNED",
-      "count": 3,
-      "idiom": "monkeypatch.setattr",
-      "module": "storage"
-    },
-    {
-      "attribute": "_LOCK_ACQUIRE_DEADLINE_SECONDS",
-      "count": 3,
-      "idiom": "monkeypatch.setattr",
-      "module": "storage"
-    },
-    {
-      "attribute": "_PROMOTION_LOCK",
-      "count": 2,
+      "attribute": "_STORAGE_LOCKS",
+      "count": 7,
       "idiom": "monkeypatch.setattr",
       "module": "storage"
     },
@@ -338,7 +344,7 @@
     },
     {
       "attribute": "_file_lock",
-      "count": 8,
+      "count": 3,
       "idiom": "monkeypatch.setattr",
       "module": "storage"
     },
@@ -389,13 +395,19 @@
       "count": 2,
       "idiom": "patch.object",
       "module": "storage"
+    },
+    {
+      "attribute": "_LOCK_ACQUIRE_DEADLINE_SECONDS",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage_lock"
     }
   ],
   "summary": {
     "TOTAL": {
-      "private": 109,
+      "private": 106,
       "public": 171,
-      "total": 280
+      "total": 277
     },
     "account": {
       "private": 2,
@@ -423,9 +435,9 @@
       "total": 50
     },
     "keepalive": {
-      "private": 6,
+      "private": 8,
       "public": 0,
-      "total": 6
+      "total": 8
     },
     "master_token": {
       "private": 0,
@@ -453,9 +465,14 @@
       "total": 1
     },
     "storage": {
-      "private": 26,
+      "private": 20,
       "public": 27,
-      "total": 53
+      "total": 47
+    },
+    "storage_lock": {
+      "private": 1,
+      "public": 0,
+      "total": 1
     }
   },
   "version": 1

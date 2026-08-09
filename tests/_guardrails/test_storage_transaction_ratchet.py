@@ -47,13 +47,9 @@ _AUTH = Path(__file__).resolve().parents[2] / "src" / "notebooklm" / "_auth"
 _WRITER = _AUTH / "storage.py"
 _TEMPLATE = _AUTH / "storage.py"
 
-#: Excluded from the direct-call scan: ``in_storage_transaction`` IS the
-#: template, so of course it calls ``_acquire_storage_lock``. Before the merge
-#: that call was invisible to this gate because it crossed a module boundary
-#: (a function-local ``from .storage_writer import _acquire_storage_lock``);
-#: same-module now, it would otherwise read as the template hand-rolling the
-#: very lock it exists to own.
-_TEMPLATE_FUNCTIONS: frozenset[str] = frozenset({"in_storage_transaction"})
+#: Equality-allowed direct manager acquisitions: the compatibility wrapper and
+#: the transaction template are the two routing seams. No writer may join them.
+_TEMPLATE_FUNCTIONS: frozenset[str] = frozenset({"_file_lock", "in_storage_transaction"})
 
 
 def test_template_exemption_is_frozen_and_real() -> None:
@@ -65,7 +61,7 @@ def test_template_exemption_is_frozen_and_real() -> None:
     exempting nothing while the gate still reported green. Every other allowlist
     in this file and its sibling is equality-asserted for the same reason.
     """
-    assert frozenset({"in_storage_transaction"}) == _TEMPLATE_FUNCTIONS
+    assert frozenset({"_file_lock", "in_storage_transaction"}) == _TEMPLATE_FUNCTIONS
     defined = {
         node.name
         for node in ast.parse(_TEMPLATE.read_text("utf-8")).body
@@ -182,9 +178,24 @@ def _policy_callers() -> dict[str, set[str]]:
     return callers
 
 
-def _functions_calling_directly() -> set[str]:
-    """Return writer functions that call ``_acquire_storage_lock`` themselves."""
-    tree = ast.parse(_WRITER.read_text(encoding="utf-8"))
+def _is_lock_request_call(node: ast.AST) -> bool:
+    return isinstance(node, ast.Call) and (
+        (isinstance(node.func, ast.Name) and node.func.id == "LockRequest")
+        or (isinstance(node.func, ast.Attribute) and node.func.attr == "LockRequest")
+    )
+
+
+def _functions_calling_directly(
+    source: str | None = None, *, exclude_allowed: bool = True
+) -> set[str]:
+    """Return functions pairing manager ``.acquire`` with ``LockRequest``.
+
+    Requests may be bare/qualified and may be passed directly or through a
+    simple assigned name. This is deliberately a bounded syntax detector, not
+    whole-program data flow: it covers every production shape and the two
+    adversarial spellings pinned below, including keyword argument values.
+    """
+    tree = ast.parse(source if source is not None else _WRITER.read_text(encoding="utf-8"))
     found: set[str] = set()
     for node in ast.walk(tree):
         # ``AsyncFunctionDef`` is NOT a subclass of ``FunctionDef`` — matching
@@ -195,26 +206,79 @@ def _functions_calling_directly() -> set[str]:
         # written stops being a ratchet the moment someone adds a new shape.
         if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
-        # The template now lives in this same module (ADR-0033), so it is
-        # excluded by name; nothing else here should call the primitive except
-        # the writers still awaiting conversion.
-        if node.name in _TEMPLATE_FUNCTIONS:
+        # Only the compatibility wrapper/template may acquire directly.
+        if exclude_allowed and node.name in _TEMPLATE_FUNCTIONS:
             continue
+        request_names = {
+            target.id
+            for inner in ast.walk(node)
+            if isinstance(inner, (ast.Assign, ast.AnnAssign))
+            for target in ([*inner.targets] if isinstance(inner, ast.Assign) else [inner.target])
+            if isinstance(target, ast.Name)
+            and inner.value is not None
+            and _is_lock_request_call(inner.value)
+        }
         for inner in ast.walk(node):
-            if (
+            if not (
                 isinstance(inner, ast.Call)
-                and isinstance(inner.func, ast.Name)
-                and inner.func.id == "_acquire_storage_lock"
+                and isinstance(inner.func, ast.Attribute)
+                and inner.func.attr == "acquire"
+            ):
+                continue
+            arguments = [*inner.args, *(keyword.value for keyword in inner.keywords)]
+            if any(
+                _is_lock_request_call(argument)
+                or (isinstance(argument, ast.Name) and argument.id in request_names)
+                for argument in arguments
             ):
                 found.add(node.name)
     return found
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        """\
+def forbidden(path):
+    with StorageLockManager.process_default().acquire(
+        LockRequest(path=path, blocking=False, operation="forbidden")
+    ):
+        pass
+""",
+        """\
+def forbidden(path):
+    request = locks_mod.LockRequest(path=path, blocking=False, operation="forbidden")
+    with locks.acquire(request):
+        pass
+""",
+        """\
+def forbidden(path):
+    request = LockRequest(path=path, blocking=False, operation="forbidden")
+    with locks.acquire(request=request):
+        pass
+""",
+        """\
+def forbidden(path):
+    with locks.acquire(
+        request=locks_mod.LockRequest(path=path, blocking=False, operation="forbidden")
+    ):
+        pass
+""",
+    ],
+)
+def test_direct_manager_acquire_detector_bites(body: str) -> None:
+    assert _functions_calling_directly(body) == {"forbidden"}
+
+
+def test_direct_manager_acquisitions_are_exactly_the_two_routing_seams() -> None:
+    assert _functions_calling_directly(exclude_allowed=False) == _TEMPLATE_FUNCTIONS
 
 
 def test_no_new_hand_rolled_storage_lock() -> None:
     """A new writer must route through ``in_storage_transaction``."""
     new = _functions_calling_directly() - _UNCONVERTED
     assert not new, (
-        "Writer(s) calling _acquire_storage_lock directly instead of routing "
+        "Writer(s) acquiring StorageLockManager directly instead of routing "
         f"through in_storage_transaction: {sorted(new)}\n\n"
         "Use:\n"
         "    in_storage_transaction(path, _body, log_prefix=..., \n"

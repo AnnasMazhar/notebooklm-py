@@ -114,6 +114,16 @@ filtering, and whether an invalid raw cookie list is fatal remain decisions of t
 operation boundary. No reader, writer, lock, facade adapter, or production consumer uses the leaf
 in this stage.
 
+The first production owner extraction is `storage_lock.py`. `StorageLockManager` now owns the
+process-default exact-raw-path thread-lock registry, concrete POSIX/Windows gateway, synchronous
+bounded retry dependencies, and thread-safe cookie-warning claim. Direct construction creates an
+isolated lifecycle. `storage.py` retains secure-parent and per-intent outcome policy plus its v0.x
+`_file_lock` / `_file_lock_exclusive` seams; `keepalive.py` retains a separate local `_file_lock`
+wrapper, and both route through the same process default. Full-writer white-box tests now replace
+`storage._STORAGE_LOCKS`; cookie seam tests may still patch `storage._file_lock`. The old static
+warning bool and `_acquire_storage_lock` helper are removed, and the exact storage pin falls from
+3,102 to 2,829 lines in the same diff.
+
 The compatibility inventory is explicit:
 
 - Profile writers: `merge_cookie_delta`, `update_account_metadata`, `clear_in_band_account`,

@@ -20,17 +20,18 @@ import pytest
 
 from notebooklm._auth import master_token as mt_mod
 from notebooklm._auth import storage as storage_mod
+from notebooklm._auth.storage_lock import LockState
 
 
-@contextlib.contextmanager
-def _unavailable_lock(lock_path, *, blocking, log_prefix):
-    yield "unavailable"
+class _UnavailableLocks:
+    @contextlib.contextmanager
+    def acquire(self, request):
+        yield LockState.UNAVAILABLE
 
 
 def _patch_lock_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Force the unified ``_file_lock`` primitive to report the sentinel as
-    permanently unavailable (infrastructure failure)."""
-    monkeypatch.setattr(storage_mod, "_file_lock", _unavailable_lock)
+    """Force bounded writer transactions to see infrastructure failure."""
+    monkeypatch.setattr(storage_mod, "_STORAGE_LOCKS", _UnavailableLocks())
 
 
 # --- value-free outcome contract -------------------------------------------
@@ -633,36 +634,6 @@ def test_write_master_token_fails_closed_on_lock_unavailable(
         storage_mod.write_master_token(
             path, email="e@x.com", master_token="aas_et/M", android_id="abc"
         )
-
-
-# --- bounded acquire tristate ----------------------------------------------
-
-
-def test_acquire_storage_lock_held_then_released(tmp_path: Path) -> None:
-    lock_path = tmp_path / ".storage_state.json.lock"
-    with storage_mod._acquire_storage_lock(lock_path, log_prefix="test") as state:
-        assert state == "held"
-    # After release the same-process acquire succeeds again (in-process lock freed).
-    with storage_mod._acquire_storage_lock(lock_path, log_prefix="test") as state:
-        assert state == "held"
-
-
-def test_acquire_storage_lock_times_out_bounded(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Under persistent contention the bounded acquire yields 'unavailable'
-    within the deadline rather than blocking forever."""
-    lock_path = tmp_path / ".storage_state.json.lock"
-
-    @contextlib.contextmanager
-    def always_contended(lp, *, blocking, log_prefix):
-        yield "contended"
-
-    monkeypatch.setattr(storage_mod, "_file_lock", always_contended)
-    with storage_mod._acquire_storage_lock(
-        lock_path, log_prefix="test", deadline_seconds=0.05
-    ) as state:
-        assert state == "unavailable"
 
 
 # --- parent-dir permission self-heal ---------------------------------------

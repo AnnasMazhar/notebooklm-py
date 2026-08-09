@@ -103,7 +103,7 @@
     {
       "scope": "module",
       "source": "keepalive",
-      "target": "storage"
+      "target": "storage_lock"
     },
     {
       "scope": "module",
@@ -322,6 +322,11 @@
     },
     {
       "scope": "module",
+      "source": "storage",
+      "target": "storage_lock"
+    },
+    {
+      "scope": "module",
       "source": "storage_transaction",
       "target": "storage"
     },
@@ -428,7 +433,7 @@
       "path": "src/notebooklm/_auth/headless_reauth.py"
     },
     {
-      "lines": 444,
+      "lines": 455,
       "name": "keepalive",
       "path": "src/notebooklm/_auth/keepalive.py"
     },
@@ -483,9 +488,14 @@
       "path": "src/notebooklm/_auth/single_flight.py"
     },
     {
-      "lines": 3102,
+      "lines": 2829,
       "name": "storage",
       "path": "src/notebooklm/_auth/storage.py"
+    },
+    {
+      "lines": 242,
+      "name": "storage_lock",
+      "path": "src/notebooklm/_auth/storage_lock.py"
     },
     {
       "lines": 32,
@@ -507,7 +517,6 @@
     "all_scopes": [
       [
         "cookies",
-        "keepalive",
         "master_token",
         "psidts_recovery",
         "storage"
@@ -517,10 +526,10 @@
   },
   "summary": {
     "function_local_edges": 14,
-    "module_edges": 58,
-    "modules": 28,
-    "total_lines": 14126,
-    "unique_edges": 72
+    "module_edges": 59,
+    "modules": 29,
+    "total_lines": 14106,
+    "unique_edges": 73
   },
   "version": 1
 }

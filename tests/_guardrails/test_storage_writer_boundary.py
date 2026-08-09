@@ -1066,7 +1066,8 @@ def test_filelock_use_in_the_canonical_writer_is_frozen() -> None:
     ADR-0033 PR 5.2 moved the account-record writers into ``_auth/storage.py``
     and, with them, ``filelock`` — which now lives in the module its own
     docstring calls the single sanctioned home for ``storage_state.json``
-    mutations, co-resident with ``_file_lock``. The two stacks are deliberately
+    mutations, while project-internal locking is owned by ``storage_lock.py``.
+    The two stacks are deliberately
     not unified (they interoperate on POSIX only by both bottoming out in
     ``fcntl.flock``, which does not hold on Windows), and until now that
     non-unification was documented but unenforced: nothing stopped an existing
@@ -1079,7 +1080,7 @@ def test_filelock_use_in_the_canonical_writer_is_frozen() -> None:
         f"Unexpected: {sorted(set(users) - _STORAGE_FILELOCK_USERS)}; "
         f"stale: {sorted(_STORAGE_FILELOCK_USERS - set(users))}. "
         "Every ``storage_state.json`` mutator must take the sentinel through "
-        "``_file_lock`` / ``_acquire_storage_lock`` (ADR-0029); ``filelock`` is "
+        "the shared StorageLockManager (ADR-0029); ``filelock`` is "
         "reserved for the sibling ``context.json``."
     )
     assert module_level == [], (

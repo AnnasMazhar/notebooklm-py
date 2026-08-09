@@ -461,7 +461,7 @@ class TestFlockLoserWaitsThenReloads:
 
         monkeypatch.setattr(_keepalive, "_file_lock_try_exclusive", always_contended)
         # Force an already-elapsed deadline so the loop bails on the first pass.
-        monkeypatch.setattr(_keepalive._auth_storage, "_LOCK_ACQUIRE_DEADLINE_SECONDS", -1.0)
+        monkeypatch.setattr(_keepalive, "_LOCK_ACQUIRE_DEADLINE_SECONDS", -1.0)
         lock_path = tmp_path / ".storage_state.json.refresh.lock"
         assert await _auth_refresh._wait_for_refresh_holder(lock_path) is False
 
