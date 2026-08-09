@@ -553,8 +553,27 @@ def test_capability_detector_bites_on_aliases_escapes_and_deferred_scopes(source
     assert _live_structure_violations(ast.parse(mutated))
 
 
-def test_no_production_module_imports_calls_or_accesses_the_unused_leaf() -> None:
-    assert _production_consumers(SRC_ROOT) == []
+def test_production_consumers_are_exactly_the_phase_11b_owners() -> None:
+    normalized = {
+        (path, detail)
+        for item in _production_consumers(SRC_ROOT)
+        for path, _line, detail in [item.split(":", 2)]
+    }
+    assert normalized == {
+        ("_auth/master_token.py", "from-import"),
+        ("_auth/master_token_file.py", "from-import"),
+        (
+            "_auth/master_token_file.py",
+            "bare-call:_master_token_from_legacy_record",
+        ),
+        (
+            "_auth/master_token_file.py",
+            "bare-call:_master_token_to_legacy_record",
+        ),
+        ("_auth/profile_store.py", "from-import"),
+        ("_auth/storage.py", "bare-call:MasterToken"),
+        ("_auth/storage.py", "from-import"),
+    }
 
 
 @pytest.mark.parametrize(

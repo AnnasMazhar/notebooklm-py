@@ -175,6 +175,12 @@
       "module": "keepalive"
     },
     {
+      "attribute": "MasterTokenFile",
+      "count": 4,
+      "idiom": "monkeypatch.setattr",
+      "module": "master_token"
+    },
+    {
       "attribute": "mint_cookies",
       "count": 12,
       "idiom": "patch.object",
@@ -193,6 +199,36 @@
       "module": "master_token"
     },
     {
+      "attribute": "_commit_master_token_json",
+      "count": 5,
+      "idiom": "monkeypatch.setattr",
+      "module": "master_token_file"
+    },
+    {
+      "attribute": "_ensure_secure_parent_dir",
+      "count": 3,
+      "idiom": "monkeypatch.setattr",
+      "module": "master_token_file"
+    },
+    {
+      "attribute": "_master_token_from_legacy_record",
+      "count": 3,
+      "idiom": "monkeypatch.setattr",
+      "module": "master_token_file"
+    },
+    {
+      "attribute": "_master_token_to_legacy_record",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "master_token_file"
+    },
+    {
+      "attribute": "_storage_state_lock_path",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "master_token_file"
+    },
+    {
       "attribute": "FileLock",
       "count": 2,
       "idiom": "monkeypatch.setattr",
@@ -203,6 +239,12 @@
       "count": 2,
       "idiom": "monkeypatch.setattr",
       "module": "profile_migration"
+    },
+    {
+      "attribute": "MasterTokenFile",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "profile_store"
     },
     {
       "attribute": "_STORAGE_LOCKS",
@@ -379,6 +421,12 @@
       "module": "storage"
     },
     {
+      "attribute": "MasterTokenFile",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
       "attribute": "ProfileStore",
       "count": 9,
       "idiom": "monkeypatch.setattr",
@@ -427,6 +475,12 @@
       "module": "storage"
     },
     {
+      "attribute": "write_master_token",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
       "attribute": "_LOCK_ACQUIRE_DEADLINE_SECONDS",
       "count": 1,
       "idiom": "monkeypatch.setattr",
@@ -447,9 +501,9 @@
   ],
   "summary": {
     "TOTAL": {
-      "private": 137,
-      "public": 167,
-      "total": 304
+      "private": 152,
+      "public": 174,
+      "total": 326
     },
     "account": {
       "private": 2,
@@ -493,8 +547,13 @@
     },
     "master_token": {
       "private": 0,
-      "public": 27,
-      "total": 27
+      "public": 31,
+      "total": 31
+    },
+    "master_token_file": {
+      "private": 15,
+      "public": 0,
+      "total": 15
     },
     "profile_migration": {
       "private": 0,
@@ -503,8 +562,8 @@
     },
     "profile_store": {
       "private": 26,
-      "public": 7,
-      "total": 33
+      "public": 8,
+      "total": 34
     },
     "psidts_recovery": {
       "private": 14,
@@ -528,8 +587,8 @@
     },
     "storage": {
       "private": 2,
-      "public": 24,
-      "total": 26
+      "public": 26,
+      "total": 28
     },
     "storage_lock": {
       "private": 1,

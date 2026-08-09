@@ -47,7 +47,7 @@ _PROFILE_COMMIT_CALLERS = frozenset(
         "_auth/profile_store.ProfileStore.update_account",
     }
 )
-_TOKEN_COMMIT_CALLERS = frozenset({"_auth/storage.write_master_token"})
+_TOKEN_COMMIT_CALLERS = frozenset({"_auth/master_token_file.MasterTokenFile.write"})
 
 _PUBLIC_ATOMIC_IMPORTERS = frozenset(
     {"_auth/profile_migration.py", "cli/context.py", "io.py", "mcp/_oauth.py"}
@@ -404,6 +404,60 @@ def test_typed_master_token_commit_caller_is_exact() -> None:
     )
     assert calls[_TOKEN_COMMIT] == set(_TOKEN_COMMIT_CALLERS)
     assert escapes == {}
+
+
+def _assert_token_adapter_shape(node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+    statements = [
+        item
+        for item in node.body
+        if not (
+            isinstance(item, ast.Expr)
+            and isinstance(item.value, ast.Constant)
+            and isinstance(item.value.value, str)
+        )
+    ]
+    assert len(statements) == 1
+    assert ast.unparse(statements[0]) == (
+        "MasterTokenFile(path).write(MasterToken(email=email, android_id=android_id, "
+        "secret=master_token))"
+    )
+    calls = Counter(ast.unparse(item.func) for item in ast.walk(node) if isinstance(item, ast.Call))
+    assert calls == Counter(
+        {"MasterTokenFile(path).write": 1, "MasterTokenFile": 1, "MasterToken": 1}
+    )
+    assert {
+        name
+        for name in ("in_storage_transaction", _TOKEN_COMMIT, "read_text", "exists")
+        if any(
+            isinstance(item, ast.Name | ast.Attribute)
+            and (item.id if isinstance(item, ast.Name) else item.attr) == name
+            for item in ast.walk(node)
+        )
+    } == set()
+
+
+def test_storage_master_token_writer_is_only_the_typed_file_adapter() -> None:
+    _assert_token_adapter_shape(_storage_function("write_master_token"))
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "MasterTokenFile(path).write(MasterToken(email=email, android_id=android_id, secret='x'))",
+        "MasterTokenFile(path).read()",
+        "_commit_master_token_json(path, {})",
+        "in_storage_transaction(path, lambda: None)",
+    ],
+)
+def test_storage_master_token_adapter_guard_bites_on_secret_rewrite_read_and_old_owners(
+    replacement: str,
+) -> None:
+    node = ast.parse(
+        f"def write_master_token(path, *, email, master_token, android_id):\n    {replacement}\n"
+    ).body[0]
+    assert isinstance(node, ast.FunctionDef)
+    with pytest.raises(AssertionError):
+        _assert_token_adapter_shape(node)
 
 
 @pytest.mark.parametrize(

@@ -36,6 +36,12 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
     ("function", 0, "msvcrt", "", None),
     ("function", 0, "fcntl", "", None),
 ]
+_EXPECTED_PRODUCTION_IMPORTERS = {
+    "keepalive.py",
+    "master_token_file.py",
+    "profile_store.py",
+    "storage.py",
+}
 
 
 class _ImportCollector(ast.NodeVisitor):
@@ -134,7 +140,11 @@ def test_importer_detector_bites_at_every_scope(source: str) -> None:
     assert _imports_storage_lock(AUTH_ROOT / "synthetic.py", ast.parse(source))
 
 
-def test_production_importers_are_exactly_keepalive_profile_store_and_storage() -> None:
+def _assert_exact_production_importers(importers: set[str]) -> None:
+    assert importers == _EXPECTED_PRODUCTION_IMPORTERS
+
+
+def test_production_importers_are_exactly_the_four_approved_owners() -> None:
     importers = {
         path.relative_to(AUTH_ROOT).as_posix()
         for path in AUTH_ROOT.rglob("*.py")
@@ -144,7 +154,16 @@ def test_production_importers_are_exactly_keepalive_profile_store_and_storage() 
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
         )
     }
-    assert importers == {"keepalive.py", "profile_store.py", "storage.py"}
+    _assert_exact_production_importers(importers)
+
+
+def test_exact_importer_equality_bites_on_unapproved_fifth_importer() -> None:
+    importers = set(_EXPECTED_PRODUCTION_IMPORTERS)
+    source = "from .storage_lock import StorageLockManager\n"
+    if _imports_storage_lock(AUTH_ROOT / "unapproved.py", ast.parse(source)):
+        importers.add("unapproved.py")
+    with pytest.raises(AssertionError):
+        _assert_exact_production_importers(importers)
 
 
 def test_storage_lock_leaf_participates_in_no_strongly_connected_component() -> None:

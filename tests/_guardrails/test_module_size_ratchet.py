@@ -265,7 +265,10 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # RATCHETED DOWN 1683 -> 1150 by ADR-0034 PR8: lossless legacy-account
     # resolution, context I/O, promotion lifecycle, and post-write reconciliation
     # moved to the ordinary-budget ``_auth/profile_migration.py`` owner.
-    "_auth/storage.py": 1150,
+    # RATCHETED DOWN 1150 -> 1131 by ADR-0034 PR11B: token credential
+    # encoding, secure-parent preparation, lock ownership, and commit moved to
+    # the path-owned ``MasterTokenFile``.
+    "_auth/storage.py": 1131,
     # sanctioned merge (ADR-0033) — the `_auth` load-composition merge:
     # ``_auth/browser_cookie_recovery.py`` (142) was absorbed in full and reduced
     # to a re-export shim in the same change. It held the captured-cookie
@@ -523,6 +526,7 @@ def test_ratchet_checks_detect_their_offending_shapes() -> None:
 def test_credential_store_and_migration_modules_use_the_ordinary_budget() -> None:
     leaves = {
         "_auth/credential_io.py",
+        "_auth/master_token_file.py",
         "_auth/profile_migration.py",
         "_auth/profile_store.py",
     }
@@ -530,15 +534,24 @@ def test_credential_store_and_migration_modules_use_the_ordinary_budget() -> Non
     assert leaves.isdisjoint(ALLOWLISTED_CEILINGS)
     assert {path: measured[path] for path in leaves} == {
         "_auth/credential_io.py": 23,
+        "_auth/master_token_file.py": 89,
         "_auth/profile_migration.py": 311,
-        "_auth/profile_store.py": 794,
+        "_auth/profile_store.py": 814,
     }
     assert (
         measured["_auth/storage.py"]
         + measured["_auth/profile_store.py"]
         + measured["_auth/cookie_filter.py"]
         + measured["_auth/profile_migration.py"]
-        == 2351
+        == 2352
     )
     synthetic = dict.fromkeys(leaves, MODULE_SIZE_BUDGET + 1)
     assert _over_budget_offenders(synthetic, {}, MODULE_SIZE_BUDGET) == synthetic
+
+
+def test_phase_11b_touched_compatibility_modules_are_measured_exactly() -> None:
+    measured = _measure_all()
+    assert {path: measured[path] for path in {"_auth/master_token.py", "_auth/storage.py"}} == {
+        "_auth/master_token.py": 679,
+        "_auth/storage.py": 1131,
+    }

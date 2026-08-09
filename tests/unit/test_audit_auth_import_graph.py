@@ -91,10 +91,10 @@ def test_scope_duplicate_self_and_scc_rules(audit, tmp_path):
 def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
-        "modules": 35,
-        "total_lines": 14588,
-        "unique_edges": 103,
-        "module_edges": 90,
+        "modules": 36,
+        "total_lines": 14681,
+        "unique_edges": 112,
+        "module_edges": 99,
         "function_local_edges": 13,
     }
     assert result["sccs"] == {
@@ -145,13 +145,29 @@ def test_live_projection_is_the_frozen_scorecard(audit):
     assert ("profile_store", "cookie_policy", "module") in edges
     assert {edge for edge in edges if "storage_lock" in edge[:2]} == {
         ("keepalive", "storage_lock", "module"),
+        ("master_token_file", "storage_lock", "module"),
         ("profile_store", "storage_lock", "module"),
         ("storage", "storage_lock", "module"),
     }
     assert ("keepalive", "storage", "module") not in edges
     assert {edge for edge in edges if "credential_io" in edge[:2]} == {
+        ("master_token_file", "credential_io", "module"),
         ("profile_store", "credential_io", "module"),
-        ("storage", "credential_io", "module"),
+    }
+    assert {edge for edge in edges if "master_token_file" in edge[:2]} == {
+        ("master_token", "master_token_file", "module"),
+        ("master_token_file", "credential_io", "module"),
+        ("master_token_file", "master_token_types", "module"),
+        ("master_token_file", "paths", "module"),
+        ("master_token_file", "storage_lock", "module"),
+        ("profile_store", "master_token_file", "module"),
+        ("storage", "master_token_file", "module"),
+    }
+    assert {edge for edge in edges if "master_token_types" in edge[:2]} == {
+        ("master_token", "master_token_types", "module"),
+        ("master_token_file", "master_token_types", "module"),
+        ("profile_store", "master_token_types", "module"),
+        ("storage", "master_token_types", "module"),
     }
     assert {edge for edge in edges if "profile_store" in edge[:2]} == {
         ("profile_migration", "profile_store", "module"),
@@ -160,6 +176,8 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("profile_store", "cookie_policy", "module"),
         ("profile_store", "cookie_types", "module"),
         ("profile_store", "credential_io", "module"),
+        ("profile_store", "master_token_file", "module"),
+        ("profile_store", "master_token_types", "module"),
         ("profile_store", "paths", "module"),
         ("profile_store", "profile_account", "module"),
         ("profile_store", "profile_document", "module"),

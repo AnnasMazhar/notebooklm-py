@@ -19,7 +19,7 @@ import httpx
 import pytest
 
 from notebooklm._auth import master_token as mt_mod
-from notebooklm._auth import profile_store, storage_writer
+from notebooklm._auth import master_token_file, profile_store, storage_writer
 from notebooklm._auth import storage as storage_mod
 from notebooklm._auth.profile_account import ClearAccount, DomainSelection, KeepAccount
 from notebooklm._auth.profile_document import ProfileDocument
@@ -36,6 +36,15 @@ class _UnavailableLocks:
 def _patch_lock_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     """Force bounded writer transactions to see infrastructure failure."""
     monkeypatch.setattr(profile_store, "_STORAGE_LOCKS", _UnavailableLocks())
+
+
+def _patch_master_token_lock_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force the path-owned token writer to use an unavailable manager."""
+    monkeypatch.setattr(
+        master_token_file.StorageLockManager,
+        "process_default",
+        lambda: _UnavailableLocks(),
+    )
 
 
 # --- value-free outcome contract -------------------------------------------
@@ -849,7 +858,7 @@ def test_write_master_token_fails_closed_on_lock_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "master_token.json"
-    _patch_lock_unavailable(monkeypatch)
+    _patch_master_token_lock_unavailable(monkeypatch)
     with pytest.raises(storage_mod.LockUnavailableError):
         storage_mod.write_master_token(
             path, email="e@x.com", master_token="aas_et/M", android_id="abc"

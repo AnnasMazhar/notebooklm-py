@@ -153,12 +153,42 @@
     {
       "scope": "module",
       "source": "master_token",
+      "target": "master_token_file"
+    },
+    {
+      "scope": "module",
+      "source": "master_token",
+      "target": "master_token_types"
+    },
+    {
+      "scope": "module",
+      "source": "master_token",
       "target": "paths"
     },
     {
       "scope": "function",
       "source": "master_token",
       "target": "storage"
+    },
+    {
+      "scope": "module",
+      "source": "master_token_file",
+      "target": "credential_io"
+    },
+    {
+      "scope": "module",
+      "source": "master_token_file",
+      "target": "master_token_types"
+    },
+    {
+      "scope": "module",
+      "source": "master_token_file",
+      "target": "paths"
+    },
+    {
+      "scope": "module",
+      "source": "master_token_file",
+      "target": "storage_lock"
     },
     {
       "scope": "module",
@@ -209,6 +239,16 @@
       "scope": "module",
       "source": "profile_store",
       "target": "credential_io"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
+      "target": "master_token_file"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
+      "target": "master_token_types"
     },
     {
       "scope": "module",
@@ -411,14 +451,19 @@
       "target": "cookies"
     },
     {
-      "scope": "module",
-      "source": "storage",
-      "target": "credential_io"
-    },
-    {
       "scope": "function",
       "source": "storage",
       "target": "master_token"
+    },
+    {
+      "scope": "module",
+      "source": "storage",
+      "target": "master_token_file"
+    },
+    {
+      "scope": "module",
+      "source": "storage",
+      "target": "master_token_types"
     },
     {
       "scope": "module",
@@ -608,9 +653,14 @@
       "path": "src/notebooklm/_auth/login_wait_trace.py"
     },
     {
-      "lines": 676,
+      "lines": 679,
       "name": "master_token",
       "path": "src/notebooklm/_auth/master_token.py"
+    },
+    {
+      "lines": 89,
+      "name": "master_token_file",
+      "path": "src/notebooklm/_auth/master_token_file.py"
     },
     {
       "lines": 57,
@@ -638,7 +688,7 @@
       "path": "src/notebooklm/_auth/profile_migration.py"
     },
     {
-      "lines": 794,
+      "lines": 814,
       "name": "profile_store",
       "path": "src/notebooklm/_auth/profile_store.py"
     },
@@ -668,7 +718,7 @@
       "path": "src/notebooklm/_auth/single_flight.py"
     },
     {
-      "lines": 1150,
+      "lines": 1131,
       "name": "storage",
       "path": "src/notebooklm/_auth/storage.py"
     },
@@ -706,10 +756,10 @@
   },
   "summary": {
     "function_local_edges": 13,
-    "module_edges": 90,
-    "modules": 35,
-    "total_lines": 14588,
-    "unique_edges": 103
+    "module_edges": 99,
+    "modules": 36,
+    "total_lines": 14681,
+    "unique_edges": 112
   },
   "version": 1
 }

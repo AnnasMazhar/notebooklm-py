@@ -138,7 +138,7 @@ def test_importer_detector_bites_at_every_scope(source: str) -> None:
     assert _imports_credential_io(AUTH_ROOT / "synthetic.py", ast.parse(source))
 
 
-def test_production_importers_are_exactly_profile_store_and_storage() -> None:
+def test_production_importers_are_exactly_profile_store_and_master_token_file() -> None:
     actual = {
         path.relative_to(AUTH_ROOT).as_posix()
         for path in AUTH_ROOT.rglob("*.py")
@@ -148,7 +148,7 @@ def test_production_importers_are_exactly_profile_store_and_storage() -> None:
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
         )
     }
-    assert actual == {"profile_store.py", "storage.py"}
+    assert actual == {"master_token_file.py", "profile_store.py"}
 
 
 def _top_level_functions(tree: ast.Module) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
