@@ -9,6 +9,8 @@ from __future__ import annotations
 import ast
 import dataclasses
 import inspect
+import json
+import pickle
 from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
@@ -17,7 +19,15 @@ import pytest
 
 import notebooklm.auth as auth
 from notebooklm import NotebookLMClient
-from notebooklm._auth import account, master_token, psidts_recovery, refresh, storage, tokens
+from notebooklm._auth import (
+    account,
+    master_token,
+    psidts_recovery,
+    refresh,
+    storage,
+    storage_writer,
+    tokens,
+)
 from notebooklm._auth.tokens import AuthTokens
 from notebooklm._cookie_persistence import CookiePersistence
 from notebooklm._runtime import lifecycle
@@ -441,6 +451,95 @@ def test_result_projections_and_compatibility_value_identities() -> None:
     assert storage.CLEAR_ACCOUNT is storage._AccountAction.CLEAR
     assert storage.CookieSnapshotKey._fields == ("name", "domain", "path")
     assert storage.CookieSnapshotValue._fields == ("value", "expires", "secure", "http_only")
+
+
+def test_legacy_account_value_shape_identity_and_pickle_contract() -> None:
+    assert dataclasses.is_dataclass(storage.AccountRecord)
+    assert storage.AccountRecord.__dataclass_params__.frozen is True
+    assert not hasattr(storage.AccountRecord, "__slots__")
+    assert [field.name for field in dataclasses.fields(storage.AccountRecord)] == [
+        "authuser",
+        "email",
+    ]
+    assert str(inspect.signature(storage.AccountRecord)) == (
+        "(authuser: 'int', email: 'str | None' = None) -> None"
+    )
+    assert storage.AccountRecord.__module__ == "notebooklm._auth.storage"
+    assert storage.AccountRecord.__qualname__ == "AccountRecord"
+
+    odd = storage.AccountRecord(authuser=True, email=17)  # type: ignore[arg-type]
+    restored = pickle.loads(pickle.dumps(odd))
+    assert type(restored) is storage.AccountRecord
+    assert restored == odd
+    assert restored.authuser is True
+    assert restored.email == 17
+
+    assert [(member.name, member.value) for member in storage._AccountAction] == [
+        ("KEEP", "keep"),
+        ("CLEAR", "clear"),
+    ]
+    assert storage._AccountAction.__module__ == "notebooklm._auth.storage"
+    assert storage._AccountAction.__qualname__ == "_AccountAction"
+    assert storage.KEEP_ACCOUNT is storage._AccountAction.KEEP
+    assert storage.CLEAR_ACCOUNT is storage._AccountAction.CLEAR
+    assert pickle.loads(pickle.dumps(storage.KEEP_ACCOUNT)) is storage.KEEP_ACCOUNT
+    assert pickle.loads(pickle.dumps(storage.CLEAR_ACCOUNT)) is storage.CLEAR_ACCOUNT
+    assert storage.AccountArg.__args__ == (storage._AccountAction, storage.AccountRecord)
+
+
+def test_legacy_account_facade_shim_and_default_identities_are_exact() -> None:
+    assert auth.AccountRecord is storage.AccountRecord
+    assert auth.KEEP_ACCOUNT is storage.KEEP_ACCOUNT
+    assert auth.CLEAR_ACCOUNT is storage.CLEAR_ACCOUNT
+    assert auth.replace_from_login is storage.replace_from_login
+    assert storage_writer.AccountRecord is storage.AccountRecord
+    assert storage_writer.AccountArg is storage.AccountArg
+    assert storage_writer.KEEP_ACCOUNT is storage.KEEP_ACCOUNT
+    assert storage_writer.CLEAR_ACCOUNT is storage.CLEAR_ACCOUNT
+    assert storage_writer.replace_from_login is storage.replace_from_login
+
+    account_default = inspect.signature(storage.replace_from_login).parameters["account"].default
+    assert account_default is storage.KEEP_ACCOUNT
+
+
+def test_legacy_account_writer_preserves_odd_values_and_clears_unknowns(tmp_path: Path) -> None:
+    state = {
+        "cookies": [
+            {"name": "SID", "value": "sid", "domain": ".google.com", "path": "/"},
+            {
+                "name": "__Secure-1PSIDTS",
+                "value": "ts",
+                "domain": ".google.com",
+                "path": "/",
+            },
+        ],
+        "origins": [],
+    }
+
+    odd_path = tmp_path / "odd" / "storage_state.json"
+    odd = storage.AccountRecord(authuser=True, email=17)  # type: ignore[arg-type]
+    outcome = storage.replace_from_login(odd_path, state, include_domains=None, account=odd)
+    assert outcome.ok
+    odd_document = json.loads(odd_path.read_text(encoding="utf-8"))
+    assert odd_document["notebooklm"]["account"] == {"authuser": True, "email": 17}
+
+    unknown_path = tmp_path / "unknown" / "storage_state.json"
+    unknown_state = {
+        **state,
+        "notebooklm": {
+            "version": 1,
+            "account": {"authuser": 8, "email": "stale@example.com"},
+        },
+    }
+    unknown_outcome = storage.replace_from_login(
+        unknown_path,
+        unknown_state,
+        include_domains=None,
+        account=object(),  # type: ignore[arg-type]
+    )
+    assert unknown_outcome.ok
+    unknown_document = json.loads(unknown_path.read_text(encoding="utf-8"))
+    assert "notebooklm" not in unknown_document
 
 
 def test_facade_identities_and_three_cookie_save_lookup_seams() -> None:

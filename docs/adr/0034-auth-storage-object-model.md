@@ -59,6 +59,35 @@ Cross-cutting rules are normative:
 - Every later `storage.py` change is net-shrinking and lowers its exact LOC pin in the same diff.
   Compatibility lasts through v0.x; removal waits for an announced v1 runway.
 
+The first account seam is the unused dependency-bottom `profile_account.py` leaf. It defines
+immutable `ProfileAccount`, closed keep/clear/set directives, `DomainSelection`, and
+`StoredSession`; the session composes the canonical immutable `CookieJar`. Direct construction is
+permissive so a later compatibility adapter can preserve odd legacy values. Validation belongs to
+the named parsers:
+
+| Parser input / view | Typed result |
+|---|---|
+| Non-mapping account, every view | `None` |
+| Mapping, `ROUTE` | normalized account; invalid `authuser` becomes `0`, blank/invalid email becomes `None` |
+| Mapping, `OWNER` | normalized account only when a non-blank string email is present |
+| Mapping, `CARRY` | the same normalized account-record projection |
+| Non-mapping domain namespace | empty `DomainSelection` |
+| Mapping domain namespace | strings from a list become a defensive `frozenset`; optional is enabled only by exact `True` |
+
+`CARRY` is not a lossless namespace carrier. Existing remint/capture operations may preserve the
+entire raw `notebooklm` namespace, including unknown keys; those operations must not round-trip it
+through `ProfileAccount`. No production caller consumes the new leaf in this stage.
+
+The v0.x `AccountRecord`, `_AccountAction`, sentinels, `AccountArg`, writer signature/default, pickle
+path, facade/shim identities, and permissive direct construction remain owned by `storage.py`.
+Conversion is deferred to the future boundary that migrates a caller, with this exact table:
+
+| Legacy runtime value | Future internal directive |
+|---|---|
+| exact `KEEP_ACCOUNT` singleton | `KeepAccount()` |
+| `AccountRecord` instance | `SetAccount(ProfileAccount(value.authuser, value.email))`, without normalization |
+| everything else, including `CLEAR_ACCOUNT` and out-of-contract values | `ClearAccount()` |
+
 The compatibility inventory is explicit:
 
 - Profile writers: `merge_cookie_delta`, `update_account_metadata`, `clear_in_band_account`,
