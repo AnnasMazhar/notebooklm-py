@@ -230,7 +230,14 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # moved to the dependency-bottom ``_auth/storage_lock.py`` owner. Storage
     # retains only the v0.x wrappers, secure-parent policy, and transaction
     # routing. This is an ordinary shrink pin with zero banked slack.
-    "_auth/storage.py": 2829,
+    #
+    # RATCHETED DOWN 2829 -> 2563 by ADR-0034 PR5: the deterministic snapshot/CAS
+    # merge and permanent no-baseline overlay moved to the dependency-bottom
+    # ``_auth/cookie_merge.py`` leaf. Storage keeps the blocking transaction,
+    # corruption and logging policy, compatibility adapters, and sole raw write.
+    # This is another ordinary shrink pin with zero banked slack; the new leaf
+    # remains under the ordinary 1000-line budget and has no exemption here.
+    "_auth/storage.py": 2563,
     # sanctioned merge (ADR-0033) — the `_auth` load-composition merge:
     # ``_auth/browser_cookie_recovery.py`` (142) was absorbed in full and reduced
     # to a re-export shim in the same change. It held the captured-cookie

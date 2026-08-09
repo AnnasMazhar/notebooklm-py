@@ -88,7 +88,7 @@ Conversion is deferred to the future boundary that migrates a caller, with this 
 | `AccountRecord` instance | `SetAccount(ProfileAccount(value.authuser, value.email))`, without normalization |
 | everything else, including `CLEAR_ACCOUNT` and out-of-contract values | `ClearAccount()` |
 
-`ProfileDocument` is the next unused dependency-bottom seam. `decode()` accepts only an object at
+`ProfileDocument` is the next dependency-bottom seam. `decode()` accepts only an object at
 the root, then captures a recursively immutable, insertion-ordered snapshot without validating
 nested shapes. `to_json()` always returns a new deep mutable tree. The lossless representation keeps
 unknown root and namespace members, arbitrary origins, every cookie-list slot and duplicate, opaque
@@ -110,9 +110,10 @@ Copy-on-write operations preserve the original document and all unrelated raw me
 
 This value chooses no corruption or operation policy. Missing files, filesystem and Unicode errors,
 JSON text/syntax failures, malformed nested shapes, warnings/logging, backups, lock outcomes,
-filtering, and whether an invalid raw cookie list is fatal remain decisions of the later reader or
-operation boundary. No reader, writer, lock, facade adapter, or production consumer uses the leaf
-in this stage.
+filtering, and whether an invalid raw cookie list is fatal remain decisions of the reader or
+operation boundary. The first production consumers are the pure cookie decision leaf and its
+`storage.py` transaction adapter; no reader, lock, I/O helper, facade, or lifecycle owner may import
+the document value directly.
 
 The first production owner extraction is `storage_lock.py`. `StorageLockManager` now owns the
 process-default exact-raw-path thread-lock registry, concrete POSIX/Windows gateway, synchronous
@@ -123,6 +124,24 @@ wrapper, and both route through the same process default. Full-writer white-box 
 `storage._STORAGE_LOCKS`; cookie seam tests may still patch `storage._file_lock`. The old static
 warning bool and `_acquire_storage_lock` helper are removed, and the exact storage pin falls from
 3,102 to 2,829 lines in the same diff.
+
+Cookie merge policy is the first algorithm extracted from the facade. `cookie_merge.py` owns the
+pure snapshot/CAS decision and the permanent no-baseline overlay over `ProfileDocument`,
+`CookieJar`, and `RecoveryObservation` values. It names dirty-tuple comparison (excluding
+SameSite), value-only CAS, and exact-path dotted-domain equivalence independently; neither
+`Cookie.__eq__` nor serialization chooses those policies. Decisions are immutable, redacted, and
+carry a complete replacement document only when rows changed, plus the next baseline and rejected
+identities. Unknown raw members survive ordinary changes; recovery replacement intentionally emits
+one canonical winning row and drops that winner's unknown keys, preserving the established
+contract.
+
+`storage.py` remains the sole transaction and compatibility owner in this stage. It reads and
+classifies corruption under the existing blocking cookie lock, converts the legacy NamedTuple
+snapshot/recovery inputs to immutable values, invokes the pure decision, reproduces the existing
+value-free CAS logs, performs the single sanctioned raw write, and projects the old bool or
+`CookieSaveResult`. The old tuple types, private helper signatures, same-module late binding, lock
+semantics, writer authority, and caller identities do not move. This extraction lowers the exact
+facade line pin again without changing bytes or baseline advancement behavior.
 
 The compatibility inventory is explicit:
 

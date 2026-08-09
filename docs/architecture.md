@@ -1004,7 +1004,8 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_auth/cookie_semantics.py` | Dependency-bottom cookie scalar/row codecs: shape, expiry, legacy/rookiepy adaptation, stdlib construction, and row serialization |
 | `_auth/cookie_types.py` | Canonical immutable `Cookie`/`CookieJar` values; depends downward only on cookie policy and semantics (ADR-0032) |
 | `_auth/profile_account.py` | Dependency-bottom immutable account/directive/domain/session values and pure namespace parsers; currently unused by production while v0.x account values remain storage-owned (ADR-0034) |
-| `_auth/profile_document.py` | Recursively immutable, lossless raw profile snapshot with isolated typed views and copy-on-write cookie/namespace updates; unused by production until the store migration (ADR-0034) |
+| `_auth/profile_document.py` | Recursively immutable, lossless raw profile snapshot with isolated typed views and copy-on-write cookie/namespace updates; consumed by the pure cookie merge leaf and its storage transaction adapter (ADR-0034) |
+| `_auth/cookie_merge.py` | Pure immutable cookie snapshot/CAS and permanent no-baseline overlay decisions; no paths, locks, I/O, logging, facade, or lifecycle dependencies (ADR-0034) |
 | `_auth/browser_cookie_recovery.py` | Shim: re-exports the captured-cookie validate/heal seam from `psidts_recovery.py` (removed at next major) |
 | `_auth/browser_state_validation.py` | Shim: re-exports `heal_captured_state` from `browser_capture.py` (removed at next major) |
 | `_auth/browser_capture.py` | One deep module for the browser launch→capture→filter→heal→persist core (ADR-0033 merge: absorbed `browser_state_validation.py` + `login_wait_trace.py`), lazy `playwright`; shared by the interactive CLI login adapter (`cli/services/playwright_login.py`) and the layer-3 headless re-auth layer (ADR-0021). Carries the login-wait DEBUG tracing (host-only `trace_url`, inert when DEBUG is off) and the never-raising `heal_captured_state` |
@@ -1188,7 +1189,8 @@ src/notebooklm/
 │   ├── cookie_semantics.py      # Dependency-bottom cookie scalar/row codecs
 │   ├── cookie_types.py          # Canonical immutable Cookie/CookieJar values (ADR-0032)
 │   ├── profile_account.py       # Immutable account/directive/domain/session values + pure parsers (ADR-0034; no production consumer yet)
-│   ├── profile_document.py      # Lossless immutable raw profile + typed views/copy-on-write operations (ADR-0034; unused leaf)
+│   ├── profile_document.py      # Lossless immutable raw profile + typed views/copy-on-write operations (ADR-0034)
+│   ├── cookie_merge.py          # Pure snapshot/CAS + permanent no-baseline cookie decisions (ADR-0034)
 │   ├── storage_lock.py          # Process-default raw-path registry + platform lock gateway + bounded retry (ADR-0034)
 │   ├── browser_cookie_recovery.py # Shim: re-exports validate/heal/validate_with_recovery from psidts_recovery.py (removed at next major)
 │   ├── browser_state_validation.py # Shim: re-exports heal_captured_state from browser_capture.py (removed at next major)
@@ -1199,7 +1201,7 @@ src/notebooklm/
 │   ├── headless_reauth.py       # Layer-3 headless re-auth (opt-in; typed outcomes; local-unattended-only)
 │   ├── account.py               # Account NETWORK identity: authuser=N probing, page-email extraction, authuser wire formatting, Playwright account repair (the persisted account RECORD lives in storage.py — ADR-0033 PR 5.2)
 │   ├── session.py               # Auth-session refresh implementation via `refresh_auth_session()` and explicit collaborators
-│   ├── storage.py               # Persistence policy/facade: lock wrappers + transaction template + CAS/writers/account records; mechanics delegated to storage_lock.py
+│   ├── storage.py               # Persistence transaction/facade: lock + I/O/corruption adapters and writers; cookie policy delegated to cookie_merge.py, mechanics to storage_lock.py
 │   ├── storage_writer.py        # Shim: re-exports the writer API from storage.py (removed at next major)
 │   ├── storage_transaction.py   # Shim: re-exports in_storage_transaction + lock policies from storage.py (removed at next major)
 │   ├── keepalive.py             # Cookie keepalive + __Secure-1PSIDTS rotation

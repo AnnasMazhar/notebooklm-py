@@ -57,6 +57,26 @@
     },
     {
       "scope": "module",
+      "source": "cookie_merge",
+      "target": "cookie_policy"
+    },
+    {
+      "scope": "module",
+      "source": "cookie_merge",
+      "target": "cookie_semantics"
+    },
+    {
+      "scope": "module",
+      "source": "cookie_merge",
+      "target": "cookie_types"
+    },
+    {
+      "scope": "module",
+      "source": "cookie_merge",
+      "target": "profile_document"
+    },
+    {
+      "scope": "module",
       "source": "cookie_types",
       "target": "cookie_policy"
     },
@@ -291,6 +311,11 @@
       "target": "tokens"
     },
     {
+      "scope": "module",
+      "source": "storage",
+      "target": "cookie_merge"
+    },
+    {
       "scope": "function",
       "source": "storage",
       "target": "cookie_policy"
@@ -308,6 +333,11 @@
     {
       "scope": "module",
       "source": "storage",
+      "target": "cookie_types"
+    },
+    {
+      "scope": "module",
+      "source": "storage",
       "target": "cookies"
     },
     {
@@ -319,6 +349,11 @@
       "scope": "module",
       "source": "storage",
       "target": "paths"
+    },
+    {
+      "scope": "module",
+      "source": "storage",
+      "target": "profile_document"
     },
     {
       "scope": "module",
@@ -403,6 +438,11 @@
       "path": "src/notebooklm/_auth/browser_state_validation.py"
     },
     {
+      "lines": 393,
+      "name": "cookie_merge",
+      "path": "src/notebooklm/_auth/cookie_merge.py"
+    },
+    {
       "lines": 887,
       "name": "cookie_policy",
       "path": "src/notebooklm/_auth/cookie_policy.py"
@@ -413,7 +453,7 @@
       "path": "src/notebooklm/_auth/cookie_semantics.py"
     },
     {
-      "lines": 380,
+      "lines": 378,
       "name": "cookie_types",
       "path": "src/notebooklm/_auth/cookie_types.py"
     },
@@ -488,7 +528,7 @@
       "path": "src/notebooklm/_auth/single_flight.py"
     },
     {
-      "lines": 2829,
+      "lines": 2563,
       "name": "storage",
       "path": "src/notebooklm/_auth/storage.py"
     },
@@ -526,10 +566,10 @@
   },
   "summary": {
     "function_local_edges": 14,
-    "module_edges": 59,
-    "modules": 29,
-    "total_lines": 14106,
-    "unique_edges": 73
+    "module_edges": 66,
+    "modules": 30,
+    "total_lines": 14231,
+    "unique_edges": 80
   },
   "version": 1
 }
