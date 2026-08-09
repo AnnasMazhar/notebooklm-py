@@ -61,6 +61,7 @@ def test_value_shapes_signatures_validation_and_redaction() -> None:
     assert [(member.name, member.value) for member in ReplaceStatus] == [
         ("APPLIED", "applied"),
         ("LOCK_UNAVAILABLE", "lock_unavailable"),
+        ("REQUIRED_COOKIES_DROPPED", "required_cookies_dropped"),
     ]
     request = RemintWriteRequest(_source(_row()), "truthy")  # type: ignore[arg-type]
     assert set(RemintWriteRequest.__slots__) == {
@@ -70,7 +71,15 @@ def test_value_shapes_signatures_validation_and_redaction() -> None:
     }
     assert "SID" not in repr(request) and "secret" not in str(request)
     result = ReplaceResult(ReplaceStatus.APPLIED)
-    assert set(ReplaceResult.__slots__) == {"status"}
+    assert set(ReplaceResult.__slots__) == {
+        "status",
+        "missing_required",
+        "present_names",
+        "backup_path",
+    }
+    assert (result.missing_required, result.present_names, result.backup_path) == ((), (), None)
+    locked = ReplaceResult(ReplaceStatus.LOCK_UNAVAILABLE)
+    assert (locked.missing_required, locked.present_names, locked.backup_path) == ((), (), None)
     assert "secret" not in repr(result)
     with pytest.raises(FrozenInstanceError):
         result.status = ReplaceStatus.LOCK_UNAVAILABLE  # type: ignore[misc]

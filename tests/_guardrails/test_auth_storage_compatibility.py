@@ -12,6 +12,7 @@ import dataclasses
 import inspect
 import json
 import pickle
+import sys
 from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
@@ -633,6 +634,7 @@ def test_legacy_account_value_shape_identity_and_pickle_contract() -> None:
 
 
 def test_legacy_account_facade_shim_and_default_identities_are_exact() -> None:
+    assert storage.sys is sys
     assert auth.AccountRecord is storage.AccountRecord
     assert auth.KEEP_ACCOUNT is storage.KEEP_ACCOUNT
     assert auth.CLEAR_ACCOUNT is storage.CLEAR_ACCOUNT

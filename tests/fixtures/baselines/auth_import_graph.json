@@ -188,6 +188,11 @@
     {
       "scope": "module",
       "source": "profile_store",
+      "target": "cookie_policy"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
       "target": "cookie_types"
     },
     {
@@ -369,11 +374,6 @@
       "scope": "module",
       "source": "storage",
       "target": "cookie_merge"
-    },
-    {
-      "scope": "function",
-      "source": "storage",
-      "target": "cookie_policy"
     },
     {
       "scope": "module",
@@ -573,7 +573,7 @@
       "path": "src/notebooklm/_auth/profile_document.py"
     },
     {
-      "lines": 580,
+      "lines": 711,
       "name": "profile_store",
       "path": "src/notebooklm/_auth/profile_store.py"
     },
@@ -603,7 +603,7 @@
       "path": "src/notebooklm/_auth/single_flight.py"
     },
     {
-      "lines": 1905,
+      "lines": 1771,
       "name": "storage",
       "path": "src/notebooklm/_auth/storage.py"
     },
@@ -640,10 +640,10 @@
     "module_level": []
   },
   "summary": {
-    "function_local_edges": 14,
-    "module_edges": 78,
+    "function_local_edges": 13,
+    "module_edges": 79,
     "modules": 33,
-    "total_lines": 14272,
+    "total_lines": 14269,
     "unique_edges": 92
   },
   "version": 1

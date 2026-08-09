@@ -257,7 +257,7 @@ left on disk after release — both lock implementations reuse them).
 
 | Lock file | Owner | Scope | Acquisition |
 |---|---|---|---|
-| `<profile>/.storage_state.json.lock` | `_auth/profile_store.py` transaction owner via `_auth/storage_lock.py`; `_auth/storage.py` retains compatibility adapters and the login/minted replacement bodies | Every mutation of `storage_state.json`: cookie CAS, typed in-band account update/clear, browser/remint replacement, and login/minted full replacement | Cookie methods: blocking exclusive, fail-open. Account update: bounded 90s, fail-closed; clear: bounded best-effort. Browser/remint: bounded typed status. Login/minted: bounded compatibility transaction. |
+| `<profile>/.storage_state.json.lock` | `_auth/profile_store.py` transaction owner via `_auth/storage_lock.py`; `_auth/storage.py` retains compatibility adapters and minted replacement | Every mutation of `storage_state.json`: cookie CAS, typed in-band account update/clear, browser/remint replacement, and login/minted full replacement | Cookie methods: blocking exclusive, fail-open. Account update: bounded 90s, fail-closed; clear: bounded best-effort. Browser/remint and login: bounded typed status. Minted: bounded compatibility transaction. |
 | `<profile>/.master_token.json.lock` | `_auth/storage.py::write_master_token` policy via `_auth/profile_store.py` bounded transaction and `_auth/credential_io.py` typed commit | Writes to `master_token.json` (the durable L4 credential) | Same bounded manager acquire as above (90s deadline), fail-closed. `MasterTokenFile` is not implemented yet. |
 | `<profile>/.storage_state.json.rotate.lock` | `_auth/keepalive.py::_poke_session` via `_auth/storage_lock.py` | Cross-process dedup of the `accounts.google.com/RotateCookies` keepalive POST | Non-blocking exclusive; skip on contention |
 | `<profile>/.storage_state.json.refresh.lock` | `_auth/refresh.py` via `_auth/keepalive.py` and `_auth/storage_lock.py` | Cross-process dedup of the `NOTEBOOKLM_REFRESH_CMD` subprocess | Non-blocking exclusive; skip on contention, waiter polls asynchronously with jittered backoff |
@@ -297,8 +297,8 @@ Design notes:
     assembly; the PSIDTS rotation-recovery route passes its load path through
     unchanged.
   - `.storage_state.json.lock` never canonicalizes for I/O: `ProfileStore` and
-    the transaction alias used by the remaining `_auth/storage.py` login/minted
-    writers derive `_storage_state_lock_path` from the caller's raw path, so two processes
+    the transaction alias used by the remaining `_auth/storage.py` minted writer
+    derive `_storage_state_lock_path` from the caller's raw path, so two processes
     reaching the same file through different path spellings (e.g. a symlink vs.
     its resolved target) can take different main-write locks and race. Callers
     are expected to reach a profile's storage file through one consistent path
@@ -318,12 +318,15 @@ Design notes:
   could silently overwrite a concurrent CAS delta.
 
 `ProfileStore` also owns typed account reads, best-effort clear, and the complete
-browser/remint replacement transaction. Remint carries the latest whole raw
+browser/remint and login/import replacement transactions. Remint carries the latest whole raw
 `notebooklm` namespace only when requested, filters through the pure
 `_auth/cookie_filter.py` leaf, and commits once; `storage.replace_from_remint`
 remains the compatibility and browser patch seam. The raw `storage.py` adapters
-deliberately retain legacy reconciliation and scheduling, and its login/minted
-replacement bodies have not moved. An empty in-band account mapping does not
+deliberately retain legacy reconciliation and scheduling. Login filtering, required-name
+validation, KEEP/SET/CLEAR construction, optional backup, and commit now run under one bounded
+store lock; `storage.replace_from_login` keeps its v0.x identity and performs legacy
+promote-or-scrub only after an applied result and lock release. Minted replacement remains in
+storage. An empty in-band account mapping does not
 block promotion but is still preserved when remint carries the whole namespace;
 a non-empty unknown-only mapping remains present and wins.
 - **In-process lock before OS lock.** `StorageLockManager` takes an in-process

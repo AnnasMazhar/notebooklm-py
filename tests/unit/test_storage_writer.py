@@ -21,9 +21,9 @@ import pytest
 from notebooklm._auth import master_token as mt_mod
 from notebooklm._auth import profile_store, storage_writer
 from notebooklm._auth import storage as storage_mod
-from notebooklm._auth.profile_account import DomainSelection
+from notebooklm._auth.profile_account import ClearAccount, DomainSelection, KeepAccount
 from notebooklm._auth.profile_document import ProfileDocument
-from notebooklm._auth.profile_store import ReplaceResult, ReplaceStatus
+from notebooklm._auth.profile_store import LoginWriteRequest, ReplaceResult, ReplaceStatus
 from notebooklm._auth.storage_lock import LockState
 
 
@@ -478,6 +478,141 @@ def test_replace_from_login_fails_closed_on_lock_unavailable(
     outcome = storage_mod.replace_from_login(path, _login_state(), include_domains=None)
     assert outcome.lock_unavailable
     assert not path.exists()  # nothing written without the lock
+
+
+@pytest.mark.parametrize(
+    ("result", "expected"),
+    [
+        (
+            ReplaceResult(ReplaceStatus.APPLIED, backup_path=Path("A.json.bak")),
+            storage_mod.LoginWriteOutcome(
+                storage_mod.LoginWriteStatus.OK,
+                backup_path=Path("A.json.bak"),
+            ),
+        ),
+        (
+            ReplaceResult(ReplaceStatus.LOCK_UNAVAILABLE),
+            storage_mod.LoginWriteOutcome(storage_mod.LoginWriteStatus.LOCK_UNAVAILABLE),
+        ),
+        (
+            ReplaceResult(
+                ReplaceStatus.REQUIRED_COOKIES_DROPPED,
+                missing_required=("A", "Z"),
+                present_names=("B",),
+            ),
+            storage_mod.LoginWriteOutcome(
+                storage_mod.LoginWriteStatus.REQUIRED_COOKIES_DROPPED,
+                missing_required=("A", "Z"),
+                present_names=("B",),
+            ),
+        ),
+    ],
+)
+def test_replace_from_login_is_one_typed_store_delegation_and_exhaustive_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    result: ReplaceResult,
+    expected: storage_mod.LoginWriteOutcome,
+) -> None:
+    path = tmp_path / "custom.json"
+    state = _login_state()
+    seen: list[object] = []
+
+    class FakeStore:
+        def __init__(self, actual_path: Path) -> None:
+            seen.append(actual_path)
+
+        def replace_from_login(self, request: LoginWriteRequest) -> ReplaceResult:
+            seen.append(request)
+            return result
+
+    monkeypatch.setattr(storage_mod, "ProfileStore", FakeStore)
+    monkeypatch.setattr(storage_mod, "_drop_legacy_account_key", lambda path: seen.append("scrub"))
+
+    outcome = storage_mod.replace_from_login(
+        path,
+        state,
+        include_domains={"mail"},
+        include_optional="truthy",  # type: ignore[arg-type]
+        account=storage_mod.CLEAR_ACCOUNT,
+        backup="truthy",  # type: ignore[arg-type]
+        io_policy=object(),
+    )
+
+    assert outcome == expected
+    assert seen[0] is path
+    request = seen[1]
+    assert isinstance(request, LoginWriteRequest)
+    assert request.source.to_json() == state
+    assert request.domain_selection == DomainSelection(frozenset({"mail"}), "truthy")
+    assert isinstance(request.account, ClearAccount)
+    assert request.backup == "truthy"
+    if result.status is ReplaceStatus.APPLIED:
+        assert seen[2:] == ["scrub"]
+    else:
+        assert seen[2:] == []
+
+
+@pytest.mark.parametrize(
+    "namespace",
+    [
+        {"account": {}},
+        {"account": None},
+        {"account": "odd"},
+        {"account": {"unknown": "only"}},
+    ],
+)
+def test_replace_from_login_keep_uses_literal_raw_account_key_for_legacy_scrub(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    namespace: dict[str, object],
+) -> None:
+    events: list[str] = []
+
+    class FakeStore:
+        def __init__(self, path: Path) -> None:
+            pass
+
+        def replace_from_login(self, request: LoginWriteRequest) -> ReplaceResult:
+            assert isinstance(request.account, KeepAccount)
+            events.append("store")
+            return ReplaceResult(ReplaceStatus.APPLIED)
+
+    monkeypatch.setattr(storage_mod, "ProfileStore", FakeStore)
+    monkeypatch.setattr(
+        storage_mod, "promote_legacy_account", lambda path: events.append("promote")
+    )
+    monkeypatch.setattr(
+        storage_mod, "_drop_legacy_account_key", lambda path: events.append("scrub")
+    )
+    state = {**_login_state(), "notebooklm": namespace}
+
+    assert storage_mod.replace_from_login(tmp_path / "A.json", state, include_domains=None).ok
+    assert events == ["store", "scrub"]
+
+
+def test_replace_from_login_account_copy_failure_precedes_store_and_parent_creation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailsCopy:
+        def __deepcopy__(self, memo: dict[int, object]) -> object:
+            raise RuntimeError("bounded account copy failure")
+
+    monkeypatch.setattr(
+        storage_mod,
+        "ProfileStore",
+        lambda path: pytest.fail("store must not be constructed"),
+    )
+    path = tmp_path / "missing" / "A.json"
+    with pytest.raises(RuntimeError, match="bounded account copy failure"):
+        storage_mod.replace_from_login(
+            path,
+            _login_state(),
+            include_domains=None,
+            account=storage_mod.AccountRecord(FailsCopy(), FailsCopy()),  # type: ignore[arg-type]
+        )
+    assert not path.parent.exists()
 
 
 # --- persist_minted_jar: full replace, fails CLOSED ------------------------
