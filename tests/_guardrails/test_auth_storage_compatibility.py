@@ -727,6 +727,7 @@ def test_phase9_closed_values_and_paired_compatibility_owners_are_exact() -> Non
         "LoadedAuth",
         "_LoadedCookiePair",
         "ColdRecoveryResult",
+        "ColdRecoveryCoordinator",
         "_build_cookie_pair_from_storage",
         "_build_cookie_pair_from_storage_state",
         "_try_headless_reauth_result",

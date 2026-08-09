@@ -7,7 +7,7 @@ import logging
 import os
 import shlex
 import subprocess
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from contextlib import AbstractContextManager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -849,86 +849,85 @@ async def _cold_fallbacks(
     deps: RefreshCmdDeps = _PRODUCTION_REFRESH_CMD_DEPS,
 ) -> tuple[str, str, bool, _auth_storage.CookieSnapshot | None, CookieJar | None]:
     """Run the L2.5 refresh command, then the coalesced L3/L4 recovery."""
-    refresh_cmd_rung = _should_try_refresh(err)
-    refresh_cmd_error: Exception | None = None
-    if refresh_cmd_rung and env_auth:
-        # No writable backing store: the rung would lock, rewrite and then read
-        # a profile file this caller bypassed. The refresh command cannot help
-        # anyway — NOTEBOOKLM_AUTH_JSON is scrubbed from its environment, so it
-        # cannot re-mint the credential in use (#2083).
-        logger.debug("Skipping %s: env auth has no file", NOTEBOOKLM_REFRESH_CMD_ENV)
-    elif refresh_cmd_rung:
+
+    def should_try_refresh(initial_error: Exception, is_env_auth: bool) -> bool:
+        eligible = _should_try_refresh(initial_error)
+        if eligible and is_env_auth:
+            logger.debug("Skipping %s: env auth has no file", NOTEBOOKLM_REFRESH_CMD_ENV)
+            return False
+        return eligible
+
+    def resolve_refresh_path(initial_error: ValueError) -> Path:
         logger.warning(
             "NotebookLM auth failed (%s). Running %s to refresh cookies.",
-            err,
+            initial_error,
             NOTEBOOKLM_REFRESH_CMD_ENV,
         )
-        # Canonicalize so different spellings of one physical file (relative,
-        # symlinked, ``~``) hash to the same flight / success-epoch key
-        # ([refresh-5]); a caller-supplied ``storage_path`` may be any of them.
         refresh_path = canonical_storage_key(storage_path or get_storage_path(profile=profile))
-        # Both operands above are non-None here (``env_auth`` took the no-file
-        # case), and canonicalizing a real path yields a Path.
         assert refresh_path is not None
+        return refresh_path
+
+    async def run_refresh_attempt(
+        path: Path,
+    ) -> tuple[str, str, _auth_storage.CookieSnapshot, CookieJar | None]:
         refresh_token = _REFRESH_ATTEMPTED_CONTEXT.set(True)
         try:
-            # Coalesced across ALL event loops and serialized across processes by
-            # the per-path flock, both delegated to ``_coalesced_run_refresh_cmd``
-            # (single_flight core); it returns once the storage is, or has just
-            # been, refreshed.
-            await _coalesced_run_refresh_cmd(str(refresh_path), refresh_path, profile, deps=deps)
-            fresh_jar, post_refresh_snapshot, replacement_baseline = await load_replacement(
-                refresh_path
-            )
-            _replace_cookie_jar(cookie_jar, fresh_jar)
-            csrf, session_id = await _fetch_tokens_with_jar(
-                cookie_jar, refresh_path, **await resolve_route(refresh_path)
-            )
-        except (RuntimeError, OSError, ValueError) as rung_err:
-            # Rung failed (non-zero exit, unreadable storage, or a retry that
-            # still redirects): fall through to L3/L4 rather than end the ladder.
-            # ``CancelledError`` is a ``BaseException``, so it still propagates
-            # (after ``await_flight`` settles the shared subprocess).
-            logger.warning(
-                "%s rung failed (%s); falling through to the re-mint rungs.",
-                NOTEBOOKLM_REFRESH_CMD_ENV,
-                rung_err,
-            )
-            refresh_cmd_error = rung_err
-        else:
-            return csrf, session_id, True, post_refresh_snapshot, replacement_baseline
+            try:
+                await _coalesced_run_refresh_cmd(str(path), path, profile, deps=deps)
+                fresh_jar, snapshot, new_baseline = await load_replacement(path)
+                _replace_cookie_jar(cookie_jar, fresh_jar)
+                route = await resolve_route(path)
+                csrf, session_id = await _fetch_tokens_with_jar(cookie_jar, path, **route)
+                return csrf, session_id, snapshot, new_baseline
+            except (RuntimeError, OSError, ValueError) as rung_error:
+                logger.warning(
+                    "%s rung failed (%s); falling through to the re-mint rungs.",
+                    NOTEBOOKLM_REFRESH_CMD_ENV,
+                    rung_error,
+                )
+                raise
         finally:
             _REFRESH_ATTEMPTED_CONTEXT.reset(refresh_token)
-    if isinstance(err, _auth_extraction._LoginRedirectError) and storage_path is not None:
 
-        async def validate_recovered_jar(recovered_jar: httpx.Cookies) -> None:
-            await _fetch_tokens_with_jar(
-                recovered_jar,
-                storage_path,
-                **await resolve_route(storage_path),
-            )
+    async def run_cold_recovery(
+        path: Path,
+        headless: bool,
+        validate: Callable[[httpx.Cookies], Awaitable[None]],
+        error: _auth_extraction._LoginRedirectError,
+    ) -> _auth_recovery.ColdRecoveryResult:
+        return await _auth_recovery.coalesced_cold_recovery(
+            storage_path=path,
+            allow_headless=headless,
+            validate=validate,
+            initial_error=error,
+        )
 
-        try:
-            recovery = await _auth_recovery.coalesced_cold_recovery(
-                storage_path=storage_path,
-                allow_headless=allow_headless,
-                validate=validate_recovered_jar,
-                initial_error=err,
-            )
-            _replace_cookie_jar(cookie_jar, recovery.cookie_jar)
-            csrf, session_id = await _fetch_tokens_with_jar(
-                cookie_jar, storage_path, **await resolve_route(storage_path)
-            )
-        except _auth_extraction._LoginRedirectError:
-            # Ladder exhausted, or the revalidation retry still redirects: fall
-            # out to the raise below, so the caller sees the ORIGINAL failure
-            # (or the L2.5 one) rather than this arm's retry error.
-            pass
-        else:
-            return csrf, session_id, True, recovery.snapshot, recovery.baseline
-    if refresh_cmd_error is not None:
-        raise refresh_cmd_error
-    raise
+    async def validate_recovered(jar: httpx.Cookies) -> None:
+        await _fetch_tokens_with_jar(jar, storage_path, **await resolve_route(storage_path))
+
+    async def fetch_recovered(jar: httpx.Cookies) -> tuple[str, str]:
+        return await _fetch_tokens_with_jar(jar, storage_path, **await resolve_route(storage_path))
+
+    def replace_cookie_jar(target: httpx.Cookies, source: httpx.Cookies) -> None:
+        _replace_cookie_jar(target, source)
+
+    coordinator = _auth_recovery.ColdRecoveryCoordinator(
+        should_try_refresh=should_try_refresh,
+        resolve_refresh_path=resolve_refresh_path,
+        run_refresh_attempt=run_refresh_attempt,
+        run_cold_recovery=run_cold_recovery,
+        validate_recovered=validate_recovered,
+        fetch_recovered=fetch_recovered,
+        replace_cookie_jar=replace_cookie_jar,
+    )
+    return await coordinator.recover(
+        initial_error=err,
+        cookie_jar=cookie_jar,
+        storage_path=storage_path,
+        env_auth=env_auth,
+        allow_headless=allow_headless,
+        baseline=baseline,
+    )
 
 
 async def _fetch_tokens_with_jar(

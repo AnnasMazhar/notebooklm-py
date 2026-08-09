@@ -40,6 +40,98 @@ class ColdRecoveryResult:
         object.__setattr__(self, "baseline", CookieJar(tuple(self.baseline)))
 
 
+class ColdRecoveryCoordinator:
+    """Run one L2.5 plus combined cold recovery operation."""
+
+    def __init__(
+        self,
+        *,
+        should_try_refresh: Callable[[Exception, bool], bool],
+        resolve_refresh_path: Callable[[ValueError], Path],
+        run_refresh_attempt: Callable[
+            [Path],
+            Awaitable[tuple[str, str, CookieSnapshot, CookieJar | None]],
+        ],
+        run_cold_recovery: Callable[
+            [
+                Path,
+                bool,
+                Callable[[httpx.Cookies], Awaitable[None]],
+                _LoginRedirectError,
+            ],
+            Awaitable[ColdRecoveryResult],
+        ],
+        validate_recovered: Callable[[httpx.Cookies], Awaitable[None]],
+        fetch_recovered: Callable[[httpx.Cookies], Awaitable[tuple[str, str]]],
+        replace_cookie_jar: Callable[[httpx.Cookies, httpx.Cookies], None],
+    ) -> None:
+        self._should_try_refresh = should_try_refresh
+        self._resolve_refresh_path = resolve_refresh_path
+        self._run_refresh_attempt = run_refresh_attempt
+        self._run_cold_recovery = run_cold_recovery
+        self._validate_recovered = validate_recovered
+        self._fetch_recovered = fetch_recovered
+        self._replace_cookie_jar = replace_cookie_jar
+        self._used = False
+
+    async def recover(
+        self,
+        *,
+        initial_error: ValueError,
+        cookie_jar: httpx.Cookies,
+        storage_path: Path | None,
+        env_auth: bool,
+        allow_headless: bool,
+        baseline: CookieJar | None,
+    ) -> tuple[str, str, bool, CookieSnapshot | None, CookieJar | None]:
+        if self._used:
+            raise RuntimeError("ColdRecoveryCoordinator.recover() is one-shot")
+        self._used = True
+        try:
+            refresh_error: Exception | None = None
+            if self._should_try_refresh(initial_error, env_auth):
+                refresh_path = self._resolve_refresh_path(initial_error)
+                try:
+                    (
+                        csrf,
+                        session_id,
+                        snapshot,
+                        replacement_baseline,
+                    ) = await self._run_refresh_attempt(refresh_path)
+                except (RuntimeError, OSError, ValueError) as exc:
+                    refresh_error = exc
+                else:
+                    return csrf, session_id, True, snapshot, replacement_baseline
+
+            from .extraction import _LoginRedirectError
+
+            if isinstance(initial_error, _LoginRedirectError) and storage_path is not None:
+                try:
+                    recovery = await self._run_cold_recovery(
+                        storage_path,
+                        allow_headless,
+                        self._validate_recovered,
+                        initial_error,
+                    )
+                    self._replace_cookie_jar(cookie_jar, recovery.cookie_jar)
+                    csrf, session_id = await self._fetch_recovered(cookie_jar)
+                except _LoginRedirectError:
+                    pass
+                else:
+                    return csrf, session_id, True, recovery.snapshot, recovery.baseline
+            if refresh_error is not None:
+                raise refresh_error
+            raise
+        finally:
+            del self._should_try_refresh
+            del self._resolve_refresh_path
+            del self._run_refresh_attempt
+            del self._run_cold_recovery
+            del self._validate_recovered
+            del self._fetch_recovered
+            del self._replace_cookie_jar
+
+
 # Cross-loop coalescing of both the cold ladder and the L4 master-token re-mint
 # now flows through ``notebooklm._auth.single_flight`` (c-PR2). The old per-loop
 # in-flight task registries (``_COLD_INFLIGHT_BY_LOOP`` /

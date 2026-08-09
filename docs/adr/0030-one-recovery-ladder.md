@@ -245,6 +245,19 @@ the same guard excludes and `_run_cold_recovery`'s `Path`-typed contract cannot
 accept. Moving the arm into `recovery.py`, or injecting it inside the cold
 flight's coalescing boundary, would change both; the alignment does not.
 
+*Phase 12A ownership extraction (2026-08-09):* the internal, one-shot
+`recovery.ColdRecoveryCoordinator` now owns the L2.5 decision/attempt and delegation into the
+combined cold flow. `refresh._cold_fallbacks` remains the sole production adapter and supplies
+late-bound closures, so the exact DEBUG environment-auth skip and WARNING start/failure messages,
+route lookup timing, and wider plain-`ValueError` entry surface remain in `refresh.py`. L2.5 still
+runs outside the shared cold flight. The existing `recovery._run_cold_recovery` continues to own
+the L3 → L4 sequence, per-loop lock/generation state, and same-sample replacement baseline; its
+coalesced wrapper and `single_flight` retain flight settlement until Phase 12C. Cancellation before
+caller-jar replacement leaves that jar
+untouched; after either arm synchronously replaces it, a later cancelled route/fetch does not roll
+the mutation back. A failed L2.5 exception is still retained by identity, later cold success still
+wins, and an exhausted ladder still selects that retained failure over the original redirect.
+
 A third role does **not** survive, and the executing PR must not try to preserve
 it. Today the arm is also the post-ladder backstop, reached from two rebind
 sites: the ladder-exhausted path (`coalesced_cold_recovery` re-raises

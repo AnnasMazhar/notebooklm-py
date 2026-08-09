@@ -121,6 +121,7 @@ _FORBIDDEN_TOKEN_CAPABILITIES = frozenset(
         "_REFRESH_ATTEMPTED_CONTEXT",
         "_REFRESH_ATTEMPTED_ENV",
         "coalesced_cold_recovery",
+        "ColdRecoveryCoordinator",
         "_run_cold_recovery",
         "try_headless_reauth",
         "attempt_headless_reauth",
@@ -1235,6 +1236,18 @@ def test_forbidden_token_capability_and_mutable_state_detectors_bite() -> None:
     ],
 )
 def test_new_mint_service_capability_detector_bites_every_deferred_escape(source: str) -> None:
+    assert _token_capability_violations(ast.parse(source))
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from .recovery import ColdRecoveryCoordinator as Coordinator\nCoordinator()\n",
+        "def later(recovery):\n    return recovery.ColdRecoveryCoordinator\n",
+        "callback = getattr(recovery, 'ColdRecovery' + 'Coordinator')\nconsume(callback)\n",
+    ],
+)
+def test_cold_recovery_coordinator_capability_detector_bites_every_escape(source: str) -> None:
     assert _token_capability_violations(ast.parse(source))
 
 

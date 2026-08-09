@@ -305,16 +305,12 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # its MEASURED post-PR LOC; shrink-locked from here on.
     #
     # The ladder-alignment change (cold start reordered to ADR-0030's L2.5 → L3
-    # → L4) landed against this pin at EXACTLY 1200 — net-neutral, as it had to
-    # be: growth has no legal fix here, since a sanctioned behavior change is
-    # not a merge and ADR-0033's raise classes reach only merges and
-    # donor-shrinking relocations. It paid for the fall-through wrapper by
-    # deleting the ``err = retry_err`` rebinds the reorder made dead, collapsing
-    # the L3/L4 arm's two nested ``try`` blocks into one, and folding the
-    # docstring paragraphs the reorder obsoleted into ADR-0030's amendment. The
-    # ceiling stays shrink-only: the next change to this module still has to
-    # come in at or below 1200.
-    "_auth/refresh.py": 1195,
+    # → L4) landed net-neutral at the then-current pin. Phase 12A moved its
+    # operation-scoped control flow behind ``ColdRecoveryCoordinator`` while
+    # retaining this module's late-bound callback composition and exact public
+    # adapters. The extraction shrank the measured module by one line; freeze
+    # that saved ground immediately.
+    "_auth/refresh.py": 1194,
     # sanctioned merge (ADR-0033) — the `_auth` browser-cluster merge (PR 4.1):
     # ``_auth/browser_state_validation.py`` (56) and ``_auth/login_wait_trace.py``
     # (181) were absorbed in full and reduced to re-export shims in the same
