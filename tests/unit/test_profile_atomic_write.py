@@ -45,8 +45,8 @@ from typing import Any
 
 import pytest
 
+from notebooklm._auth.profile_migration import LegacyPromotionScheduler
 from notebooklm._auth.storage import (
-    _drain_promotions_for_tests,
     clear_account_metadata,
     get_account_email_for_storage,
     get_authuser_for_storage,
@@ -54,6 +54,10 @@ from notebooklm._auth.storage import (
     read_account_metadata,
     write_account_metadata,
 )
+
+
+def _drain_promotions_for_tests() -> None:
+    LegacyPromotionScheduler.process_default().drain(30.0)
 
 
 def _write_storage_state(path: Path, payload: dict[str, Any]) -> None:
@@ -402,7 +406,7 @@ def test_storage_state_mutators_share_one_lock_file(
     the lock request each mutator passes to that ONE owner and asserts they all
     derive the identical dotted ``.storage_state.json.lock`` sibling. The sibling
     ``context.json.lock`` (still ``filelock``, taken by
-    ``_drop_legacy_account_key``) uses a different mechanism and is not captured
+    ``LegacyAccountContext.scrub``) uses a different mechanism and is not captured
     here.
     """
     import httpx

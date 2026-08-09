@@ -263,7 +263,7 @@ left on disk after release — both lock implementations reuse them).
 | `<profile>/.storage_state.json.refresh.lock` | `_auth/refresh.py` via `_auth/keepalive.py` and `_auth/storage_lock.py` | Cross-process dedup of the `NOTEBOOKLM_REFRESH_CMD` subprocess | Non-blocking exclusive; skip on contention, waiter polls asynchronously with jittered backoff |
 | `<profile>/.storage_state.json.lock.bootstrap` | `_auth/master_token.py::bootstrap_storage_from_master_token` | Cross-process exclusion for the FIRST-TIME mint of a profile that has only a `master_token.json` — held across the mint, whose persist takes `.storage_state.json.lock` *inside* this section (so the two must never share a path) | Non-blocking exclusive (`filelock`), retried on a 50ms sleep so the event loop keeps running |
 | `<home>/.migration.lock` | `migration.py::migrate_to_profiles` | One-shot legacy→profile layout migration on startup | Blocking exclusive, 30s timeout (raises `MigrationLockTimeoutError`) |
-| `<profile>/context.json.lock` | `_atomic_io.py::atomic_update_json` through CLI context helpers; also `_auth/storage.py::_drop_legacy_account_key` for the legacy `account` key cleanup | Read-modify-write of the active-notebook/account-routing context for a profile | Blocking exclusive, 10s timeout (`filelock`) |
+| `<profile>/context.json.lock` | `_atomic_io.py::atomic_update_json` through CLI context helpers; also `_auth/profile_migration.py::LegacyAccountContext.scrub` for legacy `account` cleanup | Read-modify-write of the active-notebook/account-routing context for a profile | Blocking exclusive, 10s timeout (`filelock`); migration cleanup keeps best-effort error handling and the public atomic JSON writer |
 
 Design notes:
 
@@ -321,11 +321,20 @@ Design notes:
 browser/remint, login/import, and minted-session replacement transactions. Remint carries the latest whole raw
 `notebooklm` namespace only when requested, filters through the pure
 `_auth/cookie_filter.py` leaf, and commits once; `storage.replace_from_remint`
-remains the compatibility and browser patch seam. The raw `storage.py` adapters
-deliberately retain legacy reconciliation and scheduling. Login filtering, required-name
+remains the compatibility and browser patch seam. Login filtering, required-name
 validation, KEEP/SET/CLEAR construction, optional backup, and commit now run under one bounded
-store lock; `storage.replace_from_login` keeps its v0.x identity and performs legacy
-promote-or-scrub only after an applied result and lock release. For minted persistence,
+store lock. `_auth/profile_migration.py` owns the legacy-account boundary:
+`LegacyAccountMigrator` performs lossless in-band/legacy/in-band two-read resolution, typed legacy
+sanitization, only-if-absent promotion, and embed-before-scrub ordering;
+`LegacyAccountContext` owns the sibling file and lock. `LegacyPromotionScheduler` owns the
+canonical process one-shot registry and daemon workers. Reads only schedule and return; the
+process-default exit hook drains for two seconds per snapshot worker.
+
+`storage.replace_from_login` keeps its v0.x identity but delegates post-`APPLIED`, outside-lock
+promotion/scrub to `LoginProfileWriter`; failed store results do no sibling work. Raw source account
+key presence still chooses scrub versus promotion. `AccountMetadataWriter` similarly preserves the
+distinct update-then-scrub and best-effort-clear-then-scrub order, while naturally escaping store
+exceptions abort before scrub. For minted persistence,
 `storage.persist_minted_jar` eagerly snapshots the live jar with the raw master-token serializer
 fields (including `same_site="None"`) and deep-copies the runtime-permissive email in the same
 repr-hidden request before path/lock work. It does not use the filtering and SameSite-lossy
@@ -336,6 +345,11 @@ the adapter translates its private refusal outside the handler to context-free c
 An empty in-band account mapping does not
 block promotion but is still preserved when remint carries the whole namespace;
 a non-empty unknown-only mapping remains present and wins.
+
+The measured boundary is 1,150 lines in `_auth/storage.py`, 311 in
+`_auth/profile_migration.py`, 794 in `_auth/profile_store.py`, and 96 in
+`_auth/cookie_filter.py` (2,351 total). `storage.py` remains the v0.x signature/result facade; this
+extraction does not move loader, network-repair, runtime, recovery, or master-token orchestration.
 - **In-process lock before OS lock.** `StorageLockManager` takes an in-process
   `threading.Lock` keyed by the exact raw lock-path spelling *before* the OS lock, so
   threads within one process serialize before ever touching the OS primitive —

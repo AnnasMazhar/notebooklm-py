@@ -230,19 +230,20 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src/notebooklm/_auth")
     projection = script.build_projection(sites)
     assert projection["summary"]["TOTAL"] == {
-        "public": 189,
-        "private": 126,
-        "total": 315,
+        "public": 184,
+        "private": 117,
+        "total": 301,
     }
     relevant = {
         (row["module"], row["attribute"], row["idiom"]): row["count"]
         for row in projection["sites"]
         if (row["module"], row["attribute"])
         in {
+            ("profile_migration", "FileLock"),
+            ("profile_migration", "atomic_write_json"),
             ("storage", "replace_from_remint"),
             ("storage", "ProfileStore"),
-            ("storage", "promote_legacy_account"),
-            ("storage", "_drop_legacy_account_key"),
+            ("storage", "LegacyAccountMigrator"),
             ("cookie_policy", "MINIMUM_REQUIRED_COOKIES"),
             ("cookie_policy", "cookie_names_from_storage"),
             ("profile_store", "_commit_profile_json"),
@@ -250,10 +251,11 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
         }
     }
     assert relevant == {
+        ("profile_migration", "FileLock", "monkeypatch.setattr"): 2,
+        ("profile_migration", "atomic_write_json", "monkeypatch.setattr"): 2,
         ("storage", "replace_from_remint", "patch.object"): 1,
-        ("storage", "ProfileStore", "monkeypatch.setattr"): 8,
-        ("storage", "promote_legacy_account", "monkeypatch.setattr"): 2,
-        ("storage", "_drop_legacy_account_key", "monkeypatch.setattr"): 3,
+        ("storage", "ProfileStore", "monkeypatch.setattr"): 9,
+        ("storage", "LegacyAccountMigrator", "monkeypatch.setattr"): 3,
         ("cookie_policy", "MINIMUM_REQUIRED_COOKIES", "monkeypatch.setattr"): 3,
         ("cookie_policy", "cookie_names_from_storage", "monkeypatch.setattr"): 1,
         ("profile_store", "_commit_profile_json", "monkeypatch.setattr"): 17,
