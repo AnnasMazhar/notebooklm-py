@@ -237,7 +237,13 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # corruption and logging policy, compatibility adapters, and sole raw write.
     # This is another ordinary shrink pin with zero banked slack; the new leaf
     # remains under the ordinary 1000-line budget and has no exemption here.
-    "_auth/storage.py": 2563,
+    #
+    # RATCHETED DOWN 2563 -> 2329 by ADR-0034 PR6: the sealed typed commit spine,
+    # path-owned cookie transactions, document reads, and common bounded-lock
+    # template moved to ``credential_io.py`` and ``profile_store.py``. Storage
+    # keeps v0.x policy/adapters and five temporarily adapted profile writers.
+    # Both new owners remain under the ordinary budget with no exemption.
+    "_auth/storage.py": 2329,
     # sanctioned merge (ADR-0033) — the `_auth` load-composition merge:
     # ``_auth/browser_cookie_recovery.py`` (142) was absorbed in full and reduced
     # to a re-export shim in the same change. It held the captured-cookie
@@ -490,3 +496,15 @@ def test_ratchet_checks_detect_their_offending_shapes() -> None:
     assert _stale_entries({}, allowlist) == ["fat.py"]
     assert _stale_entries({"fat.py": 1000}, allowlist) == []
     assert _stale_entries({"other.py": 5}, {"b.py": 1, "a.py": 1}) == ["a.py", "b.py"]
+
+
+def test_pr6_credential_and_store_modules_use_the_ordinary_budget() -> None:
+    leaves = {"_auth/credential_io.py", "_auth/profile_store.py"}
+    measured = _measure_all()
+    assert leaves.isdisjoint(ALLOWLISTED_CEILINGS)
+    assert {path: measured[path] for path in leaves} == {
+        "_auth/credential_io.py": 23,
+        "_auth/profile_store.py": 397,
+    }
+    synthetic = dict.fromkeys(leaves, MODULE_SIZE_BUDGET + 1)
+    assert _over_budget_offenders(synthetic, {}, MODULE_SIZE_BUDGET) == synthetic

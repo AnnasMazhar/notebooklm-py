@@ -170,7 +170,7 @@ class TestSnapshotCookieJar:
 # delta math is sound under each timeline, not that the implementation
 # handles real interleavings under flock — the latter is covered by the
 # ``subprocess.Popen`` test in test_client_keepalive.py
-# (test_save_cookies_to_storage_acquires_file_lock).
+# (the ProfileStore blocking-lock tests below).
 
 
 class TestStaleOverwriteFreshRace:
@@ -1058,15 +1058,15 @@ class TestFlockUnavailableWarning:
         import contextlib as _contextlib
         import logging as _logging
 
-        from notebooklm._auth.storage_lock import StorageLockManager
+        from notebooklm._auth import profile_store as _profile_store
+        from notebooklm._auth.storage_lock import LockState, StorageLockManager
 
-        monkeypatch.setattr(_auth_storage, "_STORAGE_LOCKS", StorageLockManager())
+        class UnavailableLocks(StorageLockManager):
+            @_contextlib.contextmanager
+            def acquire(self, request):
+                yield LockState.UNAVAILABLE
 
-        @_contextlib.contextmanager
-        def unavailable_lock(lock_path, *, blocking, log_prefix):
-            yield "unavailable"
-
-        monkeypatch.setattr(_auth_storage, "_file_lock", unavailable_lock)
+        monkeypatch.setattr(_profile_store, "_STORAGE_LOCKS", UnavailableLocks())
 
         storage = tmp_path / "storage_state.json"
         _write_storage(storage, [_stored_cookie("SID", "v", http_only=False)])
@@ -1091,15 +1091,15 @@ class TestFlockUnavailableWarning:
         import contextlib as _contextlib
         import logging as _logging
 
-        from notebooklm._auth.storage_lock import StorageLockManager
+        from notebooklm._auth import profile_store as _profile_store
+        from notebooklm._auth.storage_lock import LockState, StorageLockManager
 
-        monkeypatch.setattr(_auth_storage, "_STORAGE_LOCKS", StorageLockManager())
+        class UnavailableLocks(StorageLockManager):
+            @_contextlib.contextmanager
+            def acquire(self, request):
+                yield LockState.UNAVAILABLE
 
-        @_contextlib.contextmanager
-        def unavailable_lock(lock_path, *, blocking, log_prefix):
-            yield "unavailable"
-
-        monkeypatch.setattr(_auth_storage, "_file_lock", unavailable_lock)
+        monkeypatch.setattr(_profile_store, "_STORAGE_LOCKS", UnavailableLocks())
 
         storage = tmp_path / "storage_state.json"
         _write_storage(storage, [_stored_cookie("SID", "v", http_only=False)])

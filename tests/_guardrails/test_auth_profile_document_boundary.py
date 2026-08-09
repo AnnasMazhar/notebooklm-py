@@ -179,7 +179,7 @@ def test_production_consumer_detector_bites_at_every_scope(source: str) -> None:
     assert _imports_profile_document(path, ast.parse(source))
 
 
-def test_production_consumers_are_exactly_cookie_merge_and_storage() -> None:
+def test_production_consumers_are_exactly_cookie_merge_profile_store_and_storage() -> None:
     consumers = []
     for path in sorted(SRC_ROOT.rglob("*.py")):
         if path == MODULE_PATH:
@@ -189,6 +189,7 @@ def test_production_consumers_are_exactly_cookie_merge_and_storage() -> None:
             consumers.append(path.relative_to(REPO_ROOT).as_posix())
     assert consumers == [
         "src/notebooklm/_auth/cookie_merge.py",
+        "src/notebooklm/_auth/profile_store.py",
         "src/notebooklm/_auth/storage.py",
     ]
 
@@ -196,6 +197,6 @@ def test_production_consumers_are_exactly_cookie_merge_and_storage() -> None:
 def test_profile_document_size_and_documentation_pins_hold() -> None:
     # Kept equal to the ordinary module-size ratchet so this consumer boundary
     # cannot retain stale pre-extraction prose or bank facade slack.
-    assert len((AUTH_ROOT / "storage.py").read_text(encoding="utf-8").splitlines()) == 2563
+    assert len((AUTH_ROOT / "storage.py").read_text(encoding="utf-8").splitlines()) == 2329
     assert len((AUTH_ROOT / "cookies.py").read_text(encoding="utf-8").splitlines()) == 847
     assert len(ADR_PATH.read_text(encoding="utf-8").splitlines()) < 250

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from notebooklm._auth import keepalive, storage
+from notebooklm._auth import keepalive, profile_store, storage
 from notebooklm._auth import storage_lock as lock_mod
 from notebooklm._auth.storage_lock import LockRequest, LockState, StorageLockManager
 
@@ -94,6 +94,7 @@ def test_nonblocking_nonpositive_deadline_still_probes_once(
 def test_process_default_and_module_ownership_are_identity_stable() -> None:
     default = StorageLockManager.process_default()
     assert StorageLockManager.process_default() is default
+    assert profile_store._STORAGE_LOCKS is default
     assert storage._STORAGE_LOCKS is default
     assert keepalive._STORAGE_LOCKS is default
     assert StorageLockManager() is not default

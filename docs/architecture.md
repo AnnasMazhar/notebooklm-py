@@ -524,10 +524,12 @@ the default dependency.
 |--------|----------------|
 | [`_auth/tokens.py`](../src/notebooklm/_auth/tokens.py) | Token dataclass + storage-loading helpers. |
 | [`_auth/paths.py`](../src/notebooklm/_auth/paths.py) | Storage paths and filesystem helpers, including the **single** derivation behind all four credential lock files (`.lock`, `.rotate.lock`, `.refresh.lock`, `.lock.bootstrap` — the last folded in from `master_token.py` by ADR-0033 PR 1.3, which kept every path byte-identical and every lock mechanism untouched). |
-| [`_auth/storage_lock.py`](../src/notebooklm/_auth/storage_lock.py) | Dependency-bottom `StorageLockManager`: process-default exact-raw-path thread-lock identity, POSIX/Windows OS gateway, bounded synchronous retry, and manager-lifecycle cookie warning claim. Imports stdlib only; `storage` and `keepalive` share its process default. |
-| [`_auth/storage.py`](../src/notebooklm/_auth/storage.py) | **One deep module for the whole `storage_state.json` persistence seam** (ADR-0033 sanctioned merge), now delegating process/OS lock mechanics downward to `storage_lock.py`. Retains the v0.x lock wrappers, secure-parent and transaction policies, snapshot/CAS math, write-time cookie-domain filter, canonical intent writers, and account-record promotion/scrub. The write boundary is pinned at *function* granularity by `tests/_guardrails/test_storage_writer_boundary.py`. |
+| [`_auth/storage_lock.py`](../src/notebooklm/_auth/storage_lock.py) | Dependency-bottom `StorageLockManager`: process-default exact-raw-path thread-lock identity, POSIX/Windows OS gateway, bounded synchronous retry, and manager-lifecycle cookie warning claim. Imports stdlib only; `storage`, `profile_store`, and `keepalive` share its process default. |
+| [`_auth/credential_io.py`](../src/notebooklm/_auth/credential_io.py) | Sealed commit capability: the sole unchecked-atomic importer, with distinct private wrappers for complete profile and arbitrary-path master-token documents. |
+| [`_auth/profile_store.py`](../src/notebooklm/_auth/profile_store.py) | Path-owned synchronous document/session reads, bounded transaction mechanics, and blocking cookie read/decide/commit transactions. Owns no cache or baseline; account/replacement/token policy remains deferred. |
+| [`_auth/storage.py`](../src/notebooklm/_auth/storage.py) | Shrinking v0.x persistence policy/compatibility facade. Retains legacy signatures, lock wrappers, cookie adapters, account/replacement policy bodies, and promotion/scrub; delegates cookie transactions to `ProfileStore`, commits through typed credential I/O, and imports the transaction functions as exact aliases. |
 | [`_auth/storage_writer.py`](../src/notebooklm/_auth/storage_writer.py) | **Shim** — re-exports the writer API from `_auth/storage.py`; defines nothing. Removed at the next major. |
-| [`_auth/storage_transaction.py`](../src/notebooklm/_auth/storage_transaction.py) | **Shim** — re-exports `in_storage_transaction` + the lock-failure policies from `_auth/storage.py`; defines nothing. Removed at the next major. |
+| [`_auth/storage_transaction.py`](../src/notebooklm/_auth/storage_transaction.py) | **Shim** — re-exports `in_storage_transaction` + the lock-failure policies through `_auth/storage.py`; their definitions live in `_auth/profile_store.py`. Removed at the next major. |
 | [`_auth/extraction.py`](../src/notebooklm/_auth/extraction.py) | Cookie/token extraction from browser sessions. |
 | [`_auth/cookies.py`](../src/notebooklm/_auth/cookies.py) | Cookie maps + `_update_cookie_input` helper. |
 | [`_auth/cookie_policy.py`](../src/notebooklm/_auth/cookie_policy.py) | Domain allowlist, cookie-domain builder (`build_cookie_domain_allowlist`), and cookie policy decisions. |
@@ -1006,6 +1008,8 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_auth/profile_account.py` | Dependency-bottom immutable account/directive/domain/session values and pure namespace parsers; currently unused by production while v0.x account values remain storage-owned (ADR-0034) |
 | `_auth/profile_document.py` | Recursively immutable, lossless raw profile snapshot with isolated typed views and copy-on-write cookie/namespace updates; consumed by the pure cookie merge leaf and its storage transaction adapter (ADR-0034) |
 | `_auth/cookie_merge.py` | Pure immutable cookie snapshot/CAS and permanent no-baseline overlay decisions; no paths, locks, I/O, logging, facade, or lifecycle dependencies (ADR-0034) |
+| `_auth/credential_io.py` | Sealed typed profile/master-token commit capability over the sole unchecked atomic forwarder (ADR-0034) |
+| `_auth/profile_store.py` | Path-owned fresh reads, bounded transaction mechanics, and blocking cookie transactions over immutable decisions (ADR-0034) |
 | `_auth/browser_cookie_recovery.py` | Shim: re-exports the captured-cookie validate/heal seam from `psidts_recovery.py` (removed at next major) |
 | `_auth/browser_state_validation.py` | Shim: re-exports `heal_captured_state` from `browser_capture.py` (removed at next major) |
 | `_auth/browser_capture.py` | One deep module for the browser launch→capture→filter→heal→persist core (ADR-0033 merge: absorbed `browser_state_validation.py` + `login_wait_trace.py`), lazy `playwright`; shared by the interactive CLI login adapter (`cli/services/playwright_login.py`) and the layer-3 headless re-auth layer (ADR-0021). Carries the login-wait DEBUG tracing (host-only `trace_url`, inert when DEBUG is off) and the never-raising `heal_captured_state` |
@@ -1191,6 +1195,8 @@ src/notebooklm/
 │   ├── profile_account.py       # Immutable account/directive/domain/session values + pure parsers (ADR-0034; no production consumer yet)
 │   ├── profile_document.py      # Lossless immutable raw profile + typed views/copy-on-write operations (ADR-0034)
 │   ├── cookie_merge.py          # Pure snapshot/CAS + permanent no-baseline cookie decisions (ADR-0034)
+│   ├── credential_io.py         # Sealed typed profile/master-token commit spine (ADR-0034)
+│   ├── profile_store.py         # Path-owned reads + bounded/blocking cookie transactions (ADR-0034)
 │   ├── storage_lock.py          # Process-default raw-path registry + platform lock gateway + bounded retry (ADR-0034)
 │   ├── browser_cookie_recovery.py # Shim: re-exports validate/heal/validate_with_recovery from psidts_recovery.py (removed at next major)
 │   ├── browser_state_validation.py # Shim: re-exports heal_captured_state from browser_capture.py (removed at next major)
@@ -1201,9 +1207,9 @@ src/notebooklm/
 │   ├── headless_reauth.py       # Layer-3 headless re-auth (opt-in; typed outcomes; local-unattended-only)
 │   ├── account.py               # Account NETWORK identity: authuser=N probing, page-email extraction, authuser wire formatting, Playwright account repair (the persisted account RECORD lives in storage.py — ADR-0033 PR 5.2)
 │   ├── session.py               # Auth-session refresh implementation via `refresh_auth_session()` and explicit collaborators
-│   ├── storage.py               # Persistence transaction/facade: lock + I/O/corruption adapters and writers; cookie policy delegated to cookie_merge.py, mechanics to storage_lock.py
+│   ├── storage.py               # v0.x persistence policy/compat facade over ProfileStore + typed commit spine
 │   ├── storage_writer.py        # Shim: re-exports the writer API from storage.py (removed at next major)
-│   ├── storage_transaction.py   # Shim: re-exports in_storage_transaction + lock policies from storage.py (removed at next major)
+│   ├── storage_transaction.py   # Shim: re-exports transaction aliases through storage.py (removed at next major)
 │   ├── keepalive.py             # Cookie keepalive + __Secure-1PSIDTS rotation
 │   ├── psidts_recovery.py       # Inline PSIDTS recovery (issue #865) + the one load→heal→retry composition + the captured-cookie validate/heal seam
 │   ├── master_token.py          # Headless master-token auth: minting primitives + the audited bootstrap/re-mint transaction (ADR-0023)

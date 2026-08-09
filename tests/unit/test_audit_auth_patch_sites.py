@@ -212,10 +212,9 @@ def test_real_function_local_import_sites_are_not_dropped(script):
     sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src" / "notebooklm" / "_auth")
     actual = {(site.path, site.module, site.attribute) for site in sites}
     assert {
-        ("tests/unit/test_warning_dedupe.py", "storage", "_file_lock"),
-        ("tests/unit/test_warning_dedupe.py", "storage", "_STORAGE_LOCKS"),
-        ("tests/unit/test_profile_atomic_write.py", "storage", "_STORAGE_LOCKS"),
-        ("tests/unit/test_auth_account_coverage.py", "storage", "_STORAGE_LOCKS"),
+        ("tests/unit/test_warning_dedupe.py", "profile_store", "_STORAGE_LOCKS"),
+        ("tests/unit/test_profile_atomic_write.py", "profile_store", "_STORAGE_LOCKS"),
+        ("tests/unit/test_auth_account_coverage.py", "profile_store", "_STORAGE_LOCKS"),
     } <= actual
 
 
