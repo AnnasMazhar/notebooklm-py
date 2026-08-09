@@ -16,21 +16,21 @@ import httpx
 from .cookie_domains import _build_google_cookie_domains
 from .cookie_jar import _enumerate_one_jar
 from .outcomes import BrowserCookieOutcome, CookieValidationFailure, NetworkFailure
-from .rookiepy_errors import _handle_rookiepy_error
+from .rookie_cookies_errors import _handle_rookie_cookies_error
 
 if TYPE_CHECKING:
     from ....auth import Account
     from .io_seam import LoginIO
 
-# Shared rookiepy-not-installed message — kept identical to the single-jar
+# Shared rookie-cookies-not-installed message — kept identical to the single-jar
 # path (``browser_accounts._read_browser_cookies``) so the user sees the
 # same install hint regardless of which Chromium path raised it.
-_ROOKIEPY_NOT_INSTALLED_MESSAGE = (
-    "[red]rookiepy is not installed.[/red]\n"
+_ROOKIE_COOKIES_NOT_INSTALLED_MESSAGE = (
+    "[red]rookie-cookies is not installed.[/red]\n"
     "Install it with:\n"
     "  pip install 'notebooklm-py[cookies]'\n"
     "or directly:\n"
-    "  pip install rookiepy"
+    "  pip install rookie-cookies"
 )
 
 
@@ -101,12 +101,14 @@ def _read_chromium_profile_cookies_from_selector(
         cookies = chromium_profiles.read_chromium_profile_cookies(profile, domains=domains)
     except ImportError:
         return CookieValidationFailure(
-            code="ROOKIEPY_NOT_INSTALLED", message=_ROOKIEPY_NOT_INSTALLED_MESSAGE
+            code="ROOKIE_COOKIES_NOT_INSTALLED", message=_ROOKIE_COOKIES_NOT_INSTALLED_MESSAGE
         )
     except (OSError, RuntimeError) as e:
         return CookieValidationFailure(
             code="COOKIE_READ_FAILED",
-            message=_handle_rookiepy_error(e, f"{profile.browser} profile '{profile.human_name}'"),
+            message=_handle_rookie_cookies_error(
+                e, f"{profile.browser} profile '{profile.human_name}'"
+            ),
         )
 
     return profile, cookies
@@ -160,11 +162,11 @@ def _enumerate_chromium_profiles_fanout(
         try:
             raw = chromium_profiles.read_chromium_profile_cookies(profile, domains=domains)
         except ImportError:
-            # rookiepy isn't installed — same friendly message the legacy
+            # rookie-cookies isn't installed — same friendly message the legacy
             # single-jar path prints (``_read_browser_cookies``). Abort fan-out
             # since every profile would fail the same way.
             return CookieValidationFailure(
-                code="ROOKIEPY_NOT_INSTALLED", message=_ROOKIEPY_NOT_INSTALLED_MESSAGE
+                code="ROOKIE_COOKIES_NOT_INSTALLED", message=_ROOKIE_COOKIES_NOT_INSTALLED_MESSAGE
             )
         except (OSError, RuntimeError) as e:
             # One profile failing (e.g. a locked DB) shouldn't kill discovery

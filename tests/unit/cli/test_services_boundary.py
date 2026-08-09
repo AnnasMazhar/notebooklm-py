@@ -129,7 +129,9 @@ GUARDED_PATHS = {
     "cli/services/login/outcomes.py": SERVICES_ROOT / "login" / "outcomes.py",
     "cli/services/login/profile_targets.py": SERVICES_ROOT / "login" / "profile_targets.py",
     "cli/services/login/refresh.py": SERVICES_ROOT / "login" / "refresh.py",
-    "cli/services/login/rookiepy_errors.py": SERVICES_ROOT / "login" / "rookiepy_errors.py",
+    "cli/services/login/rookie_cookies_errors.py": SERVICES_ROOT
+    / "login"
+    / "rookie_cookies_errors.py",
     "cli/services/playwright_login.py": SERVICES_ROOT / "playwright_login.py",
     "cli/services/playwright_redaction.py": SERVICES_ROOT / "playwright_redaction.py",
     "cli/services/polling.py": SERVICES_ROOT / "polling.py",
