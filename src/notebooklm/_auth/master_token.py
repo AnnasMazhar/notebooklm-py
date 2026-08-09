@@ -44,20 +44,12 @@ from .master_token_bootstrap import BootstrapOutcome, MasterTokenBootstrapper, _
 # nothing from this package, so this is a plain module-level import, not one of
 # the deferred cycle-breaks below.
 from .master_token_file import MasterTokenFile
-from .master_token_types import MasterToken, _MasterTokenRecordError
+from .master_token_types import MasterToken, MasterTokenError, _MasterTokenRecordError
 from .mint_service import MintService, _MintError
 from .paths import _bootstrap_lock_path
 from .profile_store import ProfileStore
 
 _MASTER_TOKEN_VERSION = 1
-
-
-class MasterTokenError(Exception):
-    """The master token (or its exchange) was rejected — re-bootstrap needed.
-
-    Raised for revoked/expired master tokens, gpsoauth failures, and a minted
-    cookie jar missing the cookies the web client needs. Carries no secrets.
-    """
 
 
 def generate_android_id() -> str:

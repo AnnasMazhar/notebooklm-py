@@ -17,6 +17,7 @@ import notebooklm._auth as auth_package
 import notebooklm.auth as auth_facade
 from notebooklm._auth import recovery
 from notebooklm._auth.cookie_types import CookieJar
+from notebooklm._auth.cookies import _LoadedCookiePair
 from notebooklm._auth.extraction import _LoginRedirectError
 
 pytestmark = pytest.mark.repo_lint
@@ -33,29 +34,38 @@ _CALLBACK_FIELDS = frozenset(
         "_should_try_refresh",
         "_resolve_refresh_path",
         "_run_refresh_attempt",
-        "_run_cold_recovery",
+        "_load_cookie_pair",
+        "_run_headless_attempt",
+        "_run_master_token_attempt",
         "_validate_recovered",
         "_fetch_recovered",
         "_replace_cookie_jar",
+        "_snapshot_cookie_jar",
+        "_clone_cookie_jar",
     }
 )
+_DETECTOR_CALLBACK_FIELDS = _CALLBACK_FIELDS | {"_run_cold_recovery"}
 _CONSTRUCTOR_PARAMETERS = (
+    "state",
+    "single_flight",
     "should_try_refresh",
     "resolve_refresh_path",
     "run_refresh_attempt",
-    "run_cold_recovery",
+    "load_cookie_pair",
+    "run_headless_attempt",
+    "run_master_token_attempt",
     "validate_recovered",
     "fetch_recovered",
     "replace_cookie_jar",
+    "snapshot_cookie_jar",
+    "clone_cookie_jar",
 )
 _CLOSURES = {
     "should_try_refresh",
     "resolve_refresh_path",
     "run_refresh_attempt",
-    "run_cold_recovery",
     "validate_recovered",
     "fetch_recovered",
-    "replace_cookie_jar",
 }
 _FORBIDDEN_IMPORTS = {
     "notebooklm.auth",
@@ -95,6 +105,7 @@ _EXPECTED_IMPORTS: tuple[ImportRecord, ...] = (
     ("module", 0, "__future__", "annotations", None),
     ("module", 0, "asyncio", "", None),
     ("module", 0, "logging", "", None),
+    ("module", 0, "threading", "", None),
     ("module", 0, "weakref", "", None),
     ("module", 0, "collections.abc", "Awaitable", None),
     ("module", 0, "collections.abc", "Callable", None),
@@ -104,6 +115,8 @@ _EXPECTED_IMPORTS: tuple[ImportRecord, ...] = (
     ("module", 0, "pathlib", "Path", None),
     ("module", 0, "typing", "TYPE_CHECKING", None),
     ("module", 0, "typing", "Any", None),
+    ("module", 0, "typing", "ClassVar", None),
+    ("module", 0, "typing", "cast", None),
     ("module", 0, "httpx", "", None),
     ("module", 1, "", "single_flight", "_single_flight"),
     ("module", 1, "cookie_types", "CookieJar", None),
@@ -112,10 +125,13 @@ _EXPECTED_IMPORTS: tuple[ImportRecord, ...] = (
     ("module", 1, "extraction", "_LoginRedirectError", None),
     ("module", 1, "storage", "CookieSnapshot", None),
     ("ColdRecoveryCoordinator.recover", 1, "extraction", "_LoginRedirectError", None),
+    ("ColdRecoveryCoordinator._drive_cold", 1, "extraction", "_LoginRedirectError", None),
+    ("ColdRecoveryCoordinator._coalesce_cold", 1, "extraction", "_LoginRedirectError", None),
     ("_run_cold_recovery", 1, "cookies", "_build_cookie_pair_from_storage", None),
-    ("_run_cold_recovery", 1, "extraction", "_LoginRedirectError", None),
     ("_run_cold_recovery", 1, "storage", "snapshot_cookie_jar", None),
+    ("coalesced_cold_recovery", 1, "cookies", "_build_cookie_pair_from_storage", None),
     ("coalesced_cold_recovery", 1, "cookies", "_clone_cookie_jar", None),
+    ("coalesced_cold_recovery", 1, "storage", "snapshot_cookie_jar", None),
     ("_try_headless_reauth_result", 2, "paths", "get_browser_profile_dir", None),
     ("_try_headless_reauth_result", 1, "cookies", "_build_cookie_pair_from_storage", None),
     ("_try_headless_reauth_result", 1, "headless_reauth", "HeadlessReauthStatus", None),
@@ -129,8 +145,8 @@ _EXPECTED_IMPORTS: tuple[ImportRecord, ...] = (
     ("_try_master_token_reauth_result", 1, "cookies", "_LoadedCookiePair", None),
     ("try_master_token_reauth", 1, "cookies", "_replace_cookie_jar", None),
 )
-_CLASS_HASH = "fe7b6321490c580dff455a07e4cebd4503ea57f34c503c0ae6851db9aa606cad"
-_ADAPTER_HASH = "af5d60bd78da4daa570fe939599aee33add3801b2341a90ef12bd4f11ae9bb55"
+_CLASS_HASH = "f4a57d4c6259d02b91891de4164532ee25b2def6881fa52742d23e8440abf30c"
+_ADAPTER_HASH = "9f407c24ce3093bac3dba8bcbfea7b0bcc965d90255744993fce08b0e2670ce9"
 
 
 def _tree(path: Path) -> ast.Module:
@@ -260,7 +276,7 @@ def _capability_violations(tree: ast.AST) -> set[str]:
                     violations.add(f"dynamic-import:{target}")
             if name == "getattr" and len(node.args) >= 2:
                 target = _static_string(node.args[1])
-                if target in _FORBIDDEN_CAPABILITIES | _CALLBACK_FIELDS:
+                if target in _FORBIDDEN_CAPABILITIES | _DETECTOR_CALLBACK_FIELDS:
                     violations.add(f"dynamic:{target}")
         elif isinstance(node, ast.Attribute) and node.attr in _FORBIDDEN_CAPABILITIES:
             violations.add(f"attribute:{node.attr}")
@@ -293,17 +309,17 @@ def _callback_escape_violations(method: ast.AST) -> set[str]:
             and isinstance(node.ctx, ast.Load)
             and isinstance(node.value, ast.Name)
             and node.value.id == "self"
-            and node.attr in _CALLBACK_FIELDS
+            and node.attr in _DETECTOR_CALLBACK_FIELDS
         ):
             continue
         parent = parents[node]
         direct_call = isinstance(parent, ast.Call) and parent.func is node
         validator_handoff = (
-            node.attr == "_validate_recovered"
-            and isinstance(parent, ast.Call)
-            and len(parent.args) == 4
-            and parent.args[2] is node
-            and _is_self_attribute(parent.func, "_run_cold_recovery", ast.Load)
+            isinstance(parent, ast.keyword)
+            and parent.value is node
+            and parent.arg == node.attr.removeprefix("_")
+            and isinstance(parents[parent], ast.Call)
+            and _is_self_attribute(parents[parent].func, "_coalesce_cold", ast.Load)
         )
         ancestor = parent
         nested_scope = False
@@ -319,11 +335,20 @@ def _callback_escape_violations(method: ast.AST) -> set[str]:
 
 def _one_shot_violations(method: ast.AsyncFunctionDef) -> set[str]:
     violations = _callback_escape_violations(method)
-    if len(method.body) != 3:
+    if len(method.body) != 2:
         violations.add("recover-body-shape")
         return violations
 
-    loser, mark, winner = method.body
+    claim, winner = method.body
+    if not (
+        isinstance(claim, ast.With)
+        and len(claim.items) == 1
+        and _is_self_attribute(claim.items[0].context_expr, "_claim_lock", ast.Load)
+        and len(claim.body) == 2
+    ):
+        violations.add("claim-gate")
+        return violations
+    loser, mark = claim.body
     if not (
         isinstance(loser, ast.If)
         and _is_self_attribute(loser.test, "_used", ast.Load)
@@ -401,13 +426,14 @@ def _constructor_projection(method: ast.FunctionDef) -> tuple[tuple[str, str], .
         elif isinstance(statement.value, ast.Constant):
             value = repr(statement.value.value)
         else:
-            return ()
+            value = ast.unparse(statement.value)
         projection.append((target, value))
     return tuple(projection)
 
 
 def _scrubbed(coordinator: recovery.ColdRecoveryCoordinator) -> None:
-    assert vars(coordinator) == {"_used": True}
+    assert set(vars(coordinator)) == {"_claim_lock", "_state", "_single_flight", "_used"}
+    assert vars(coordinator)["_used"] is True
     assert all(not hasattr(coordinator, field) for field in _CALLBACK_FIELDS)
 
 
@@ -417,14 +443,19 @@ def _make_coordinator(
     run_refresh_attempt: Callable[
         [Path], Awaitable[tuple[str, str, dict[Any, Any], CookieJar | None]]
     ],
-    run_cold_recovery: Callable[..., Awaitable[recovery.ColdRecoveryResult]] | None = None,
     validate_recovered: Callable[[httpx.Cookies], Awaitable[None]] | None = None,
 ) -> recovery.ColdRecoveryCoordinator:
     def resolve_refresh_path(_error: ValueError) -> Path:
         return Path("/tmp/cold-recovery-boundary.json")
 
-    async def unused_cold(*_args: object) -> recovery.ColdRecoveryResult:
-        raise AssertionError("cold recovery should not run")
+    def unused_load(_path: Path) -> _LoadedCookiePair:
+        raise AssertionError("cold recovery should not load")
+
+    async def unused_headless(_path: Path | None, _allow: bool) -> _LoadedCookiePair | None:
+        raise AssertionError("headless recovery should not run")
+
+    async def unused_master(_path: Path | None) -> _LoadedCookiePair | None:
+        raise AssertionError("master-token recovery should not run")
 
     async def unused_validate(_jar: httpx.Cookies) -> None:
         raise AssertionError("validation should not run")
@@ -436,13 +467,19 @@ def _make_coordinator(
         raise AssertionError("jar replacement should not run")
 
     return recovery.ColdRecoveryCoordinator(
+        state=recovery.ColdRecoveryState(),
+        single_flight=recovery._single_flight.SingleFlight(),
         should_try_refresh=should_try_refresh,
         resolve_refresh_path=resolve_refresh_path,
         run_refresh_attempt=run_refresh_attempt,
-        run_cold_recovery=run_cold_recovery or unused_cold,
+        load_cookie_pair=unused_load,
+        run_headless_attempt=unused_headless,
+        run_master_token_attempt=unused_master,
         validate_recovered=validate_recovered or unused_validate,
         fetch_recovered=unused_fetch,
         replace_cookie_jar=replace_cookie_jar,
+        snapshot_cookie_jar=lambda _jar: {},
+        clone_cookie_jar=lambda jar: httpx.Cookies(jar),
     )
 
 
@@ -454,7 +491,7 @@ def test_coordinator_api_state_imports_and_semantic_bodies_are_exact() -> None:
         for member in coordinator.body
         if isinstance(member, ast.FunctionDef | ast.AsyncFunctionDef)
     }
-    assert set(methods) == {"__init__", "recover"}
+    assert set(methods) == {"__init__", "recover", "_drive_cold", "_coalesce_cold"}
     assert coordinator.bases == []
     assert coordinator.keywords == []
     assert _semantic_hash(coordinator) == _CLASS_HASH
@@ -470,24 +507,35 @@ def test_coordinator_api_state_imports_and_semantic_bodies_are_exact() -> None:
     assert constructor.args.kw_defaults == [None] * len(_CONSTRUCTOR_PARAMETERS)
     assert constructor.args.vararg is None
     assert constructor.args.kwarg is None
-    assert _constructor_projection(constructor) == tuple(
-        (f"_{name}", name) for name in _CONSTRUCTOR_PARAMETERS
-    ) + (("_used", "False"),)
+    assert _constructor_projection(constructor) == (
+        ("_claim_lock", "threading.Lock()"),
+        ("_state", "state"),
+        ("_single_flight", "single_flight"),
+        *((f"_{name}", name) for name in _CONSTRUCTOR_PARAMETERS[2:]),
+        ("_used", "False"),
+    )
 
     recover_method = _method(coordinator, "recover")
     assert isinstance(recover_method, ast.AsyncFunctionDef)
     assert _one_shot_violations(recover_method) == set()
 
     assert str(inspect.signature(recovery.ColdRecoveryCoordinator)) == (
-        "(*, should_try_refresh: 'Callable[[Exception, bool], bool]', "
+        "(*, state: 'ColdRecoveryState', "
+        "single_flight: '_single_flight.SingleFlight', "
+        "should_try_refresh: 'Callable[[Exception, bool], bool]', "
         "resolve_refresh_path: 'Callable[[ValueError], Path]', "
         "run_refresh_attempt: 'Callable[[Path], "
         "Awaitable[tuple[str, str, CookieSnapshot, CookieJar | None]]]', "
-        "run_cold_recovery: 'Callable[[Path, bool, Callable[[httpx.Cookies], "
-        "Awaitable[None]], _LoginRedirectError], Awaitable[ColdRecoveryResult]]', "
+        "load_cookie_pair: 'Callable[[Path], _LoadedCookiePair]', "
+        "run_headless_attempt: 'Callable[[Path | None, bool], "
+        "Awaitable[_LoadedCookiePair | None]]', "
+        "run_master_token_attempt: 'Callable[[Path | None], "
+        "Awaitable[_LoadedCookiePair | None]]', "
         "validate_recovered: 'Callable[[httpx.Cookies], Awaitable[None]]', "
         "fetch_recovered: 'Callable[[httpx.Cookies], Awaitable[tuple[str, str]]]', "
-        "replace_cookie_jar: 'Callable[[httpx.Cookies, httpx.Cookies], None]') -> 'None'"
+        "replace_cookie_jar: 'Callable[[httpx.Cookies, httpx.Cookies], None]', "
+        "snapshot_cookie_jar: 'Callable[[httpx.Cookies], CookieSnapshot]', "
+        "clone_cookie_jar: 'Callable[[httpx.Cookies], httpx.Cookies]') -> 'None'"
     )
     assert str(inspect.signature(recovery.ColdRecoveryCoordinator.recover)) == (
         "(self, *, initial_error: 'ValueError', cookie_jar: 'httpx.Cookies', "
@@ -525,7 +573,29 @@ def test_refresh_adapter_is_one_exact_late_bound_composition_site() -> None:
     constructor_call = constructor_calls[0]
     assert constructor_call.args == []
     assert [(keyword.arg, ast.unparse(keyword.value)) for keyword in constructor_call.keywords] == [
-        (name, name) for name in _CONSTRUCTOR_PARAMETERS
+        ("state", "_auth_recovery.ColdRecoveryState.process_default()"),
+        ("single_flight", "_single_flight.SingleFlight.process_default()"),
+        ("should_try_refresh", "should_try_refresh"),
+        ("resolve_refresh_path", "resolve_refresh_path"),
+        ("run_refresh_attempt", "run_refresh_attempt"),
+        ("load_cookie_pair", "lambda path: _auth_cookies._build_cookie_pair_from_storage(path)"),
+        (
+            "run_headless_attempt",
+            "lambda path, headless: _auth_recovery._try_headless_reauth_result("
+            "storage_path=path, allow_headless=headless)",
+        ),
+        (
+            "run_master_token_attempt",
+            "lambda path: _auth_recovery._try_master_token_reauth_result(storage_path=path)",
+        ),
+        ("validate_recovered", "validate_recovered"),
+        ("fetch_recovered", "fetch_recovered"),
+        (
+            "replace_cookie_jar",
+            "lambda target, source: _replace_cookie_jar(target, source)",
+        ),
+        ("snapshot_cookie_jar", "lambda jar: _auth_storage.snapshot_cookie_jar(jar)"),
+        ("clone_cookie_jar", "lambda jar: _auth_cookies._clone_cookie_jar(jar)"),
     ]
 
     recover_calls = [
@@ -570,7 +640,12 @@ async def test_callback_fields_scrub_after_success_saved_error_cancellation_and_
     coordinator = _make_coordinator(
         should_try_refresh=lambda *_args: True, run_refresh_attempt=success
     )
-    assert set(vars(coordinator)) == _CALLBACK_FIELDS | {"_used"}
+    assert set(vars(coordinator)) == _CALLBACK_FIELDS | {
+        "_claim_lock",
+        "_state",
+        "_single_flight",
+        "_used",
+    }
     assert vars(coordinator)["_used"] is False
     assert await coordinator.recover(
         initial_error=ValueError("initial"),
@@ -671,7 +746,12 @@ async def test_losing_concurrent_and_post_completion_calls_cannot_scrub_or_invok
     with pytest.raises(RuntimeError, match=r"^ColdRecoveryCoordinator\.recover\(\) is one-shot$"):
         await coordinator.recover(**call)
     assert attempts == 1
-    assert set(vars(coordinator)) == _CALLBACK_FIELDS | {"_used"}
+    assert set(vars(coordinator)) == _CALLBACK_FIELDS | {
+        "_claim_lock",
+        "_state",
+        "_single_flight",
+        "_used",
+    }
     release.set()
     assert await winner == ("csrf", "session", True, {}, None)
     _scrubbed(coordinator)
@@ -694,19 +774,8 @@ async def test_validator_is_the_only_direct_cold_flight_handoff_and_scrubs_after
 
     async def validate(jar: httpx.Cookies) -> None:
         validated.append(jar)
-
-    async def cold(
-        _path: Path,
-        _allow_headless: bool,
-        validator: Callable[[httpx.Cookies], Awaitable[None]],
-        _initial_error: _LoginRedirectError,
-    ) -> recovery.ColdRecoveryResult:
-        assert validator is vars(coordinator)["_validate_recovered"]
-        candidate = httpx.Cookies()
-        await validator(candidate)
         entered.set()
         await release.wait()
-        return recovery.ColdRecoveryResult(candidate, {}, CookieJar(()))
 
     async def fetch(_jar: httpx.Cookies) -> tuple[str, str]:
         return "csrf", "session"
@@ -714,16 +783,19 @@ async def test_validator_is_the_only_direct_cold_flight_handoff_and_scrubs_after
     coordinator = _make_coordinator(
         should_try_refresh=lambda *_args: False,
         run_refresh_attempt=unused_refresh,
-        run_cold_recovery=cold,
         validate_recovered=validate,
     )
+    candidate = httpx.Cookies()
+    path = Path("/tmp/cold-recovery-boundary.json")
+    coordinator._load_cookie_pair = lambda _path: _LoadedCookiePair(candidate, CookieJar(()))
     coordinator._fetch_recovered = fetch
     coordinator._replace_cookie_jar = lambda _target, _source: None
+    coordinator._state.note_success(path)
     winner = asyncio.create_task(
         coordinator.recover(
             initial_error=_LoginRedirectError("redirect"),
             cookie_jar=httpx.Cookies(),
-            storage_path=Path("/tmp/cold-recovery-boundary.json"),
+            storage_path=path,
             env_auth=False,
             allow_headless=True,
             baseline=None,

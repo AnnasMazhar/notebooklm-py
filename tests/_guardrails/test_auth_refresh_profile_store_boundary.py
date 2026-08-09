@@ -23,7 +23,7 @@ REFRESH_PATH = REPO_ROOT / "src" / "notebooklm" / "_auth" / "refresh.py"
 _HELPER = "_merge_domain_fetch_observation"
 _FETCH = "fetch_tokens_with_domains"
 _MERGE = "merge_cookie_observation"
-_MODULE_HASH = "5a7bfc58367cbbeb1d7ca777c7a28f32cc341acc3c1bab00194f04bf4756a6e9"
+_MODULE_HASH = "5698277ee40210016919ff24a30b539c60f597424c3b073dd225aaa1e7cb8df1"
 _HELPER_HASH = "4422d49bee837de33e0fa1f81deb39568a2d821fa01c99e5fbdb92a899f8f553"
 _FETCH_HASH = "58f25bab4c900a95c21406027d69e5bf5cfa2e01177e3dbb6ab9d3222327adcd"
 

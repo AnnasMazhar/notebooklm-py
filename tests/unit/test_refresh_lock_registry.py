@@ -146,7 +146,7 @@ class TestClaimIfEpochCurrent:
             # No leader task was created, so the factory never runs.
             await asyncio.sleep(0)
             assert ran is False
-            assert _single_flight._FLIGHTS == {}
+            assert _single_flight.SingleFlight.process_default()._flights == {}
 
         asyncio.run(_run())
 
@@ -318,7 +318,7 @@ class TestPromptPopRetention:
                 # Yield so the task done-callbacks (mirror + pop) run.
                 await asyncio.sleep(0)
 
-            assert _single_flight._FLIGHTS == {}, (
+            assert _single_flight.SingleFlight.process_default()._flights == {}, (
                 "Settled flights must be popped from the process-global registry"
             )
 

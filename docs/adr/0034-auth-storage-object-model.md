@@ -2,18 +2,14 @@
 
 ## Status
 
-Accepted. This is the ratified target; production migration is incremental. It amends
-[ADR-0033](0033-auth-consolidation-policy.md), whose consolidation removed cap-induced seams but
-left independently owned state, lifetimes, and reasons to change in `storage.py`.
+Accepted. The Phase 12C owner extraction is complete. This ADR amends
+[ADR-0033](0033-auth-consolidation-policy.md), whose consolidation removed cap-induced seams but left independently owned state, lifetimes, and reasons to change in `storage.py`.
 
 ## Context
 
-At `87227de1` on 2026-08-08, `_auth/storage.py` is exactly 3,102 lines and owns lock registries,
-atomic credential I/O, cookie CAS, raw document policy, account migration, promotion workers,
-full replacements, master-token persistence, and compatibility templates. Its exact ceiling and
-slack lock mean additions red CI. Seven raw writers exist (six profile intents plus arbitrary-path
-`write_master_token`), transaction policies are 3 raise / 1 skip / 2 report, six physical shims
-remain, and the corrected patch ledger records 280 sites (171 public, 109 private; storage 27/26).
+At `87227de1` on 2026-08-08, `_auth/storage.py` is exactly 3,102 lines and owns lock registries, atomic credential I/O, cookie CAS, raw document policy, account migration, promotion workers, full replacements, master-token persistence, and compatibility templates.
+Its exact ceiling and slack lock mean additions red CI. Seven raw writers exist (six profile intents plus arbitrary-path `write_master_token`), transaction policies are 3 raise / 1 skip / 2 report,
+six physical shims remain, and the corrected patch ledger records 280 sites (171 public, 109 private; storage 27/26).
 
 The static graph has 26 direct modules / 13,745 lines and 68 scoped edges (54 module, 14
 function-local). There is no module-only SCC; all scopes produce
@@ -44,7 +40,11 @@ Extract by owned state/invariant, not headings. `A -> B` below means A may depen
 | `MasterTokenFile` | Per explicit token path, even one named `storage_state.json`; direct construction is legacy-adapter-only | Models an arbitrary legacy path without a fake profile; its replace is deliberately unchecked and performs no read-before-replace. Arbitrary production callers must derive it from `ProfileStore` and cannot independently pair token/profile paths | Typed token I/O, locks, codec, token value |
 | `MintService` | Per network attempt | Owns OAuth/MergeSession/RotateCookies only; never profile I/O | Network gateways and immutable requests/results |
 | `MasterTokenBootstrapper` | Per bootstrap; mint service, one store, bootstrap lock, verifier | Recheck after acquisition; session commits before token; paths cannot be independently paired | Token persistence only through its store; never receives a token file |
-| `ColdRecoveryCoordinator` | One cold token-fallback operation | One-shot L2.5 decision/attempt plus combined delegation; scrubs injected callbacks after settlement | Refresh-owned closures; `_run_cold_recovery` retains L3/L4 lock/epoch state and paired baselines, while its coalesced wrapper retains flights until Phase 12C |
+| `SingleFlight` | Process default or injected isolate | Atomic stale-epoch/flight claim; prompt-pop; cancellation settles without cancelling siblings; quiescent reset rejects live work | Thread/future/asyncio primitives only |
+| `ColdRecoveryState` | Process default or injected isolate | Synchronizes weak-loop path locks and success generations; reset rejects locked paths | Async/thread/weakref primitives only |
+| `ColdRecoveryCoordinator` | One cold token-fallback operation | Claims once, spells L2.5/L3/L4, preserves exact paired baselines/tracebacks, scrubs eleven callbacks on every exit | Injected refresh closures, state, single-flight |
+| `RotationState` | Process default or injected isolate | Per-loop/path locks and atomic stamp-before-POST throttle; raw globals are identity views only | Async/thread/weakref primitives only |
+| `AccountRepairService` | One Playwright repair operation | Claims before await, offloads only load, synchronously writes/clears, scrubs six callbacks on every exit | Account values, store/migrator/writer factory; call-time cookie/keepalive composition |
 | `storage.py` facade | v0.x compatibility module | Old signatures, identities, defaults, results, odd policies, and patch seams remain observable | Delegates downward only; no new state or algorithms |
 
 Cross-cutting rules are normative:
@@ -184,14 +184,14 @@ Its closed results are `InBandAccount | LegacyAccount | NoAccount` and
 two-second-per-snapshot-worker exit drain; per-RPC reads never wait for the 90-second writer.
 `LoginProfileWriter` reconciles only after `APPLIED` and lock release using the literal raw-key rule;
 `AccountMetadataWriter` preserves write/clear-specific post-operation scrub and exception ordering.
-`storage.py` remains the v0.x signature/result/patch facade. Exact pins are storage 1,131,
-migration 311, store 814, filter 96, and token file 89 lines (2,441 combined).
+`storage.py` remains the v0.x signature/result/patch facade. Exact pins are storage 1,115,
+migration 311, store 814, filter 96, and token file 89 lines (2,425 combined).
 
 Phase 9 lands the typed stored-auth boundary in `tokens.py`: raw-profile-bearing file and captured inline sources, `LoadPolicy(allow_headless)`, paired seeds/acquisitions, final-attempt route resolution, the closed `LoadedAuth` union, and concrete `SessionSeedLoader`, `AccountRouteResolver`, and `StoredAuthLoader` around the sole structural port, `TokenAcquirer`.
 Cookie load and every refresh/recovery replacement produce one live jar plus its exact SameSite-preserving typed baseline; the initial merge advances accepted final identities, retains rejected old identities, and keeps the acquisition baseline after hard failure.
 Phase 10 makes `CookiePersistence._from_store` the first-party runtime owner: `FileLoadedAuth` registers its exact store/baseline without a reread, while direct construction prepares one disk baseline before transport and a fileless client captures only a live compatibility projection.
 Per-path `Uninitialized | ReadyBaseline | FailedBaseline` state is isolated from `_LegacySnapshotAdapter`; canonical saves are ordered typed store merges, while a custom/patched default saver remains legacy and a non-default override lazily initializes its own retryable snapshot. `ClientLifecycle` alone mirrors the loaded projection into its client-owned `AuthTokens` after open and accepted saves; `_from_store` retains no `AuthTokens`.
-Phase 11B makes `MasterTokenFile` the one-read raw/typed file owner and sole token-commit caller; `ProfileStore` derives typed token paths at call time, while the raw reader and late-bound two-layer writer remain v0.x adapters. Phase 11C moves exchange/mint and the sole raw RotateCookies wire into stateless `MintService`, while `keepalive.py` retains throttle/recovery policy and re-exports the wire. Phase 11D moves bootstrap/re-mint/missing-storage policy into one `MasterTokenBootstrapper` over one store, service, bootstrap lock, and verifier; `master_token.py` retains exact v0.x adapters and late-bound compatibility bridges. Phase 12A moves the L2.5 decision/attempt and combined cold delegation into the one-shot `ColdRecoveryCoordinator`; refresh-owned closures retain exact logs, raw/canonical/raw route timing, cancellation and paired-baseline behavior, while existing `_run_cold_recovery` retains L3/L4 and state until Phase 12C. Phase 12B makes `fetch_tokens_with_domains` consume one paired live/SameSite-preserving baseline sample, carry the selected initial/L2.5/L3/L4 baseline, snapshot the final live jar into an immutable observation, and offload one concrete `ProfileStore` merge. A hard result returns the exact selected baseline; every advancing result returns the exact next baseline. Ordinary cancellation propagates immediately after dispatch although the worker may finish. Only `refresh.save_cookies_to_storage`'s private alias retires; the public saver, facade identities, and runtime saver-injection seams remain. The measured graph is 38 modules / 15,074 lines / 122 edges (110 module + 12 local), with sole new edge `refresh -> profile_store`; `refresh.py` is 1,189 lines and `recovery.py` is 389.
+Phase 11B makes `MasterTokenFile` the one-read raw/typed file owner and sole token-commit caller; 11C moves exchange/mint and the raw RotateCookies wire into `MintService`; 11D moves bootstrap/re-mint/missing-storage policy into `MasterTokenBootstrapper`. Phase 12A introduces the one-shot cold coordinator; 12B gives refresh one paired live/SameSite baseline and one typed store merge. Phase 12C completes ownership: `SingleFlight`, `ColdRecoveryState`, and `RotationState` own process state; the coordinator owns the sole L2.5/L3/L4 bodies; PSIDTS recovery uses injected pure loaders, typed document/CAS, and `ProfileStore`; dependency-bottom values own `MasterTokenError`, `Account`, and the repair result; `AccountRepairService` owns one repair. The graph is 40 modules / 15,237 lines / 128 edges (117 module + 11 local), with both SCC sets empty. Public savers, facade values/errors, module adapters, raw keepalive views, logs, traceback/error identity, cancellation, and runtime injection seams remain compatible.
 
 The compatibility inventory is explicit:
 

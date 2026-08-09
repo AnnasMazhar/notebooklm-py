@@ -526,7 +526,7 @@ the default dependency.
 | [`_auth/paths.py`](../src/notebooklm/_auth/paths.py) | Storage paths and filesystem helpers, including the **single** derivation behind all four credential lock files (`.lock`, `.rotate.lock`, `.refresh.lock`, `.lock.bootstrap` — the last folded in from `master_token.py` by ADR-0033 PR 1.3, which kept every path byte-identical and every lock mechanism untouched). |
 | [`_auth/storage_lock.py`](../src/notebooklm/_auth/storage_lock.py) | Dependency-bottom `StorageLockManager`: process-default exact-raw-path thread-lock identity, POSIX/Windows OS gateway, bounded synchronous retry, and manager-lifecycle cookie warning claim. Imports stdlib only; `storage`, `profile_store`, and `keepalive` share its process default. |
 | [`_auth/credential_io.py`](../src/notebooklm/_auth/credential_io.py) | Sealed commit capability: the sole unchecked-atomic importer, with distinct private wrappers for complete profile and arbitrary-path master-token documents. |
-| [`_auth/master_token_types.py`](../src/notebooklm/_auth/master_token_types.py) | Dependency-bottom immutable `MasterToken` and pure permissive version-1 legacy-record codec; the secret is redacted from repr. |
+| [`_auth/master_token_types.py`](../src/notebooklm/_auth/master_token_types.py) | Dependency-bottom `MasterTokenError`, immutable `MasterToken`, and pure permissive version-1 legacy-record codec. The exception keeps historical `notebooklm._auth.master_token` module/pickle identity; the credential secret is redacted from repr. |
 | [`_auth/master_token_file.py`](../src/notebooklm/_auth/master_token_file.py) | Path-owned one-sample raw/typed master-token reads and canonical writes under the exact dotted sibling lock. Explicit paths remain valid for v0.x adapters; it owns no network/bootstrap policy or cache. |
 | [`_auth/mint_service.py`](../src/notebooklm/_auth/mint_service.py) | Stateless per-attempt master-token exchange and cookie minting, plus the sole raw RotateCookies wire. It depends downward only on `MasterToken` and network libraries; its process-wide mutex only serializes temporary third-party logger levels, and it owns no paths, persistence, storage/domain locks, bootstrap/recovery policy, cache, or retained secrets. |
 | [`_auth/master_token_bootstrap.py`](../src/notebooklm/_auth/master_token_bootstrap.py) | Concrete path-owned bootstrap/re-mint coordinator over exactly one `MintService`, one `ProfileStore`, one bootstrap lock, and one verifier. It owns two-owner advisory checks, session-before-token persistence, strict reload, the four-state missing-storage recheck, and shield-to-settlement cancellation; token I/O routes only through its store. It imports no token file, storage facade, runtime/client, CLI, or recovery owner. |
@@ -537,7 +537,7 @@ the default dependency.
 | [`_auth/storage_writer.py`](../src/notebooklm/_auth/storage_writer.py) | **Shim** — re-exports the writer API from `_auth/storage.py`; defines nothing. Removed at the next major. |
 | [`_auth/storage_transaction.py`](../src/notebooklm/_auth/storage_transaction.py) | **Shim** — re-exports `in_storage_transaction` + the lock-failure policies through `_auth/storage.py`; their definitions live in `_auth/profile_store.py`. Removed at the next major. |
 | [`_auth/extraction.py`](../src/notebooklm/_auth/extraction.py) | Cookie/token extraction from browser sessions. |
-| [`_auth/cookies.py`](../src/notebooklm/_auth/cookies.py) | Cookie maps, `_update_cookie_input`, and the one-sample paired loader. Each successfully converted live cookie supplies identity/value/runtime fields while SameSite comes from that same sanitized raw row, preserving first-successful duplicate behavior in the typed baseline. |
+| [`_auth/cookies.py`](../src/notebooklm/_auth/cookies.py) | Cookie maps, `_update_cookie_input`, the network-free pure storage loaders, and thin recovery-composition adapters. Each successfully converted live cookie supplies identity/value/runtime fields while SameSite comes from that same sanitized raw row, preserving first-successful duplicate behavior in the typed baseline. |
 | [`_auth/cookie_policy.py`](../src/notebooklm/_auth/cookie_policy.py) | Domain allowlist, cookie-domain builder (`build_cookie_domain_allowlist`), and cookie policy decisions. |
 | [`_auth/cookie_semantics.py`](../src/notebooklm/_auth/cookie_semantics.py) | Shared cookie-shape and expiry semantics used by sanitized auth loaders and persistence boundaries. |
 | [`_auth/cookie_types.py`](../src/notebooklm/_auth/cookie_types.py) | The canonical `Cookie` / `CookieJar` types (ADR-0031 Stage 1): constructors from every input shape, converters to httpx/storage-state, and the cookie-set policy questions as methods. A delegating wrapper — policy still lives in `cookie_policy`/`cookies`. |
@@ -548,18 +548,20 @@ the default dependency.
 | [`_auth/browser_launch_errors.py`](../src/notebooklm/_auth/browser_launch_errors.py) | Transport-neutral leaf for `browser_capture`: the `CHANNEL_BROWSERS` channel registry plus `classify_launch_failure`, which maps a Playwright launch failure to actionable help (system browser not installed, bundled Chromium not downloaded, or a Windows `spawn UNKNOWN` execution veto from AppLocker/WDAC/Defender) or to `None` so the original exception propagates. Pure string-in/string-out — no Playwright, no I/O, no CLI. |
 | [`_auth/login_wait_trace.py`](../src/notebooklm/_auth/login_wait_trace.py) | **Shim** — re-exports `log_observed_navigations` / `safe_page_url` / `trace_url` from `_auth/browser_capture.py`; defines nothing. Removed at the next major. |
 | [`_auth/headless_reauth.py`](../src/notebooklm/_auth/headless_reauth.py) | Layer-3 (deepest) auth recovery: when first-party cookies are dead, drive a headless browser against the persistent profile to silently re-mint cookies. Typed honest outcomes (`HeadlessReauthStatus` UNAVAILABLE/FAILED/SUCCESS — never silent `None`). Opt-in only (`refresh_auth(allow_headless=True)` or `NOTEBOOKLM_HEADLESS_REAUTH=1`); local-unattended-only, never the remote/MCP auth path. Alternative credential source: `NOTEBOOKLM_HEADLESS_REAUTH_CDP_URL` (or `attempt_headless_reauth(cdp_url=...)`) attaches to an operator-pointed running Chrome instead of the dedicated profile (freshness mitigation). Also exposes `headless_reauth_readiness()` — a credential-free, browser-free probe (profile present + playwright installed) surfaced by `doctor`. |
-| [`_auth/recovery.py`](../src/notebooklm/_auth/recovery.py) | Client-neutral recovery composition and exact paired replacement provenance. Its one-shot `ColdRecoveryCoordinator` owns the L2.5 decision/attempt and delegation into the combined cold flow, then scrubs every injected callback after success, failure, or cancellation. The existing `_run_cold_recovery` still owns the L3 → L4 sequence, same-sample replacement baseline, per-loop mutation lock and revalidate-on-bump epoch (`_COLD_SUCCESS_GENERATIONS`) until Phase 12C. |
-| [`_auth/single_flight.py`](../src/notebooklm/_auth/single_flight.py) | Cross-loop single-flight coalescing core (c-PR2; [ADR-0030](./adr/0030-one-recovery-ladder.md)): a process-global `(canonical path, rung policy)` flight registry (leader `asyncio.Task` mirrored into a `concurrent.futures.Future`; followers on any loop bridge via `shield(wrap_future)` + settle-before-propagate) plus a per-canonical-PATH `success_epoch` (relocated `_REFRESH_GENERATIONS` semantics). Consumed by `refresh.py` (refresh-cmd) and `recovery.py` (cold/L4). One `threading.Lock` guards only brief claim/registry/epoch sections, never across an await. |
-| [`_auth/account.py`](../src/notebooklm/_auth/account.py) | **Account NETWORK identity**: probing `?authuser=N`, extracting the active email, formatting the wire value, and `repair_account_metadata_from_playwright_storage`. Typed in-band account read/update/clear lives in `ProfileStore`; legacy file policy and lifecycle live in `_auth/profile_migration.py`; raw compatibility remains in `_auth/storage.py`. |
+| [`_auth/recovery.py`](../src/notebooklm/_auth/recovery.py) | Client-neutral recovery composition and exact paired replacement provenance. One-shot `ColdRecoveryCoordinator` owns the explicit L2.5 → L3 → L4 ladder and scrubs all eleven injected callbacks on every exit. `ColdRecoveryState` owns synchronized weak-loop path locks and success generations; class-owned `_drive_cold`/`_coalesce_cold` are the sole ladder/flight bodies, while the exact-signature legacy functions are thin process-default adapters. |
+| [`_auth/single_flight.py`](../src/notebooklm/_auth/single_flight.py) | `SingleFlight` owns one cross-loop flight registry, strong leader-task set, and per-canonical-path success epochs. A leader task mirrors into a `concurrent.futures.Future`; followers use shielded settle-before-propagate bridging, so waiter cancellation never cancels shared work. Claim plus stale-epoch comparison is atomic, settled slots prompt-pop, and quiescent-only reset refuses live work. Exact module functions remain process-default adapters. |
+| [`_auth/account_types.py`](../src/notebooklm/_auth/account_types.py) | Dependency-neutral immutable `Account` and `PlaywrightAccountRepairResult` values. Both retain historical `notebooklm._auth.account` module/pickle/repr identity. |
+| [`_auth/account_repair.py`](../src/notebooklm/_auth/account_repair.py) | One-operation `AccountRepairService` over six exact collaborators. It claims synchronously before its first await, offloads only cookie loading, performs typed write/clear synchronously, maps only the frozen handled exception set to the legacy result, and scrubs all collaborator references on success, error, cancellation, or an unlisted exception. |
+| [`_auth/account.py`](../src/notebooklm/_auth/account.py) | Account network adapter: probing `?authuser=N`, extracting the active email, formatting the wire value, and composing one `AccountRepairService` with call-time legacy seams. Typed in-band writes live in `ProfileStore`; legacy file policy lives in `_auth/profile_migration.py`; raw compatibility remains in `_auth/storage.py`. |
 | [`_auth/session.py`](../src/notebooklm/_auth/session.py) | `refresh_auth_session(auth=..., kernel=..., auth_coord=..., lifecycle=..., cookie_persistence=...)` implementation called by `AuthRefreshCoordinator`. Takes five explicit keyword-only collaborators instead of a Session-shaped owner Protocol; the previous `RefreshAuthCore` Protocol and the `update_auth_tokens` / `update_auth_headers` Session-level forwards have been removed. |
 | [`_auth/refresh.py`](../src/notebooklm/_auth/refresh.py) | Token refresh driver, sole `ColdRecoveryCoordinator` production adapter, and typed `fetch_tokens_with_domains` persistence boundary. `_cold_fallbacks` supplies late-bound L2.5, cold-delegation, route, final-fetch, and jar-replacement closures while preserving exact logs and raw caller / canonical L2.5 / raw caller route timing. L2.5 remains outside the cold single-flight. The domain fetch consumes one paired live/SameSite-preserving baseline sample, carries the selected initial/L2.5/L3/L4 baseline, captures an immutable final observation, and offloads one concrete `ProfileStore` merge. `HARD_FAILURE`, the sole non-advancing result, retains the exact selected baseline; advancing outcomes return the exact next baseline. Caller cancellation during worker offload propagates immediately, without preventing an already-dispatched merge from finishing. The frozen `RefreshDeps` and v0.x compatibility ladder remain. |
-| [`_auth/keepalive.py`](../src/notebooklm/_auth/keepalive.py) | Cookie keepalive and `__Secure-1PSIDTS` rotation policy; imports/re-exports the raw RotateCookies wire from `mint_service.py`. |
-| [`_auth/psidts_recovery.py`](../src/notebooklm/_auth/psidts_recovery.py) | Inline PSIDTS recovery for cold-start (see issue #865) **plus the one load→validate→heal→retry composition** (`load_with_recovery` / `load_session_jar` / `HealPolicy`) that `cookies.build_httpx_cookies_from_storage` and `tokens.load_auth_from_storage` delegate to. Recovery is composed in the loader **wrapper** bodies, never the network-free pure loader ([ADR-0030](./adr/0030-one-recovery-ladder.md)); its env-var check shares `paths.resolve_auth_json_env`. Also owns the captured-browser-cookie `validate` / `heal` / `validate_with_recovery` seam (ADR-0031 Stage 2), absorbed from `browser_cookie_recovery.py` (ADR-0033 sanctioned merge). |
-| [`_auth/master_token.py`](../src/notebooklm/_auth/master_token.py) | Headless master-token compatibility boundary: exchange/mint remain exact v0.x adapters over `MintService`, the raw reader projects one `MasterTokenFile` sample, the writer preserves the call-time `storage.write_master_token` seam, and coarse operations compose `MasterTokenBootstrapper` with late-bound legacy-owner, Android-ID, strict-loader, and verifier bridges. |
+| [`_auth/keepalive.py`](../src/notebooklm/_auth/keepalive.py) | Cookie keepalive and `__Secure-1PSIDTS` rotation policy. `RotationState` owns per-loop/per-canonical-path locks and monotonic attempt stamps behind one short-held threading lock; claims are stamped before POST, so failure and cancellation consume the 60-second slot. Historical raw state names are non-owning identity views into the process-default owner, and the raw RotateCookies wire remains an exact `mint_service.py` re-export. |
+| [`_auth/psidts_recovery.py`](../src/notebooklm/_auth/psidts_recovery.py) | Inline PSIDTS recovery plus the generic load→validate→heal→retry composition over injected pure loaders. It owns typed raw-document observation/CAS and `ProfileStore` persistence, not cookie-module or storage-facade policy. Sentinel/contended/acquired paths preserve their distinct rereads and narrow caught-error sets; success means the post-save disk state is live, including a sibling winner. Also owns the captured-cookie `validate`/`heal` compatibility seam. |
+| [`_auth/master_token.py`](../src/notebooklm/_auth/master_token.py) | Headless master-token compatibility boundary: exchange/mint remain exact v0.x adapters over `MintService`, the raw reader projects one `MasterTokenFile` sample, the writer preserves the call-time `storage.write_master_token` seam, and coarse operations compose `MasterTokenBootstrapper` with late-bound legacy-owner, Android-ID, strict-loader, and verifier bridges. `MasterTokenError` is an identity re-export from the dependency-bottom types leaf. |
 
-The measured persistence boundary is 1,131 lines in `storage.py`, 311 in
+The measured persistence boundary is 1,115 lines in `storage.py`, 311 in
 `profile_migration.py`, 814 in `profile_store.py`, 96 in `cookie_filter.py`, and 89 in
-`master_token_file.py`: 2,441 lines total.
+`master_token_file.py`: 2,425 lines total.
 The migration module is internal composition, not a public `ProfileStore` extension surface.
 The Phase 9 loader owners remain in `tokens.py` and `refresh.py`. Phase 10 consumes their closed
 `FileLoadedAuth` result by registering its exact `ProfileStore`/baseline pair in runtime
@@ -571,16 +573,19 @@ retain the v0.x save surface and per-key adapter snapshots. `ClientLifecycle` ow
 `_cookie_persistence.py`, 618 in `_runtime/init.py`, 628 in `_runtime/lifecycle.py`, and 992 in
 `client.py`.
 
-Phase 12B retires only the private early-bound `refresh.save_cookies_to_storage` alias. The public
-storage/auth saver, permanent `original_snapshot=None` overlay, `CookiePersistence` writer seam,
-and `NotebookLMClient(cookie_saver=...)` compatibility identities remain unchanged. The measured
-auth graph is 38 modules / 15,074 lines / 122 edges (110 module + 12 function-local), with no
-module SCC and sole new edge `refresh -> profile_store`; `refresh.py` is 1,189 lines and
-`recovery.py` remains 389.
+Phase 12C completes state ownership without changing the public ladder or on-disk schema. The
+measured auth graph is **40 modules / 15,237 lines / 128 unique edges (117 module + 11
+function-local)**; both the module-only and all-scope SCC sets are empty. The former
+`cookies/master_token/psidts_recovery/storage` all-scope cycle is gone. Final touched owner sizes
+are pinned by the module ratchet; `storage.py` and `refresh.py` shrink, and no bottom owner imports
+the facade. Public storage/auth savers, `Account`/repair-result/`MasterTokenError` identities,
+module adapters, keepalive raw-state identity views, and client/runtime injection seams remain
+v0.x compatible.
 
 The cookie lifecycle — what gets written, who rotates, what the
 keepalive contract is — is documented separately in
-[`docs/auth-cookie-lifecycle.md`](./auth-cookie-lifecycle.md).
+[`docs/auth-cookie-lifecycle.md`](./auth-cookie-lifecycle.md). Credential authority, cancellation,
+retention, and compatibility threats are summarized in [`docs/security.md`](./security.md).
 
 ## CLI layer (ADR-0008)
 
@@ -1240,20 +1245,22 @@ src/notebooklm/
 │   ├── browser_launch_errors.py # Channel registry + launch-failure triage (pure leaf of browser_capture)
 │   ├── login_wait_trace.py      # Shim: re-exports the login-wait tracing from browser_capture.py (removed at next major)
 │   ├── headless_reauth.py       # Layer-3 headless re-auth (opt-in; typed outcomes; local-unattended-only)
-│   ├── account.py               # Account NETWORK identity: authuser=N probing, page-email extraction, authuser wire formatting, Playwright account repair
+│   ├── account_types.py         # Dependency-neutral Account/Playwright repair-result values with historical identity
+│   ├── account_repair.py        # One-shot typed Playwright account-repair operation + call-time composition
+│   ├── account.py               # Account network probing/selection + compatibility repair adapter
 │   ├── session.py               # Auth-session refresh implementation via `refresh_auth_session()` and explicit collaborators
 │   ├── storage.py               # v0.x facade; raw adapters + minted snapshot/error + token policy
 │   ├── storage_writer.py        # Shim: re-exports the writer API from storage.py (removed at next major)
 │   ├── storage_transaction.py   # Shim: re-exports transaction aliases through storage.py (removed at next major)
 │   ├── keepalive.py             # Keepalive/PSIDTS rotation policy + raw-wire re-exports
 │   ├── psidts_recovery.py       # Inline PSIDTS recovery (issue #865) + the one load→heal→retry composition + the captured-cookie validate/heal seam
-│   ├── master_token_types.py    # Dependency-bottom immutable master-token value + pure legacy-record codec
+│   ├── master_token_types.py    # Dependency-bottom MasterTokenError/value + pure legacy-record codec
 │   ├── master_token_file.py     # Explicit-path one-sample token I/O + canonical bounded-lock commit (ADR-0034)
 │   ├── mint_service.py          # Stateless exchange/mint network owner + sole raw RotateCookies wire
 │   ├── master_token_bootstrap.py # One-store bootstrap/re-mint/missing-storage coordinator (ADR-0034)
 │   ├── master_token.py          # Headless v0.x adapters + late-bound bridges (ADR-0023/ADR-0034)
-│   ├── recovery.py              # One-shot L2.5/combined coordinator + existing L3/L4/state owner
-│   ├── single_flight.py         # Cross-loop coalescing core: (path, policy) flight registry + per-path success_epoch
+│   ├── recovery.py              # One-shot L2.5/L3/L4 coordinator + synchronized ColdRecoveryState
+│   ├── single_flight.py         # Cross-loop flight/leader-task/success-epoch owner
 │   ├── refresh.py               # Token driver + late-bound cold-coordinator adapter and L2.5 policy
 │   └── tokens.py                # AuthTokens container + load_auth_from_storage loader
 ├── _types/                      # Dataclass implementation package re-exported by types.py

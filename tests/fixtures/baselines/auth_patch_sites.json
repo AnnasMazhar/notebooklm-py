@@ -103,12 +103,6 @@
       "module": "cookies"
     },
     {
-      "attribute": "get_storage_path",
-      "count": 1,
-      "idiom": "monkeypatch.setattr",
-      "module": "cookies"
-    },
-    {
       "attribute": "_atomic_write_json_unchecked",
       "count": 2,
       "idiom": "monkeypatch.setattr",
@@ -295,12 +289,6 @@
       "module": "psidts_recovery"
     },
     {
-      "attribute": "_load_storage_state",
-      "count": 5,
-      "idiom": "monkeypatch.setattr",
-      "module": "psidts_recovery"
-    },
-    {
       "attribute": "_recover_psidts_inline",
       "count": 4,
       "idiom": "monkeypatch.setattr",
@@ -433,12 +421,6 @@
       "module": "storage"
     },
     {
-      "attribute": "clear_account_metadata",
-      "count": 2,
-      "idiom": "patch.object",
-      "module": "storage"
-    },
-    {
       "attribute": "get_account_email_for_storage",
       "count": 1,
       "idiom": "monkeypatch.setattr",
@@ -458,14 +440,8 @@
     },
     {
       "attribute": "save_cookies_to_storage",
-      "count": 6,
+      "count": 3,
       "idiom": "monkeypatch.setattr",
-      "module": "storage"
-    },
-    {
-      "attribute": "write_account_metadata",
-      "count": 2,
-      "idiom": "patch.object",
       "module": "storage"
     },
     {
@@ -495,9 +471,9 @@
   ],
   "summary": {
     "TOTAL": {
-      "private": 159,
-      "public": 146,
-      "total": 305
+      "private": 154,
+      "public": 138,
+      "total": 292
     },
     "account": {
       "private": 2,
@@ -521,8 +497,8 @@
     },
     "cookies": {
       "private": 3,
-      "public": 8,
-      "total": 11
+      "public": 7,
+      "total": 10
     },
     "credential_io": {
       "private": 3,
@@ -560,9 +536,9 @@
       "total": 35
     },
     "psidts_recovery": {
-      "private": 14,
+      "private": 9,
       "public": 10,
-      "total": 24
+      "total": 19
     },
     "recovery": {
       "private": 13,
@@ -581,8 +557,8 @@
     },
     "storage": {
       "private": 2,
-      "public": 27,
-      "total": 29
+      "public": 20,
+      "total": 22
     },
     "storage_lock": {
       "private": 1,

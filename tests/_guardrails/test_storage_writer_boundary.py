@@ -283,7 +283,7 @@ _MINTED_ADAPTER_CALLS: Counter[str] = Counter(
         "ProfileStore": 1,
         "ProfileStore(path).replace_minted_session": 1,
         "_cookie_is_http_only": 1,
-        "_master_token.MasterTokenError": 1,
+        "MasterTokenError": 1,
         "cast": 1,
         "str": 1,
     }
