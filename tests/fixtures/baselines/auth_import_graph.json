@@ -613,6 +613,11 @@
       "path": "src/notebooklm/_auth/master_token.py"
     },
     {
+      "lines": 57,
+      "name": "master_token_types",
+      "path": "src/notebooklm/_auth/master_token_types.py"
+    },
+    {
       "lines": 236,
       "name": "paths",
       "path": "src/notebooklm/_auth/paths.py"
@@ -702,8 +707,8 @@
   "summary": {
     "function_local_edges": 13,
     "module_edges": 90,
-    "modules": 34,
-    "total_lines": 14531,
+    "modules": 35,
+    "total_lines": 14588,
     "unique_edges": 103
   },
   "version": 1
