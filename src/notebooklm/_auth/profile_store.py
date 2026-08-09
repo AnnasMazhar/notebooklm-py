@@ -19,7 +19,7 @@ from .cookie_merge import RecoveryObservation
 from .cookie_types import CookieIdentity, CookieJar
 from .credential_io import _commit_profile_json
 from .paths import _storage_state_lock_path, canonical_storage_key
-from .profile_account import AccountView, DomainSelection, StoredSession
+from .profile_account import AccountView, DomainSelection, ProfileAccount, StoredSession
 from .profile_document import ProfileDocument, _ProfileDocumentStructureError
 from .storage_lock import (
     _LOCK_ACQUIRE_DEADLINE_SECONDS,
@@ -169,6 +169,116 @@ class ProfileStore:
             domain_selection=DomainSelection(
                 include_domains=document.include_domains(),
                 include_optional=document.include_optional(),
+            ),
+        )
+
+    def _read_account_document(self) -> ProfileDocument | None:
+        """Read one document using the tolerant in-band account policy."""
+        if not self._path.exists():
+            return None
+        try:
+            return self.read_document()
+        except UnicodeDecodeError:
+            raise
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.debug("in-band account read failed at %s: %s", self._path, exc)
+            return None
+        except _ProfileDocumentStructureError as exc:
+            if exc.field == "root" and exc.reason == "not_object":
+                return None
+            raise
+
+    def read_account(self) -> ProfileAccount | None:
+        """Return the typed routing account when a non-empty raw record exists."""
+        document = self._read_account_document()
+        if document is None:
+            return None
+        payload = document.to_json()
+        namespace = payload.get("notebooklm")
+        account = namespace.get("account") if isinstance(namespace, dict) else None
+        if not isinstance(account, dict) or not account:
+            return None
+        return document.account_for(AccountView.ROUTE)
+
+    def update_account(
+        self,
+        record: ProfileAccount,
+        *,
+        only_if_absent: bool = False,
+    ) -> bool:
+        """Persist one in-band account under the bounded profile lock."""
+        account_payload: dict[str, object] = {"authuser": record.authuser}
+        if record.email:
+            account_payload["email"] = record.email
+
+        def _write() -> bool:
+            if not self._path.exists():
+                document = ProfileDocument.empty()
+            else:
+                try:
+                    payload = json.loads(self._path.read_text(encoding="utf-8"))
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(
+                        f"storage state at {self._path} is corrupted: {exc}"
+                    ) from exc
+                if not isinstance(payload, dict):
+                    raise RuntimeError(
+                        f"storage state at {self._path} has unexpected shape: "
+                        f"{type(payload).__name__}"
+                    )
+                document = ProfileDocument.decode(payload)
+
+            payload = document.to_json()
+            namespace = payload.get("notebooklm")
+            if not isinstance(namespace, dict):
+                namespace = {}
+            elif only_if_absent:
+                current = namespace.get("account")
+                if isinstance(current, dict) and current:
+                    return False
+            namespace["version"] = 1
+            namespace["account"] = account_payload
+            updated = document.with_namespace(namespace)
+            _commit_profile_json(self._path, updated.to_json())
+            return True
+
+        return self._under_bounded_lock(
+            operation="write_account_metadata",
+            body=_write,
+            on_unavailable=raise_on_lock_unavailable("write_account_metadata"),
+        )
+
+    def clear_account(self) -> None:
+        """Remove the in-band account using the best-effort clear policy."""
+        if not self._path.exists():
+            return
+
+        def _clear() -> None:
+            try:
+                document = self.read_document()
+            except UnicodeDecodeError:
+                raise
+            except (OSError, json.JSONDecodeError) as exc:
+                logger.debug("in-band account clear skipped at %s: %s", self._path, exc)
+                return
+            except _ProfileDocumentStructureError as exc:
+                if exc.field == "root" and exc.reason == "not_object":
+                    return
+                raise
+
+            payload = document.to_json()
+            namespace = payload.get("notebooklm")
+            if not isinstance(namespace, dict) or "account" not in namespace:
+                return
+            del namespace["account"]
+            updated = document.with_namespace(None if set(namespace) <= {"version"} else namespace)
+            _commit_profile_json(self._path, updated.to_json())
+
+        self._under_bounded_lock(
+            operation="clear_account_metadata",
+            body=_clear,
+            on_unavailable=skip_on_lock_unavailable(
+                "in-band account clear skipped: storage lock unavailable at %s"
             ),
         )
 

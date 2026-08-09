@@ -163,6 +163,7 @@ from . import cookies as _auth_cookies
 from .cookie_types import Cookie, CookieIdentity, CookieJar
 from .credential_io import _commit_master_token_json, _commit_profile_json
 from .paths import canonical_storage_key, resolve_auth_json_env
+from .profile_account import ProfileAccount
 from .profile_document import ProfileDocument
 from .profile_store import (
     CookieMergeDisposition,
@@ -873,116 +874,22 @@ def update_account_metadata(
     email: str | None = None,
     only_if_absent: bool = False,
 ) -> bool:
-    """Persist account metadata atomically inside ``storage_state.json``.
+    """Project the v0.x raw account arguments through the path-owned store.
 
-    Relocated from ``account.write_account_metadata`` (ADR-0033 PR 1.1 — the
-    in-band write only). Its two remaining halves, the facade wrapper
-    :func:`write_account_metadata` and the sibling ``context.json`` cleanup
-    :func:`_drop_legacy_account_key`, joined it here in PR 5.2 and are now
-    same-module calls. Full-file RMW intent: **fails closed**, raising
-    :class:`LockUnavailableError` on lock unavailability.
-
-    ``only_if_absent`` closes a check-then-act race in
-    :func:`promote_legacy_account`: that caller reads the legacy
-    record and checks whether an in-band record is already present — both
-    OUTSIDE this function's lock — before deciding to call this function at
-    all. Without a re-check taken under the SAME lock as the write, a
-    concurrent fresh login/account-switch (``write_account_metadata``,
-    ``replace_from_login``) landing in that unlocked gap would commit its new
-    record first, and this call would then unconditionally overwrite it with
-    the stale legacy values the caller captured before the gap — silently
-    re-clobbering a just-completed account switch with a promotion nobody
-    asked to happen. ``write_account_metadata`` (an intentional overwrite —
-    the whole point of a real login) always passes ``only_if_absent=False``
-    (the default); only the promotion caller opts in.
-
-    There is no ``deadline_seconds`` override: every caller takes the standard
-    90s full-file-RMW deadline. One used to pass 2s —
-    :func:`promote_legacy_account`, back when it ran INSIDE
-    :func:`read_account_metadata` and a 90s lock wait would have frozen
-    an event loop in the middle of what its callers treat as a fast, lock-free
-    read. ADR-0033 PR 5.1 moved promotion off that read path onto a detached
-    one-shot worker, so nothing is waiting on this acquire any more and
-    outlasting real contention beats giving up (the one-shot does not retry).
-
-    Returns:
-        ``True`` if a write happened; ``False`` if ``only_if_absent`` was set
-        and an in-band record was already present under the lock (no-op —
-        the caller's stale values were correctly discarded).
+    ``False`` remains reserved for an ``only_if_absent`` race lost to a
+    non-empty in-band record; lock and commit failures still escape.
     """
-    account_payload: dict[str, Any] = {"authuser": authuser}
-    if email:
-        account_payload["email"] = email
-
-    def _write() -> bool:
-        data = _load_storage_state_for_write(storage_path)
-        namespace = data.get(_STORAGE_NAMESPACE_KEY)
-        if not isinstance(namespace, dict):
-            namespace = {}
-        elif only_if_absent and isinstance(namespace.get(_ACCOUNT_CONTEXT_KEY), dict):
-            return False
-        namespace["version"] = _STORAGE_NAMESPACE_VERSION
-        namespace[_ACCOUNT_CONTEXT_KEY] = account_payload
-        data[_STORAGE_NAMESPACE_KEY] = namespace
-        _commit_profile_json(storage_path, data)
-        return True
-
-    # MUST-KNOW via exception: the ``bool`` return already spends ``False`` on
-    # the ``only_if_absent`` no-op above, so it cannot also carry "could not
-    # acquire" without conflating *chose not to* with *could not*.
     return bool(
-        in_storage_transaction(
-            storage_path,
-            _write,
-            log_prefix="write_account_metadata",
-            on_unavailable=raise_on_lock_unavailable("write_account_metadata"),
+        ProfileStore(storage_path).update_account(
+            ProfileAccount(authuser=authuser, email=email),
+            only_if_absent=only_if_absent,
         )
     )
 
 
 def clear_in_band_account(storage_path: Path) -> None:
-    """Remove the ``notebooklm.account`` key from ``storage_state.json``.
-
-    Relocated from ``account._clear_in_band_account`` (ADR-0033 PR 1.1); the
-    one-line delegate that survived in ``account.py`` to reach it was deleted in
-    PR 5.2 when :func:`clear_account_metadata` moved here. Best-effort cleanup:
-    swallows lock unavailability and read/parse errors, matching the
-    pre-refactor semantics (the reader falls back to the legacy record). No-op if
-    the file is missing, unreadable, or carries no in-band record.
-    """
-    if not storage_path.exists():
-        return
-
-    def _clear() -> None:
-        try:
-            data = json.loads(storage_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
-            logger.debug("in-band account clear skipped at %s: %s", storage_path, e)
-            return
-        if not isinstance(data, dict):
-            return
-        namespace = data.get(_STORAGE_NAMESPACE_KEY)
-        if not isinstance(namespace, dict) or _ACCOUNT_CONTEXT_KEY not in namespace:
-            return
-        del namespace[_ACCOUNT_CONTEXT_KEY]
-        if set(namespace.keys()) <= {"version"}:
-            del data[_STORAGE_NAMESPACE_KEY]
-        else:
-            data[_STORAGE_NAMESPACE_KEY] = namespace
-        _commit_profile_json(storage_path, data)
-
-    # TOLERABLE: the same failure mode the old filelock OSError arm swallowed.
-    # See the caveat on ``skip_on_lock_unavailable`` — the functional argument
-    # (the legacy reader still resolves the record) is narrower than this
-    # operation's privacy motive, and that tension is tracked in ADR-0031.
-    in_storage_transaction(
-        storage_path,
-        _clear,
-        log_prefix="clear_account_metadata",
-        on_unavailable=skip_on_lock_unavailable(
-            "in-band account clear skipped: storage lock unavailable at %s"
-        ),
-    )
+    """Project the v0.x best-effort clear through the path-owned store."""
+    ProfileStore(storage_path).clear_account()
 
 
 # ==========================================================================
@@ -1065,14 +972,10 @@ def _read_in_band_account(storage_path: Path) -> dict[str, Any]:
     Returns ``{}`` when the namespace key is missing, malformed, or the file
     cannot be read. Callers fall back to the legacy sibling ``context.json``.
     """
-    if not storage_path.exists():
+    document = ProfileStore(storage_path)._read_account_document()
+    if document is None:
         return {}
-    try:
-        data = json.loads(storage_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        logger.debug("in-band account read failed at %s: %s", storage_path, e)
-        return {}
-    return read_account_metadata_from_storage_state(data)
+    return read_account_metadata_from_storage_state(document.to_json())
 
 
 def read_account_metadata_from_storage_state(storage_state: Any) -> dict[str, Any]:
@@ -1612,28 +1515,6 @@ def write_account_metadata(storage_path: Path, *, authuser: int, email: str | No
     # Best-effort: drop the legacy account key from sibling context.json so
     # the next reader doesn't see the same data in two places.
     _drop_legacy_account_key(storage_path)
-
-
-def _load_storage_state_for_write(storage_path: Path) -> dict[str, Any]:
-    """Read ``storage_state.json`` for a read-modify-write under the lock.
-
-    Returns a synthetic empty document if the file is missing — matches
-    the earlier behavior where account writes never failed just because the
-    cookie file hadn't been written yet. Corruption is fatal because the
-    primary cookie data can't be recovered from account metadata; surface
-    a ``RuntimeError`` so the caller can prompt the user to re-run login.
-    """
-    if not storage_path.exists():
-        return {"cookies": [], "origins": []}
-    try:
-        loaded = json.loads(storage_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        raise RuntimeError(f"storage state at {storage_path} is corrupted: {e}") from e
-    if not isinstance(loaded, dict):
-        raise RuntimeError(
-            f"storage state at {storage_path} has unexpected shape: {type(loaded).__name__}"
-        )
-    return loaded
 
 
 def clear_account_metadata(storage_path: Path | None) -> None:

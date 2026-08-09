@@ -257,7 +257,7 @@ left on disk after release — both lock implementations reuse them).
 
 | Lock file | Owner | Scope | Acquisition |
 |---|---|---|---|
-| `<profile>/.storage_state.json.lock` | `_auth/profile_store.py` transaction owner via `_auth/storage_lock.py`; temporary policy adapters in `_auth/storage.py` | Every mutation of `storage_state.json`: the cookie CAS delta merge, in-band account-metadata read-modify-write, and the L3/L4 re-mint full-replace | Cookie store methods: blocking exclusive, fail-open. Full-replace adapters: store-owned bounded acquire, 90s deadline, fail-closed (`LockUnavailableError`) |
+| `<profile>/.storage_state.json.lock` | `_auth/profile_store.py` transaction owner via `_auth/storage_lock.py`; replacement compatibility policy remains in `_auth/storage.py` | Every mutation of `storage_state.json`: cookie CAS, typed in-band account update/clear, and L3/L4 full replacement | Cookie methods: blocking exclusive, fail-open. Account update: bounded 90s, fail-closed; clear: bounded best-effort. Full replacements: bounded compatibility transaction. |
 | `<profile>/.master_token.json.lock` | `_auth/storage.py::write_master_token` policy via `_auth/profile_store.py` bounded transaction and `_auth/credential_io.py` typed commit | Writes to `master_token.json` (the durable L4 credential) | Same bounded manager acquire as above (90s deadline), fail-closed. `MasterTokenFile` is not implemented yet. |
 | `<profile>/.storage_state.json.rotate.lock` | `_auth/keepalive.py::_poke_session` via `_auth/storage_lock.py` | Cross-process dedup of the `accounts.google.com/RotateCookies` keepalive POST | Non-blocking exclusive; skip on contention |
 | `<profile>/.storage_state.json.refresh.lock` | `_auth/refresh.py` via `_auth/keepalive.py` and `_auth/storage_lock.py` | Cross-process dedup of the `NOTEBOOKLM_REFRESH_CMD` subprocess | Non-blocking exclusive; skip on contention, waiter polls asynchronously with jittered backoff |
@@ -297,7 +297,7 @@ Design notes:
     assembly; the PSIDTS rotation-recovery route passes its load path through
     unchanged.
   - `.storage_state.json.lock` never canonicalizes for I/O: `ProfileStore` and
-    the `_auth/storage.py` compatibility writers derive
+    the remaining `_auth/storage.py` compatibility writers derive
     `_storage_state_lock_path` from the caller's raw path, so two processes
     reaching the same file through different path spellings (e.g. a symlink vs.
     its resolved target) can take different main-write locks and race. Callers
@@ -313,9 +313,14 @@ Design notes:
   infrastructure failure (read-only home dir, NFS without `flock`, permission
   denied) rather than wedging forever — availability wins, and the CAS guard
   (or the reactive nature of a poke) keeps correctness. Full-file
-  read-modify-write intents (account metadata, master-token persist/re-mint)
+  read-modify-write intents (account update, master-token persist/re-mint)
   fail **closed**, raising `LockUnavailableError`, because failing open there
   could silently overwrite a concurrent CAS delta.
+
+`ProfileStore` also owns typed account reads and best-effort clear. The raw
+`storage.py` adapters deliberately retain legacy reconciliation and scheduling:
+an empty in-band account mapping does not block promotion, while a non-empty
+unknown-only mapping remains present and wins.
 - **In-process lock before OS lock.** `StorageLockManager` takes an in-process
   `threading.Lock` keyed by the exact raw lock-path spelling *before* the OS lock, so
   threads within one process serialize before ever touching the OS primitive —

@@ -1069,8 +1069,11 @@ reports still make sense:
   10 s timeout, and `write_master_token` had no lock at all. Resolved by
   [ADR-0029](adr/0029-canonical-storage-writer.md), then sealed by ADR-0034:
   `_auth/credential_io.py` alone holds the unchecked atomic capability,
-  `_auth/profile_store.py` owns cookie transactions, and `_auth/storage.py`
-  temporarily owns the remaining v0.x operation policies. Function-granular AST guardrails
+  `_auth/profile_store.py` owns cookie transactions plus typed in-band account
+  read/update/clear, while `_auth/storage.py` retains raw account adapters,
+  legacy reconciliation/promotion/scrub, and the remaining replacement/token
+  policies. Empty account placeholders no longer block legacy promotion;
+  non-empty unknown-only records still win. Function-granular AST guardrails
   (`tests/_guardrails/test_storage_writer_boundary.py`) seal the capability and caller sets.
   The full-replace paths share one platform-neutral bounded lock (90 s deadline, up from 10 s).
   Those writers (account metadata, master-token persist) now **fail closed**, raising
@@ -1153,6 +1156,13 @@ gate their writes correctly.
 ---
 
 ## Changelog
+
+- **2026-08-08 (profile-store account intents)** — `ProfileStore` now owns typed
+  in-band account read/update/clear and their distinct corruption/lock policies.
+  `_auth/storage.py` keeps raw compatibility, legacy promotion scheduling, and
+  sibling scrub; full replacements and token-file policy remain there. The
+  empty-placeholder promotion correction changes no schema, path, permission,
+  backup, log, or public API.
 
 - **2026-08-05 (storage-writer / recovery-ladder refactor sync)** — Reflects the
   auth-audit refactor in [#2091](https://github.com/teng-lin/notebooklm-py/pull/2091)

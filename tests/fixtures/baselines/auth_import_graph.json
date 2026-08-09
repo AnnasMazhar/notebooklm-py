@@ -393,6 +393,11 @@
     {
       "scope": "module",
       "source": "storage",
+      "target": "profile_account"
+    },
+    {
+      "scope": "module",
+      "source": "storage",
       "target": "profile_document"
     },
     {
@@ -553,7 +558,7 @@
       "path": "src/notebooklm/_auth/profile_document.py"
     },
     {
-      "lines": 397,
+      "lines": 507,
       "name": "profile_store",
       "path": "src/notebooklm/_auth/profile_store.py"
     },
@@ -583,7 +588,7 @@
       "path": "src/notebooklm/_auth/single_flight.py"
     },
     {
-      "lines": 2329,
+      "lines": 2210,
       "name": "storage",
       "path": "src/notebooklm/_auth/storage.py"
     },
@@ -621,10 +626,10 @@
   },
   "summary": {
     "function_local_edges": 14,
-    "module_edges": 75,
+    "module_edges": 76,
     "modules": 32,
-    "total_lines": 14417,
-    "unique_edges": 89
+    "total_lines": 14408,
+    "unique_edges": 90
   },
   "version": 1
 }

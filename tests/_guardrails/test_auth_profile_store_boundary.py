@@ -43,6 +43,7 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
     ("module", 1, "paths", "canonical_storage_key", None),
     ("module", 1, "profile_account", "AccountView", None),
     ("module", 1, "profile_account", "DomainSelection", None),
+    ("module", 1, "profile_account", "ProfileAccount", None),
     ("module", 1, "profile_account", "StoredSession", None),
     ("module", 1, "profile_document", "ProfileDocument", None),
     ("module", 1, "profile_document", "_ProfileDocumentStructureError", None),
@@ -200,13 +201,13 @@ def test_profile_store_public_method_set_is_minimal_and_exact() -> None:
         "ordering_key",
         "read_document",
         "read_session",
+        "read_account",
+        "update_account",
+        "clear_account",
         "merge_cookie_observation",
         "merge_legacy_cookie_observation",
     }
     forbidden_future = {
-        "read_account",
-        "update_account",
-        "clear_account",
         "replace_from_remint",
         "replace_from_login",
         "persist_minted_session",
@@ -221,11 +222,48 @@ def _function_owner(stack: list[str]) -> str:
     return ".".join(stack) if stack else "<module>"
 
 
+def _qualified_name(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        owner = _qualified_name(node.value)
+        if owner is not None:
+            return f"{owner}.{node.attr}"
+    return None
+
+
+def _profile_store_bindings(path: Path, tree: ast.AST) -> tuple[set[str], set[str]]:
+    target = "notebooklm._auth.profile_store"
+    classes = {
+        "ProfileStore"
+        for node in tree.body
+        if path == MODULE_PATH and isinstance(node, ast.ClassDef) and node.name == "ProfileStore"
+    }
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            resolved = _resolved_module(path, node)
+            if resolved == target:
+                classes.update(
+                    item.asname or item.name for item in node.names if item.name == "ProfileStore"
+                )
+            elif resolved == "notebooklm._auth":
+                modules.update(
+                    item.asname or item.name for item in node.names if item.name == "profile_store"
+                )
+        elif isinstance(node, ast.Import):
+            modules.update(item.asname or item.name for item in node.names if item.name == target)
+    return classes, modules
+
+
 class _StoreCallCollector(ast.NodeVisitor):
-    def __init__(self, module: str) -> None:
+    def __init__(self, module: str, class_aliases: set[str], module_aliases: set[str]) -> None:
         self.module = module
+        self.class_aliases = class_aliases
+        self.module_aliases = module_aliases
         self.class_stack: list[str] = []
         self.function_stack: list[str] = []
+        self.store_bindings: list[set[str]] = [set()]
         self.calls: set[Caller] = set()
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
@@ -235,19 +273,55 @@ class _StoreCallCollector(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self.function_stack.append(node.name)
+        self.store_bindings.append(set())
         self.generic_visit(node)
+        self.store_bindings.pop()
         self.function_stack.pop()
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
+    def _is_store_constructor(self, node: ast.expr) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in self.class_aliases
+        qualified = _qualified_name(node)
+        if qualified == "notebooklm._auth.profile_store.ProfileStore":
+            return True
+        if isinstance(node, ast.Attribute) and node.attr == "ProfileStore":
+            module = _qualified_name(node.value)
+            return module is not None and module in self.module_aliases
+        return False
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if isinstance(node.value, ast.Call) and self._is_store_constructor(node.value.func):
+            self.store_bindings[-1].update(
+                target.id for target in node.targets if isinstance(target, ast.Name)
+            )
+        self.generic_visit(node)
+
+    def _is_store_receiver(self, node: ast.expr) -> bool:
+        if isinstance(node, ast.Name):
+            if node.id == "self" and self.class_stack[-1:] == ["ProfileStore"]:
+                return True
+            return any(node.id in bindings for bindings in reversed(self.store_bindings))
+        return isinstance(node, ast.Call) and self._is_store_constructor(node.func)
+
     def visit_Call(self, node: ast.Call) -> None:
         target: str | None = None
-        if isinstance(node.func, ast.Name) and node.func.id == "ProfileStore":
+        if self._is_store_constructor(node.func):
             target = "ProfileStore"
-        elif isinstance(node.func, ast.Attribute) and node.func.attr in {
-            "merge_cookie_observation",
-            "merge_legacy_cookie_observation",
-        }:
+        elif (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr
+            in {
+                "_read_account_document",
+                "read_account",
+                "update_account",
+                "clear_account",
+                "merge_cookie_observation",
+                "merge_legacy_cookie_observation",
+            }
+            and self._is_store_receiver(node.func.value)
+        ):
             target = node.func.attr
         if target is not None:
             owner = _function_owner([*self.class_stack, *self.function_stack[:1]])
@@ -256,7 +330,10 @@ class _StoreCallCollector(ast.NodeVisitor):
 
 
 def _store_calls(path: Path, tree: ast.AST) -> set[Caller]:
-    collector = _StoreCallCollector(path.relative_to(AUTH_ROOT).as_posix())
+    class_aliases, module_aliases = _profile_store_bindings(path, tree)
+    collector = _StoreCallCollector(
+        path.relative_to(AUTH_ROOT).as_posix(), class_aliases, module_aliases
+    )
     collector.visit(tree)
     return collector.calls
 
@@ -267,10 +344,17 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         actual.update(_store_calls(path, tree))
     assert actual == {
+        ("profile_store.py", "ProfileStore.read_account", "_read_account_document"),
         ("profile_store.py", "in_storage_transaction", "ProfileStore"),
+        ("storage.py", "_read_in_band_account", "ProfileStore"),
+        ("storage.py", "_read_in_band_account", "_read_account_document"),
+        ("storage.py", "clear_in_band_account", "ProfileStore"),
+        ("storage.py", "clear_in_band_account", "clear_account"),
         ("storage.py", "merge_cookie_delta", "ProfileStore"),
         ("storage.py", "merge_cookie_delta", "merge_cookie_observation"),
         ("storage.py", "merge_cookie_delta", "merge_legacy_cookie_observation"),
+        ("storage.py", "update_account_metadata", "ProfileStore"),
+        ("storage.py", "update_account_metadata", "update_account"),
     }
 
 
@@ -284,6 +368,77 @@ def test_synthetic_extra_store_caller_is_rejected() -> None:
     assert _imports_profile_store(path, tree)
     actual = _store_calls(path, tree)
     assert actual == {("storage.py", "forbidden", "ProfileStore")}
+
+
+def test_synthetic_third_private_account_read_caller_is_rejected() -> None:
+    tree = ast.parse(
+        "from .profile_store import ProfileStore\n"
+        "def forbidden(path):\n"
+        "    return ProfileStore(path)._read_account_document()\n"
+    )
+    assert _store_calls(AUTH_ROOT / "migration.py", tree) == {
+        ("migration.py", "forbidden", "ProfileStore"),
+        ("migration.py", "forbidden", "_read_account_document"),
+    }
+
+
+def test_module_alias_private_read_caller_is_detected() -> None:
+    tree = ast.parse(
+        "from notebooklm._auth import profile_store as ps\n"
+        "def forbidden(path):\n"
+        "    return ps.ProfileStore(path)._read_account_document()\n"
+    )
+    assert _store_calls(AUTH_ROOT / "migration.py", tree) == {
+        ("migration.py", "forbidden", "ProfileStore"),
+        ("migration.py", "forbidden", "_read_account_document"),
+    }
+
+
+def test_direct_class_alias_binds_receiver_and_method_call() -> None:
+    tree = ast.parse(
+        "from notebooklm._auth.profile_store import ProfileStore as Store\n"
+        "def forbidden(path):\n"
+        "    store = Store(path)\n"
+        "    return store.clear_account()\n"
+    )
+    assert _store_calls(AUTH_ROOT / "migration.py", tree) == {
+        ("migration.py", "forbidden", "ProfileStore"),
+        ("migration.py", "forbidden", "clear_account"),
+    }
+
+
+def test_unrelated_coincidentally_named_method_is_not_credited() -> None:
+    tree = ast.parse(
+        "class Other:\n"
+        "    def read_account(self): ...\n"
+        "def allowed(other):\n"
+        "    return other.read_account()\n"
+    )
+    assert _store_calls(AUTH_ROOT / "synthetic.py", tree) == set()
+
+
+def test_account_method_signatures_and_storage_leaf_import_are_exact() -> None:
+    tree = ast.parse(MODULE_PATH.read_text(encoding="utf-8"), filename=str(MODULE_PATH))
+    cls = _profile_store_class(tree)
+    methods = {
+        node.name: node
+        for node in cls.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    assert ast.unparse(methods["read_account"].args) == "self"
+    assert ast.unparse(methods["update_account"].args) == (
+        "self, record: ProfileAccount, *, only_if_absent: bool=False"
+    )
+    assert ast.unparse(methods["clear_account"].args) == "self"
+
+    storage_tree = ast.parse(
+        (AUTH_ROOT / "storage.py").read_text(encoding="utf-8"),
+        filename=str(AUTH_ROOT / "storage.py"),
+    )
+    imports = _collect_imports(storage_tree)
+    assert [record for record in imports if record[2] == "profile_account"] == [
+        ("module", 1, "profile_account", "ProfileAccount", None)
+    ]
 
 
 def _auth_edges() -> dict[str, set[str]]:

@@ -3,8 +3,8 @@
 Targets the read/clear/migration helpers and error-handling branches that the
 concern-aligned ``test_auth_account.py`` suite does not exercise: malformed /
 non-dict storage payloads, the ``_probe_authuser`` non-200 path, legacy
-``context.json`` migration cleanup, the corrupt-storage ``RuntimeError`` guard,
-and the in-band clear helper's no-op / lock branches.
+``context.json`` migration cleanup, and the in-band clear adapter's no-op / lock
+branches.
 
 ADR-0033 PR 5.2 relocated the account *record* helpers to ``_auth.storage``;
 only the NETWORK identity half (``_probe_authuser``, page-email extraction)
@@ -40,7 +40,6 @@ from notebooklm._auth.account import (
 # owning module so the whitebox patches below land where the calls resolve.
 from notebooklm._auth.storage import (
     _drop_legacy_account_key,
-    _load_storage_state_for_write,
     _read_in_band_account,
     _read_legacy_account,
     clear_account_metadata,
@@ -552,32 +551,6 @@ class TestDropLegacyAccountKey:
         _drop_legacy_account_key(storage)  # swallows OSError, no raise
         # Untouched because the lock failed before any read/write.
         assert json.loads(context.read_text(encoding="utf-8")) == {"account": {"authuser": 1}}
-
-
-class TestLoadStorageStateForWrite:
-    """``_load_storage_state_for_write`` synthetic + corruption guards
-    (lines 430-433)."""
-
-    def test_missing_file_returns_synthetic_document(self, tmp_path):
-        result = _load_storage_state_for_write(tmp_path / "missing.json")
-        assert result == {"cookies": [], "origins": []}
-
-    def test_corrupt_json_raises_runtime_error(self, tmp_path):
-        storage = tmp_path / "storage_state.json"
-        storage.write_text("{not valid json", encoding="utf-8")
-        with pytest.raises(RuntimeError, match="is corrupted"):
-            _load_storage_state_for_write(storage)
-
-    def test_non_dict_shape_raises_runtime_error(self, tmp_path):
-        storage = tmp_path / "storage_state.json"
-        storage.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
-        with pytest.raises(RuntimeError, match="unexpected shape"):
-            _load_storage_state_for_write(storage)
-
-    def test_valid_dict_returned(self, tmp_path):
-        storage = tmp_path / "storage_state.json"
-        storage.write_text(json.dumps({"cookies": []}), encoding="utf-8")
-        assert _load_storage_state_for_write(storage) == {"cookies": []}
 
 
 class TestClearInBandAccount:
