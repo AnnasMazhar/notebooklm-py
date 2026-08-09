@@ -15,6 +15,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol, TypeVar, cast
 
+import notebooklm.paths as _notebooklm_paths
+
 from ..exceptions import LockUnavailableError
 from . import cookie_merge as _cookie_merge
 from . import cookie_policy as _cookie_policy
@@ -22,6 +24,8 @@ from .cookie_filter import filter_storage_state_cookies_by_domain_policy
 from .cookie_merge import RecoveryObservation
 from .cookie_types import CookieIdentity, CookieJar
 from .credential_io import _commit_profile_json
+from .master_token_file import MasterTokenFile
+from .master_token_types import MasterToken
 from .paths import _storage_state_lock_path, canonical_storage_key
 from .profile_account import (
     AccountDirective,
@@ -271,6 +275,22 @@ class ProfileStore:
         if key is None:  # pragma: no cover - a non-None path cannot produce None
             raise AssertionError("profile path must have an ordering key")
         return key
+
+    def read_master_token(self) -> MasterToken | None:
+        """Read the typed token derived from this profile's storage path."""
+        token_file = MasterTokenFile(
+            _notebooklm_paths.master_token_path_for(self._path),
+            locks=self._locks,
+        )
+        return token_file.read()
+
+    def write_master_token(self, token: MasterToken) -> None:
+        """Write the typed token derived from this profile's storage path."""
+        token_file = MasterTokenFile(
+            _notebooklm_paths.master_token_path_for(self._path),
+            locks=self._locks,
+        )
+        token_file.write(token)
 
     def read_document(self) -> ProfileDocument:
         payload = json.loads(self._path.read_text(encoding="utf-8"))

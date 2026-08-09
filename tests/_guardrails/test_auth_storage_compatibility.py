@@ -770,6 +770,9 @@ def test_minted_facade_identities_and_master_wrapper_late_lookup_are_exact() -> 
     assert auth.persist_minted_jar is master_token.persist_minted_jar
     assert storage_writer.persist_minted_jar is storage.persist_minted_jar
     assert master_token.persist_minted_jar is not storage.persist_minted_jar
+    assert auth.write_master_token is master_token.write_master_token
+    assert storage_writer.write_master_token is storage.write_master_token
+    assert master_token.write_master_token is not storage.write_master_token
 
     source = ast.parse(inspect.getsource(master_token.persist_minted_jar))
     imports = [node for node in ast.walk(source) if isinstance(node, ast.ImportFrom)]
@@ -783,6 +786,26 @@ def test_minted_facade_identities_and_master_wrapper_late_lookup_are_exact() -> 
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name | ast.Attribute)
     ]
     assert calls == ["storage.persist_minted_jar"]
+
+    writer_source = ast.parse(inspect.getsource(master_token.write_master_token))
+    writer_imports = [node for node in ast.walk(writer_source) if isinstance(node, ast.ImportFrom)]
+    assert [
+        (node.level, node.module, [(alias.name, alias.asname) for alias in node.names])
+        for node in writer_imports
+    ] == [(1, None, [("storage", None)])]
+    writer_calls = [
+        node
+        for node in ast.walk(writer_source)
+        if isinstance(node, ast.Call) and ast.unparse(node.func) == "storage.write_master_token"
+    ]
+    assert len(writer_calls) == 1
+    writer_call = writer_calls[0]
+    assert [ast.unparse(arg) for arg in writer_call.args] == ["path"]
+    assert [(item.arg, ast.unparse(item.value)) for item in writer_call.keywords] == [
+        ("email", "email"),
+        ("master_token", "master_token"),
+        ("android_id", "android_id"),
+    ]
 
 
 def test_lock_wrapper_shapes_ownership_and_projections_are_exact(

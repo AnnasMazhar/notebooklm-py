@@ -127,7 +127,8 @@ from .cookie_filter import (
     filter_storage_state_cookies_by_domain_policy as filter_storage_state_cookies_by_domain_policy,
 )
 from .cookie_types import Cookie, CookieIdentity, CookieJar
-from .credential_io import _commit_master_token_json
+from .master_token_file import MasterTokenFile
+from .master_token_types import MasterToken
 from .paths import resolve_auth_json_env
 from .profile_account import (
     ClearAccount,
@@ -1125,26 +1126,6 @@ def write_master_token(path: Path, *, email: str, master_token: str, android_id:
     guarded by a bounded sibling ``.master_token.json.lock`` — it was previously lockless
     (part of [storage-F5]). RMW intent: **fails closed**.
     """
-    from . import (
-        master_token as _master_token,
-    )  # deferred; no cycle either way (verified)
-
-    payload = {
-        "version": _master_token._MASTER_TOKEN_VERSION,
-        "email": email,
-        "android_id": android_id,
-        "master_token": master_token,
-    }
-
-    def _write() -> None:
-        _commit_master_token_json(path, payload)
-
-    # The transaction template derives the sibling dotted lock for this
-    # credential file (distinct from the profile's storage-state lock — a
-    # different file) and ensures the parent dir is secure before taking it.
-    in_storage_transaction(
-        path,
-        _write,
-        log_prefix="write_master_token",
-        on_unavailable=raise_on_lock_unavailable("write_master_token"),
+    MasterTokenFile(path).write(
+        MasterToken(email=email, android_id=android_id, secret=master_token)
     )

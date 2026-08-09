@@ -3,10 +3,10 @@
 ADR-0034 PR6 moved the real transaction definition and mechanics into the
 path-owned ``ProfileStore``. PR7A moved two account policy bodies onto its
 bounded primitive; PR7B added browser/remint replacement there; PR7C adds the
-login/import replacement; PR7D adds minted-session replacement. The remaining
-storage token writer retains the compatibility template. The frozen 3 raise /
-1 skip / 2 report outcomes remain exact. Cookie persistence deliberately uses
-the separate blocking primitive.
+login/import replacement; PR7D adds minted-session replacement. PR11B moves the
+remaining credential write onto ``MasterTokenFile``. The frozen 2 raise / 1 skip /
+2 report outcomes remain exact. Cookie persistence deliberately uses the separate
+blocking primitive.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ pytestmark = pytest.mark.repo_lint
 AUTH_ROOT = Path(__file__).resolve().parents[2] / "src" / "notebooklm" / "_auth"
 STORAGE_PATH = AUTH_ROOT / "storage.py"
 STORE_PATH = AUTH_ROOT / "profile_store.py"
+TOKEN_FILE_PATH = AUTH_ROOT / "master_token_file.py"
 
 _UNCONVERTED: frozenset[str] = frozenset()
 
@@ -35,7 +36,6 @@ _POLICY_CALLERS: dict[str, frozenset[str]] = {
         {
             "profile_store.ProfileStore.update_account",
             "profile_store.ProfileStore.replace_minted_session",
-            "storage.write_master_token",
         }
     ),
     "skip_on_lock_unavailable": frozenset({"profile_store.ProfileStore.clear_account"}),
@@ -47,17 +47,14 @@ _POLICY_CALLERS: dict[str, frozenset[str]] = {
     ),
 }
 
-_STORAGE_TRANSACTION_CALLERS = frozenset(
-    {
-        "write_master_token",
-    }
-)
+_STORAGE_TRANSACTION_CALLERS: frozenset[str] = frozenset()
 
 _DIRECT_ACQUIRE_OWNERS = frozenset(
     {
         "storage._file_lock",
         "profile_store.ProfileStore._under_bounded_lock",
         "profile_store.ProfileStore._under_blocking_cookie_lock",
+        "master_token_file.MasterTokenFile.write",
     }
 )
 
@@ -152,11 +149,11 @@ def _qualified_callers(target: str) -> set[str]:
     return callers
 
 
-def test_lock_unavailable_policy_ownership_is_exact_3_1_2() -> None:
+def test_lock_unavailable_policy_ownership_is_exact_2_1_2() -> None:
     actual = {policy: _qualified_callers(policy) for policy in _POLICY_CALLERS}
     assert actual == {policy: set(callers) for policy, callers in _POLICY_CALLERS.items()}
     assert {policy: len(callers) for policy, callers in actual.items()} == {
-        "raise_on_lock_unavailable": 3,
+        "raise_on_lock_unavailable": 2,
         "skip_on_lock_unavailable": 1,
         "report_on_lock_unavailable": 2,
     }
@@ -176,6 +173,7 @@ def _direct_acquire_owners(source: str | None = None) -> set[str]:
         paths_and_functions = [
             ("storage", _owned_functions(STORAGE_PATH)),
             ("profile_store", _owned_functions(STORE_PATH)),
+            ("master_token_file", _owned_functions(TOKEN_FILE_PATH)),
         ]
     found: set[str] = set()
     for _module, functions in paths_and_functions:
@@ -276,7 +274,7 @@ def test_direct_manager_detector_bites_inline_assigned_keyword_and_control_flow(
     assert _direct_acquire_owners(body) == {"synthetic.forbidden"}
 
 
-def test_direct_manager_acquisitions_are_exactly_the_three_routing_seams() -> None:
+def test_direct_manager_acquisitions_are_exactly_the_four_routing_seams() -> None:
     assert _direct_acquire_owners() == set(_DIRECT_ACQUIRE_OWNERS)
 
 

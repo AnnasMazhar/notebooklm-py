@@ -46,6 +46,8 @@ from filelock import FileLock, Timeout
 # cross-platform interop event this effort does not take). ``paths`` imports
 # nothing from this package, so this is a plain module-level import, not one of
 # the deferred cycle-breaks below.
+from .master_token_file import MasterTokenFile
+from .master_token_types import _MasterTokenRecordError
 from .paths import _bootstrap_lock_path
 
 # perform_oauth for the OAuthLogin token rides the Chromecast app + signature
@@ -286,16 +288,17 @@ def read_master_token(path: Path) -> dict[str, Any] | None:
     :class:`MasterTokenError` on a malformed/old-version file."""
     if not path.exists():
         return None
+    token_file = MasterTokenFile(path)
+    malformed_message: str | None = None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        result = token_file._read_present_with_raw()
     except (OSError, json.JSONDecodeError) as exc:
         raise MasterTokenError(f"Unreadable master_token.json: {exc}") from exc
-    if not isinstance(data, dict):  # e.g. a bare JSON array — avoid .get AttributeError
-        raise MasterTokenError("master_token.json is malformed or an unsupported version.")
-    required = ("master_token", "email", "android_id")
-    if data.get("version") != _MASTER_TOKEN_VERSION or any(not data.get(k) for k in required):
-        raise MasterTokenError("master_token.json is malformed or an unsupported version.")
-    return data
+    except _MasterTokenRecordError:
+        malformed_message = "master_token.json is malformed or an unsupported version."
+    if malformed_message is not None:
+        raise MasterTokenError(malformed_message)
+    return dict(result.raw)
 
 
 def write_master_token(path: Path, *, email: str, master_token: str, android_id: str) -> None:

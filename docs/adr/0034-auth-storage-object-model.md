@@ -147,10 +147,10 @@ facade line pin again without changing bytes or baseline advancement behavior.
 
 The commit spine and real store boundary now own cookie transactions, in-band account intents, and
 all three profile replacements. `credential_io.py` is the sole importer of the unchecked atomic
-JSON capability: one raw private forwarder has exactly two typed callers, for complete profile and
-arbitrary-path master-token documents. `ProfileStore` owns one caller-spelled path, a separately
-canonicalized ordering key, fresh document/session/account reads, shared bounded-lock mechanics,
-both blocking cookie transactions, typed account update/clear, and remint, login/import, and
+JSON capability: one raw forwarder serves exactly `ProfileStore` for complete profiles and
+`MasterTokenFile` for arbitrary token documents. `ProfileStore` owns one caller-spelled path, a
+canonical ordering key, fresh document/session/account/derived-token reads, bounded-lock mechanics,
+blocking cookie transactions, typed token/account writes, and remint, login/import, and
 minted-session replacement. It owns no cache, baseline, live HTTP jar, scheduler, logger policy
 object, or injectable writer.
 Remint reads the latest destination under lock only when raw namespace carry is requested,
@@ -184,14 +184,14 @@ Its closed results are `InBandAccount | LegacyAccount | NoAccount` and
 two-second-per-snapshot-worker exit drain; per-RPC reads never wait for the 90-second writer.
 `LoginProfileWriter` reconciles only after `APPLIED` and lock release using the literal raw-key rule;
 `AccountMetadataWriter` preserves write/clear-specific post-operation scrub and exception ordering.
-`storage.py` remains the v0.x signature/result/patch/facade adapter and token-policy owner. Exact
-pins remain storage 1,150, migration 311, store 794, and filter 96 lines (2,351 combined).
+`storage.py` remains the v0.x signature/result/patch facade. Exact pins are storage 1,131,
+migration 311, store 814, filter 96, and token file 89 lines (2,441 combined).
 
 Phase 9 lands the typed stored-auth boundary in `tokens.py`: raw-profile-bearing file and captured inline sources, `LoadPolicy(allow_headless)`, paired seeds/acquisitions, final-attempt route resolution, the closed `LoadedAuth` union, and concrete `SessionSeedLoader`, `AccountRouteResolver`, and `StoredAuthLoader` around the sole structural port, `TokenAcquirer`.
 Cookie load and every refresh/recovery replacement produce one live jar plus its exact SameSite-preserving typed baseline; the initial merge advances accepted final identities, retains rejected old identities, and keeps the acquisition baseline after hard failure.
 Phase 10 makes `CookiePersistence._from_store` the first-party runtime owner: `FileLoadedAuth` registers its exact store/baseline without a reread, while direct construction prepares one disk baseline before transport and a fileless client captures only a live compatibility projection.
 Per-path `Uninitialized | ReadyBaseline | FailedBaseline` state is isolated from `_LegacySnapshotAdapter`; canonical saves are ordered typed store merges, while a custom/patched default saver remains legacy and a non-default override lazily initializes its own retryable snapshot. `ClientLifecycle` alone mirrors the loaded projection into its client-owned `AuthTokens` after open and accepted saves; `_from_store` retains no `AuthTokens`.
-Measured Phase 10 owners are `_cookie_persistence.py` 452, `_runtime/init.py` 618, `_runtime/lifecycle.py` 628, and `client.py` 992 lines; master-token extraction and recovery-coordinator decomposition remain deferred.
+Phase 11B makes `MasterTokenFile` the one-read raw/typed file owner and sole token-commit caller; `ProfileStore` derives typed token paths at call time, while the raw reader and late-bound two-layer writer remain v0.x adapters. Network/bootstrap remain in `master_token.py`.
 
 The compatibility inventory is explicit:
 

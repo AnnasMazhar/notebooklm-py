@@ -13,6 +13,7 @@ import notebooklm._auth as auth_package
 import notebooklm.auth as auth_facade
 from notebooklm._auth import profile_store, storage, storage_writer
 from notebooklm._auth.cookie_types import Cookie, CookieJar
+from notebooklm._auth.master_token_types import MasterToken
 from notebooklm._auth.profile_account import DomainSelection
 from notebooklm._auth.profile_document import ProfileDocument
 
@@ -39,6 +40,8 @@ _STORE_METHODS = {
     "replace_from_remint",
     "replace_from_login",
     "replace_minted_session",
+    "read_master_token",
+    "write_master_token",
 }
 _CAPABILITY_ESCAPE = "<ProfileStore-capability-escape>"
 _INSTANCE_ESCAPE = "<ProfileStore-instance-escape>"
@@ -85,6 +88,7 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
     ("module", 0, "typing", "Protocol", None),
     ("module", 0, "typing", "TypeVar", None),
     ("module", 0, "typing", "cast", None),
+    ("module", 0, "notebooklm.paths", "", "_notebooklm_paths"),
     ("module", 2, "exceptions", "LockUnavailableError", None),
     ("module", 1, "", "cookie_merge", "_cookie_merge"),
     ("module", 1, "", "cookie_policy", "_cookie_policy"),
@@ -93,6 +97,8 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
     ("module", 1, "cookie_types", "CookieIdentity", None),
     ("module", 1, "cookie_types", "CookieJar", None),
     ("module", 1, "credential_io", "_commit_profile_json", None),
+    ("module", 1, "master_token_file", "MasterTokenFile", None),
+    ("module", 1, "master_token_types", "MasterToken", None),
     ("module", 1, "paths", "_storage_state_lock_path", None),
     ("module", 1, "paths", "canonical_storage_key", None),
     ("module", 1, "profile_account", "AccountDirective", None),
@@ -279,11 +285,11 @@ def test_profile_store_public_method_set_is_minimal_and_exact() -> None:
         "replace_from_remint",
         "replace_from_login",
         "replace_minted_session",
+        "read_master_token",
+        "write_master_token",
     }
     forbidden_future = {
         "persist_minted_session",
-        "read_master_token",
-        "write_master_token",
         "mutate",
     }
     assert methods.isdisjoint(forbidden_future)
@@ -415,6 +421,125 @@ def test_profile_store_constructor_and_replace_method_signatures_are_exact() -> 
     assert str(inspect.signature(profile_store.ProfileStore.replace_minted_session)) == (
         "(self, request: 'MintedSessionWriteRequest') -> 'None'"
     )
+    assert str(inspect.signature(profile_store.ProfileStore.read_master_token)) == (
+        "(self) -> 'MasterToken | None'"
+    )
+    assert str(inspect.signature(profile_store.ProfileStore.write_master_token)) == (
+        "(self, token: 'MasterToken') -> 'None'"
+    )
+    assert profile_store.ProfileStore.write_master_token.__annotations__["token"] == "MasterToken"
+    assert MasterToken.__module__ == "notebooklm._auth.master_token_types"
+
+
+def _master_token_method_violations(source: str) -> list[str]:
+    tree = ast.parse(source)
+    cls = _profile_store_class(tree)
+    methods = {
+        node.name: node
+        for node in cls.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    violations: list[str] = []
+    initializer = methods["__init__"]
+    retained = {
+        node.attr
+        for node in ast.walk(initializer)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "self"
+        and isinstance(node.ctx, ast.Store)
+    }
+    if retained != {"_path", "_locks"}:
+        violations.append(f"retained:{sorted(retained)!r}")
+
+    expected_terminal = {
+        "read_master_token": "return token_file.read()",
+        "write_master_token": "token_file.write(token)",
+    }
+    for name, terminal in expected_terminal.items():
+        method = methods[name]
+        statements = [
+            node
+            for node in method.body
+            if not (
+                isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            )
+        ]
+        if len(statements) != 2 or not isinstance(statements[0], ast.Assign):
+            violations.append(f"{name}:statements")
+            continue
+        assignment = statements[0]
+        if (
+            len(assignment.targets) != 1
+            or not isinstance(assignment.targets[0], ast.Name)
+            or assignment.targets[0].id != "token_file"
+            or not isinstance(assignment.value, ast.Call)
+            or not isinstance(assignment.value.func, ast.Name)
+            or assignment.value.func.id != "MasterTokenFile"
+        ):
+            violations.append(f"{name}:file-construction")
+            continue
+        constructor = assignment.value
+        if len(constructor.args) != 1 or not (
+            isinstance(constructor.args[0], ast.Call)
+            and ast.unparse(constructor.args[0].func) == "_notebooklm_paths.master_token_path_for"
+            and [ast.unparse(arg) for arg in constructor.args[0].args] == ["self._path"]
+            and not constructor.args[0].keywords
+        ):
+            violations.append(f"{name}:late-derived-path")
+        if [(item.arg, ast.unparse(item.value)) for item in constructor.keywords] != [
+            ("locks", "self._locks")
+        ]:
+            violations.append(f"{name}:lock-identity")
+        if ast.unparse(statements[1]) != terminal:
+            violations.append(f"{name}:terminal:{ast.unparse(statements[1])}")
+        forbidden = {
+            node.attr
+            for node in ast.walk(method)
+            if isinstance(node, ast.Attribute) and node.attr in {"_read_with_raw", "raw"}
+        }
+        if forbidden:
+            violations.append(f"{name}:raw-capability:{sorted(forbidden)!r}")
+    return violations
+
+
+def test_master_token_methods_derive_late_share_locks_and_retain_no_file() -> None:
+    source = MODULE_PATH.read_text(encoding="utf-8")
+    assert _master_token_method_violations(source) == []
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "        self._token_file = token_file\n",
+        "        return token_file._read_with_raw()\n",
+        "            self._path.parent / 'master_token.json',\n",
+        "            locks=StorageLockManager.process_default(),\n",
+    ],
+)
+def test_master_token_method_guard_bites_on_retention_raw_paths_and_wrong_locks(
+    mutation: str,
+) -> None:
+    source = MODULE_PATH.read_text(encoding="utf-8")
+    if "self._token_file" in mutation:
+        source = source.replace(
+            "        self._locks = locks if locks is not None else _STORAGE_LOCKS\n",
+            "        self._locks = locks if locks is not None else _STORAGE_LOCKS\n" + mutation,
+            1,
+        )
+    elif "_read_with_raw" in mutation:
+        source = source.replace("        return token_file.read()\n", mutation, 1)
+    elif "self._path.parent" in mutation:
+        source = source.replace(
+            "            _notebooklm_paths.master_token_path_for(self._path),\n",
+            mutation,
+            1,
+        )
+    else:
+        source = source.replace("            locks=self._locks,\n", mutation, 1)
+    assert _master_token_method_violations(source)
 
 
 def _function_owner(stack: list[str]) -> str:
