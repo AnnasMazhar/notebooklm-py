@@ -906,18 +906,9 @@ class _FromStorageContext:
         self._owns_close = False
 
     async def _build(self) -> NotebookLMClient:
-        """Load auth and instantiate the client (no session open).
+        """Load auth and instantiate a cached, not-yet-open client.
 
-        Idempotent on success: subsequent calls return the cached
-        instance so awaiting the wrapper and then entering it as a
-        context manager — or vice versa — never re-runs the auth load.
-
-        Partial failure: if ``AuthTokens.from_storage(...)`` succeeds
-        but the ``NotebookLMClient(...)`` constructor raises, the cache
-        stays unset and a retry re-runs the auth load. That's
-        intentional — the constructor only raises on programmer error
-        (cross-validated kwargs) so the extra I/O on retry is
-        acceptable.
+        Constructor failure leaves the cache empty, so retry reloads auth.
         """
         if self._client is not None:
             return self._client
@@ -939,7 +930,7 @@ class _FromStorageContext:
                 pass
         storage_path = auth.storage_path
 
-        self._client = self._cls(
+        client = self._cls(
             auth,
             timeout=kwargs["timeout"],
             storage_path=storage_path,
@@ -955,7 +946,12 @@ class _FromStorageContext:
             upload_timeout=kwargs["upload_timeout"],
             on_rpc_event=kwargs["on_rpc_event"],
         )
-        return self._client
+        if isinstance(loaded, _auth_tokens.FileLoadedAuth) and hasattr(client, "_collaborators"):
+            client._collaborators.cookie_persistence.register_open_baseline(
+                loaded.store, loaded.persistence_baseline
+            )
+        self._client = client
+        return client
 
     def __await__(self) -> Generator[Any, None, NotebookLMClient]:
         """Legacy await path — returns a built-but-unentered client.

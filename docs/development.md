@@ -121,7 +121,7 @@ a narrow Protocol surface so it can be unit-tested against a stub:
 | `_streaming_post.py` | `stream_post_with_size_cap` | Low-level POST streaming and response-size guard. |
 | `_conversation_cache.py` | `ConversationCache` | Per-instance true-LRU conversation cache for `ChatAPI` continuity. Caps the conversation count (`MAX_CONVERSATION_CACHE_SIZE`) and the turns retained per conversation (`MAX_TURNS_PER_CONVERSATION`). |
 | `_polling_registry.py` | `PollRegistry` | Pending-poll registry shared by long-running artifact generations. |
-| `_cookie_persistence.py` | `CookiePersistence` | Cookie-jar → storage-state serialization, `__Secure-1PSIDTS` rotation. |
+| `_cookie_persistence.py` | `CookiePersistence` | Per-path typed baselines, ordered `ProfileStore` cookie merges, `__Secure-1PSIDTS` rotation, and the concrete v0.x snapshot adapter. |
 
 The feature-facing surface is the set of **capability Protocols** in
 `notebooklm._runtime.contracts` — `Kernel`, `RpcCaller`, and
@@ -362,10 +362,22 @@ offloads. `_auth/cookies.py` owns one-sample live/SameSite-preserving seed prove
 next baseline from accepted final rows while retaining rejected old entries. The measured owner
 sizes are 816 lines in `tokens.py`, 1,195 in `refresh.py`, and 996 in `client.py`.
 
-`NotebookLMClient.from_storage` consumes the closed result but still passes the selected typed
-baseline through the v0.x `AuthTokens.cookie_snapshot` carrier. Phase 10 will register the typed
-`ProfileStore`/baseline pair with runtime `CookiePersistence`; do not initialize that state or
-claim the direct-construction disk-baseline correction in Phase 9.
+Phase 10 completes runtime ownership. `NotebookLMClient.from_storage` registers a
+`FileLoadedAuth` result's exact `ProfileStore`/baseline pair with `CookiePersistence`, without a
+second disk read. A direct file client prepares its baseline once before transport construction;
+missing, malformed, or invalid input becomes a sticky typed failure for canonical saves. A
+fileless client records only a one-shot live compatibility projection and creates no typed state.
+
+First-party `_from_store` persistence retains no `AuthTokens`. An untouched default saver routes
+through the private canonical merge; a custom or patched default routes through the exact public
+legacy `save(cookie_jar, storage_path, *, to_thread)` signature. Non-default legacy paths lazily
+initialize their own retryable adapter snapshot and suppress the writer when the source is invalid.
+`ClientLifecycle` alone owns the client `AuthTokens` mirror and refreshes `cookie_snapshot` after
+open and accepted canonical or legacy saves. Tests should patch the public saver only when they
+intend to exercise legacy compatibility; canonical tests should target the private typed seam.
+Measured owners are 452 lines in `_cookie_persistence.py`, 618 in `_runtime/init.py`, 628 in
+`_runtime/lifecycle.py`, and 992 in `client.py`.
+
 - **In-process lock before OS lock.** `StorageLockManager` takes an in-process
   `threading.Lock` keyed by the exact raw lock-path spelling *before* the OS lock, so
   threads within one process serialize before ever touching the OS primitive —

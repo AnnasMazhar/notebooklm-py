@@ -244,6 +244,38 @@ EXPECTED_SIGNATURES: dict[str, SignatureDescriptor] = {
         (("self", P, None, R), ("jar", P, "httpx.Cookies", R)),
         "CookieSnapshot",
     ),
+    "CookiePersistence._from_store": (
+        (
+            ("store", P, "ProfileStore | None", R),
+            ("save_lock", K, "threading.Lock | None", "None"),
+        ),
+        "CookiePersistence",
+    ),
+    "CookiePersistence.register_open_baseline": (
+        (
+            ("self", P, None, R),
+            ("store", P, "ProfileStore", R),
+            ("baseline", P, "CookieJar", R),
+        ),
+        "None",
+    ),
+    "CookiePersistence._prepare_open_baseline": (
+        (
+            ("self", P, None, R),
+            ("path", P, "Path | None", R),
+            ("to_thread", K, "ToThread", R),
+        ),
+        "None",
+    ),
+    "CookiePersistence._save_canonical": (
+        (
+            ("self", P, None, R),
+            ("jar", P, "httpx.Cookies", R),
+            ("path", P, "Path | None", R),
+            ("to_thread", K, "ToThread", R),
+        ),
+        "None",
+    ),
     "CookiePersistence.save": (
         (
             ("self", P, None, R),
@@ -464,7 +496,11 @@ LIVE_SIGNATURES: dict[str, Callable[..., object]] = {
     "storage.snapshot_cookie_jar": storage.snapshot_cookie_jar,
     "storage.advance_cookie_snapshot_after_save": storage.advance_cookie_snapshot_after_save,
     "CookiePersistence.__init__": CookiePersistence.__init__,
+    "CookiePersistence._from_store": CookiePersistence._from_store,
+    "CookiePersistence.register_open_baseline": CookiePersistence.register_open_baseline,
+    "CookiePersistence._prepare_open_baseline": CookiePersistence._prepare_open_baseline,
     "CookiePersistence.capture_open_snapshot": CookiePersistence.capture_open_snapshot,
+    "CookiePersistence._save_canonical": CookiePersistence._save_canonical,
     "CookiePersistence.save": CookiePersistence.save,
     "NotebookLMClient.__init__": NotebookLMClient.__init__,
     "AuthTokens.__init__": AuthTokens.__init__,
@@ -917,11 +953,14 @@ def test_facade_identities_and_three_cookie_save_lookup_seams() -> None:
     )
     assert auth.validate_with_recovery is psidts_recovery.validate_with_recovery
     assert callable(lifecycle._default_cookie_saver)
+    from notebooklm import _cookie_persistence as persistence_module
+
+    assert lifecycle._default_cookie_saver is persistence_module._default_cookie_saver
     source = ast.parse(inspect.getsource(lifecycle._default_cookie_saver))
-    imports = [node for node in ast.walk(source) if isinstance(node, ast.ImportFrom)]
-    assert [
-        (node.level, node.module, [alias.name for alias in node.names]) for node in imports
-    ] == [(2, "_auth.storage", ["save_cookies_to_storage"])]
+    calls = [node for node in ast.walk(source) if isinstance(node, ast.Call)]
+    assert len(calls) == 1
+    assert ast.unparse(calls[0].func) == "_auth_storage.save_cookies_to_storage"
+    assert persistence_module._canonical_cookie_saver_is_current()
     assert "cookie_saver" in inspect.signature(NotebookLMClient.__init__).parameters
     assert "save_cookies_to_storage" in inspect.signature(CookiePersistence.save).parameters
 

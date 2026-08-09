@@ -1510,11 +1510,11 @@ class TestCASVariantAware:
            dotted delta. ``from_storage`` then runs the real
            ``advance_cookie_snapshot_after_save``, which must preserve the
            bare-host baseline rather than dropping the key.
-        4. A Set-Cookie aligns the in-memory jar to disk (``OSID`` reset to
-           the sibling's value) and a second lifecycle ``save_cookies``
-           runs. With the variant-aware baseline preserved by step 3, the
-           second save recognizes convergence, advances cleanly, and a later
-           rotation can persist without re-clobbering the sibling write.
+        4. Client open applies Phase 10's named direct-construction correction:
+           its typed baseline comes from the current disk sample (SIBLING), not
+           the pre-client compatibility snapshot (OLD). A Set-Cookie aligns the
+           live dotted variant to disk; convergence and a later rotation then
+           retain the authoritative bare-row identity without re-clobbering.
         """
         from notebooklm import auth as auth_mod
 
@@ -1584,11 +1584,12 @@ class TestCASVariantAware:
             assert core._collaborators.cookie_persistence.loaded_cookie_snapshot is not None
             assert (
                 core._collaborators.cookie_persistence.loaded_cookie_snapshot[bare_key].value
-                == "OLD"
+                == "SIBLING"
             ), (
-                "Client open must inherit the variant-aware preserved "
-                "baseline from AuthTokens.cookie_snapshot"
+                "Direct client open must derive its typed baseline from the "
+                "current disk sample, not the stale compatibility snapshot"
             )
+            assert dotted_key not in (core._collaborators.cookie_persistence.loaded_cookie_snapshot)
 
             # Set-Cookie aligns the in-memory dotted OSID with what disk now
             # holds. Run the second save through the real lifecycle plumbing.
@@ -1608,18 +1609,14 @@ class TestCASVariantAware:
             )
             assert core._collaborators.cookie_persistence.loaded_cookie_snapshot is not None
             assert (
-                core._collaborators.cookie_persistence.loaded_cookie_snapshot.get(dotted_key)
-                is not None
-            )
-            assert (
                 core._collaborators.cookie_persistence.loaded_cookie_snapshot[dotted_key].value
                 == "SIBLING"
             ), (
                 "After the second save, disk already matches the current "
-                "dotted-variant jar value, so the save must recover from the "
-                "prior CAS rejection and advance baseline to the converged "
-                "value instead of keeping the stale OLD baseline forever"
+                "dotted-variant jar value, so the accepted final live row "
+                "must become the next typed baseline"
             )
+            assert bare_key not in core._collaborators.cookie_persistence.loaded_cookie_snapshot
 
             _set_cookie_value(core._collaborators.kernel.get_http_client().cookies, "OSID", "NEXT")
             await core._collaborators.lifecycle.save_cookies(
@@ -1636,8 +1633,8 @@ class TestCASVariantAware:
                 core._collaborators.cookie_persistence.loaded_cookie_snapshot[dotted_key].value
                 == "NEXT"
             ), (
-                "The successful follow-up rotation should advance the dotted "
-                "baseline to the value now reflected on disk"
+                "The successful follow-up rotation should advance the "
+                "accepted final live-row baseline now reflected on disk"
             )
         finally:
             await core.close()

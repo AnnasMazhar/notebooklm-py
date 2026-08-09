@@ -454,8 +454,19 @@ headless, or master-token replacement baseline; `_auth/recovery.py` carries pair
 results. Before returning file auth, `StoredAuthLoader` performs the initial `ProfileStore` merge:
 accepted identities advance from authoritative final rows, rejected conflicts retain their old
 baseline, and a hard merge failure retains the acquisition baseline for a later retry. The closed
-file result carries its store and exact baseline, but the current client still bridges that baseline
-through `AuthTokens.cookie_snapshot`. Runtime `CookiePersistence` registration is Phase 10 work.
+file result carries its store and exact baseline. Phase 10 registers that exact pair with runtime
+`CookiePersistence` without a second read. Direct file clients prepare one disk baseline before
+transport; missing, malformed, or invalid input produces sticky failed typed state, while fileless
+clients keep a one-shot live compatibility projection and no typed state.
+
+`CookiePersistence` owns `Uninitialized`, `ReadyBaseline`, and `FailedBaseline` per canonical path
+plus a concrete per-key legacy snapshot adapter. An untouched first-party default saver uses the
+private ordered `ProfileStore` merge. A custom or patched default stays on the public v0.x saver;
+non-default overrides lazily initialize their own retryable adapter snapshot and do not write from
+invalid input. Successful legacy saves invalidate typed ready state for a fresh later read, but do
+not clear sticky failure. `ClientLifecycle` selects the route before default-failure gates and alone
+mirrors the loaded projection into the client-owned `AuthTokens.cookie_snapshot` after open and
+accepted saves; first-party persistence retains no `AuthTokens`.
 
 ### 3.3 Empirical cookie requirements
 
@@ -1110,8 +1121,9 @@ reports still make sense:
   Those writers (account metadata, master-token persist) now **fail closed**, raising
   `LockUnavailableError` rather than silently skipping the write, while the CAS
   cookie merge keeps its status-quo **fail-open** behavior (availability is safe
-  there; the CAS guard itself prevents a lost update). A save-ordering guard
-  (`CookiePersistence.save()`) additionally makes a stale queued save drop itself
+  there; the CAS guard itself prevents a lost update). A shared dispatch-order guard
+  across public legacy and private canonical saves additionally makes a stale queued save drop
+  itself
   instead of overwriting a save that already landed.
 
 Across the OSS ecosystem this is the most defensive cookie-persistence implementation
@@ -1188,15 +1200,24 @@ gate their writes correctly.
 
 ## Changelog
 
+- **2026-08-09 (runtime profile-store cookie persistence)** — `FileLoadedAuth` now registers its
+  exact store/baseline pair with first-party `CookiePersistence`; direct construction prepares one
+  baseline before transport, with sticky typed failure and fileless compatibility-only capture.
+  Untouched defaults use the private typed merge, custom/patched defaults retain the exact public
+  legacy saver, and non-default overrides lazily initialize retryable per-key adapter snapshots.
+  `ClientLifecycle` owns the v0.x `AuthTokens.cookie_snapshot` mirror after open and accepted saves;
+  `_from_store` retains no `AuthTokens`. Measured owners are 452 lines in `_cookie_persistence.py`,
+  618 in `_runtime/init.py`, 628 in `_runtime/lifecycle.py`, and 992 in `client.py`.
+
 - **2026-08-09 (typed stored-auth loader and paired baseline)** — `_auth/tokens.py` now owns the
   captured-inline/file source split, paired seed/acquisition, per-attempt account route,
   `StoredAuthLoader`, and closed `LoadedAuth` result around the sole `TokenAcquirer` seam. One raw
   cookie sample supplies both the live jar and SameSite-preserving typed baseline; refresh and
   recovery replacements return their exact paired baselines. The initial store merge advances
   accepted-final/rejected-old state and retains the acquisition baseline on hard failure. The
-  client consumes the closed result through the existing `AuthTokens.cookie_snapshot` bridge;
-  runtime store/baseline registration and direct-construction correction remain deferred to Phase
-  10. Measured owners are 816 lines in `tokens.py`, 1,195 in `refresh.py`, and 996 in `client.py`.
+  client consumes the closed result; Phase 10 registers its exact file store/baseline pair with
+  runtime persistence. Measured loader owners were 816 lines in `tokens.py`, 1,195 in `refresh.py`,
+  and 996 in `client.py` at that phase.
 
 - **2026-08-09 (legacy account migration ownership and lifecycle)** —
   `_auth/profile_migration.py` now owns `LegacyAccountContext`, `LegacyAccountMigrator`,

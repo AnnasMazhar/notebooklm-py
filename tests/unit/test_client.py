@@ -11,6 +11,7 @@ from pytest_httpx import HTTPXMock
 from notebooklm._auth import tokens as _auth_tokens
 from notebooklm._auth.cookie_types import CookieJar
 from notebooklm._auth.profile_store import ProfileStore
+from notebooklm._cookie_persistence import ReadyBaseline
 from notebooklm._runtime.helpers import is_auth_error
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
@@ -256,6 +257,33 @@ class TestFromStorage:
         assert calls == [(None, "work")]
         assert client.captured_auth.storage_path == profile_storage_path
         assert client.captured_kwargs["storage_path"] == profile_storage_path
+
+    @pytest.mark.asyncio
+    async def test_from_storage_registers_exact_file_store_and_baseline(
+        self, tmp_path, monkeypatch
+    ):
+        """A normal client consumes the closed FileLoadedAuth pair without rereading it."""
+        explicit_path = tmp_path / "storage_state.json"
+        auth = self._auth(explicit_path)
+        store = ProfileStore(explicit_path)
+        baseline = CookieJar()
+
+        async def fake_load_stored_auth(*, path, profile, policy, auth_type):
+            assert path == explicit_path
+            assert profile is None
+            return _auth_tokens.FileLoadedAuth(auth, store, baseline)
+
+        monkeypatch.setattr(_auth_tokens, "_load_stored_auth", fake_load_stored_auth)
+
+        client = await NotebookLMClient.from_storage(str(explicit_path))._build()
+        persistence = client._collaborators.cookie_persistence
+        state = persistence._states[store.ordering_key]
+
+        assert persistence._default_store is store
+        assert isinstance(state.baseline, ReadyBaseline)
+        assert state.baseline.value == baseline
+        assert persistence.loaded_cookie_snapshot == {}
+        assert client.auth is auth
 
     @pytest.mark.asyncio
     async def test_from_storage_preserves_none_storage_path_for_auth_json(self, monkeypatch):

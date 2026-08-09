@@ -42,6 +42,7 @@ _STORE_METHODS = {
 }
 _CAPABILITY_ESCAPE = "<ProfileStore-capability-escape>"
 _INSTANCE_ESCAPE = "<ProfileStore-instance-escape>"
+_UNTRUSTED_PROVIDER = "<untrusted-ProfileStore-provider>"
 _METHOD_ESCAPE_PREFIX = "<store-method-capability-escape:"
 _RECEIVER_ESCAPE_PREFIX = "<unproven-store-receiver:"
 _PROFILE_STORE_PROVIDERS = {
@@ -233,7 +234,13 @@ def test_production_importers_are_exactly_approved_store_owners_and_loader() -> 
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
         )
     }
-    assert actual == {"profile_migration.py", "storage.py", "tokens.py"}
+    assert actual == {
+        "_cookie_persistence.py",
+        "_runtime/init.py",
+        "profile_migration.py",
+        "storage.py",
+        "tokens.py",
+    }
 
 
 def test_external_source_importer_is_detected_with_stable_relative_label() -> None:
@@ -424,33 +431,64 @@ def _qualified_name(node: ast.expr) -> str | None:
     return None
 
 
-def _profile_store_bindings(path: Path, tree: ast.AST) -> tuple[set[str], set[str]]:
-    classes = {
-        "ProfileStore"
-        for node in tree.body
-        if path == MODULE_PATH and isinstance(node, ast.ClassDef) and node.name == "ProfileStore"
-    }
-    modules: set[str] = set()
-    for node in ast.walk(tree):
+def _binding_names(node: ast.stmt) -> set[str]:
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+        return {node.name}
+    if isinstance(node, ast.Assign):
+        return {target.id for target in node.targets if isinstance(target, ast.Name)}
+    if isinstance(node, ast.AnnAssign | ast.AugAssign) and isinstance(node.target, ast.Name):
+        return {node.target.id}
+    return set()
+
+
+def _profile_store_bindings(
+    path: Path, tree: ast.AST
+) -> tuple[set[str], set[str], set[str], set[str]]:
+    """Resolve final globals because deferred bodies use runtime module lookup."""
+    classes: set[str] = set()
+    modules: dict[str, str] = {}
+    candidate_classes: set[str] = set()
+    candidate_modules: set[str] = set()
+
+    def clear(bound: str) -> None:
+        classes.discard(bound)
+        for reference, root in list(modules.items()):
+            if root == bound:
+                del modules[reference]
+
+    top_level = tree.body if isinstance(tree, ast.Module) else []
+    for node in top_level:
         if isinstance(node, ast.ImportFrom):
             resolved = _resolved_module(path, node)
-            if resolved in _PROFILE_STORE_PROVIDERS:
-                classes.update(
-                    item.asname or item.name for item in node.names if item.name == "ProfileStore"
-                )
-            elif resolved == "notebooklm._auth":
-                modules.update(
-                    item.asname or item.name
-                    for item in node.names
-                    if f"{resolved}.{item.name}" in _PROFILE_STORE_PROVIDERS
-                )
-        elif isinstance(node, ast.Import):
-            modules.update(
-                item.asname or item.name
-                for item in node.names
-                if item.name in _PROFILE_STORE_PROVIDERS
-            )
-    return classes, modules
+            for item in node.names:
+                bound = item.asname or item.name
+                clear(bound)
+                if resolved in _PROFILE_STORE_PROVIDERS and item.name == "ProfileStore":
+                    classes.add(bound)
+                    candidate_classes.add(bound)
+                elif (
+                    resolved == "notebooklm._auth"
+                    and f"{resolved}.{item.name}" in _PROFILE_STORE_PROVIDERS
+                ):
+                    modules[bound] = bound
+                    candidate_modules.add(bound)
+            continue
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                bound = item.asname or item.name.split(".", 1)[0]
+                clear(bound)
+                if item.name in _PROFILE_STORE_PROVIDERS:
+                    reference = item.asname or item.name
+                    modules[reference] = bound
+                    candidate_modules.add(reference)
+            continue
+        for bound in _binding_names(node):
+            clear(bound)
+        if path == MODULE_PATH and isinstance(node, ast.ClassDef) and node.name == "ProfileStore":
+            classes.add(node.name)
+            candidate_classes.add(node.name)
+
+    return classes, set(modules), candidate_classes, candidate_modules
 
 
 def _migration_service_bindings(path: Path, tree: ast.AST) -> tuple[dict[str, str], set[str]]:
@@ -500,13 +538,17 @@ class _StoreCallCollector(ast.NodeVisitor):
         module: str,
         class_aliases: set[str],
         module_aliases: set[str],
+        candidate_class_aliases: set[str],
+        candidate_module_aliases: set[str],
         service_aliases: dict[str, str],
         service_module_aliases: set[str],
     ) -> None:
         self.module = module
         self.class_aliases = class_aliases
         self.module_aliases = module_aliases
-        self.fail_closed = bool(class_aliases or module_aliases)
+        self.candidate_class_aliases = candidate_class_aliases
+        self.candidate_module_aliases = candidate_module_aliases
+        self.fail_closed = bool(candidate_class_aliases or candidate_module_aliases)
         self.class_stack: list[str] = []
         self.function_stack: list[str] = []
         self.binding_frames: list[tuple[str, dict[str, bool]]] = [("lexical", {})]
@@ -632,6 +674,10 @@ class _StoreCallCollector(ast.NodeVisitor):
     def _annotation_is_store(self, annotation: ast.expr | None) -> bool:
         if annotation is None:
             return False
+        if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+            return self._annotation_is_store(annotation.left) or self._annotation_is_store(
+                annotation.right
+            )
         if isinstance(annotation, ast.Name):
             return annotation.id in self.class_aliases
         return self._is_store_constructor(annotation)
@@ -654,7 +700,16 @@ class _StoreCallCollector(ast.NodeVisitor):
                 return
 
     def _value_is_store(self, value: ast.expr | None) -> bool:
-        return isinstance(value, ast.Call) and self._is_store_constructor(value.func)
+        return isinstance(value, ast.Call) and (
+            self._is_store_constructor(value.func)
+            or (
+                self.class_stack[-1:] == ["CookiePersistence"]
+                and isinstance(value.func, ast.Attribute)
+                and isinstance(value.func.value, ast.Name)
+                and value.func.value.id == "self"
+                and value.func.attr == "_resolve_store"
+            )
+        )
 
     def _bound_service_name(self, node: ast.expr) -> str | None:
         if isinstance(node, ast.Name):
@@ -709,6 +764,12 @@ class _StoreCallCollector(ast.NodeVisitor):
         return None
 
     def _trusted_store_argument_positions(self, node: ast.Call) -> set[int]:
+        if (
+            self.class_stack[-1:] == ["CookiePersistence"]
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "_initialize"
+        ):
+            return {0}
         if self._service_symbol(node.func) in {
             "LoginProfileWriter",
             "AccountMetadataWriter",
@@ -727,11 +788,24 @@ class _StoreCallCollector(ast.NodeVisitor):
         if isinstance(node, ast.Name):
             return node.id in self.class_aliases
         qualified = _qualified_name(node)
-        if qualified in {f"{provider}.ProfileStore" for provider in _PROFILE_STORE_PROVIDERS}:
+        if (
+            qualified in {f"{provider}.ProfileStore" for provider in _PROFILE_STORE_PROVIDERS}
+            and qualified.removesuffix(".ProfileStore") in self.module_aliases
+        ):
             return True
         if isinstance(node, ast.Attribute) and node.attr == "ProfileStore":
             module = _qualified_name(node.value)
             return module is not None and module in self.module_aliases
+        return False
+
+    def _is_candidate_constructor(self, node: ast.expr) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in self.candidate_class_aliases
+        if isinstance(node, ast.Attribute) and node.attr == "ProfileStore":
+            module = _qualified_name(node.value)
+            return module is not None and (
+                module in self.candidate_module_aliases or module in _PROFILE_STORE_PROVIDERS
+            )
         return False
 
     def _is_provider_module(self, node: ast.expr) -> bool:
@@ -743,6 +817,17 @@ class _StoreCallCollector(ast.NodeVisitor):
         for target in node.targets:
             self._bind_receiver(target, is_store=is_store)
             self._bind_service(target, node.value)
+        if (
+            self.class_stack[-1:] == ["CookiePersistence"]
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Attribute)
+            and isinstance(node.targets[0].value, ast.Name)
+            and node.targets[0].value.id == "self"
+            and node.targets[0].attr == "_default_store"
+            and self._is_store_receiver(node.value)
+        ):
+            self.visit(node.targets[0])
+            return
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
@@ -836,16 +921,37 @@ class _StoreCallCollector(ast.NodeVisitor):
         if self.fail_closed and isinstance(node.ctx, ast.Load):
             if self._is_store_constructor(node):
                 self._record(_CAPABILITY_ESCAPE)
+            elif self._is_candidate_constructor(node):
+                self._record(_UNTRUSTED_PROVIDER)
             elif self._is_tracked_store_name(node):
                 self._record(_INSTANCE_ESCAPE)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if self.fail_closed and isinstance(node.ctx, ast.Load):
+            if node.attr in {"ordering_key", "path"} and self._is_store_receiver(node.value):
+                return
             if self._is_store_constructor(node):
                 self._record(_CAPABILITY_ESCAPE)
                 return
+            if self._is_candidate_constructor(node):
+                self._record(_UNTRUSTED_PROVIDER)
+                return
             if node.attr in _STORE_METHODS and not self._is_provider_module(node.value):
                 self._record(f"{_METHOD_ESCAPE_PREFIX}{node.attr}>")
+        self.generic_visit(node)
+
+    def visit_Compare(self, node: ast.Compare) -> None:
+        values = [node.left, *node.comparators]
+        if (
+            len(node.ops) == 1
+            and isinstance(node.ops[0], ast.Is | ast.IsNot)
+            and any(self._is_store_receiver(value) for value in values)
+            and any(isinstance(value, ast.Constant) and value.value is None for value in values)
+        ):
+            for value in values:
+                if not self._is_store_receiver(value):
+                    self.visit(value)
+            return
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
@@ -854,6 +960,8 @@ class _StoreCallCollector(ast.NodeVisitor):
         provider_call = False
         if self._is_store_constructor(node.func):
             target = "ProfileStore"
+        elif self._is_candidate_constructor(node.func):
+            target = _UNTRUSTED_PROVIDER
         elif isinstance(node.func, ast.Attribute) and node.func.attr in _STORE_METHODS:
             receiver = node.func.value
             if self._is_provider_module(receiver):
@@ -868,13 +976,22 @@ class _StoreCallCollector(ast.NodeVisitor):
                 )
         if target is not None:
             self._record(target)
-        if target == "ProfileStore" or receiver is not None:
+        if target in {"ProfileStore", _UNTRUSTED_PROVIDER} or receiver is not None:
             if receiver is not None and not isinstance(receiver, ast.Name) and not provider_call:
                 self.visit(receiver)
             for argument in node.args:
                 self.visit(argument)
             for keyword in node.keywords:
                 self.visit(keyword.value)
+            return
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "isinstance"
+            and len(node.args) == 2
+            and self._is_store_receiver(node.args[0])
+            and self._is_store_constructor(node.args[1])
+        ):
+            self.visit(node.func)
             return
         trusted_positions = self._trusted_store_argument_positions(node)
         self.visit(node.func)
@@ -886,12 +1003,19 @@ class _StoreCallCollector(ast.NodeVisitor):
 
 
 def _store_calls(path: Path, tree: ast.AST) -> set[Caller]:
-    class_aliases, module_aliases = _profile_store_bindings(path, tree)
+    (
+        class_aliases,
+        module_aliases,
+        candidate_class_aliases,
+        candidate_module_aliases,
+    ) = _profile_store_bindings(path, tree)
     service_aliases, service_module_aliases = _migration_service_bindings(path, tree)
     collector = _StoreCallCollector(
         _source_label(path),
         class_aliases,
         module_aliases,
+        candidate_class_aliases,
+        candidate_module_aliases,
         service_aliases,
         service_module_aliases,
     )
@@ -905,6 +1029,14 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         actual.update(_store_calls(path, tree))
     assert actual == {
+        ("_cookie_persistence.py", "CookiePersistence.__init__", "ProfileStore"),
+        ("_cookie_persistence.py", "CookiePersistence._resolve_store", "ProfileStore"),
+        (
+            "_cookie_persistence.py",
+            "CookiePersistence._save_canonical",
+            "merge_cookie_observation",
+        ),
+        ("_runtime/init.py", "build_collaborators", "ProfileStore"),
         ("profile_store.py", "ProfileStore.read_session", "read_document"),
         ("profile_store.py", "ProfileStore.replace_from_remint", "read_document"),
         ("profile_store.py", "ProfileStore.replace_minted_session", "read_document"),
@@ -1110,6 +1242,40 @@ def test_direct_class_alias_binds_receiver_and_method_call() -> None:
     }
 
 
+def test_same_owner_later_rebinding_invalidates_deferred_store_provider() -> None:
+    tree = ast.parse(
+        "from notebooklm._auth.profile_store import ProfileStore\n"
+        "class CookiePersistence:\n"
+        "    def create(self, path):\n"
+        "        return ProfileStore(path)\n"
+        "ProfileStore = object\n"
+    )
+    assert _store_calls(SRC_ROOT / "_cookie_persistence.py", tree) == {
+        (
+            "_cookie_persistence.py",
+            "CookiePersistence.create",
+            _UNTRUSTED_PROVIDER,
+        )
+    }
+
+
+def test_arbitrary_store_sink_is_distinct_from_owned_projections_and_closure() -> None:
+    persistence_path = SRC_ROOT / "_cookie_persistence.py"
+    source = persistence_path.read_text(encoding="utf-8")
+    marker = "                result = store.merge_cookie_observation(\n"
+    assert source.count(marker) == 1
+    mutated = source.replace(marker, "                leak(store)\n" + marker)
+    base = _store_calls(persistence_path, ast.parse(source))
+    bitten = _store_calls(persistence_path, ast.parse(mutated))
+    assert bitten - base == {
+        (
+            "_cookie_persistence.py",
+            "CookiePersistence._save_canonical",
+            _INSTANCE_ESCAPE,
+        )
+    }
+
+
 def test_shadowed_writer_name_does_not_receive_trusted_store_capability() -> None:
     tree = ast.parse(
         "from .profile_store import ProfileStore\n"
@@ -1282,7 +1448,6 @@ def test_comprehension_receiver_binding_does_not_leak_into_function_scope() -> N
             "replace_from_login",
             f"{_RECEIVER_ESCAPE_PREFIX}_read_account_document>",
         ),
-        ("storage.py", "replace_from_login", _INSTANCE_ESCAPE),
     }
 
 

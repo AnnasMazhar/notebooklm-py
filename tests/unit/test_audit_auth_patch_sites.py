@@ -231,8 +231,8 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     projection = script.build_projection(sites)
     assert projection["summary"]["TOTAL"] == {
         "public": 167,
-        "private": 136,
-        "total": 303,
+        "private": 137,
+        "total": 304,
     }
     relevant = {
         (row["module"], row["attribute"], row["idiom"]): row["count"]
@@ -287,7 +287,7 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
         ("refresh", "_fetch_tokens_with_exact_baseline", "monkeypatch.setattr"): 3,
         ("refresh", "_fetch_tokens_with_refresh", "monkeypatch.setattr"): 1,
         ("storage", "save_cookies_to_storage", "monkeypatch.setattr"): 6,
-        ("tokens", "_load_stored_auth", "monkeypatch.setattr"): 5,
+        ("tokens", "_load_stored_auth", "monkeypatch.setattr"): 6,
         ("tokens", "resolve_auth_json_env", "monkeypatch.setattr"): 1,
     }
 
