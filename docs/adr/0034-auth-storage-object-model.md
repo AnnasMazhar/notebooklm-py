@@ -32,7 +32,7 @@ Extract by owned state/invariant, not headings. `A -> B` below means A may depen
 | `cookie_filter.py` | Stateless pure filter and value-free diagnostic boundary | Filters raw capture rows without retaining values or mutating input; owns no path, lock, document, commit, or lifecycle state | Cookie policy/semantics and logging only |
 | `credential_io.py` | Stateless leaf; two typed wrappers over one unchecked bypass | Profile and arbitrary token writes cannot be confused; no other bypass importer | Atomic I/O and values only |
 | `StorageLockManager` | Shared process default or injected isolate; owns raw-path locks, registry, OS gateway, warning-once | Same raw lock path serializes stores; only cookie CAS blocks; secure-parent prep stays operation-specific | Lock primitives/values only |
-| `CookiePersistence` | Per client; baselines by canonical path plus dispatch order | Baselines never cross profiles; outcome table alone advances order; closes with client | Store, snapshots, thread-dispatch seam |
+| `CookiePersistence` | Per client; typed baselines by canonical path plus a legacy projection adapter | Baselines never cross profiles; outcome table alone advances order; closes with client | Store, snapshots, thread-dispatch seam |
 | `LegacyAccountMigrator` | Stateless service over store and legacy-context collaborator | Owns two-file resolve/promote/scrub and two-read anti-race sequence | Store/account values and dedicated context I/O leaf |
 | `LegacyPromotionScheduler` | Process-default canonical once-per-path registry, daemon workers, injected isolates | No 90-second write deadline in per-RPC reads; bounded 2-second-per-worker exit drain | Store, migrator, thread/exit primitives |
 | `LoadedAuth` | Closed `InlineLoadedAuth | FileLoadedAuth` value | File result always carries exact auth/store/baseline; inline carries neither store nor baseline | Loader outputs and immutable values |
@@ -188,10 +188,10 @@ two-second-per-snapshot-worker exit drain; per-RPC reads never wait for the 90-s
 pins remain storage 1,150, migration 311, store 794, and filter 96 lines (2,351 combined).
 
 Phase 9 lands the typed stored-auth boundary in `tokens.py`: raw-profile-bearing file and captured inline sources, `LoadPolicy(allow_headless)`, paired seeds/acquisitions, final-attempt route resolution, the closed `LoadedAuth` union, and concrete `SessionSeedLoader`, `AccountRouteResolver`, and `StoredAuthLoader` around the sole structural port, `TokenAcquirer`.
-`AuthTokens.from_storage` passes runtime `cls`; the client passes `AuthTokens`. Cookie load and each refresh/recovery replacement produce one live jar plus its exact SameSite-preserving typed baseline.
-The initial store merge advances accepted identities from final rows and keeps rejected identities from the old baseline; hard failure retains the acquisition baseline.
-`NotebookLMClient.from_storage` consumes `LoadedAuth` but still bridges through `auth.cookie_snapshot`: Phase 10, not this stage, registers the file store/baseline with runtime `CookiePersistence`.
-Measured owners are `tokens.py` 816, `refresh.py` 1,195, and `client.py` 996 lines; direct-construction baseline repair, master-token extraction, and recovery-coordinator decomposition remain deferred.
+Cookie load and every refresh/recovery replacement produce one live jar plus its exact SameSite-preserving typed baseline; the initial merge advances accepted final identities, retains rejected old identities, and keeps the acquisition baseline after hard failure.
+Phase 10 makes `CookiePersistence._from_store` the first-party runtime owner: `FileLoadedAuth` registers its exact store/baseline without a reread, while direct construction prepares one disk baseline before transport and a fileless client captures only a live compatibility projection.
+Per-path `Uninitialized | ReadyBaseline | FailedBaseline` state is isolated from `_LegacySnapshotAdapter`; canonical saves are ordered typed store merges, while a custom/patched default saver remains legacy and a non-default override lazily initializes its own retryable snapshot. `ClientLifecycle` alone mirrors the loaded projection into its client-owned `AuthTokens` after open and accepted saves; `_from_store` retains no `AuthTokens`.
+Measured Phase 10 owners are `_cookie_persistence.py` 452, `_runtime/init.py` 618, `_runtime/lifecycle.py` 628, and `client.py` 992 lines; master-token extraction and recovery-coordinator decomposition remain deferred.
 
 The compatibility inventory is explicit:
 

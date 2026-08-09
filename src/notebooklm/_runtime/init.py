@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from .._auth.profile_store import ProfileStore
 from .._client_composed import ClientComposed
 from .._client_metrics import ClientMetrics
 from .._client_seams import ClientSeams, resolve_client_seams
@@ -338,6 +339,8 @@ def build_collaborators(
         limits=config.limits,
         keepalive_interval=config.keepalive_interval,
         keepalive_storage_path=config.keepalive_storage_path,
+        auth=auth,
+        cookie_persistence_path=config.keepalive_storage_path,
         kernel=kernel,
         # Injectable seams. ``None`` is forwarded so the lifecycle's
         # ``or _default_*`` resolves to the late-binding wrapper —
@@ -345,8 +348,12 @@ def build_collaborators(
         cookie_saver=cookie_saver,
         cookie_rotator=cookie_rotator,
     )
-    # Owns the in-process save lock and open-time cookie baseline.
-    cookie_persistence = CookiePersistence(auth, config.keepalive_storage_path)
+    # Owns the in-process save lock and typed per-profile baselines. The raw
+    # auth provenance is retained here; lifecycle supplies constructor-path
+    # precedence separately when it prepares the effective open target.
+    cookie_persistence = CookiePersistence._from_store(
+        ProfileStore(auth.storage_path) if auth.storage_path is not None else None
+    )
 
     return RuntimeCollaborators(
         metrics=metrics,

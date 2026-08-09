@@ -258,6 +258,12 @@ async def test_cookie_persistence_advances_baseline_only_on_accepted_saves(
 
 
 def test_default_path_compatibility_view_getter_setter_and_capture(tmp_path: Path) -> None:
+    """An unprepared file baseline never overrides the live compatibility view.
+
+    Phase 10 keeps the legacy AuthTokens mirror, but only a prepared/registered
+    typed baseline may seed persistence. Direct capture from Uninitialized uses
+    the live jar while leaving typed state uninitialized.
+    """
     path = tmp_path / "storage_state.json"
     auth = _auth_tokens(path)
     persistence = CookiePersistence(auth, path)
@@ -265,9 +271,11 @@ def test_default_path_compatibility_view_getter_setter_and_capture(tmp_path: Pat
     inherited = snapshot_cookie_jar(_jar(sid="inherited"))
     auth.cookie_snapshot = inherited
 
-    captured = persistence.capture_open_snapshot(_jar(sid="ignored"))
+    captured = persistence.capture_open_snapshot(_jar(sid="live"))
 
-    assert captured == inherited
+    sid_key = CookieSnapshotKey("SID", ".google.com", "/")
+    assert captured[sid_key].value == "live"
+    assert inherited[sid_key].value == "inherited"
     assert captured is not inherited
     assert captured is persistence.loaded_cookie_snapshot
     assert captured is auth.cookie_snapshot

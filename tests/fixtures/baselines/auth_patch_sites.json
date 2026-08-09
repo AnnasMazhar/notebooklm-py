@@ -434,7 +434,7 @@
     },
     {
       "attribute": "_load_stored_auth",
-      "count": 5,
+      "count": 6,
       "idiom": "monkeypatch.setattr",
       "module": "tokens"
     },
@@ -447,9 +447,9 @@
   ],
   "summary": {
     "TOTAL": {
-      "private": 136,
+      "private": 137,
       "public": 167,
-      "total": 303
+      "total": 304
     },
     "account": {
       "private": 2,
@@ -537,9 +537,9 @@
       "total": 1
     },
     "tokens": {
-      "private": 5,
+      "private": 6,
       "public": 1,
-      "total": 6
+      "total": 7
     }
   },
   "version": 1
