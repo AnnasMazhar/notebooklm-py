@@ -261,7 +261,11 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # RATCHETED DOWN 1771 -> 1683 by ADR-0034 PR7D: minted-session snapshot and
     # error projection remain here while the owner/filter/document/commit body
     # moved to ``ProfileStore``.
-    "_auth/storage.py": 1683,
+    #
+    # RATCHETED DOWN 1683 -> 1150 by ADR-0034 PR8: lossless legacy-account
+    # resolution, context I/O, promotion lifecycle, and post-write reconciliation
+    # moved to the ordinary-budget ``_auth/profile_migration.py`` owner.
+    "_auth/storage.py": 1150,
     # sanctioned merge (ADR-0033) — the `_auth` load-composition merge:
     # ``_auth/browser_cookie_recovery.py`` (142) was absorbed in full and reduced
     # to a re-export shim in the same change. It held the captured-cookie
@@ -516,19 +520,25 @@ def test_ratchet_checks_detect_their_offending_shapes() -> None:
     assert _stale_entries({"other.py": 5}, {"b.py": 1, "a.py": 1}) == ["a.py", "b.py"]
 
 
-def test_credential_and_store_modules_use_the_ordinary_budget() -> None:
-    leaves = {"_auth/credential_io.py", "_auth/profile_store.py"}
+def test_credential_store_and_migration_modules_use_the_ordinary_budget() -> None:
+    leaves = {
+        "_auth/credential_io.py",
+        "_auth/profile_migration.py",
+        "_auth/profile_store.py",
+    }
     measured = _measure_all()
     assert leaves.isdisjoint(ALLOWLISTED_CEILINGS)
     assert {path: measured[path] for path in leaves} == {
         "_auth/credential_io.py": 23,
+        "_auth/profile_migration.py": 311,
         "_auth/profile_store.py": 794,
     }
     assert (
         measured["_auth/storage.py"]
         + measured["_auth/profile_store.py"]
         + measured["_auth/cookie_filter.py"]
-        == 2573
+        + measured["_auth/profile_migration.py"]
+        == 2351
     )
     synthetic = dict.fromkeys(leaves, MODULE_SIZE_BUDGET + 1)
     assert _over_budget_offenders(synthetic, {}, MODULE_SIZE_BUDGET) == synthetic

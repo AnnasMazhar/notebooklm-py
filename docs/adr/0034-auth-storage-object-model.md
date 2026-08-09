@@ -81,9 +81,9 @@ through `ProfileAccount`. No production caller consumes the new leaf in this sta
 
 The v0.x `AccountRecord`, `_AccountAction`, sentinels, `AccountArg`, writer signature/default, pickle
 path, facade/shim identities, and permissive direct construction remain owned by `storage.py`.
-Conversion is deferred to the future boundary that migrates a caller, with this exact table:
+The login compatibility boundary now applies this exact conversion table:
 
-| Legacy runtime value | Future internal directive |
+| Legacy runtime value | Internal directive |
 |---|---|
 | exact `KEEP_ACCOUNT` singleton | `KeepAccount()` |
 | `AccountRecord` instance | `SetAccount(ProfileAccount(value.authuser, value.email))`, without normalization |
@@ -174,25 +174,26 @@ filtering and SameSite-lossy `CookieJar.from_httpx()` constructor. Under the bou
 `ProfileStore.replace_minted_session` reads the latest owner, applies the refusal/force matrix,
 runs the default raw filter, preserves and rebinds the destination, and commits once. This pre-lock
 immutable input snapshot is the intentional isolation correction for both jar and email.
-`storage.py` remains the v0.x facade. Its remint/login/minted callables keep old signatures,
-results/errors, patch seams, and facade/shim identities while building requests and delegating to
-`ProfileStore`. The minted adapter translates the private owner refusal outside its handler to the
-canonical context-free `MasterTokenError`. It retains raw account adapters, legacy reconciliation,
-promotion scheduling, sibling scrub composition, and token-file policy.
-After a typed login result is applied and the profile lock is released, the adapter alone performs
-the existing promote-or-scrub step; rejected and exceptional writes do no legacy work. No schema,
-lock path, permission, backup, log, or public API changes. Exact pins are 1,683 lines for
-`storage.py`, 794 for `profile_store.py`, and 96 for `cookie_filter.py` (2,573 combined).
-`MasterTokenFile` and legacy migration/lifecycle services remain future stages.
+Legacy migration and process lifecycle now live in `profile_migration.py`.
+`LegacyAccountMigrator` owns the lossless raw compatibility projection, in-band/legacy/in-band
+two-read resolution, typed sanitization, only-if-absent promotion, and embed-before-scrub order.
+Its closed results are `InBandAccount | LegacyAccount | NoAccount` and
+`Promoted | AlreadyInBand | NoLegacyRecord | PromotionFailed`. `LegacyAccountContext` alone owns
+`context.json` read/scrub, its 10-second `FileLock`, public atomic write, and error/log behavior.
+`LegacyPromotionScheduler` owns canonical process-once state, daemon workers/injection, and the
+two-second-per-snapshot-worker exit drain; per-RPC reads never wait for the 90-second writer.
+`LoginProfileWriter` reconciles only after `APPLIED` and lock release using the literal raw-key rule;
+`AccountMetadataWriter` preserves write/clear-specific post-operation scrub and exception ordering.
+`storage.py` remains the v0.x signature/result/patch/facade adapter and token-policy owner. Exact
+pins are storage 1,150, migration 311, store 794, and filter 96 lines (2,351 combined); loader,
+account-network, runtime, master-token, recovery, and shim ownership do not move in this stage.
 
 The compatibility inventory is explicit:
 
 - Profile writers: `merge_cookie_delta`, `update_account_metadata`, `clear_in_band_account`,
-  `replace_from_remint`, `replace_from_login`, `persist_minted_jar`; arbitrary-path writer:
-  `write_master_token`.
+  `replace_from_remint`, `replace_from_login`, `persist_minted_jar`; arbitrary: `write_master_token`.
 - Cookie adapters: `save_cookies_to_storage`, `snapshot_cookie_jar`,
-  `advance_cookie_snapshot_after_save`, `CookiePersistence.__init__`,
-  `CookiePersistence.capture_open_snapshot`, `CookiePersistence.save`.
+  `advance_cookie_snapshot_after_save`, `CookiePersistence.__init__`, `CookiePersistence.capture_open_snapshot`, `CookiePersistence.save`.
 - Client/token seams: `NotebookLMClient.__init__(cookie_saver=...)`, `AuthTokens.__init__`,
   `AuthTokens.from_storage`.
 - Ladder facade: `load_auth_from_storage`, `fetch_tokens`, `fetch_tokens_passive`,
@@ -203,8 +204,7 @@ The compatibility inventory is explicit:
   `repair_account_metadata_from_playwright_storage`, `resolve_account_identity`.
 - Mint/token facade: `exchange_master_token`, `generate_android_id`, `mint_cookies`,
   `persist_minted_jar`, `read_master_token`, `write_master_token`; coarse operations:
-  `master_token_bootstrap`, `master_token_remint`,
-  `bootstrap_missing_storage_from_master_token`.
+  `master_token_bootstrap`, `master_token_remint`, `bootstrap_missing_storage_from_master_token`.
 
 The frozen read policy is per intent: cookie merge hard-fails non-raising on missing/read/format
 input; account update creates when absent but otherwise propagates I/O/decode and wraps JSON/root

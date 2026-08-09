@@ -50,18 +50,20 @@ _PROFILE_COMMIT_CALLERS = frozenset(
 _TOKEN_COMMIT_CALLERS = frozenset({"_auth/storage.write_master_token"})
 
 _PUBLIC_ATOMIC_IMPORTERS = frozenset(
-    {"_auth/storage.py", "cli/context.py", "io.py", "mcp/_oauth.py"}
+    {"_auth/profile_migration.py", "cli/context.py", "io.py", "mcp/_oauth.py"}
 )
 _PUBLIC_ATOMIC_CALLERS = frozenset(
     {
-        "_auth/storage._drop_legacy_account_key",
+        "_auth/profile_migration.LegacyAccountContext.scrub",
         "cli/context._clear_context_file_locked",
         "mcp/_oauth.SelfHostedOAuthProvider._write_state_file",
     }
 )
 _REPLACE_FILE_IMPORTERS = frozenset({"cli/skill_cmd.py", "io.py", "migration.py"})
 _STORAGE_STATE_WRITE_EXEMPTIONS = frozenset({"migration.py"})
-_AUTH_ATOMIC_PRIMITIVE_IMPORTERS = frozenset({"_auth/credential_io.py", "_auth/storage.py"})
+_AUTH_ATOMIC_PRIMITIVE_IMPORTERS = frozenset(
+    {"_auth/credential_io.py", "_auth/profile_migration.py"}
+)
 
 _ATOMIC_MODULES = frozenset({"_atomic_io", "io", "notebooklm._atomic_io", "notebooklm.io"})
 _WRITE_PRIMITIVES = frozenset({"atomic_write_json", "replace_file_atomically", _BYPASS})
@@ -353,7 +355,8 @@ def test_login_adapter_has_no_writer_transaction_read_or_filter_capability() -> 
             "chmod",
         }
     )
-    assert called_members.count("replace_from_login") == 1
+    assert called_members.count("write") == 1
+    assert "replace_from_login" not in called_members
     assert not any(
         isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store)
         for node in ast.walk(adapter)
@@ -645,8 +648,7 @@ def test_no_storage_state_literal_write_outside_migration_exemption() -> None:
     assert violations == {}
 
 
-def _filelock_users(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+def _filelock_users_from_tree(tree: ast.AST) -> set[str]:
     bindings = {
         item.asname or item.name
         for node in ast.walk(tree)
@@ -654,16 +656,122 @@ def _filelock_users(path: Path) -> set[str]:
         for item in node.names
     }
     users: set[str] = set()
-    for node in tree.body:
-        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            continue
-        if any(isinstance(inner, ast.Name) and inner.id in bindings for inner in ast.walk(node)):
-            users.add(node.name)
+
+    class Collector(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.classes: list[str] = []
+            self.functions: list[str] = []
+
+        @property
+        def owner(self) -> str:
+            return ".".join([*self.classes, *self.functions[:1]])
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            self.classes.append(node.name)
+            self.generic_visit(node)
+            self.classes.pop()
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self.functions.append(node.name)
+            self.generic_visit(node)
+            self.functions.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if isinstance(node.ctx, ast.Load) and node.id in bindings:
+                users.add(self.owner or "<module>")
+
+    Collector().visit(tree)
     return users
 
 
-def test_storage_filelock_use_remains_the_context_scrub_only() -> None:
-    assert _filelock_users(AUTH_ROOT / "storage.py") == {"_drop_legacy_account_key"}
+def _filelock_users(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return _filelock_users_from_tree(tree)
+
+
+def test_filelock_owner_detector_bites_at_class_method_scope() -> None:
+    tree = ast.parse(
+        "from filelock import FileLock\nclass Extra:\n    def write(self): FileLock()\n"
+    )
+    assert _filelock_users_from_tree(tree) == {"Extra.write"}
+
+
+def test_context_filelock_use_moved_wholly_to_profile_migration() -> None:
+    assert _filelock_users(AUTH_ROOT / "storage.py") == set()
+    assert _filelock_users(AUTH_ROOT / "profile_migration.py") == {"LegacyAccountContext.scrub"}
+
+
+_SCHEDULER_STATE_NAMES = frozenset(
+    {
+        "_process_default_scheduler",
+        "_registry_lock",
+        "_once_paths",
+        "_workers",
+        "_thread_factory",
+        "_PROMOTION_EXIT_JOIN_SECONDS",
+    }
+)
+
+
+def _assigned_names(tree: ast.AST) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets.extend(node.targets)
+        elif isinstance(node, ast.AnnAssign | ast.AugAssign):
+            targets.append(node.target)
+        for target in targets:
+            if isinstance(target, ast.Name):
+                names.add(target.id)
+            elif isinstance(target, ast.Attribute):
+                names.add(target.attr)
+    return names
+
+
+def test_scheduler_state_and_exit_lifecycle_have_exactly_one_auth_owner() -> None:
+    trees = {
+        _rel(path): ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for path in AUTH_ROOT.glob("*.py")
+    }
+    state_owners = {
+        name: {path for path, tree in trees.items() if name in _assigned_names(tree)}
+        for name in _SCHEDULER_STATE_NAMES
+    }
+    assert state_owners == {name: {"_auth/profile_migration.py"} for name in _SCHEDULER_STATE_NAMES}
+
+    atexit_importers = {
+        path
+        for path, tree in trees.items()
+        if any(
+            isinstance(node, ast.Import) and any(item.name == "atexit" for item in node.names)
+            for node in ast.walk(tree)
+        )
+    }
+    assert atexit_importers == {"_auth/profile_migration.py"}
+
+    migration_tree = trees["_auth/profile_migration.py"]
+    exit_hooks = [
+        node
+        for node in ast.walk(migration_tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "atexit"
+        and node.attr == "register"
+    ]
+    thread_capabilities = [
+        node
+        for node in ast.walk(migration_tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "threading"
+        and node.attr in {"Thread", "current_thread"}
+    ]
+    assert len(exit_hooks) == 1
+    assert {node.attr for node in thread_capabilities} == {"Thread", "current_thread"}
+    assert _SCHEDULER_STATE_NAMES.isdisjoint(_assigned_names(trees["_auth/storage.py"]))
 
 
 def test_every_allowlisted_module_exists() -> None:

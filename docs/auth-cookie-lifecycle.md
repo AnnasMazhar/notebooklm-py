@@ -435,9 +435,12 @@ path-collapse, sibling-domain allow-list asymmetry, round-trip attribute erosion
 **All of them are resolved in-tree** — the persistence path is now snapshot/delta,
 CAS-guarded, cross-process flocked, fully `(name, domain, path)`-aware, and funneled
 through the path-owned cookie transactions in `_auth/profile_store.py`. The same
-store now owns browser/remint, login/import, and minted-session replacement, while the pure raw capture/domain filter
-and its value-free diagnostics live in `_auth/cookie_filter.py`; v0.x signatures,
-results, and browser patch timing remain adapted by `_auth/storage.py`
+store now owns browser/remint, login/import, and minted-session replacement, while the pure raw
+capture/domain filter and its value-free diagnostics live in `_auth/cookie_filter.py`; v0.x
+signatures, results, and browser patch timing remain adapted by `_auth/storage.py`. Legacy account
+policy and lifecycle now live in `_auth/profile_migration.py`: two-read resolution, typed
+promotion, embed-before-scrub cleanup, canonical daemon one-shot scheduling, and
+post-login/account-write reconciliation
 ([ADR-0029](adr/0029-canonical-storage-writer.md)). If users
 report cookies "expiring fast", walk the
 [diagnostic checklist](#a2--diagnosing-cookies-expire-fast) in the Appendix (which
@@ -1075,17 +1078,21 @@ reports still make sense:
   read/update/clear, and browser/remint, login/import, and minted-session replacement.
   Login filters and validates required names before any destination access, applies
   directive-specific namespace rules, optionally backs up under the same lock, then commits once.
-  `_auth/cookie_filter.py`
-  owns that raw filter and its value-free diagnostics. `_auth/storage.py` retains
-  the remint compatibility/browser patch seam plus raw account adapters, legacy
-  reconciliation/promotion/scrub, login compatibility, the minted snapshot/error adapter, and
-  token policies. Minted input is frozen before path/lock work: the live jar is copied with the raw
+  `_auth/cookie_filter.py` owns that raw filter and its value-free diagnostics.
+  `_auth/profile_migration.py` owns legacy two-read account resolution, typed sanitization,
+  only-if-absent embed-before-scrub promotion, sibling `context.json.lock` cleanup, the canonical
+  once-per-path daemon scheduler, and post-login/account-write reconciliation. Per-RPC reads do not
+  wait for promotion; the exit hook drains for two seconds per snapshot worker.
+  `_auth/storage.py` retains the remint and raw-signature compatibility seams, the minted
+  snapshot/error adapter, and token policies. Minted input is frozen before path/lock work: the live jar is copied with the raw
   master-token serializer fields (including `same_site="None"`, not the filtering/SameSite-lossy
   `CookieJar.from_httpx()` path), and the permissive email is deep-copied with the same memo.
   The store then performs the latest-owner gate, default filter, destination rebind, and one commit
   under one lock. The adapter translates a private refusal outside its handler to context-free
   canonical `MasterTokenError`. This jar-and-email snapshot timing is the deliberate isolation
-  correction. Only an applied login result reaches legacy promote-or-scrub, after lock release.
+  correction. `LoginProfileWriter` allows only an applied login result to reach legacy
+  promote-or-scrub, after lock release; `AccountMetadataWriter` retains update/clear-specific
+  post-operation ordering.
   Empty account placeholders no longer block legacy promotion;
   non-empty unknown-only records still win. Function-granular AST guardrails
   (`tests/_guardrails/test_storage_writer_boundary.py`) seal the capability and caller sets.
@@ -1171,6 +1178,18 @@ gate their writes correctly.
 
 ## Changelog
 
+- **2026-08-09 (legacy account migration ownership and lifecycle)** —
+  `_auth/profile_migration.py` now owns `LegacyAccountContext`, `LegacyAccountMigrator`,
+  `LegacyPromotionScheduler`, `LoginProfileWriter`, and `AccountMetadataWriter`. Resolution retains
+  the in-band/legacy/in-band anti-race sequence and a lossless raw compatibility projection;
+  promotion remains only-if-absent and embed-before-scrub. The context owner retains its separate
+  10-second `FileLock` and public atomic JSON write. Reads schedule canonical once-per-path daemon
+  workers without waiting, and the process exit hook drains for two seconds per snapshot worker.
+  Login reconciles only after `APPLIED` and outside the profile lock; account write and clear keep
+  their distinct scrub ordering. `_auth/storage.py` remains the v0.x signature/result facade. The
+  measured boundary is 1,150 storage + 311 migration + 794 store + 96 filter = 2,351 lines. Loader,
+  account-network, runtime, recovery, master-token, and shim ownership is unchanged by this stage.
+
 - **2026-08-09 (profile-store minted-session replacement)** —
   `ProfileStore.replace_minted_session` now owns the authoritative same-lock latest-owner gate,
   default raw filter, lossless destination preservation/rebind, and one profile commit.
@@ -1178,16 +1197,16 @@ gate their writes correctly.
   email before lock work and projects private refusal to canonical context-free `MasterTokenError`;
   `master_token.persist_minted_jar` remains the public late-lookup wrapper. Corruption/unknown/force,
   custom paths, exception messages, locks, permissions, on-disk schema, and callers are otherwise
-  unchanged. Legacy migration/composition remains PR 8; token value/file/network/bootstrap work
-  remains PR 11A–11D.
+  unchanged. At that stage, legacy migration/composition and token value/file/network/bootstrap
+  ownership had not moved.
 
 - **2026-08-09 (profile-store login/import replacement)** —
   `ProfileStore.replace_from_login` now owns raw source filtering, required-name rejection before
   destination reads, KEEP/SET/CLEAR namespace construction, optional inside-lock backup, and the
   single profile commit. `storage.replace_from_login` remains the exact v0.x facade/patch identity
-  and temporarily performs post-APPLIED legacy promote-or-scrub outside the profile lock. KEEP
-  carries the whole raw source namespace; SET/CLEAR rebuild it. Legacy scheduler/services remain
-  deferred. No schema, path, permission, warning,
+  and, at that stage, directly performed post-APPLIED legacy promote-or-scrub outside the profile
+  lock. KEEP carries the whole raw source namespace; SET/CLEAR rebuild it. No schema, path,
+  permission, warning,
   backup, result, or caller behavior changed.
 
 - **2026-08-08 (profile-store browser/remint replacement)** — The pure raw
@@ -1195,14 +1214,14 @@ gate their writes correctly.
   `_auth/cookie_filter.py`. `ProfileStore.replace_from_remint` owns the bounded
   transaction, latest raw namespace carry, filtering, and commit;
   `_auth/storage.py::replace_from_remint` remains the exact v0.x adapter and
-  browser patch seam. Login/minted replacement, legacy reconciliation and
-  scheduling, and token policy remain in `_auth/storage.py`. No schema, path,
+  browser patch seam. At that stage, login/minted replacement, legacy reconciliation and
+  scheduling, and token policy still lived in `_auth/storage.py`. No schema, path,
   lock, permission, backup, warning, or public-result behavior changed.
 
 - **2026-08-08 (profile-store account intents)** — `ProfileStore` now owns typed
   in-band account read/update/clear and their distinct corruption/lock policies.
-  `_auth/storage.py` keeps raw compatibility, legacy promotion scheduling, and
-  sibling scrub; at that stage all full replacements and token-file policy remained there. The
+  At that stage, `_auth/storage.py` kept raw compatibility, legacy promotion scheduling, and
+  sibling scrub; all full replacements and token-file policy remained there. The
   empty-placeholder promotion correction changes no schema, path, permission,
   backup, log, or public API.
 

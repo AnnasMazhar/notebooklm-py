@@ -526,8 +526,13 @@ def test_replace_from_login_is_one_typed_store_delegation_and_exhaustive_project
             seen.append(request)
             return result
 
+    class FakeMigrator:
+        def scrub(self, store: FakeStore) -> None:
+            assert isinstance(store, FakeStore)
+            seen.append("scrub")
+
     monkeypatch.setattr(storage_mod, "ProfileStore", FakeStore)
-    monkeypatch.setattr(storage_mod, "_drop_legacy_account_key", lambda path: seen.append("scrub"))
+    monkeypatch.setattr(storage_mod, "LegacyAccountMigrator", FakeMigrator)
 
     outcome = storage_mod.replace_from_login(
         path,
@@ -578,13 +583,15 @@ def test_replace_from_login_keep_uses_literal_raw_account_key_for_legacy_scrub(
             events.append("store")
             return ReplaceResult(ReplaceStatus.APPLIED)
 
+    class FakeMigrator:
+        def promote(self, store: FakeStore) -> None:
+            events.append("promote")
+
+        def scrub(self, store: FakeStore) -> None:
+            events.append("scrub")
+
     monkeypatch.setattr(storage_mod, "ProfileStore", FakeStore)
-    monkeypatch.setattr(
-        storage_mod, "promote_legacy_account", lambda path: events.append("promote")
-    )
-    monkeypatch.setattr(
-        storage_mod, "_drop_legacy_account_key", lambda path: events.append("scrub")
-    )
+    monkeypatch.setattr(storage_mod, "LegacyAccountMigrator", FakeMigrator)
     state = {**_login_state(), "notebooklm": namespace}
 
     assert storage_mod.replace_from_login(tmp_path / "A.json", state, include_domains=None).ok

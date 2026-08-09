@@ -26,6 +26,7 @@ from notebooklm._auth import (
     browser_capture,
     keepalive,
     master_token,
+    profile_migration,
     profile_store,
     psidts_recovery,
     refresh,
@@ -668,6 +669,26 @@ def test_legacy_account_facade_shim_and_default_identities_are_exact() -> None:
     assert storage_writer.KEEP_ACCOUNT is storage.KEEP_ACCOUNT
     assert storage_writer.CLEAR_ACCOUNT is storage.CLEAR_ACCOUNT
     assert storage_writer.replace_from_login is storage.replace_from_login
+    assert storage._drop_legacy_account_key is profile_migration._drop_legacy_account_key
+    assert auth.drop_legacy_account_key is profile_migration._drop_legacy_account_key
+
+    internal_components = {
+        "LegacyAccountContext",
+        "LegacyAccountMigrator",
+        "LegacyPromotionScheduler",
+        "LoginProfileWriter",
+        "AccountMetadataWriter",
+        "InBandAccount",
+        "LegacyAccount",
+        "NoAccount",
+        "Promoted",
+        "AlreadyInBand",
+        "NoLegacyRecord",
+        "PromotionFailed",
+    }
+    assert internal_components.isdisjoint(storage.__all__)
+    assert internal_components.isdisjoint(storage_writer.__all__)
+    assert all(not hasattr(auth, name) for name in internal_components)
 
     account_default = inspect.signature(storage.replace_from_login).parameters["account"].default
     assert account_default is storage.KEEP_ACCOUNT

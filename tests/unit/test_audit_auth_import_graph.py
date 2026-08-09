@@ -91,10 +91,10 @@ def test_scope_duplicate_self_and_scc_rules(audit, tmp_path):
 def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
-        "modules": 33,
-        "total_lines": 14264,
-        "unique_edges": 92,
-        "module_edges": 79,
+        "modules": 34,
+        "total_lines": 14042,
+        "unique_edges": 95,
+        "module_edges": 82,
         "function_local_edges": 13,
     }
     assert result["sccs"] == {
@@ -112,6 +112,7 @@ def test_live_projection_is_the_frozen_scorecard(audit):
     assert {edge for edge in edges if "profile_account" in edge[:2]} == {
         ("profile_account", "cookie_types", "module"),
         ("profile_document", "profile_account", "module"),
+        ("profile_migration", "profile_account", "module"),
         ("profile_store", "profile_account", "module"),
         ("storage", "profile_account", "module"),
     }
@@ -151,6 +152,7 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("storage", "credential_io", "module"),
     }
     assert {edge for edge in edges if "profile_store" in edge[:2]} == {
+        ("profile_migration", "profile_store", "module"),
         ("profile_store", "cookie_filter", "module"),
         ("profile_store", "cookie_merge", "module"),
         ("profile_store", "cookie_policy", "module"),
@@ -161,4 +163,9 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("profile_store", "profile_document", "module"),
         ("profile_store", "storage_lock", "module"),
         ("storage", "profile_store", "module"),
+    }
+    assert {edge for edge in edges if "profile_migration" in edge[:2]} == {
+        ("profile_migration", "profile_account", "module"),
+        ("profile_migration", "profile_store", "module"),
+        ("storage", "profile_migration", "module"),
     }

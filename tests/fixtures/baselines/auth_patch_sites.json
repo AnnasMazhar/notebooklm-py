@@ -181,6 +181,18 @@
       "module": "master_token"
     },
     {
+      "attribute": "FileLock",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "profile_migration"
+    },
+    {
+      "attribute": "atomic_write_json",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "profile_migration"
+    },
+    {
       "attribute": "_STORAGE_LOCKS",
       "count": 2,
       "idiom": "assignment",
@@ -355,20 +367,14 @@
       "module": "single_flight"
     },
     {
-      "attribute": "FileLock",
-      "count": 1,
+      "attribute": "LegacyAccountMigrator",
+      "count": 3,
       "idiom": "monkeypatch.setattr",
       "module": "storage"
     },
     {
       "attribute": "ProfileStore",
-      "count": 8,
-      "idiom": "monkeypatch.setattr",
-      "module": "storage"
-    },
-    {
-      "attribute": "_PROMOTION_LOCK",
-      "count": 2,
+      "count": 9,
       "idiom": "monkeypatch.setattr",
       "module": "storage"
     },
@@ -385,27 +391,9 @@
       "module": "storage"
     },
     {
-      "attribute": "_drop_legacy_account_key",
-      "count": 3,
-      "idiom": "monkeypatch.setattr",
-      "module": "storage"
-    },
-    {
-      "attribute": "_read_legacy_account",
-      "count": 4,
-      "idiom": "monkeypatch.setattr",
-      "module": "storage"
-    },
-    {
       "attribute": "clear_account_metadata",
       "count": 2,
       "idiom": "patch.object",
-      "module": "storage"
-    },
-    {
-      "attribute": "promote_legacy_account",
-      "count": 2,
-      "idiom": "monkeypatch.setattr",
       "module": "storage"
     },
     {
@@ -427,12 +415,6 @@
       "module": "storage"
     },
     {
-      "attribute": "update_account_metadata",
-      "count": 10,
-      "idiom": "monkeypatch.setattr",
-      "module": "storage"
-    },
-    {
       "attribute": "write_account_metadata",
       "count": 2,
       "idiom": "patch.object",
@@ -447,9 +429,9 @@
   ],
   "summary": {
     "TOTAL": {
-      "private": 126,
-      "public": 189,
-      "total": 315
+      "private": 117,
+      "public": 184,
+      "total": 301
     },
     "account": {
       "private": 2,
@@ -491,6 +473,11 @@
       "public": 27,
       "total": 27
     },
+    "profile_migration": {
+      "private": 0,
+      "public": 4,
+      "total": 4
+    },
     "profile_store": {
       "private": 26,
       "public": 7,
@@ -517,9 +504,9 @@
       "total": 1
     },
     "storage": {
-      "private": 11,
-      "public": 36,
-      "total": 47
+      "private": 2,
+      "public": 27,
+      "total": 29
     },
     "storage_lock": {
       "private": 1,

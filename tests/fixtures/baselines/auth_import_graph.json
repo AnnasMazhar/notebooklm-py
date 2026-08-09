@@ -177,6 +177,16 @@
     },
     {
       "scope": "module",
+      "source": "profile_migration",
+      "target": "profile_account"
+    },
+    {
+      "scope": "module",
+      "source": "profile_migration",
+      "target": "profile_store"
+    },
+    {
+      "scope": "module",
       "source": "profile_store",
       "target": "cookie_filter"
     },
@@ -413,6 +423,11 @@
     {
       "scope": "module",
       "source": "storage",
+      "target": "profile_migration"
+    },
+    {
+      "scope": "module",
+      "source": "storage",
       "target": "profile_store"
     },
     {
@@ -573,6 +588,11 @@
       "path": "src/notebooklm/_auth/profile_document.py"
     },
     {
+      "lines": 311,
+      "name": "profile_migration",
+      "path": "src/notebooklm/_auth/profile_migration.py"
+    },
+    {
       "lines": 794,
       "name": "profile_store",
       "path": "src/notebooklm/_auth/profile_store.py"
@@ -603,7 +623,7 @@
       "path": "src/notebooklm/_auth/single_flight.py"
     },
     {
-      "lines": 1683,
+      "lines": 1150,
       "name": "storage",
       "path": "src/notebooklm/_auth/storage.py"
     },
@@ -641,10 +661,10 @@
   },
   "summary": {
     "function_local_edges": 13,
-    "module_edges": 79,
-    "modules": 33,
-    "total_lines": 14264,
-    "unique_edges": 92
+    "module_edges": 82,
+    "modules": 34,
+    "total_lines": 14042,
+    "unique_edges": 95
   },
   "version": 1
 }

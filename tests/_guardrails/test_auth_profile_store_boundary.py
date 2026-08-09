@@ -48,6 +48,16 @@ _PROFILE_STORE_PROVIDERS = {
     "notebooklm._auth.profile_store",
     "notebooklm._auth.storage",
 }
+_PROFILE_MIGRATION_PROVIDER = "notebooklm._auth.profile_migration"
+_PROFILE_MIGRATION_MODULE_BINDING = "<profile-migration-module>"
+_MIGRATION_SERVICES = frozenset(
+    {
+        "LegacyAccountMigrator",
+        "LegacyPromotionScheduler",
+        "LoginProfileWriter",
+        "AccountMetadataWriter",
+    }
+)
 
 
 def _source_label(path: Path) -> str:
@@ -213,7 +223,7 @@ def test_importer_detector_bites_at_every_scope(source: str) -> None:
     assert _imports_profile_store(AUTH_ROOT / "synthetic.py", ast.parse(source))
 
 
-def test_production_importer_is_exactly_storage() -> None:
+def test_production_importers_are_exactly_storage_and_profile_migration() -> None:
     actual = {
         _source_label(path)
         for path in SRC_ROOT.rglob("*.py")
@@ -223,7 +233,7 @@ def test_production_importer_is_exactly_storage() -> None:
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
         )
     }
-    assert actual == {"storage.py"}
+    assert actual == {"profile_migration.py", "storage.py"}
 
 
 def test_external_source_importer_is_detected_with_stable_relative_label() -> None:
@@ -443,8 +453,56 @@ def _profile_store_bindings(path: Path, tree: ast.AST) -> tuple[set[str], set[st
     return classes, modules
 
 
+def _migration_service_bindings(path: Path, tree: ast.AST) -> tuple[dict[str, str], set[str]]:
+    services: dict[str, str] = {}
+    modules: set[str] = set()
+    top_level = tree.body if isinstance(tree, ast.Module) else []
+    for node in top_level:
+        if isinstance(node, ast.ImportFrom):
+            resolved = _resolved_module(path, node)
+            if resolved == _PROFILE_MIGRATION_PROVIDER:
+                services.update(
+                    {
+                        item.asname or item.name: item.name
+                        for item in node.names
+                        if item.name in _MIGRATION_SERVICES
+                    }
+                )
+            elif resolved == "notebooklm._auth":
+                modules.update(
+                    item.asname or item.name
+                    for item in node.names
+                    if f"{resolved}.{item.name}" == _PROFILE_MIGRATION_PROVIDER
+                )
+        elif isinstance(node, ast.Import):
+            modules.update(
+                item.asname or item.name
+                for item in node.names
+                if item.name == _PROFILE_MIGRATION_PROVIDER
+            )
+    for node in top_level:
+        rebound: set[str] = set()
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            rebound.add(node.name)
+        elif isinstance(node, ast.Assign):
+            rebound.update(target.id for target in node.targets if isinstance(target, ast.Name))
+        elif isinstance(node, ast.AnnAssign | ast.AugAssign) and isinstance(node.target, ast.Name):
+            rebound.add(node.target.id)
+        for name in rebound:
+            services.pop(name, None)
+            modules.discard(name)
+    return services, modules
+
+
 class _StoreCallCollector(ast.NodeVisitor):
-    def __init__(self, module: str, class_aliases: set[str], module_aliases: set[str]) -> None:
+    def __init__(
+        self,
+        module: str,
+        class_aliases: set[str],
+        module_aliases: set[str],
+        service_aliases: dict[str, str],
+        service_module_aliases: set[str],
+    ) -> None:
         self.module = module
         self.class_aliases = class_aliases
         self.module_aliases = module_aliases
@@ -453,23 +511,99 @@ class _StoreCallCollector(ast.NodeVisitor):
         self.function_stack: list[str] = []
         self.binding_frames: list[tuple[str, dict[str, bool]]] = [("lexical", {})]
         self.tracked_frames: list[set[str]] = [set()]
+        self.service_frames: list[dict[str, str]] = [
+            {
+                **service_aliases,
+                **{
+                    alias: _PROFILE_MIGRATION_MODULE_BINDING
+                    for alias in service_module_aliases
+                    if "." not in alias
+                },
+            }
+        ]
+        self.store_attribute_frames: list[set[str]] = []
         self.calls: set[Caller] = set()
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        attribute_states: dict[str, bool] = {}
+        for member in node.body:
+            if not isinstance(member, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            arguments = [*member.args.posonlyargs, *member.args.args, *member.args.kwonlyargs]
+            typed_store_names = {
+                argument.arg
+                for argument in arguments
+                if self._annotation_is_store(argument.annotation)
+            }
+            for statement in member.body:
+                for inner in ast.walk(statement):
+                    targets: list[ast.expr]
+                    value: ast.expr | None
+                    if isinstance(inner, ast.Assign):
+                        targets = list(inner.targets)
+                        value = inner.value
+                    elif isinstance(inner, ast.AnnAssign):
+                        targets = [inner.target]
+                        value = inner.value
+                    elif isinstance(inner, ast.AugAssign):
+                        targets = [inner.target]
+                        value = None
+                    else:
+                        continue
+                    is_store = (
+                        isinstance(value, ast.Name) and value.id in typed_store_names
+                    ) or self._value_is_store(value)
+                    for attribute in (
+                        target.attr
+                        for target in targets
+                        if isinstance(target, ast.Attribute)
+                        and isinstance(target.value, ast.Name)
+                        and target.value.id == "self"
+                    ):
+                        attribute_states[attribute] = (
+                            attribute_states.get(attribute, True) and is_store
+                        )
+        store_attributes = {
+            attribute for attribute, is_store in attribute_states.items() if is_store
+        }
+        self._bind_service_name(node.name, None)
         self.class_stack.append(node.name)
+        self.service_frames.append({})
+        self.store_attribute_frames.append(store_attributes)
         self.generic_visit(node)
+        self.store_attribute_frames.pop()
+        self.service_frames.pop()
         self.class_stack.pop()
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._bind_service_name(node.name, None)
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for default in node.args.defaults:
+            self.visit(default)
+        for default in node.args.kw_defaults:
+            if default is not None:
+                self.visit(default)
         self.function_stack.append(node.name)
         arguments = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
         if node.args.vararg is not None:
             arguments.append(node.args.vararg)
         if node.args.kwarg is not None:
             arguments.append(node.args.kwarg)
-        self.binding_frames.append(("lexical", {argument.arg: False for argument in arguments}))
+        self.binding_frames.append(
+            (
+                "lexical",
+                {
+                    argument.arg: self._annotation_is_store(argument.annotation)
+                    for argument in arguments
+                },
+            )
+        )
         self.tracked_frames.append(set())
-        self.generic_visit(node)
+        self.service_frames.append({argument.arg: "" for argument in arguments})
+        for statement in node.body:
+            self.visit(statement)
+        self.service_frames.pop()
         self.tracked_frames.pop()
         self.binding_frames.pop()
         self.function_stack.pop()
@@ -489,9 +623,18 @@ class _StoreCallCollector(ast.NodeVisitor):
             arguments.append(node.args.kwarg)
         self.binding_frames.append(("lexical", {argument.arg: False for argument in arguments}))
         self.tracked_frames.append(set())
+        self.service_frames.append({argument.arg: "" for argument in arguments})
         self.visit(node.body)
+        self.service_frames.pop()
         self.tracked_frames.pop()
         self.binding_frames.pop()
+
+    def _annotation_is_store(self, annotation: ast.expr | None) -> bool:
+        if annotation is None:
+            return False
+        if isinstance(annotation, ast.Name):
+            return annotation.id in self.class_aliases
+        return self._is_store_constructor(annotation)
 
     def _bind_receiver(
         self,
@@ -513,6 +656,73 @@ class _StoreCallCollector(ast.NodeVisitor):
     def _value_is_store(self, value: ast.expr | None) -> bool:
         return isinstance(value, ast.Call) and self._is_store_constructor(value.func)
 
+    def _bound_service_name(self, node: ast.expr) -> str | None:
+        if isinstance(node, ast.Name):
+            for frame in reversed(self.service_frames):
+                if node.id in frame:
+                    return frame[node.id] or None
+        return None
+
+    def _service_symbol(self, node: ast.expr) -> str | None:
+        binding = self._bound_service_name(node)
+        if binding in _MIGRATION_SERVICES:
+            return binding
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr in _MIGRATION_SERVICES
+            and self._bound_service_name(node.value) == _PROFILE_MIGRATION_MODULE_BINDING
+        ):
+            return node.attr
+        return None
+
+    def _service_constructor(self, node: ast.expr | None) -> str | None:
+        if not isinstance(node, ast.Call):
+            return None
+        service = self._service_symbol(node.func)
+        if service is not None:
+            return service
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "process_default"
+            and self._service_symbol(node.func.value) == "LegacyPromotionScheduler"
+        ):
+            return "LegacyPromotionScheduler"
+        return None
+
+    def _bind_service(self, target: ast.expr, value: ast.expr | None) -> None:
+        if not isinstance(target, ast.Name):
+            return
+        service = self._service_constructor(value)
+        self._bind_service_name(target.id, service)
+
+    def _bind_service_name(self, name: str, service: str | None) -> None:
+        self.service_frames[-1][name] = service or ""
+
+    def _service_instance(self, node: ast.expr) -> str | None:
+        direct = self._service_constructor(node)
+        if direct is not None:
+            return direct
+        if isinstance(node, ast.Name):
+            for frame in reversed(self.service_frames):
+                if node.id in frame:
+                    return frame[node.id] or None
+        return None
+
+    def _trusted_store_argument_positions(self, node: ast.Call) -> set[int]:
+        if self._service_symbol(node.func) in {
+            "LoginProfileWriter",
+            "AccountMetadataWriter",
+        }:
+            return {0}
+        if not isinstance(node.func, ast.Attribute):
+            return set()
+        service = self._service_instance(node.func.value)
+        if node.func.attr == "_resolve_with_projection" and service == "LegacyAccountMigrator":
+            return {0}
+        if node.func.attr == "schedule" and service == "LegacyPromotionScheduler":
+            return {0}
+        return set()
+
     def _is_store_constructor(self, node: ast.expr) -> bool:
         if isinstance(node, ast.Name):
             return node.id in self.class_aliases
@@ -532,11 +742,14 @@ class _StoreCallCollector(ast.NodeVisitor):
         is_store = self._value_is_store(node.value)
         for target in node.targets:
             self._bind_receiver(target, is_store=is_store)
+            self._bind_service(target, node.value)
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         self._bind_receiver(node.target, is_store=self._value_is_store(node.value))
-        self.generic_visit(node)
+        self._bind_service(node.target, node.value)
+        if node.value is not None:
+            self.visit(node.value)
 
     def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
         self._bind_receiver(
@@ -544,6 +757,7 @@ class _StoreCallCollector(ast.NodeVisitor):
             is_store=self._value_is_store(node.value),
             skip_comprehensions=True,
         )
+        self._bind_service(node.target, node.value)
         self.generic_visit(node)
 
     def _iter_yields_store(self, node: ast.expr) -> bool:
@@ -556,16 +770,19 @@ class _StoreCallCollector(ast.NodeVisitor):
     ) -> None:
         self.binding_frames.append(("comprehension", {}))
         self.tracked_frames.append(set())
+        self.service_frames.append({})
         for generator in generators:
             self.visit(generator.iter)
             self._bind_receiver(
                 generator.target,
                 is_store=self._iter_yields_store(generator.iter),
             )
+            self._bind_service(generator.target, None)
             for condition in generator.ifs:
                 self.visit(condition)
         for result_node in result_nodes:
             self.visit(result_node)
+        self.service_frames.pop()
         self.tracked_frames.pop()
         self.binding_frames.pop()
 
@@ -586,6 +803,14 @@ class _StoreCallCollector(ast.NodeVisitor):
                 if node.id in bindings:
                     return bindings[node.id]
             return False
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+        ):
+            return bool(
+                self.store_attribute_frames and node.attr in self.store_attribute_frames[-1]
+            )
         if isinstance(node, ast.NamedExpr):
             is_store = self._value_is_store(node.value)
             self._bind_receiver(
@@ -651,12 +876,25 @@ class _StoreCallCollector(ast.NodeVisitor):
             for keyword in node.keywords:
                 self.visit(keyword.value)
             return
-        self.generic_visit(node)
+        trusted_positions = self._trusted_store_argument_positions(node)
+        self.visit(node.func)
+        for index, argument in enumerate(node.args):
+            if index not in trusted_positions or not self._is_store_receiver(argument):
+                self.visit(argument)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
 
 
 def _store_calls(path: Path, tree: ast.AST) -> set[Caller]:
     class_aliases, module_aliases = _profile_store_bindings(path, tree)
-    collector = _StoreCallCollector(_source_label(path), class_aliases, module_aliases)
+    service_aliases, service_module_aliases = _migration_service_bindings(path, tree)
+    collector = _StoreCallCollector(
+        _source_label(path),
+        class_aliases,
+        module_aliases,
+        service_aliases,
+        service_module_aliases,
+    )
     collector.visit(tree)
     return collector.calls
 
@@ -675,22 +913,144 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
         ("profile_store.py", "ProfileStore.clear_account", "read_document"),
         ("profile_store.py", "ProfileStore._read_cookie_document", "read_document"),
         ("profile_store.py", "in_storage_transaction", "ProfileStore"),
-        ("storage.py", "_read_in_band_account", "ProfileStore"),
-        ("storage.py", "_read_in_band_account", "_read_account_document"),
+        (
+            "profile_migration.py",
+            "LegacyAccountMigrator._resolve_with_projection",
+            "_read_account_document",
+        ),
+        ("profile_migration.py", "LegacyAccountMigrator.promote", "update_account"),
+        ("profile_migration.py", "LoginProfileWriter.write", "replace_from_login"),
+        ("profile_migration.py", "AccountMetadataWriter.write", "update_account"),
+        ("profile_migration.py", "AccountMetadataWriter.clear", "clear_account"),
         ("storage.py", "clear_in_band_account", "ProfileStore"),
         ("storage.py", "clear_in_band_account", "clear_account"),
+        ("storage.py", "clear_account_metadata", "ProfileStore"),
         ("storage.py", "merge_cookie_delta", "ProfileStore"),
         ("storage.py", "merge_cookie_delta", "merge_cookie_observation"),
         ("storage.py", "merge_cookie_delta", "merge_legacy_cookie_observation"),
+        ("storage.py", "promote_legacy_account", "ProfileStore"),
+        ("storage.py", "read_account_metadata", "ProfileStore"),
         ("storage.py", "replace_from_remint", "ProfileStore"),
         ("storage.py", "replace_from_remint", "replace_from_remint"),
         ("storage.py", "replace_from_login", "ProfileStore"),
-        ("storage.py", "replace_from_login", "replace_from_login"),
         ("storage.py", "persist_minted_jar", "ProfileStore"),
         ("storage.py", "persist_minted_jar", "replace_minted_session"),
         ("storage.py", "update_account_metadata", "ProfileStore"),
         ("storage.py", "update_account_metadata", "update_account"),
+        ("storage.py", "write_account_metadata", "ProfileStore"),
     }
+
+
+def test_private_account_document_callers_are_exact() -> None:
+    actual: set[tuple[str, str]] = set()
+    for path in sorted(SRC_ROOT.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        actual.update(
+            (module, owner)
+            for module, owner, target in _store_calls(path, tree)
+            if target == "_read_account_document"
+        )
+    assert actual == {
+        ("profile_store.py", "ProfileStore.read_account"),
+        ("profile_migration.py", "LegacyAccountMigrator._resolve_with_projection"),
+    }
+
+
+class _PrivateCallCollector(ast.NodeVisitor):
+    def __init__(self, module: str, target: str) -> None:
+        self.module = module
+        self.target = target
+        self.class_stack: list[str] = []
+        self.function_stack: list[str] = []
+        self.callee_nodes: set[int] = set()
+        self.calls: set[tuple[str, str]] = set()
+        self.escapes: set[tuple[str, str]] = set()
+
+    @property
+    def owner(self) -> str:
+        return _function_owner([*self.class_stack, *self.function_stack[:1]])
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.class_stack.append(node.name)
+        self.generic_visit(node)
+        self.class_stack.pop()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.function_stack.append(node.name)
+        self.generic_visit(node)
+        self.function_stack.pop()
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if isinstance(node.func, ast.Attribute) and node.func.attr == self.target:
+            self.callee_nodes.add(id(node.func))
+            self.calls.add((self.module, self.owner))
+        elif (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == self.target
+        ) or (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "__getattribute__"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == self.target
+        ):
+            self.escapes.add((self.module, self.owner))
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr == self.target and id(node) not in self.callee_nodes:
+            self.escapes.add((self.module, self.owner))
+        self.generic_visit(node)
+
+
+def _private_call_projection(target: str) -> tuple[set[tuple[str, str]], set[tuple[str, str]]]:
+    calls: set[tuple[str, str]] = set()
+    escapes: set[tuple[str, str]] = set()
+    for path in sorted(SRC_ROOT.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        collector = _PrivateCallCollector(_source_label(path), target)
+        collector.visit(tree)
+        calls.update(collector.calls)
+        escapes.update(collector.escapes)
+    return calls, escapes
+
+
+def test_raw_projection_core_callers_are_exact_and_capability_does_not_escape() -> None:
+    calls, escapes = _private_call_projection("_resolve_with_projection")
+    assert calls == {
+        ("profile_migration.py", "LegacyAccountMigrator.resolve"),
+        ("storage.py", "read_account_metadata"),
+    }
+    assert not escapes
+
+
+def test_raw_projection_core_third_caller_and_capability_escape_are_rejected() -> None:
+    tree = ast.parse(
+        "def forbidden(migrator, store):\n"
+        "    callback = migrator._resolve_with_projection\n"
+        "    return migrator._resolve_with_projection(store), callback\n"
+    )
+    collector = _PrivateCallCollector("synthetic.py", "_resolve_with_projection")
+    collector.visit(tree)
+    assert collector.calls == {("synthetic.py", "forbidden")}
+    assert collector.escapes == {("synthetic.py", "forbidden")}
+
+
+def test_dynamic_raw_projection_core_access_fails_closed() -> None:
+    tree = ast.parse(
+        "def forbidden(migrator, store):\n"
+        "    callback = getattr(migrator, '_resolve_with_projection')\n"
+        "    return callback(store)\n"
+    )
+    collector = _PrivateCallCollector("synthetic.py", "_resolve_with_projection")
+    collector.visit(tree)
+    assert collector.calls == set()
+    assert collector.escapes == {("synthetic.py", "forbidden")}
 
 
 def test_synthetic_extra_store_caller_is_rejected() -> None:
@@ -742,6 +1102,57 @@ def test_direct_class_alias_binds_receiver_and_method_call() -> None:
     assert _store_calls(AUTH_ROOT / "migration.py", tree) == {
         ("migration.py", "forbidden", "ProfileStore"),
         ("migration.py", "forbidden", "clear_account"),
+    }
+
+
+def test_shadowed_writer_name_does_not_receive_trusted_store_capability() -> None:
+    tree = ast.parse(
+        "from .profile_store import ProfileStore\n"
+        "def AccountMetadataWriter(value):\n"
+        "    return value\n"
+        "def forbidden(path):\n"
+        "    store = ProfileStore(path)\n"
+        "    return AccountMetadataWriter(store)\n"
+    )
+    assert _store_calls(AUTH_ROOT / "synthetic.py", tree) == {
+        ("synthetic.py", "forbidden", "ProfileStore"),
+        ("synthetic.py", "forbidden", _INSTANCE_ESCAPE),
+    }
+
+
+def test_later_module_rebinding_invalidates_deferred_writer_lookup() -> None:
+    tree = ast.parse(
+        "from .profile_store import ProfileStore\n"
+        "from .profile_migration import AccountMetadataWriter\n"
+        "def forbidden(path):\n"
+        "    store = ProfileStore(path)\n"
+        "    return AccountMetadataWriter(store)\n"
+        "AccountMetadataWriter = lambda value: value\n"
+    )
+    assert _store_calls(AUTH_ROOT / "synthetic.py", tree) == {
+        ("synthetic.py", "forbidden", "ProfileStore"),
+        ("synthetic.py", "forbidden", _INSTANCE_ESCAPE),
+    }
+
+
+def test_conflicting_injected_store_field_fails_closed() -> None:
+    tree = ast.parse(
+        "from .profile_store import ProfileStore\n"
+        "class Service:\n"
+        "    def __init__(self, store: ProfileStore, condition):\n"
+        "        if condition:\n"
+        "            self._store = store\n"
+        "        else:\n"
+        "            self._store = object()\n"
+        "    def forbidden(self, record):\n"
+        "        return self._store.update_account(record)\n"
+    )
+    assert _store_calls(AUTH_ROOT / "synthetic.py", tree) == {
+        (
+            "synthetic.py",
+            "Service.forbidden",
+            f"{_RECEIVER_ESCAPE_PREFIX}update_account>",
+        )
     }
 
 
@@ -820,8 +1231,6 @@ def test_lexical_receiver_bindings_expose_private_read_in_allowed_login_owner(
         ("storage.py", "replace_from_login", "ProfileStore"),
         ("storage.py", "replace_from_login", "_read_account_document"),
     }
-    if binding.startswith("store:"):
-        expected.add(("storage.py", "replace_from_login", _CAPABILITY_ESCAPE))
     if calls_replace:
         expected.add(("storage.py", "replace_from_login", "replace_from_login"))
     assert _store_calls(AUTH_ROOT / "storage.py", tree) == expected

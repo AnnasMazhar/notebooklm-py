@@ -7,12 +7,13 @@ import json
 import logging
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from notebooklm._auth import profile_store as store_mod
-from notebooklm._auth import storage as storage_mod
 from notebooklm._auth.profile_account import ProfileAccount
+from notebooklm._auth.profile_migration import LegacyAccountMigrator
 from notebooklm._auth.profile_store import ProfileStore
 from notebooklm._auth.storage_lock import LockRequest, LockState
 from notebooklm.exceptions import LockUnavailableError
@@ -31,6 +32,13 @@ class RecordingLocks:
 
 def _write(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _read_in_band_projection(path: Path) -> dict[str, Any]:
+    """Take one raw in-band sample through the canonical migration projection."""
+    document = ProfileStore(path)._read_account_document()
+    projected = LegacyAccountMigrator._project_in_band(document)
+    return {} if projected is None else projected[1]
 
 
 @pytest.mark.parametrize(
@@ -70,8 +78,8 @@ def test_raw_adapter_preserves_exact_account_mapping_and_isolation(tmp_path: Pat
     }
     _write(path, {"notebooklm": {"account": raw}})
 
-    first = storage_mod._read_in_band_account(path)
-    second = storage_mod._read_in_band_account(path)
+    first = _read_in_band_projection(path)
+    second = _read_in_band_projection(path)
 
     assert first == raw
     assert second == raw
@@ -92,7 +100,7 @@ def test_account_read_non_object_root_is_silent_absence(
 
     with caplog.at_level(logging.DEBUG, logger="notebooklm.auth"):
         assert ProfileStore(path).read_account() is None
-        assert storage_mod._read_in_band_account(path) == {}
+        assert _read_in_band_projection(path) == {}
     assert caplog.records == []
 
 
@@ -102,7 +110,7 @@ def test_account_read_missing_and_corrupt_policies(
 ) -> None:
     missing = tmp_path / "missing.json"
     assert ProfileStore(missing).read_account() is None
-    assert storage_mod._read_in_band_account(missing) == {}
+    assert _read_in_band_projection(missing) == {}
 
     path = tmp_path / "broken.json"
     path.write_text("{broken", encoding="utf-8")
@@ -124,7 +132,7 @@ def test_account_read_invalid_utf8_escapes_without_log(
         with pytest.raises(UnicodeDecodeError):
             ProfileStore(path).read_account()
         with pytest.raises(UnicodeDecodeError):
-            storage_mod._read_in_band_account(path)
+            _read_in_band_projection(path)
     assert caplog.records == []
 
 
