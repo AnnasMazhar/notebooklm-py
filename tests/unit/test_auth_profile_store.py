@@ -21,6 +21,9 @@ from notebooklm._auth.profile_store import (
     CookieMergeDisposition,
     CookieMergeResult,
     ProfileStore,
+    RemintWriteRequest,
+    ReplaceResult,
+    ReplaceStatus,
 )
 from notebooklm._auth.storage_lock import LockRequest, LockState, StorageLockManager
 from notebooklm.exceptions import LockUnavailableError
@@ -95,6 +98,19 @@ def test_public_shapes_signatures_enum_and_raw_path_are_exact(tmp_path: Path) ->
     assert str(inspect.signature(ProfileStore.merge_legacy_cookie_observation)) == (
         "(self, observation: 'CookieJar') -> 'CookieMergeResult'"
     )
+    assert str(inspect.signature(ProfileStore.replace_from_remint)) == (
+        "(self, request: 'RemintWriteRequest') -> 'ReplaceResult'"
+    )
+    assert [(member.name, member.value) for member in ReplaceStatus] == [
+        ("APPLIED", "applied"),
+        ("LOCK_UNAVAILABLE", "lock_unavailable"),
+    ]
+    assert set(RemintWriteRequest.__slots__) == {
+        "source",
+        "carry_account",
+        "domain_selection",
+    }
+    assert set(ReplaceResult.__slots__) == {"status"}
     raw = tmp_path / "sub" / ".." / "profile" / "A.json"
     store = ProfileStore(raw)
     assert store.path is raw

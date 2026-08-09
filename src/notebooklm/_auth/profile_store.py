@@ -11,10 +11,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar, cast
 
 from ..exceptions import LockUnavailableError
 from . import cookie_merge as _cookie_merge
+from .cookie_filter import filter_storage_state_cookies_by_domain_policy
 from .cookie_merge import RecoveryObservation
 from .cookie_types import CookieIdentity, CookieJar
 from .credential_io import _commit_profile_json
@@ -86,6 +87,37 @@ class CookieMergeResult:
 
         object.__setattr__(self, "next_baseline", baseline)
         object.__setattr__(self, "rejected", rejected)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class RemintWriteRequest:
+    """Immutable, redacted input for one browser-capture replacement."""
+
+    source: ProfileDocument = field(repr=False)
+    carry_account: bool
+    domain_selection: DomainSelection = DomainSelection()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source, ProfileDocument):
+            raise TypeError("source must be a ProfileDocument")
+        if not isinstance(self.domain_selection, DomainSelection):
+            raise TypeError("domain_selection must be a DomainSelection")
+
+
+class ReplaceStatus(Enum):
+    APPLIED = "applied"
+    LOCK_UNAVAILABLE = "lock_unavailable"
+
+
+@dataclass(frozen=True, slots=True)
+class ReplaceResult:
+    """Value-free result of one full profile replacement."""
+
+    status: ReplaceStatus
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, ReplaceStatus):
+            raise TypeError("status must be a ReplaceStatus")
 
 
 class _LockUnavailablePolicy(Protocol):
@@ -169,6 +201,47 @@ class ProfileStore:
             domain_selection=DomainSelection(
                 include_domains=document.include_domains(),
                 include_optional=document.include_optional(),
+            ),
+        )
+
+    def replace_from_remint(self, request: RemintWriteRequest) -> ReplaceResult:
+        """Replace cookies from a browser re-mint under the bounded profile lock."""
+
+        def _replace() -> ReplaceResult:
+            carried_namespace: dict[str, object] | None = None
+            if request.carry_account and self.path.exists():
+                # Existence/stat failures are not a tolerated destination-read failure.
+                try:
+                    current = self.read_document().to_json()
+                    namespace = current.get("notebooklm")
+                    if isinstance(namespace, dict):
+                        carried_namespace = namespace
+                except UnicodeDecodeError:
+                    raise
+                except (OSError, json.JSONDecodeError):
+                    pass
+                except _ProfileDocumentStructureError as exc:
+                    if exc.field != "root" or exc.reason != "not_object":
+                        raise
+
+            selection = request.domain_selection
+            filtered = filter_storage_state_cookies_by_domain_policy(
+                cast(dict[str, Any], request.source.to_json()),
+                include_optional=selection.include_optional,
+                include_domains=(
+                    set(selection.include_domains) if selection.include_domains else None
+                ),
+            )
+            if carried_namespace is not None:
+                filtered["notebooklm"] = carried_namespace
+            _commit_profile_json(self.path, filtered)
+            return ReplaceResult(ReplaceStatus.APPLIED)
+
+        return self._under_bounded_lock(
+            operation="replace_from_remint",
+            body=_replace,
+            on_unavailable=report_on_lock_unavailable(
+                ReplaceResult(ReplaceStatus.LOCK_UNAVAILABLE)
             ),
         )
 

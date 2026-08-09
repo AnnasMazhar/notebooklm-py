@@ -1,10 +1,11 @@
 """Shrink-only ownership gate for bounded and blocking profile transactions.
 
 ADR-0034 PR6 moved the real transaction definition and mechanics into the
-path-owned ``ProfileStore``. PR7A moves two account policy bodies onto the
-bounded store primitive while the other four retain the compatibility template.
-Their frozen 3 raise / 1 skip / 2 report outcomes remain exact. Cookie
-persistence deliberately uses the separate blocking primitive.
+path-owned ``ProfileStore``. PR7A moved two account policy bodies onto its
+bounded primitive; PR7B adds browser/remint replacement there. The remaining
+three storage writers retain the compatibility template. Their frozen 3 raise /
+1 skip / 2 report outcomes remain exact. Cookie persistence deliberately uses
+the separate blocking primitive.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ _POLICY_CALLERS: dict[str, frozenset[str]] = {
     ),
     "skip_on_lock_unavailable": frozenset({"profile_store.ProfileStore.clear_account"}),
     "report_on_lock_unavailable": frozenset(
-        {"storage.replace_from_login", "storage.replace_from_remint"}
+        {"profile_store.ProfileStore.replace_from_remint", "storage.replace_from_login"}
     ),
 }
 
@@ -46,7 +47,6 @@ _STORAGE_TRANSACTION_CALLERS = frozenset(
     {
         "persist_minted_jar",
         "replace_from_login",
-        "replace_from_remint",
         "write_master_token",
     }
 )
@@ -56,6 +56,14 @@ _DIRECT_ACQUIRE_OWNERS = frozenset(
         "storage._file_lock",
         "profile_store.ProfileStore._under_bounded_lock",
         "profile_store.ProfileStore._under_blocking_cookie_lock",
+    }
+)
+
+_BOUNDED_STORE_OWNERS = frozenset(
+    {
+        "ProfileStore.update_account",
+        "ProfileStore.clear_account",
+        "ProfileStore.replace_from_remint",
     }
 )
 
@@ -279,8 +287,16 @@ def test_cookie_methods_use_only_the_blocking_store_primitive() -> None:
         assert "_under_bounded_lock" not in calls
 
 
-def test_account_methods_use_only_the_bounded_store_primitive() -> None:
-    for name in ("update_account", "clear_account"):
+def test_bounded_store_owners_are_exact_and_use_no_other_transaction() -> None:
+    methods = _owned_functions(STORE_PATH)
+    actual = {
+        owner.removeprefix("profile_store.")
+        for owner, method in methods.items()
+        if owner.startswith("profile_store.ProfileStore.")
+        if "_under_bounded_lock" in _called_members(method)
+    }
+    assert actual == set(_BOUNDED_STORE_OWNERS)
+    for name in ("update_account", "clear_account", "replace_from_remint"):
         calls = _called_members(_class_method(name))
         assert calls.count("_under_bounded_lock") == 1
         assert "_under_blocking_cookie_lock" not in calls

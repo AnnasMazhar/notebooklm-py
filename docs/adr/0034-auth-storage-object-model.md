@@ -29,6 +29,7 @@ Extract by owned state/invariant, not headings. `A -> B` below means A may depen
 |---|---|---|---|
 | `ProfileStore` | Per raw caller path; separate canonical ordering key; no cached document | One aggregate commit boundary, per-intent locks, lossless round-trip; raw path controls I/O and locks | Down to document, typed I/O, locks, merge, derived token file; never migrator, scheduler, network, facade |
 | `ProfileDocument` | Immutable decoded value | Preserves unknown root/namespace keys, origins, raw rows; decode chooses no corruption policy | Values only; no I/O, locks, lifecycle, orchestration |
+| `cookie_filter.py` | Stateless pure filter and value-free diagnostic boundary | Filters raw capture rows without retaining values or mutating input; owns no path, lock, document, commit, or lifecycle state | Cookie policy/semantics and logging only |
 | `credential_io.py` | Stateless leaf; two typed wrappers over one unchecked bypass | Profile and arbitrary token writes cannot be confused; no other bypass importer | Atomic I/O and values only |
 | `StorageLockManager` | Shared process default or injected isolate; owns raw-path locks, registry, OS gateway, warning-once | Same raw lock path serializes stores; only cookie CAS blocks; secure-parent prep stays operation-specific | Lock primitives/values only |
 | `CookiePersistence` | Per client; baselines by canonical path plus dispatch order | Baselines never cross profiles; outcome table alone advances order; closes with client | Store, snapshots, thread-dispatch seam |
@@ -144,24 +145,34 @@ value-free CAS logs, performs the single sanctioned raw write, and projects the 
 semantics, writer authority, and caller identities do not move. This extraction lowers the exact
 facade line pin again without changing bytes or baseline advancement behavior.
 
-The commit spine and real store boundary now own cookie transactions plus the in-band account
-intents. `credential_io.py` is the sole importer of the unchecked atomic JSON capability: one raw
-private forwarder has exactly two typed callers, for complete profile documents and arbitrary-path
-master-token documents. `ProfileStore` owns one caller-spelled path, a separately canonicalized
-ordering key, fresh document/session/account reads, the shared bounded-lock mechanics, both blocking
-cookie transactions, and typed account update/clear. Account read, update, and clear intentionally
-retain their distinct corruption and lock policies. It owns no cache, baseline, live jar, scheduler,
-logger policy object, or injectable writer.
+The commit spine and real store boundary now own cookie transactions, the in-band account intents,
+and browser/remint replacement. `credential_io.py` is the sole importer of the unchecked atomic
+JSON capability: one raw private forwarder has exactly two typed callers, for complete profile
+documents and arbitrary-path master-token documents. `ProfileStore` owns one caller-spelled path,
+a separately canonicalized ordering key, fresh document/session/account reads, the shared bounded
+lock mechanics, both blocking cookie transactions, typed account update/clear, and the complete
+typed remint transaction. Remint reads the latest destination under that lock only when raw
+namespace carry is requested, preserves the whole valid `notebooklm` mapping (including empty or
+unknown account records), filters an isolated source snapshot, and commits at most once. It owns no
+cache, baseline, live jar, scheduler, logger policy object, or injectable writer.
 
-`storage.py` remains the v0.x policy/compatibility facade. It retains raw account-dict adapters,
-two-read legacy reconciliation, promotion scheduling, and sibling scrub composition; replacement
-and token-file policy have not moved. Its account adapters construct typed store values while
-preserving raw mapping returns and same-module late lookup. An empty in-band `account: {}` is now
-consistently absent for both read and under-lock promotion, so a sanitized legacy binding replaces
-it before the sibling is scrubbed; a non-empty unknown-only mapping remains present and wins. No
-schema, lock path, permission, backup, log, or public API changes. The exact pins are now 2,210 lines
-for `storage.py`, 507 for `profile_store.py`, and 2,717 combined. `MasterTokenFile` and replacement
-store methods remain future stages.
+The raw capture/domain policy and its value-free malformed-row diagnostics now live in the
+dependency-bottom `cookie_filter.py` leaf. It retains whole allowed rows and their raw scalar types,
+drops source origins and namespace data, and owns no path, document, lock, commit, or lifecycle
+state. Browser capture, CLI import, the remaining replacement writers, and compatibility shims keep
+the same filter function identity through aliases.
+
+`storage.py` remains the v0.x policy/compatibility facade. Its `replace_from_remint` callable keeps
+the old signature, result projection, browser late-patch seam, and facade/shim identities while
+constructing the immutable request and delegating the transaction to `ProfileStore`. It retains raw
+account-dict adapters, two-read legacy reconciliation, promotion scheduling, sibling scrub
+composition, login replacement, minted-session replacement, and token-file policy. An empty in-band
+`account: {}` remains absent for typed account read/promotion but is preserved by remint's raw
+whole-namespace carry; a non-empty unknown-only mapping remains present and wins. No schema, lock
+path, permission, backup, log, or public API changes. The exact pins are now 1,905 lines for
+`storage.py`, 580 for `profile_store.py`, and 96 for `cookie_filter.py` (2,581 combined).
+`MasterTokenFile`, login/minted store methods, and legacy migration/lifecycle services remain future
+stages.
 
 The compatibility inventory is explicit:
 

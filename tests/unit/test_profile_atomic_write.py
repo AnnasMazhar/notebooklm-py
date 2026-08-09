@@ -406,7 +406,7 @@ def test_storage_state_mutators_share_one_lock_file(
     import httpx
 
     from notebooklm._auth import profile_store
-    from notebooklm._auth.storage import save_cookies_to_storage
+    from notebooklm._auth.storage import replace_from_remint, save_cookies_to_storage
     from notebooklm._auth.storage_lock import StorageLockManager
 
     storage_path = tmp_path / "storage_state.json"
@@ -439,6 +439,16 @@ def test_storage_state_mutators_share_one_lock_file(
     cookie_save_locks = _locks_taken_by(
         lambda: save_cookies_to_storage(httpx.Cookies(), path=storage_path, original_snapshot={})
     )
+    remint_locks = _locks_taken_by(
+        lambda: replace_from_remint(
+            storage_path,
+            {
+                "cookies": [{"name": "SID", "value": "v", "domain": ".google.com", "path": "/"}],
+                "origins": [],
+            },
+            carry_account=True,
+        )
+    )
 
     assert account_write_locks == {expected}, (
         f"write_account_metadata must take exactly the shared lock; got {account_write_locks}"
@@ -448,4 +458,7 @@ def test_storage_state_mutators_share_one_lock_file(
     )
     assert cookie_save_locks == {expected}, (
         f"save_cookies_to_storage must take exactly the shared lock; got {cookie_save_locks}"
+    )
+    assert remint_locks == {expected}, (
+        f"replace_from_remint must take exactly the shared lock; got {remint_locks}"
     )

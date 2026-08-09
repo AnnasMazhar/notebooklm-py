@@ -226,6 +226,37 @@ def test_real_function_local_import_sites_are_not_dropped(script):
     assert len(account_commit_sites) == 2
 
 
+def test_live_remint_patch_contract_and_scorecard_are_exact(script):
+    sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src/notebooklm/_auth")
+    projection = script.build_projection(sites)
+    assert projection["summary"]["TOTAL"] == {
+        "public": 175,
+        "private": 114,
+        "total": 289,
+    }
+    relevant = {
+        (row["module"], row["attribute"], row["idiom"]): row["count"]
+        for row in projection["sites"]
+        if (row["module"], row["attribute"])
+        in {
+            ("storage", "replace_from_remint"),
+            ("storage", "ProfileStore"),
+            ("profile_store", "_commit_profile_json"),
+            ("profile_store", "filter_storage_state_cookies_by_domain_policy"),
+        }
+    }
+    assert relevant == {
+        ("storage", "replace_from_remint", "patch.object"): 1,
+        ("storage", "ProfileStore", "monkeypatch.setattr"): 1,
+        ("profile_store", "_commit_profile_json", "monkeypatch.setattr"): 7,
+        (
+            "profile_store",
+            "filter_storage_state_cookies_by_domain_policy",
+            "monkeypatch.setattr",
+        ): 3,
+    }
+
+
 def test_definition_headers_resolve_in_the_enclosing_scope(script, tmp_path):
     body = (
         "from unittest.mock import patch\n"

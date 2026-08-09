@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 import ast
+import dataclasses
+import inspect
 from pathlib import Path
 
 import pytest
+
+import notebooklm._auth as auth_package
+import notebooklm.auth as auth_facade
+from notebooklm._auth import profile_store, storage, storage_writer
+from notebooklm._auth.profile_account import DomainSelection
+from notebooklm._auth.profile_document import ProfileDocument
 
 pytestmark = pytest.mark.repo_lint
 
@@ -33,8 +41,10 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
     ("module", 0, "typing", "Any", None),
     ("module", 0, "typing", "Protocol", None),
     ("module", 0, "typing", "TypeVar", None),
+    ("module", 0, "typing", "cast", None),
     ("module", 2, "exceptions", "LockUnavailableError", None),
     ("module", 1, "", "cookie_merge", "_cookie_merge"),
+    ("module", 1, "cookie_filter", "filter_storage_state_cookies_by_domain_policy", None),
     ("module", 1, "cookie_merge", "RecoveryObservation", None),
     ("module", 1, "cookie_types", "CookieIdentity", None),
     ("module", 1, "cookie_types", "CookieJar", None),
@@ -206,9 +216,9 @@ def test_profile_store_public_method_set_is_minimal_and_exact() -> None:
         "clear_account",
         "merge_cookie_observation",
         "merge_legacy_cookie_observation",
+        "replace_from_remint",
     }
     forbidden_future = {
-        "replace_from_remint",
         "replace_from_login",
         "persist_minted_session",
         "read_master_token",
@@ -216,6 +226,68 @@ def test_profile_store_public_method_set_is_minimal_and_exact() -> None:
         "mutate",
     }
     assert methods.isdisjoint(forbidden_future)
+
+
+def test_remint_request_result_and_enum_shapes_are_minimal_and_exact() -> None:
+    request_type = profile_store.RemintWriteRequest
+    result_type = profile_store.ReplaceResult
+    status_type = profile_store.ReplaceStatus
+
+    assert request_type.__dataclass_params__.frozen is True
+    assert request_type.__slots__ == ("source", "carry_account", "domain_selection")
+    request_fields = dataclasses.fields(request_type)
+    assert [field.name for field in request_fields] == [
+        "source",
+        "carry_account",
+        "domain_selection",
+    ]
+    assert request_fields[0].repr is False
+    assert request_fields[2].default == DomainSelection()
+    assert str(inspect.signature(request_type)) == (
+        "(source: 'ProfileDocument', carry_account: 'bool', "
+        "domain_selection: 'DomainSelection' = DomainSelection(include_domains=frozenset(), "
+        "include_optional=False)) -> None"
+    )
+    secret = "raw-cookie-value-must-not-escape"
+    request = request_type(
+        ProfileDocument.decode(
+            {
+                "cookies": [{"name": "SID", "value": secret, "domain": ".google.com", "path": "/"}],
+                "notebooklm": {"account": {"email": secret}},
+            }
+        ),
+        True,
+    )
+    assert secret not in repr(request)
+    assert secret not in str(request)
+
+    assert [(member.name, member.value) for member in status_type] == [
+        ("APPLIED", "applied"),
+        ("LOCK_UNAVAILABLE", "lock_unavailable"),
+    ]
+    assert result_type.__dataclass_params__.frozen is True
+    assert result_type.__slots__ == ("status",)
+    assert [field.name for field in dataclasses.fields(result_type)] == ["status"]
+    assert str(inspect.signature(result_type)) == "(status: 'ReplaceStatus') -> None"
+    with pytest.raises(TypeError, match="status must be a ReplaceStatus"):
+        result_type("applied")  # type: ignore[arg-type]
+
+
+def test_remint_types_remain_internal_to_profile_store() -> None:
+    names = {"RemintWriteRequest", "ReplaceStatus", "ReplaceResult"}
+    assert names.isdisjoint(storage.__all__)
+    assert names.isdisjoint(storage_writer.__all__)
+    assert all(not hasattr(auth_facade, name) for name in names)
+    assert all(not hasattr(auth_package, name) for name in names)
+
+
+def test_profile_store_constructor_and_remint_method_signatures_are_exact() -> None:
+    assert str(inspect.signature(profile_store.ProfileStore)) == (
+        "(path: 'Path', *, locks: 'StorageLockManager | None' = None) -> 'None'"
+    )
+    assert str(inspect.signature(profile_store.ProfileStore.replace_from_remint)) == (
+        "(self, request: 'RemintWriteRequest') -> 'ReplaceResult'"
+    )
 
 
 def _function_owner(stack: list[str]) -> str:
@@ -319,6 +391,7 @@ class _StoreCallCollector(ast.NodeVisitor):
                 "clear_account",
                 "merge_cookie_observation",
                 "merge_legacy_cookie_observation",
+                "replace_from_remint",
             }
             and self._is_store_receiver(node.func.value)
         ):
@@ -353,6 +426,8 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
         ("storage.py", "merge_cookie_delta", "ProfileStore"),
         ("storage.py", "merge_cookie_delta", "merge_cookie_observation"),
         ("storage.py", "merge_cookie_delta", "merge_legacy_cookie_observation"),
+        ("storage.py", "replace_from_remint", "ProfileStore"),
+        ("storage.py", "replace_from_remint", "replace_from_remint"),
         ("storage.py", "update_account_metadata", "ProfileStore"),
         ("storage.py", "update_account_metadata", "update_account"),
     }
@@ -437,7 +512,8 @@ def test_account_method_signatures_and_storage_leaf_import_are_exact() -> None:
     )
     imports = _collect_imports(storage_tree)
     assert [record for record in imports if record[2] == "profile_account"] == [
-        ("module", 1, "profile_account", "ProfileAccount", None)
+        ("module", 1, "profile_account", "DomainSelection", None),
+        ("module", 1, "profile_account", "ProfileAccount", None),
     ]
 
 

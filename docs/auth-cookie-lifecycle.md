@@ -434,8 +434,10 @@ hazards existed (a stale-in-memory-clobbers-fresh-disk race, `(name, domain)`
 path-collapse, sibling-domain allow-list asymmetry, round-trip attribute erosion).
 **All of them are resolved in-tree** — the persistence path is now snapshot/delta,
 CAS-guarded, cross-process flocked, fully `(name, domain, path)`-aware, and funneled
-through the path-owned cookie transactions in `_auth/profile_store.py`, with
-v0.x input/result policy still adapted by `_auth/storage.py`
+through the path-owned cookie transactions in `_auth/profile_store.py`. The same
+store now owns browser/remint replacement, while the pure raw capture/domain filter
+and its value-free diagnostics live in `_auth/cookie_filter.py`; v0.x signatures,
+results, and browser patch timing remain adapted by `_auth/storage.py`
 ([ADR-0029](adr/0029-canonical-storage-writer.md)). If users
 report cookies "expiring fast", walk the
 [diagnostic checklist](#a2--diagnosing-cookies-expire-fast) in the Appendix (which
@@ -1069,10 +1071,13 @@ reports still make sense:
   10 s timeout, and `write_master_token` had no lock at all. Resolved by
   [ADR-0029](adr/0029-canonical-storage-writer.md), then sealed by ADR-0034:
   `_auth/credential_io.py` alone holds the unchecked atomic capability,
-  `_auth/profile_store.py` owns cookie transactions plus typed in-band account
-  read/update/clear, while `_auth/storage.py` retains raw account adapters,
-  legacy reconciliation/promotion/scrub, and the remaining replacement/token
-  policies. Empty account placeholders no longer block legacy promotion;
+  `_auth/profile_store.py` owns cookie transactions, typed in-band account
+  read/update/clear, and browser/remint replacement (latest-under-lock raw
+  namespace carry, pure filtering, then one commit). `_auth/cookie_filter.py`
+  owns that raw filter and its value-free diagnostics. `_auth/storage.py` retains
+  the remint compatibility/browser patch seam plus raw account adapters, legacy
+  reconciliation/promotion/scrub, login/minted replacement, and token policies.
+  Empty account placeholders no longer block legacy promotion;
   non-empty unknown-only records still win. Function-granular AST guardrails
   (`tests/_guardrails/test_storage_writer_boundary.py`) seal the capability and caller sets.
   The full-replace paths share one platform-neutral bounded lock (90 s deadline, up from 10 s).
@@ -1157,10 +1162,19 @@ gate their writes correctly.
 
 ## Changelog
 
+- **2026-08-08 (profile-store browser/remint replacement)** — The pure raw
+  capture/domain filter and value-free malformed-row diagnostics now live in
+  `_auth/cookie_filter.py`. `ProfileStore.replace_from_remint` owns the bounded
+  transaction, latest raw namespace carry, filtering, and commit;
+  `_auth/storage.py::replace_from_remint` remains the exact v0.x adapter and
+  browser patch seam. Login/minted replacement, legacy reconciliation and
+  scheduling, and token policy remain in `_auth/storage.py`. No schema, path,
+  lock, permission, backup, warning, or public-result behavior changed.
+
 - **2026-08-08 (profile-store account intents)** — `ProfileStore` now owns typed
   in-band account read/update/clear and their distinct corruption/lock policies.
   `_auth/storage.py` keeps raw compatibility, legacy promotion scheduling, and
-  sibling scrub; full replacements and token-file policy remain there. The
+  sibling scrub; at that stage all full replacements and token-file policy remained there. The
   empty-placeholder promotion correction changes no schema, path, permission,
   backup, log, or public API.
 

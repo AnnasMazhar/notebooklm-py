@@ -57,6 +57,16 @@
     },
     {
       "scope": "module",
+      "source": "cookie_filter",
+      "target": "cookie_policy"
+    },
+    {
+      "scope": "module",
+      "source": "cookie_filter",
+      "target": "cookie_semantics"
+    },
+    {
+      "scope": "module",
       "source": "cookie_merge",
       "target": "cookie_policy"
     },
@@ -164,6 +174,11 @@
       "scope": "module",
       "source": "profile_document",
       "target": "profile_account"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
+      "target": "cookie_filter"
     },
     {
       "scope": "module",
@@ -348,22 +363,17 @@
     {
       "scope": "module",
       "source": "storage",
+      "target": "cookie_filter"
+    },
+    {
+      "scope": "module",
+      "source": "storage",
       "target": "cookie_merge"
     },
     {
       "scope": "function",
       "source": "storage",
       "target": "cookie_policy"
-    },
-    {
-      "scope": "module",
-      "source": "storage",
-      "target": "cookie_policy"
-    },
-    {
-      "scope": "module",
-      "source": "storage",
-      "target": "cookie_semantics"
     },
     {
       "scope": "module",
@@ -488,6 +498,11 @@
       "path": "src/notebooklm/_auth/browser_state_validation.py"
     },
     {
+      "lines": 96,
+      "name": "cookie_filter",
+      "path": "src/notebooklm/_auth/cookie_filter.py"
+    },
+    {
       "lines": 393,
       "name": "cookie_merge",
       "path": "src/notebooklm/_auth/cookie_merge.py"
@@ -558,7 +573,7 @@
       "path": "src/notebooklm/_auth/profile_document.py"
     },
     {
-      "lines": 507,
+      "lines": 580,
       "name": "profile_store",
       "path": "src/notebooklm/_auth/profile_store.py"
     },
@@ -588,7 +603,7 @@
       "path": "src/notebooklm/_auth/single_flight.py"
     },
     {
-      "lines": 2210,
+      "lines": 1905,
       "name": "storage",
       "path": "src/notebooklm/_auth/storage.py"
     },
@@ -626,10 +641,10 @@
   },
   "summary": {
     "function_local_edges": 14,
-    "module_edges": 76,
-    "modules": 32,
-    "total_lines": 14408,
-    "unique_edges": 90
+    "module_edges": 78,
+    "modules": 33,
+    "total_lines": 14272,
+    "unique_edges": 92
   },
   "version": 1
 }
