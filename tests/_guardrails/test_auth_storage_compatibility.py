@@ -80,6 +80,30 @@ R = REQUIRED
 
 # Literal normalized descriptors: no live Signature/default object participates in equality.
 EXPECTED_SIGNATURES: dict[str, SignatureDescriptor] = {
+    "storage._cookie_snapshot_key_variants": (
+        (("key", P, "CookieSnapshotKey", R),),
+        "set[CookieSnapshotKey]",
+    ),
+    "storage._stored_cookie_snapshot_key": (
+        (("stored_cookie", P, "Any", R),),
+        "CookieSnapshotKey | None",
+    ),
+    "storage._merge_cookies_legacy": (
+        (
+            ("cookie_jar", P, "httpx.Cookies", R),
+            ("storage_data", P, "dict[str, Any]", R),
+        ),
+        "int",
+    ),
+    "storage._merge_cookies_with_snapshot": (
+        (
+            ("cookie_jar", P, "httpx.Cookies", R),
+            ("storage_data", P, "dict[str, Any]", R),
+            ("original_snapshot", P, "CookieSnapshot", R),
+            ("recovery_observation", K, "RecoveryCookieObservation | None", "None"),
+        ),
+        "tuple[int, frozenset[CookieSnapshotKey]]",
+    ),
     "storage.merge_cookie_delta": (
         (
             ("cookie_jar", P, "httpx.Cookies", R),
@@ -348,6 +372,10 @@ EXPECTED_SIGNATURES: dict[str, SignatureDescriptor] = {
 }
 
 LIVE_SIGNATURES: dict[str, Callable[..., object]] = {
+    "storage._cookie_snapshot_key_variants": storage._cookie_snapshot_key_variants,
+    "storage._stored_cookie_snapshot_key": storage._stored_cookie_snapshot_key,
+    "storage._merge_cookies_legacy": storage._merge_cookies_legacy,
+    "storage._merge_cookies_with_snapshot": storage._merge_cookies_with_snapshot,
     "storage.merge_cookie_delta": storage.merge_cookie_delta,
     "storage.update_account_metadata": storage.update_account_metadata,
     "storage.clear_in_band_account": storage.clear_in_band_account,
@@ -454,6 +482,28 @@ def test_result_projections_and_compatibility_value_identities() -> None:
     assert storage.CLEAR_ACCOUNT is storage._AccountAction.CLEAR
     assert storage.CookieSnapshotKey._fields == ("name", "domain", "path")
     assert storage.CookieSnapshotValue._fields == ("value", "expires", "secure", "http_only")
+    assert storage.CookieSnapshotKey.__module__ == "notebooklm._auth.storage"
+    assert storage.CookieSnapshotKey.__qualname__ == "CookieSnapshotKey"
+    assert storage.CookieSnapshotValue.__module__ == "notebooklm._auth.storage"
+    assert storage.CookieSnapshotValue.__qualname__ == "CookieSnapshotValue"
+    assert storage.CookieSnapshot == dict[storage.CookieSnapshotKey, storage.CookieSnapshotValue]
+    assert (
+        storage.RecoveryCookieObservation == dict[storage.CookieSnapshotKey, frozenset[str | None]]
+    )
+    assert storage.CookieSaveResult.__module__ == "notebooklm._auth.storage"
+    assert storage.CookieSaveResult.__qualname__ == "CookieSaveResult"
+    assert storage.CookieSaveResult.__dataclass_params__.frozen is True
+    assert storage_writer.merge_cookie_delta is storage.merge_cookie_delta
+
+
+def test_cookie_save_delegate_remains_same_module_and_late_bound() -> None:
+    source = ast.parse(inspect.getsource(storage.save_cookies_to_storage))
+    calls = [
+        node.func.id
+        for node in ast.walk(source)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    ]
+    assert calls == ["merge_cookie_delta"]
 
 
 def test_lock_wrapper_shapes_ownership_and_projections_are_exact(

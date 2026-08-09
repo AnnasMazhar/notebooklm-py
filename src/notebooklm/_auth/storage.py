@@ -140,7 +140,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol, TypeAlias
+from typing import Any, NamedTuple, Protocol, TypeAlias, cast
 
 import httpx
 from filelock import FileLock
@@ -168,10 +168,13 @@ from .._atomic_io import atomic_write_json
 # ``except OSError`` arms keep catching a lock failure. Re-exported here for the
 # writers that raise it.
 from ..exceptions import LockUnavailableError
+from . import cookie_merge as _cookie_merge
 from . import cookie_policy as _cookie_policy
 from . import cookie_semantics as _cookie_semantics
 from . import cookies as _auth_cookies
+from .cookie_types import Cookie, CookieIdentity, CookieJar
 from .paths import _storage_state_lock_path, canonical_storage_key, resolve_auth_json_env
+from .profile_document import ProfileDocument
 from .storage_lock import (
     _LOCK_ACQUIRE_DEADLINE_SECONDS,
     LockRequest,
@@ -183,14 +186,6 @@ logger = logging.getLogger("notebooklm.auth")
 
 CookieKey: TypeAlias = _auth_cookies.CookieKey
 _cookie_is_http_only = _auth_cookies._cookie_is_http_only
-_cookie_key_variants = _auth_cookies._cookie_key_variants
-_cookie_to_storage_state = _auth_cookies._cookie_to_storage_state
-_find_cookie_for_storage = _auth_cookies._find_cookie_for_storage
-_is_allowed_cookie_domain = _cookie_policy._is_allowed_cookie_domain
-# Recovery-target rows: one definition in the ``cookie_policy`` leaf, shared
-# with ``psidts_recovery`` (which observes these rows before the RotateCookies
-# POST that produces the deltas ``_merge_recovery_target_rows`` below merges).
-_RECOVERY_TARGET_COOKIE_NAMES = _cookie_policy._RECOVERY_TARGET_COOKIE_NAMES
 
 __all__ = [
     "CLEAR_ACCOUNT",
@@ -581,29 +576,19 @@ def _cookie_snapshot_key_variants(key: CookieSnapshotKey) -> set[CookieSnapshotK
     storage entries on the same path match snapshot entries regardless of
     whether ``http.cookiejar`` normalized the domain to a leading dot.
     """
-    variants = {key}
-    if key.domain.startswith("."):
-        variants.add(CookieSnapshotKey(key.name, key.domain[1:], key.path))
-    else:
-        variants.add(CookieSnapshotKey(key.name, f".{key.domain}", key.path))
-    return variants
+    identity = CookieIdentity(key.name, key.domain, key.path)
+    return {
+        CookieSnapshotKey(variant.name, variant.domain, variant.path)
+        for variant in _cookie_merge.equivalent_identities(identity)
+    }
 
 
 def _stored_cookie_snapshot_key(stored_cookie: Any) -> CookieSnapshotKey | None:
     """Build a path-aware snapshot key from a Playwright storage_state cookie."""
-    if not isinstance(stored_cookie, dict):
+    identity = _cookie_merge.stored_cookie_identity(stored_cookie)
+    if identity is None:
         return None
-    name = stored_cookie.get("name")
-    domain = stored_cookie.get("domain", "")
-    if not isinstance(name, str) or not name:
-        return None
-    if not isinstance(domain, str) or not domain:
-        return None
-    raw_path = stored_cookie.get("path")
-    if raw_path is not None and not isinstance(raw_path, str):
-        return None
-    path = raw_path or "/"
-    return CookieSnapshotKey(name, domain, path)
+    return CookieSnapshotKey(identity.name, identity.domain, identity.path)
 
 
 def advance_cookie_snapshot_after_save(
@@ -742,19 +727,59 @@ def save_cookies_to_storage(
     )
 
 
-def _preserved_same_site(stored_cookie: dict[str, Any], fresh_state: dict[str, Any]) -> str:
-    """Keep a stored ``sameSite`` instead of the merge default that erases it.
+def _cookie_jar_for_merge(cookie_jar: httpx.Cookies, *, include_none: bool) -> CookieJar:
+    """Adapt a live jar without filtering domains or freezing legacy tuples."""
+    return CookieJar(
+        Cookie(
+            name=cookie.name,
+            domain=cookie.domain,
+            path=cookie.path or "/",
+            value=cast(str, cookie.value),
+            expires=cookie.expires,
+            secure=cast(bool, cookie.secure),
+            http_only=_cookie_is_http_only(cookie),
+        )
+        for cookie in cookie_jar.jar
+        if cookie.name and cookie.domain and (include_none or cookie.value is not None)
+    )
 
-    ``http.cookiejar.Cookie`` carries no SameSite attribute, so
-    :func:`_cookie_to_storage_state` can only emit the ``"None"`` default. Writing
-    that back over a row captured with ``"Lax"``/``"Strict"`` would downgrade it on
-    every rotation, quietly undoing the attribute preservation the capture and
-    rookiepy converters perform.
-    """
-    stored = stored_cookie.get("sameSite")
-    if stored in {"Strict", "Lax", "None"}:
-        return str(stored)
-    return str(fresh_state["sameSite"])
+
+def _cookie_jar_from_snapshot(snapshot: CookieSnapshot) -> CookieJar:
+    return CookieJar(
+        Cookie(
+            name=key.name,
+            domain=key.domain,
+            path=key.path,
+            value=value.value,
+            expires=value.expires,
+            secure=value.secure,
+            http_only=value.http_only,
+        )
+        for key, value in snapshot.items()
+    )
+
+
+def _recovery_observation_value(
+    observation: RecoveryCookieObservation | None,
+) -> _cookie_merge.RecoveryObservation | None:
+    if observation is None:
+        return None
+    return _cookie_merge.RecoveryObservation(
+        {
+            CookieIdentity(key.name, key.domain, key.path): frozenset(values)
+            for key, values in observation.items()
+        }
+    )
+
+
+def _install_decided_document(
+    storage_data: dict[str, Any], document: ProfileDocument | None
+) -> None:
+    if document is None:
+        return
+    decided = document.to_json()
+    storage_data.clear()
+    storage_data.update(decided)
 
 
 def _merge_cookies_legacy(cookie_jar: httpx.Cookies, storage_data: dict[str, Any]) -> int:
@@ -767,160 +792,12 @@ def _merge_cookies_legacy(cookie_jar: httpx.Cookies, storage_data: dict[str, Any
     Returns:
         Number of cookie entries added or modified in ``storage_data``.
     """
-    cookies_by_key: dict[CookieKey, Any] = {
-        (cookie.name, cookie.domain, cookie.path or "/"): cookie
-        for cookie in cookie_jar.jar
-        if cookie.name and cookie.domain and _is_allowed_cookie_domain(cookie.domain)
-    }
-
-    updated_count = 0
-    stored_keys: set[CookieKey] = set()
-    for stored_cookie in storage_data["cookies"]:
-        if not isinstance(stored_cookie, dict):
-            continue
-        name = stored_cookie.get("name")
-        domain = stored_cookie.get("domain", "")
-        if not isinstance(name, str) or not name or not isinstance(domain, str) or not domain:
-            continue
-
-        stored_key = _stored_cookie_snapshot_key(stored_cookie)
-        if stored_key is None:
-            continue
-        key: CookieKey = stored_key
-        stored_keys.update(_cookie_key_variants(key))
-        refreshed_cookie = _find_cookie_for_storage(cookies_by_key, key, stored_cookie.get("value"))
-        if refreshed_cookie is None:
-            continue
-
-        fresh_state = _cookie_to_storage_state(refreshed_cookie)
-        new_expires = fresh_state["expires"]
-        changed = (
-            stored_cookie.get("value") != refreshed_cookie.value
-            or stored_cookie.get("expires") != new_expires
-        )
-        if changed:
-            stored_cookie["value"] = refreshed_cookie.value
-            stored_cookie["expires"] = new_expires
-            # Normalize present-but-empty ``"path": ""`` to ``"/"`` so the row
-            # we write matches the path normalization used to build the
-            # identity key one block up (and used by every loader). Without
-            # the trailing ``or "/"`` an on-disk row with ``"path": ""`` would
-            # survive across save cycles while every other code path treats
-            # it as ``"/"``.
-            stored_cookie["path"] = refreshed_cookie.path or stored_cookie.get("path") or "/"
-            stored_cookie["secure"] = refreshed_cookie.secure
-            stored_cookie["httpOnly"] = _cookie_is_http_only(refreshed_cookie)
-            stored_cookie["sameSite"] = _preserved_same_site(stored_cookie, fresh_state)
-            updated_count += 1
-
-    for key, cookie in cookies_by_key.items():
-        if key in stored_keys:
-            continue
-        storage_data["cookies"].append(_cookie_to_storage_state(cookie))
-        updated_count += 1
-
-    return updated_count
-
-
-def _merge_recovery_target_rows(
-    storage_cookies: list[Any],
-    deltas: dict[CookieSnapshotKey, Any],
-    observation: RecoveryCookieObservation | None,
-) -> tuple[list[Any], int, set[CookieSnapshotKey], set[CookieSnapshotKey]]:
-    """Collapse observed recovery targets while preserving sibling conflicts."""
-    if observation is None:
-        return storage_cookies, 0, set(), set()
-
-    replacements: dict[int, dict[str, Any]] = {}
-    removals: set[int] = set()
-    appends: list[dict[str, Any]] = []
-    handled: set[CookieSnapshotKey] = set()
-    cas_rejected: set[CookieSnapshotKey] = set()
-    updated_count = 0
-
-    for delta_key, cookie in deltas.items():
-        if delta_key.name not in _RECOVERY_TARGET_COOKIE_NAMES:
-            continue
-
-        variants = _cookie_snapshot_key_variants(delta_key)
-        observed_values: set[str | None] = set()
-        for variant in variants:
-            observed_values.update(observation.get(variant, frozenset()))
-        if not observed_values:
-            # No target row was observed before the POST. Let the ordinary
-            # snapshot/CAS path decide whether a same-key sibling appeared.
-            continue
-
-        row_indices: list[int] = []
-        for index, stored_cookie in enumerate(storage_cookies):
-            stored_key = _stored_cookie_snapshot_key(stored_cookie)
-            if stored_key is not None and variants & _cookie_snapshot_key_variants(stored_key):
-                row_indices.append(index)
-
-        fresh_state = _cookie_to_storage_state(cookie)
-        replaceable: list[int] = []
-        conflicts: list[int] = []
-        for index in row_indices:
-            stored_cookie = storage_cookies[index]
-            stored_value = stored_cookie.get("value") if isinstance(stored_cookie, dict) else None
-            stored_value_is_unusable = not isinstance(stored_value, str) or not stored_value
-            observed_unusable = None in observed_values
-            if (
-                stored_value == cookie.value
-                or stored_value in observed_values
-                or (stored_value_is_unusable and observed_unusable)
-            ):
-                replaceable.append(index)
-            else:
-                conflicts.append(index)
-
-        if conflicts:
-            # This is the recovery-specific CAS rejection. The sibling rows
-            # remain byte-for-byte intact; no stale recovery value may clobber
-            # a value that did not exist when the POST started.
-            #
-            # Deliberately whole-key, even in the mixed case where another row
-            # for this identity *was* replaced below: the key is reported as
-            # rejected, so ``advance_cookie_snapshot_after_save`` leaves the
-            # baseline where it is. A conflicting row is still on disk and the
-            # loaders pick a winner among duplicates, so we cannot claim the
-            # identity now reads as the value we wrote. Advancing on a partial
-            # write would retire a delta that never fully landed.
-            cas_rejected.add(delta_key)
-
-        if replaceable:
-            winner = replaceable[0]
-            # Same ``sameSite`` preservation the ordinary merges apply: only the
-            # cookie's *value* and expiry are being refreshed by the rotation,
-            # and ``fresh_state`` can only carry the ``"None"`` default, so
-            # taking it wholesale would downgrade a captured ``Lax``/``Strict``
-            # on the one path recovery owns.
-            stored_winner = storage_cookies[winner]
-            replacements[winner] = {
-                **fresh_state,
-                "sameSite": _preserved_same_site(
-                    stored_winner if isinstance(stored_winner, dict) else {}, fresh_state
-                ),
-            }
-            removals.update(replaceable[1:])
-            updated_count += 1 + len(replaceable[1:])
-            handled.add(delta_key)
-        elif not row_indices:
-            appends.append(fresh_state)
-            updated_count += 1
-            handled.add(delta_key)
-        elif conflicts:
-            # Preserve an unobserved sibling exactly. The ordinary new-cookie
-            # CAS path would likewise decline to append over an existing row.
-            handled.add(delta_key)
-
-    merged: list[Any] = []
-    for index, stored_cookie in enumerate(storage_cookies):
-        if index in removals:
-            continue
-        merged.append(replacements.get(index, stored_cookie))
-    merged.extend(appends)
-    return merged, updated_count, cas_rejected, handled
+    decision = _cookie_merge.decide_legacy_cookie_overlay(
+        stored=ProfileDocument.decode(storage_data),
+        observation=_cookie_jar_for_merge(cookie_jar, include_none=True),
+    )
+    _install_decided_document(storage_data, decision.document)
+    return decision.updated_rows
 
 
 def _merge_cookies_with_snapshot(
@@ -972,176 +849,33 @@ def _merge_cookies_with_snapshot(
           deletion. Caller uses this to advance the baseline only for keys
           that were actually written or already matched.
     """
-    current_snapshot = snapshot_cookie_jar(cookie_jar)
-
-    # Path-aware index of jar cookies for delta application. Restricting to
-    # _is_allowed_cookie_domain matches the legacy save's allowlist gate so
-    # this PR doesn't inadvertently widen the persisted-domain set.
-    # Filter ``cookie.value is not None`` to mirror ``snapshot_cookie_jar``: a
-    # value-less cookie is treated as a deletion (absent from this index, absent
-    # from ``current_snapshot``) rather than a delta that would write ``null``
-    # to disk.
-    cookies_by_snapshot_key = {
-        CookieSnapshotKey(cookie.name, cookie.domain, cookie.path or "/"): cookie
-        for cookie in cookie_jar.jar
-        if (
-            cookie.name
-            and cookie.domain
-            and cookie.value is not None
-            and _is_allowed_cookie_domain(cookie.domain)
-        )
-    }
-
-    deltas = {
-        snapshot_key: cookie
-        for snapshot_key, cookie in cookies_by_snapshot_key.items()
-        if original_snapshot.get(snapshot_key) != current_snapshot.get(snapshot_key)
-    }
-
-    deletion_candidates: set[CookieSnapshotKey] = {
-        snapshot_key
-        for snapshot_key in original_snapshot
-        if snapshot_key not in current_snapshot
-        # Only delete cookies the merge would otherwise be allowed to write.
-        # Snapshot may include sibling-product domains the allowlist filters
-        # out at write time; treating those as deletions would silently drop
-        # disk entries we never persisted to begin with.
-        and _is_allowed_cookie_domain(snapshot_key.domain)
-    }
-
-    updated_count = 0
-    cas_rejected_keys: set[CookieSnapshotKey] = set()
-
-    recovery_rows, recovery_updated, recovery_rejected, recovery_handled = (
-        _merge_recovery_target_rows(storage_data["cookies"], deltas, recovery_observation)
+    decision = _cookie_merge.decide_cookie_merge(
+        stored=ProfileDocument.decode(storage_data),
+        observation=_cookie_jar_for_merge(cookie_jar, include_none=False),
+        baseline=_cookie_jar_from_snapshot(original_snapshot),
+        recovery_observation=_recovery_observation_value(recovery_observation),
     )
-    updated_count += recovery_updated
-    cas_rejected_keys.update(recovery_rejected)
-    storage_data["cookies"] = recovery_rows
-    merge_deltas = {key: cookie for key, cookie in deltas.items() if key not in recovery_handled}
-
-    # Apply deltas + deletions to the existing storage entries in place.
-    new_cookies: list[dict[str, Any]] = []
-    matched_delta_keys: set[CookieSnapshotKey] = set(recovery_handled)
-    for stored_cookie in storage_data["cookies"]:
-        stored_key = _stored_cookie_snapshot_key(stored_cookie)
-        if stored_key is None:
-            new_cookies.append(stored_cookie)
-            continue
-
-        # Find the delta (or deletion) that maps to this stored entry.
-        # Match leading-dot domain variants so e.g. snapshot
-        # ``.accounts.google.com`` lines up with stored ``accounts.google.com``.
-        # A delta wins over a deletion: if the same stored entry matches
-        # both (which can happen when httpx normalized one variant), we
-        # prefer to update rather than drop, because dropping would lose
-        # the rotation we just applied.
-        matched_delta_cookie = None
-        matched_delta_key: CookieSnapshotKey | None = None
-        for variant in _cookie_snapshot_key_variants(stored_key):
-            if variant in merge_deltas:
-                matched_delta_cookie = merge_deltas[variant]
-                matched_delta_key = variant
-                break
-
-        if matched_delta_cookie is not None:
-            if matched_delta_key is None:  # pragma: no cover - loop invariant
-                raise RuntimeError("matched_delta_cookie set without matched_delta_key")
-            # CAS-guard for value updates: if our snapshot had this key in any
-            # leading-dot variant and disk's current value differs from the
-            # snapshot value, a sibling process has rewritten the row between
-            # our open and our save. Preserve their write rather than clobber,
-            # unless disk has already converged to our current value; in that
-            # case the save intent is satisfied and the caller may advance its
-            # baseline.
-            # Variant-aware lookup mirrors the delta match above: if the snapshot
-            # was keyed on ``accounts.google.com`` but the matched delta key is
-            # the leading-dot variant, a plain ``.get(matched_delta_key)`` would
-            # miss the entry and silently bypass the CAS.
-            snapshot_entry = next(
-                (
-                    original_snapshot[variant]
-                    for variant in _cookie_snapshot_key_variants(matched_delta_key)
-                    if variant in original_snapshot
-                ),
-                None,
+    for identity, kind in decision._conflicts:
+        if kind == "existing":
+            logger.debug(
+                "Skipped CAS-guarded value update of %s on %s: disk value "
+                "differs from snapshot (sibling write preserved)",
+                identity.name,
+                identity.domain,
             )
-            stored_value = stored_cookie.get("value")
-            if (
-                snapshot_entry is not None
-                and stored_value != snapshot_entry.value
-                and stored_value != matched_delta_cookie.value
-            ):
-                logger.debug(
-                    "Skipped CAS-guarded value update of %s on %s: disk value "
-                    "differs from snapshot (sibling write preserved)",
-                    matched_delta_key.name,
-                    matched_delta_key.domain,
-                )
-                cas_rejected_keys.add(matched_delta_key)
-                matched_delta_keys.add(matched_delta_key)
-                new_cookies.append(stored_cookie)
-                continue
-            if snapshot_entry is None and stored_value != matched_delta_cookie.value:
-                logger.debug(
-                    "Skipped CAS-guarded value update of new cookie %s on %s: "
-                    "disk row already exists (sibling write preserved)",
-                    matched_delta_key.name,
-                    matched_delta_key.domain,
-                )
-                cas_rejected_keys.add(matched_delta_key)
-                matched_delta_keys.add(matched_delta_key)
-                new_cookies.append(stored_cookie)
-                continue
-            fresh_state = _cookie_to_storage_state(matched_delta_cookie)
-            stored_cookie["value"] = matched_delta_cookie.value
-            stored_cookie["expires"] = fresh_state["expires"]
-            # Mirror :func:`_merge_cookies_legacy`: ``or "/"`` normalizes a
-            # present-but-empty ``"path": ""`` so the written row matches the
-            # path normalization used by the identity key and every loader.
-            stored_cookie["path"] = matched_delta_cookie.path or stored_cookie.get("path") or "/"
-            stored_cookie["secure"] = matched_delta_cookie.secure
-            stored_cookie["httpOnly"] = _cookie_is_http_only(matched_delta_cookie)
-            stored_cookie["sameSite"] = _preserved_same_site(stored_cookie, fresh_state)
-            matched_delta_keys.add(matched_delta_key)
-            updated_count += 1
-            new_cookies.append(stored_cookie)
-            continue
-
-        deletion_match = next(
-            (
-                variant
-                for variant in _cookie_snapshot_key_variants(stored_key)
-                if variant in deletion_candidates
-            ),
-            None,
-        )
-        if deletion_match is not None:
-            # CAS-guard: only drop the disk row if its value still matches
-            # what we observed at snapshot time. A sibling process may have
-            # rewritten this key between our open and our save; clobbering
-            # their fresh value with our local eviction would resurrect the
-            # exact stale-overwrite-fresh hazard the snapshot path exists
-            # to close (just inverted — deletion-of-fresh instead of
-            # value-write-of-stale).
-            snapshot_value = original_snapshot[deletion_match].value
-            if stored_cookie.get("value") == snapshot_value:
-                updated_count += 1
-                continue  # drop the entry from disk
-            cas_rejected_keys.add(deletion_match)
-
-        new_cookies.append(stored_cookie)
-
-    # Append delta cookies that didn't match any existing storage entry
-    # (genuinely new cookies acquired during the session).
-    for snapshot_key, cookie in merge_deltas.items():
-        if snapshot_key in matched_delta_keys:
-            continue
-        new_cookies.append(_cookie_to_storage_state(cookie))
-        updated_count += 1
-
-    storage_data["cookies"] = new_cookies
-    return updated_count, frozenset(cas_rejected_keys)
+        else:
+            logger.debug(
+                "Skipped CAS-guarded value update of new cookie %s on %s: "
+                "disk row already exists (sibling write preserved)",
+                identity.name,
+                identity.domain,
+            )
+    _install_decided_document(storage_data, decision.document)
+    rejected = frozenset(
+        CookieSnapshotKey(identity.name, identity.domain, identity.path)
+        for identity in decision.rejected
+    )
+    return decision.updated_rows, rejected
 
 
 # ==========================================================================

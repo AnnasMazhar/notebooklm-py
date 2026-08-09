@@ -8,6 +8,10 @@ guardrail enforces the
 boundary by construction (import/name-based, following ``_ast_reach_in.py`` and
 the other ``tests/_guardrails/`` lints) so a new writer is loud in CI rather than
 silently re-opening the lost-update / policy-bypass classes the refactor closes.
+ADR-0034's ``cookie_merge.py`` extraction moves only pure document decisions:
+``storage.merge_cookie_delta`` still owns the lock, read/corruption policy,
+single unchecked write, logs, and legacy result projection, so none of the
+writer authorities or allowlists below move in that stage.
 
 Six decidable clauses (plan §b.2 enforcement, layer 1 — AST guardrail):
 

@@ -62,7 +62,9 @@ iteration and `to_storage_rows()` preserve every row, `domain_map_first_wins()` 
 identity last-wins behavior while retaining domain/path siblings. The type is for cookie **inputs,
 baselines, and questions** — never the live jar, never a `Mapping`.
 - construct: `from_storage_state / from_rookiepy / from_domain_map` (exist) + `from_httpx` (new;
-  `same_site`-lossy and barred from persistence/baseline paths).
+  `same_site`-lossy). `from_httpx()` is a valid transient live observation for pure merge decisions,
+  but never a durable baseline or a standalone document serializer; persistence adapters that must
+  preserve legacy all-domain and HttpOnly observation behavior build their observation explicitly.
 - convert: `to_httpx() / to_storage_rows()->list / to_storage_state()->dict /
   domain_map_first_wins()->dict / to_domain_map()->dict`; no `to_flat_map` or ambiguous
   `by_identity` projection. `to_storage_state()` is deliberately the filtered typed view with empty

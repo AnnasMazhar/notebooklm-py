@@ -1,4 +1,4 @@
-"""Dependency and isolation guards for the unused profile-document leaf."""
+"""Dependency and consumer guards for the lossless profile-document leaf."""
 
 from __future__ import annotations
 
@@ -179,18 +179,23 @@ def test_production_consumer_detector_bites_at_every_scope(source: str) -> None:
     assert _imports_profile_document(path, ast.parse(source))
 
 
-def test_no_existing_production_module_imports_the_unused_leaf() -> None:
-    offenders = []
+def test_production_consumers_are_exactly_cookie_merge_and_storage() -> None:
+    consumers = []
     for path in sorted(SRC_ROOT.rglob("*.py")):
         if path == MODULE_PATH:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         if _imports_profile_document(path, tree):
-            offenders.append(path.relative_to(REPO_ROOT).as_posix())
-    assert offenders == []
+            consumers.append(path.relative_to(REPO_ROOT).as_posix())
+    assert consumers == [
+        "src/notebooklm/_auth/cookie_merge.py",
+        "src/notebooklm/_auth/storage.py",
+    ]
 
 
-def test_phase_three_size_and_documentation_pins_hold() -> None:
-    assert len((AUTH_ROOT / "storage.py").read_text(encoding="utf-8").splitlines()) == 2829
+def test_profile_document_size_and_documentation_pins_hold() -> None:
+    # Kept equal to the ordinary module-size ratchet so this consumer boundary
+    # cannot retain stale pre-extraction prose or bank facade slack.
+    assert len((AUTH_ROOT / "storage.py").read_text(encoding="utf-8").splitlines()) == 2563
     assert len((AUTH_ROOT / "cookies.py").read_text(encoding="utf-8").splitlines()) == 847
     assert len(ADR_PATH.read_text(encoding="utf-8").splitlines()) < 250

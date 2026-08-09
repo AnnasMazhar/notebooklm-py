@@ -188,13 +188,11 @@ class CookieJar:
            **``same_site``-lossy — never for persistence or a save baseline.**
            ``http.cookiejar.Cookie`` cannot carry a SameSite attribute, so every
            ``Cookie`` produced here has ``same_site=None`` regardless of the
-           cookie's actual SameSite. Round-tripping this jar through
-           :meth:`to_storage_state` would drop ``sameSite`` — the exact #2150
-           downgrade. Use this only to ask read-only questions of the live
-           session (``names`` / ``validate_required`` / ``has_secondary_binding``),
-           which do not depend on SameSite. The delta/baseline machinery keeps
-           SameSite out-of-band (``storage._preserved_same_site``) and must not be
-           fed a ``from_httpx`` jar.
+           cookie's actual SameSite. It is therefore valid as a live observation
+           for pure merge decisions, whose dirtiness policy deliberately excludes
+           SameSite. Round-tripping this jar through :meth:`to_storage_state`
+           would drop ``sameSite`` — the exact #2150 downgrade — so never use it
+           as a durable save baseline or standalone document serializer.
         """
         return cls(
             tuple(
