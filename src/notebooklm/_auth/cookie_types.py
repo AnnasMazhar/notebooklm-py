@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 import httpx
 
@@ -211,6 +211,24 @@ class CookieJar:
                 and c.value is not None
                 and _cookie_policy._is_allowed_auth_domain(c.domain)
             )
+        )
+
+    @classmethod
+    def from_live_httpx_for_merge(cls, jar: httpx.Cookies, *, include_none: bool) -> CookieJar:
+        """Project a live jar for persistence without applying domain policy."""
+        return cls(
+            Cookie(
+                name=cookie.name,
+                domain=cookie.domain,
+                path=cookie.path or "/",
+                value=cast(str, cookie.value),
+                expires=cookie.expires,
+                secure=cast(bool, cookie.secure),
+                http_only=_cookie_semantics.cookie_is_http_only(cookie),
+                same_site=None,
+            )
+            for cookie in jar.jar
+            if cookie.name and cookie.domain and (include_none or cookie.value is not None)
         )
 
     # -- converters --------------------------------------------------------

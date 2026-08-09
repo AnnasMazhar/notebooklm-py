@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import weakref
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import httpx
 
@@ -40,38 +41,104 @@ class ColdRecoveryResult:
         object.__setattr__(self, "baseline", CookieJar(tuple(self.baseline)))
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class _ColdRecoveryExhaustion:
+    """Transport an expected redirect across a single-flight task boundary."""
+
+    error: _LoginRedirectError = field(repr=False)
+
+
+class ColdRecoveryState:
+    """Own loop-local cold locks and success generations."""
+
+    _process_default_owner: ClassVar[ColdRecoveryState]
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._locks_by_loop: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop, weakref.WeakValueDictionary[Path, asyncio.Lock]
+        ] = weakref.WeakKeyDictionary()
+        self._success_generations: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop, dict[Path, int]
+        ] = weakref.WeakKeyDictionary()
+
+    @classmethod
+    def process_default(cls) -> ColdRecoveryState:
+        return cls._process_default_owner
+
+    def path_lock(self, path: Path) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        with self._lock:
+            per_loop = self._locks_by_loop.get(loop)
+            if per_loop is None:
+                per_loop = weakref.WeakValueDictionary()
+                self._locks_by_loop[loop] = per_loop
+            lock = per_loop.get(path)
+            if lock is None:
+                lock = asyncio.Lock()
+                per_loop[path] = lock
+            return lock
+
+    def success_generation(self, path: Path) -> int:
+        loop = asyncio.get_running_loop()
+        with self._lock:
+            return self._success_generations.get(loop, {}).get(path, 0)
+
+    def note_success(self, path: Path) -> None:
+        loop = asyncio.get_running_loop()
+        with self._lock:
+            generations = self._success_generations.setdefault(loop, {})
+            generations[path] = generations.get(path, 0) + 1
+
+    def _reset_for_tests(self) -> None:
+        with self._lock:
+            if any(
+                lock.locked() for locks in self._locks_by_loop.values() for lock in locks.values()
+            ):
+                raise RuntimeError("cannot reset ColdRecoveryState with locked paths")
+            self._locks_by_loop.clear()
+            self._success_generations.clear()
+
+
+ColdRecoveryState._process_default_owner = ColdRecoveryState()
+
+
 class ColdRecoveryCoordinator:
-    """Run one L2.5 plus combined cold recovery operation."""
+    """Run one explicit L2.5, L3, and L4 recovery operation."""
 
     def __init__(
         self,
         *,
+        state: ColdRecoveryState,
+        single_flight: _single_flight.SingleFlight,
         should_try_refresh: Callable[[Exception, bool], bool],
         resolve_refresh_path: Callable[[ValueError], Path],
         run_refresh_attempt: Callable[
-            [Path],
-            Awaitable[tuple[str, str, CookieSnapshot, CookieJar | None]],
+            [Path], Awaitable[tuple[str, str, CookieSnapshot, CookieJar | None]]
         ],
-        run_cold_recovery: Callable[
-            [
-                Path,
-                bool,
-                Callable[[httpx.Cookies], Awaitable[None]],
-                _LoginRedirectError,
-            ],
-            Awaitable[ColdRecoveryResult],
-        ],
+        load_cookie_pair: Callable[[Path], _LoadedCookiePair],
+        run_headless_attempt: Callable[[Path | None, bool], Awaitable[_LoadedCookiePair | None]],
+        run_master_token_attempt: Callable[[Path | None], Awaitable[_LoadedCookiePair | None]],
         validate_recovered: Callable[[httpx.Cookies], Awaitable[None]],
         fetch_recovered: Callable[[httpx.Cookies], Awaitable[tuple[str, str]]],
         replace_cookie_jar: Callable[[httpx.Cookies, httpx.Cookies], None],
+        snapshot_cookie_jar: Callable[[httpx.Cookies], CookieSnapshot],
+        clone_cookie_jar: Callable[[httpx.Cookies], httpx.Cookies],
     ) -> None:
+        self._claim_lock = threading.Lock()
+        self._state = state
+        self._single_flight = single_flight
         self._should_try_refresh = should_try_refresh
         self._resolve_refresh_path = resolve_refresh_path
         self._run_refresh_attempt = run_refresh_attempt
-        self._run_cold_recovery = run_cold_recovery
+        self._load_cookie_pair = load_cookie_pair
+        self._run_headless_attempt = run_headless_attempt
+        self._run_master_token_attempt = run_master_token_attempt
         self._validate_recovered = validate_recovered
         self._fetch_recovered = fetch_recovered
         self._replace_cookie_jar = replace_cookie_jar
+        self._snapshot_cookie_jar = snapshot_cookie_jar
+        self._clone_cookie_jar = clone_cookie_jar
         self._used = False
 
     async def recover(
@@ -84,9 +151,10 @@ class ColdRecoveryCoordinator:
         allow_headless: bool,
         baseline: CookieJar | None,
     ) -> tuple[str, str, bool, CookieSnapshot | None, CookieJar | None]:
-        if self._used:
-            raise RuntimeError("ColdRecoveryCoordinator.recover() is one-shot")
-        self._used = True
+        with self._claim_lock:
+            if self._used:
+                raise RuntimeError("ColdRecoveryCoordinator.recover() is one-shot")
+            self._used = True
         try:
             refresh_error: Exception | None = None
             if self._should_try_refresh(initial_error, env_auth):
@@ -107,18 +175,28 @@ class ColdRecoveryCoordinator:
 
             if isinstance(initial_error, _LoginRedirectError) and storage_path is not None:
                 try:
-                    recovery = await self._run_cold_recovery(
-                        storage_path,
-                        allow_headless,
-                        self._validate_recovered,
-                        initial_error,
+                    recovery = await self._coalesce_cold(
+                        state=self._state,
+                        single_flight=self._single_flight,
+                        storage_path=storage_path,
+                        allow_headless=allow_headless,
+                        load_cookie_pair=self._load_cookie_pair,
+                        run_headless_attempt=self._run_headless_attempt,
+                        run_master_token_attempt=self._run_master_token_attempt,
+                        validate_recovered=self._validate_recovered,
+                        snapshot_cookie_jar=self._snapshot_cookie_jar,
+                        clone_cookie_jar=self._clone_cookie_jar,
+                        raise_on_exhaustion=False,
+                        initial_error=initial_error,
                     )
-                    self._replace_cookie_jar(cookie_jar, recovery.cookie_jar)
-                    csrf, session_id = await self._fetch_recovered(cookie_jar)
+                    if recovery is not None:
+                        self._replace_cookie_jar(cookie_jar, recovery.cookie_jar)
+                        csrf, session_id = await self._fetch_recovered(cookie_jar)
                 except _LoginRedirectError:
                     pass
                 else:
-                    return csrf, session_id, True, recovery.snapshot, recovery.baseline
+                    if recovery is not None:
+                        return csrf, session_id, True, recovery.snapshot, recovery.baseline
             if refresh_error is not None:
                 raise refresh_error
             raise
@@ -126,38 +204,123 @@ class ColdRecoveryCoordinator:
             del self._should_try_refresh
             del self._resolve_refresh_path
             del self._run_refresh_attempt
-            del self._run_cold_recovery
+            del self._load_cookie_pair
+            del self._run_headless_attempt
+            del self._run_master_token_attempt
             del self._validate_recovered
             del self._fetch_recovered
             del self._replace_cookie_jar
+            del self._snapshot_cookie_jar
+            del self._clone_cookie_jar
 
+    @staticmethod
+    async def _drive_cold(
+        *,
+        state: ColdRecoveryState,
+        storage_path: Path,
+        allow_headless: bool,
+        load_cookie_pair: Callable[[Path], _LoadedCookiePair],
+        run_headless_attempt: Callable[[Path | None, bool], Awaitable[_LoadedCookiePair | None]],
+        run_master_token_attempt: Callable[[Path | None], Awaitable[_LoadedCookiePair | None]],
+        validate_recovered: Callable[[httpx.Cookies], Awaitable[None]],
+        snapshot_cookie_jar: Callable[[httpx.Cookies], CookieSnapshot],
+        initial_error: _LoginRedirectError,
+    ) -> ColdRecoveryResult:
+        from .extraction import _LoginRedirectError
 
-# Cross-loop coalescing of both the cold ladder and the L4 master-token re-mint
-# now flows through ``notebooklm._auth.single_flight`` (c-PR2). The old per-loop
-# in-flight task registries (``_COLD_INFLIGHT_BY_LOOP`` /
-# ``_MASTER_INFLIGHT_BY_LOOP``) and the hand-rolled ``_await_shared_task``
-# settle loop were deleted in the same PR.
-#
-# The two structures that remain here are CONSUMER-SIDE policy, deliberately NOT
-# promoted to the cross-loop core (plan §c.1):
-#   * ``_COLD_LOCKS_BY_LOOP`` — a per-loop asyncio.Lock serializing the ladder
-#     across rung policies on one loop.
-#   * ``_COLD_SUCCESS_GENERATIONS`` — the per-loop revalidate-on-bump epoch: a
-#     fresh loop that already succeeded revalidates against the network before
-#     re-running the full ladder. Promoting this to cross-loop would change the
-#     fresh-loop-runs-full-ladder behavior, so it stays per-loop here.
-_COLD_LOCKS_BY_LOOP: weakref.WeakKeyDictionary[
-    asyncio.AbstractEventLoop, dict[Path, asyncio.Lock]
-] = weakref.WeakKeyDictionary()
-_COLD_SUCCESS_GENERATIONS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, dict[Path, int]] = (
-    weakref.WeakKeyDictionary()
-)
+        async with state.path_lock(storage_path):
+            initial = await asyncio.to_thread(load_cookie_pair, storage_path)
+            working_jar = initial.live
+            baseline = initial.baseline
+            snapshot = snapshot_cookie_jar(working_jar)
+            last_redirect = initial_error
+            if state.success_generation(storage_path) > 0:
+                try:
+                    await validate_recovered(working_jar)
+                except _LoginRedirectError as redirect_error:
+                    last_redirect = redirect_error
+                else:
+                    return ColdRecoveryResult(working_jar, snapshot, baseline)
 
+            replacement = await run_headless_attempt(storage_path, allow_headless)
+            if replacement is not None:
+                working_jar = replacement.live
+                baseline = replacement.baseline
+                snapshot = snapshot_cookie_jar(working_jar)
+                try:
+                    await validate_recovered(working_jar)
+                except _LoginRedirectError as redirect_error:
+                    last_redirect = redirect_error
+                else:
+                    state.note_success(storage_path)
+                    return ColdRecoveryResult(working_jar, snapshot, baseline)
 
-def _cold_path_lock(path: Path) -> asyncio.Lock:
-    loop = asyncio.get_running_loop()
-    per_loop = _COLD_LOCKS_BY_LOOP.setdefault(loop, {})
-    return per_loop.setdefault(path, asyncio.Lock())
+            replacement = await run_master_token_attempt(storage_path)
+            if replacement is not None:
+                working_jar = replacement.live
+                baseline = replacement.baseline
+                snapshot = snapshot_cookie_jar(working_jar)
+                try:
+                    await validate_recovered(working_jar)
+                except _LoginRedirectError as redirect_error:
+                    last_redirect = redirect_error
+                else:
+                    state.note_success(storage_path)
+                    return ColdRecoveryResult(working_jar, snapshot, baseline)
+            raise last_redirect
+
+    @staticmethod
+    async def _coalesce_cold(
+        *,
+        state: ColdRecoveryState,
+        single_flight: _single_flight.SingleFlight,
+        storage_path: Path,
+        allow_headless: bool,
+        load_cookie_pair: Callable[[Path], _LoadedCookiePair],
+        run_headless_attempt: Callable[[Path | None, bool], Awaitable[_LoadedCookiePair | None]],
+        run_master_token_attempt: Callable[[Path | None], Awaitable[_LoadedCookiePair | None]],
+        validate_recovered: Callable[[httpx.Cookies], Awaitable[None]],
+        snapshot_cookie_jar: Callable[[httpx.Cookies], CookieSnapshot],
+        clone_cookie_jar: Callable[[httpx.Cookies], httpx.Cookies],
+        raise_on_exhaustion: bool,
+        initial_error: _LoginRedirectError,
+    ) -> ColdRecoveryResult | None:
+        from .extraction import _LoginRedirectError
+
+        canonical_path = canonical_storage_key(storage_path)
+        assert canonical_path is not None
+        flight_key = (str(canonical_path), ("cold", allow_headless))
+
+        async def _factory() -> ColdRecoveryResult | _ColdRecoveryExhaustion:
+            try:
+                return await ColdRecoveryCoordinator._drive_cold(
+                    state=state,
+                    storage_path=canonical_path,
+                    allow_headless=allow_headless,
+                    load_cookie_pair=load_cookie_pair,
+                    run_headless_attempt=run_headless_attempt,
+                    run_master_token_attempt=run_master_token_attempt,
+                    validate_recovered=validate_recovered,
+                    snapshot_cookie_jar=snapshot_cookie_jar,
+                    initial_error=initial_error,
+                )
+            except _LoginRedirectError as error:
+                traceback = error.__traceback__
+                if traceback is not None:
+                    error.__traceback__ = traceback.tb_next
+                return _ColdRecoveryExhaustion(error)
+
+        _is_leader, flight = single_flight.claim(flight_key, _factory)
+        shared = await single_flight.await_flight(flight)
+        if isinstance(shared, _ColdRecoveryExhaustion):
+            if raise_on_exhaustion:
+                raise shared.error
+            return None
+        return ColdRecoveryResult(
+            clone_cookie_jar(shared.cookie_jar),
+            dict(shared.snapshot),
+            shared.baseline,
+        )
 
 
 async def _run_cold_recovery(
@@ -168,48 +331,28 @@ async def _run_cold_recovery(
     initial_error: _LoginRedirectError,
 ) -> ColdRecoveryResult:
     from .cookies import _build_cookie_pair_from_storage
-    from .extraction import _LoginRedirectError
     from .storage import snapshot_cookie_jar
 
-    async with _cold_path_lock(storage_path):
-        initial = await asyncio.to_thread(_build_cookie_pair_from_storage, storage_path)
-        working_jar = initial.live
-        baseline = initial.baseline
-        snapshot = snapshot_cookie_jar(working_jar)
-        generations = _COLD_SUCCESS_GENERATIONS.setdefault(asyncio.get_running_loop(), {})
-        last_redirect = initial_error
-        if generations.get(storage_path, 0) > 0:
-            try:
-                await validate(working_jar)
-            except _LoginRedirectError as redirect_error:
-                last_redirect = redirect_error
-            else:
-                return ColdRecoveryResult(working_jar, snapshot, baseline)
-
-        attempts = (
-            lambda: _try_headless_reauth_result(
-                storage_path=storage_path,
-                allow_headless=allow_headless,
-            ),
-            lambda: _try_master_token_reauth_result(
-                storage_path=storage_path,
-            ),
+    async def run_headless(path: Path | None, headless: bool) -> _LoadedCookiePair | None:
+        return await _try_headless_reauth_result(
+            storage_path=path,
+            allow_headless=headless,
         )
-        for attempt in attempts:
-            replacement = await attempt()
-            if replacement is None:
-                continue
-            working_jar = replacement.live
-            baseline = replacement.baseline
-            snapshot = snapshot_cookie_jar(working_jar)
-            try:
-                await validate(working_jar)
-            except _LoginRedirectError as redirect_error:
-                last_redirect = redirect_error
-                continue
-            generations[storage_path] = generations.get(storage_path, 0) + 1
-            return ColdRecoveryResult(working_jar, snapshot, baseline)
-        raise last_redirect
+
+    async def run_master_token(path: Path | None) -> _LoadedCookiePair | None:
+        return await _try_master_token_reauth_result(storage_path=path)
+
+    return await ColdRecoveryCoordinator._drive_cold(
+        state=ColdRecoveryState.process_default(),
+        storage_path=storage_path,
+        allow_headless=allow_headless,
+        load_cookie_pair=_build_cookie_pair_from_storage,
+        run_headless_attempt=run_headless,
+        run_master_token_attempt=run_master_token,
+        validate_recovered=validate,
+        snapshot_cookie_jar=snapshot_cookie_jar,
+        initial_error=initial_error,
+    )
 
 
 async def coalesced_cold_recovery(
@@ -219,36 +362,34 @@ async def coalesced_cold_recovery(
     validate: Callable[[httpx.Cookies], Awaitable[None]],
     initial_error: _LoginRedirectError,
 ) -> ColdRecoveryResult:
-    """Share one complete cold ladder across all loops for equivalent callers."""
-    canonical_path = canonical_storage_key(storage_path)
-    assert canonical_path is not None  # storage_path is a real path here
-    # Keyed per (canonical path, rung policy) — the shape the old
-    # ``_COLD_INFLIGHT_BY_LOOP`` registry used, now process-global.
-    flight_key = (str(canonical_path), ("cold", allow_headless))
+    from .cookies import _build_cookie_pair_from_storage, _clone_cookie_jar
+    from .storage import snapshot_cookie_jar
 
-    def _factory() -> Coroutine[Any, Any, ColdRecoveryResult]:
-        return _run_cold_recovery(
-            storage_path=canonical_path,
-            allow_headless=allow_headless,
-            validate=validate,
-            initial_error=initial_error,
+    async def run_headless(path: Path | None, headless: bool) -> _LoadedCookiePair | None:
+        return await _try_headless_reauth_result(
+            storage_path=path,
+            allow_headless=headless,
         )
 
-    _is_leader, flight = _single_flight.claim(flight_key, _factory)
-    shared = await _single_flight.await_flight(flight)
-    # Per-call COPIES (CodeRabbit #1): the flight result is shared verbatim across
-    # every follower on every loop. Downstream mutates BOTH halves — the jar
-    # becomes a caller's live jar (rotated in place) and
-    # ``save_cookies_to_storage(original_snapshot=...)`` mutates the snapshot dict —
-    # so hand each caller its own jar container and snapshot copy to prevent
-    # cross-loop corruption. ``CookieSnapshot`` values are immutable NamedTuples,
-    # so a shallow ``dict`` copy fully isolates the mapping.
-    from .cookies import _clone_cookie_jar
+    async def run_master_token(path: Path | None) -> _LoadedCookiePair | None:
+        return await _try_master_token_reauth_result(storage_path=path)
 
-    return ColdRecoveryResult(
-        _clone_cookie_jar(shared.cookie_jar),
-        dict(shared.snapshot),
-        shared.baseline,
+    return cast(
+        ColdRecoveryResult,
+        await ColdRecoveryCoordinator._coalesce_cold(
+            state=ColdRecoveryState.process_default(),
+            single_flight=_single_flight.SingleFlight.process_default(),
+            storage_path=storage_path,
+            allow_headless=allow_headless,
+            load_cookie_pair=_build_cookie_pair_from_storage,
+            run_headless_attempt=run_headless,
+            run_master_token_attempt=run_master_token,
+            validate_recovered=validate,
+            snapshot_cookie_jar=snapshot_cookie_jar,
+            clone_cookie_jar=_clone_cookie_jar,
+            raise_on_exhaustion=True,
+            initial_error=initial_error,
+        ),
     )
 
 

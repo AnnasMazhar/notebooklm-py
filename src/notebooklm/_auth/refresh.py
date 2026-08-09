@@ -7,7 +7,7 @@ import logging
 import os
 import shlex
 import subprocess
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Callable, Coroutine
 from contextlib import AbstractContextManager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -249,7 +249,7 @@ async def _coalesced_run_refresh_cmd(
 
     1. **Late-waiter skip (compare-under-exclusion)** — the success epoch is
        captured BEFORE waiting, and the epoch compare + the flight claim happen
-       under a SINGLE ``_REGISTRY_LOCK`` hold via
+       under a SINGLE owner ``_lock`` hold via
        ``single_flight.claim_if_epoch_current``. A caller whose ``epoch_before``
        is already stale (a sibling succeeded and prompt-popped its flight in the
        meantime) gets a skip signal and reloads instead of spawning a redundant
@@ -889,36 +889,31 @@ async def _cold_fallbacks(
         finally:
             _REFRESH_ATTEMPTED_CONTEXT.reset(refresh_token)
 
-    async def run_cold_recovery(
-        path: Path,
-        headless: bool,
-        validate: Callable[[httpx.Cookies], Awaitable[None]],
-        error: _auth_extraction._LoginRedirectError,
-    ) -> _auth_recovery.ColdRecoveryResult:
-        return await _auth_recovery.coalesced_cold_recovery(
-            storage_path=path,
-            allow_headless=headless,
-            validate=validate,
-            initial_error=error,
-        )
-
     async def validate_recovered(jar: httpx.Cookies) -> None:
         await _fetch_tokens_with_jar(jar, storage_path, **await resolve_route(storage_path))
 
     async def fetch_recovered(jar: httpx.Cookies) -> tuple[str, str]:
         return await _fetch_tokens_with_jar(jar, storage_path, **await resolve_route(storage_path))
 
-    def replace_cookie_jar(target: httpx.Cookies, source: httpx.Cookies) -> None:
-        _replace_cookie_jar(target, source)
-
     coordinator = _auth_recovery.ColdRecoveryCoordinator(
+        state=_auth_recovery.ColdRecoveryState.process_default(),
+        single_flight=_single_flight.SingleFlight.process_default(),
         should_try_refresh=should_try_refresh,
         resolve_refresh_path=resolve_refresh_path,
         run_refresh_attempt=run_refresh_attempt,
-        run_cold_recovery=run_cold_recovery,
+        load_cookie_pair=lambda path: _auth_cookies._build_cookie_pair_from_storage(path),
+        run_headless_attempt=lambda path, headless: _auth_recovery._try_headless_reauth_result(
+            storage_path=path,
+            allow_headless=headless,
+        ),
+        run_master_token_attempt=lambda path: _auth_recovery._try_master_token_reauth_result(
+            storage_path=path
+        ),
         validate_recovered=validate_recovered,
         fetch_recovered=fetch_recovered,
-        replace_cookie_jar=replace_cookie_jar,
+        replace_cookie_jar=lambda target, source: _replace_cookie_jar(target, source),
+        snapshot_cookie_jar=lambda jar: _auth_storage.snapshot_cookie_jar(jar),
+        clone_cookie_jar=lambda jar: _auth_cookies._clone_cookie_jar(jar),
     )
     return await coordinator.recover(
         initial_error=err,

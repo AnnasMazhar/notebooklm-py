@@ -230,9 +230,9 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src/notebooklm/_auth")
     projection = script.build_projection(sites)
     assert projection["summary"]["TOTAL"] == {
-        "public": 146,
-        "private": 159,
-        "total": 305,
+        "public": 138,
+        "private": 154,
+        "total": 292,
     }
     relevant = {
         (row["module"], row["attribute"], row["idiom"]): row["count"]
@@ -320,7 +320,7 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
         ("recovery", "_try_master_token_reauth_result", "monkeypatch.setattr"): 6,
         ("recovery", "coalesced_cold_recovery", "monkeypatch.setattr"): 2,
         ("refresh", "_fetch_tokens_with_exact_baseline", "monkeypatch.setattr"): 6,
-        ("storage", "save_cookies_to_storage", "monkeypatch.setattr"): 6,
+        ("storage", "save_cookies_to_storage", "monkeypatch.setattr"): 3,
         ("storage", "get_account_email_for_storage", "monkeypatch.setattr"): 1,
         ("tokens", "_load_stored_auth", "monkeypatch.setattr"): 6,
         ("tokens", "resolve_auth_json_env", "monkeypatch.setattr"): 1,
@@ -332,9 +332,13 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     )
     assert grouped.isdisjoint(
         {
+            ("cookies", "get_storage_path", "monkeypatch.setattr"),
             ("master_token", "remint_from_stored_token", "patch.object"),
             ("master_token", "mint_cookies", "patch.object"),
             ("master_token", "persist_minted_jar", "patch.object"),
+            ("psidts_recovery", "_load_storage_state", "monkeypatch.setattr"),
+            ("storage", "clear_account_metadata", "patch.object"),
+            ("storage", "write_account_metadata", "patch.object"),
         }
     )
 

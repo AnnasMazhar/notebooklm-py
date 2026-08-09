@@ -162,7 +162,7 @@ def test_production_importers_are_exactly_profile_store_and_storage() -> None:
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
         )
     }
-    assert importers == {"profile_store.py", "storage.py"}
+    assert importers == {"profile_store.py", "psidts_recovery.py", "storage.py"}
 
 
 def _decision_bindings(path: Path, tree: ast.AST) -> tuple[dict[str, str], set[str]]:

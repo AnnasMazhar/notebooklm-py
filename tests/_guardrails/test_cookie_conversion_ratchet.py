@@ -66,11 +66,6 @@ _GRANDFATHERED: dict[tuple[str, str], int] = {
     # into a single CookieJar and these become jar methods.
     ("_auth/tokens.py", "normalize_cookie_map"): 1,
     ("_auth/tokens.py", "flatten_cookie_map"): 1,
-    # The L3 heal converts rookiepy rows twice (before and after recovery).
-    # Retires with the Stage 2 validate/heal split. Relocated 1:1 from
-    # ``_auth/browser_cookie_recovery.py`` when ADR-0033's load-composition merge
-    # absorbed that leaf into the recovery module (same two calls, new home).
-    ("_auth/psidts_recovery.py", "convert_rookiepy_cookies_to_storage_state"): 2,
     # The CLI browser-extraction probe path. Its converter choice is pinned
     # to the routability predicates by design (see the module docstring in
     # _auth/psidts_recovery.py), so it moves only with Stage 5's mode split.
@@ -300,7 +295,7 @@ def test_an_extra_call_in_a_grandfathered_module_is_caught() -> None:
 
 def test_a_migrated_call_must_lower_its_pin() -> None:
     """Shrink-only in the other direction: reality drops, the pin must follow."""
-    site = ("_auth/psidts_recovery.py", "convert_rookiepy_cookies_to_storage_state")
+    site = ("_auth/tokens.py", "normalize_cookie_map")
     assert _slack({site: _GRANDFATHERED[site] - 1})
     assert not _slack(dict(_GRANDFATHERED))
 

@@ -6,6 +6,17 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+class MasterTokenError(Exception):
+    """The master token (or its exchange) was rejected — re-bootstrap needed.
+
+    Raised for revoked/expired master tokens, gpsoauth failures, and a minted
+    cookie jar missing the cookies the web client needs. Carries no secrets.
+    """
+
+
+MasterTokenError.__module__ = "notebooklm._auth.master_token"
+
+
 @dataclass(frozen=True, repr=False)
 class MasterToken:
     """An immutable master-token credential with a redacted secret."""

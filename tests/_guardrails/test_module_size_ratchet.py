@@ -268,7 +268,7 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # RATCHETED DOWN 1150 -> 1131 by ADR-0034 PR11B: token credential
     # encoding, secure-parent preparation, lock ownership, and commit moved to
     # the path-owned ``MasterTokenFile``.
-    "_auth/storage.py": 1131,
+    "_auth/storage.py": 1115,
     # sanctioned merge (ADR-0033) — the `_auth` load-composition merge:
     # ``_auth/browser_cookie_recovery.py`` (142) was absorbed in full and reduced
     # to a re-export shim in the same change. It held the captured-cookie
@@ -293,7 +293,7 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # needs an ADR-0033 amendment — the template-adoption class does not reach
     # new structure. A call-time ``heal`` seam already exists on
     # ``load_with_recovery`` / ``load_session_jar`` as the first step.
-    "_auth/psidts_recovery.py": 1234,
+    "_auth/psidts_recovery.py": 1222,
     # sanctioned merge (ADR-0033) — the `_auth` token-route fold: ``_auth/headers.py``
     # (68 lines, one function — ``_resolve_token_route_kwargs`` — whose only three
     # call sites are the token-fetch entry points here) was absorbed in full and
@@ -311,7 +311,7 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # adapters. Phase 12B then replaced the legacy cookie-saver adapter with a
     # direct typed ``ProfileStore`` merge, shrinking the measured module by a
     # further five lines; freeze all saved ground immediately.
-    "_auth/refresh.py": 1189,
+    "_auth/refresh.py": 1184,
     # sanctioned merge (ADR-0033) — the `_auth` browser-cluster merge (PR 4.1):
     # ``_auth/browser_state_validation.py`` (56) and ``_auth/login_wait_trace.py``
     # (181) were absorbed in full and reduced to re-export shims in the same
@@ -540,7 +540,7 @@ def test_credential_store_and_migration_modules_use_the_ordinary_budget() -> Non
         + measured["_auth/profile_store.py"]
         + measured["_auth/cookie_filter.py"]
         + measured["_auth/profile_migration.py"]
-        == 2352
+        == 2336
     )
     synthetic = dict.fromkeys(leaves, MODULE_SIZE_BUDGET + 1)
     assert _over_budget_offenders(synthetic, {}, MODULE_SIZE_BUDGET) == synthetic
@@ -556,7 +556,7 @@ def test_phase_11d_bootstrap_extraction_modules_are_measured_exactly() -> None:
             "_auth/storage.py",
         }
     } == {
-        "_auth/master_token.py": 463,
+        "_auth/master_token.py": 455,
         "_auth/master_token_bootstrap.py": 366,
-        "_auth/storage.py": 1131,
+        "_auth/storage.py": 1115,
     }

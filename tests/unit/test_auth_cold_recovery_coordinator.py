@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +14,7 @@ from pytest_httpx import HTTPXMock
 
 from notebooklm._auth import recovery, refresh
 from notebooklm._auth.cookie_types import CookieJar
+from notebooklm._auth.cookies import _clone_cookie_jar, _LoadedCookiePair
 from notebooklm._auth.extraction import _LoginRedirectError
 from notebooklm._auth.storage import CookieSnapshot
 from notebooklm._env import get_base_url
@@ -23,10 +23,14 @@ _CALLBACK_FIELDS = (
     "_should_try_refresh",
     "_resolve_refresh_path",
     "_run_refresh_attempt",
-    "_run_cold_recovery",
+    "_load_cookie_pair",
+    "_run_headless_attempt",
+    "_run_master_token_attempt",
     "_validate_recovered",
     "_fetch_recovered",
     "_replace_cookie_jar",
+    "_snapshot_cookie_jar",
+    "_clone_cookie_jar",
 )
 _TRACE_NAMES = {
     "_fetch_tokens_with_refresh",
@@ -133,16 +137,23 @@ class _Scenario:
         self.started = asyncio.Event()
         self.release = asyncio.Event()
         self.caller_jar: httpx.Cookies | None = None
+        self.initial_error: Exception | None = None
 
     def coordinator(self) -> recovery.ColdRecoveryCoordinator:
         return recovery.ColdRecoveryCoordinator(
+            state=recovery.ColdRecoveryState(),
+            single_flight=recovery._single_flight.SingleFlight(),
             should_try_refresh=self.should_try_refresh,
             resolve_refresh_path=self.resolve_refresh_path,
             run_refresh_attempt=self.run_refresh_attempt,
-            run_cold_recovery=self.run_cold_recovery,
+            load_cookie_pair=self.load_cookie_pair,
+            run_headless_attempt=self.run_headless_attempt,
+            run_master_token_attempt=self.run_master_token_attempt,
             validate_recovered=self.validate_recovered,
             fetch_recovered=self.fetch_recovered,
             replace_cookie_jar=self.replace_cookie_jar,
+            snapshot_cookie_jar=self.snapshot_cookie_jar,
+            clone_cookie_jar=_clone_cookie_jar,
         )
 
     async def _pause(self, stage: str) -> None:
@@ -151,6 +162,7 @@ class _Scenario:
             await self.release.wait()
 
     def should_try_refresh(self, error: Exception, env_auth: bool) -> bool:
+        self.initial_error = error
         self.events.append(("should", error, env_auth))
         return self.eligible and not env_auth
 
@@ -174,19 +186,30 @@ class _Scenario:
             raise self.refresh_error
         return self.refresh_result
 
-    async def run_cold_recovery(
+    def load_cookie_pair(self, _path: Path) -> _LoadedCookiePair:
+        return _LoadedCookiePair(_jar("disk"), CookieJar())
+
+    async def run_headless_attempt(
         self,
-        path: Path,
+        path: Path | None,
         allow_headless: bool,
-        validate: Callable[[httpx.Cookies], Awaitable[None]],
-        error: _LoginRedirectError,
-    ) -> recovery.ColdRecoveryResult:
-        self.events.append(("cold", path, allow_headless, error, validate))
+    ) -> _LoadedCookiePair | None:
+        assert isinstance(self.initial_error, _LoginRedirectError)
+        self.events.append(
+            ("cold", path, allow_headless, self.initial_error, self.validate_recovered)
+        )
         await self._pause("cold-before-replace")
         if self.cold_error is not None:
             raise self.cold_error
-        await validate(self.cold_result.cookie_jar)
-        return self.cold_result
+        return _LoadedCookiePair(self.cold_result.cookie_jar, self.cold_result.baseline)
+
+    async def run_master_token_attempt(self, _path: Path | None) -> _LoadedCookiePair | None:
+        return None
+
+    def snapshot_cookie_jar(self, jar: httpx.Cookies) -> CookieSnapshot:
+        if jar is self.cold_result.cookie_jar:
+            return self.cold_result.snapshot
+        return {}
 
     async def validate_recovered(self, jar: httpx.Cookies) -> None:
         self.events.append(("validate-route", jar))
@@ -489,6 +512,7 @@ async def test_cancellation_preserves_exact_before_after_replacement_mutation(
     await scenario.started.wait()
 
     task.cancel()
+    scenario.release.set()
     with pytest.raises(asyncio.CancelledError):
         await task
 

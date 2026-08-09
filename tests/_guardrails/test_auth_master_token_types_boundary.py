@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from notebooklm._auth import master_token_types
+import notebooklm.auth as auth_facade
+from notebooklm._auth import master_token, master_token_types, storage
 
 pytestmark = pytest.mark.repo_lint
 
@@ -140,6 +141,8 @@ def _live_structure_violations(tree: ast.Module) -> list[str]:
 
     nodes = _module_nodes(tree)
     expected_kinds = [
+        (ast.ClassDef, "MasterTokenError"),
+        (ast.Assign, "MasterTokenError.__module__"),
         (ast.ClassDef, "MasterToken"),
         (ast.Assign, "_MASTER_TOKEN_RECORD_VERSION"),
         (ast.ClassDef, "_MasterTokenRecordError"),
@@ -156,6 +159,8 @@ def _live_structure_violations(tree: ast.Module) -> list[str]:
             and isinstance(node.targets[0], ast.Name)
         ):
             actual_kinds.append((type(node), node.targets[0].id))
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+            actual_kinds.append((type(node), ast.unparse(node.targets[0])))
         else:
             actual_kinds.append((type(node), "<unsupported>"))
     if actual_kinds != expected_kinds:
@@ -232,7 +237,28 @@ def _live_structure_violations(tree: ast.Module) -> list[str]:
         ):
             violations.append("MasterToken-repr-redaction")
 
-    version = nodes[1]
+    public_error = _single_class(tree, "MasterTokenError")
+    if len(public_error.bases) != 1 or ast.unparse(public_error.bases[0]) != "Exception":
+        violations.append("public-error-base")
+    public_error_state = [
+        node
+        for node in public_error.body
+        if not (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        )
+        and not isinstance(node, ast.Pass)
+    ]
+    if public_error_state:
+        violations.append("public-error-state")
+    module_rebind = nodes[1]
+    if ast.unparse(module_rebind) != (
+        "MasterTokenError.__module__ = 'notebooklm._auth.master_token'"
+    ):
+        violations.append("public-error-module")
+
+    version = nodes[3]
     if not (
         isinstance(version, ast.Assign)
         and len(version.targets) == 1
@@ -244,7 +270,7 @@ def _live_structure_violations(tree: ast.Module) -> list[str]:
     ):
         violations.append("record-version")
 
-    allowed_assignments = {id(version), *(id(node) for node in field_nodes)}
+    allowed_assignments = {id(module_rebind), id(version), *(id(node) for node in field_nodes)}
     for node in ast.walk(tree):
         if (
             isinstance(
@@ -603,6 +629,12 @@ def test_live_module_has_exact_value_codec_and_no_capabilities() -> None:
 
 
 def test_runtime_value_shape_and_redaction_are_pinned() -> None:
+    error = master_token_types.MasterTokenError
+    assert master_token.MasterTokenError is error
+    assert storage.MasterTokenError is error
+    assert auth_facade.MasterTokenError is error
+    assert error.__module__ == "notebooklm._auth.master_token"
+    assert error.__qualname__ == "MasterTokenError"
     assert [item.name for item in dataclasses.fields(master_token_types.MasterToken)] == [
         "email",
         "android_id",

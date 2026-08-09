@@ -357,10 +357,10 @@ token persistence; a missing-storage leader remains shielded to settlement
 before its bootstrap lock is released. At the extraction freeze the coordinator
 is 366 lines and the compatibility adapter is 463 lines.
 
-The measured boundary is 1,150 lines in `_auth/storage.py`, 311 in
-`_auth/profile_migration.py`, 794 in `_auth/profile_store.py`, and 96 in
-`_auth/cookie_filter.py` (2,351 total). `storage.py` remains the v0.x signature/result facade; this
-storage boundary remains unchanged by the typed loader extraction.
+The final measured persistence boundary is 1,115 lines in `_auth/storage.py`, 311 in
+`_auth/profile_migration.py`, 814 in `_auth/profile_store.py`, 96 in
+`_auth/cookie_filter.py`, and 89 in `_auth/master_token_file.py` (2,425 total). `storage.py`
+remains the v0.x signature/result facade; the extracted owners do not create a second facade.
 
 `_auth/tokens.py` now owns the Phase 9 stored-auth composition: captured-inline/file sources,
 `LoadPolicy`, paired `SessionSeed`/`TokenAcquisition`, final-attempt `AccountRouteResolver`, the
@@ -369,16 +369,40 @@ closed `LoadedAuth` result, and `StoredAuthLoader`. Its only structural test sea
 `tokens._load_stored_auth` provider for `AuthTokens.from_storage`/client composition tests. Raw
 loads and PSIDTS heal, file-account resolution, and the initial `ProfileStore` merge remain worker
 offloads. `_auth/cookies.py` owns one-sample live/SameSite-preserving seed provenance.
-`_auth/recovery.py` now owns the one-shot `ColdRecoveryCoordinator`: it decides/attempts L2.5 and
-delegates into the combined cold flow, while the existing `_run_cold_recovery` continues to own
-L3/L4, the per-loop lock/generation state, and same-sample replacement baselines until Phase 12C.
-The sole production adapter remains `refresh._cold_fallbacks`; its late-bound closures retain the
-exact DEBUG skip and WARNING start/failure logs and raw caller / canonical L2.5 / raw caller route
-timing. Cancellation before jar
-replacement leaves the caller jar untouched; a later cancellation never rolls back an already
-replaced jar. `_auth/cookie_merge.py` advances the next baseline from accepted final rows while
-retaining rejected old entries. The measured owner sizes are 816 lines in `tokens.py`, 389 in
-`recovery.py`, 1,189 in `refresh.py`, and 996 in `client.py`.
+`_auth/recovery.py` now owns the complete cold operation. A fresh, one-shot
+`ColdRecoveryCoordinator` spells L2.5 → L3 → L4 directly; its class-owned `_drive_cold` and
+`_coalesce_cold` methods are the sole ladder and flight bodies. `ColdRecoveryState` owns the
+synchronized weak-loop path-lock/generation maps, and `SingleFlight` owns cross-loop flights and
+canonical-path success epochs. The exact-signature module functions are compatibility adapters to
+the process-default owners, not second implementations. The coordinator claims under a threading
+lock before its first await and deletes all eleven collaborator references on every exit.
+
+The sole production composition remains in `refresh.py`; its late-bound closures retain DEBUG skip
+and WARNING start/failure logs, raw caller / canonical L2.5 / raw caller route timing, original
+exception precedence, and exact traceback projection. Waiter cancellation propagates only after
+the shared flight settles and never cancels sibling work; a leader cancellation is mirrored as the
+original `CancelledError`. Cancellation before jar replacement leaves the caller jar untouched,
+while later cancellation does not roll back a completed replacement. Test isolated owners through
+constructor injection. Use process-default module adapters only when testing v0.x lookup seams;
+their reset helpers reject live/locked work and clear only quiescent state.
+
+`RotationState` similarly owns keepalive's weak-loop locks and per-canonical-path monotonic stamps.
+The claim is atomic and occurs before the POST, so HTTP failure and cancellation consume the
+60-second slot; the historical `_POKE_*` dictionaries/lock are identity views into that owner, not
+independent state. `AccountRepairService` is also one-shot: cookie loading alone is offloaded,
+write/clear remain synchronous, only the frozen handled exception set becomes a result, and all six
+collaborators are scrubbed on every exit. Patch these services through constructor injection rather
+than adding module monkeypatch sites.
+
+PSIDTS load composition now receives the pure cookie loader as an explicit callable. Keep
+conversion in `CookieJar`, raw-row fidelity in `ProfileDocument`, and persistence in `ProfileStore`;
+do not restore `psidts_recovery -> cookies` or `psidts_recovery -> storage`. Preserve the sentinel,
+contended-reread, acquired-full-reread, pre-POST observation, typed CAS, and post-save disk-live
+winner order. Its catches are intentionally narrow: cancellation, Unicode failures, and unlisted
+errors must not be normalized into a silent decline. The master-token exception follows the same
+compatibility rule: define it only in `master_token_types.py`, but preserve
+`__module__ == "notebooklm._auth.master_token"`, facade/storage identity, cause chains, and old
+pickle payloads.
 
 `fetch_tokens_with_domains` now loads one paired live jar and SameSite-preserving baseline, then
 passes that baseline through the unchanged exact-baseline ladder. After the final fetch it captures
@@ -390,8 +414,11 @@ cancellation: the caller is cancelled immediately, while an already-dispatched w
 and commit. File auth alone constructs the store; inline env auth logs the existing skip and does
 not persist. Patch the private typed helper/store method for these tests, not the retired private
 `refresh.save_cookies_to_storage` alias. The public saver/facade and client/runtime saver-injection
-seams remain exact. The auth graph measures 38 modules / 15,074 lines / 122 edges (110 module + 12
-function-local); its sole new edge is `refresh -> profile_store`, with no module SCC.
+seams remain exact. Phase 12C measures **40 modules / 15,237 lines / 128 unique edges (117 module +
+11 function-local)**. Module-only and all-scope SCC sets are both empty. The final touched production
+LOC is: account 252, account-repair 132, account-types 50, cookie-types 396, cookies 961, keepalive
+438, master-token 455, master-token-types 68, PSIDTS recovery 1,222, recovery 530, refresh 1,184,
+single-flight 268, and storage 1,115. These are ratchet evidence, not a budget to spend.
 
 Phase 10 completes runtime ownership. `NotebookLMClient.from_storage` registers a
 `FileLoadedAuth` result's exact `ProfileStore`/baseline pair with `CookiePersistence`, without a

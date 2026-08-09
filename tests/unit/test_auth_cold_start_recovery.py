@@ -987,3 +987,44 @@ async def test_shared_adapter_exception_fans_out_and_later_call_retries(
 
     assert headless.await_count == 2
     master.assert_awaited_once()
+
+    typed_failure = _LoginRedirectError("typed collaborator failure")
+    headless.side_effect = typed_failure
+    with pytest.raises(_LoginRedirectError) as coalesced_raised:
+        await recovery_mod.coalesced_cold_recovery(
+            storage_path=storage,
+            allow_headless=True,
+            validate=validate,
+            initial_error=redirect,
+        )
+    assert coalesced_raised.value is typed_failure
+    coalesced_frames = []
+    traceback = typed_failure.__traceback__
+    while traceback is not None:
+        if traceback.tb_frame.f_globals.get("__name__") == "notebooklm._auth.recovery":
+            coalesced_frames.append(traceback.tb_frame.f_code.co_name)
+        traceback = traceback.tb_next
+    assert coalesced_frames == [
+        "coalesced_cold_recovery",
+        "_coalesce_cold",
+        "_drive_cold",
+        "run_headless",
+    ]
+
+    direct_failure = _LoginRedirectError("direct collaborator failure")
+    headless.side_effect = direct_failure
+    with pytest.raises(_LoginRedirectError) as direct_raised:
+        await recovery_mod._run_cold_recovery(
+            storage_path=storage,
+            allow_headless=True,
+            validate=validate,
+            initial_error=redirect,
+        )
+    assert direct_raised.value is direct_failure
+    direct_frames = []
+    traceback = direct_failure.__traceback__
+    while traceback is not None:
+        if traceback.tb_frame.f_globals.get("__name__") == "notebooklm._auth.recovery":
+            direct_frames.append(traceback.tb_frame.f_code.co_name)
+        traceback = traceback.tb_next
+    assert direct_frames == ["_run_cold_recovery", "_drive_cold", "run_headless"]

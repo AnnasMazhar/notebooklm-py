@@ -556,6 +556,29 @@ def _load_cookie_pair_pure(
     )
 
 
+def _default_heal_policy() -> object:
+    from .psidts_recovery import HealPolicy
+
+    return HealPolicy.HEAL_THEN_NAME_ONLY
+
+
+def load_session_jar(
+    path: Path | None = None,
+    policy: object = _default_heal_policy(),
+    *,
+    heal: Callable[[Path | None], bool] | None = None,
+) -> httpx.Cookies:
+    """Load the session jar through the shared heal/retry composition."""
+    from . import psidts_recovery
+
+    return psidts_recovery.load_with_recovery(
+        path,
+        cast(psidts_recovery.HealPolicy, policy),
+        load=_load_cookies_pure,
+        heal=heal,
+    )
+
+
 def build_httpx_cookies_from_storage(path: Path | None = None) -> httpx.Cookies:
     """Build an httpx.Cookies jar with original domains preserved.
 
@@ -586,12 +609,7 @@ def build_httpx_cookies_from_storage(path: Path | None = None) -> httpx.Cookies:
     # ``__Secure-1PSIDTS`` recovery (issue #865) must hang off this loader and
     # not only off ``load_auth_from_storage``, because ``AuthTokens.from_storage``
     # and ``NotebookLMClient.from_storage`` come through here.
-    # Breaks the cookies <-> psidts_recovery cycle (same reason as the routing
-    # preflight above): ``psidts_recovery`` imports this module at module scope,
-    # so this edge must stay function-local.
-    from . import psidts_recovery  # noqa: PLC0415 (cycle: psidts_recovery -> cookies)
-
-    return psidts_recovery.load_session_jar(path, psidts_recovery.HealPolicy.HEAL_THEN_NAME_ONLY)
+    return load_session_jar(path)
 
 
 def _build_cookie_pair_from_storage(path: Path | None = None) -> _LoadedCookiePair:
@@ -711,9 +729,9 @@ def _build_httpx_cookies_from_storage_strict(path: Path | None) -> httpx.Cookies
     site instead of by which of two near-identical private loaders was reached
     for. ``NAME_ONLY`` performs no network I/O.
     """
-    from . import psidts_recovery  # noqa: PLC0415 (cycle: psidts_recovery -> cookies)
+    from .psidts_recovery import HealPolicy
 
-    return psidts_recovery.load_session_jar(path, psidts_recovery.HealPolicy.NAME_ONLY)
+    return load_session_jar(path, HealPolicy.NAME_ONLY)
 
 
 def build_cookie_jar(

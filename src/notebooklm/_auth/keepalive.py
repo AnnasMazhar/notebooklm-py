@@ -23,7 +23,7 @@ import time
 import weakref
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
@@ -121,27 +121,63 @@ def _rotation_http_client(jar: httpx.Cookies) -> httpx.Client:
 #      and both fire the POST.
 # It is held briefly, never across an ``await``, so it cannot deadlock against
 # any asyncio primitive.
-_POKE_STATE_LOCK = threading.Lock()
-_POKE_LOCKS_BY_LOOP: weakref.WeakKeyDictionary[Any, dict[Path | None, asyncio.Lock]] = (
-    weakref.WeakKeyDictionary()
-)
-# Monotonic timestamp of the last in-process poke *attempt* (success or
-# failure), keyed by storage_path. Stamped under ``_POKE_STATE_LOCK`` inside
-# ``_try_claim_rotation`` so the check-and-set is atomic across event loops
-# and across direct ``_rotate_cookies`` callers. Failure-stampede protection
-# comes for free: even a POST that times out has already claimed the slot,
-# so 10 fanned-out callers don't each wait 15 s on a hung server.
-#
-# Deliberately NOT ``_auth.single_flight``: this is a RATE LIMIT, not a flight.
-# A caller that loses the claim is told "no" and returns having done nothing —
-# it does not join the winner, does not wait, and never receives the winner's
-# outcome, because there is no shared result to hand out (a poke returns
-# ``None`` and its effect lands in the caller's own jar). ``_get_poke_lock``'s
-# per-(loop, profile) ``asyncio.Lock`` is mutual exclusion for the same reason:
-# the loser re-checks the throttle after acquiring and skips, rather than
-# coalescing onto a leader's return value. Both shapes are "at most one POST per
-# window", which a flight registry does not express.
-_LAST_POKE_ATTEMPT_MONOTONIC: dict[Path | None, float] = {}
+class RotationState:
+    """Process owner for keepalive serialization and rate-limit state."""
+
+    _process_default_owner: ClassVar[RotationState]
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._locks_by_loop: weakref.WeakKeyDictionary[
+            Any, weakref.WeakValueDictionary[Path | None, asyncio.Lock]
+        ] = weakref.WeakKeyDictionary()
+        self._last_attempt_monotonic: dict[Path | None, float] = {}
+
+    @classmethod
+    def process_default(cls) -> RotationState:
+        return cls._process_default_owner
+
+    def poke_lock(self, storage_path: Path | None) -> asyncio.Lock:
+        key = canonical_storage_key(storage_path)
+        loop = asyncio.get_running_loop()
+        with self._lock:
+            per_loop = self._locks_by_loop.get(loop)
+            if per_loop is None:
+                per_loop = weakref.WeakValueDictionary()
+                self._locks_by_loop[loop] = per_loop
+            lock = per_loop.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                per_loop[key] = lock
+            return lock
+
+    def try_claim(self, storage_path: Path | None) -> bool:
+        key = canonical_storage_key(storage_path)
+        with self._lock:
+            last = self._last_attempt_monotonic.get(key, 0.0)
+            now = time.monotonic()
+            if last > 0 and (now - last) < _KEEPALIVE_RATE_LIMIT_SECONDS:
+                return False
+            self._last_attempt_monotonic[key] = now
+            return True
+
+    def _reset_for_tests(self) -> None:
+        with self._lock:
+            if any(
+                lock.locked() for locks in self._locks_by_loop.values() for lock in locks.values()
+            ):
+                raise RuntimeError("cannot reset rotation state while a poke lock is held")
+            self._locks_by_loop.clear()
+            self._last_attempt_monotonic.clear()
+
+
+RotationState._process_default_owner = RotationState()
+
+# Historical raw state names are non-owning identity views. Production reaches
+# the same state only through ``RotationState`` methods.
+_POKE_STATE_LOCK = RotationState.process_default()._lock
+_POKE_LOCKS_BY_LOOP = RotationState.process_default()._locks_by_loop
+_LAST_POKE_ATTEMPT_MONOTONIC = RotationState.process_default()._last_attempt_monotonic
 
 # Rotation sentinel path lives in ``notebooklm._auth.paths``; aliased here for
 # white-box callers that reach ``notebooklm.auth._rotation_lock_path``.
@@ -171,18 +207,7 @@ def _get_poke_lock(storage_path: Path | None) -> asyncio.Lock:
     to the current loop. The dict mutation runs under the sync state lock so
     concurrent threads with their own loops don't tear the registry.
     """
-    key = canonical_storage_key(storage_path)
-    loop = asyncio.get_running_loop()
-    with _POKE_STATE_LOCK:
-        per_loop = _POKE_LOCKS_BY_LOOP.get(loop)
-        if per_loop is None:
-            per_loop = {}
-            _POKE_LOCKS_BY_LOOP[loop] = per_loop
-        lock = per_loop.get(key)
-        if lock is None:
-            lock = asyncio.Lock()
-            per_loop[key] = lock
-        return lock
+    return RotationState.process_default().poke_lock(storage_path)
 
 
 def _try_claim_rotation(storage_path: Path | None) -> bool:
@@ -195,14 +220,12 @@ def _try_claim_rotation(storage_path: Path | None) -> bool:
     ``_rotate_cookies`` callers (layer-2 keepalive loops, etc.) — neither
     of which holds the per-loop async lock used by layer-1 ``_poke_session``.
     """
-    key = canonical_storage_key(storage_path)
-    with _POKE_STATE_LOCK:
-        last = _LAST_POKE_ATTEMPT_MONOTONIC.get(key, 0.0)
-        now = time.monotonic()
-        if last > 0 and (now - last) < _KEEPALIVE_RATE_LIMIT_SECONDS:
-            return False
-        _LAST_POKE_ATTEMPT_MONOTONIC[key] = now
-        return True
+    return RotationState.process_default().try_claim(storage_path)
+
+
+def _reset_poke_state_for_tests() -> None:
+    """Reset process rotation state after proving every async lock quiescent."""
+    RotationState.process_default()._reset_for_tests()
 
 
 @contextlib.contextmanager

@@ -133,15 +133,13 @@ ALLOWLIST: tuple[_AllowlistEntry, ...] = (
         "never shared across loops, so it is structurally loop-safe without the "
         "open()/close() affinity protocol.",
     ),
-    # Module-global, PER-RUNNING-LOOP registries: the lock is keyed by
+    # Process-owned PER-RUNNING-LOOP registries: the lock is keyed by
     # ``asyncio.get_running_loop()`` in a ``WeakKeyDictionary``, so every loop
     # gets its own lock and a stale cross-loop primitive can never be reused.
-    # These have no enclosing class to host the protocol; the per-loop keying
-    # is the structural guard.
     _AllowlistEntry(
         "src/notebooklm/_auth/keepalive.py",
-        None,
-        "Module-global per-running-loop lock registry (keyed by "
+        "RotationState",
+        "Process-owned per-running-loop lock registry (keyed by "
         "asyncio.get_running_loop()); structurally immune to cross-loop reuse.",
     ),
     # ``refresh.py`` no longer constructs an ``asyncio.Lock`` (c-PR2): its
@@ -150,12 +148,10 @@ ALLOWLIST: tuple[_AllowlistEntry, ...] = (
     # loop-bound asyncio primitive), so there is nothing left to allowlist here.
     _AllowlistEntry(
         "src/notebooklm/_auth/recovery.py",
-        None,
-        "Module-global per-running-loop lock registry (``_COLD_LOCKS_BY_LOOP``, "
+        "ColdRecoveryState",
+        "Process-owned per-running-loop lock registry, "
         "weakly keyed by asyncio.get_running_loop()); structurally immune to "
-        "cross-loop reuse. The in-flight task coalescing moved to "
-        "single_flight.py in c-PR2, but the per-loop revalidate lock remains "
-        "here as consumer-side policy.",
+        "cross-loop reuse; the per-loop revalidate lock remains consumer policy.",
     ),
 )
 

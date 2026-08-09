@@ -115,7 +115,7 @@ def _reset_poke_state():
        per-profile. Without clearing, the first test to poke any profile sets
        the timestamp and subsequent tests in that file see "we just poked"
        and silently skip the POST they're asserting on.
-    2. ``_POKE_LOCKS_BY_LOOP`` (``WeakKeyDictionary[loop, dict[..., Lock]]``) —
+    2. ``_POKE_LOCKS_BY_LOOP`` (``WeakKeyDictionary[loop, WeakValueDictionary[..., Lock]]``) —
        in production each per-loop entry is reclaimed automatically when its
        loop is GC'd. In tests the loop typically outlives the explicit
        cleanup point (pytest-asyncio's loop teardown happens after fixtures

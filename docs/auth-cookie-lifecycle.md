@@ -584,26 +584,28 @@ loop-affinity still governs the client itself: coalescing the *recovery attempt*
 across loops does not make a `NotebookLMClient` shareable across loops).
 
 Cold-token fallback composition now has one operation-scoped owner:
-`_auth/recovery.py::ColdRecoveryCoordinator` decides and attempts L2.5, then delegates into the
-combined cold flow. `_auth/refresh.py::_cold_fallbacks` remains its sole production adapter and
-retains the exact environment-auth skip, rung-start, and rung-failure logs plus call-time route
-lookups. L2.5 remains outside the shared cold flight. The existing `_run_cold_recovery` still owns
-L3 → L4, per-loop lock/generation state, and the replacement jar's same-sample typed baseline; its
-coalesced wrapper and `single_flight` retain flight settlement until Phase 12C. Cancellation before
-synchronous caller-jar replacement
-leaves that jar untouched; cancellation during the later route/fetch does not roll back a completed
-replacement.
+`_auth/recovery.py::ColdRecoveryCoordinator` explicitly runs L2.5, then the coalesced L3 → L4
+flow. `_auth/refresh.py` remains its sole production composer and retains the exact environment-auth
+skip, rung-start/failure logs, call-time collaborator lookup, and raw caller / canonical L2.5 / raw
+caller route timing. `ColdRecoveryState` owns synchronized weak-loop path locks and success
+generations; `SingleFlight` owns shared flights. The compatibility `_run_cold_recovery` and
+`coalesced_cold_recovery` functions delegate to the class-owned bodies rather than retaining a
+second ladder. A coordinator is one-shot, claims before its first await, and scrubs every injected
+callback after success, failure, or cancellation. Cancellation before synchronous caller-jar
+replacement leaves that jar untouched; cancellation later does not roll back a completed
+replacement. A cancelled follower waits for shared settlement without cancelling siblings.
 
 ### 4.1 L1 — per-call `RotateCookies` POST
 
 Fires inside the token-fetch path on every CLI invocation and client open. A best-
 effort `POST https://accounts.google.com/RotateCookies` that mints a fresh
 `*PSIDTS`. Default ON; disable with `NOTEBOOKLM_DISABLE_KEEPALIVE_POKE=1`. Wrapped
-in three concentric guards (disk-mtime fast-path → in-process `asyncio.Lock` +
-per-profile monotonic timestamp → cross-process non-blocking flock) so an L1 caller,
+in three concentric guards (disk-mtime fast-path → `RotationState`'s per-loop
+`asyncio.Lock` + per-canonical-path monotonic timestamp → cross-process non-blocking flock) so an L1 caller,
 an L2 loop, and a fan-out of parallel CLI invocations keyed to the same
 `storage_state.json` don't stampede the endpoint into a 429. Mechanics in
-[§5](#5--the-rotatecookies-primitive).
+[§5](#5--the-rotatecookies-primitive). The atomic attempt claim is stamped before
+the POST; HTTP failure and cancellation therefore consume the same 60-second slot as success.
 
 ### 4.2 L2 — background keepalive task
 
@@ -776,18 +778,20 @@ When a profile has the persistent `__Secure-1PSID` but no transient
 (`_auth/psidts_recovery.py`) makes a preflight `RotateCookies` POST during client
 startup to mint the missing cookie before the first RPC.
 
-**This recovery now runs off the event loop for async callers ([ADR-0030](adr/0030-one-recovery-ladder.md)).**
-The loaders split into a pure inner loader (file I/O + validation, never network)
-and a public wrapper (`build_httpx_cookies_from_storage`, `load_auth_from_storage`)
-that composes the pure load with this recovery. The pure loader raises
+**This recovery runs off the event loop for async callers ([ADR-0030](adr/0030-one-recovery-ladder.md)).**
+`cookies.py` owns the pure cookie loaders (file I/O + validation, never network), while
+`psidts_recovery.load_with_recovery` receives the selected pure loader explicitly and owns the
+single strict-load → heal → name-only-retry sequence. Public wrappers
+(`build_httpx_cookies_from_storage`, `load_auth_from_storage`) preserve their signatures and late
+lookup seams. The pure loader raises
 `RequiredCookieValidationError` tagged with a closed-enum `reason`
 (`missing_cookie` | `psidts_unroutable`) instead of invoking recovery itself; the
 wrapper decides whether to call `_recover_psidts_inline` based on that reason.
 Sync (CLI) callers keep the inline recovery behavior verbatim; async callers
 offload the whole wrapper onto `asyncio.to_thread`, so the ~15 s `RotateCookies`
-POST below can no longer stall an async caller's event loop the way a same-thread
-inline call could. The decision rules that follow are unchanged byte-for-byte —
-only *where* they execute changed.
+POST below cannot stall an async caller's event loop. The wrapper catches only the required-cookie
+validation that triggers a heal; Unicode failures, cancellation, and unlisted exceptions retain
+their original identity instead of being collapsed into a recovery decline.
 
 It fires only when `SID`
 is present, a **rotatable** secondary binding is intact (`OSID`, or `APISID` +
@@ -853,8 +857,8 @@ intentional, and each one has a failure mode behind it:
 | empty `value` | skipped | skipped |
 
 The duplicate rule is the sharp edge. Applying it to the heal check turns a
-working session into a permanent failure loop: `save_cookies_to_storage`
-CAS-matches the *first* stored row for an identity, so a stale same-identity
+working session into a permanent failure loop: the typed cookie merge
+CAS-matches the observed value for an identity, so a stale same-identity
 twin survives the save, and the heal would report failure on every load while
 the preflight keeps passing. That twin is issue #1523's data shape — #1523 fixed
 the producer, and nothing on the load/save path removed an existing one.
@@ -871,7 +875,8 @@ questions, asked by different processes:
   the caller retries, and the routed preflight rejects the state anyway.
 
 The routed variant is safe only because the save collapses the twin instead of
-leaving it: when `save_cookies_to_storage` receives a `recovery_observation`, an
+leaving it: when `ProfileStore.merge_cookie_observation` receives a typed
+`RecoveryObservation`, an
 observed recovery-target identity is replaced in place and its exact duplicates
 are removed, across leading-dot domain variants. A row the observation saw as
 unusable — empty, non-string, or malformed `expires` — is replaceable; a
@@ -880,9 +885,13 @@ and is left alone. Without that collapse the routed check would reproduce the
 permanent failure loop described above, which is why the two changes have to
 travel together.
 
-Note also that `_psidts_is_live` models `extract_cookies_from_storage`
-specifically; the sibling loader `_build_httpx_cookies_from_storage_strict`
-converts every row and can still reject a state it accepts.
+Note also that `_psidts_is_live` models the domain-blind persisted answer, while routed preflight
+models what the RotateCookies request can send; neither substitutes for a pure loader. Recovery
+reads raw rows through `ProfileStore.read_document()`/`ProfileDocument`, captures a value-only
+observation before the POST, converts live jars through `CookieJar`, and commits through
+`ProfileStore` without rejoining `cookies.py` or the `storage.py` compatibility facade. A save
+result alone is never success: a post-save disk reread is authoritative and may accept a sibling
+winner.
 
 Recovery honors
 `NOTEBOOKLM_DISABLE_KEEPALIVE_POKE=1`, and uses a cross-process flock
@@ -982,7 +991,7 @@ For the active `fetch_tokens_with_domains` path, cookie acquisition and persiste
 typed provenance chain. One raw load produces both the live jar and its SameSite-preserving
 baseline. The initial route uses the caller-spelled raw path, the L2.5 retry uses its canonical
 refresh path, and L3/L4 validation plus final fetch return to the caller-spelled raw path under the
-Phase 12A `ColdRecoveryCoordinator`. Whichever successful arm wins supplies the selected baseline.
+Phase 12C `ColdRecoveryCoordinator`. Whichever successful arm wins supplies the selected baseline.
 After token success, file auth snapshots the final live jar into an immutable observation and
 offloads exactly one concrete `ProfileStore` merge. `HARD_FAILURE`, the sole non-advancing result,
 keeps the exact selected baseline; an advancing result selects the exact returned next baseline.
@@ -1225,13 +1234,27 @@ gate their writes correctly.
 
 ## Changelog
 
+- **2026-08-09 (recovery state owners and cycle removal)** — `SingleFlight`,
+  `ColdRecoveryState`, and `RotationState` now own their registries/locks/epochs rather than
+  module-global algorithms. `ColdRecoveryCoordinator` is the one-shot explicit L2.5/L3/L4 owner;
+  cancellation cannot cancel sibling flight work, and quiescent resets reject live work. PSIDTS
+  recovery now composes injected pure loaders, typed raw-document observation/CAS, and
+  `ProfileStore` persistence without upward cookie/storage edges. `MasterTokenError`, `Account`,
+  and the Playwright repair result moved to dependency-bottom value leaves while retaining their
+  historical module/pickle and facade identities; one-shot account repair scrubs its six
+  collaborators on every exit. The auth graph is 40 modules / 15,237 lines / 128 edges (117
+  module + 11 function-local), and both module-only and all-scope SCC sets are empty. Final touched
+  owner LOC: account 252, account-repair 132, account-types 50, cookie-types 396, cookies 961,
+  keepalive 438, master-token 455, master-token-types 68, PSIDTS recovery 1,222, recovery 530,
+  refresh 1,184, single-flight 268, storage 1,115.
+
 - **2026-08-09 (typed refresh persistence)** — `fetch_tokens_with_domains` now consumes one paired
   live/SameSite-preserving baseline sample, retains the baseline selected by the initial/L2.5/L3/L4
   ladder, captures an immutable final observation, and dispatches one concrete `ProfileStore`
   merge. Hard results retain the exact input baseline; advancing results return the exact next
   baseline. Cancellation remains ordinary immediate `to_thread` propagation even though the
   worker may finish. Only the private refresh saver alias retired; public compatibility remains.
-  The auth graph is 38 modules / 15,074 lines / 122 edges (110 module + 12 local), with sole new
+  At that Phase 12B checkpoint the auth graph was 38 modules / 15,074 lines / 122 edges (110 module + 12 local), with sole new
   edge `refresh -> profile_store`; measured owners are 389 lines in `recovery.py` and 1,189 in
   `refresh.py`.
 
@@ -1240,7 +1263,7 @@ gate their writes correctly.
   cold delegation. `refresh._cold_fallbacks` supplies the late-bound production closures and keeps
   exact skip/start/failure logging, route timing, retained-error precedence, cancellation timing,
   and same-sample snapshot/baseline results. Existing `_run_cold_recovery` remains the L3/L4 and
-  per-loop lock/generation owner; its coalesced wrapper retains shared flights until Phase 12C.
+  per-loop lock/generation owner; its coalesced wrapper retained shared flights at that stage.
   Measured owners are 389 lines in `recovery.py` and 1,194 in `refresh.py`.
 
 - **2026-08-09 (runtime profile-store cookie persistence)** — `FileLoadedAuth` now registers its

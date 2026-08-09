@@ -128,7 +128,7 @@ from .cookie_filter import (
 )
 from .cookie_types import Cookie, CookieIdentity, CookieJar
 from .master_token_file import MasterTokenFile
-from .master_token_types import MasterToken
+from .master_token_types import MasterToken, MasterTokenError
 from .paths import resolve_auth_json_env
 from .profile_account import (
     ClearAccount,
@@ -526,19 +526,7 @@ def save_cookies_to_storage(
 
 def _cookie_jar_for_merge(cookie_jar: httpx.Cookies, *, include_none: bool) -> CookieJar:
     """Adapt a live jar without filtering domains or freezing legacy tuples."""
-    return CookieJar(
-        Cookie(
-            name=cookie.name,
-            domain=cookie.domain,
-            path=cookie.path or "/",
-            value=cast(str, cookie.value),
-            expires=cookie.expires,
-            secure=cast(bool, cookie.secure),
-            http_only=_cookie_is_http_only(cookie),
-        )
-        for cookie in cookie_jar.jar
-        if cookie.name and cookie.domain and (include_none or cookie.value is not None)
-    )
+    return CookieJar.from_live_httpx_for_merge(cookie_jar, include_none=include_none)
 
 
 def _cookie_jar_from_snapshot(snapshot: CookieSnapshot) -> CookieJar:
@@ -1091,10 +1079,6 @@ def persist_minted_jar(
     refuse_unknown_owner: bool = True,
 ) -> None:
     """Snapshot and delegate one freshly minted full-session replacement."""
-    from . import (
-        master_token as _master_token,
-    )  # deferred; no cycle either way (verified)
-
     cookies = CookieJar(
         Cookie(
             name=cookie.name,
@@ -1115,7 +1099,7 @@ def persist_minted_jar(
     except _MintedSessionOwnershipRefused as exc:
         refusal_message = str(exc)
     if refusal_message is not None:
-        raise _master_token.MasterTokenError(refusal_message)
+        raise MasterTokenError(refusal_message)
 
 
 def write_master_token(path: Path, *, email: str, master_token: str, android_id: str) -> None:

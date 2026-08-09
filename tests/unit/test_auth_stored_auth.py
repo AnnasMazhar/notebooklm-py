@@ -121,14 +121,18 @@ def test_paired_cookie_projection_sanitizes_and_converts_each_row_once(monkeypat
             _row("__Secure-1PSIDTS", "ts"),
         ]
     }
-    sanitize_calls = 0
+    source_sanitize_calls = 0
+    policy_revalidation_calls = 0
     convert_calls = 0
     original_sanitize = _cookie_semantics.sanitize_cookie_entry
     original_convert = _auth_cookies._cookie_from_normalized_entry
 
     def count_sanitize(entry, *, check_value=True):
-        nonlocal sanitize_calls
-        sanitize_calls += 1
+        nonlocal policy_revalidation_calls, source_sanitize_calls
+        if isinstance(entry, _auth_cookies._SanitizedCookieEntry):
+            policy_revalidation_calls += 1
+        else:
+            source_sanitize_calls += 1
         return original_sanitize(entry, check_value=check_value)
 
     def count_convert(normalized, *, http_only_key):
@@ -141,7 +145,8 @@ def test_paired_cookie_projection_sanitizes_and_converts_each_row_once(monkeypat
 
     _build_cookie_pair_from_storage_state(state, require_routable=True)
 
-    assert sanitize_calls == 2
+    assert source_sanitize_calls == 2
+    assert policy_revalidation_calls == 2
     assert convert_calls == 2
 
 
