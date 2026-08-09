@@ -1892,6 +1892,7 @@ print(f"Language set to: {result}")
 | `set_public(notebook_id, public)` | `str, bool` | `ShareStatus` | Enable/disable public link sharing |
 | `set_view_level(notebook_id, level)` | `str, ShareViewLevel` | `ShareStatus` | Set what viewers can access |
 | `add_user(notebook_id, email, permission, notify, welcome_message)` | `str, str, SharePermission, bool, str` | `ShareStatus` | Share with a user |
+| `add_users(notebook_id, grants, notify, welcome_message)` | `str, list[tuple[str, SharePermission]], bool, str` | `ShareStatus` | Share with multiple users in one request |
 | `update_user(notebook_id, email, permission)` | `str, str, SharePermission` | `ShareStatus` | Update user's permission |
 | `remove_user(notebook_id, email)` | `str, str` | `ShareStatus` | Remove user's access |
 
@@ -1918,6 +1919,18 @@ status = await client.sharing.add_user(
     SharePermission.VIEWER,
     notify=True,
     welcome_message="Check out my research!"
+)
+
+# Share with multiple users in one RPC. Notifications and the welcome message
+# apply to every grant in the call.
+status = await client.sharing.add_users(
+    notebook_id,
+    [
+        ("viewer@example.com", SharePermission.VIEWER),
+        ("editor@example.com", SharePermission.EDITOR),
+    ],
+    notify=True,
+    welcome_message="Welcome, team!",
 )
 
 # Update user permission

@@ -6,6 +6,9 @@ integration-tree VCR enforcement hook in ``tests/integration/conftest.py``.
 Cassette-backed coverage lives in ``tests/integration/test_vcr_comprehensive.py``.
 """
 
+import json
+from urllib.parse import parse_qs
+
 import pytest
 from pytest_httpx import HTTPXMock
 
@@ -13,6 +16,12 @@ from notebooklm import NotebookLMClient, SharePermission, ShareViewLevel
 from notebooklm.rpc import RPCMethod
 
 pytestmark = pytest.mark.allow_no_vcr
+
+
+def _request_params(request) -> list:
+    """Decode the positional params from an RPC request."""
+    outer = json.loads(parse_qs(request.content.decode())["f.req"][0])
+    return json.loads(outer[0][0][1])
 
 
 class TestGetShareStatus:
@@ -253,6 +262,21 @@ class TestAddUser:
         assert status.shared_users[1].email == "new@example.com"
         assert status.shared_users[1].permission == SharePermission.VIEWER
 
+        requests = httpx_mock.get_requests()
+        assert _request_params(requests[0]) == [
+            [
+                [
+                    "nb_123",
+                    [["new@example.com", None, SharePermission.VIEWER.value]],
+                    None,
+                    [1, ""],
+                ]
+            ],
+            1,
+            None,
+            [2],
+        ]
+
     @pytest.mark.asyncio
     async def test_add_user_as_editor(
         self,
@@ -318,6 +342,100 @@ class TestAddUser:
             )
 
         assert len(status.shared_users) == 2
+
+
+class TestAddUsers:
+    """Tests for SharingAPI.add_users()."""
+
+    @pytest.mark.asyncio
+    async def test_add_users_sends_mixed_grants_in_one_request(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        build_rpc_response,
+    ):
+        """A bulk grant shares per-call notification settings and refreshes once."""
+        httpx_mock.add_response(content=build_rpc_response(RPCMethod.SHARE_NOTEBOOK, []).encode())
+        httpx_mock.add_response(
+            content=build_rpc_response(
+                RPCMethod.GET_SHARE_STATUS,
+                [
+                    [
+                        ["owner@example.com", 1, [], ["Owner", "https://avatar"]],
+                        ["viewer@example.com", 3, [], ["Viewer", "https://viewer"]],
+                        ["editor@example.com", 2, [], ["Editor", "https://editor"]],
+                    ],
+                    [False],
+                    1000,
+                ],
+            ).encode()
+        )
+
+        async with NotebookLMClient(auth_tokens) as client:
+            status = await client.sharing.add_users(
+                "nb_123",
+                [
+                    ("viewer@example.com", SharePermission.VIEWER),
+                    ("editor@example.com", SharePermission.EDITOR),
+                ],
+                notify=False,
+                welcome_message="Welcome, team!",
+            )
+
+        requests = httpx_mock.get_requests()
+        assert len(requests) == 2
+        assert requests[0].url.params["rpcids"] == RPCMethod.SHARE_NOTEBOOK.value
+        assert requests[1].url.params["rpcids"] == RPCMethod.GET_SHARE_STATUS.value
+        assert _request_params(requests[0]) == [
+            [
+                [
+                    "nb_123",
+                    [
+                        ["viewer@example.com", None, SharePermission.VIEWER.value],
+                        ["editor@example.com", None, SharePermission.EDITOR.value],
+                    ],
+                    None,
+                    [0, "Welcome, team!"],
+                ]
+            ],
+            0,
+            None,
+            [2],
+        ]
+        assert [user.email for user in status.shared_users] == [
+            "owner@example.com",
+            "viewer@example.com",
+            "editor@example.com",
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("grants", "message"),
+        [
+            ([], "at least one user"),
+            (
+                [("owner@example.com", SharePermission.OWNER)],
+                "Cannot assign OWNER permission",
+            ),
+            (
+                [("removed@example.com", SharePermission._REMOVE)],
+                r"Use remove_user\(\) instead",
+            ),
+        ],
+    )
+    async def test_add_users_rejects_invalid_grants(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        grants,
+        message,
+    ):
+        """Empty, owner, and remove grants fail before an RPC is sent."""
+        async with NotebookLMClient(auth_tokens) as client:
+            with pytest.raises(ValueError, match=message):
+                await client.sharing.add_users("nb_123", grants)
+
+        assert httpx_mock.get_requests() == []
 
 
 class TestUpdateUser:
@@ -388,6 +506,22 @@ class TestRemoveUser:
         assert len(status.shared_users) == 1
         assert status.shared_users[0].email == "owner@example.com"
 
+        requests = httpx_mock.get_requests()
+        assert len(requests) == 2
+        assert _request_params(requests[0]) == [
+            [
+                [
+                    "nb_123",
+                    [["removed@example.com", None, SharePermission._REMOVE.value]],
+                    None,
+                    [0, ""],
+                ]
+            ],
+            0,
+            None,
+            [2],
+        ]
+
 
 class TestSharingAPIIntegration:
     """Additional integration tests for SharingAPI."""
@@ -405,5 +539,6 @@ class TestSharingAPIIntegration:
             assert hasattr(client.sharing, "set_public")
             assert hasattr(client.sharing, "set_view_level")
             assert hasattr(client.sharing, "add_user")
+            assert hasattr(client.sharing, "add_users")
             assert hasattr(client.sharing, "update_user")
             assert hasattr(client.sharing, "remove_user")

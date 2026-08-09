@@ -160,17 +160,45 @@ class SharingAPI:
         Raises:
             ValueError: If permission is OWNER or _REMOVE.
         """
-        if permission == SharePermission.OWNER:
-            raise ValueError("Cannot assign OWNER permission")
-        if permission == SharePermission._REMOVE:
-            raise ValueError("Use remove_user() instead")
-
-        logger.debug(
-            "Adding user %s to notebook %s with permission %s",
-            email,
+        return await self.add_users(
             notebook_id,
-            permission.name,
+            [(email, permission)],
+            notify=notify,
+            welcome_message=welcome_message,
         )
+
+    async def add_users(
+        self,
+        notebook_id: str,
+        grants: list[tuple[str, SharePermission]],
+        notify: bool = True,
+        welcome_message: str = "",
+    ) -> ShareStatus:
+        """Share a notebook with multiple users in one request.
+
+        ``notify`` and ``welcome_message`` apply to every grant in this call.
+
+        Args:
+            notebook_id: The notebook ID.
+            grants: Email and permission pairs. Permissions must be EDITOR or VIEWER.
+            notify: Send email notifications to all users.
+            welcome_message: Optional welcome message sent to all users.
+
+        Returns:
+            Updated ShareStatus.
+
+        Raises:
+            ValueError: If grants is empty or a permission is OWNER or _REMOVE.
+        """
+        if not grants:
+            raise ValueError("Must provide at least one user grant")
+        for _email, permission in grants:
+            if permission == SharePermission.OWNER:
+                raise ValueError("Cannot assign OWNER permission")
+            if permission == SharePermission._REMOVE:
+                raise ValueError("Use remove_user() instead")
+
+        logger.debug("Adding %d users to notebook %s", len(grants), notebook_id)
 
         message_flag = 0 if welcome_message else 1
         notify_flag = 1 if notify else 0
@@ -179,7 +207,7 @@ class SharingAPI:
             [
                 [
                     notebook_id,
-                    [[email, None, permission.value]],
+                    [[email, None, permission.value] for email, permission in grants],
                     None,
                     [message_flag, welcome_message],
                 ]
