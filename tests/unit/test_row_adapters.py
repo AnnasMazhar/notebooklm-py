@@ -1700,11 +1700,11 @@ class TestSourceRowTimestamp:
 
 
 class TestSourceRowStatus:
-    """:attr:`SourceRow.status` mirrors legacy ``SourceLister._extract_status``."""
+    """Source status decoding fails closed for missing or unknown wire values."""
 
-    def test_status_ready_when_status_block_absent(self) -> None:
+    def test_status_unknown_when_status_block_absent(self) -> None:
         row = SourceRow.from_entry(_entry(status_code=None))
-        assert row.status == SourceStatus.READY
+        assert row.status == SourceStatus.UNKNOWN
 
     def test_status_processing(self) -> None:
         row = SourceRow.from_entry(_entry(status_code=SourceStatus.PROCESSING))
@@ -1718,33 +1718,45 @@ class TestSourceRowStatus:
         row = SourceRow.from_entry(_entry(status_code=SourceStatus.PREPARING))
         assert row.status == SourceStatus.PREPARING
 
-    def test_unknown_status_falls_back_to_ready(self) -> None:
-        """Status codes outside the known enum coerce to READY."""
-        row = SourceRow.from_entry(_entry(status_code=999))
-        assert row.status == SourceStatus.READY
+    @pytest.mark.parametrize(
+        ("status_code", "expected"),
+        [
+            (0, SourceStatus.UNSPECIFIED),
+            (4, SourceStatus.PENDING_DELETION),
+        ],
+    )
+    def test_known_gap_statuses_are_explicit(
+        self, status_code: int, expected: SourceStatus
+    ) -> None:
+        row = SourceRow.from_entry(_entry(status_code=status_code))
+        assert row.status is expected
 
-    def test_non_list_status_block_falls_back_to_ready(self) -> None:
+    def test_unknown_status_falls_back_to_unknown_and_warns(self, caplog) -> None:
+        """An unmapped integer is non-ready and observable as enum drift."""
+        row = SourceRow.from_entry(_entry(status_code=999))
+        assert row.status is SourceStatus.UNKNOWN
+        assert "Unknown source status code 999" in caplog.text
+
+    def test_non_list_status_block_falls_back_to_unknown(self) -> None:
         entry = _entry()
         entry.append("not_a_list")  # status block at position 3
         row = SourceRow.from_entry(entry)
-        assert row.status == SourceStatus.READY
+        assert row.status is SourceStatus.UNKNOWN
 
-    def test_short_status_block_falls_back_to_ready(self) -> None:
+    def test_short_status_block_falls_back_to_unknown(self) -> None:
         entry = _entry()
         entry.append([None])  # status block too short — no [1]
         row = SourceRow.from_entry(entry)
-        assert row.status == SourceStatus.READY
+        assert row.status is SourceStatus.UNKNOWN
 
-    def test_non_int_status_code_falls_back_to_ready(self) -> None:
-        """Non-int status codes (None, str, etc.) fall back via the
-        ``SourceStatus(...)`` ValueError path (claude review feedback on
-        #1029 — switching from explicit membership tuple to try/except
-        retains this behavior for any non-enum value)."""
+    def test_non_int_status_code_falls_back_to_unknown_without_warning(self, caplog) -> None:
+        """Malformed status blocks fail closed without noisy enum-drift warnings."""
         for bad_code in (None, "not_a_status", []):
             entry = _entry()
             entry.append([None, bad_code])  # whatever-type status code at [3][1]
             row = SourceRow.from_entry(entry)
-            assert row.status == SourceStatus.READY, f"failed for {bad_code!r}"
+            assert row.status is SourceStatus.UNKNOWN, f"failed for {bad_code!r}"
+        assert "Unknown source status code" not in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -1763,7 +1775,7 @@ class TestSourceRowSchemaDrift:
         assert row.type_code is None
         assert row.url is None
         assert row.created_at_raw is None
-        assert row.status == SourceStatus.READY
+        assert row.status == SourceStatus.UNKNOWN
 
     def test_id_only_row(self) -> None:
         row = SourceRow(_raw=[["only_id"]])

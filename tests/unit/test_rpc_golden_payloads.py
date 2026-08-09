@@ -1602,9 +1602,11 @@ class TestSourceKindAndStatusGroundTruth:
     @pytest.mark.parametrize(
         ("status_code", "expected_status"),
         [
+            (0, SourceStatus.UNSPECIFIED),
             (1, SourceStatus.PROCESSING),
             (2, SourceStatus.READY),
             (3, SourceStatus.ERROR),
+            (4, SourceStatus.PENDING_DELETION),
             (5, SourceStatus.PREPARING),
         ],
     )
@@ -1616,9 +1618,9 @@ class TestSourceKindAndStatusGroundTruth:
         row = SourceRow.from_entry([["ID"], "TITLE_AT_1", None, ["DECOY_AT_3_0", status_code]])
         assert row.status is expected_status
 
-    def test_unknown_status_code_falls_back_to_ready(self) -> None:
+    def test_unknown_status_code_falls_back_to_unknown(self) -> None:
         row = SourceRow.from_entry([["ID"], "TITLE_AT_1", None, [None, 99]])
-        assert row.status is SourceStatus.READY
+        assert row.status is SourceStatus.UNKNOWN
 
 
 # ---------------------------------------------------------------------------
@@ -1789,9 +1791,9 @@ class TestSourceFieldConfusionHasTeeth:
         [
             # correct pairing
             (9, 1, SourceType.YOUTUBE, SourceStatus.PROCESSING),
-            # swapped: the YOUTUBE code now sits in the status slot and vice
-            # versa, so kind/status must change accordingly.
-            (1, 9, SourceType.GOOGLE_DOCS, SourceStatus.READY),
+            # swapped: the YOUTUBE type code now sits in the status slot and
+            # must fail closed rather than being asserted ready.
+            (1, 9, SourceType.GOOGLE_DOCS, SourceStatus.UNKNOWN),
         ],
     )
     def test_type_status_swap_flips_decoded_enums(

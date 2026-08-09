@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -11,6 +12,8 @@ from .._types.common import _datetime_from_timestamp
 from ..exceptions import DecodingError
 from ..rpc import RPCMethod, safe_index
 from ..rpc.types import SourceStatus
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "SourceFulltextRow",
@@ -646,31 +649,33 @@ class SourceRow:
         """Processing status from ``self._raw[3][1]``.
 
         Used by ``GET_NOTEBOOK`` source-list rows where every entry
-        carries a status block. Defaults to
-        :data:`SourceStatus.READY` when:
+        carries a status block. Returns :data:`SourceStatus.UNKNOWN` when:
 
         * position 3 is absent / non-list / too short, or
         * the status code is not one of the known enum values.
 
-        This mirrors the legacy ``SourceLister._extract_status``
-        contract — same fallback to :data:`SourceStatus.READY` on any
-        unrecognised code. The membership check uses ``SourceStatus(...)``
-        directly (catching :class:`ValueError`) rather than an explicit
-        member tuple so the adapter automatically accepts any new values
-        added to :class:`SourceStatus` without a parallel update here.
+        Unknown numeric codes emit a warning so backend enum drift is visible.
+        Structurally malformed status blocks fail closed without warning because
+        several valid non-listing response shapes omit the block entirely.
         """
         if (
             len(self._raw) <= self._STATUS_BLOCK_POS
             or not isinstance(self._raw[self._STATUS_BLOCK_POS], list)
             or len(self._raw[self._STATUS_BLOCK_POS]) <= self._STATUS_INNER_POS
         ):
-            return SourceStatus.READY
+            return SourceStatus.UNKNOWN
 
         status_code = self._raw[self._STATUS_BLOCK_POS][self._STATUS_INNER_POS]
         try:
             return SourceStatus(status_code)
-        except ValueError:
-            return SourceStatus.READY
+        except (TypeError, ValueError):
+            if isinstance(status_code, int):
+                logger.warning(
+                    "Unknown source status code %r from RPC %s; treating as UNKNOWN",
+                    status_code,
+                    self.method_id,
+                )
+            return SourceStatus.UNKNOWN
 
 
 @dataclass(frozen=True)
