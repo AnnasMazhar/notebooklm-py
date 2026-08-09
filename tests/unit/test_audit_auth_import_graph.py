@@ -91,10 +91,10 @@ def test_scope_duplicate_self_and_scc_rules(audit, tmp_path):
 def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
-        "modules": 26,
-        "total_lines": 13874,
-        "unique_edges": 69,
-        "module_edges": 55,
+        "modules": 27,
+        "total_lines": 13964,
+        "unique_edges": 70,
+        "module_edges": 56,
         "function_local_edges": 14,
     }
     assert result["sccs"] == {
@@ -109,3 +109,6 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("cookies", "cookie_types", "module"),
         ("cookies", "cookie_semantics", "module"),
     } <= edges
+    assert {edge for edge in edges if "profile_account" in edge[:2]} == {
+        ("profile_account", "cookie_types", "module")
+    }

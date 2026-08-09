@@ -132,6 +132,11 @@
     },
     {
       "scope": "module",
+      "source": "profile_account",
+      "target": "cookie_types"
+    },
+    {
+      "scope": "module",
       "source": "psidts_recovery",
       "target": "cookie_policy"
     },
@@ -433,6 +438,11 @@
       "path": "src/notebooklm/_auth/paths.py"
     },
     {
+      "lines": 90,
+      "name": "profile_account",
+      "path": "src/notebooklm/_auth/profile_account.py"
+    },
+    {
       "lines": 1234,
       "name": "psidts_recovery",
       "path": "src/notebooklm/_auth/psidts_recovery.py"
@@ -492,10 +502,10 @@
   },
   "summary": {
     "function_local_edges": 14,
-    "module_edges": 55,
-    "modules": 26,
-    "total_lines": 13874,
-    "unique_edges": 69
+    "module_edges": 56,
+    "modules": 27,
+    "total_lines": 13964,
+    "unique_edges": 70
   },
   "version": 1
 }

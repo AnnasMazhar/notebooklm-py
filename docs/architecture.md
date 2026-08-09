@@ -1002,6 +1002,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_auth/cookie_policy.py` | Cookie-domain allowlist, `build_cookie_domain_allowlist` builder, and policy decisions |
 | `_auth/cookie_semantics.py` | Dependency-bottom cookie scalar/row codecs: shape, expiry, legacy/rookiepy adaptation, stdlib construction, and row serialization |
 | `_auth/cookie_types.py` | Canonical immutable `Cookie`/`CookieJar` values; depends downward only on cookie policy and semantics (ADR-0032) |
+| `_auth/profile_account.py` | Dependency-bottom immutable account/directive/domain/session values and pure namespace parsers; currently unused by production while v0.x account values remain storage-owned (ADR-0034) |
 | `_auth/browser_cookie_recovery.py` | Shim: re-exports the captured-cookie validate/heal seam from `psidts_recovery.py` (removed at next major) |
 | `_auth/browser_state_validation.py` | Shim: re-exports `heal_captured_state` from `browser_capture.py` (removed at next major) |
 | `_auth/browser_capture.py` | One deep module for the browser launch→capture→filter→heal→persist core (ADR-0033 merge: absorbed `browser_state_validation.py` + `login_wait_trace.py`), lazy `playwright`; shared by the interactive CLI login adapter (`cli/services/playwright_login.py`) and the layer-3 headless re-auth layer (ADR-0021). Carries the login-wait DEBUG tracing (host-only `trace_url`, inert when DEBUG is off) and the never-raising `heal_captured_state` |
@@ -1184,6 +1185,7 @@ src/notebooklm/
 │   ├── cookie_policy.py         # Domain allowlist + cookie-domain builder and policy
 │   ├── cookie_semantics.py      # Dependency-bottom cookie scalar/row codecs
 │   ├── cookie_types.py          # Canonical immutable Cookie/CookieJar values (ADR-0032)
+│   ├── profile_account.py       # Immutable account/directive/domain/session values + pure parsers (ADR-0034; no production consumer yet)
 │   ├── browser_cookie_recovery.py # Shim: re-exports validate/heal/validate_with_recovery from psidts_recovery.py (removed at next major)
 │   ├── browser_state_validation.py # Shim: re-exports heal_captured_state from browser_capture.py (removed at next major)
 │   ├── browser_capture.py       # One browser launch→capture→filter→heal→persist core (ADR-0033 merge; lazy playwright)
