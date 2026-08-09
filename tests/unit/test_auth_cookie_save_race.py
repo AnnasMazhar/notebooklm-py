@@ -1058,8 +1058,9 @@ class TestFlockUnavailableWarning:
         import contextlib as _contextlib
         import logging as _logging
 
-        # Reset the one-shot guard so this test isn't dependent on test order.
-        monkeypatch.setattr(_auth_storage, "_FLOCK_UNAVAILABLE_WARNED", False)
+        from notebooklm._auth.storage_lock import StorageLockManager
+
+        monkeypatch.setattr(_auth_storage, "_STORAGE_LOCKS", StorageLockManager())
 
         @_contextlib.contextmanager
         def unavailable_lock(lock_path, *, blocking, log_prefix):
@@ -1090,7 +1091,9 @@ class TestFlockUnavailableWarning:
         import contextlib as _contextlib
         import logging as _logging
 
-        monkeypatch.setattr(_auth_storage, "_FLOCK_UNAVAILABLE_WARNED", False)
+        from notebooklm._auth.storage_lock import StorageLockManager
+
+        monkeypatch.setattr(_auth_storage, "_STORAGE_LOCKS", StorageLockManager())
 
         @_contextlib.contextmanager
         def unavailable_lock(lock_path, *, blocking, log_prefix):

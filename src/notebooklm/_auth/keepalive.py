@@ -28,7 +28,13 @@ from typing import Any
 import httpx
 
 from . import paths as _auth_paths
-from . import storage as _auth_storage
+from .storage_lock import (
+    _LOCK_ACQUIRE_DEADLINE_SECONDS,
+    _LOCK_ACQUIRE_INITIAL_DELAY_SECONDS,
+    _LOCK_ACQUIRE_MAX_DELAY_SECONDS,
+    LockRequest,
+    StorageLockManager,
+)
 
 logger = logging.getLogger("notebooklm.auth")
 
@@ -186,11 +192,16 @@ _rotation_lock_path = _auth_paths._rotation_lock_path
 # collapse to a single dedupe slot.
 canonical_storage_key = _auth_paths.canonical_storage_key
 
-# Cross-process file-lock primitives live in ``_auth.storage``. Aliased into
-# this module's namespace so the keepalive bodies resolve them locally; tests
-# that need to substitute the lock primitive should patch
-# ``notebooklm._auth.keepalive._file_lock`` directly.
-_file_lock = _auth_storage._file_lock
+# Keepalive retains its v0.x late-bound string-valued wrapper while sharing the
+# process-default manager with storage. Tests substitute this local seam.
+_STORAGE_LOCKS = StorageLockManager.process_default()
+
+
+@contextlib.contextmanager
+def _file_lock(lock_path: Path, *, blocking: bool, log_prefix: str) -> Iterator[str]:
+    request = LockRequest(path=lock_path, blocking=blocking, operation=log_prefix)
+    with _STORAGE_LOCKS.acquire(request) as state:
+        yield state.value
 
 
 def _get_poke_lock(storage_path: Path | None) -> asyncio.Lock:
@@ -263,13 +274,13 @@ async def _wait_for_refresh_holder(lock_path: Path) -> bool:
     backoff (``asyncio.sleep`` keeps the event loop live) until it frees —
     meaning the winner finished writing — then let the caller reload.
 
-    Reuses the shared bounded-acquire tuning (``storage`` deadline/initial/max
+    Reuses the shared bounded-acquire tuning (lock-manager deadline/initial/max
     delay). Returns ``True`` when the holder released (or the lock infra is
     unworkable → fail open) within the deadline, ``False`` on timeout (the caller
     falls back to a best-effort stale reload). No subprocess runs, no epoch bump.
     """
-    deadline = time.monotonic() + _auth_storage._LOCK_ACQUIRE_DEADLINE_SECONDS
-    delay = _auth_storage._LOCK_ACQUIRE_INITIAL_DELAY_SECONDS
+    deadline = time.monotonic() + _LOCK_ACQUIRE_DEADLINE_SECONDS
+    delay = _LOCK_ACQUIRE_INITIAL_DELAY_SECONDS
     while True:
         with _file_lock_try_exclusive(lock_path) as acquired:
             if acquired:
@@ -283,7 +294,7 @@ async def _wait_for_refresh_holder(lock_path: Path) -> bool:
         # Jittered exponential backoff, async so the event loop is not frozen.
         sleep_for = min(delay + random.uniform(0.0, delay), remaining)
         await asyncio.sleep(sleep_for)
-        delay = min(delay * 2, _auth_storage._LOCK_ACQUIRE_MAX_DELAY_SECONDS)
+        delay = min(delay * 2, _LOCK_ACQUIRE_MAX_DELAY_SECONDS)
 
 
 def _is_recently_rotated(storage_path: Path | None) -> bool:

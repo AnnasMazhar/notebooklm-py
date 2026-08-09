@@ -144,7 +144,6 @@ _cookie_snapshot_key_variants = _auth_storage._cookie_snapshot_key_variants
 _stored_cookie_snapshot_key = _auth_storage._stored_cookie_snapshot_key
 _file_lock = _auth_storage._file_lock
 _file_lock_exclusive = _auth_storage._file_lock_exclusive
-_FLOCK_UNAVAILABLE_WARNED = _auth_storage._FLOCK_UNAVAILABLE_WARNED
 
 REQUIRED_COOKIE_DOMAINS = _cookie_policy.REQUIRED_COOKIE_DOMAINS
 OPTIONAL_COOKIE_DOMAINS_BY_LABEL = _cookie_policy.OPTIONAL_COOKIE_DOMAINS_BY_LABEL

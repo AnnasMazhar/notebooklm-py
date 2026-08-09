@@ -7,6 +7,7 @@ callable shape, result projections, compatibility identities, and first-party fa
 from __future__ import annotations
 
 import ast
+import contextlib
 import dataclasses
 import inspect
 import json
@@ -21,6 +22,7 @@ import notebooklm.auth as auth
 from notebooklm import NotebookLMClient
 from notebooklm._auth import (
     account,
+    keepalive,
     master_token,
     psidts_recovery,
     refresh,
@@ -28,6 +30,7 @@ from notebooklm._auth import (
     storage_writer,
     tokens,
 )
+from notebooklm._auth.storage_lock import LockState, StorageLockManager
 from notebooklm._auth.tokens import AuthTokens
 from notebooklm._cookie_persistence import CookiePersistence
 from notebooklm._runtime import lifecycle
@@ -451,6 +454,52 @@ def test_result_projections_and_compatibility_value_identities() -> None:
     assert storage.CLEAR_ACCOUNT is storage._AccountAction.CLEAR
     assert storage.CookieSnapshotKey._fields == ("name", "domain", "path")
     assert storage.CookieSnapshotValue._fields == ("value", "expires", "secure", "http_only")
+
+
+def test_lock_wrapper_shapes_ownership_and_projections_are_exact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    assert str(inspect.signature(storage._file_lock)) == (
+        "(lock_path: 'Path', *, blocking: 'bool', log_prefix: 'str') -> 'Iterator[str]'"
+    )
+    assert str(inspect.signature(keepalive._file_lock)) == (
+        "(lock_path: 'Path', *, blocking: 'bool', log_prefix: 'str') -> 'Iterator[str]'"
+    )
+    assert str(inspect.signature(storage._file_lock_exclusive)) == (
+        "(lock_path: 'Path') -> 'Iterator[None]'"
+    )
+    assert str(inspect.signature(keepalive._file_lock_try_exclusive)) == (
+        "(lock_path: 'Path') -> 'Iterator[bool]'"
+    )
+    assert auth._file_lock is storage._file_lock
+    assert auth._file_lock_exclusive is storage._file_lock_exclusive
+    assert auth._file_lock_try_exclusive is keepalive._file_lock_try_exclusive
+    assert storage._file_lock is not keepalive._file_lock
+    assert storage._STORAGE_LOCKS is keepalive._STORAGE_LOCKS
+    assert storage._STORAGE_LOCKS is StorageLockManager.process_default()
+    assert not hasattr(storage, "_FLOCK_UNAVAILABLE_WARNED")
+    assert not hasattr(auth, "_FLOCK_UNAVAILABLE_WARNED")
+    assert psidts_recovery._file_lock_try_exclusive is keepalive._file_lock_try_exclusive
+    assert refresh._wait_for_refresh_holder is keepalive._wait_for_refresh_holder
+    assert refresh.RefreshCmdDeps().flock() is keepalive._file_lock_try_exclusive
+
+    class FixedLocks:
+        def __init__(self, state: LockState) -> None:
+            self.state = state
+
+        def acquire(self, request: object) -> contextlib.AbstractContextManager[LockState]:
+            return contextlib.nullcontext(self.state)
+
+    path = tmp_path / ".storage_state.json.lock"
+    for state in LockState:
+        monkeypatch.setattr(storage, "_STORAGE_LOCKS", FixedLocks(state))
+        with storage._file_lock(path, blocking=False, log_prefix="compat") as projected:
+            assert projected == state.value
+        monkeypatch.setattr(keepalive, "_STORAGE_LOCKS", FixedLocks(state))
+        with keepalive._file_lock(path, blocking=False, log_prefix="compat") as projected:
+            assert projected == state.value
+        with keepalive._file_lock_try_exclusive(path) as projected:
+            assert projected is (state is not LockState.CONTENDED)
 
 
 def test_legacy_account_value_shape_identity_and_pickle_contract() -> None:

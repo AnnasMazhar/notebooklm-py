@@ -22,13 +22,12 @@ imports this module at module scope; the edge is now one-way.
 
 The file is organised in labelled sections mirroring the former modules:
 
-1. **Lock primitives** — the contention/backoff tuning shared by both bounded
-   acquire paths, the per-path in-process lock registry, the OS-level acquire,
-   :func:`_file_lock` and the blocking :func:`_file_lock_exclusive`.
-2. **Lock acquisition for writers** — the secure-parent-dir prep and the
-   platform-neutral bounded :func:`_acquire_storage_lock`. (Lock *path*
-   derivation itself stays in :mod:`notebooklm._auth.paths`:
-   :func:`_storage_state_lock_path`.)
+1. **Lock compatibility wrappers** — :func:`_file_lock` and blocking
+   :func:`_file_lock_exclusive`, routed through the dependency-bottom
+   :class:`~notebooklm._auth.storage_lock.StorageLockManager`.
+2. **Secure-parent preparation for writers**. Lock path derivation stays in
+   :mod:`notebooklm._auth.paths`; process/OS mechanics and bounded retry live in
+   :mod:`notebooklm._auth.storage_lock`.
 3. **The storage-write transaction template** — :func:`in_storage_transaction`
    plus the three lock-unavailable policies.
 4. **Snapshot types** — the path-aware cookie identity/value tuples and
@@ -98,15 +97,15 @@ all write via ``_atomic_io``):
   previously lockless). **Fails closed.**
 
 Lock unification (see ADR-0029): the full-file RMW / re-mint intents drop
-``filelock`` in favour of the project-internal :func:`_file_lock` primitive
-via a **platform-neutral bounded acquire** (:func:`_acquire_storage_lock`):
-a non-blocking probe plus deadline/jitter retry (default 90 s), then the
+``filelock`` in favour of the project-internal storage lock manager via a
+**platform-neutral bounded acquire**: a non-blocking probe plus deadline/jitter
+retry (default 90 s), then the
 per-intent failure policy above. The CAS merge keeps the status-quo blocking
-:func:`_file_lock_exclusive` acquire (fail-open). An in-process ``threading.Lock``
-keyed per canonical lock-path (ordering: in-process lock -> OS lock) is added in
-:func:`_file_lock` itself so threads within one process serialize before the
-OS lock; the distinct ``.{name}.rotate.lock`` sentinel is never collapsed into
-the storage lock.
+:func:`_file_lock_exclusive` acquire (fail-open). ``StorageLockManager`` owns an
+in-process ``threading.Lock`` keyed by the exact raw ``os.fspath(lock_path)``
+spelling (ordering: in-process lock -> OS lock); :func:`_file_lock` delegates to
+that owner. Threads serialize before the OS lock, while the distinct
+``.{name}.rotate.lock`` sentinel is never collapsed into the storage lock.
 
 The fail-closed writers raise :class:`~notebooklm.exceptions.LockUnavailableError`
 (public via ``notebooklm.exceptions`` / the ``notebooklm.auth`` facade). It
@@ -130,15 +129,12 @@ from __future__ import annotations
 
 import atexit
 import contextlib
-import errno
 import json
 import logging
 import os
-import random
 import shutil
 import sys
 import threading
-import time
 import warnings
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -176,6 +172,12 @@ from . import cookie_policy as _cookie_policy
 from . import cookie_semantics as _cookie_semantics
 from . import cookies as _auth_cookies
 from .paths import _storage_state_lock_path, canonical_storage_key, resolve_auth_json_env
+from .storage_lock import (
+    _LOCK_ACQUIRE_DEADLINE_SECONDS,
+    LockRequest,
+    LockState,
+    StorageLockManager,
+)
 
 logger = logging.getLogger("notebooklm.auth")
 
@@ -226,246 +228,20 @@ __all__ = [
 
 
 # ==========================================================================
-# SECTION 1 — LOCK PRIMITIVES
-# Contention classification, bounded-acquire tuning, the per-path in-process
-# lock registry, the OS-level acquire, and the two file-lock context managers.
+# SECTION 1 — LOCK COMPATIBILITY WRAPPERS
+# The lock manager owns process/OS mechanics; these retain the v0.x seams.
 # ==========================================================================
 
 
-# Errnos that a non-blocking lock acquire raises to mean "held elsewhere"
-# (contended), NOT "infrastructure broken". EWOULDBLOCK/EAGAIN are the POSIX
-# ``flock(LOCK_NB)`` contention signals. ``EACCES`` is here specifically because
-# it is the errno Windows ``msvcrt.locking(LK_NBLCK)`` raises under contention —
-# POSIX ``flock`` never returns EACCES for contention, and a POSIX *permission*
-# failure surfaces earlier at the ``os.open`` step (yielded as "unavailable").
-# So do NOT drop EACCES to "fix" it: on Windows that would misclassify real
-# contention as an infrastructure failure (fail-open) instead of a skip.
-_LOCK_CONTENTION_ERRNOS = {errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES}
-
-
-# --- Bounded-acquire tuning (single source of truth) ------------------------
-#
-# Shared by BOTH bounded acquire paths so they honour the same deadline and the
-# same jittered exponential backoff:
-#   * the blocking Windows ``msvcrt`` retry loop in ``_acquire_os_lock`` below
-#     ([storage-F4]: Windows has no blocking-without-internal-timeout primitive,
-#     so the blocking path drives ``LK_NBLCK`` probes to this deadline instead
-#     of letting ``LK_LOCK`` fail open after its internal ~10x1s), and
-#   * :func:`_acquire_storage_lock` (the non-blocking-probe bounded helper that
-#     the fail-closed RMW / re-mint writers use), in section 2 below.
-# 90 s is a generous worst-case wait that still bounds a crashed/wedged holder.
-# See ADR-0029.
-_LOCK_ACQUIRE_DEADLINE_SECONDS = 90.0
-_LOCK_ACQUIRE_INITIAL_DELAY_SECONDS = 0.01
-_LOCK_ACQUIRE_MAX_DELAY_SECONDS = 0.5
-
-
-def _sleep_backoff(delay: float, deadline: float) -> float | None:
-    """Sleep one jittered exponential-backoff step of a bounded-acquire loop.
-
-    The single home for the deadline-check + jitter + sleep + delay-bump
-    arithmetic shared by BOTH bounded-acquire loops — the Windows ``msvcrt``
-    retry in :func:`_acquire_os_lock` below and
-    :func:`_acquire_storage_lock` — so future tuning edits one site
-    (b-PR4 review NIT). Behaviour is identical to the two former inline copies:
-    equal jitter (``delay + U[0, delay]``) clamped to the remaining budget,
-    then ``delay`` doubled and capped at :data:`_LOCK_ACQUIRE_MAX_DELAY_SECONDS`.
-
-    Returns the next ``delay`` to use, or ``None`` when the ``deadline`` has
-    already elapsed — the caller must then stop retrying and fall through to
-    ``"unavailable"`` (each caller keeps its own site-specific give-up log line).
-    """
-    now = time.monotonic()
-    if now >= deadline:
-        return None
-    sleep_for = min(delay + random.uniform(0.0, delay), max(0.0, deadline - now))
-    time.sleep(sleep_for)
-    return min(delay * 2, _LOCK_ACQUIRE_MAX_DELAY_SECONDS)
-
-
-# In-process lock registry, keyed per canonical lock-path (never global — distinct
-# profiles and the rotate sentinel must not couple). Acquired BEFORE the OS lock
-# (ordering: in-process lock -> OS lock) so threads within one process serialize
-# on a storage sentinel before touching the OS flock, which both bounds Windows
-# ``msvcrt`` contention and lets the non-blocking rotate path observe an
-# in-process holder as "contended" without an OS round-trip. See ADR-0029.
-_INPROCESS_LOCKS: dict[str, threading.Lock] = {}
-_INPROCESS_LOCKS_GUARD = threading.Lock()
-
-
-def _inprocess_lock_for(lock_path: Path) -> threading.Lock:
-    """Return the process-wide :class:`threading.Lock` for ``lock_path``."""
-    key = os.fspath(lock_path)
-    with _INPROCESS_LOCKS_GUARD:
-        lock = _INPROCESS_LOCKS.get(key)
-        if lock is None:
-            lock = threading.Lock()
-            _INPROCESS_LOCKS[key] = lock
-        return lock
-
-
-def _acquire_os_lock(fd: int, *, blocking: bool, log_prefix: str) -> str:
-    """Acquire the OS-level exclusive lock on ``fd``; return the tristate.
-
-    Returns one of ``"held"`` / ``"contended"`` / ``"unavailable"``. The caller
-    (:func:`_file_lock`) has already taken the per-path in-process
-    :class:`threading.Lock` (ordering: in-process lock -> OS lock), so any
-    contention observed here is from **another process**, never another thread in
-    this process.
-
-    * **POSIX** — ``flock(LOCK_EX)`` when blocking (a kernel-level wait: unbounded
-      but non-spinning, unchanged), ``LOCK_EX | LOCK_NB`` when non-blocking.
-    * **Windows** — ``msvcrt`` has no blocking-without-internal-timeout primitive:
-      the blocking ``LK_LOCK`` mode gives up after ~10x1s and would fail open
-      long before the 90 s deadline ([storage-F4]). So the Windows **blocking**
-      path drives a bounded deadline retry over the **non-blocking** ``LK_NBLCK``
-      probe using the same jittered exponential backoff as
-      :func:`_acquire_storage_lock`, retrying **only** on the
-      contention errno and falling through to ``"unavailable"`` when the deadline
-      elapses (never ``while True`` without a deadline break). A non-contention
-      errno (``EBADF`` etc.) falls through immediately with **no** retry spin.
-      Windows non-blocking is a single ``LK_NBLCK`` probe.
-    """
-    if sys.platform != "win32":
-        import fcntl
-
-        op = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
-        try:
-            fcntl.flock(fd, op)
-            return "held"
-        except OSError as exc:
-            if not blocking and exc.errno in _LOCK_CONTENTION_ERRNOS:
-                logger.debug("%s: lock contended (%s)", log_prefix, type(exc).__name__)
-                return "contended"
-            logger.debug("%s: lock op unavailable (%s)", log_prefix, type(exc).__name__)
-            return "unavailable"
-
-    import msvcrt
-
-    deadline = time.monotonic() + _LOCK_ACQUIRE_DEADLINE_SECONDS
-    delay = _LOCK_ACQUIRE_INITIAL_DELAY_SECONDS
-    while True:
-        try:
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-            return "held"
-        except OSError as exc:
-            if exc.errno not in _LOCK_CONTENTION_ERRNOS:
-                # EBADF and other non-contention errnos: retrying cannot help.
-                # Fall through immediately — no spin.
-                logger.debug("%s: lock op unavailable (%s)", log_prefix, type(exc).__name__)
-                return "unavailable"
-            if not blocking:
-                # Non-blocking caller: another process holds the byte-range lock
-                # (in-process contention was already resolved by the threading
-                # lock in _file_lock). Report the skip signal without retrying.
-                logger.debug("%s: lock contended (%s)", log_prefix, type(exc).__name__)
-                return "contended"
-            # Blocking caller under contention: retry the non-blocking probe with
-            # jittered exponential backoff until the bounded deadline, then fall
-            # through to "unavailable" so the caller applies its per-intent fail
-            # policy (CAS fail-open with a one-shot warning).
-            next_delay = _sleep_backoff(delay, deadline)
-            if next_delay is None:
-                logger.debug(
-                    "%s: bounded msvcrt lock acquire exceeded %.0fs deadline; giving up",
-                    log_prefix,
-                    _LOCK_ACQUIRE_DEADLINE_SECONDS,
-                )
-                return "unavailable"
-            delay = next_delay
+_STORAGE_LOCKS = StorageLockManager.process_default()
 
 
 @contextlib.contextmanager
 def _file_lock(lock_path: Path, *, blocking: bool, log_prefix: str) -> Iterator[str]:
-    """Cross-process exclusive lock on ``lock_path``.
-
-    Yields one of:
-      - ``"held"``  — the lock is held; release it on exit.
-      - ``"contended"`` — non-blocking acquire saw the lock held elsewhere
-        (by another in-process thread OR another process). Only ever yielded
-        when ``blocking=False``.
-      - ``"unavailable"`` — lock infrastructure failed (cannot mkdir, cannot
-        open the sentinel, NFS without flock support). Caller should
-        **fail open** (proceed without coordination) rather than retry forever.
-
-    Wrappers translate this tristate into bool. Distinguishing contention from
-    infrastructure failure matters: a non-blocking caller should **skip** on
-    contention (someone else is rotating) but **proceed** on infrastructure
-    failure (otherwise a read-only auth dir would permanently suppress
-    rotation).
-
-    Locking order is **in-process lock -> OS lock**: the per-path
-    :class:`threading.Lock` is taken first (blockingly for ``blocking=True``,
-    non-blockingly for ``blocking=False`` where a failed acquire maps straight to
-    ``"contended"``), then the OS-level flock/``msvcrt`` lock. The in-process
-    lock is released last.
-    """
-    inprocess_lock = _inprocess_lock_for(lock_path)
-    if not inprocess_lock.acquire(blocking=blocking):
-        # Only reachable with ``blocking=False``: another thread in this process
-        # holds the sentinel. Report contention without touching the OS lock.
-        logger.debug("%s: in-process lock contended", log_prefix)
-        yield "contended"
-        return
-    try:
-        try:
-            lock_path.parent.mkdir(parents=True, exist_ok=True)
-            fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-        except OSError as exc:
-            # Read-only directory, permission denied, ENOSPC, etc. Yield
-            # "unavailable" so the wrapper can fail open.
-            logger.debug(
-                "%s: lock file unavailable %s (%s)",
-                log_prefix,
-                lock_path,
-                type(exc).__name__,
-            )
-            yield "unavailable"
-            return
-        locked = False
-        try:
-            # OS-lock acquisition (in-process lock already held above). On Windows
-            # the blocking path is a bounded ``LK_NBLCK`` retry to the shared 90 s
-            # deadline rather than ``LK_LOCK``'s internal ~10x1s ([storage-F4]).
-            state = _acquire_os_lock(fd, blocking=blocking, log_prefix=log_prefix)
-            locked = state == "held"
-            yield state
-        finally:
-            if locked:
-                try:
-                    if sys.platform == "win32":
-                        import msvcrt
-
-                        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-                    else:
-                        import fcntl
-
-                        fcntl.flock(fd, fcntl.LOCK_UN)
-                except OSError as exc:
-                    logger.debug(
-                        "%s: failed to release file lock (%s)",
-                        log_prefix,
-                        type(exc).__name__,
-                    )
-            os.close(fd)
-    finally:
-        inprocess_lock.release()
-
-
-# Dedupe contract: best-effort under threads, exactly-once on a single
-# event loop. ``_file_lock_exclusive`` below reads ``_FLOCK_UNAVAILABLE_WARNED``
-# and sets it to ``True`` in one synchronous block with no intervening
-# ``await``, so concurrent coroutines on one loop cannot interleave between
-# the check and the set — the warning fires exactly once per process. Under
-# genuine OS threads (out of scope per the documented concurrency contract),
-# duplicate warnings are possible. We accept that rather than serialize a
-# logging side-effect behind a lock for an unsupported configuration.
-#
-# Note: ``functools.lru_cache`` and ``logging.LoggerAdapter`` do NOT solve
-# this — ``lru_cache`` memoizes return values, not the ``logger.warning``
-# side-effect; ``LoggerAdapter`` only rewrites records, it does not filter
-# duplicates.
-_FLOCK_UNAVAILABLE_WARNED = False
+    """Delegate one v0.x string-valued acquisition to the shared manager."""
+    request = LockRequest(path=lock_path, blocking=blocking, operation=log_prefix)
+    with _STORAGE_LOCKS.acquire(request) as state:
+        yield state.value
 
 
 @contextlib.contextmanager
@@ -481,7 +257,7 @@ def _file_lock_exclusive(lock_path: Path) -> Iterator[None]:
     storage file itself would interfere with the atomic temp-rename below.
 
     Every ``storage_state.json`` mutator now lives in THIS module and takes
-    this sentinel through ``_file_lock`` / :func:`_acquire_storage_lock` — the
+    this sentinel through the shared storage lock manager — the
     account-metadata writers included (ADR-0033 PR 5.2 moved them here). No
     ``filelock.FileLock`` holder of this sentinel remains, so the old
     cross-mechanism POSIX interop is no longer load-bearing; this module's one
@@ -496,10 +272,8 @@ def _file_lock_exclusive(lock_path: Path) -> Iterator[None]:
     fallback fires per process emits a WARNING so operators learn their
     deployment is running without cross-process coordination.
     """
-    global _FLOCK_UNAVAILABLE_WARNED
     with _file_lock(lock_path, blocking=True, log_prefix="save_cookies_to_storage") as state:
-        if state == "unavailable" and not _FLOCK_UNAVAILABLE_WARNED:
-            _FLOCK_UNAVAILABLE_WARNED = True
+        if state == "unavailable" and _STORAGE_LOCKS._claim_cookie_warning():
             logger.warning(
                 "Cross-process file lock unavailable at %s; cookie saves will "
                 "proceed without cross-process coordination and rely solely on "
@@ -512,9 +286,8 @@ def _file_lock_exclusive(lock_path: Path) -> Iterator[None]:
 
 
 # ==========================================================================
-# SECTION 2 — LOCK ACQUISITION FOR THE WRITERS
-# Secure-parent-dir prep + the platform-neutral bounded acquire the full-file
-# RMW / re-mint intents use. Lock PATH derivation lives in ``paths.py``
+# SECTION 2 — SECURE PARENT PREPARATION FOR WRITERS
+# Lock PATH derivation lives in ``paths.py``
 # (``_storage_state_lock_path``) and is unchanged.
 # ==========================================================================
 
@@ -536,52 +309,6 @@ def _ensure_secure_parent_dir(path: Path) -> None:
     if sys.platform != "win32":
         with contextlib.suppress(OSError):
             os.chmod(parent, 0o700)
-
-
-@contextlib.contextmanager
-def _acquire_storage_lock(
-    lock_path: Path,
-    *,
-    log_prefix: str,
-    deadline_seconds: float = _LOCK_ACQUIRE_DEADLINE_SECONDS,
-) -> Iterator[str]:
-    """Platform-neutral **bounded** exclusive acquire of a storage sentinel lock.
-
-    Non-blocking probe (via :func:`_file_lock` with ``blocking=False``, which takes
-    the per-path in-process ``threading.Lock`` before the OS lock) plus a
-    deadline/jitter retry loop. Yields one of:
-
-    * ``"held"`` — the lock is held; released when the ``with`` block exits.
-    * ``"unavailable"`` — the deadline elapsed under contention, or the lock
-      infrastructure failed (read-only dir, NFS without flock, fd exhaustion).
-
-    The caller maps ``"unavailable"`` to its per-intent policy: fail-open
-    callers proceed, fail-closed callers raise :class:`LockUnavailableError`.
-    """
-    deadline = time.monotonic() + deadline_seconds
-    delay = _LOCK_ACQUIRE_INITIAL_DELAY_SECONDS
-    while True:
-        with _file_lock(lock_path, blocking=False, log_prefix=log_prefix) as state:
-            if state == "held":
-                yield "held"
-                return
-            if state == "unavailable":
-                # Infrastructure failure — no amount of retrying will help.
-                yield "unavailable"
-                return
-            # state == "contended": another holder (thread or process) has it.
-        # Jittered exponential backoff (shared with ``_acquire_os_lock``'s
-        # Windows retry via :func:`_sleep_backoff` — one tuning site).
-        next_delay = _sleep_backoff(delay, deadline)
-        if next_delay is None:
-            logger.debug(
-                "%s: bounded storage-lock acquire exceeded %.0fs deadline; giving up",
-                log_prefix,
-                deadline_seconds,
-            )
-            yield "unavailable"
-            return
-        delay = next_delay
 
 
 # ==========================================================================
@@ -737,16 +464,16 @@ def in_storage_transaction(
     — the read-decide-write sequence must not be re-entered by a concurrent
     writer partway through.
     """
-    # Before ADR-0033's persistence merge this reached ``_acquire_storage_lock``
-    # and ``_ensure_secure_parent_dir`` through a function-local import back into
-    # ``storage_writer`` (the module this template was split out of). Both now
-    # live in this module, so the cycle-breaking lazy import is gone.
     _ensure_secure_parent_dir(path)
     lock_path = _storage_state_lock_path(path)
-    with _acquire_storage_lock(
-        lock_path, log_prefix=log_prefix, deadline_seconds=deadline_seconds
-    ) as state:
-        if state != "held":
+    request = LockRequest(
+        path=lock_path,
+        blocking=False,
+        operation=log_prefix,
+        deadline_seconds=deadline_seconds,
+    )
+    with _STORAGE_LOCKS.acquire(request) as state:
+        if state is not LockState.HELD:
             return on_unavailable(lock_path)
         return body()
 

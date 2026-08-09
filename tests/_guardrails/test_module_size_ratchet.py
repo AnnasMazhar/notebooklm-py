@@ -224,9 +224,13 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # ``atomic_write_json`` and a ``filelock`` sibling lock. No behaviour
     # changed: same function objects, same ``notebooklm.auth`` logger (both
     # modules bound it by NAME), same facade names at the same identities.
-    # Pinned at its MEASURED post-relocation LOC; shrink-locked from here on,
-    # and the plan schedules no further raise for this module.
-    "_auth/storage.py": 3102,
+    #
+    # RATCHETED DOWN 3102 -> 2829 by ADR-0034 PR4: process/OS lock mechanics,
+    # bounded retry, the raw-key thread-lock registry, and warning-once state
+    # moved to the dependency-bottom ``_auth/storage_lock.py`` owner. Storage
+    # retains only the v0.x wrappers, secure-parent policy, and transaction
+    # routing. This is an ordinary shrink pin with zero banked slack.
+    "_auth/storage.py": 2829,
     # sanctioned merge (ADR-0033) — the `_auth` load-composition merge:
     # ``_auth/browser_cookie_recovery.py`` (142) was absorbed in full and reduced
     # to a re-export shim in the same change. It held the captured-cookie

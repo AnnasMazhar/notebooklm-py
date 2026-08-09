@@ -191,6 +191,6 @@ def test_no_existing_production_module_imports_the_unused_leaf() -> None:
 
 
 def test_phase_three_size_and_documentation_pins_hold() -> None:
-    assert len((AUTH_ROOT / "storage.py").read_text(encoding="utf-8").splitlines()) == 3102
+    assert len((AUTH_ROOT / "storage.py").read_text(encoding="utf-8").splitlines()) == 2829
     assert len((AUTH_ROOT / "cookies.py").read_text(encoding="utf-8").splitlines()) == 847
     assert len(ADR_PATH.read_text(encoding="utf-8").splitlines()) < 250

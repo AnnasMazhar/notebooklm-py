@@ -244,8 +244,8 @@ from those catalogues rather than introducing parallel patterns.
 Multiple `notebooklm` processes (parallel CLI runs, an in-process keepalive
 beside a cron-driven `notebooklm auth refresh`, container start-up races,
 `xargs -P` fan-outs) can target the same `NOTEBOOKLM_HOME` simultaneously.
-The library coordinates with **cross-process file locks** — a project-internal
-`flock`/`LockFileEx` primitive (`_auth/storage.py::_file_lock`) for
+The library coordinates with **cross-process file locks** — the project-internal
+`StorageLockManager` (`_auth/storage_lock.py`, using `flock`/`msvcrt`) for
 `storage_state.json` and its sibling credential file, and the
 [`filelock`](https://pypi.org/project/filelock/) package for `migration.py` and
 `context.json` — so reads and writes against shared on-disk state never tear or
@@ -257,10 +257,10 @@ left on disk after release — both lock implementations reuse them).
 
 | Lock file | Owner | Scope | Acquisition |
 |---|---|---|---|
-| `<profile>/.storage_state.json.lock` | `_auth/storage.py` (the sole canonical writer; `storage.save_cookies_to_storage` is the monkeypatchable delegate seam onto it) | Every mutation of `storage_state.json`: the cookie CAS delta merge, in-band account-metadata read-modify-write, and the L3/L4 re-mint full-replace | CAS merge: blocking exclusive, fail-open. Full-replace intents (account metadata, re-mint): platform-neutral bounded acquire — non-blocking probe + deadline/jitter retry, 90s deadline, fail-closed (raises `LockUnavailableError`) |
-| `<profile>/.master_token.json.lock` | `_auth/storage.py::write_master_token` | Writes to `master_token.json` (the durable L4 credential) | Same bounded acquire as above (90s deadline), fail-closed. Previously lockless. |
-| `<profile>/.storage_state.json.rotate.lock` | `_auth/keepalive.py::_poke_session` | Cross-process dedup of the `accounts.google.com/RotateCookies` keepalive POST | Non-blocking exclusive (`LOCK_NB`); skip on contention |
-| `<profile>/.storage_state.json.refresh.lock` | `_auth/refresh.py` (via `_auth/single_flight.py`) | Cross-process dedup of the `NOTEBOOKLM_REFRESH_CMD` subprocess (cold-start, and mid-session when `NOTEBOOKLM_REFRESH_CMD_MIDSESSION=1`) | Non-blocking exclusive (`LOCK_NB`); skip on contention, waiter polls with jittered backoff |
+| `<profile>/.storage_state.json.lock` | `_auth/storage.py` policy routed through `_auth/storage_lock.py` | Every mutation of `storage_state.json`: the cookie CAS delta merge, in-band account-metadata read-modify-write, and the L3/L4 re-mint full-replace | CAS merge: blocking exclusive, fail-open. Full-replace intents: manager-owned bounded acquire, 90s deadline, fail-closed (`LockUnavailableError`) |
+| `<profile>/.master_token.json.lock` | `_auth/storage.py::write_master_token` via `_auth/storage_lock.py` | Writes to `master_token.json` (the durable L4 credential) | Same bounded manager acquire as above (90s deadline), fail-closed. |
+| `<profile>/.storage_state.json.rotate.lock` | `_auth/keepalive.py::_poke_session` via `_auth/storage_lock.py` | Cross-process dedup of the `accounts.google.com/RotateCookies` keepalive POST | Non-blocking exclusive; skip on contention |
+| `<profile>/.storage_state.json.refresh.lock` | `_auth/refresh.py` via `_auth/keepalive.py` and `_auth/storage_lock.py` | Cross-process dedup of the `NOTEBOOKLM_REFRESH_CMD` subprocess | Non-blocking exclusive; skip on contention, waiter polls asynchronously with jittered backoff |
 | `<profile>/.storage_state.json.lock.bootstrap` | `_auth/master_token.py::bootstrap_storage_from_master_token` | Cross-process exclusion for the FIRST-TIME mint of a profile that has only a `master_token.json` — held across the mint, whose persist takes `.storage_state.json.lock` *inside* this section (so the two must never share a path) | Non-blocking exclusive (`filelock`), retried on a 50ms sleep so the event loop keeps running |
 | `<home>/.migration.lock` | `migration.py::migrate_to_profiles` | One-shot legacy→profile layout migration on startup | Blocking exclusive, 30s timeout (raises `MigrationLockTimeoutError`) |
 | `<profile>/context.json.lock` | `_atomic_io.py::atomic_update_json` through CLI context helpers; also `_auth/storage.py::_drop_legacy_account_key` for the legacy `account` key cleanup | Read-modify-write of the active-notebook/account-routing context for a profile | Blocking exclusive, 10s timeout (`filelock`) |
@@ -275,7 +275,7 @@ Design notes:
   fourth sibling, `.lock.bootstrap`, is separate for a harder reason than
   throughput: the mint it guards acquires `.storage_state.json.lock` *inside*
   its critical section — and the two sides use different mechanisms
-  (`filelock.FileLock` outside, `storage._file_lock` inside), so the in-process
+  (`filelock.FileLock` outside, `StorageLockManager` inside), so the in-process
   lock registry never sees the outer hold. What makes sharing one path fatal is
   the OS lock: both take an exclusive `flock` on the sentinel, and `flock`
   conflicts between two open file descriptions even inside one process, so the
@@ -316,8 +316,8 @@ Design notes:
   read-modify-write intents (account metadata, master-token persist/re-mint)
   fail **closed**, raising `LockUnavailableError`, because failing open there
   could silently overwrite a concurrent CAS delta.
-- **In-process lock before OS lock.** `storage._file_lock` takes an in-process
-  `threading.Lock` keyed per canonical lock-path *before* the OS-level flock, so
+- **In-process lock before OS lock.** `StorageLockManager` takes an in-process
+  `threading.Lock` keyed by the exact raw lock-path spelling *before* the OS lock, so
   threads within one process serialize before ever touching the OS primitive —
   layered under the per-loop `asyncio.Lock` dedup described below.
 - **Locks are sibling files, never the resource itself.** Both lock

@@ -769,7 +769,7 @@ class TestClearInBandLockFailure:
     """Best-effort lock-unavailable handling in ``_clear_in_band_account``.
 
     The in-band clear now delegates to ``storage.clear_in_band_account``,
-    which serializes on the unified ``storage._file_lock`` primitive. When the
+    which serializes on the unified storage lock manager. When the
     lock is unavailable the clear stays best-effort (swallows, never raises) and
     leaves the file untouched — the legacy reader still resolves the record.
     """
@@ -778,15 +778,17 @@ class TestClearInBandLockFailure:
         import contextlib
 
         from notebooklm._auth import storage as _auth_storage
+        from notebooklm._auth.storage_lock import LockState
 
         storage = tmp_path / "storage_state.json"
         write_account_metadata(storage, authuser=1)
 
-        @contextlib.contextmanager
-        def unavailable_lock(lock_path, *, blocking, log_prefix):
-            yield "unavailable"
+        class UnavailableLocks:
+            @contextlib.contextmanager
+            def acquire(self, request):
+                yield LockState.UNAVAILABLE
 
-        monkeypatch.setattr(_auth_storage, "_file_lock", unavailable_lock)
+        monkeypatch.setattr(_auth_storage, "_STORAGE_LOCKS", UnavailableLocks())
         # Should swallow the lock-unavailable outcome and not raise.
         _clear_in_band_account(storage)
         # File untouched because the lock was unavailable before any write.

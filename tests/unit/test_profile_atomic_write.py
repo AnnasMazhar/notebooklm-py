@@ -395,34 +395,32 @@ def test_storage_state_mutators_share_one_lock_file(
     Tier-0 data-loss regression: cookie saves and account-metadata writes once
     used DIFFERENT lock files and could lose updates under concurrency. After
     the storage-writer refactor every mutator serializes on the project-internal
-    ``storage._file_lock`` primitive (cookie saves via ``_file_lock_exclusive``,
-    account/clear via the storage writer's bounded acquire). This test captures
-    the lock path each mutator passes to that ONE primitive and asserts they all
+    shared ``StorageLockManager`` (cookie saves via ``_file_lock_exclusive``,
+    account/clear via the bounded transaction). This test captures the lock
+    request each mutator passes to that ONE owner and asserts they all
     derive the identical dotted ``.storage_state.json.lock`` sibling. The sibling
     ``context.json.lock`` (still ``filelock``, taken by
     ``_drop_legacy_account_key``) uses a different mechanism and is not captured
     here.
     """
-    import contextlib
-
     import httpx
 
     from notebooklm._auth import storage as storage_mod
     from notebooklm._auth.storage import save_cookies_to_storage
+    from notebooklm._auth.storage_lock import StorageLockManager
 
     storage_path = tmp_path / "storage_state.json"
     _write_storage_state(storage_path, {"cookies": [], "origins": []})
 
     seen: list[Path] = []
-    real_file_lock = storage_mod._file_lock
+    real_locks = StorageLockManager()
 
-    @contextlib.contextmanager
-    def capturing_file_lock(lock_path: Path, *, blocking: bool, log_prefix: str):  # type: ignore[no-untyped-def]
-        seen.append(Path(lock_path).expanduser().resolve())
-        with real_file_lock(lock_path, blocking=blocking, log_prefix=log_prefix) as state:
-            yield state
+    class CapturingLocks:
+        def acquire(self, request):  # type: ignore[no-untyped-def]
+            seen.append(request.path.expanduser().resolve())
+            return real_locks.acquire(request)
 
-    monkeypatch.setattr(storage_mod, "_file_lock", capturing_file_lock)
+    monkeypatch.setattr(storage_mod, "_STORAGE_LOCKS", CapturingLocks())
 
     # Canonical name is the dotted, hidden sibling (storage.py contract).
     expected = storage_path.with_name(f".{storage_path.name}.lock").expanduser().resolve()

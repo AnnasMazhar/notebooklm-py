@@ -240,11 +240,11 @@ class TestLoginWindowsPermissions:
         writes the file correctly. The ``backup=True`` ``.bak`` chmod is NOT
         covered here (see the note at the ``replace_from_login`` call below).
         """
-        import contextlib
         import os
 
         from notebooklm._atomic_io import _atomic_write_json_unchecked
         from notebooklm._auth import storage as storage_mod
+        from notebooklm._auth.storage_lock import LockState
 
         chmod_calls: list[tuple] = []
         real_chmod = os.chmod
@@ -260,15 +260,15 @@ class TestLoginWindowsPermissions:
             fchmod_calls.append(args)
             return real_fchmod(*args, **kwargs)
 
-        # ``sys`` is a process-global singleton, so forcing ``sys.platform`` to
-        # "win32" also sends the storage OS-lock down its ``msvcrt`` branch (which
-        # does not exist on this host). Bypass the lock with an always-held stub so
-        # the write proceeds while the platform-guarded chmods take the win32 path.
-        @contextlib.contextmanager
-        def _held(lock_path, *, blocking, log_prefix):
-            yield "held"
+        # ``sys`` is process-global, so use an always-held manager stub while
+        # the permission branches are forced through their win32 paths.
+        class HeldLocks:
+            def acquire(self, request):
+                import contextlib
 
-        monkeypatch.setattr(storage_mod, "_file_lock", _held)
+                return contextlib.nullcontext(LockState.HELD)
+
+        monkeypatch.setattr(storage_mod, "_STORAGE_LOCKS", HeldLocks())
         monkeypatch.setattr(os, "chmod", _spy_chmod)
         if real_fchmod is not None:
             monkeypatch.setattr(os, "fchmod", _spy_fchmod)
