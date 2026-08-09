@@ -88,6 +88,32 @@ Conversion is deferred to the future boundary that migrates a caller, with this 
 | `AccountRecord` instance | `SetAccount(ProfileAccount(value.authuser, value.email))`, without normalization |
 | everything else, including `CLEAR_ACCOUNT` and out-of-contract values | `ClearAccount()` |
 
+`ProfileDocument` is the next unused dependency-bottom seam. `decode()` accepts only an object at
+the root, then captures a recursively immutable, insertion-ordered snapshot without validating
+nested shapes. `to_json()` always returns a new deep mutable tree. The lossless representation keeps
+unknown root and namespace members, arbitrary origins, every cookie-list slot and duplicate, opaque
+rows, unknown row fields, and scalar distinctions such as integer `-1` versus float `-1.0`.
+
+Raw and typed views have separate jobs. `raw_cookie_rows()` requires an actual raw list and returns
+defensive copies of all slots; missing or non-list cookies produce a bounded, value-free structural
+error. `cookies()`, account views, and domain-selection views are intentionally tolerant, lossy
+projections through the canonical cookie/account parsers. A typed view is never serialized back
+into the raw document, and typed `CARRY` never substitutes for lossless namespace carry.
+
+Copy-on-write operations preserve the original document and all unrelated raw members:
+
+- cookie-row replacement eagerly copies an iterable without filtering or normalizing it;
+- namespace replacement installs an exact copy, preserves `{}`, or removes the member for `None`;
+- indexed row patches validate the fully materialized patch set before applying it, reject boolean
+  or non-integer, out-of-range, and duplicate indices with bounded value-free errors, and allow
+  mapping/opaque replacements in either direction.
+
+This value chooses no corruption or operation policy. Missing files, filesystem and Unicode errors,
+JSON text/syntax failures, malformed nested shapes, warnings/logging, backups, lock outcomes,
+filtering, and whether an invalid raw cookie list is fatal remain decisions of the later reader or
+operation boundary. No reader, writer, lock, facade adapter, or production consumer uses the leaf
+in this stage.
+
 The compatibility inventory is explicit:
 
 - Profile writers: `merge_cookie_delta`, `update_account_metadata`, `clear_in_band_account`,
