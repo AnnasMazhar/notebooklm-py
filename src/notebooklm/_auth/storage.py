@@ -35,14 +35,11 @@ The file is organised in labelled sections mirroring the former modules:
    seam (``_runtime/lifecycle.py`` late-binds it; ~20 test files patch it).
 6. **Writer outcome types** — the value-free enums/records the intent writers
    return.
-7. **The write-time cookie-domain filter** —
-   :func:`filter_storage_state_cookies_by_domain_policy` and its value-free
-   malformed-row diagnostics, relocated here from ``_browser_cookie_filter.py``
-   (ADR-0033 PR 4.2). It is write-time policy, not browser code: three of its
-   six call sites are the intent writers below, which apply it *under the
-   lock* as ADR-0029's entry-path-independent guarantee.
-8. **Temporary policy writers** — five profile intents and the master-token
-   intent, all routed through typed credential commits.
+7. **Write-time cookie-domain compatibility aliases** — the implementation and
+   value-free malformed-row diagnostics live in the dependency-bottom
+   :mod:`notebooklm._auth.cookie_filter` leaf.
+8. **Temporary policy writers and adapters** — profile intents and the
+   master-token intent, all routed through typed owners.
 9. **Account records** (labelled ``SECTION 7b`` in the source, where it sits
    directly after the two in-band account writers it drives) — the record
    readers, the ``_sanitize_legacy_account_record`` derivation that gives
@@ -54,8 +51,8 @@ The file is organised in labelled sections mirroring the former modules:
 This module remains the v0.x compatibility and policy façade. The sealed
 atomic capability now lives in :mod:`notebooklm._auth.credential_io`, and
 :class:`notebooklm._auth.profile_store.ProfileStore` owns profile reads and the
-cookie transactions. The temporary account/replacement/master-token policy
-bodies below reach only the appropriate typed commit wrapper.
+cookie transactions. The compatibility adapters below reach only the
+appropriate typed owner.
 
 Intent-shaped API (all synchronous, all serialize on the canonical storage lock,
 all write through the typed credential commit spine):
@@ -72,11 +69,8 @@ all write through the typed credential commit spine):
 * :func:`replace_from_remint` — the full cookie-replace re-mint persister for the
   BROWSER-CAPTURE arms (L3 headless-launch + interactive + CDP), relocated from
   the bare ``atomic_write_json`` sites in :mod:`notebooklm._auth.browser_capture`.
-  Applies the write-time domain filter internally under the lock, then either
-  carries the existing ``notebooklm`` account namespace (``carry_account=True`` —
-  the unattended profile-launch arm, closing [capture-1]) or drops the stale
-  binding (``carry_account=False`` — the interactive arm, whose CLI adapter
-  re-establishes it). **Fails closed** (returns
+  The thin adapter delegates filtering, namespace carry/drop, and the bounded
+  transaction to :class:`ProfileStore`. **Fails closed** (returns
   :class:`WriteOutcome` with ``lock_unavailable``). Closes [capture-2].
 * :func:`replace_from_login` — the login/import full-replace, whose write-time
   domain filter and required-cookie revalidation run inside the lock.
@@ -157,17 +151,23 @@ from .._atomic_io import atomic_write_json
 # writers that raise it.
 from ..exceptions import LockUnavailableError
 from . import cookie_merge as _cookie_merge
-from . import cookie_policy as _cookie_policy
-from . import cookie_semantics as _cookie_semantics
 from . import cookies as _auth_cookies
+from .cookie_filter import (
+    _safe_cookie_shape as _safe_cookie_shape,
+)
+from .cookie_filter import (
+    filter_storage_state_cookies_by_domain_policy as filter_storage_state_cookies_by_domain_policy,
+)
 from .cookie_types import Cookie, CookieIdentity, CookieJar
 from .credential_io import _commit_master_token_json, _commit_profile_json
 from .paths import canonical_storage_key, resolve_auth_json_env
-from .profile_account import ProfileAccount
+from .profile_account import DomainSelection, ProfileAccount
 from .profile_document import ProfileDocument
 from .profile_store import (
     CookieMergeDisposition,
     ProfileStore,
+    RemintWriteRequest,
+    ReplaceStatus,
     in_storage_transaction,
     raise_on_lock_unavailable,
     report_on_lock_unavailable,
@@ -1533,233 +1533,6 @@ def clear_account_metadata(storage_path: Path | None) -> None:
     _drop_legacy_account_key(storage_path)
 
 
-# --- Write-time cookie-domain filter (relocated from ``_browser_cookie_filter.py``) ---
-#
-# ADR-0033. This is write-time policy, not browser code: three of its SIX call
-# sites are the intent writers immediately below (``replace_from_remint``,
-# ``replace_from_login``, ``persist_minted_jar``), which is why it now lives
-# beside them instead of behind a ``browser_``-prefixed leaf. The other three:
-# the two capture arms in :mod:`notebooklm._auth.browser_capture`, which
-# re-export these names and filter BEFORE their in-memory PSIDTS heal (see the
-# comments there for why that pass is NOT the writer's pass repeated); and
-# ``cli/_cookie_import.py``, which reaches this function through the
-# ``playwright_login`` re-export and filters immediately before persisting —
-# itself a write path, so it strengthens rather than dilutes the thesis.
-#
-# Logger note (ADR-0030 c-PR5): the dropped-cookie / malformed-row warnings below
-# must reach the documented ``notebooklm.auth`` namespace operators subscribe to,
-# never a private per-module child. That holds here for free — this module's
-# ``logger`` is ``logging.getLogger("notebooklm.auth")`` by NAME, not ``__name__``
-# (see the top of the file), which is the same logger the donor module bound.
-
-
-def _safe_cookie_shape(cookie: dict[str, Any]) -> str:
-    """A VALUE-FREE structural summary of a cookie dict, safe to log.
-
-    Returns the sorted key set plus the Python type of each field — but NEVER
-    any field *value*. A cookie ``value`` is a live credential (and, on the CDP
-    arm, comes straight from the operator's running browser), so the
-    malformed-row warnings must not echo the row. Example output:
-    ``keys=['domain', 'name', 'value'] types={domain: int, name: str, value: str}``.
-
-    Iterates ``items()`` (sorted by the string form of each key) rather than
-    re-subscripting by a stringified key, so a malformed cookie with a non-str
-    key (e.g. an ``int``) cannot raise ``KeyError`` here — this helper exists to
-    describe malformed rows, so it must itself never choke on one.
-    """
-    sorted_items = sorted(cookie.items(), key=lambda item: str(item[0]))
-    keys = [str(k) for k, _ in sorted_items]
-    types = ", ".join(f"{k}: {type(v).__name__}" for k, v in sorted_items)
-    return f"keys={keys} types={{{types}}}"
-
-
-#: ``CookieRowError.field`` -> the bounded warning the filter emits for it.
-#: The *checks* live in :func:`notebooklm._auth.cookie_semantics.sanitize_cookie_entry`
-#: (the one row-shape predicate); only the failure mode is local. Every message
-#: takes exactly one ``%s`` — the value-free shape from :func:`_safe_cookie_shape`.
-_MALFORMED_ROW_WARNINGS: dict[str, str] = {
-    "name": "Skipping storage_state cookie with missing/empty/non-str name (%s)",
-    "domain": "Skipping storage_state cookie with non-str domain (%s)",
-    "path": "Skipping storage_state cookie with non-str path (%s)",
-    "expires": "Skipping storage_state cookie with unusable expires (%s)",
-}
-
-
-def _report_malformed_row(cookie: Any, exc: _cookie_semantics.CookieRowError) -> None:
-    """Log one bounded, value-free warning for a row the predicate rejected.
-
-    ``exc.field == "row"`` means the entry is not a dict at all, so
-    :func:`_safe_cookie_shape` cannot describe it — log the Python type instead.
-    Never log the row itself: a cookie ``value`` is a live credential and, on the
-    CDP arm, comes straight from the operator's running browser.
-
-    An absent or empty-string ``domain`` is dropped **silently**: such a row is
-    never on the allowlist, and a warning here would be new noise on every
-    domain-less row a browser exports.
-
-    Be precise about what changed, because the obvious reading is wrong. Before
-    the shared predicate, ``domain`` was checked for ``isinstance(str)`` only and
-    LAST, so a domain-less row fell through to the ``name`` / ``path`` /
-    ``expires`` checks and could still warn about one of those. The shared
-    predicate rejects an empty ``domain`` up front, so this branch now also
-    swallows the ``expires`` diagnostic such a row used to get. Rows dropped are
-    identical either way; only the diagnostic is quieter. A row malformed in BOTH
-    ``name`` and ``domain`` now reports the name defect rather than the domain
-    defect, because the shared predicate iterates ``(name, domain)`` in that
-    order.
-    """
-    if exc.field == "row":
-        logger.warning(
-            "Skipping malformed storage_state cookie entry (not a dict): type=%s",
-            type(cookie).__name__,
-        )
-        return
-    if exc.field == "domain" and isinstance(cookie.get("domain", ""), str):
-        return
-    message = _MALFORMED_ROW_WARNINGS.get(exc.field, "Skipping malformed storage_state cookie (%s)")
-    logger.warning(message, _safe_cookie_shape(cookie))
-
-
-def filter_storage_state_cookies_by_domain_policy(
-    state: dict[str, Any],
-    *,
-    include_optional: bool = False,
-    include_domains: set[str] | None = None,
-) -> dict[str, Any]:
-    """Filter a Playwright ``storage_state`` dict to the configured cookie-domain policy.
-
-    The Playwright login flow captures every cookie the browser context holds.
-    Without this filter, unrelated non-Google cookies and origin storage from
-    the user's browser context can leak into the persisted
-    ``storage_state.json`` and inflate the blast radius. This applies the
-    shared allowlist
-    (:func:`notebooklm._auth.cookie_policy.build_cookie_domain_allowlist`, the
-    same set the rookiepy extraction request is built from) at write time; the
-    rookiepy/Firefox persist path (``_write_extracted_cookies`` /
-    ``_login_with_browser_cookies``) runs this same filter before its atomic
-    write — the Firefox extractor suffix-matches dot-prefixed domains, so
-    extraction-time narrowing alone is not enough — so both login paths
-    produce equivalent on-disk state. Distinct optional roots remain opt-in
-    via ``--include-domains=...``.
-    Exact allowlist entries use leading-dot/no-dot equivalence
-    (``http.cookiejar`` may normalize either). In addition, trusted Google
-    roots use boundary-aware suffix matching. This compatibility-first rule
-    preserves unknown ``*.google.com``, ``*.googleusercontent.com``, and
-    regional Google subdomains until they can be narrowed with live-flow
-    evidence, while still rejecting lookalikes such as ``evilgoogle.com``.
-
-    Two hardening behaviors (#1513) ride on top of the allowlist:
-
-    * **Malformed rows are skipped, not raised.** rookiepy / Playwright can
-      emit malformed rows; a non-dict entry, a cookie whose ``domain`` is not
-      a str, or a cookie whose ``name`` is not a non-empty str (all malformed
-      under Playwright's own ``storage_state`` schema) is dropped with one
-      bounded ``logger.warning`` per row instead of crashing the whole persist.
-      The warning logs only a **value-free shape** (:func:`_safe_cookie_shape`:
-      the row's keys + per-field types) — never the row itself — so a cookie
-      ``value`` (a live credential, and for the CDP arm one that comes straight
-      from the operator's running browser) cannot leak into the logs.
-    * **Exact-identity duplicate dedup.** Rows are keyed by their full
-      RFC 6265 identity ``(name, domain, path)`` (path normalized via
-      ``or "/"``, matching every loader). For exact-identity duplicates —
-      where only metadata such as ``value`` / ``expires`` / flags can differ —
-      the **last occurrence in input order wins** and replaces the earlier row
-      in place, kept whole (fields are never merged). This mirrors the
-      persistence-merge rule in :func:`save_cookies_to_storage` (this module),
-      where the newer observation overwrites the stored row for the same
-      ``(name, domain, path)`` key.
-
-      Same-name rows on *different* domains or paths are deliberately ALL
-      kept: cross-domain same-name resolution is a **load-time** concern (the
-      flat loaders :func:`notebooklm._auth.cookies.extract_cookies_from_storage`
-      / :func:`notebooklm._auth.cookies.flatten_cookie_map` rank by
-      ``_auth_domain_priority``). Deduping by bare name at write time would
-      starve the ``(name, domain, path)``-keyed runtime loader
-      (:func:`notebooklm._auth.cookies.build_httpx_cookies_from_storage`),
-      which legitimately holds e.g. the per-product ``OSID`` cookie on
-      ``notebooklm.google.com`` and ``myaccount.google.com`` as distinct
-      jar entries.
-
-    Args:
-        state: Playwright ``storage_state`` dict (``BrowserContext.storage_state()``).
-        include_optional: When ``True``, opt in to every label in
-            :data:`notebooklm._auth.cookie_policy.OPTIONAL_COOKIE_DOMAINS_BY_LABEL`.
-        include_domains: Optional-domain labels to opt in (``"all"`` = every
-            label). Mirrors the rookiepy path semantics.
-
-    Returns:
-        A new ``storage_state`` dict with ``cookies`` filtered and ``origins``
-        cleared. Origin localStorage / IndexedDB is not used for cookie auth
-        and must not bypass the domain policy. The input dict is not mutated.
-    """
-    allowed_list = _cookie_policy.build_cookie_domain_allowlist(
-        include_optional=include_optional, include_domains=include_domains
-    )
-    allowed: frozenset[str] = frozenset(allowed_list)
-    allowed_stripped: frozenset[str] = frozenset(d.lstrip(".").lower() for d in allowed_list)
-
-    def _is_allowed(domain: str) -> bool:
-        normalized = domain[1:] if domain.startswith(".") else domain
-        return (
-            domain in allowed
-            or normalized.lower() in allowed_stripped
-            or _cookie_policy._is_trusted_google_cookie_domain(domain)
-        )
-
-    filtered_cookies: list[dict[str, Any]] = []
-    index_by_identity: dict[tuple[str, str, Any], int] = {}
-
-    for cookie in state.get("cookies", []):
-        # ONE row-shape predicate, shared with every loader (ADR-0033 PR 2.1).
-        # It rejects a non-dict entry, a missing/empty/non-str ``name`` or
-        # ``domain``, a present-but-non-str ``path`` (which would slip past the
-        # ``or "/"`` normalization below and later crash http.cookiejar/httpx
-        # path matching), and an ``expires`` that cannot be normalized — the
-        # last one because every loader that rebuilds the row goes through
-        # ``int(float(expires))`` inside ``http.cookiejar.Cookie``, so dropping
-        # it at capture time keeps the persisted state loadable instead of
-        # deferring the failure to the first authed call (#2061).
-        #
-        # ``check_value=False``: this filter is domain policy, not a request
-        # jar. It has never inspected ``value`` and must not start — a row's
-        # value is a credential it only ever copies through.
-        try:
-            normalized = _cookie_semantics.sanitize_cookie_entry(cookie, check_value=False)
-        except _cookie_semantics.CookieRowError as exc:
-            _report_malformed_row(cookie, exc)
-            continue
-        name = normalized["name"]
-        domain = normalized["domain"]
-        if not _is_allowed(domain):
-            continue
-
-        # Full RFC 6265 identity. The predicate's ``path or "/"`` normalization
-        # mirrors the loaders and the save_cookies_to_storage merge key, so an
-        # empty-path twin can't survive as a phantom duplicate row.
-        identity = (name, domain, normalized["path"])
-        existing = index_by_identity.get(identity)
-        if existing is None:
-            index_by_identity[identity] = len(filtered_cookies)
-            filtered_cookies.append(cookie)
-        else:
-            # Exact-identity duplicate: the later observation wins whole,
-            # replacing the earlier row in place — mirroring the
-            # save_cookies_to_storage merge, where the newer observation
-            # overwrites the stored row for the same (name, domain, path) key.
-            logger.debug(
-                "Cookie %s: exact-identity duplicate on (%s, %s); keeping later observation",
-                name,
-                domain,
-                identity[2],
-            )
-            filtered_cookies[existing] = cookie
-
-    return {
-        "cookies": filtered_cookies,
-        "origins": [],
-    }
-
-
 # --- Browser-capture re-mint (relocated from ``browser_capture.py``) --------
 
 
@@ -1770,102 +1543,24 @@ def replace_from_remint(
     carry_account: bool,
     include_domains: set[str] | None = None,
 ) -> WriteOutcome:
-    """Full cookie replace for a browser-capture re-mint, under the storage lock.
-
-    The single sanctioned persist for the :mod:`notebooklm._auth.browser_capture`
-    arms (interactive login, L3 headless-launch re-auth, CDP re-auth). Replaces
-    ``storage_state.json``'s cookies with ``captured_state`` — a re-mint is a
-    brand-new session, so cookies are *replaced*, never merged. Full-file replace
-    intent: **fails closed**, returning ``WriteOutcome(lock_unavailable)`` on lock
-    unavailability so the capture caller can surface/retry rather than race a
-    concurrent keepalive write ([capture-2]).
-
-    Everything below happens **inside** the canonical storage lock:
-
-    * The write-time domain filter
-      (:func:`filter_storage_state_cookies_by_domain_policy`) is applied so
-      sibling-product cookies never reach disk. ``include_domains`` carries the
-      interactive ``--include-domains`` opt-in through unchanged; the default
-      policy preserves trusted Google roots (``*.googleusercontent.com`` / Drive
-      etc.), matching main's preserve-trusted-roots behavior. **This pass is
-      ADR-0029's entry-path-independent guarantee**, not a repeat of the capture
-      arms' filter call: it is what makes "nothing sibling-product ever reaches
-      ``storage_state.json``" true for EVERY caller of this writer, including
-      ones that never filtered. The capture arms filter for a different reason
-      (their pass feeds ``heal_captured_state``; see
-      :mod:`notebooklm._auth.browser_capture`) — neither pass substitutes for the
-      other and neither may be deleted. Being idempotent, this pass simply does
-      not narrow a caller that already filtered with the same ``include_domains``.
-    * Account namespace handling branches on ``carry_account``:
-
-      - ``carry_account=True`` (unattended profile-launch arm): the existing
-        ``notebooklm`` namespace is read from the current file and CARRIED OVER
-        into the new state, so an in-place re-mint against our own profile no
-        longer destroys the account binding ([capture-1]).
-      - ``carry_account=False`` (interactive arm, and the CDP no-resolve
-        fallback): the stale binding is DROPPED — the user may have signed into a
-        different account. On the INTERACTIVE login arm the CLI adapter's
-        ``repair_playwright_account_metadata`` re-establishes it immediately
-        after the write. On the library / mid-RPC CDP arm there is NO such
-        repair, so it lands on the authuser=0 default (repair happens only via
-        CLI ``auth refresh``); carrying a stale index blindly would instead
-        relocate [capture-1], so authuser=0 is the deliberate safe fallback.
-
-    CDP arm caveat: CDP attaches to the operator's daily Chrome, whose account
-    set may not match the stored binding. The CALLER re-resolves the stored email
-    against the captured jar (any network lookup happens OUTSIDE this held lock)
-    and passes the verdict as ``carry_account``; on no-resolve it passes
-    ``carry_account=False`` rather than carry a possibly-misrouting index.
-
-    Args:
-        path: Destination ``storage_state.json``.
-        captured_state: The (already healed) captured storage-state dict.
-        carry_account: Whether to carry the existing account namespace forward.
-        include_domains: Optional ``--include-domains`` opt-in labels, applied by
-            the internal filter (mirrors the capture caller's filter call).
-
-    Returns:
-        :class:`WriteOutcome` — ``ok`` on success, ``lock_unavailable`` if the
-        bounded storage-lock acquire timed out / the lock infra failed.
-    """
-
-    def _replace() -> WriteOutcome:
-        # Carry the existing account namespace BEFORE overwriting (read under the
-        # same lock so it can't tear against a concurrent writer).
-        carried_namespace: dict[str, Any] | None = None
-        if carry_account and path.exists():
-            try:
-                existing = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                existing = None
-            if isinstance(existing, dict):
-                namespace = existing.get(_STORAGE_NAMESPACE_KEY)
-                if isinstance(namespace, dict):
-                    carried_namespace = namespace
-
-        # Write-time domain filter (preserve-trusted-roots). Returns a fresh
-        # ``{"cookies": [...], "origins": []}`` — the captured browser state
-        # never carries our ``notebooklm`` namespace, so it is only (re)attached
-        # from the carried value below.
-        filtered = filter_storage_state_cookies_by_domain_policy(
-            dict(captured_state), include_domains=include_domains
-        )
-        if carried_namespace is not None:
-            filtered[_STORAGE_NAMESPACE_KEY] = carried_namespace
-        _commit_profile_json(path, filtered)
-        return WriteOutcome(WriteStatus.OK)
-
-    # MUST-KNOW via RETURN VALUE, not exception: ``WriteOutcome`` has a distinct
-    # ``LOCK_UNAVAILABLE`` status, and the capture callers branch on it. Using
-    # ``raise_on_lock_unavailable`` here would turn fail-closed-by-return into
-    # fail-closed-by-raise — a breaking change for every caller of this writer.
-    outcome: WriteOutcome = in_storage_transaction(
-        path,
-        _replace,
-        log_prefix="replace_from_remint",
-        on_unavailable=report_on_lock_unavailable(WriteOutcome(WriteStatus.LOCK_UNAVAILABLE)),
+    """Project the compatibility re-mint writer through ``ProfileStore``."""
+    source = ProfileDocument.decode(dict(captured_state))
+    selection = DomainSelection(
+        include_domains=frozenset(include_domains or ()),
+        include_optional=False,
     )
-    return outcome
+    result = ProfileStore(path).replace_from_remint(
+        RemintWriteRequest(
+            source=source,
+            carry_account=carry_account,
+            domain_selection=selection,
+        )
+    )
+    if result.status is ReplaceStatus.APPLIED:
+        return WriteOutcome(WriteStatus.OK)
+    if result.status is ReplaceStatus.LOCK_UNAVAILABLE:
+        return WriteOutcome(WriteStatus.LOCK_UNAVAILABLE)
+    raise AssertionError("unreachable replace status")
 
 
 # --- Login / import full-replace -------------------------------------------

@@ -19,8 +19,11 @@ import httpx
 import pytest
 
 from notebooklm._auth import master_token as mt_mod
-from notebooklm._auth import profile_store
+from notebooklm._auth import profile_store, storage_writer
 from notebooklm._auth import storage as storage_mod
+from notebooklm._auth.profile_account import DomainSelection
+from notebooklm._auth.profile_document import ProfileDocument
+from notebooklm._auth.profile_store import ReplaceResult, ReplaceStatus
 from notebooklm._auth.storage_lock import LockState
 
 
@@ -228,6 +231,48 @@ def test_replace_from_remint_filters_domains_but_keeps_trusted_subdomains(
     names = {c["name"] for c in json.loads(path.read_text(encoding="utf-8"))["cookies"]}
     assert "YT" not in names  # unallowlisted domain filtered out at the chokepoint
     assert {"SID", "MEDIA", "DRV"} <= names  # trusted Google roots preserved
+
+
+@pytest.mark.parametrize(
+    ("typed_status", "compatibility_status"),
+    [
+        (ReplaceStatus.APPLIED, storage_mod.WriteStatus.OK),
+        (ReplaceStatus.LOCK_UNAVAILABLE, storage_mod.WriteStatus.LOCK_UNAVAILABLE),
+    ],
+)
+def test_replace_from_remint_is_one_typed_store_delegation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    typed_status: ReplaceStatus,
+    compatibility_status: storage_mod.WriteStatus,
+) -> None:
+    path = tmp_path / "custom.json"
+    state = _captured_state()
+    seen: list[object] = []
+
+    class FakeStore:
+        def __init__(self, actual_path: Path) -> None:
+            seen.append(actual_path)
+
+        def replace_from_remint(self, request):  # type: ignore[no-untyped-def]
+            seen.append(request)
+            return ReplaceResult(typed_status)
+
+    monkeypatch.setattr(storage_mod, "ProfileStore", FakeStore)
+    outcome = storage_mod.replace_from_remint(
+        path,
+        state,
+        carry_account="truthy",  # type: ignore[arg-type]
+        include_domains={"mail"},
+    )
+    assert outcome.status is compatibility_status
+    assert seen[0] is path
+    request = seen[1]
+    assert isinstance(request.source, ProfileDocument)
+    assert request.source.to_json() == state
+    assert request.carry_account == "truthy"
+    assert request.domain_selection == DomainSelection(frozenset({"mail"}), False)
+    assert storage_writer.replace_from_remint is storage_mod.replace_from_remint
 
 
 # --- replace_from_login: CLI login / import full-replace (b-PR3) -----------

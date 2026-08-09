@@ -247,7 +247,12 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # RATCHETED DOWN 2329 -> 2210 by ADR-0034 PR7A: typed in-band account
     # read/update/clear policy moved into ``ProfileStore`` while storage keeps
     # only the raw compatibility adapters and legacy reconciliation/scrub.
-    "_auth/storage.py": 2210,
+    #
+    # RATCHETED DOWN 2210 -> 1905 by ADR-0034 PR7B: the raw capture/domain
+    # filter moved to ``cookie_filter.py`` and browser/remint destination carry,
+    # bounded transaction, and commit moved into ``ProfileStore``. Storage keeps
+    # the exact v0.x adapter and the login/minted-session writers.
+    "_auth/storage.py": 1905,
     # sanctioned merge (ADR-0033) — the `_auth` load-composition merge:
     # ``_auth/browser_cookie_recovery.py`` (142) was absorbed in full and reduced
     # to a re-export shim in the same change. It held the captured-cookie
@@ -508,8 +513,13 @@ def test_credential_and_store_modules_use_the_ordinary_budget() -> None:
     assert leaves.isdisjoint(ALLOWLISTED_CEILINGS)
     assert {path: measured[path] for path in leaves} == {
         "_auth/credential_io.py": 23,
-        "_auth/profile_store.py": 507,
+        "_auth/profile_store.py": 580,
     }
-    assert measured["_auth/storage.py"] + measured["_auth/profile_store.py"] == 2717
+    assert (
+        measured["_auth/storage.py"]
+        + measured["_auth/profile_store.py"]
+        + measured["_auth/cookie_filter.py"]
+        == 2581
+    )
     synthetic = dict.fromkeys(leaves, MODULE_SIZE_BUDGET + 1)
     assert _over_budget_offenders(synthetic, {}, MODULE_SIZE_BUDGET) == synthetic

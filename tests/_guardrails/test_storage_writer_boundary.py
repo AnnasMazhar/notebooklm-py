@@ -2,9 +2,10 @@
 
 ADR-0034 PR6 seals the unchecked atomic primitive behind ``credential_io``.
 PR7A moves typed in-band account update/clear into ``ProfileStore`` beside its
-cookie transactions; three full replacements remain in ``storage.py``, and the
-legacy arbitrary-path token writer uses the distinct typed token commit. All
-caller sets below are equality assertions at function/method granularity.
+cookie transactions; PR7B moves remint replacement onto the same store while
+``storage.py`` retains the v0.x adapter plus login and minted-session writers.
+The legacy arbitrary-path token writer uses the distinct typed token commit.
+All caller sets below are equality assertions at function/method granularity.
 """
 
 from __future__ import annotations
@@ -38,11 +39,11 @@ _PROFILE_COMMIT_CALLERS = frozenset(
     {
         "_auth/profile_store.ProfileStore.merge_cookie_observation",
         "_auth/profile_store.ProfileStore.merge_legacy_cookie_observation",
+        "_auth/profile_store.ProfileStore.replace_from_remint",
         "_auth/profile_store.ProfileStore.clear_account",
         "_auth/profile_store.ProfileStore.update_account",
         "_auth/storage.persist_minted_jar",
         "_auth/storage.replace_from_login",
-        "_auth/storage.replace_from_remint",
     }
 )
 _TOKEN_COMMIT_CALLERS = frozenset({"_auth/storage.write_master_token"})
@@ -255,6 +256,51 @@ def test_typed_profile_commit_callers_are_exact() -> None:
     )
     assert calls[_PROFILE_COMMIT] == set(_PROFILE_COMMIT_CALLERS)
     assert escapes == {}
+
+
+def _storage_function(name: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
+    tree = ast.parse(
+        (AUTH_ROOT / "storage.py").read_text(encoding="utf-8"),
+        filename=str(AUTH_ROOT / "storage.py"),
+    )
+    matches = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == name
+    ]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def test_remint_adapter_has_no_writer_transaction_read_or_filter_capability() -> None:
+    adapter = _storage_function("replace_from_remint")
+    called_members = [
+        node.func.id if isinstance(node.func, ast.Name) else node.func.attr
+        for node in ast.walk(adapter)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name | ast.Attribute)
+    ]
+    assert set(called_members).isdisjoint(
+        {
+            _PROFILE_COMMIT,
+            _RAW_COMMIT,
+            _TOKEN_COMMIT,
+            _BYPASS,
+            "acquire",
+            "in_storage_transaction",
+            "_under_bounded_lock",
+            "exists",
+            "open",
+            "read_bytes",
+            "read_document",
+            "read_text",
+            "filter_storage_state_cookies_by_domain_policy",
+        }
+    )
+    assert called_members.count("replace_from_remint") == 1
+    assert not any(
+        isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store)
+        for node in ast.walk(adapter)
+    )
 
 
 def test_typed_master_token_commit_caller_is_exact() -> None:

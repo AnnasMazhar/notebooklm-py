@@ -135,12 +135,18 @@ class TestWriteTimeFilterParity:
         ``test_consolidation_shims_are_identity_reexports``), so this asserts
         against the canonical home.
         """
-        from notebooklm._auth import storage
+        from notebooklm._auth import _browser_cookie_filter, browser_capture, cookie_filter, storage
         from notebooklm.cli.services.playwright_login import (
             filter_storage_state_cookies_by_domain_policy as playwright_filter,
         )
 
-        assert playwright_filter is storage.filter_storage_state_cookies_by_domain_policy
+        canonical = cookie_filter.filter_storage_state_cookies_by_domain_policy
+        assert storage._safe_cookie_shape is cookie_filter._safe_cookie_shape
+        assert browser_capture._safe_cookie_shape is storage._safe_cookie_shape
+        assert storage.filter_storage_state_cookies_by_domain_policy is canonical
+        assert browser_capture.filter_storage_state_cookies_by_domain_policy is canonical
+        assert _browser_cookie_filter.filter_storage_state_cookies_by_domain_policy is canonical
+        assert playwright_filter is canonical
 
     @pytest.mark.parametrize("include_domains", [None, {"mail"}, {"all"}])
     def test_writer_persists_same_domain_set_as_playwright_filter(self, tmp_path, include_domains):

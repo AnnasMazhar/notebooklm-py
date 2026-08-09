@@ -91,10 +91,10 @@ def test_scope_duplicate_self_and_scc_rules(audit, tmp_path):
 def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
-        "modules": 32,
-        "total_lines": 14408,
-        "unique_edges": 90,
-        "module_edges": 76,
+        "modules": 33,
+        "total_lines": 14272,
+        "unique_edges": 92,
+        "module_edges": 78,
         "function_local_edges": 14,
     }
     assert result["sccs"] == {
@@ -130,6 +130,15 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("profile_store", "cookie_merge", "module"),
         ("storage", "cookie_merge", "module"),
     }
+    assert {edge for edge in edges if "cookie_filter" in edge[:2]} == {
+        ("cookie_filter", "cookie_policy", "module"),
+        ("cookie_filter", "cookie_semantics", "module"),
+        ("profile_store", "cookie_filter", "module"),
+        ("storage", "cookie_filter", "module"),
+    }
+    assert ("storage", "cookie_policy", "module") not in edges
+    assert ("storage", "cookie_semantics", "module") not in edges
+    assert ("storage", "cookie_policy", "function") in edges
     assert {edge for edge in edges if "storage_lock" in edge[:2]} == {
         ("keepalive", "storage_lock", "module"),
         ("profile_store", "storage_lock", "module"),
@@ -141,6 +150,7 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("storage", "credential_io", "module"),
     }
     assert {edge for edge in edges if "profile_store" in edge[:2]} == {
+        ("profile_store", "cookie_filter", "module"),
         ("profile_store", "cookie_merge", "module"),
         ("profile_store", "cookie_types", "module"),
         ("profile_store", "credential_io", "module"),

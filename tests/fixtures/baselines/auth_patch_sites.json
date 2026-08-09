@@ -188,13 +188,19 @@
     },
     {
       "attribute": "_commit_profile_json",
-      "count": 4,
+      "count": 7,
       "idiom": "monkeypatch.setattr",
       "module": "profile_store"
     },
     {
       "attribute": "_ensure_secure_parent_dir",
       "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "profile_store"
+    },
+    {
+      "attribute": "filter_storage_state_cookies_by_domain_policy",
+      "count": 3,
       "idiom": "monkeypatch.setattr",
       "module": "profile_store"
     },
@@ -349,6 +355,12 @@
       "module": "storage"
     },
     {
+      "attribute": "ProfileStore",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
       "attribute": "_PROMOTION_LOCK",
       "count": 2,
       "idiom": "monkeypatch.setattr",
@@ -429,9 +441,9 @@
   ],
   "summary": {
     "TOTAL": {
-      "private": 111,
-      "public": 171,
-      "total": 282
+      "private": 114,
+      "public": 175,
+      "total": 289
     },
     "account": {
       "private": 2,
@@ -474,9 +486,9 @@
       "total": 27
     },
     "profile_store": {
-      "private": 13,
-      "public": 0,
-      "total": 13
+      "private": 16,
+      "public": 3,
+      "total": 19
     },
     "psidts_recovery": {
       "private": 14,
@@ -500,8 +512,8 @@
     },
     "storage": {
       "private": 9,
-      "public": 27,
-      "total": 36
+      "public": 28,
+      "total": 37
     },
     "storage_lock": {
       "private": 1,
