@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 import logging
 import os
+import shutil
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -15,12 +17,22 @@ from typing import Any, Protocol, TypeVar, cast
 
 from ..exceptions import LockUnavailableError
 from . import cookie_merge as _cookie_merge
+from . import cookie_policy as _cookie_policy
 from .cookie_filter import filter_storage_state_cookies_by_domain_policy
 from .cookie_merge import RecoveryObservation
 from .cookie_types import CookieIdentity, CookieJar
 from .credential_io import _commit_profile_json
 from .paths import _storage_state_lock_path, canonical_storage_key
-from .profile_account import AccountView, DomainSelection, ProfileAccount, StoredSession
+from .profile_account import (
+    AccountDirective,
+    AccountView,
+    ClearAccount,
+    DomainSelection,
+    KeepAccount,
+    ProfileAccount,
+    SetAccount,
+    StoredSession,
+)
 from .profile_document import ProfileDocument, _ProfileDocumentStructureError
 from .storage_lock import (
     _LOCK_ACQUIRE_DEADLINE_SECONDS,
@@ -104,9 +116,32 @@ class RemintWriteRequest:
             raise TypeError("domain_selection must be a DomainSelection")
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class LoginWriteRequest:
+    source: ProfileDocument = field(repr=False)
+    domain_selection: DomainSelection
+    account: AccountDirective
+    backup: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source, ProfileDocument):
+            raise TypeError("source must be a ProfileDocument")
+        if not isinstance(self.domain_selection, DomainSelection):
+            raise TypeError("domain_selection must be a DomainSelection")
+        if type(self.account) not in {KeepAccount, SetAccount, ClearAccount}:
+            raise TypeError("account must be an account directive")
+        if isinstance(self.account, SetAccount):
+            record = self.account.record
+            if not isinstance(record, ProfileAccount):
+                raise TypeError("set account record must be a ProfileAccount")
+            authuser, email = copy.deepcopy((record.authuser, record.email))
+            object.__setattr__(self, "account", SetAccount(ProfileAccount(authuser, email)))
+
+
 class ReplaceStatus(Enum):
     APPLIED = "applied"
     LOCK_UNAVAILABLE = "lock_unavailable"
+    REQUIRED_COOKIES_DROPPED = "required_cookies_dropped"
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,10 +149,39 @@ class ReplaceResult:
     """Value-free result of one full profile replacement."""
 
     status: ReplaceStatus
+    missing_required: tuple[str, ...] = ()
+    present_names: tuple[str, ...] = ()
+    backup_path: Path | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, ReplaceStatus):
             raise TypeError("status must be a ReplaceStatus")
+        if type(self.missing_required) is not tuple or not all(
+            isinstance(name, str) for name in self.missing_required
+        ):
+            raise TypeError("missing_required must be a tuple of strings")
+        if type(self.present_names) is not tuple or not all(
+            isinstance(name, str) for name in self.present_names
+        ):
+            raise TypeError("present_names must be a tuple of strings")
+        if self.backup_path is not None and not isinstance(self.backup_path, Path):
+            raise TypeError("backup_path must be a Path or None")
+
+        missing_valid = self.missing_required == tuple(sorted(set(self.missing_required)))
+        present_valid = self.present_names == tuple(sorted(set(self.present_names)))
+        names_empty = not self.missing_required and not self.present_names
+        if self.status is ReplaceStatus.APPLIED:
+            valid = names_empty
+        elif self.status is ReplaceStatus.LOCK_UNAVAILABLE:
+            valid = names_empty and self.backup_path is None
+        else:
+            valid = (
+                bool(self.missing_required)
+                and self.backup_path is None
+                and set(self.missing_required).isdisjoint(self.present_names)
+            )
+        if not missing_valid or not present_valid or not valid:
+            raise ValueError("replace result fields are inconsistent")
 
 
 class _LockUnavailablePolicy(Protocol):
@@ -239,6 +303,73 @@ class ProfileStore:
 
         return self._under_bounded_lock(
             operation="replace_from_remint",
+            body=_replace,
+            on_unavailable=report_on_lock_unavailable(
+                ReplaceResult(ReplaceStatus.LOCK_UNAVAILABLE)
+            ),
+        )
+
+    def replace_from_login(self, request: LoginWriteRequest) -> ReplaceResult:
+        def _replace() -> ReplaceResult:
+            source = request.source.to_json()
+            selection = request.domain_selection
+            filtered = filter_storage_state_cookies_by_domain_policy(
+                cast(dict[str, Any], source),
+                include_optional=selection.include_optional,
+                include_domains=set(selection.include_domains) or None,
+            )
+
+            present = _cookie_policy.cookie_names_from_storage(filtered)
+            missing = tuple(sorted(_cookie_policy.MINIMUM_REQUIRED_COOKIES.difference(present)))
+            if missing:
+                logger.debug(
+                    "replace_from_login: %d required cookie(s) dropped by the write-time "
+                    "domain policy for %s; writing nothing",
+                    len(missing),
+                    self.path,
+                )
+                return ReplaceResult(
+                    ReplaceStatus.REQUIRED_COOKIES_DROPPED,
+                    missing_required=missing,
+                    present_names=tuple(sorted(present)),
+                )
+
+            if isinstance(request.account, KeepAccount):
+                source_namespace = source.get("notebooklm")
+                namespace = dict(source_namespace) if type(source_namespace) is dict else {}
+            elif isinstance(request.account, SetAccount):
+                authuser, email = copy.deepcopy(
+                    (request.account.record.authuser, request.account.record.email)
+                )
+                account: dict[str, Any] = {"authuser": authuser}
+                if email:
+                    account["email"] = email
+                namespace = {"account": account}
+            else:
+                namespace = {}
+
+            if selection.include_domains:
+                namespace["include_domains"] = sorted(selection.include_domains)
+            if selection.include_optional:
+                namespace["include_optional"] = True
+            if namespace:
+                namespace.setdefault("version", 1)
+                filtered["notebooklm"] = namespace
+
+            backup_path: Path | None = None
+            if request.backup and self.path.exists():
+                candidate = self.path.with_name(self.path.name + ".bak")
+                shutil.copy2(self.path, candidate)
+                if sys.platform != "win32":
+                    with contextlib.suppress(OSError):
+                        os.chmod(candidate, 0o600)
+                backup_path = candidate
+
+            _commit_profile_json(self.path, filtered)
+            return ReplaceResult(ReplaceStatus.APPLIED, backup_path=backup_path)
+
+        return self._under_bounded_lock(
+            operation="replace_from_login",
             body=_replace,
             on_unavailable=report_on_lock_unavailable(
                 ReplaceResult(ReplaceStatus.LOCK_UNAVAILABLE)

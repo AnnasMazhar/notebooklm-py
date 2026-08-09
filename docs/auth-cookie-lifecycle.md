@@ -1072,11 +1072,14 @@ reports still make sense:
   [ADR-0029](adr/0029-canonical-storage-writer.md), then sealed by ADR-0034:
   `_auth/credential_io.py` alone holds the unchecked atomic capability,
   `_auth/profile_store.py` owns cookie transactions, typed in-band account
-  read/update/clear, and browser/remint replacement (latest-under-lock raw
-  namespace carry, pure filtering, then one commit). `_auth/cookie_filter.py`
+  read/update/clear, browser/remint replacement, and login/import replacement.
+  Login filters and validates required names before any destination access, applies
+  directive-specific namespace rules, optionally backs up under the same lock, then commits once.
+  `_auth/cookie_filter.py`
   owns that raw filter and its value-free diagnostics. `_auth/storage.py` retains
   the remint compatibility/browser patch seam plus raw account adapters, legacy
-  reconciliation/promotion/scrub, login/minted replacement, and token policies.
+  reconciliation/promotion/scrub, the login compatibility adapter, minted replacement, and token
+  policies. Only an applied login result reaches legacy promote-or-scrub, after lock release.
   Empty account placeholders no longer block legacy promotion;
   non-empty unknown-only records still win. Function-granular AST guardrails
   (`tests/_guardrails/test_storage_writer_boundary.py`) seal the capability and caller sets.
@@ -1161,6 +1164,15 @@ gate their writes correctly.
 ---
 
 ## Changelog
+
+- **2026-08-09 (profile-store login/import replacement)** —
+  `ProfileStore.replace_from_login` now owns raw source filtering, required-name rejection before
+  destination reads, KEEP/SET/CLEAR namespace construction, optional inside-lock backup, and the
+  single profile commit. `storage.replace_from_login` remains the exact v0.x facade/patch identity
+  and temporarily performs post-APPLIED legacy promote-or-scrub outside the profile lock. KEEP
+  carries the whole raw source namespace; SET/CLEAR rebuild it. Minted replacement remains in
+  storage, and legacy scheduler/services remain deferred. No schema, path, permission, warning,
+  backup, result, or caller behavior changed.
 
 - **2026-08-08 (profile-store browser/remint replacement)** — The pure raw
   capture/domain filter and value-free malformed-row diagnostics now live in

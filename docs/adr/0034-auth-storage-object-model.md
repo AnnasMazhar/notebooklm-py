@@ -151,27 +151,36 @@ JSON capability: one raw private forwarder has exactly two typed callers, for co
 documents and arbitrary-path master-token documents. `ProfileStore` owns one caller-spelled path,
 a separately canonicalized ordering key, fresh document/session/account reads, the shared bounded
 lock mechanics, both blocking cookie transactions, typed account update/clear, and the complete
-typed remint transaction. Remint reads the latest destination under that lock only when raw
+typed remint and login/import transactions. Remint reads the latest destination under that lock only when raw
 namespace carry is requested, preserves the whole valid `notebooklm` mapping (including empty or
 unknown account records), filters an isolated source snapshot, and commits at most once. It owns no
 cache, baseline, live jar, scheduler, logger policy object, or injectable writer.
 
+Login/import replacement filters the isolated raw source, validates required cookie names before
+any destination access, builds KEEP/SET/CLEAR namespaces with their intentionally distinct raw
+preservation rules, optionally copies exact predecessor bytes to the sibling `.bak` while holding
+the same lock, and commits once. Rejection logs only the missing count and raw path. SET isolates
+the permissive account-field pair once when the request is built and again when the accepted payload
+is projected under lock, using one shared deepcopy memo at each boundary.
+
 The raw capture/domain policy and its value-free malformed-row diagnostics now live in the
 dependency-bottom `cookie_filter.py` leaf. It retains whole allowed rows and their raw scalar types,
 drops source origins and namespace data, and owns no path, document, lock, commit, or lifecycle
-state. Browser capture, CLI import, the remaining replacement writers, and compatibility shims keep
+state. Browser capture, CLI import, the profile replacement writers, and compatibility shims keep
 the same filter function identity through aliases.
 
 `storage.py` remains the v0.x policy/compatibility facade. Its `replace_from_remint` callable keeps
 the old signature, result projection, browser late-patch seam, and facade/shim identities while
 constructing the immutable request and delegating the transaction to `ProfileStore`. It retains raw
 account-dict adapters, two-read legacy reconciliation, promotion scheduling, sibling scrub
-composition, login replacement, minted-session replacement, and token-file policy. An empty in-band
+composition, the login compatibility adapter, minted-session replacement, and token-file policy.
+After a typed login result is applied and the profile lock is released, the adapter alone performs
+the existing promote-or-scrub legacy step; rejected and exceptional writes do no legacy work. An empty in-band
 `account: {}` remains absent for typed account read/promotion but is preserved by remint's raw
 whole-namespace carry; a non-empty unknown-only mapping remains present and wins. No schema, lock
-path, permission, backup, log, or public API changes. The exact pins are now 1,905 lines for
-`storage.py`, 580 for `profile_store.py`, and 96 for `cookie_filter.py` (2,581 combined).
-`MasterTokenFile`, login/minted store methods, and legacy migration/lifecycle services remain future
+path, permission, backup, log, or public API changes. The exact pins are now 1,771 lines for
+`storage.py`, 711 for `profile_store.py`, and 96 for `cookie_filter.py` (2,578 combined).
+`MasterTokenFile`, minted store methods, and legacy migration/lifecycle services remain future
 stages.
 
 The compatibility inventory is explicit:

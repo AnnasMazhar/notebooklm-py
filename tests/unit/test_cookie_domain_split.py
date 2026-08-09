@@ -101,8 +101,9 @@ class TestWriteTimeFilterParity:
     Before b-PR3 each rookiepy/Firefox writer imported its own module-level
     ``filter_storage_state_cookies_by_domain_policy`` binding and the pin asserted
     those bindings were identical. Since b-PR3 the write-time filter + the
-    post-filter required-cookie revalidation are hoisted into
-    ``storage.replace_from_login``; the three CLI writers
+    post-filter required-cookie revalidation are owned by
+    ``ProfileStore.replace_from_login`` behind the unchanged
+    ``storage.replace_from_login`` adapter; the three CLI writers
     (``cookie_writes._write_extracted_cookies``,
     ``refresh._login_with_browser_cookies``, ``_cookie_import._import_cookie_json``)
     all call that ONE function via the ``notebooklm.auth`` facade. On-disk parity
@@ -129,8 +130,9 @@ class TestWriteTimeFilterParity:
         """Identity pin: the filter the writer applies IS the filter the
         Playwright capture arms use (one filter, bound in one place now).
 
-        Since ADR-0033 PR 4.2 that one place is ``_auth/storage.py``, beside the
-        writers — it is write-time policy, not browser code. The old
+        Since ADR-0034 PR 7C the login owner is ``_auth/profile_store.py``, beside
+        the path transaction; minted-session filtering remains in ``_auth/storage.py``.
+        This is write-time policy, not browser code. The old
         ``_browser_cookie_filter`` leaf is a re-export shim (pinned by
         ``test_consolidation_shims_are_identity_reexports``), so this asserts
         against the canonical home.

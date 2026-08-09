@@ -121,9 +121,7 @@ import atexit
 import contextlib
 import json
 import logging
-import os
-import shutil
-import sys
+import sys as sys
 import threading
 import warnings
 from collections.abc import Iterator
@@ -161,10 +159,17 @@ from .cookie_filter import (
 from .cookie_types import Cookie, CookieIdentity, CookieJar
 from .credential_io import _commit_master_token_json, _commit_profile_json
 from .paths import canonical_storage_key, resolve_auth_json_env
-from .profile_account import DomainSelection, ProfileAccount
+from .profile_account import (
+    ClearAccount,
+    DomainSelection,
+    KeepAccount,
+    ProfileAccount,
+    SetAccount,
+)
 from .profile_document import ProfileDocument
 from .profile_store import (
     CookieMergeDisposition,
+    LoginWriteRequest,
     ProfileStore,
     RemintWriteRequest,
     ReplaceStatus,
@@ -1578,180 +1583,41 @@ def replace_from_login(
     backup: bool = False,
     io_policy: object | None = None,
 ) -> LoginWriteOutcome:
-    """Full cookie replace for the CLI login / import flows, under the storage lock.
-
-    The single sanctioned persist for ``notebooklm login --browser-cookies``,
-    ``notebooklm auth refresh --browser-cookies``, and ``notebooklm auth
-    import-cookies``. Replaces ``storage_state.json``'s cookies with ``state`` —
-    a login is a brand-new session, so cookies are *replaced*, never merged.
-    Everything below happens **inside** the canonical storage lock; the writer
-    **fails closed** (``LoginWriteOutcome(lock_unavailable)``) so a caller can
-    surface/retry rather than race a concurrent keepalive write.
-
-    Under the lock, in order:
-
-    1. **Write-time domain filter.** ``state``'s cookies are run through
-       :func:`filter_storage_state_cookies_by_domain_policy` (hoisted from the
-       #2086 CLI call sites) so sibling-product cookies never reach disk.
-       ``include_domains`` / ``include_optional`` carry the CLI opt-ins through;
-       the default policy preserves trusted Google roots
-       (``*.googleusercontent.com`` / Drive) — main's preserve-trusted-roots
-       behaviour. As in :func:`replace_from_remint`, this pass is ADR-0029's
-       entry-path-independent guarantee — it holds for every login/import caller,
-       filtered or not — and being idempotent it does not narrow a caller
-       (import) that already pre-filtered with the same opts.
-    2. **Post-filter required-cookie revalidation.** ``MINIMUM_REQUIRED_COOKIES``
-       is re-checked on the FILTERED names. If a required cookie's only copy sat
-       on a now-dropped domain, the writer returns
-       ``LoginWriteOutcome(required_cookies_dropped, ...)`` and writes NOTHING —
-       preserving #2086's contract (the CLI maps this to
-       ``CookieValidationFailure(code="COOKIE_VALIDATION_FAILED")`` + ``io.fail(1)``
-       + ``not storage_path.exists()``). Both ``missing_required`` and
-       ``present_names`` are value-free cookie NAMES.
-    3. **Account metadata**, embedded in the same atomic write via the ``account``
-       sentinel:
-
-       - :data:`KEEP_ACCOUNT` (default; the import flavour) — carry whatever
-         ``state`` already holds in the ``notebooklm`` namespace (import has none,
-         so the result carries none). No account key is synthesised.
-       - :data:`CLEAR_ACCOUNT` (the refresh default-account login branch) — no
-         account binding is written, so stale routing cannot survive.
-       - :class:`AccountRecord` (the targeted login branches) — the
-         ``{authuser, email}`` binding is embedded, replacing the former separate
-         ``write_account_metadata`` step (one atomic write, no partial-failure
-         window).
-    4. **Opt-in recording.** The resolved ``include_domains`` (and
-       ``include_optional``) are recorded in the ``notebooklm`` namespace so a
-       future merge-gate narrowing can consult per-profile opt-ins (plan §b.5);
-       additive — old readers ignore unknown namespace keys.
-    5. **Import backup.** When ``backup=True`` (the import flavour), a pre-overwrite
-       ``.bak`` copy of any existing target is taken INSIDE the lock (0600 on
-       POSIX) so it cannot race a concurrent keepalive write; its path is returned
-       in the outcome.
-
-    Args:
-        path: Destination ``storage_state.json``.
-        state: The captured / coerced storage-state dict to persist.
-        include_domains: ``--include-domains`` opt-in labels (or ``None``).
-        include_optional: Persist all optional sibling-product domains (the
-            import-cookies flavour).
-        account: Account-metadata action (see above).
-        backup: Take a pre-overwrite ``.bak`` backup inside the lock (import).
-        io_policy: Reserved for a future per-intent lock/IO policy override;
-            currently unused (accepted for forward-compatible call sites).
-
-    Returns:
-        :class:`LoginWriteOutcome`.
-    """
-    del io_policy  # reserved; see docstring
-    from .cookie_policy import (  # noqa: PLC0415 (deferred; true leaf, no cycle either way)
-        MINIMUM_REQUIRED_COOKIES,
-        cookie_names_from_storage,
+    del io_policy
+    source = ProfileDocument.decode(dict(state))
+    source_payload = source.to_json()
+    source_namespace = source_payload.get(_STORAGE_NAMESPACE_KEY)
+    source_has_account = type(source_namespace) is dict and _ACCOUNT_CONTEXT_KEY in source_namespace
+    selection = DomainSelection(
+        include_domains=frozenset(include_domains or ()),
+        include_optional=include_optional,
     )
+    directive: KeepAccount | SetAccount | ClearAccount
+    if account is KEEP_ACCOUNT:
+        directive = KeepAccount()
+    elif isinstance(account, AccountRecord):
+        directive = SetAccount(ProfileAccount(account.authuser, account.email))
+    else:
+        directive = ClearAccount()
+    request = LoginWriteRequest(
+        source=source,
+        domain_selection=selection,
+        account=directive,
+        backup=backup,
+    )
+    result = ProfileStore(path).replace_from_login(request)
 
-    # Hoisted out of ``_replace`` so the post-lock legacy-account step can read
-    # it: that step branches on whether an account key was embedded, and the
-    # writer's return value must stay the outcome the template propagates.
-    namespace: dict[str, Any] = {}
-
-    def _replace() -> LoginWriteOutcome:
-        nonlocal namespace
-
-        # (1) Write-time domain filter (preserve-trusted-roots). Returns a fresh
-        # ``{"cookies": [...], "origins": []}`` — the browser/import state never
-        # carries our ``notebooklm`` namespace.
-        filtered = filter_storage_state_cookies_by_domain_policy(
-            dict(state), include_optional=include_optional, include_domains=include_domains
+    if result.status is ReplaceStatus.LOCK_UNAVAILABLE:
+        return LoginWriteOutcome(LoginWriteStatus.LOCK_UNAVAILABLE)
+    if result.status is ReplaceStatus.REQUIRED_COOKIES_DROPPED:
+        return LoginWriteOutcome(
+            LoginWriteStatus.REQUIRED_COOKIES_DROPPED,
+            missing_required=result.missing_required,
+            present_names=result.present_names,
         )
 
-        # (2) Post-filter required-cookie revalidation on the FILTERED names.
-        present = cookie_names_from_storage(filtered)
-        missing_required = tuple(sorted(MINIMUM_REQUIRED_COOKIES.difference(present)))
-        if missing_required:
-            # Count-only breadcrumb — never cookie names or values.
-            logger.debug(
-                "replace_from_login: %d required cookie(s) dropped by the write-time "
-                "domain policy for %s; writing nothing",
-                len(missing_required),
-                path,
-            )
-            return LoginWriteOutcome(
-                LoginWriteStatus.REQUIRED_COOKIES_DROPPED,
-                missing_required=missing_required,
-                present_names=tuple(sorted(present)),
-            )
-
-        # (3) + (4) Build the ``notebooklm`` namespace (account + opt-ins).
-        namespace = {}
-        if account is KEEP_ACCOUNT:
-            existing_ns = state.get(_STORAGE_NAMESPACE_KEY)
-            if isinstance(existing_ns, dict):
-                namespace = dict(existing_ns)
-        elif isinstance(account, AccountRecord):
-            payload: dict[str, Any] = {"authuser": account.authuser}
-            if account.email:
-                payload["email"] = account.email
-            namespace[_ACCOUNT_CONTEXT_KEY] = payload
-        # CLEAR_ACCOUNT: leave the account key absent.
-        if include_domains:
-            namespace["include_domains"] = sorted(include_domains)
-        if include_optional:
-            namespace["include_optional"] = True
-        if namespace:
-            namespace.setdefault("version", _STORAGE_NAMESPACE_VERSION)
-            filtered[_STORAGE_NAMESPACE_KEY] = namespace
-
-        # (5) Import backup, inside the lock, before overwriting.
-        backup_path: Path | None = None
-        if backup and path.exists():
-            candidate = path.with_name(path.name + ".bak")
-            shutil.copy2(path, candidate)
-            # ``copy2`` preserves the SOURCE mode; force 0600 so a backup of a
-            # legacy/world-readable storage_state never leaks credentials at rest.
-            if sys.platform != "win32":
-                with contextlib.suppress(OSError):
-                    os.chmod(candidate, 0o600)
-            backup_path = candidate
-
-        _commit_profile_json(path, filtered)
-        return LoginWriteOutcome(LoginWriteStatus.OK, backup_path=backup_path)
-
-    # MUST-KNOW via RETURN VALUE, not exception: ``LoginWriteOutcome`` has a
-    # distinct ``LOCK_UNAVAILABLE`` status the CLI already branches on, so
-    # ``raise_on_lock_unavailable`` here would be a breaking change.
-    outcome: LoginWriteOutcome = in_storage_transaction(
-        path,
-        _replace,
-        log_prefix="replace_from_login",
-        on_unavailable=report_on_lock_unavailable(
-            LoginWriteOutcome(LoginWriteStatus.LOCK_UNAVAILABLE)
-        ),
-    )
-    # Both non-OK outcomes (lock unavailable, required cookies dropped) wrote
-    # nothing, so neither reaches the legacy-account step below.
-    if outcome.status is not LoginWriteStatus.OK:
-        return outcome
-
-    # Outside the storage lock (its own sibling ``.lock``, matching
-    # ``write_account_metadata``'s ordering): the in-band write just committed
-    # (or explicitly cleared) the account binding.
-    #
-    # KEEP_ACCOUNT (the import-cookies default) with NO existing in-band record
-    # to carry is NOT an intentional "no account" decision — it means the caller
-    # (typically a fresh browser/import jar with no ``notebooklm`` namespace of
-    # its own) never considered the account question at all. Scrubbing the
-    # legacy sibling unconditionally in that case PERMANENTLY DESTROYS a
-    # pre-v0.5.0 profile's only copy of its account binding: nothing was
-    # embedded in-band, and the legacy record is gone from disk with no reader
-    # left to find it (verified: `auth import-cookies` on such a profile drops
-    # authuser 3 -> 0 irrecoverably). Promote instead — it embeds a legacy
-    # record if one exists (then scrubs it) and is a safe no-op otherwise.
-    #
-    # An EXPLICIT decision — CLEAR_ACCOUNT, or an AccountRecord that did embed —
-    # must still scrub directly: CLEAR_ACCOUNT means the caller deliberately
-    # wants no account bound, and promoting there would resurrect a binding
-    # that was just intentionally cleared.
-    if account is KEEP_ACCOUNT and _ACCOUNT_CONTEXT_KEY not in namespace:
+    outcome = LoginWriteOutcome(LoginWriteStatus.OK, backup_path=result.backup_path)
+    if account is KEEP_ACCOUNT and not source_has_account:
         promote_legacy_account(path)
     else:
         _drop_legacy_account_key(path)

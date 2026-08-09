@@ -226,13 +226,13 @@ def test_real_function_local_import_sites_are_not_dropped(script):
     assert len(account_commit_sites) == 2
 
 
-def test_live_remint_patch_contract_and_scorecard_are_exact(script):
+def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src/notebooklm/_auth")
     projection = script.build_projection(sites)
     assert projection["summary"]["TOTAL"] == {
-        "public": 175,
-        "private": 114,
-        "total": 289,
+        "public": 182,
+        "private": 123,
+        "total": 305,
     }
     relevant = {
         (row["module"], row["attribute"], row["idiom"]): row["count"]
@@ -241,19 +241,27 @@ def test_live_remint_patch_contract_and_scorecard_are_exact(script):
         in {
             ("storage", "replace_from_remint"),
             ("storage", "ProfileStore"),
+            ("storage", "promote_legacy_account"),
+            ("storage", "_drop_legacy_account_key"),
+            ("cookie_policy", "MINIMUM_REQUIRED_COOKIES"),
+            ("cookie_policy", "cookie_names_from_storage"),
             ("profile_store", "_commit_profile_json"),
             ("profile_store", "filter_storage_state_cookies_by_domain_policy"),
         }
     }
     assert relevant == {
         ("storage", "replace_from_remint", "patch.object"): 1,
-        ("storage", "ProfileStore", "monkeypatch.setattr"): 1,
-        ("profile_store", "_commit_profile_json", "monkeypatch.setattr"): 7,
+        ("storage", "ProfileStore", "monkeypatch.setattr"): 4,
+        ("storage", "promote_legacy_account", "monkeypatch.setattr"): 2,
+        ("storage", "_drop_legacy_account_key", "monkeypatch.setattr"): 3,
+        ("cookie_policy", "MINIMUM_REQUIRED_COOKIES", "monkeypatch.setattr"): 3,
+        ("cookie_policy", "cookie_names_from_storage", "monkeypatch.setattr"): 1,
+        ("profile_store", "_commit_profile_json", "monkeypatch.setattr"): 14,
         (
             "profile_store",
             "filter_storage_state_cookies_by_domain_policy",
             "monkeypatch.setattr",
-        ): 3,
+        ): 4,
     }
 
 

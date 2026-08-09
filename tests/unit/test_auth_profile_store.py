@@ -101,16 +101,25 @@ def test_public_shapes_signatures_enum_and_raw_path_are_exact(tmp_path: Path) ->
     assert str(inspect.signature(ProfileStore.replace_from_remint)) == (
         "(self, request: 'RemintWriteRequest') -> 'ReplaceResult'"
     )
+    assert str(inspect.signature(ProfileStore.replace_from_login)) == (
+        "(self, request: 'LoginWriteRequest') -> 'ReplaceResult'"
+    )
     assert [(member.name, member.value) for member in ReplaceStatus] == [
         ("APPLIED", "applied"),
         ("LOCK_UNAVAILABLE", "lock_unavailable"),
+        ("REQUIRED_COOKIES_DROPPED", "required_cookies_dropped"),
     ]
     assert set(RemintWriteRequest.__slots__) == {
         "source",
         "carry_account",
         "domain_selection",
     }
-    assert set(ReplaceResult.__slots__) == {"status"}
+    assert set(ReplaceResult.__slots__) == {
+        "status",
+        "missing_required",
+        "present_names",
+        "backup_path",
+    }
     raw = tmp_path / "sub" / ".." / "profile" / "A.json"
     store = ProfileStore(raw)
     assert store.path is raw

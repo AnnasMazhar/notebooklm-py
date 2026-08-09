@@ -33,6 +33,8 @@ This module covers:
 4. Torn-write fault injection: if ``storage_state.json`` write fails after
    cookies + account were serialized into the same temp file, the original
    on-disk file is preserved untouched (no half-written state).
+5. Login/import replacement keeps this same single profile commit while its
+   legacy promote-or-scrub reconciliation remains a later sibling-file step.
 """
 
 from __future__ import annotations

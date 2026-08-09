@@ -243,6 +243,7 @@ class _CallCollector(ast.NodeVisitor):
         self.classes: list[str] = []
         self.functions: list[str] = []
         self.calls: set[Caller] = set()
+        self.escapes: set[Caller] = set()
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self.classes.append(node.name)
@@ -256,14 +257,35 @@ class _CallCollector(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
-    def visit_Call(self, node: ast.Call) -> None:
-        direct = isinstance(node.func, ast.Name) and node.func.id in self.names
-        name = _qualified_name(node.func)
+    def _owner(self) -> Caller:
+        owner = ".".join([*self.classes, *self.functions[:1]]) or "<module>"
+        return self.module, owner
+
+    def _is_filter_reference(self, node: ast.expr) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in self.names
+        name = _qualified_name(node)
         module, separator, member = (name or "").rpartition(".")
-        qualified = bool(separator and module in self.modules and member == TARGET)
-        if direct or qualified:
-            owner = ".".join([*self.classes, *self.functions[:1]]) or "<module>"
-            self.calls.add((self.module, owner))
+        return bool(separator and module in self.modules and member == TARGET)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if self._is_filter_reference(node.func):
+            self.calls.add(self._owner())
+            for argument in node.args:
+                self.visit(argument)
+            for keyword in node.keywords:
+                self.visit(keyword.value)
+            return
+        self.generic_visit(node)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, ast.Load) and self._is_filter_reference(node):
+            self.escapes.add(self._owner())
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if isinstance(node.ctx, ast.Load) and self._is_filter_reference(node):
+            self.escapes.add(self._owner())
+            return
         self.generic_visit(node)
 
 
@@ -274,20 +296,29 @@ def _filter_calls(path: Path, tree: ast.AST) -> set[Caller]:
     return collector.calls
 
 
+def _filter_escapes(path: Path, tree: ast.AST) -> set[Caller]:
+    names, modules = _bindings(path, tree)
+    collector = _CallCollector(path.relative_to(SRC_ROOT).as_posix(), names, modules)
+    collector.visit(tree)
+    return collector.escapes
+
+
 def test_filter_behavior_callers_are_exactly_six() -> None:
     actual: set[Caller] = set()
+    escapes: set[Caller] = set()
     for path in sorted(SRC_ROOT.rglob("*.py")):
-        actual.update(
-            _filter_calls(path, ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
-        )
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        actual.update(_filter_calls(path, tree))
+        escapes.update(_filter_escapes(path, tree))
     assert actual == {
+        ("_auth/profile_store.py", "ProfileStore.replace_from_login"),
         ("_auth/profile_store.py", "ProfileStore.replace_from_remint"),
-        ("_auth/storage.py", "replace_from_login"),
         ("_auth/storage.py", "persist_minted_jar"),
         ("_auth/browser_capture.py", "run_browser_capture"),
         ("_auth/browser_capture.py", "run_cdp_capture"),
         ("cli/_cookie_import.py", "_import_cookie_json"),
     }
+    assert escapes == set()
 
 
 def test_alias_detectors_bite_and_a_seventh_caller_is_visible() -> None:
@@ -341,3 +372,22 @@ def test_every_preserved_provider_module_alias_is_detected(source: str) -> None:
     assert _filter_calls(SRC_ROOT / "synthetic.py", ast.parse(source)) == {
         ("synthetic.py", "seventh")
     }
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "    assigned = filt\n    return assigned(state)\n",
+        "    return consume(callback=filt)\n",
+        "    registry = {'filter': filt}\n    return registry\n",
+    ],
+    ids=["assigned-callable", "keyword-argument", "bare-registry-reference"],
+)
+def test_non_call_filter_references_are_rejected(body: str) -> None:
+    tree = ast.parse(
+        "from notebooklm._auth.cookie_filter import "
+        "filter_storage_state_cookies_by_domain_policy as filt\n"
+        "def seventh(state, consume=None):\n"
+        f"{body}"
+    )
+    assert _filter_escapes(SRC_ROOT / "synthetic.py", tree) == {("synthetic.py", "seventh")}
