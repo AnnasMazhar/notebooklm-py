@@ -68,10 +68,10 @@ _is_allowed_auth_domain = _cookie_policy._is_allowed_auth_domain
 _rotation_lock_path = _keepalive._rotation_lock_path
 _file_lock_try_exclusive = _keepalive._file_lock_try_exclusive
 _try_claim_rotation = _keepalive._try_claim_rotation
-# The RotateCookies POST itself is _keepalive's single wire contract (see the
-# ``_ROTATE_POST_KWARGS`` block there); this module composes recovery policy
-# around it and never re-assembles the request from the raw
-# headers/body/timeout constants.
+# The raw RotateCookies POST is ``_auth.mint_service``'s single wire contract;
+# keepalive imports/re-exports it beside the recovery policy used here. This
+# module consumes that keepalive binding and never re-assembles the request
+# from raw headers/body/timeout constants.
 _rotate_post_sync = _keepalive._rotate_post_sync
 _rotation_http_client = _keepalive._rotation_http_client
 _load_storage_state = _auth_cookies._load_storage_state

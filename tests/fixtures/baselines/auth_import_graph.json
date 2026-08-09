@@ -128,6 +128,11 @@
     {
       "scope": "module",
       "source": "keepalive",
+      "target": "mint_service"
+    },
+    {
+      "scope": "module",
+      "source": "keepalive",
       "target": "paths"
     },
     {
@@ -146,11 +151,6 @@
       "target": "cookies"
     },
     {
-      "scope": "function",
-      "source": "master_token",
-      "target": "keepalive"
-    },
-    {
       "scope": "module",
       "source": "master_token",
       "target": "master_token_file"
@@ -159,6 +159,11 @@
       "scope": "module",
       "source": "master_token",
       "target": "master_token_types"
+    },
+    {
+      "scope": "module",
+      "source": "master_token",
+      "target": "mint_service"
     },
     {
       "scope": "module",
@@ -189,6 +194,11 @@
       "scope": "module",
       "source": "master_token_file",
       "target": "storage_lock"
+    },
+    {
+      "scope": "module",
+      "source": "mint_service",
+      "target": "master_token_types"
     },
     {
       "scope": "module",
@@ -643,7 +653,7 @@
       "path": "src/notebooklm/_auth/headless_reauth.py"
     },
     {
-      "lines": 455,
+      "lines": 415,
       "name": "keepalive",
       "path": "src/notebooklm/_auth/keepalive.py"
     },
@@ -653,7 +663,7 @@
       "path": "src/notebooklm/_auth/login_wait_trace.py"
     },
     {
-      "lines": 679,
+      "lines": 593,
       "name": "master_token",
       "path": "src/notebooklm/_auth/master_token.py"
     },
@@ -666,6 +676,11 @@
       "lines": 57,
       "name": "master_token_types",
       "path": "src/notebooklm/_auth/master_token_types.py"
+    },
+    {
+      "lines": 194,
+      "name": "mint_service",
+      "path": "src/notebooklm/_auth/mint_service.py"
     },
     {
       "lines": 236,
@@ -755,11 +770,11 @@
     "module_level": []
   },
   "summary": {
-    "function_local_edges": 13,
-    "module_edges": 99,
-    "modules": 36,
-    "total_lines": 14681,
-    "unique_edges": 112
+    "function_local_edges": 12,
+    "module_edges": 102,
+    "modules": 37,
+    "total_lines": 14749,
+    "unique_edges": 114
   },
   "version": 1
 }
