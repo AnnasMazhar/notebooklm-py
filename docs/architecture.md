@@ -1231,6 +1231,7 @@ src/notebooklm/
 │   ├── storage_transaction.py   # Shim: re-exports transaction aliases through storage.py (removed at next major)
 │   ├── keepalive.py             # Cookie keepalive + __Secure-1PSIDTS rotation
 │   ├── psidts_recovery.py       # Inline PSIDTS recovery (issue #865) + the one load→heal→retry composition + the captured-cookie validate/heal seam
+│   ├── master_token_types.py    # Dependency-bottom immutable master-token value + pure legacy-record codec
 │   ├── master_token.py          # Headless master-token auth: minting primitives + the audited bootstrap/re-mint transaction (ADR-0023)
 │   ├── recovery.py              # Client-neutral cold-start L3/L4 adapters (consume single_flight; keep per-loop revalidate epoch)
 │   ├── single_flight.py         # Cross-loop coalescing core: (path, policy) flight registry + per-path success_epoch

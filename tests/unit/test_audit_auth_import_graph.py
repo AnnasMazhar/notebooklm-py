@@ -91,8 +91,8 @@ def test_scope_duplicate_self_and_scc_rules(audit, tmp_path):
 def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
-        "modules": 34,
-        "total_lines": 14531,
+        "modules": 35,
+        "total_lines": 14588,
         "unique_edges": 103,
         "module_edges": 90,
         "function_local_edges": 13,
