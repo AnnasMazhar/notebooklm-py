@@ -67,6 +67,18 @@
       "module": "cookie_policy"
     },
     {
+      "attribute": "sanitize_cookie_entry",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "cookie_semantics"
+    },
+    {
+      "attribute": "_cookie_from_normalized_entry",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "cookies"
+    },
+    {
       "attribute": "_load_cookies_pure",
       "count": 1,
       "idiom": "monkeypatch.setattr",
@@ -74,13 +86,13 @@
     },
     {
       "attribute": "build_httpx_cookies_from_storage",
-      "count": 5,
+      "count": 3,
       "idiom": "monkeypatch.setattr",
       "module": "cookies"
     },
     {
       "attribute": "build_httpx_cookies_from_storage",
-      "count": 5,
+      "count": 4,
       "idiom": "patch.object",
       "module": "cookies"
     },
@@ -265,38 +277,32 @@
       "module": "psidts_recovery"
     },
     {
+      "attribute": "_try_headless_reauth_result",
+      "count": 7,
+      "idiom": "monkeypatch.setattr",
+      "module": "recovery"
+    },
+    {
+      "attribute": "_try_master_token_reauth_result",
+      "count": 6,
+      "idiom": "monkeypatch.setattr",
+      "module": "recovery"
+    },
+    {
       "attribute": "coalesced_cold_recovery",
       "count": 2,
       "idiom": "monkeypatch.setattr",
       "module": "recovery"
     },
     {
-      "attribute": "try_headless_reauth",
-      "count": 4,
-      "idiom": "monkeypatch.setattr",
-      "module": "recovery"
-    },
-    {
-      "attribute": "try_headless_reauth",
-      "count": 3,
-      "idiom": "patch.object",
-      "module": "recovery"
-    },
-    {
-      "attribute": "try_master_token_reauth",
-      "count": 4,
-      "idiom": "monkeypatch.setattr",
-      "module": "recovery"
-    },
-    {
-      "attribute": "try_master_token_reauth",
-      "count": 2,
-      "idiom": "patch.object",
-      "module": "recovery"
-    },
-    {
       "attribute": "_coalesced_run_refresh_cmd",
       "count": 12,
+      "idiom": "monkeypatch.setattr",
+      "module": "refresh"
+    },
+    {
+      "attribute": "_fetch_tokens_with_exact_baseline",
+      "count": 3,
       "idiom": "monkeypatch.setattr",
       "module": "refresh"
     },
@@ -308,7 +314,7 @@
     },
     {
       "attribute": "_fetch_tokens_with_refresh",
-      "count": 4,
+      "count": 1,
       "idiom": "monkeypatch.setattr",
       "module": "refresh"
     },
@@ -410,7 +416,7 @@
     },
     {
       "attribute": "save_cookies_to_storage",
-      "count": 9,
+      "count": 6,
       "idiom": "monkeypatch.setattr",
       "module": "storage"
     },
@@ -425,13 +431,25 @@
       "count": 1,
       "idiom": "monkeypatch.setattr",
       "module": "storage_lock"
+    },
+    {
+      "attribute": "_load_stored_auth",
+      "count": 5,
+      "idiom": "monkeypatch.setattr",
+      "module": "tokens"
+    },
+    {
+      "attribute": "resolve_auth_json_env",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "tokens"
     }
   ],
   "summary": {
     "TOTAL": {
-      "private": 117,
-      "public": 184,
-      "total": 301
+      "private": 136,
+      "public": 167,
+      "total": 303
     },
     "account": {
       "private": 2,
@@ -448,10 +466,15 @@
       "public": 4,
       "total": 10
     },
+    "cookie_semantics": {
+      "private": 0,
+      "public": 1,
+      "total": 1
+    },
     "cookies": {
-      "private": 1,
-      "public": 11,
-      "total": 12
+      "private": 2,
+      "public": 8,
+      "total": 10
     },
     "credential_io": {
       "private": 3,
@@ -489,8 +512,8 @@
       "total": 24
     },
     "recovery": {
-      "private": 0,
-      "public": 15,
+      "private": 13,
+      "public": 2,
       "total": 15
     },
     "refresh": {
@@ -505,13 +528,18 @@
     },
     "storage": {
       "private": 2,
-      "public": 27,
-      "total": 29
+      "public": 24,
+      "total": 26
     },
     "storage_lock": {
       "private": 1,
       "public": 0,
       "total": 1
+    },
+    "tokens": {
+      "private": 5,
+      "public": 1,
+      "total": 6
     }
   },
   "version": 1

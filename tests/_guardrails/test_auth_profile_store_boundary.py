@@ -223,7 +223,7 @@ def test_importer_detector_bites_at_every_scope(source: str) -> None:
     assert _imports_profile_store(AUTH_ROOT / "synthetic.py", ast.parse(source))
 
 
-def test_production_importers_are_exactly_storage_and_profile_migration() -> None:
+def test_production_importers_are_exactly_approved_store_owners_and_loader() -> None:
     actual = {
         _source_label(path)
         for path in SRC_ROOT.rglob("*.py")
@@ -233,7 +233,7 @@ def test_production_importers_are_exactly_storage_and_profile_migration() -> Non
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
         )
     }
-    assert actual == {"profile_migration.py", "storage.py"}
+    assert actual == {"profile_migration.py", "storage.py", "tokens.py"}
 
 
 def test_external_source_importer_is_detected_with_stable_relative_label() -> None:
@@ -938,6 +938,10 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
         ("storage.py", "update_account_metadata", "ProfileStore"),
         ("storage.py", "update_account_metadata", "update_account"),
         ("storage.py", "write_account_metadata", "ProfileStore"),
+        ("tokens.py", "FileAuthSource.__post_init__", _CAPABILITY_ESCAPE),
+        ("tokens.py", "FileLoadedAuth.__post_init__", _CAPABILITY_ESCAPE),
+        ("tokens.py", "StoredAuthLoader._merge_observation", "merge_cookie_observation"),
+        ("tokens.py", "StoredAuthLoader._resolve_source", "ProfileStore"),
     }
 
 
@@ -1025,6 +1029,7 @@ def test_raw_projection_core_callers_are_exact_and_capability_does_not_escape() 
     assert calls == {
         ("profile_migration.py", "LegacyAccountMigrator.resolve"),
         ("storage.py", "read_account_metadata"),
+        ("tokens.py", "AccountRouteResolver.resolve"),
     }
     assert not escapes
 

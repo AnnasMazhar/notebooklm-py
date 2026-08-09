@@ -141,11 +141,27 @@ def _next_baseline(
     baseline: CookieJar,
     observation: CookieJar,
     rejected: frozenset[CookieIdentity],
+    final_rows: list[object],
 ) -> CookieJar:
-    if not rejected:
-        return CookieJar(tuple(snapshot_index_last_wins(observation).values()))
-    old = snapshot_index_last_wins(baseline)
+    final = _selected_final_cookies(final_rows)
     advanced = dict(snapshot_index_last_wins(observation))
+    for identity, observed in tuple(advanced.items()):
+        selected = _variant_entry(final, identity)
+        if selected is None:
+            continue
+        advanced[identity] = Cookie(
+            name=observed.name,
+            domain=observed.domain,
+            path=observed.path,
+            value=observed.value,
+            expires=observed.expires,
+            secure=observed.secure,
+            http_only=observed.http_only,
+            same_site=selected[1].same_site,
+        )
+    if not rejected:
+        return CookieJar(tuple(advanced.values()))
+    old = snapshot_index_last_wins(baseline)
     for identity in rejected:
         original = _variant_entry(old, identity)
         for variant in equivalent_identities(identity):
@@ -153,6 +169,40 @@ def _next_baseline(
         if original is not None:
             advanced[original[0]] = original[1]
     return CookieJar(tuple(advanced.values()))
+
+
+def _selected_final_cookies(rows: list[object]) -> Mapping[CookieIdentity, Cookie]:
+    """Project final stored rows with the live loader's first-successful rule."""
+    selected: dict[CookieIdentity, Cookie] = {}
+    for row in rows:
+        try:
+            normalized = _cookie_semantics.sanitize_cookie_entry(row)
+        except _cookie_semantics.CookieRowError:
+            continue
+        if not _cookie_policy._is_allowed_cookie_domain(normalized["domain"]):
+            continue
+        identity = CookieIdentity(normalized["name"], normalized["domain"], normalized["path"])
+        if identity in selected:
+            continue
+        try:
+            converted = _cookie_semantics.cookie_from_normalized_entry(
+                normalized,
+                http_only_key="httpOnly",
+            )
+        except (ValueError, TypeError, OverflowError):
+            continue
+        raw_same_site = normalized.get("sameSite", normalized.get("same_site"))
+        selected[identity] = Cookie(
+            name=converted.name,
+            domain=converted.domain,
+            path=converted.path or "/",
+            value=converted.value if converted.value is not None else "",
+            expires=converted.expires,
+            secure=bool(converted.secure),
+            http_only=_cookie_semantics.cookie_is_http_only(converted),
+            same_site=raw_same_site if isinstance(raw_same_site, str) else None,
+        )
+    return MappingProxyType(selected)
 
 
 def _recovery_prepass(
@@ -319,9 +369,10 @@ def decide_cookie_merge(
 
     rejected_frozen = frozenset(rejected)
     document = stored.replace_cookie_rows(merged) if updated_rows else None
+    final_rows = merged if document is not None else list(stored.raw_cookie_rows())
     return CookieMergeDecision(
         document=document,
-        next_baseline=_next_baseline(baseline, observation, rejected_frozen),
+        next_baseline=_next_baseline(baseline, observation, rejected_frozen, final_rows),
         rejected=rejected_frozen,
         updated_rows=updated_rows,
         _conflicts=tuple(conflicts),

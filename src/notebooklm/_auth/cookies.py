@@ -11,15 +11,16 @@ import http.cookiejar
 import json
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 import httpx
 
 from ..paths import get_storage_path
 from . import cookie_policy as _cookie_policy
 from . import cookie_semantics as _cookie_semantics
-from .cookie_types import CookieIdentity
+from .cookie_types import Cookie, CookieIdentity, CookieJar
 from .paths import resolve_auth_json_env
 
 logger = logging.getLogger("notebooklm.auth")
@@ -52,6 +53,23 @@ RequiredCookieValidationError = _cookie_policy.RequiredCookieValidationError
 _CookieRowError = _cookie_semantics.CookieRowError
 
 
+class _SanitizedCookieEntry(dict[str, Any]):
+    """Marker for a row already sanitized within the current load operation."""
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _LoadedCookiePair:
+    """One raw-state sample projected to live and persistence-safe forms."""
+
+    live: httpx.Cookies = field(repr=False)
+    baseline: CookieJar = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.live, httpx.Cookies) or not isinstance(self.baseline, CookieJar):
+            raise TypeError("loaded cookie pair fields are invalid")
+        object.__setattr__(self, "baseline", CookieJar(tuple(self.baseline)))
+
+
 def _bounded_row_field(entry: Any, field: str) -> str:
     """Return a value-free, bounded diagnostic for one row field."""
     if not isinstance(entry, dict):
@@ -64,6 +82,8 @@ def _bounded_row_field(entry: Any, field: str) -> str:
 
 def _sanitize_cookie_entry(entry: Any) -> dict[str, Any] | None:
     """Sanitize one storage/rookiepy row and emit only redacted diagnostics."""
+    if isinstance(entry, _SanitizedCookieEntry):
+        return entry
     try:
         return _cookie_semantics.sanitize_cookie_entry(entry)
     except _CookieRowError as exc:
@@ -386,28 +406,7 @@ def _load_storage_state(path: Path | None = None) -> dict[str, Any]:
 
     env_auth_json = resolve_auth_json_env()
     if env_auth_json is not None:
-        auth_json = env_auth_json.strip()
-        if not auth_json:
-            raise StorageStateValidationError(
-                "NOTEBOOKLM_AUTH_JSON environment variable is set but empty.\n"
-                "Provide valid Playwright storage state JSON or unset the variable."
-            )
-        try:
-            storage_state = json.loads(auth_json)
-        except json.JSONDecodeError as e:
-            raise ValueError(
-                f"Invalid JSON in NOTEBOOKLM_AUTH_JSON environment variable: {e}\n"
-                f"Ensure the value is valid Playwright storage state JSON."
-            ) from e
-        if not isinstance(storage_state, dict) or not isinstance(
-            storage_state.get("cookies"), list
-        ):
-            raise StorageStateValidationError(
-                "NOTEBOOKLM_AUTH_JSON must contain valid Playwright storage state "
-                "with a 'cookies' key.\n"
-                'Expected format: {"cookies": [{"name": "SID", "value": "...", ...}]}'
-            )
-        return storage_state
+        return _load_storage_state_from_env_value(env_auth_json)
 
     storage_path = get_storage_path()
     if not storage_path.exists():
@@ -419,6 +418,30 @@ def _load_storage_state(path: Path | None = None) -> dict[str, Any]:
     if not isinstance(storage_state, dict) or not isinstance(storage_state.get("cookies"), list):
         raise StorageStateValidationError(
             "Storage state must contain a 'cookies' list.\n"
+            'Expected format: {"cookies": [{"name": "SID", "value": "...", ...}]}'
+        )
+    return storage_state
+
+
+def _load_storage_state_from_env_value(env_auth_json: str) -> dict[str, Any]:
+    """Parse one already-captured inline-auth value without rereading ambient state."""
+    auth_json = env_auth_json.strip()
+    if not auth_json:
+        raise StorageStateValidationError(
+            "NOTEBOOKLM_AUTH_JSON environment variable is set but empty.\n"
+            "Provide valid Playwright storage state JSON or unset the variable."
+        )
+    try:
+        storage_state = json.loads(auth_json)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Invalid JSON in NOTEBOOKLM_AUTH_JSON environment variable: {e}\n"
+            f"Ensure the value is valid Playwright storage state JSON."
+        ) from e
+    if not isinstance(storage_state, dict) or not isinstance(storage_state.get("cookies"), list):
+        raise StorageStateValidationError(
+            "NOTEBOOKLM_AUTH_JSON must contain valid Playwright storage state "
+            "with a 'cookies' key.\n"
             'Expected format: {"cookies": [{"name": "SID", "value": "...", ...}]}'
         )
     return storage_state
@@ -522,6 +545,17 @@ def _load_cookies_pure(path: Path | None = None, *, require_routable: bool = Tru
     return _build_httpx_cookies_from_storage_state(storage_state, require_routable=require_routable)
 
 
+def _load_cookie_pair_pure(
+    path: Path | None = None, *, require_routable: bool = True
+) -> _LoadedCookiePair:
+    """Load one raw state sample into its paired live and typed projections."""
+    storage_state = _load_storage_state(path)
+    return _build_cookie_pair_from_storage_state(
+        storage_state,
+        require_routable=require_routable,
+    )
+
+
 def build_httpx_cookies_from_storage(path: Path | None = None) -> httpx.Cookies:
     """Build an httpx.Cookies jar with original domains preserved.
 
@@ -560,6 +594,83 @@ def build_httpx_cookies_from_storage(path: Path | None = None) -> httpx.Cookies:
     return psidts_recovery.load_session_jar(path, psidts_recovery.HealPolicy.HEAL_THEN_NAME_ONLY)
 
 
+def _build_cookie_pair_from_storage(path: Path | None = None) -> _LoadedCookiePair:
+    """Load/heal/retry once and retain the exact typed baseline from that sample."""
+    from . import psidts_recovery  # noqa: PLC0415 (cycle: psidts_recovery -> cookies)
+
+    return psidts_recovery.load_with_recovery(
+        path,
+        psidts_recovery.HealPolicy.HEAL_THEN_NAME_ONLY,
+        load=_load_cookie_pair_pure,
+    )
+
+
+def _build_cookie_pair_from_storage_state(
+    storage_state: dict[str, Any],
+    *,
+    context: str = "",
+    require_routable: bool,
+) -> _LoadedCookiePair:
+    """Project one already-loaded state without losing typed cookie provenance."""
+    entries: list[dict[str, Any]] = [
+        _SanitizedCookieEntry(entry) for entry in _sanitized_auth_entries(storage_state)
+    ]
+    converted_rows: list[tuple[dict[str, Any], http.cookiejar.Cookie | None]] = []
+    for entry in entries:
+        try:
+            converted = _cookie_from_normalized_entry(entry, http_only_key="httpOnly")
+        except (ValueError, TypeError, OverflowError) as exc:
+            logger.debug(
+                "Skipping unusable cookie row name=%s domain=%s error=%s",
+                _bounded_row_field(entry, "name"),
+                _bounded_row_field(entry, "domain"),
+                type(exc).__name__,
+            )
+            converted_rows.append((entry, None))
+            continue
+        converted_rows.append((entry, converted))
+
+    live = httpx.Cookies()
+    baseline: list[Cookie] = []
+    seen_keys: set[CookieIdentity] = set()
+    converted_by_row = {id(entry): converted for entry, converted in converted_rows}
+    for normalized, selected_cookie in converted_rows:
+        if selected_cookie is None:
+            continue
+        key = CookieIdentity(normalized["name"], normalized["domain"], normalized["path"])
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        live.jar.set_cookie(selected_cookie)
+        raw_same_site = normalized.get("sameSite", normalized.get("same_site"))
+        baseline.append(
+            Cookie(
+                name=selected_cookie.name,
+                domain=selected_cookie.domain,
+                path=selected_cookie.path or "/",
+                value=cast(str, selected_cookie.value),
+                expires=selected_cookie.expires,
+                secure=bool(selected_cookie.secure),
+                http_only=_cookie_is_http_only(selected_cookie),
+                same_site=raw_same_site if isinstance(raw_same_site, str) else None,
+            )
+        )
+
+    def reuse_converted(entry: dict[str, Any]) -> http.cookiejar.Cookie:
+        converted = converted_by_row.get(id(entry))
+        if converted is None:
+            raise ValueError("cookie row was unusable")
+        return converted
+
+    _validate_routable_entries(
+        entries,
+        to_cookie=reuse_converted,
+        context=context,
+        require_routable=require_routable,
+    )
+    return _LoadedCookiePair(live=live, baseline=CookieJar(baseline))
+
+
 def _build_httpx_cookies_from_storage_state(
     storage_state: dict[str, Any],
     *,
@@ -580,26 +691,11 @@ def _build_httpx_cookies_from_storage_state(
     A loader with no recovery arm must stay name-only, or it converts a working
     session into a hard failure it cannot repair (#2061).
     """
-    entries = _sanitized_auth_entries(storage_state)
-    cookies = httpx.Cookies()
-    seen_keys: set[CookieIdentity] = set()
-    for entry in entries:
-        key = CookieIdentity(entry["name"], entry["domain"], entry["path"])
-        if key in seen_keys:
-            continue
-        cookie = _safe_to_cookie(entry)
-        if cookie is None:
-            continue
-        seen_keys.add(key)
-        cookies.jar.set_cookie(cookie)
-
-    _validate_routable_entries(
-        entries,
-        to_cookie=_storage_entry_to_cookie,
+    return _build_cookie_pair_from_storage_state(
+        storage_state,
         context=context,
         require_routable=require_routable,
-    )
-    return cookies
+    ).live
 
 
 def _build_httpx_cookies_from_storage_strict(path: Path | None) -> httpx.Cookies:

@@ -34,10 +34,10 @@ from pytest_httpx import HTTPXMock
 import notebooklm._auth.cookies as _auth_cookies
 import notebooklm._auth.psidts_recovery as _auth_psidts_recovery
 import notebooklm._auth.refresh as _auth_refresh
-import notebooklm._auth.storage as _auth_storage
 import notebooklm._auth.tokens as _auth_tokens
 from notebooklm import auth as auth_module
 from notebooklm._auth.cookie_policy import RequiredCookieValidationError
+from notebooklm._auth.profile_store import ProfileStore
 from notebooklm.auth import AuthTokens
 
 # A ``__Secure-1PSIDTS`` scoped to an app host is present by name but does NOT
@@ -112,19 +112,15 @@ async def test_from_storage_save_does_not_block_event_loop(
     html = '"SNlM0e":"csrf_token" "FdrFJe":"session_id"'
     httpx_mock.add_response(content=html.encode())
 
-    # Replace the storage save with a synchronous sleep. Returning ``True``
-    # mirrors the legacy "ok" return path of save_cookies_to_storage when
-    # the caller does not request a structured result. The from_storage
-    # caller passes ``return_result=True`` and expects a ``CookieSaveResult``
-    # or ``bool``; ``True`` flows the no-snapshot branch (cookie_snapshot
-    # is set to ``None``), which is fine for this test's assertions.
-    def _blocking_save(*args: object, **kwargs: object) -> bool:
+    real_merge = ProfileStore.merge_cookie_observation
+
+    def _blocking_merge(self, *args: object, **kwargs: object):
         time.sleep(_SLEEP_SECONDS)
-        return True
+        return real_merge(self, *args, **kwargs)
 
     # ``AuthTokens.from_storage`` owns token loading in ``_auth.tokens`` and
     # resolves the storage save through the private owner module.
-    monkeypatch.setattr(_auth_storage, "save_cookies_to_storage", _blocking_save)
+    monkeypatch.setattr(ProfileStore, "merge_cookie_observation", _blocking_merge)
 
     heartbeats = 0
     stop = asyncio.Event()

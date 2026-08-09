@@ -230,9 +230,9 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src/notebooklm/_auth")
     projection = script.build_projection(sites)
     assert projection["summary"]["TOTAL"] == {
-        "public": 184,
-        "private": 117,
-        "total": 301,
+        "public": 167,
+        "private": 136,
+        "total": 303,
     }
     relevant = {
         (row["module"], row["attribute"], row["idiom"]): row["count"]
@@ -248,6 +248,19 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
             ("cookie_policy", "cookie_names_from_storage"),
             ("profile_store", "_commit_profile_json"),
             ("profile_store", "filter_storage_state_cookies_by_domain_policy"),
+            ("cookies", "build_httpx_cookies_from_storage"),
+            ("cookies", "_cookie_from_normalized_entry"),
+            ("cookie_semantics", "sanitize_cookie_entry"),
+            ("recovery", "_try_headless_reauth_result"),
+            ("recovery", "_try_master_token_reauth_result"),
+            ("recovery", "coalesced_cold_recovery"),
+            ("recovery", "try_headless_reauth"),
+            ("recovery", "try_master_token_reauth"),
+            ("refresh", "_fetch_tokens_with_exact_baseline"),
+            ("refresh", "_fetch_tokens_with_refresh"),
+            ("storage", "save_cookies_to_storage"),
+            ("tokens", "_load_stored_auth"),
+            ("tokens", "resolve_auth_json_env"),
         }
     }
     assert relevant == {
@@ -264,6 +277,18 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
             "filter_storage_state_cookies_by_domain_policy",
             "monkeypatch.setattr",
         ): 7,
+        ("cookies", "build_httpx_cookies_from_storage", "monkeypatch.setattr"): 3,
+        ("cookies", "build_httpx_cookies_from_storage", "patch.object"): 4,
+        ("cookies", "_cookie_from_normalized_entry", "monkeypatch.setattr"): 1,
+        ("cookie_semantics", "sanitize_cookie_entry", "monkeypatch.setattr"): 1,
+        ("recovery", "_try_headless_reauth_result", "monkeypatch.setattr"): 7,
+        ("recovery", "_try_master_token_reauth_result", "monkeypatch.setattr"): 6,
+        ("recovery", "coalesced_cold_recovery", "monkeypatch.setattr"): 2,
+        ("refresh", "_fetch_tokens_with_exact_baseline", "monkeypatch.setattr"): 3,
+        ("refresh", "_fetch_tokens_with_refresh", "monkeypatch.setattr"): 1,
+        ("storage", "save_cookies_to_storage", "monkeypatch.setattr"): 6,
+        ("tokens", "_load_stored_auth", "monkeypatch.setattr"): 5,
+        ("tokens", "resolve_auth_json_env", "monkeypatch.setattr"): 1,
     }
 
 

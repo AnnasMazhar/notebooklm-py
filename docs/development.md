@@ -349,7 +349,23 @@ a non-empty unknown-only mapping remains present and wins.
 The measured boundary is 1,150 lines in `_auth/storage.py`, 311 in
 `_auth/profile_migration.py`, 794 in `_auth/profile_store.py`, and 96 in
 `_auth/cookie_filter.py` (2,351 total). `storage.py` remains the v0.x signature/result facade; this
-extraction does not move loader, network-repair, runtime, recovery, or master-token orchestration.
+storage boundary remains unchanged by the typed loader extraction.
+
+`_auth/tokens.py` now owns the Phase 9 stored-auth composition: captured-inline/file sources,
+`LoadPolicy`, paired `SessionSeed`/`TokenAcquisition`, final-attempt `AccountRouteResolver`, the
+closed `LoadedAuth` result, and `StoredAuthLoader`. Its only structural test seam is
+`TokenAcquirer`; inject that seam for ladder-result tests, and patch the call-time
+`tokens._load_stored_auth` provider for `AuthTokens.from_storage`/client composition tests. Raw
+loads and PSIDTS heal, file-account resolution, and the initial `ProfileStore` merge remain worker
+offloads. `_auth/cookies.py` owns one-sample live/SameSite-preserving seed provenance,
+`_auth/recovery.py` carries exact replacement baselines, and `_auth/cookie_merge.py` advances the
+next baseline from accepted final rows while retaining rejected old entries. The measured owner
+sizes are 816 lines in `tokens.py`, 1,195 in `refresh.py`, and 996 in `client.py`.
+
+`NotebookLMClient.from_storage` consumes the closed result but still passes the selected typed
+baseline through the v0.x `AuthTokens.cookie_snapshot` carrier. Phase 10 will register the typed
+`ProfileStore`/baseline pair with runtime `CookiePersistence`; do not initialize that state or
+claim the direct-construction disk-baseline correction in Phase 9.
 - **In-process lock before OS lock.** `StorageLockManager` takes an in-process
   `threading.Lock` keyed by the exact raw lock-path spelling *before* the OS lock, so
   threads within one process serialize before ever touching the OS primitive —

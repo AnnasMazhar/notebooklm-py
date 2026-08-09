@@ -121,6 +121,10 @@ def _baseline_values(jar: CookieJar) -> dict[CookieIdentity, tuple[object, ...]]
     }
 
 
+def _baseline_same_site(jar: CookieJar) -> dict[CookieIdentity, str | None]:
+    return {cookie.key: cookie.same_site for cookie in jar}
+
+
 def _decide(
     rows: list[object],
     *,
@@ -1034,3 +1038,72 @@ def test_snapshot_storage_adapter_keeps_none_as_a_deletion_not_a_null_delta() ->
     assert updated == 1
     assert rejected == frozenset()
     assert storage_data == {"cookies": [], "origins": []}
+
+
+def test_next_baseline_no_change_takes_forward_compatible_same_site_from_final_row() -> None:
+    identity = CookieIdentity("SID", ".google.com", "/")
+    decision = _decide(
+        [_row("same", sameSite="FuturePolicy")],
+        observation=(_cookie("same"),),
+        baseline=(_cookie("same", same_site="old-baseline"),),
+    )
+
+    assert decision.document is None
+    assert _baseline_same_site(decision.next_baseline) == {identity: "FuturePolicy"}
+
+
+def test_next_baseline_accepted_uses_final_row_and_rejected_keeps_exact_old_cookie() -> None:
+    sid = CookieIdentity("SID", ".google.com", "/")
+    apisid = CookieIdentity("APISID", ".google.com", "/")
+    decision = _decide(
+        [
+            _row("concurrent", sameSite="disk-concurrent"),
+            _row("old-api", name="APISID", sameSite="Lax"),
+        ],
+        observation=(
+            _cookie("new-sid", expires=22, secure=True),
+            _cookie("new-api", name="APISID", expires=33),
+        ),
+        baseline=(
+            _cookie("old-sid", expires=11, same_site="rejected-old"),
+            _cookie("old-api", name="APISID", same_site="api-old"),
+        ),
+    )
+
+    assert decision.rejected == frozenset({sid})
+    projected = {cookie.key: cookie for cookie in decision.next_baseline}
+    assert (
+        projected[sid].value,
+        projected[sid].expires,
+        projected[sid].secure,
+        projected[sid].same_site,
+    ) == ("old-sid", 11, False, "rejected-old")
+    assert (projected[apisid].value, projected[apisid].same_site) == (
+        "new-api",
+        "Lax",
+    )
+
+
+def test_next_baseline_final_selector_skips_malformed_first_duplicate() -> None:
+    identity = CookieIdentity("SID", ".google.com", "/")
+    decision = _decide(
+        [
+            _row("ignored", expires="never", sameSite="wrong"),
+            _row("same", expires="41.9", sameSite="later-survivor"),
+        ],
+        observation=(_cookie("same", expires=41),),
+        baseline=(_cookie("same", expires=41),),
+    )
+
+    assert _baseline_same_site(decision.next_baseline) == {identity: "later-survivor"}
+
+
+def test_next_baseline_final_selector_matches_bare_and_dotted_domains() -> None:
+    observed = _cookie("same", domain="google.com")
+    decision = _decide(
+        [_row("same", domain=".google.com", sameSite="variant-carried")],
+        observation=(observed,),
+        baseline=(observed,),
+    )
+
+    assert next(iter(decision.next_baseline)).same_site == "variant-carried"

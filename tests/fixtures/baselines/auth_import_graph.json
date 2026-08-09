@@ -261,7 +261,17 @@
       "target": "storage"
     },
     {
+      "scope": "module",
+      "source": "recovery",
+      "target": "cookie_types"
+    },
+    {
       "scope": "function",
+      "source": "recovery",
+      "target": "cookies"
+    },
+    {
+      "scope": "module",
       "source": "recovery",
       "target": "cookies"
     },
@@ -309,6 +319,11 @@
       "scope": "module",
       "source": "refresh",
       "target": "account"
+    },
+    {
+      "scope": "module",
+      "source": "refresh",
+      "target": "cookie_types"
     },
     {
       "scope": "function",
@@ -463,6 +478,31 @@
     {
       "scope": "module",
       "source": "tokens",
+      "target": "paths"
+    },
+    {
+      "scope": "module",
+      "source": "tokens",
+      "target": "profile_account"
+    },
+    {
+      "scope": "module",
+      "source": "tokens",
+      "target": "profile_document"
+    },
+    {
+      "scope": "module",
+      "source": "tokens",
+      "target": "profile_migration"
+    },
+    {
+      "scope": "module",
+      "source": "tokens",
+      "target": "profile_store"
+    },
+    {
+      "scope": "module",
+      "source": "tokens",
       "target": "psidts_recovery"
     },
     {
@@ -518,7 +558,7 @@
       "path": "src/notebooklm/_auth/cookie_filter.py"
     },
     {
-      "lines": 393,
+      "lines": 444,
       "name": "cookie_merge",
       "path": "src/notebooklm/_auth/cookie_merge.py"
     },
@@ -538,7 +578,7 @@
       "path": "src/notebooklm/_auth/cookie_types.py"
     },
     {
-      "lines": 847,
+      "lines": 943,
       "name": "cookies",
       "path": "src/notebooklm/_auth/cookies.py"
     },
@@ -603,12 +643,12 @@
       "path": "src/notebooklm/_auth/psidts_recovery.py"
     },
     {
-      "lines": 256,
+      "lines": 297,
       "name": "recovery",
       "path": "src/notebooklm/_auth/recovery.py"
     },
     {
-      "lines": 1200,
+      "lines": 1195,
       "name": "refresh",
       "path": "src/notebooklm/_auth/refresh.py"
     },
@@ -643,7 +683,7 @@
       "path": "src/notebooklm/_auth/storage_writer.py"
     },
     {
-      "lines": 510,
+      "lines": 816,
       "name": "tokens",
       "path": "src/notebooklm/_auth/tokens.py"
     }
@@ -661,10 +701,10 @@
   },
   "summary": {
     "function_local_edges": 13,
-    "module_edges": 82,
+    "module_edges": 90,
     "modules": 34,
-    "total_lines": 14042,
-    "unique_edges": 95
+    "total_lines": 14531,
+    "unique_edges": 103
   },
   "version": 1
 }

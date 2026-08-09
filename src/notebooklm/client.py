@@ -34,20 +34,9 @@ if TYPE_CHECKING:
     from .rpc import RPCMethod
     from .types import ClientMetricsSnapshot, ConnectionLimits, RpcTelemetryEvent
 
-# The construction wiring lives in ``_client_assembly`` (the seam shared
-# with the canonical test factory), but the names below stay runtime
-# imports on purpose:
-#
-# - the feature-API / collaborator types annotate the class-level
-#   attribute block, and keeping them importable at runtime keeps
-#   ``typing.get_type_hints(NotebookLMClient)`` working for downstream
-#   introspection;
-# - this module's attribute surface (``notebooklm.client.SourcesAPI``
-#   etc.) predates the assembly split and is kept byte-compatible so
-#   external tooling/imports against it don't break. The F401-suppressed
-#   names are exactly the previously-importable names the annotations no
-#   longer reference.
+# Keep feature/collaborator types importable for runtime type-hint introspection.
 from ._artifacts import ArtifactsAPI
+from ._auth import tokens as _auth_tokens
 from ._auth.account import _probe_authuser
 from ._auth.account import authuser_query as authuser_query
 from ._auth.extraction import extract_wiz_field as extract_wiz_field
@@ -937,10 +926,17 @@ class _FromStorageContext:
         path = kwargs["path"]
         profile = kwargs["profile"]
 
-        auth_kwargs = {"allow_headless": True} if kwargs["allow_headless"] else {}
-        auth = await AuthTokens.from_storage(
-            Path(path) if path else None, profile=profile, **auth_kwargs
+        loaded = await _auth_tokens._load_stored_auth(
+            path=Path(path) if path else None,
+            profile=profile,
+            policy=_auth_tokens.LoadPolicy(allow_headless=kwargs["allow_headless"]),
+            auth_type=AuthTokens,
         )
+        match loaded:
+            case _auth_tokens.InlineLoadedAuth(auth=auth):
+                pass
+            case _auth_tokens.FileLoadedAuth(auth=auth):
+                pass
         storage_path = auth.storage_path
 
         self._client = self._cls(
