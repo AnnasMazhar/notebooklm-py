@@ -308,9 +308,10 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # → L4) landed net-neutral at the then-current pin. Phase 12A moved its
     # operation-scoped control flow behind ``ColdRecoveryCoordinator`` while
     # retaining this module's late-bound callback composition and exact public
-    # adapters. The extraction shrank the measured module by one line; freeze
-    # that saved ground immediately.
-    "_auth/refresh.py": 1194,
+    # adapters. Phase 12B then replaced the legacy cookie-saver adapter with a
+    # direct typed ``ProfileStore`` merge, shrinking the measured module by a
+    # further five lines; freeze all saved ground immediately.
+    "_auth/refresh.py": 1189,
     # sanctioned merge (ADR-0033) — the `_auth` browser-cluster merge (PR 4.1):
     # ``_auth/browser_state_validation.py`` (56) and ``_auth/login_wait_trace.py``
     # (181) were absorbed in full and reduced to re-export shims in the same

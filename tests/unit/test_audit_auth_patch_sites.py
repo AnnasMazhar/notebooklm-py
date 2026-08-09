@@ -230,8 +230,8 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src/notebooklm/_auth")
     projection = script.build_projection(sites)
     assert projection["summary"]["TOTAL"] == {
-        "public": 149,
-        "private": 156,
+        "public": 146,
+        "private": 159,
         "total": 305,
     }
     relevant = {
@@ -305,7 +305,7 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
         ("storage", "LegacyAccountMigrator", "monkeypatch.setattr"): 3,
         ("cookie_policy", "MINIMUM_REQUIRED_COOKIES", "monkeypatch.setattr"): 3,
         ("cookie_policy", "cookie_names_from_storage", "monkeypatch.setattr"): 1,
-        ("profile_store", "_commit_profile_json", "monkeypatch.setattr"): 17,
+        ("profile_store", "_commit_profile_json", "monkeypatch.setattr"): 18,
         (
             "profile_store",
             "filter_storage_state_cookies_by_domain_policy",
@@ -319,14 +319,17 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
         ("recovery", "_try_headless_reauth_result", "monkeypatch.setattr"): 7,
         ("recovery", "_try_master_token_reauth_result", "monkeypatch.setattr"): 6,
         ("recovery", "coalesced_cold_recovery", "monkeypatch.setattr"): 2,
-        ("refresh", "_fetch_tokens_with_exact_baseline", "monkeypatch.setattr"): 3,
-        ("refresh", "_fetch_tokens_with_refresh", "monkeypatch.setattr"): 1,
+        ("refresh", "_fetch_tokens_with_exact_baseline", "monkeypatch.setattr"): 6,
         ("storage", "save_cookies_to_storage", "monkeypatch.setattr"): 6,
         ("storage", "get_account_email_for_storage", "monkeypatch.setattr"): 1,
         ("tokens", "_load_stored_auth", "monkeypatch.setattr"): 6,
         ("tokens", "resolve_auth_json_env", "monkeypatch.setattr"): 1,
     }
     grouped = {(row["module"], row["attribute"], row["idiom"]) for row in projection["sites"]}
+    assert not any(
+        row["module"] == "refresh" and row["attribute"] == "save_cookies_to_storage"
+        for row in projection["sites"]
+    )
     assert grouped.isdisjoint(
         {
             ("master_token", "remint_from_stored_token", "patch.object"),

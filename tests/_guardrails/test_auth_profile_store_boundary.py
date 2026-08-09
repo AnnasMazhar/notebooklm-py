@@ -246,6 +246,7 @@ def test_production_importers_are_exactly_approved_store_owners_and_loader() -> 
         "master_token.py",
         "master_token_bootstrap.py",
         "profile_migration.py",
+        "refresh.py",
         "storage.py",
         "tokens.py",
     }
@@ -1229,6 +1230,9 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
         ("profile_migration.py", "LoginProfileWriter.write", "replace_from_login"),
         ("profile_migration.py", "AccountMetadataWriter.write", "update_account"),
         ("profile_migration.py", "AccountMetadataWriter.clear", "clear_account"),
+        ("refresh.py", "_merge_domain_fetch_observation", "merge_cookie_observation"),
+        ("refresh.py", "fetch_tokens_with_domains", _INSTANCE_ESCAPE),
+        ("refresh.py", "fetch_tokens_with_domains", "ProfileStore"),
         ("storage.py", "clear_in_band_account", "ProfileStore"),
         ("storage.py", "clear_in_band_account", "clear_account"),
         ("storage.py", "clear_account_metadata", "ProfileStore"),

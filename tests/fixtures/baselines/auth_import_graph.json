@@ -438,6 +438,11 @@
     {
       "scope": "module",
       "source": "refresh",
+      "target": "profile_store"
+    },
+    {
+      "scope": "module",
+      "source": "refresh",
       "target": "recovery"
     },
     {
@@ -758,7 +763,7 @@
       "path": "src/notebooklm/_auth/recovery.py"
     },
     {
-      "lines": 1194,
+      "lines": 1189,
       "name": "refresh",
       "path": "src/notebooklm/_auth/refresh.py"
     },
@@ -811,10 +816,10 @@
   },
   "summary": {
     "function_local_edges": 12,
-    "module_edges": 109,
+    "module_edges": 110,
     "modules": 38,
-    "total_lines": 15079,
-    "unique_edges": 121
+    "total_lines": 15074,
+    "unique_edges": 122
   },
   "version": 1
 }

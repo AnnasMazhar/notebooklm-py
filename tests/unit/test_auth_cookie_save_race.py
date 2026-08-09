@@ -886,18 +886,16 @@ class TestValueUpdateCASGuard:
         assert _cookie_value(storage, "__Secure-1PSIDTS", ".google.com") == "SIBLING"
 
 
-class TestRefreshCmdResnapshot:
+class TestRefreshCmdReplacementBaseline:
     """When ``NOTEBOOKLM_REFRESH_CMD`` runs and wholesale-replaces the
     cookie jar, the pre-fetch snapshot no longer describes the baseline.
-    ``AuthTokens.from_storage`` and ``fetch_tokens_with_domains`` must
-    re-snapshot the jar so the subsequent save computes deltas against the
-    refreshed state, not the stale pre-refresh state. Without this, every
-    rotated cookie would look like a process-local delta and clobber any
-    sibling-process write that landed in the refresh window.
+    ``AuthTokens.from_storage`` and ``fetch_tokens_with_domains`` must retain
+    the paired typed baseline selected by the refresh ladder. Retry rotations
+    remain live-observation deltas instead of being absorbed into that baseline.
     """
 
     @pytest.mark.asyncio
-    async def test_fetch_tokens_with_domains_re_snapshots_after_refresh(
+    async def test_fetch_tokens_with_domains_uses_exact_replacement_baseline(
         self, tmp_path, monkeypatch
     ):
         from notebooklm import auth as auth_mod
@@ -911,43 +909,57 @@ class TestRefreshCmdResnapshot:
             ],
         )
 
-        # Stub the token fetch to return refreshed=True and mutate the jar
-        # in place (mirroring _replace_cookie_jar after NOTEBOOKLM_REFRESH_CMD).
-        async def fake_fetch_with_refresh(
-            cookie_jar, storage_path, profile, *, authuser=0, env_auth=False
-        ):
+        replacement_baseline = None
+
+        async def fake_fetch_with_exact_baseline(cookie_jar, storage_path, profile, **kwargs):
+            nonlocal replacement_baseline
             # Simulate the wholesale jar swap: clear & repopulate with new values.
             cookie_jar.jar.clear()
             cookie_jar.set("SID", "post", domain=".google.com", path="/")
             cookie_jar.set("__Secure-1PSIDTS", "post_refresh", domain=".google.com", path="/")
-            # Return the post-replace snapshot as the 4th element, matching
-            # the real function's contract.
-            return ("csrf", "sid", True, snapshot_cookie_jar(cookie_jar))
+            _write_storage(
+                storage,
+                [
+                    _stored_cookie("SID", "post"),
+                    _stored_cookie("__Secure-1PSIDTS", "post_refresh"),
+                ],
+            )
+            replacement_baseline = CookieJar.from_httpx(cookie_jar)
+            _set_cookie_value(cookie_jar, "__Secure-1PSIDTS", "post_retry_rotation")
+            return "csrf", "sid", replacement_baseline
 
-        monkeypatch.setattr(_auth_refresh, "_fetch_tokens_with_refresh", fake_fetch_with_refresh)
+        monkeypatch.setattr(
+            _auth_refresh,
+            "_fetch_tokens_with_exact_baseline",
+            fake_fetch_with_exact_baseline,
+        )
 
-        captured_snapshots: list = []
-        real_save = auth_mod.save_cookies_to_storage
+        captured: list[tuple[CookieJar, CookieJar]] = []
+        real_merge = ProfileStore.merge_cookie_observation
 
-        def capture_save(jar, path, *, original_snapshot=None, **kwargs):
-            captured_snapshots.append(original_snapshot)
-            return real_save(jar, path, original_snapshot=original_snapshot, **kwargs)
+        def capture_merge(self, observation, *, baseline, recovery_observation=None):
+            captured.append((observation, baseline))
+            return real_merge(
+                self,
+                observation,
+                baseline=baseline,
+                recovery_observation=recovery_observation,
+            )
 
-        monkeypatch.setattr(_auth_refresh, "save_cookies_to_storage", capture_save)
+        monkeypatch.setattr(ProfileStore, "merge_cookie_observation", capture_merge)
 
         await auth_mod.fetch_tokens_with_domains(path=storage)
 
-        assert len(captured_snapshots) == 1
-        snapshot = captured_snapshots[0]
-        # The snapshot passed to save must describe the POST-refresh jar
-        # state (so deltas come out empty/minimal). If the re-snapshot line
-        # is missing, the snapshot would still hold the pre-refresh ``pre``
-        # values and the resulting delta would mass-rewrite disk.
-        key = CookieSnapshotKey("__Secure-1PSIDTS", ".google.com", "/")
-        assert key in snapshot, "snapshot must include the post-refresh PSIDTS key"
-        assert snapshot[key].value == "post_refresh", (
-            f"snapshot must reflect the post-refresh jar state, got {snapshot[key].value!r}"
+        assert len(captured) == 1
+        observation, baseline = captured[0]
+        assert baseline is replacement_baseline
+        assert next(cookie.value for cookie in baseline if cookie.name == "__Secure-1PSIDTS") == (
+            "post_refresh"
         )
+        assert next(
+            cookie.value for cookie in observation if cookie.name == "__Secure-1PSIDTS"
+        ) == ("post_retry_rotation")
+        assert _cookie_value(storage, "__Secure-1PSIDTS", ".google.com") == ("post_retry_rotation")
 
     @pytest.mark.asyncio
     async def test_auth_tokens_from_storage_re_snapshots_after_refresh(self, tmp_path, monkeypatch):
@@ -1797,7 +1809,7 @@ class TestSaveCookiesSeesLatestBaselineUnderContention:
         )
 
 
-class TestRefreshCmdSnapshotCapturedBeforeRetryFetch:
+class TestRefreshCmdBaselineCapturedBeforeRetryFetch:
     """When ``NOTEBOOKLM_REFRESH_CMD`` runs, the post-replace jar is the
     new baseline — NOT the post-retry-fetch jar. The retry call to
     ``_fetch_tokens_with_jar`` can mutate the jar with redirect Set-Cookies,
@@ -1850,6 +1862,6 @@ class TestRefreshCmdSnapshotCapturedBeforeRetryFetch:
         assert fetch_calls == 2
         assert _cookie_value(storage, "__Secure-1PSIDTS", ".google.com") == "post_retry_rotation", (
             "Rotations the retry fetch added to the jar must reach disk — they "
-            "would be dropped if the baseline snapshot is captured after the "
+            "would be dropped if the typed baseline is captured after the "
             "retry instead of after _replace_cookie_jar"
         )

@@ -28,6 +28,7 @@ from . import storage as _auth_storage
 from .account import authuser_query
 from .cookie_types import CookieJar
 from .paths import resolve_auth_json_env
+from .profile_store import ProfileStore
 from .storage import get_account_email_for_storage, get_authuser_for_storage
 
 logger = logging.getLogger("notebooklm.auth")
@@ -40,7 +41,6 @@ build_cookie_jar = _auth_cookies.build_cookie_jar
 flatten_cookie_map = _auth_cookies.flatten_cookie_map
 _update_cookie_input = _auth_cookies._update_cookie_input
 snapshot_cookie_jar = _auth_storage.snapshot_cookie_jar
-save_cookies_to_storage = _auth_storage.save_cookies_to_storage
 extract_csrf_from_html = _auth_extraction.extract_csrf_from_html
 extract_session_id_from_html = _auth_extraction.extract_session_id_from_html
 # Shared URL-only failure classifier — the single source of truth for the
@@ -1078,6 +1078,20 @@ async def fetch_tokens(
     return csrf, session_id
 
 
+def _merge_domain_fetch_observation(
+    store: ProfileStore,
+    observation: CookieJar,
+    baseline: CookieJar,
+) -> CookieJar:
+    result = store.merge_cookie_observation(observation, baseline=baseline)
+    if not result.advances_ordering:
+        return baseline
+    next_baseline = result.next_baseline
+    if next_baseline is None:  # pragma: no cover - result invariant
+        raise AssertionError("advancing refresh merge must provide a baseline")
+    return next_baseline
+
+
 async def fetch_tokens_with_domains(
     path: Path | None = None,
     profile: str | None = None,
@@ -1086,57 +1100,38 @@ async def fetch_tokens_with_domains(
     account_email: str | None = None,
     allow_headless: bool = False,
 ) -> tuple[str, str]:
-    """Fetch tokens with domain-preserving cookies from storage.
+    """Fetch tokens with domain-preserving cookies and persist their observation."""
+    storage_path = _auth_cookies.resolve_auth_storage_path(path, profile)
+    pair = await asyncio.to_thread(_auth_cookies._build_cookie_pair_from_storage, storage_path)
+    live = pair.live
 
-    Used by CLI helpers. Loads storage, builds jar, fetches tokens, optionally
-    runs NOTEBOOKLM_REFRESH_CMD on auth expiry, and persists any refreshed
-    cookies back.
+    async def resolve_route(route_path: Path | None) -> dict[str, Any]:
+        return _resolve_token_route_kwargs(
+            route_path,
+            authuser=authuser,
+            account_email=account_email,
+        )
 
-    Args:
-        path: Path to storage_state.json. If provided, takes precedence over env vars.
-        profile: Optional profile name exposed to the refresh command.
-        authuser: Optional explicit Google account index. Defaults to the
-            persisted profile value, or 0 when none exists.
-        account_email: Optional explicit Google account email. When provided,
-            it is used as the auth routing value instead of the integer index.
-        allow_headless: Permit layer-3 browser recovery after a confirmed login
-            redirect. The environment opt-in remains effective when this is false.
-
-    Returns:
-        Tuple of (csrf_token, session_id)
-
-    Raises:
-        FileNotFoundError: If storage file doesn't exist.
-        httpx.HTTPError: If request fails.
-        ValueError: If tokens cannot be extracted from response.
-        RuntimeError: If ``NOTEBOOKLM_REFRESH_CMD`` is set but fails.
-    """
-    path = _auth_cookies.resolve_auth_storage_path(path, profile)
-    jar = await asyncio.to_thread(build_httpx_cookies_from_storage, path)
-    # Capture the open-time snapshot before any rotation could fire. The
-    # snapshot is the input to the dirty-flag/delta merge that closes the
-    # stale-overwrite-fresh race (docs/auth-cookie-lifecycle.md Appendix A2).
-    snapshot = snapshot_cookie_jar(jar)
-    refresh_options: dict[str, Any] = {"env_auth": path is None}
-    if authuser is not None:
-        refresh_options.update(authuser=authuser, force_authuser_query=True)
-    if account_email is not None:
-        refresh_options["account_email"] = account_email
-    if allow_headless:
-        refresh_options["allow_headless"] = True
-    csrf, session_id, refreshed, post_refresh_snapshot = await _fetch_tokens_with_refresh(
-        jar, path, profile, **refresh_options
+    csrf, session_id, selected_baseline = await _fetch_tokens_with_exact_baseline(
+        live,
+        storage_path,
+        profile,
+        initial_baseline=pair.baseline,
+        resolve_route=resolve_route,
+        allow_headless=allow_headless,
+        env_auth=storage_path is None,
     )
-    if refreshed and post_refresh_snapshot is not None:
-        # NOTEBOOKLM_REFRESH_CMD replaced the jar wholesale. Use the snapshot
-        # captured immediately after the replacement (before the retry fetch
-        # added redirect Set-Cookies); re-snapshotting here would let those
-        # retry rotations be absorbed into the baseline and never reach disk.
-        snapshot = post_refresh_snapshot
-    # Offload the blocking storage save to a worker thread so the
-    # atomic-replace + fsync + flock can't stall the event loop on
-    # slow filesystems.
-    await asyncio.to_thread(save_cookies_to_storage, jar, path, original_snapshot=snapshot)
+    if storage_path is None:
+        logger.debug("Skipping cookie sync: Auth loaded from NOTEBOOKLM_AUTH_JSON env var")
+        return csrf, session_id
+    store = ProfileStore(storage_path)
+    observation = CookieJar.from_httpx(live)
+    selected_baseline = await asyncio.to_thread(
+        _merge_domain_fetch_observation,
+        store,
+        observation,
+        selected_baseline,
+    )
     return csrf, session_id
 
 
