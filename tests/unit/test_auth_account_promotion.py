@@ -502,6 +502,34 @@ class TestPromotionCannotAffectTheRead:
 class TestInBandAlwaysWins:
     """The re-check that keeps a concurrent login from being overtaken."""
 
+    def test_empty_placeholder_is_promoted_then_scrubbed_end_to_end(self, tmp_path):
+        """An empty typed placeholder is absent for read and under-lock promotion."""
+        legacy = {"authuser": 6, "email": " legacy@example.com "}
+        storage = _legacy_profile(tmp_path, legacy)
+        payload = json.loads(storage.read_text(encoding="utf-8"))
+        payload["notebooklm"] = {"version": 1, "account": {}}
+        storage.write_text(json.dumps(payload), encoding="utf-8")
+
+        expected = {"authuser": 6, "email": "legacy@example.com"}
+        assert read_account_metadata(storage) == expected
+        _drain_promotions_for_tests()
+
+        assert _in_band_on_disk(storage) == expected
+        context = tmp_path / "context.json"
+        assert json.loads(context.read_text(encoding="utf-8")) == {"notebook_id": "nb-1"}
+        assert read_account_metadata(storage) == expected
+
+    def test_non_empty_unknown_mapping_wins_and_is_not_overwritten(self, tmp_path):
+        storage = _legacy_profile(tmp_path, {"authuser": 6, "email": "legacy@example.com"})
+        payload = json.loads(storage.read_text(encoding="utf-8"))
+        payload["notebooklm"] = {"version": 1, "account": {"unknown": [1, 2]}}
+        storage.write_text(json.dumps(payload), encoding="utf-8")
+
+        assert _auth_storage.promote_legacy_account(storage) is False
+        assert _in_band_on_disk(storage) == {"unknown": [1, 2]}
+        context = tmp_path / "context.json"
+        assert json.loads(context.read_text(encoding="utf-8")) == {"notebook_id": "nb-1"}
+
     def test_in_band_beats_a_stale_legacy_sibling(self, tmp_path, monkeypatch):
         storage = tmp_path / "storage_state.json"
         storage.write_text(

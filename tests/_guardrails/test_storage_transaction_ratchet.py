@@ -1,10 +1,10 @@
 """Shrink-only ownership gate for bounded and blocking profile transactions.
 
-ADR-0034 PR6 moves the real transaction definition and mechanics into the
-path-owned ``ProfileStore``. The six v0.x policy bodies remain in ``storage.py``
-and must still route through the exact compatibility template with their frozen
-3 raise / 1 skip / 2 report outcomes. Cookie persistence deliberately uses the
-separate blocking primitive.
+ADR-0034 PR6 moved the real transaction definition and mechanics into the
+path-owned ``ProfileStore``. PR7A moves two account policy bodies onto the
+bounded store primitive while the other four retain the compatibility template.
+Their frozen 3 raise / 1 skip / 2 report outcomes remain exact. Cookie
+persistence deliberately uses the separate blocking primitive.
 """
 
 from __future__ import annotations
@@ -30,13 +30,26 @@ _UNCONVERTED: frozenset[str] = frozenset()
 
 _POLICY_CALLERS: dict[str, frozenset[str]] = {
     "raise_on_lock_unavailable": frozenset(
-        {"persist_minted_jar", "update_account_metadata", "write_master_token"}
+        {
+            "profile_store.ProfileStore.update_account",
+            "storage.persist_minted_jar",
+            "storage.write_master_token",
+        }
     ),
-    "skip_on_lock_unavailable": frozenset({"clear_in_band_account"}),
-    "report_on_lock_unavailable": frozenset({"replace_from_login", "replace_from_remint"}),
+    "skip_on_lock_unavailable": frozenset({"profile_store.ProfileStore.clear_account"}),
+    "report_on_lock_unavailable": frozenset(
+        {"storage.replace_from_login", "storage.replace_from_remint"}
+    ),
 }
 
-_TRANSACTION_CALLERS = frozenset().union(*_POLICY_CALLERS.values())
+_STORAGE_TRANSACTION_CALLERS = frozenset(
+    {
+        "persist_minted_jar",
+        "replace_from_login",
+        "replace_from_remint",
+        "write_master_token",
+    }
+)
 
 _DIRECT_ACQUIRE_OWNERS = frozenset(
     {
@@ -112,14 +125,23 @@ def _top_level_callers(path: Path, target: str) -> set[str]:
     return callers
 
 
-def test_six_storage_policy_bodies_route_through_the_template_exactly() -> None:
+def test_four_storage_policy_bodies_route_through_the_template_exactly() -> None:
     callers = _top_level_callers(STORAGE_PATH, "in_storage_transaction")
-    assert callers == set(_TRANSACTION_CALLERS)
+    assert callers == set(_STORAGE_TRANSACTION_CALLERS)
     assert frozenset() == _UNCONVERTED
 
 
+def _qualified_callers(target: str) -> set[str]:
+    callers: set[str] = set()
+    for path in (STORE_PATH, STORAGE_PATH):
+        for owner, node in _owned_functions(path).items():
+            if target in _bare_calls(node):
+                callers.add(owner)
+    return callers
+
+
 def test_lock_unavailable_policy_ownership_is_exact_3_1_2() -> None:
-    actual = {policy: _top_level_callers(STORAGE_PATH, policy) for policy in _POLICY_CALLERS}
+    actual = {policy: _qualified_callers(policy) for policy in _POLICY_CALLERS}
     assert actual == {policy: set(callers) for policy, callers in _POLICY_CALLERS.items()}
     assert {policy: len(callers) for policy, callers in actual.items()} == {
         "raise_on_lock_unavailable": 3,
@@ -255,6 +277,14 @@ def test_cookie_methods_use_only_the_blocking_store_primitive() -> None:
         calls = _called_members(_class_method(name))
         assert calls.count("_under_blocking_cookie_lock") == 1
         assert "_under_bounded_lock" not in calls
+
+
+def test_account_methods_use_only_the_bounded_store_primitive() -> None:
+    for name in ("update_account", "clear_account"):
+        calls = _called_members(_class_method(name))
+        assert calls.count("_under_bounded_lock") == 1
+        assert "_under_blocking_cookie_lock" not in calls
+        assert "in_storage_transaction" not in calls
 
 
 def test_blocking_cookie_primitive_is_no_deadline_and_has_no_secure_parent_prep() -> None:

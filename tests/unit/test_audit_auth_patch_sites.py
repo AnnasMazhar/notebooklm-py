@@ -216,6 +216,14 @@ def test_real_function_local_import_sites_are_not_dropped(script):
         ("tests/unit/test_profile_atomic_write.py", "profile_store", "_STORAGE_LOCKS"),
         ("tests/unit/test_auth_account_coverage.py", "profile_store", "_STORAGE_LOCKS"),
     } <= actual
+    account_commit_sites = [
+        site
+        for site in sites
+        if site.path == "tests/unit/test_auth_profile_store_account.py"
+        and site.module == "profile_store"
+        and site.attribute == "_commit_profile_json"
+    ]
+    assert len(account_commit_sites) == 2
 
 
 def test_definition_headers_resolve_in_the_enclosing_scope(script, tmp_path):

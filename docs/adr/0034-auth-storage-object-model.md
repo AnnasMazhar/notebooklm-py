@@ -144,23 +144,24 @@ value-free CAS logs, performs the single sanctioned raw write, and projects the 
 semantics, writer authority, and caller identities do not move. This extraction lowers the exact
 facade line pin again without changing bytes or baseline advancement behavior.
 
-The commit spine and first real store boundary now land without moving the remaining operation
-policies. `credential_io.py` is the sole importer of the unchecked atomic JSON capability: one raw
+The commit spine and real store boundary now own cookie transactions plus the in-band account
+intents. `credential_io.py` is the sole importer of the unchecked atomic JSON capability: one raw
 private forwarder has exactly two typed callers, for complete profile documents and arbitrary-path
 master-token documents. `ProfileStore` owns one caller-spelled path, a separately canonicalized
-ordering key, fresh document/session reads, the shared bounded-lock mechanics, and both blocking
-cookie transactions. It owns no cache, baseline, live jar, logger policy object, or injectable
-writer. Cookie decisions still come from `cookie_merge.py`; the store alone reads under the lock,
-projects the frozen result table, and performs at most one typed profile commit.
+ordering key, fresh document/session/account reads, the shared bounded-lock mechanics, both blocking
+cookie transactions, and typed account update/clear. Account read, update, and clear intentionally
+retain their distinct corruption and lock policies. It owns no cache, baseline, live jar, scheduler,
+logger policy object, or injectable writer.
 
-`storage.py` remains the v0.x policy/compatibility facade. Its account and replacement bodies still
-choose corruption, backup, filtering, and result policy, but temporarily call the typed profile
-commit. `write_master_token` alone calls the typed arbitrary-path commit, preserving the legacy
-case where that token path is literally named `storage_state.json`. The transaction functions and
-lock-failure policies are exact aliases imported from `profile_store.py`; the old lock wrappers stay
-callable compatibility seams but no longer drive cookie persistence. Patch targets move to the
-actual owners, and the exact storage pin falls from 2,563 to 2,329 lines. `MasterTokenFile` and the
-remaining store methods are still future stages, not implied by this foundation.
+`storage.py` remains the v0.x policy/compatibility facade. It retains raw account-dict adapters,
+two-read legacy reconciliation, promotion scheduling, and sibling scrub composition; replacement
+and token-file policy have not moved. Its account adapters construct typed store values while
+preserving raw mapping returns and same-module late lookup. An empty in-band `account: {}` is now
+consistently absent for both read and under-lock promotion, so a sanitized legacy binding replaces
+it before the sibling is scrubbed; a non-empty unknown-only mapping remains present and wins. No
+schema, lock path, permission, backup, log, or public API changes. The exact pins are now 2,210 lines
+for `storage.py`, 507 for `profile_store.py`, and 2,717 combined. `MasterTokenFile` and replacement
+store methods remain future stages.
 
 The compatibility inventory is explicit:
 

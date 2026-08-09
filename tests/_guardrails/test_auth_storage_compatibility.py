@@ -522,6 +522,8 @@ def test_result_projections_and_compatibility_value_identities() -> None:
     assert storage.CookieSaveResult.__qualname__ == "CookieSaveResult"
     assert storage.CookieSaveResult.__dataclass_params__.frozen is True
     assert storage_writer.merge_cookie_delta is storage.merge_cookie_delta
+    assert storage_writer.update_account_metadata is storage.update_account_metadata
+    assert storage_writer.clear_in_band_account is storage.clear_in_band_account
     assert storage.in_storage_transaction is profile_store.in_storage_transaction
     assert storage.raise_on_lock_unavailable is profile_store.raise_on_lock_unavailable
     assert storage.report_on_lock_unavailable is profile_store.report_on_lock_unavailable
@@ -533,6 +535,7 @@ def test_result_projections_and_compatibility_value_identities() -> None:
     )
     assert storage_transaction.skip_on_lock_unavailable is profile_store.skip_on_lock_unavailable
     assert not hasattr(auth, "ProfileStore")
+    assert not hasattr(auth, "ProfileAccount")
 
 
 def test_cookie_save_delegate_remains_same_module_and_late_bound() -> None:

@@ -188,7 +188,7 @@
     },
     {
       "attribute": "_commit_profile_json",
-      "count": 2,
+      "count": 4,
       "idiom": "monkeypatch.setattr",
       "module": "profile_store"
     },
@@ -429,9 +429,9 @@
   ],
   "summary": {
     "TOTAL": {
-      "private": 109,
+      "private": 111,
       "public": 171,
-      "total": 280
+      "total": 282
     },
     "account": {
       "private": 2,
@@ -474,9 +474,9 @@
       "total": 27
     },
     "profile_store": {
-      "private": 11,
+      "private": 13,
       "public": 0,
-      "total": 11
+      "total": 13
     },
     "psidts_recovery": {
       "private": 14,

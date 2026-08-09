@@ -1,10 +1,10 @@
 """Capability gate for credential commits and storage-state writers.
 
-ADR-0034 PR6 seals the unchecked atomic primitive behind ``credential_io`` and
-keeps policy ownership split deliberately: ``ProfileStore`` owns cookie
-transactions, five v0.x profile intents remain in ``storage.py``, and the one
-legacy arbitrary-path token writer uses the distinct typed token commit.
-All caller sets below are equality assertions at function/method granularity.
+ADR-0034 PR6 seals the unchecked atomic primitive behind ``credential_io``.
+PR7A moves typed in-band account update/clear into ``ProfileStore`` beside its
+cookie transactions; three full replacements remain in ``storage.py``, and the
+legacy arbitrary-path token writer uses the distinct typed token commit. All
+caller sets below are equality assertions at function/method granularity.
 """
 
 from __future__ import annotations
@@ -38,11 +38,11 @@ _PROFILE_COMMIT_CALLERS = frozenset(
     {
         "_auth/profile_store.ProfileStore.merge_cookie_observation",
         "_auth/profile_store.ProfileStore.merge_legacy_cookie_observation",
-        "_auth/storage.clear_in_band_account",
+        "_auth/profile_store.ProfileStore.clear_account",
+        "_auth/profile_store.ProfileStore.update_account",
         "_auth/storage.persist_minted_jar",
         "_auth/storage.replace_from_login",
         "_auth/storage.replace_from_remint",
-        "_auth/storage.update_account_metadata",
     }
 )
 _TOKEN_COMMIT_CALLERS = frozenset({"_auth/storage.write_master_token"})
