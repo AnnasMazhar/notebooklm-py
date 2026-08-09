@@ -1448,8 +1448,9 @@ class TestLoginBrowserCookies:
                 "same_site": 0,
             },
         ]
+        mock_rookie_cookies = MagicMock()
         with (
-            patch.dict("sys.modules", {"rookie_cookies": MagicMock()}),
+            patch.dict("sys.modules", {"rookie_cookies": mock_rookie_cookies}),
             patch.object(
                 firefox_containers,
                 "find_firefox_profile_path",
@@ -1470,6 +1471,7 @@ class TestLoginBrowserCookies:
         ):
             result = runner.invoke(cli, ["login", "--browser-cookies", "firefox::none"])
         assert result.exit_code == 0, result.output
+        assert not mock_rookie_cookies.mock_calls
         # Confirm the extractor was called with the ``"none"`` sentinel.
         _, kwargs = mock_extract.call_args
         positional = mock_extract.call_args.args
