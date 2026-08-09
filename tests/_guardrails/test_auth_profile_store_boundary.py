@@ -12,6 +12,7 @@ import pytest
 import notebooklm._auth as auth_package
 import notebooklm.auth as auth_facade
 from notebooklm._auth import profile_store, storage, storage_writer
+from notebooklm._auth.cookie_types import Cookie, CookieJar
 from notebooklm._auth.profile_account import DomainSelection
 from notebooklm._auth.profile_document import ProfileDocument
 
@@ -37,6 +38,7 @@ _STORE_METHODS = {
     "merge_legacy_cookie_observation",
     "replace_from_remint",
     "replace_from_login",
+    "replace_minted_session",
 }
 _CAPABILITY_ESCAPE = "<ProfileStore-capability-escape>"
 _INSTANCE_ESCAPE = "<ProfileStore-instance-escape>"
@@ -259,6 +261,7 @@ def test_profile_store_public_method_set_is_minimal_and_exact() -> None:
         "merge_legacy_cookie_observation",
         "replace_from_remint",
         "replace_from_login",
+        "replace_minted_session",
     }
     forbidden_future = {
         "persist_minted_session",
@@ -269,7 +272,7 @@ def test_profile_store_public_method_set_is_minimal_and_exact() -> None:
     assert methods.isdisjoint(forbidden_future)
 
 
-def test_remint_request_result_and_enum_shapes_are_minimal_and_exact() -> None:
+def test_replacement_request_result_and_enum_shapes_are_minimal_and_exact() -> None:
     request_type = profile_store.RemintWriteRequest
     result_type = profile_store.ReplaceResult
     status_type = profile_store.ReplaceStatus
@@ -301,6 +304,30 @@ def test_remint_request_result_and_enum_shapes_are_minimal_and_exact() -> None:
     )
     assert secret not in repr(request)
     assert secret not in str(request)
+
+    minted_type = profile_store.MintedSessionWriteRequest
+    assert minted_type.__dataclass_params__.frozen is True
+    assert minted_type.__slots__ == ("cookies", "email", "force", "refuse_unknown_owner")
+    minted_fields = dataclasses.fields(minted_type)
+    assert [field.name for field in minted_fields] == [
+        "cookies",
+        "email",
+        "force",
+        "refuse_unknown_owner",
+    ]
+    assert minted_fields[0].repr is False
+    assert str(inspect.signature(minted_type)) == (
+        "(cookies: 'CookieJar', email: 'str | None', force: 'bool' = False, "
+        "refuse_unknown_owner: 'bool' = True) -> None"
+    )
+    minted = minted_type(
+        CookieJar((Cookie("SID", ".google.com", "/", secret, same_site="None"),)),
+        secret,
+    )
+    assert secret not in repr(minted)
+    assert secret not in str(minted)
+    with pytest.raises(TypeError, match="cookies must be a CookieJar"):
+        minted_type({}, None)  # type: ignore[arg-type]
 
     login_type = profile_store.LoginWriteRequest
     assert login_type.__dataclass_params__.frozen is True
@@ -345,7 +372,13 @@ def test_remint_request_result_and_enum_shapes_are_minimal_and_exact() -> None:
 
 
 def test_replace_types_remain_internal_to_profile_store() -> None:
-    names = {"RemintWriteRequest", "LoginWriteRequest", "ReplaceStatus", "ReplaceResult"}
+    names = {
+        "RemintWriteRequest",
+        "LoginWriteRequest",
+        "MintedSessionWriteRequest",
+        "ReplaceStatus",
+        "ReplaceResult",
+    }
     assert names.isdisjoint(storage.__all__)
     assert names.isdisjoint(storage_writer.__all__)
     assert all(not hasattr(auth_facade, name) for name in names)
@@ -361,6 +394,9 @@ def test_profile_store_constructor_and_replace_method_signatures_are_exact() -> 
     )
     assert str(inspect.signature(profile_store.ProfileStore.replace_from_login)) == (
         "(self, request: 'LoginWriteRequest') -> 'ReplaceResult'"
+    )
+    assert str(inspect.signature(profile_store.ProfileStore.replace_minted_session)) == (
+        "(self, request: 'MintedSessionWriteRequest') -> 'None'"
     )
 
 
@@ -633,6 +669,7 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
     assert actual == {
         ("profile_store.py", "ProfileStore.read_session", "read_document"),
         ("profile_store.py", "ProfileStore.replace_from_remint", "read_document"),
+        ("profile_store.py", "ProfileStore.replace_minted_session", "read_document"),
         ("profile_store.py", "ProfileStore._read_account_document", "read_document"),
         ("profile_store.py", "ProfileStore.read_account", "_read_account_document"),
         ("profile_store.py", "ProfileStore.clear_account", "read_document"),
@@ -649,6 +686,8 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
         ("storage.py", "replace_from_remint", "replace_from_remint"),
         ("storage.py", "replace_from_login", "ProfileStore"),
         ("storage.py", "replace_from_login", "replace_from_login"),
+        ("storage.py", "persist_minted_jar", "ProfileStore"),
+        ("storage.py", "persist_minted_jar", "replace_minted_session"),
         ("storage.py", "update_account_metadata", "ProfileStore"),
         ("storage.py", "update_account_metadata", "update_account"),
     }

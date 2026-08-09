@@ -75,35 +75,18 @@ all write through the typed credential commit spine):
 * :func:`replace_from_login` — the login/import full-replace, whose write-time
   domain filter and required-cookie revalidation run inside the lock.
   **Fails closed.**
-* :func:`persist_minted_jar` — the master-token L4 re-mint persister relocated
-  from :mod:`notebooklm._auth.master_token`, routed through ``_atomic_io`` (so it
-  gains fsync durability + temp cleanup) while keeping its storage lock and its
-  rebind-to-minted-account semantics. b-PR2 adds the write-time domain filter
-  here (the L4 unfiltered-persist gap). **Fails closed.**
+* :func:`persist_minted_jar` — the master-token L4 compatibility adapter; the
+  path-owned store now owns its fail-closed replacement transaction.
 * :func:`write_master_token` — the ``master_token.json`` writer, now routed
   through ``_atomic_io`` **and** guarded by a bounded sibling lock (it was
   previously lockless). **Fails closed.**
 
-Lock unification (see ADR-0029): the full-file RMW / re-mint intents drop
-``filelock`` in favour of the project-internal storage lock manager via a
-**platform-neutral bounded acquire**: a non-blocking probe plus deadline/jitter
-retry (default 90 s), then the
-per-intent failure policy above. The store's CAS merge keeps the status-quo
-blocking manager acquire (fail-open); :func:`_file_lock_exclusive` remains a
-v0.x compatibility alias only. ``StorageLockManager`` owns an
-in-process ``threading.Lock`` keyed by the exact raw ``os.fspath(lock_path)``
-spelling (ordering: in-process lock -> OS lock); :func:`_file_lock` delegates to
-that owner. Threads serialize before the OS lock, while the distinct
-``.{name}.rotate.lock`` sentinel is never collapsed into the storage lock.
-
-The fail-closed writers raise :class:`~notebooklm.exceptions.LockUnavailableError`
-(public via ``notebooklm.exceptions`` / the ``notebooklm.auth`` facade). It
-subclasses :class:`TimeoutError` — itself an :class:`OSError` — exactly mirroring
-the ``filelock.Timeout`` MRO it replaces, so callers' existing
-``except OSError`` / ``except TimeoutError`` arms (``_auth/recovery.py`` around
-``persist_minted_jar``; the CLI login writers around ``write_account_metadata``)
-keep catching a lock failure unchanged; only the exception type and the 10 s->90 s
-bound differ.
+Lock unification (ADR-0029) gives full-file intents a platform-neutral bounded
+acquire (90 s) while cookie CAS retains its blocking fail-open acquire.
+``StorageLockManager`` serializes threads before the OS lock using the exact raw
+lock-path spelling; the distinct rotate sentinel is never collapsed into it.
+Fail-closed writers raise public ``LockUnavailableError``, whose
+``TimeoutError``/``OSError`` ancestry preserves existing catch behavior.
 
 Permission contract (POSIX): bounded writers ensure the parent directory is
 ``0700`` and typed commits write ``0600`` files. Cookie saves intentionally keep
@@ -157,7 +140,7 @@ from .cookie_filter import (
     filter_storage_state_cookies_by_domain_policy as filter_storage_state_cookies_by_domain_policy,
 )
 from .cookie_types import Cookie, CookieIdentity, CookieJar
-from .credential_io import _commit_master_token_json, _commit_profile_json
+from .credential_io import _commit_master_token_json
 from .paths import canonical_storage_key, resolve_auth_json_env
 from .profile_account import (
     ClearAccount,
@@ -170,6 +153,7 @@ from .profile_document import ProfileDocument
 from .profile_store import (
     CookieMergeDisposition,
     LoginWriteRequest,
+    MintedSessionWriteRequest,
     ProfileStore,
     RemintWriteRequest,
     ReplaceStatus,
@@ -183,6 +167,9 @@ from .profile_store import (
 )
 from .profile_store import (
     _LockUnavailablePolicy as _LockUnavailablePolicy,
+)
+from .profile_store import (
+    _MintedSessionOwnershipRefused as _MintedSessionOwnershipRefused,
 )
 from .storage_lock import LockRequest, StorageLockManager
 
@@ -1635,107 +1622,32 @@ def persist_minted_jar(
     force: bool = False,
     refuse_unknown_owner: bool = True,
 ) -> None:
-    """Replace the cookies in ``storage_state.json`` with a freshly-minted jar.
-
-    Relocated from ``master_token.persist_minted_jar``, now routed through the
-    typed profile commit spine (fsync durability + temp cleanup, closing
-    [storage-F5]) while keeping the storage lock it already held and its
-    rebind-to-minted-account namespace semantics. Old cookies are *replaced*, not
-    merged — a re-mint is a brand-new session. Full-file replace intent:
-    **fails closed**.
-
-    b-PR2 additionally applies the write-time domain filter
-    (:func:`filter_storage_state_cookies_by_domain_policy`, default policy —
-    preserve-trusted-roots) to the minted cookies before they reach disk, closing
-    the L4 unfiltered-persist gap. The rebind to the minted account
-    (``authuser=0`` + the minted ``email``) is unaffected: the filter only
-    narrows the cookie rows, never the account namespace.
-
-    #2103 PR-2 D6: the authoritative account-ownership guard lives HERE, under
-    the storage-write lock this function already holds — not only in
-    :func:`notebooklm._auth.master_token.assert_account_writable`'s pre-mint
-    advisory check, which cannot see a caller that mints and persists directly
-    (the documented low-level recipe does exactly that) and cannot close the
-    TOCTOU window between a pre-check and this write. Existing storage bound to
-    a DIFFERENT recorded email than ``email`` always raises
-    :class:`notebooklm._auth.master_token.MasterTokenError` unless ``force``.
-    No existing storage: proceeds unconditionally (nothing to protect yet).
-
-    ``refuse_unknown_owner`` (default ``True``) additionally refuses existing
-    storage with NO recorded owner at all, unless ``force``. Callers re-minting
-    from a master token ALREADY paired with this exact ``storage_path`` (the
-    L4 recovery rung, the no-prompt operator re-mint —
-    :func:`notebooklm._auth.master_token.remint_from_stored_token`) pass
-    ``refuse_unknown_owner=False``: that pairing was already trusted when the
-    token was first bootstrapped for this profile, so an account-less
-    profile (never bound to an ``--account``, e.g. a cookie-only
-    ``import-cookies`` profile — empirically the COMMON case, not the "rare"
-    one D6 originally assumed) must not lose mid-session self-recovery. A
-    caller *selecting* an account for the first time
-    (:func:`notebooklm._auth.master_token.bootstrap_from_oauth_token`) keeps
-    the default: minting into an existing, unrecorded-owner profile is
-    exactly the ambiguous case worth refusing without an explicit ``force``.
-    """
+    """Snapshot and delegate one freshly minted full-session replacement."""
     from . import (
         master_token as _master_token,
     )  # deferred; no cycle either way (verified)
 
-    def _persist() -> None:
-        data: dict[str, Any] = {}
-        existed = path.exists()
-        if existed:
-            try:
-                loaded = json.loads(path.read_text(encoding="utf-8"))
-                data = loaded if isinstance(loaded, dict) else {}
-            except json.JSONDecodeError:
-                data = {}
-        if existed and force:
-            logger.debug("persist_minted_jar: force=True bypasses the account-ownership guard.")
-        elif existed:
-            existing_owner = read_account_metadata_from_storage_state(data).get("email")
-            existing_owner = existing_owner.strip() if isinstance(existing_owner, str) else None
-            if not existing_owner:
-                if refuse_unknown_owner:
-                    raise _master_token.MasterTokenError(
-                        "This profile has no recorded account owner; refusing to overwrite "
-                        "its session with a freshly minted one without force=True."
-                    )
-                logger.debug(
-                    "persist_minted_jar: existing storage has no recorded owner; proceeding "
-                    "with refuse_unknown_owner=False (re-mint from a token already paired "
-                    "with this storage_path, not a fresh account selection)."
-                )
-            elif existing_owner.casefold() != (email or "").casefold():
-                raise _master_token.MasterTokenError(
-                    f"This profile already belongs to {existing_owner}, but the mint is "
-                    f"for {email or '(no account)'}. Minting here would overwrite "
-                    f"{existing_owner}'s session and master token. Pass force=True to "
-                    "overwrite this profile intentionally."
-                )
-        # Apply the write-time domain filter to the minted jar (L4 gap): the
-        # minted cookies were previously persisted raw. Default policy — trusted
-        # Google roots are preserved (main's preserve-trusted-roots behavior).
-        minted_state = _master_token.storage_state_from_jar(jar)
-        filtered_minted = filter_storage_state_cookies_by_domain_policy(minted_state)
-        data["cookies"] = filtered_minted["cookies"]
-        data.setdefault("origins", [])
-        ns_raw = data.get("notebooklm")
-        ns: dict[str, Any] = ns_raw if isinstance(ns_raw, dict) else {}
-        ns["version"] = 1
-        ns["account"] = {"authuser": 0, **({"email": email} if email else {})}
-        data["notebooklm"] = ns
-        _commit_profile_json(path, data)
-
-    # MUST-KNOW via exception: the return type is ``None``, so there is no
-    # channel to report into. ``raise_on_lock_unavailable`` formats the message
-    # this writer raised when it hand-rolled the branch, verbatim; the #2108
-    # ownership guard and its write ordering stay inside ``_persist``, untouched.
-    in_storage_transaction(
-        path,
-        _persist,
-        log_prefix="persist_minted_jar",
-        on_unavailable=raise_on_lock_unavailable("persist_minted_jar"),
+    cookies = CookieJar(
+        Cookie(
+            name=cookie.name,
+            value=cast(str, cookie.value),
+            domain=cookie.domain,
+            path=cookie.path or "/",
+            expires=cookie.expires,
+            http_only=_cookie_is_http_only(cookie),
+            secure=cookie.secure,
+            same_site="None",
+        )
+        for cookie in jar.jar
     )
+    request = MintedSessionWriteRequest(cookies, email, force, refuse_unknown_owner)
+    refusal_message: str | None = None
+    try:
+        ProfileStore(path).replace_minted_session(request)
+    except _MintedSessionOwnershipRefused as exc:
+        refusal_message = str(exc)
+    if refusal_message is not None:
+        raise _master_token.MasterTokenError(refusal_message)
 
 
 def write_master_token(path: Path, *, email: str, master_token: str, android_id: str) -> None:

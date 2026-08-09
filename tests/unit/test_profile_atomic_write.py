@@ -398,8 +398,8 @@ def test_storage_state_mutators_share_one_lock_file(
     used DIFFERENT lock files and could lose updates under concurrency. After
     the storage-writer refactor every mutator serializes on the project-internal
     shared ``StorageLockManager`` (cookie saves via ``ProfileStore``'s blocking
-    primitive, account/clear via its bounded transaction). This test captures the lock
-    request each mutator passes to that ONE owner and asserts they all
+    primitive, account/clear/replacement via its bounded transaction). This test captures
+    the lock request each mutator passes to that ONE owner and asserts they all
     derive the identical dotted ``.storage_state.json.lock`` sibling. The sibling
     ``context.json.lock`` (still ``filelock``, taken by
     ``_drop_legacy_account_key``) uses a different mechanism and is not captured
@@ -408,7 +408,11 @@ def test_storage_state_mutators_share_one_lock_file(
     import httpx
 
     from notebooklm._auth import profile_store
-    from notebooklm._auth.storage import replace_from_remint, save_cookies_to_storage
+    from notebooklm._auth.storage import (
+        persist_minted_jar,
+        replace_from_remint,
+        save_cookies_to_storage,
+    )
     from notebooklm._auth.storage_lock import StorageLockManager
 
     storage_path = tmp_path / "storage_state.json"
@@ -451,6 +455,16 @@ def test_storage_state_mutators_share_one_lock_file(
             carry_account=True,
         )
     )
+    minted = httpx.Cookies()
+    minted.set("SID", "v", domain=".google.com", path="/")
+    minted_locks = _locks_taken_by(
+        lambda: persist_minted_jar(
+            storage_path,
+            minted,
+            email="alice@example.com",
+            refuse_unknown_owner=False,
+        )
+    )
 
     assert account_write_locks == {expected}, (
         f"write_account_metadata must take exactly the shared lock; got {account_write_locks}"
@@ -463,4 +477,7 @@ def test_storage_state_mutators_share_one_lock_file(
     )
     assert remint_locks == {expected}, (
         f"replace_from_remint must take exactly the shared lock; got {remint_locks}"
+    )
+    assert minted_locks == {expected}, (
+        f"persist_minted_jar must take exactly the shared lock; got {minted_locks}"
     )

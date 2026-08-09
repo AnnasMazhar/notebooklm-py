@@ -145,17 +145,16 @@ value-free CAS logs, performs the single sanctioned raw write, and projects the 
 semantics, writer authority, and caller identities do not move. This extraction lowers the exact
 facade line pin again without changing bytes or baseline advancement behavior.
 
-The commit spine and real store boundary now own cookie transactions, the in-band account intents,
-and browser/remint replacement. `credential_io.py` is the sole importer of the unchecked atomic
-JSON capability: one raw private forwarder has exactly two typed callers, for complete profile
-documents and arbitrary-path master-token documents. `ProfileStore` owns one caller-spelled path,
-a separately canonicalized ordering key, fresh document/session/account reads, the shared bounded
-lock mechanics, both blocking cookie transactions, typed account update/clear, and the complete
-typed remint and login/import transactions. Remint reads the latest destination under that lock only when raw
-namespace carry is requested, preserves the whole valid `notebooklm` mapping (including empty or
-unknown account records), filters an isolated source snapshot, and commits at most once. It owns no
-cache, baseline, live jar, scheduler, logger policy object, or injectable writer.
-
+The commit spine and real store boundary now own cookie transactions, in-band account intents, and
+all three profile replacements. `credential_io.py` is the sole importer of the unchecked atomic
+JSON capability: one raw private forwarder has exactly two typed callers, for complete profile and
+arbitrary-path master-token documents. `ProfileStore` owns one caller-spelled path, a separately
+canonicalized ordering key, fresh document/session/account reads, shared bounded-lock mechanics,
+both blocking cookie transactions, typed account update/clear, and remint, login/import, and
+minted-session replacement. It owns no cache, baseline, live HTTP jar, scheduler, logger policy
+object, or injectable writer.
+Remint reads the latest destination under lock only when raw namespace carry is requested,
+preserves the whole valid `notebooklm` mapping, filters an isolated source, and commits at most once.
 Login/import replacement filters the isolated raw source, validates required cookie names before
 any destination access, builds KEEP/SET/CLEAR namespaces with their intentionally distinct raw
 preservation rules, optionally copies exact predecessor bytes to the sibling `.bak` while holding
@@ -166,22 +165,25 @@ is projected under lock, using one shared deepcopy memo at each boundary.
 The raw capture/domain policy and its value-free malformed-row diagnostics now live in the
 dependency-bottom `cookie_filter.py` leaf. It retains whole allowed rows and their raw scalar types,
 drops source origins and namespace data, and owns no path, document, lock, commit, or lifecycle
-state. Browser capture, CLI import, the profile replacement writers, and compatibility shims keep
+state. Browser capture, CLI import, all profile replacement writers, and compatibility shims keep
 the same filter function identity through aliases.
-
-`storage.py` remains the v0.x policy/compatibility facade. Its `replace_from_remint` callable keeps
-the old signature, result projection, browser late-patch seam, and facade/shim identities while
-constructing the immutable request and delegating the transaction to `ProfileStore`. It retains raw
-account-dict adapters, two-read legacy reconciliation, promotion scheduling, sibling scrub
-composition, the login compatibility adapter, minted-session replacement, and token-file policy.
+Minted persistence snapshots the mutable live jar and runtime-permissive email before path or lock
+work. Its repr-hidden request uses one shared-memo deepcopy and a manually built `CookieJar` with
+the raw master-token serializer fields, including `same_site="None"`; it deliberately avoids the
+filtering and SameSite-lossy `CookieJar.from_httpx()` constructor. Under the bounded lock,
+`ProfileStore.replace_minted_session` reads the latest owner, applies the refusal/force matrix,
+runs the default raw filter, preserves and rebinds the destination, and commits once. This pre-lock
+immutable input snapshot is the intentional isolation correction for both jar and email.
+`storage.py` remains the v0.x facade. Its remint/login/minted callables keep old signatures,
+results/errors, patch seams, and facade/shim identities while building requests and delegating to
+`ProfileStore`. The minted adapter translates the private owner refusal outside its handler to the
+canonical context-free `MasterTokenError`. It retains raw account adapters, legacy reconciliation,
+promotion scheduling, sibling scrub composition, and token-file policy.
 After a typed login result is applied and the profile lock is released, the adapter alone performs
-the existing promote-or-scrub legacy step; rejected and exceptional writes do no legacy work. An empty in-band
-`account: {}` remains absent for typed account read/promotion but is preserved by remint's raw
-whole-namespace carry; a non-empty unknown-only mapping remains present and wins. No schema, lock
-path, permission, backup, log, or public API changes. The exact pins are now 1,771 lines for
-`storage.py`, 711 for `profile_store.py`, and 96 for `cookie_filter.py` (2,578 combined).
-`MasterTokenFile`, minted store methods, and legacy migration/lifecycle services remain future
-stages.
+the existing promote-or-scrub step; rejected and exceptional writes do no legacy work. No schema,
+lock path, permission, backup, log, or public API changes. Exact pins are 1,683 lines for
+`storage.py`, 794 for `profile_store.py`, and 96 for `cookie_filter.py` (2,573 combined).
+`MasterTokenFile` and legacy migration/lifecycle services remain future stages.
 
 The compatibility inventory is explicit:
 

@@ -198,6 +198,7 @@ def _resolved_module(path: Path, node: ast.ImportFrom) -> str:
 
 _PROVIDERS = {
     "notebooklm._auth.cookie_filter",
+    "notebooklm._auth.profile_store",
     "notebooklm._auth.storage",
     "notebooklm._auth.browser_capture",
     "notebooklm._auth._browser_cookie_filter",
@@ -313,7 +314,7 @@ def test_filter_behavior_callers_are_exactly_six() -> None:
     assert actual == {
         ("_auth/profile_store.py", "ProfileStore.replace_from_login"),
         ("_auth/profile_store.py", "ProfileStore.replace_from_remint"),
-        ("_auth/storage.py", "persist_minted_jar"),
+        ("_auth/profile_store.py", "ProfileStore.replace_minted_session"),
         ("_auth/browser_capture.py", "run_browser_capture"),
         ("_auth/browser_capture.py", "run_cdp_capture"),
         ("cli/_cookie_import.py", "_import_cookie_json"),
@@ -346,6 +347,11 @@ def test_alias_detectors_bite_and_a_seventh_caller_is_visible() -> None:
 @pytest.mark.parametrize(
     "source",
     [
+        (
+            "from notebooklm._auth import profile_store as provider\n"
+            "def seventh(state):\n"
+            "    return provider.filter_storage_state_cookies_by_domain_policy(state)\n"
+        ),
         (
             "from notebooklm._auth import storage as provider\n"
             "def seventh(state):\n"
