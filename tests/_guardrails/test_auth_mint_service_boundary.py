@@ -751,8 +751,9 @@ def _bindings(tree: ast.Module, *, path: Path, src_root: Path) -> dict[str, str]
 
 
 class _ServiceCallCollector(ast.NodeVisitor):
-    def __init__(self, bindings: dict[str, str]) -> None:
+    def __init__(self, bindings: dict[str, str], *, module: str) -> None:
         self.bindings = bindings
+        self.module = module
         self.scopes: list[str] = []
         self.calls: set[tuple[str, str]] = set()
 
@@ -792,6 +793,21 @@ class _ServiceCallCollector(ast.NodeVisitor):
             f"{SERVICE_MODULE}.MintService.mint",
         }:
             self.calls.add((self.owner, origin.rsplit(".", 1)[-1]))
+        elif (
+            self.module == "_auth/master_token_bootstrap.py"
+            and self.owner
+            in {
+                "MasterTokenBootstrapper._exchange",
+                "MasterTokenBootstrapper._mint",
+            }
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Attribute)
+            and isinstance(node.func.value.value, ast.Name)
+            and node.func.value.value.id == "self"
+            and node.func.value.attr == "_mint_service"
+            and node.func.attr in {"exchange", "mint"}
+        ):
+            self.calls.add((self.owner, node.func.attr))
         self.generic_visit(node)
 
 
@@ -799,9 +815,11 @@ def _service_calls(root: Path = SRC_ROOT) -> set[tuple[str, str, str]]:
     calls: set[tuple[str, str, str]] = set()
     for path in sorted(root.rglob("*.py")):
         tree = _tree(path)
-        collector = _ServiceCallCollector(_bindings(tree, path=path, src_root=root))
-        collector.visit(tree)
         relative = path.relative_to(root).as_posix()
+        collector = _ServiceCallCollector(
+            _bindings(tree, path=path, src_root=root), module=relative
+        )
+        collector.visit(tree)
         calls.update((relative, owner, kind) for owner, kind in collector.calls)
     return calls
 
@@ -955,12 +973,20 @@ def test_service_importers_callers_and_lock_boundary_are_exact() -> None:
     assert _module_importers(SERVICE_MODULE) == {
         "_auth/keepalive.py",
         "_auth/master_token.py",
+        "_auth/master_token_bootstrap.py",
     }
     assert _service_calls() == {
+        ("_auth/master_token.py", "_bootstrapper", "construct"),
         ("_auth/master_token.py", "exchange_master_token", "construct"),
         ("_auth/master_token.py", "exchange_master_token", "exchange"),
         ("_auth/master_token.py", "mint_cookies", "construct"),
         ("_auth/master_token.py", "mint_cookies", "mint"),
+        (
+            "_auth/master_token_bootstrap.py",
+            "MasterTokenBootstrapper._exchange",
+            "exchange",
+        ),
+        ("_auth/master_token_bootstrap.py", "MasterTokenBootstrapper._mint", "mint"),
     }
     assert _module_importers("notebooklm._auth.storage_lock") == {
         "_auth/keepalive.py",

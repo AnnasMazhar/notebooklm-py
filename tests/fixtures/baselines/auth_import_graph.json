@@ -153,6 +153,11 @@
     {
       "scope": "module",
       "source": "master_token",
+      "target": "master_token_bootstrap"
+    },
+    {
+      "scope": "module",
+      "source": "master_token",
       "target": "master_token_file"
     },
     {
@@ -171,9 +176,39 @@
       "target": "paths"
     },
     {
+      "scope": "module",
+      "source": "master_token",
+      "target": "profile_store"
+    },
+    {
       "scope": "function",
       "source": "master_token",
       "target": "storage"
+    },
+    {
+      "scope": "module",
+      "source": "master_token_bootstrap",
+      "target": "cookie_semantics"
+    },
+    {
+      "scope": "module",
+      "source": "master_token_bootstrap",
+      "target": "cookie_types"
+    },
+    {
+      "scope": "module",
+      "source": "master_token_bootstrap",
+      "target": "master_token_types"
+    },
+    {
+      "scope": "module",
+      "source": "master_token_bootstrap",
+      "target": "mint_service"
+    },
+    {
+      "scope": "module",
+      "source": "master_token_bootstrap",
+      "target": "profile_store"
     },
     {
       "scope": "module",
@@ -663,9 +698,14 @@
       "path": "src/notebooklm/_auth/login_wait_trace.py"
     },
     {
-      "lines": 593,
+      "lines": 463,
       "name": "master_token",
       "path": "src/notebooklm/_auth/master_token.py"
+    },
+    {
+      "lines": 366,
+      "name": "master_token_bootstrap",
+      "path": "src/notebooklm/_auth/master_token_bootstrap.py"
     },
     {
       "lines": 89,
@@ -683,7 +723,7 @@
       "path": "src/notebooklm/_auth/mint_service.py"
     },
     {
-      "lines": 236,
+      "lines": 239,
       "name": "paths",
       "path": "src/notebooklm/_auth/paths.py"
     },
@@ -771,10 +811,10 @@
   },
   "summary": {
     "function_local_edges": 12,
-    "module_edges": 102,
-    "modules": 37,
-    "total_lines": 14749,
-    "unique_edges": 114
+    "module_edges": 109,
+    "modules": 38,
+    "total_lines": 14988,
+    "unique_edges": 121
   },
   "version": 1
 }

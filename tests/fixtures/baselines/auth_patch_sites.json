@@ -73,6 +73,12 @@
       "module": "cookie_semantics"
     },
     {
+      "attribute": "_build_httpx_cookies_from_storage_strict",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "cookies"
+    },
+    {
       "attribute": "_cookie_from_normalized_entry",
       "count": 1,
       "idiom": "monkeypatch.setattr",
@@ -181,21 +187,21 @@
       "module": "master_token"
     },
     {
-      "attribute": "mint_cookies",
-      "count": 12,
-      "idiom": "patch.object",
+      "attribute": "_bootstrapper",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
       "module": "master_token"
     },
     {
-      "attribute": "persist_minted_jar",
+      "attribute": "_verify_by_listing_notebooks",
       "count": 1,
-      "idiom": "patch.object",
+      "idiom": "monkeypatch.setattr",
       "module": "master_token"
     },
     {
-      "attribute": "remint_from_stored_token",
-      "count": 14,
-      "idiom": "patch.object",
+      "attribute": "generate_android_id",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
       "module": "master_token"
     },
     {
@@ -451,6 +457,12 @@
       "module": "storage"
     },
     {
+      "attribute": "get_account_email_for_storage",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "storage"
+    },
+    {
       "attribute": "read_account_metadata",
       "count": 1,
       "idiom": "monkeypatch.setattr",
@@ -501,9 +513,9 @@
   ],
   "summary": {
     "TOTAL": {
-      "private": 152,
-      "public": 174,
-      "total": 326
+      "private": 156,
+      "public": 149,
+      "total": 305
     },
     "account": {
       "private": 2,
@@ -526,9 +538,9 @@
       "total": 1
     },
     "cookies": {
-      "private": 2,
+      "private": 3,
       "public": 8,
-      "total": 10
+      "total": 11
     },
     "credential_io": {
       "private": 3,
@@ -546,9 +558,9 @@
       "total": 8
     },
     "master_token": {
-      "private": 0,
-      "public": 31,
-      "total": 31
+      "private": 3,
+      "public": 5,
+      "total": 8
     },
     "master_token_file": {
       "private": 15,
@@ -587,8 +599,8 @@
     },
     "storage": {
       "private": 2,
-      "public": 26,
-      "total": 28
+      "public": 27,
+      "total": 29
     },
     "storage_lock": {
       "private": 1,

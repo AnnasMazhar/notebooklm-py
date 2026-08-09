@@ -230,9 +230,9 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src/notebooklm/_auth")
     projection = script.build_projection(sites)
     assert projection["summary"]["TOTAL"] == {
-        "public": 174,
-        "private": 152,
-        "total": 326,
+        "public": 149,
+        "private": 156,
+        "total": 305,
     }
     relevant = {
         (row["module"], row["attribute"], row["idiom"]): row["count"]
@@ -242,6 +242,9 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
             ("profile_migration", "FileLock"),
             ("profile_migration", "atomic_write_json"),
             ("master_token", "MasterTokenFile"),
+            ("master_token", "_bootstrapper"),
+            ("master_token", "_verify_by_listing_notebooks"),
+            ("master_token", "generate_android_id"),
             ("master_token_file", "_commit_master_token_json"),
             ("master_token_file", "_ensure_secure_parent_dir"),
             ("master_token_file", "_master_token_from_legacy_record"),
@@ -258,6 +261,7 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
             ("profile_store", "_commit_profile_json"),
             ("profile_store", "filter_storage_state_cookies_by_domain_policy"),
             ("cookies", "build_httpx_cookies_from_storage"),
+            ("cookies", "_build_httpx_cookies_from_storage_strict"),
             ("cookies", "_cookie_from_normalized_entry"),
             ("cookie_semantics", "sanitize_cookie_entry"),
             ("recovery", "_try_headless_reauth_result"),
@@ -268,6 +272,7 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
             ("refresh", "_fetch_tokens_with_exact_baseline"),
             ("refresh", "_fetch_tokens_with_refresh"),
             ("storage", "save_cookies_to_storage"),
+            ("storage", "get_account_email_for_storage"),
             ("tokens", "_load_stored_auth"),
             ("tokens", "resolve_auth_json_env"),
         }
@@ -276,6 +281,9 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
         ("profile_migration", "FileLock", "monkeypatch.setattr"): 2,
         ("profile_migration", "atomic_write_json", "monkeypatch.setattr"): 2,
         ("master_token", "MasterTokenFile", "monkeypatch.setattr"): 4,
+        ("master_token", "_bootstrapper", "monkeypatch.setattr"): 2,
+        ("master_token", "_verify_by_listing_notebooks", "monkeypatch.setattr"): 1,
+        ("master_token", "generate_android_id", "monkeypatch.setattr"): 1,
         ("master_token_file", "_commit_master_token_json", "monkeypatch.setattr"): 5,
         ("master_token_file", "_ensure_secure_parent_dir", "monkeypatch.setattr"): 3,
         (
@@ -305,6 +313,7 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
         ): 7,
         ("cookies", "build_httpx_cookies_from_storage", "monkeypatch.setattr"): 3,
         ("cookies", "build_httpx_cookies_from_storage", "patch.object"): 4,
+        ("cookies", "_build_httpx_cookies_from_storage_strict", "monkeypatch.setattr"): 1,
         ("cookies", "_cookie_from_normalized_entry", "monkeypatch.setattr"): 1,
         ("cookie_semantics", "sanitize_cookie_entry", "monkeypatch.setattr"): 1,
         ("recovery", "_try_headless_reauth_result", "monkeypatch.setattr"): 7,
@@ -313,9 +322,18 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
         ("refresh", "_fetch_tokens_with_exact_baseline", "monkeypatch.setattr"): 3,
         ("refresh", "_fetch_tokens_with_refresh", "monkeypatch.setattr"): 1,
         ("storage", "save_cookies_to_storage", "monkeypatch.setattr"): 6,
+        ("storage", "get_account_email_for_storage", "monkeypatch.setattr"): 1,
         ("tokens", "_load_stored_auth", "monkeypatch.setattr"): 6,
         ("tokens", "resolve_auth_json_env", "monkeypatch.setattr"): 1,
     }
+    grouped = {(row["module"], row["attribute"], row["idiom"]) for row in projection["sites"]}
+    assert grouped.isdisjoint(
+        {
+            ("master_token", "remint_from_stored_token", "patch.object"),
+            ("master_token", "mint_cookies", "patch.object"),
+            ("master_token", "persist_minted_jar", "patch.object"),
+        }
+    )
 
 
 def test_definition_headers_resolve_in_the_enclosing_scope(script, tmp_path):

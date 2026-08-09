@@ -19,6 +19,7 @@ from notebooklm._auth.cookie_types import CookieJar
 from notebooklm._auth.cookies import _LoadedCookiePair
 from notebooklm._auth.extraction import _LoginRedirectError
 from notebooklm._auth.headless_reauth import HeadlessReauthResult, HeadlessReauthStatus
+from notebooklm._auth.mint_service import MintService
 from notebooklm._env import PERSONAL_APP_HOSTS
 from notebooklm.auth import AuthTokens, fetch_tokens_with_domains
 from notebooklm.client import NotebookLMClient
@@ -29,6 +30,15 @@ _PERSONAL_HOMEPAGE_PATTERN = re.compile(rf"^https://(?:{_PERSONAL_HOST_PATTERN})
 
 def _recovery_pair() -> _LoadedCookiePair:
     return _LoadedCookiePair(httpx.Cookies(), CookieJar())
+
+
+def _patch_mint(effect):
+    """Retarget the retired coarse mint seam to the concrete network owner."""
+
+    async def mint(_service, token):
+        return await effect(token.email, token.secret, token.android_id)
+
+    return patch.object(MintService, "mint", autospec=True, side_effect=mint)
 
 
 def _write_storage(path, *, sid: str) -> None:
@@ -103,7 +113,7 @@ async def test_auth_tokens_cold_start_remints_from_sibling_master_token(
         session="session-fresh",
     )
 
-    with patch.object(mt, "mint_cookies", new=AsyncMock(return_value=fresh_jar)) as mint:
+    with _patch_mint(AsyncMock(return_value=fresh_jar)) as mint:
         tokens = await AuthTokens.from_storage(storage)
 
     mint.assert_awaited_once()
@@ -136,7 +146,7 @@ async def test_client_factory_reaches_cold_master_token_recovery(
     fresh_jar.set("__Secure-1PSIDTS", "fresh-ts", domain=".google.com")
     _stub_dead_then_fresh(httpx_mock, fresh_sid="fresh", csrf="csrf", session="session")
 
-    with patch.object(mt, "mint_cookies", new=AsyncMock(return_value=fresh_jar)):
+    with _patch_mint(AsyncMock(return_value=fresh_jar)):
         client = await NotebookLMClient.from_storage(path=str(storage))._build()
 
     assert client.auth.csrf_token == "csrf"
@@ -261,7 +271,7 @@ async def test_concurrent_cold_start_coalesces_one_master_token_mint(
         is_reusable=True,
     )
 
-    with patch.object(mt, "mint_cookies", new=AsyncMock(side_effect=mint)):
+    with _patch_mint(AsyncMock(side_effect=mint)):
         first, second = await asyncio.gather(
             AuthTokens.from_storage(storage),
             AuthTokens.from_storage(storage),
@@ -299,7 +309,7 @@ async def test_cancelled_waiter_does_not_cancel_shared_master_token_mint(
         return jar
 
     _stub_dead_then_fresh(httpx_mock, fresh_sid="fresh", csrf="csrf", session="session")
-    with patch.object(mt, "mint_cookies", new=AsyncMock(side_effect=mint)):
+    with _patch_mint(AsyncMock(side_effect=mint)):
         cancelled = asyncio.create_task(AuthTokens.from_storage(storage))
         await started.wait()
         follower = asyncio.create_task(AuthTokens.from_storage(storage))
@@ -338,7 +348,7 @@ async def test_cancelled_direct_l4_waiter_does_not_cancel_shared_mint(tmp_path) 
 
     cancelled_jar = httpx.Cookies()
     follower_jar = httpx.Cookies()
-    with patch.object(mt, "mint_cookies", new=AsyncMock(side_effect=mint)) as mint_mock:
+    with _patch_mint(AsyncMock(side_effect=mint)) as mint_mock:
         cancelled = asyncio.create_task(
             recovery_mod.try_master_token_reauth(
                 storage_path=storage,
@@ -395,7 +405,7 @@ async def test_shared_l4_failure_fans_out_and_later_call_retries(tmp_path) -> No
     first_jar = httpx.Cookies()
     second_jar = httpx.Cookies()
     retry_jar = httpx.Cookies()
-    with patch.object(mt, "mint_cookies", new=AsyncMock(side_effect=mint)) as mint_mock:
+    with _patch_mint(AsyncMock(side_effect=mint)) as mint_mock:
         first = asyncio.create_task(
             recovery_mod.try_master_token_reauth(storage_path=storage, cookie_jar=first_jar)
         )
@@ -461,7 +471,7 @@ async def test_cold_and_live_l4_recovery_share_one_master_token_mint(tmp_path, m
         "_try_headless_reauth_result",
         AsyncMock(return_value=None),
     )
-    with patch.object(mt, "mint_cookies", new=AsyncMock(side_effect=mint)) as mint_mock:
+    with _patch_mint(AsyncMock(side_effect=mint)) as mint_mock:
         cold = asyncio.create_task(
             recovery_mod.coalesced_cold_recovery(
                 storage_path=storage,
@@ -524,7 +534,7 @@ async def test_headless_retry_that_still_redirects_falls_through_to_l4(
         csrf="csrf-master",
         session="session-master",
     )
-    with patch.object(mt, "mint_cookies", new=AsyncMock(side_effect=mint)):
+    with _patch_mint(AsyncMock(side_effect=mint)):
         tokens = await AuthTokens.from_storage(storage, allow_headless=True)
 
     assert drives == 1
@@ -760,7 +770,7 @@ async def test_same_path_callers_keep_their_explicit_account_routes(
         is_reusable=True,
     )
 
-    with patch.object(mt, "mint_cookies", new=AsyncMock(side_effect=mint)):
+    with _patch_mint(AsyncMock(side_effect=mint)):
         by_index, by_email = await asyncio.gather(
             fetch_tokens_with_domains(storage, authuser=1),
             fetch_tokens_with_domains(storage, account_email="other@example.com"),
@@ -809,7 +819,7 @@ async def test_mixed_headless_permissions_serialize_and_reuse_l4_success(
 
     monkeypatch.setattr(headless, "attempt_headless_reauth", drive_browser)
     _stub_dead_then_fresh(httpx_mock, fresh_sid="fresh", csrf="csrf", session="session")
-    with patch.object(mt, "mint_cookies", new=AsyncMock(side_effect=mint)):
+    with _patch_mint(AsyncMock(side_effect=mint)):
         default_call = asyncio.create_task(AuthTokens.from_storage(storage))
         await started.wait()
         stronger_call = asyncio.create_task(AuthTokens.from_storage(storage, allow_headless=True))

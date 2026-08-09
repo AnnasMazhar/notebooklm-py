@@ -46,10 +46,9 @@ MASTER_TOKEN_FILENAME = "master_token.json"
 _CANONICAL_PATH_MODULE = "notebooklm.paths"
 _EXPECTED_CALLERS = {
     "_app/auth_check.py:_master_token_status",
-    "_auth/master_token.py:_resolve_bootstrap_outcome",
-    "_auth/master_token.py:assert_account_writable",
-    "_auth/master_token.py:bootstrap_from_oauth_token",
-    "_auth/master_token.py:remint_from_stored_token",
+    "_auth/master_token_bootstrap.py:MasterTokenBootstrapper.bootstrap_from_oauth_token",
+    "_auth/master_token_bootstrap.py:MasterTokenBootstrapper.bootstrap_storage",
+    "_auth/master_token_bootstrap.py:MasterTokenBootstrapper.remint_from_stored_token",
     "_auth/profile_store.py:ProfileStore.read_master_token",
     "_auth/profile_store.py:ProfileStore.write_master_token",
     "cli/master_token_login.py:run_master_token_login",

@@ -243,6 +243,8 @@ def test_production_importers_are_exactly_approved_store_owners_and_loader() -> 
     assert actual == {
         "_cookie_persistence.py",
         "_runtime/init.py",
+        "master_token.py",
+        "master_token_bootstrap.py",
         "profile_migration.py",
         "storage.py",
         "tokens.py",
@@ -1083,6 +1085,38 @@ class _StoreCallCollector(ast.NodeVisitor):
         target: str | None = None
         receiver: ast.expr | None = None
         provider_call = False
+        is_bootstrap_write_offload = (
+            self.module == "master_token_bootstrap.py"
+            and self.class_stack[-1:] == ["MasterTokenBootstrapper"]
+            and self.function_stack[:1] == ["bootstrap_from_oauth_token"]
+            and ast.unparse(node.func) == "asyncio.to_thread"
+            and node.args
+            and isinstance(node.args[0], ast.Attribute)
+            and node.args[0].attr == "write_master_token"
+            and self._is_store_receiver(node.args[0].value)
+        )
+        is_legacy_storage_writer = (
+            self.module == "master_token.py"
+            and self.function_stack[:1] == ["write_master_token"]
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "storage"
+            and node.func.attr == "write_master_token"
+        )
+        if is_bootstrap_write_offload:
+            self._record("write_master_token")
+            self.visit(node.func)
+            for argument in node.args[1:]:
+                self.visit(argument)
+            for keyword in node.keywords:
+                self.visit(keyword.value)
+            return
+        if is_legacy_storage_writer:
+            for argument in node.args:
+                self.visit(argument)
+            for keyword in node.keywords:
+                self.visit(keyword.value)
+            return
         if self._is_store_constructor(node.func):
             target = "ProfileStore"
         elif self._is_candidate_constructor(node.func):
@@ -1162,6 +1196,22 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
             "merge_cookie_observation",
         ),
         ("_runtime/init.py", "build_collaborators", "ProfileStore"),
+        ("master_token.py", "_bootstrapper", "ProfileStore"),
+        (
+            "master_token_bootstrap.py",
+            "MasterTokenBootstrapper._read_master_token",
+            "read_master_token",
+        ),
+        (
+            "master_token_bootstrap.py",
+            "MasterTokenBootstrapper._replace_minted_session",
+            "replace_minted_session",
+        ),
+        (
+            "master_token_bootstrap.py",
+            "MasterTokenBootstrapper.bootstrap_from_oauth_token",
+            "write_master_token",
+        ),
         ("profile_store.py", "ProfileStore.read_session", "read_document"),
         ("profile_store.py", "ProfileStore.replace_from_remint", "read_document"),
         ("profile_store.py", "ProfileStore.replace_minted_session", "read_document"),

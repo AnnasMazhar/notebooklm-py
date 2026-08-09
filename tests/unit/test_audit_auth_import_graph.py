@@ -91,10 +91,10 @@ def test_scope_duplicate_self_and_scc_rules(audit, tmp_path):
 def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
-        "modules": 37,
-        "total_lines": 14749,
-        "unique_edges": 114,
-        "module_edges": 102,
+        "modules": 38,
+        "total_lines": 14988,
+        "unique_edges": 121,
+        "module_edges": 109,
         "function_local_edges": 12,
     }
     assert result["sccs"] == {
@@ -165,6 +165,7 @@ def test_live_projection_is_the_frozen_scorecard(audit):
     }
     assert {edge for edge in edges if "master_token_types" in edge[:2]} == {
         ("master_token", "master_token_types", "module"),
+        ("master_token_bootstrap", "master_token_types", "module"),
         ("master_token_file", "master_token_types", "module"),
         ("mint_service", "master_token_types", "module"),
         ("profile_store", "master_token_types", "module"),
@@ -173,9 +174,12 @@ def test_live_projection_is_the_frozen_scorecard(audit):
     assert {edge for edge in edges if "mint_service" in edge[:2]} == {
         ("keepalive", "mint_service", "module"),
         ("master_token", "mint_service", "module"),
+        ("master_token_bootstrap", "mint_service", "module"),
         ("mint_service", "master_token_types", "module"),
     }
     assert {edge for edge in edges if "profile_store" in edge[:2]} == {
+        ("master_token", "profile_store", "module"),
+        ("master_token_bootstrap", "profile_store", "module"),
         ("profile_migration", "profile_store", "module"),
         ("profile_store", "cookie_filter", "module"),
         ("profile_store", "cookie_merge", "module"),
@@ -190,6 +194,14 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("profile_store", "storage_lock", "module"),
         ("storage", "profile_store", "module"),
         ("tokens", "profile_store", "module"),
+    }
+    assert {edge for edge in edges if "master_token_bootstrap" in edge[:2]} == {
+        ("master_token", "master_token_bootstrap", "module"),
+        ("master_token_bootstrap", "cookie_semantics", "module"),
+        ("master_token_bootstrap", "cookie_types", "module"),
+        ("master_token_bootstrap", "master_token_types", "module"),
+        ("master_token_bootstrap", "mint_service", "module"),
+        ("master_token_bootstrap", "profile_store", "module"),
     }
     assert {edge for edge in edges if "profile_migration" in edge[:2]} == {
         ("profile_migration", "profile_account", "module"),

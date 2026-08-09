@@ -27,6 +27,7 @@ from notebooklm._auth import (
     cookies,
     keepalive,
     master_token,
+    master_token_bootstrap,
     profile_migration,
     profile_store,
     psidts_recovery,
@@ -472,6 +473,10 @@ EXPECTED_SIGNATURES: dict[str, SignatureDescriptor] = {
         (("storage_path", P, "Path", R),),
         "bool",
     ),
+    "master.bootstrap_storage_from_master_token": (
+        (("storage_path", P, "Path", R),),
+        "BootstrapOutcome",
+    ),
 }
 
 LIVE_SIGNATURES: dict[str, Callable[..., object]] = {
@@ -537,6 +542,7 @@ LIVE_SIGNATURES: dict[str, Callable[..., object]] = {
     "master.bootstrap_from_oauth_token": master_token.bootstrap_from_oauth_token,
     "master.remint_from_stored_token": master_token.remint_from_stored_token,
     "master.bootstrap_missing_storage_from_master_token": master_token.bootstrap_missing_storage_from_master_token,
+    "master.bootstrap_storage_from_master_token": master_token.bootstrap_storage_from_master_token,
 }
 
 # Exact supplemental identity ledger for every ADR-0034 inventory callable exposed by
@@ -579,6 +585,16 @@ def test_compatibility_signatures_are_literal_and_exact() -> None:
 
 
 def test_result_projections_and_compatibility_value_identities() -> None:
+    assert master_token.BootstrapOutcome is master_token_bootstrap.BootstrapOutcome
+    assert master_token.BootstrapOutcome.__module__ == ("notebooklm._auth.master_token_bootstrap")
+    assert tuple(member.value for member in master_token.BootstrapOutcome) == (
+        "minted",
+        "present_after_wait",
+        "present_on_entry",
+        "no_token",
+    )
+    assert not hasattr(auth, "BootstrapOutcome")
+    assert not hasattr(auth, "MasterTokenBootstrapper")
     assert [field.name for field in dataclasses.fields(storage.CookieSaveResult)] == [
         "ok",
         "cas_rejected_keys",
