@@ -24,11 +24,13 @@ from notebooklm import NotebookLMClient
 from notebooklm._auth import (
     account,
     browser_capture,
+    cookies,
     keepalive,
     master_token,
     profile_migration,
     profile_store,
     psidts_recovery,
+    recovery,
     refresh,
     storage,
     storage_transaction,
@@ -296,6 +298,48 @@ EXPECTED_SIGNATURES: dict[str, SignatureDescriptor] = {
         ),
         "AuthTokens",
     ),
+    "cookies.build_httpx_cookies_from_storage": (
+        (("path", P, "Path | None", "None"),),
+        "httpx.Cookies",
+    ),
+    "cookies._build_cookie_pair_from_storage": (
+        (("path", P, "Path | None", "None"),),
+        "_LoadedCookiePair",
+    ),
+    "cookies._build_cookie_pair_from_storage_state": (
+        (
+            ("storage_state", P, "dict[str, Any]", R),
+            ("context", K, "str", "''"),
+            ("require_routable", K, "bool", R),
+        ),
+        "_LoadedCookiePair",
+    ),
+    "recovery.try_headless_reauth": (
+        (
+            ("storage_path", K, "Path | None", R),
+            ("cookie_jar", K, "httpx.Cookies", R),
+            ("allow_headless", K, "bool", R),
+        ),
+        "bool",
+    ),
+    "recovery._try_headless_reauth_result": (
+        (
+            ("storage_path", K, "Path | None", R),
+            ("allow_headless", K, "bool", R),
+        ),
+        "_LoadedCookiePair | None",
+    ),
+    "recovery.try_master_token_reauth": (
+        (
+            ("storage_path", K, "Path | None", R),
+            ("cookie_jar", K, "httpx.Cookies", R),
+        ),
+        "bool",
+    ),
+    "recovery._try_master_token_reauth_result": (
+        (("storage_path", K, "Path | None", R),),
+        "_LoadedCookiePair | None",
+    ),
     "tokens.load_auth_from_storage": ((("path", P, "Path | None", "None"),), "dict[str, str]"),
     "refresh.fetch_tokens": (
         (
@@ -425,6 +469,15 @@ LIVE_SIGNATURES: dict[str, Callable[..., object]] = {
     "NotebookLMClient.__init__": NotebookLMClient.__init__,
     "AuthTokens.__init__": AuthTokens.__init__,
     "AuthTokens.from_storage": AuthTokens.from_storage,
+    "cookies.build_httpx_cookies_from_storage": cookies.build_httpx_cookies_from_storage,
+    "cookies._build_cookie_pair_from_storage": cookies._build_cookie_pair_from_storage,
+    "cookies._build_cookie_pair_from_storage_state": (
+        cookies._build_cookie_pair_from_storage_state
+    ),
+    "recovery.try_headless_reauth": recovery.try_headless_reauth,
+    "recovery._try_headless_reauth_result": recovery._try_headless_reauth_result,
+    "recovery.try_master_token_reauth": recovery.try_master_token_reauth,
+    "recovery._try_master_token_reauth_result": recovery._try_master_token_reauth_result,
     "tokens.load_auth_from_storage": tokens.load_auth_from_storage,
     "refresh.fetch_tokens": refresh.fetch_tokens,
     "refresh.fetch_tokens_passive": refresh.fetch_tokens_passive,
@@ -546,6 +599,125 @@ def test_result_projections_and_compatibility_value_identities() -> None:
     assert "MintedSessionWriteRequest" not in storage_writer.__all__
     assert not hasattr(auth, "MintedSessionWriteRequest")
     assert storage.MintedSessionWriteRequest is profile_store.MintedSessionWriteRequest
+
+
+def test_phase9_closed_values_and_paired_compatibility_owners_are_exact() -> None:
+    value_shapes = {
+        tokens.InlineAuthSource: ([("document", "ProfileDocument", True)], False),
+        tokens.FileAuthSource: (
+            [("store", "ProfileStore", True), ("profile", "str | None", True)],
+            False,
+        ),
+        tokens.SessionSeed: (
+            [("live", "httpx.Cookies", False), ("baseline", "CookieJar", False)],
+            False,
+        ),
+        tokens.LoadPolicy: ([("allow_headless", "bool", True)], True),
+        tokens.TokenAcquisition: (
+            [
+                ("csrf_token", "str", False),
+                ("session_id", "str", False),
+                ("live", "httpx.Cookies", False),
+                ("baseline_before_fetch_mutations", "CookieJar", False),
+                ("final_account", "ProfileAccount | None", True),
+            ],
+            False,
+        ),
+        tokens.InlineLoadedAuth: ([("auth", "AuthTokens", True)], False),
+        tokens.FileLoadedAuth: (
+            [
+                ("auth", "AuthTokens", True),
+                ("store", "ProfileStore", True),
+                ("persistence_baseline", "CookieJar", False),
+            ],
+            False,
+        ),
+        cookies._LoadedCookiePair: (
+            [("live", "httpx.Cookies", False), ("baseline", "CookieJar", False)],
+            False,
+        ),
+        recovery.ColdRecoveryResult: (
+            [
+                ("cookie_jar", "httpx.Cookies", False),
+                ("snapshot", "CookieSnapshot", False),
+                ("baseline", "CookieJar", False),
+            ],
+            False,
+        ),
+    }
+    for value_type, (fields, repr_enabled) in value_shapes.items():
+        assert value_type.__dataclass_params__.frozen is True
+        assert value_type.__dataclass_params__.repr is repr_enabled
+        assert tuple(value_type.__slots__) == tuple(name for name, _type, _repr in fields)
+        assert [
+            (field.name, _annotation(field.type), field.repr)
+            for field in dataclasses.fields(value_type)
+        ] == fields
+
+    assert tokens.ResolvedAuthSource.__args__ == (
+        tokens.InlineAuthSource,
+        tokens.FileAuthSource,
+    )
+    assert tokens.LoadedAuth.__args__ == (
+        tokens.InlineLoadedAuth,
+        tokens.FileLoadedAuth,
+    )
+
+    internal_names = {
+        "InlineAuthSource",
+        "FileAuthSource",
+        "ResolvedAuthSource",
+        "SessionSeed",
+        "LoadPolicy",
+        "TokenAcquisition",
+        "InlineLoadedAuth",
+        "FileLoadedAuth",
+        "LoadedAuth",
+        "_LoadedCookiePair",
+        "ColdRecoveryResult",
+        "_build_cookie_pair_from_storage",
+        "_build_cookie_pair_from_storage_state",
+        "_try_headless_reauth_result",
+        "_try_master_token_reauth_result",
+    }
+    assert internal_names.isdisjoint(tokens.__all__)
+    assert internal_names.isdisjoint(auth.__all__)
+    assert all(not hasattr(auth, name) for name in internal_names)
+
+    assert auth.build_httpx_cookies_from_storage is cookies.build_httpx_cookies_from_storage
+    exact_identities = {
+        cookies.build_httpx_cookies_from_storage: (
+            "notebooklm._auth.cookies",
+            "build_httpx_cookies_from_storage",
+        ),
+        cookies._build_cookie_pair_from_storage: (
+            "notebooklm._auth.cookies",
+            "_build_cookie_pair_from_storage",
+        ),
+        cookies._build_cookie_pair_from_storage_state: (
+            "notebooklm._auth.cookies",
+            "_build_cookie_pair_from_storage_state",
+        ),
+        recovery.try_headless_reauth: (
+            "notebooklm._auth.recovery",
+            "try_headless_reauth",
+        ),
+        recovery._try_headless_reauth_result: (
+            "notebooklm._auth.recovery",
+            "_try_headless_reauth_result",
+        ),
+        recovery.try_master_token_reauth: (
+            "notebooklm._auth.recovery",
+            "try_master_token_reauth",
+        ),
+        recovery._try_master_token_reauth_result: (
+            "notebooklm._auth.recovery",
+            "_try_master_token_reauth_result",
+        ),
+    }
+    assert {
+        owner: (owner.__module__, owner.__qualname__) for owner in exact_identities
+    } == exact_identities
 
 
 def test_cookie_save_delegate_remains_same_module_and_late_bound() -> None:

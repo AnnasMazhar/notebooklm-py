@@ -92,9 +92,9 @@ def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
         "modules": 34,
-        "total_lines": 14042,
-        "unique_edges": 95,
-        "module_edges": 82,
+        "total_lines": 14531,
+        "unique_edges": 103,
+        "module_edges": 90,
         "function_local_edges": 13,
     }
     assert result["sccs"] == {
@@ -115,6 +115,7 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("profile_migration", "profile_account", "module"),
         ("profile_store", "profile_account", "module"),
         ("storage", "profile_account", "module"),
+        ("tokens", "profile_account", "module"),
     }
     assert {edge for edge in edges if "profile_document" in edge[:2]} == {
         ("cookie_merge", "profile_document", "module"),
@@ -122,6 +123,7 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("profile_document", "profile_account", "module"),
         ("profile_store", "profile_document", "module"),
         ("storage", "profile_document", "module"),
+        ("tokens", "profile_document", "module"),
     }
     assert {edge for edge in edges if "cookie_merge" in edge[:2]} == {
         ("cookie_merge", "cookie_policy", "module"),
@@ -163,9 +165,41 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("profile_store", "profile_document", "module"),
         ("profile_store", "storage_lock", "module"),
         ("storage", "profile_store", "module"),
+        ("tokens", "profile_store", "module"),
     }
     assert {edge for edge in edges if "profile_migration" in edge[:2]} == {
         ("profile_migration", "profile_account", "module"),
         ("profile_migration", "profile_store", "module"),
         ("storage", "profile_migration", "module"),
+        ("tokens", "profile_migration", "module"),
     }
+    assert {edge for edge in edges if "tokens" in edge[:2]} == {
+        ("session", "tokens", "module"),
+        ("tokens", "account", "module"),
+        ("tokens", "cookie_types", "module"),
+        ("tokens", "cookies", "module"),
+        ("tokens", "paths", "module"),
+        ("tokens", "profile_account", "module"),
+        ("tokens", "profile_document", "module"),
+        ("tokens", "profile_migration", "module"),
+        ("tokens", "profile_store", "module"),
+        ("tokens", "psidts_recovery", "module"),
+        ("tokens", "refresh", "module"),
+        ("tokens", "storage", "module"),
+    }
+    assert {edge for edge in edges if "recovery" in edge[:2]} == {
+        ("recovery", "cookie_types", "module"),
+        ("recovery", "cookies", "function"),
+        ("recovery", "cookies", "module"),
+        ("recovery", "extraction", "function"),
+        ("recovery", "extraction", "module"),
+        ("recovery", "headless_reauth", "function"),
+        ("recovery", "master_token", "function"),
+        ("recovery", "paths", "module"),
+        ("recovery", "single_flight", "module"),
+        ("recovery", "storage", "function"),
+        ("recovery", "storage", "module"),
+        ("refresh", "recovery", "module"),
+        ("session", "recovery", "module"),
+    }
+    assert ("refresh", "cookie_types", "module") in edges

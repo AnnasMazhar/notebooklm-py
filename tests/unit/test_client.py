@@ -8,6 +8,9 @@ import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
+from notebooklm._auth import tokens as _auth_tokens
+from notebooklm._auth.cookie_types import CookieJar
+from notebooklm._auth.profile_store import ProfileStore
 from notebooklm._runtime.helpers import is_auth_error
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
@@ -208,14 +211,16 @@ class TestFromStorage:
         explicit_path = tmp_path / "storage_state.json"
         calls = []
 
-        async def fake_from_storage(path=None, profile=None):
+        async def fake_load_stored_auth(*, path, profile, policy, auth_type):
             calls.append((path, profile))
-            return self._auth(path)
+            auth = self._auth(path)
+            assert path is not None
+            return _auth_tokens.FileLoadedAuth(auth, ProfileStore(path), CookieJar())
 
         def fail_get_storage_path(*args, **kwargs):
             raise AssertionError("from_storage should use auth.storage_path")
 
-        monkeypatch.setattr(AuthTokens, "from_storage", staticmethod(fake_from_storage))
+        monkeypatch.setattr(_auth_tokens, "_load_stored_auth", fake_load_stored_auth)
         monkeypatch.setattr(paths_mod, "get_storage_path", fail_get_storage_path)
 
         client = await self.CapturingClient.from_storage(str(explicit_path))._build()
@@ -233,14 +238,17 @@ class TestFromStorage:
         profile_storage_path = tmp_path / "profiles" / "work" / "storage_state.json"
         calls = []
 
-        async def fake_from_storage(path=None, profile=None):
+        async def fake_load_stored_auth(*, path, profile, policy, auth_type):
             calls.append((path, profile))
-            return self._auth(profile_storage_path)
+            auth = self._auth(profile_storage_path)
+            return _auth_tokens.FileLoadedAuth(
+                auth, ProfileStore(profile_storage_path), CookieJar()
+            )
 
         def fail_get_storage_path(*args, **kwargs):
             raise AssertionError("from_storage should not re-resolve profile storage")
 
-        monkeypatch.setattr(AuthTokens, "from_storage", staticmethod(fake_from_storage))
+        monkeypatch.setattr(_auth_tokens, "_load_stored_auth", fake_load_stored_auth)
         monkeypatch.setattr(paths_mod, "get_storage_path", fail_get_storage_path)
 
         client = await self.CapturingClient.from_storage(profile="work")._build()
@@ -257,14 +265,14 @@ class TestFromStorage:
         monkeypatch.setenv("NOTEBOOKLM_AUTH_JSON", '{"cookies": []}')
         calls = []
 
-        async def fake_from_storage(path=None, profile=None):
+        async def fake_load_stored_auth(*, path, profile, policy, auth_type):
             calls.append((path, profile))
-            return self._auth(None)
+            return _auth_tokens.InlineLoadedAuth(self._auth(None))
 
         def fail_get_storage_path(*args, **kwargs):
             raise AssertionError("from_storage should not resolve file paths for auth JSON")
 
-        monkeypatch.setattr(AuthTokens, "from_storage", staticmethod(fake_from_storage))
+        monkeypatch.setattr(_auth_tokens, "_load_stored_auth", fake_load_stored_auth)
         monkeypatch.setattr(paths_mod, "get_storage_path", fail_get_storage_path)
 
         client = await self.CapturingClient.from_storage()._build()

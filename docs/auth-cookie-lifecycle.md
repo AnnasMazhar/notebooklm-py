@@ -447,6 +447,16 @@ report cookies "expiring fast", walk the
 also records the historical hazards and their fixes) before assuming Google changed
 anything.
 
+Cold stored-auth construction now preserves persistence provenance end to end. One raw sample in
+`_auth/cookies.py` builds both the live jar and a typed baseline whose SameSite value comes from the
+same successfully converted row. `_auth/refresh.py` selects the exact initial, refresh-command,
+headless, or master-token replacement baseline; `_auth/recovery.py` carries paired replacement
+results. Before returning file auth, `StoredAuthLoader` performs the initial `ProfileStore` merge:
+accepted identities advance from authoritative final rows, rejected conflicts retain their old
+baseline, and a hard merge failure retains the acquisition baseline for a later retry. The closed
+file result carries its store and exact baseline, but the current client still bridges that baseline
+through `AuthTokens.cookie_snapshot`. Runtime `CookiePersistence` registration is Phase 10 work.
+
 ### 3.3 Empirical cookie requirements
 
 Which cookies does Google *actually* require? This backs the library's two-tier
@@ -1177,6 +1187,16 @@ gate their writes correctly.
 ---
 
 ## Changelog
+
+- **2026-08-09 (typed stored-auth loader and paired baseline)** — `_auth/tokens.py` now owns the
+  captured-inline/file source split, paired seed/acquisition, per-attempt account route,
+  `StoredAuthLoader`, and closed `LoadedAuth` result around the sole `TokenAcquirer` seam. One raw
+  cookie sample supplies both the live jar and SameSite-preserving typed baseline; refresh and
+  recovery replacements return their exact paired baselines. The initial store merge advances
+  accepted-final/rejected-old state and retains the acquisition baseline on hard failure. The
+  client consumes the closed result through the existing `AuthTokens.cookie_snapshot` bridge;
+  runtime store/baseline registration and direct-construction correction remain deferred to Phase
+  10. Measured owners are 816 lines in `tokens.py`, 1,195 in `refresh.py`, and 996 in `client.py`.
 
 - **2026-08-09 (legacy account migration ownership and lifecycle)** —
   `_auth/profile_migration.py` now owns `LegacyAccountContext`, `LegacyAccountMigrator`,

@@ -185,25 +185,26 @@ two-second-per-snapshot-worker exit drain; per-RPC reads never wait for the 90-s
 `LoginProfileWriter` reconciles only after `APPLIED` and lock release using the literal raw-key rule;
 `AccountMetadataWriter` preserves write/clear-specific post-operation scrub and exception ordering.
 `storage.py` remains the v0.x signature/result/patch/facade adapter and token-policy owner. Exact
-pins are storage 1,150, migration 311, store 794, and filter 96 lines (2,351 combined); loader,
-account-network, runtime, master-token, recovery, and shim ownership do not move in this stage.
+pins remain storage 1,150, migration 311, store 794, and filter 96 lines (2,351 combined).
+
+Phase 9 lands the typed stored-auth boundary in `tokens.py`: raw-profile-bearing file and captured inline sources, `LoadPolicy(allow_headless)`, paired seeds/acquisitions, final-attempt route resolution, the closed `LoadedAuth` union, and concrete `SessionSeedLoader`, `AccountRouteResolver`, and `StoredAuthLoader` around the sole structural port, `TokenAcquirer`.
+`AuthTokens.from_storage` passes runtime `cls`; the client passes `AuthTokens`. Cookie load and each refresh/recovery replacement produce one live jar plus its exact SameSite-preserving typed baseline.
+The initial store merge advances accepted identities from final rows and keeps rejected identities from the old baseline; hard failure retains the acquisition baseline.
+`NotebookLMClient.from_storage` consumes `LoadedAuth` but still bridges through `auth.cookie_snapshot`: Phase 10, not this stage, registers the file store/baseline with runtime `CookiePersistence`.
+Measured owners are `tokens.py` 816, `refresh.py` 1,195, and `client.py` 996 lines; direct-construction baseline repair, master-token extraction, and recovery-coordinator decomposition remain deferred.
 
 The compatibility inventory is explicit:
 
-- Profile writers: `merge_cookie_delta`, `update_account_metadata`, `clear_in_band_account`,
-  `replace_from_remint`, `replace_from_login`, `persist_minted_jar`; arbitrary: `write_master_token`.
+- Profile writers: `merge_cookie_delta`, `update_account_metadata`, `clear_in_band_account`, `replace_from_remint`, `replace_from_login`, `persist_minted_jar`; arbitrary: `write_master_token`.
 - Cookie adapters: `save_cookies_to_storage`, `snapshot_cookie_jar`,
   `advance_cookie_snapshot_after_save`, `CookiePersistence.__init__`, `CookiePersistence.capture_open_snapshot`, `CookiePersistence.save`.
-- Client/token seams: `NotebookLMClient.__init__(cookie_saver=...)`, `AuthTokens.__init__`,
-  `AuthTokens.from_storage`.
-- Ladder facade: `load_auth_from_storage`, `fetch_tokens`, `fetch_tokens_passive`,
-  `fetch_tokens_with_domains`, `validate_with_recovery`, `recover_psidts_in_memory`.
+- Client/token seams: `NotebookLMClient.__init__(cookie_saver=...)`, `AuthTokens.__init__`, `AuthTokens.from_storage`.
+- Ladder facade: `load_auth_from_storage`, `fetch_tokens`, `fetch_tokens_passive`, `fetch_tokens_with_domains`, `validate_with_recovery`, `recover_psidts_in_memory`.
 - Account facade: `assert_account_writable`, `read_account_metadata`, `write_account_metadata`,
   `clear_account_metadata`, `read_account_metadata_from_storage_state`,
   `get_authuser_for_storage`, `get_account_email_for_storage`, `drop_legacy_account_key`,
   `repair_account_metadata_from_playwright_storage`, `resolve_account_identity`.
-- Mint/token facade: `exchange_master_token`, `generate_android_id`, `mint_cookies`,
-  `persist_minted_jar`, `read_master_token`, `write_master_token`; coarse operations:
+- Mint/token facade: `exchange_master_token`, `generate_android_id`, `mint_cookies`, `persist_minted_jar`, `read_master_token`, `write_master_token`; coarse operations:
   `master_token_bootstrap`, `master_token_remint`, `bootstrap_missing_storage_from_master_token`.
 
 The frozen read policy is per intent: cookie merge hard-fails non-raising on missing/read/format
@@ -212,8 +213,7 @@ shape; account clear is best effort for absent/OSError/JSON/non-object but propa
 remint replaces absent/OSError/JSON/non-object without namespace but propagates Unicode; login never
 parses the destination and backs up exact bytes before writing; minted-session creation obeys its
 under-lock owner gate, with corrupt/unknown existing owner refused by default; master-token read
-returns `None` only when absent, wraps OSError/JSON with causes, propagates Unicode, and rejects
-malformed records. Executable tests pin returns, exceptions/messages, logs, backup bytes, post bytes,
+returns `None` only when absent, wraps OSError/JSON with causes, propagates Unicode, and rejects malformed records. Executable tests pin returns, exceptions/messages, logs, backup bytes, post bytes,
 and write counts.
 
 ## Consequences

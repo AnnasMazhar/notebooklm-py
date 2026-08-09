@@ -31,8 +31,13 @@ import notebooklm._atomic_io as _atomic_io
 import notebooklm._auth.refresh as _auth_refresh
 import notebooklm._auth.storage as _auth_storage
 import notebooklm._runtime.lifecycle as _lifecycle
+from notebooklm._auth.cookie_types import CookieJar
+from notebooklm._auth.profile_store import (
+    CookieMergeDisposition,
+    CookieMergeResult,
+    ProfileStore,
+)
 from notebooklm._auth.storage import (
-    CookieSaveResult,
     CookieSnapshotKey,
     CookieSnapshotValue,
     advance_cookie_snapshot_after_save,
@@ -957,31 +962,24 @@ class TestRefreshCmdResnapshot:
             ],
         )
 
-        async def fake_fetch_with_refresh(
-            cookie_jar, storage_path, profile, *, authuser=0, env_auth=False
+        async def fake_fetch_with_exact_baseline(
+            cookie_jar, storage_path, profile, *, initial_baseline, **kwargs
         ):
             cookie_jar.jar.clear()
             cookie_jar.set("SID", "post", domain=".google.com", path="/")
             cookie_jar.set("__Secure-1PSIDTS", "post_refresh", domain=".google.com", path="/")
-            return ("csrf", "sid", True, snapshot_cookie_jar(cookie_jar))
+            return ("csrf", "sid", CookieJar.from_httpx(cookie_jar))
 
         # ``AuthTokens.from_storage`` lives in ``_auth.tokens`` and resolves the
         # token fetch through the private owner module.
-        monkeypatch.setattr(_auth_refresh, "_fetch_tokens_with_refresh", fake_fetch_with_refresh)
+        monkeypatch.setattr(
+            _auth_refresh, "_fetch_tokens_with_exact_baseline", fake_fetch_with_exact_baseline
+        )
 
-        captured_snapshots: list = []
-        real_save = auth_mod.save_cookies_to_storage
+        auth = await auth_mod.AuthTokens.from_storage(path=storage)
 
-        def capture_save(jar, path, *, original_snapshot=None, **kwargs):
-            captured_snapshots.append(original_snapshot)
-            return real_save(jar, path, original_snapshot=original_snapshot, **kwargs)
-
-        monkeypatch.setattr(_auth_storage, "save_cookies_to_storage", capture_save)
-
-        await auth_mod.AuthTokens.from_storage(path=storage)
-
-        assert len(captured_snapshots) == 1
-        snapshot = captured_snapshots[0]
+        assert auth.cookie_snapshot is not None
+        snapshot = auth.cookie_snapshot
         key = CookieSnapshotKey("__Secure-1PSIDTS", ".google.com", "/")
         assert key in snapshot
         assert snapshot[key].value == "post_refresh", (
@@ -1189,19 +1187,24 @@ class TestBaselineNotAdvancedOnSaveFailure:
             ],
         )
 
-        async def fake_fetch_with_refresh(
-            cookie_jar, storage_path, profile, *, authuser=0, env_auth=False
+        async def fake_fetch_with_exact_baseline(
+            cookie_jar, storage_path, profile, *, initial_baseline, **kwargs
         ):
             _set_cookie_value(cookie_jar, "__Secure-1PSIDTS", "mutated")
-            return ("csrf", "session", False, None)
+            return ("csrf", "session", initial_baseline)
 
-        def failed_save(jar, path, *, original_snapshot=None, return_result=False):
-            result = CookieSaveResult(False)
-            return result if return_result else result.ok
+        def failed_merge(self, observation, *, baseline, recovery_observation=None):
+            return CookieMergeResult(
+                CookieMergeDisposition.HARD_FAILURE,
+                advances_ordering=False,
+                committed=None,
+            )
 
         # ``AuthTokens.from_storage`` resolves through the private owner modules.
-        monkeypatch.setattr(_auth_refresh, "_fetch_tokens_with_refresh", fake_fetch_with_refresh)
-        monkeypatch.setattr(_auth_storage, "save_cookies_to_storage", failed_save)
+        monkeypatch.setattr(
+            _auth_refresh, "_fetch_tokens_with_exact_baseline", fake_fetch_with_exact_baseline
+        )
+        monkeypatch.setattr(ProfileStore, "merge_cookie_observation", failed_merge)
 
         auth = await auth_mod.AuthTokens.from_storage(path=storage)
         core = build_client_shell_for_tests(auth)
@@ -1525,8 +1528,8 @@ class TestCASVariantAware:
             ],
         )
 
-        async def fake_fetch_with_refresh(
-            cookie_jar, storage_path, profile, *, authuser=0, env_auth=False
+        async def fake_fetch_with_exact_baseline(
+            cookie_jar, storage_path, profile, *, initial_baseline, **kwargs
         ):
             # Drop the bare-host OSID from the jar and re-key it on the
             # leading-dot variant so the in-memory jar diverges from disk on
@@ -1540,10 +1543,12 @@ class TestCASVariantAware:
                 if cookie["name"] == "OSID":
                     cookie["value"] = "SIBLING"
             _write_storage(storage_path, cookies)
-            return ("csrf", "session", False, None)
+            return ("csrf", "session", initial_baseline)
 
         # ``AuthTokens.from_storage`` resolves through the private refresh owner.
-        monkeypatch.setattr(_auth_refresh, "_fetch_tokens_with_refresh", fake_fetch_with_refresh)
+        monkeypatch.setattr(
+            _auth_refresh, "_fetch_tokens_with_exact_baseline", fake_fetch_with_exact_baseline
+        )
 
         # Pre-client save runs through the real save_cookies_to_storage; the
         # CAS rejection must keep SIBLING on disk and the variant-aware

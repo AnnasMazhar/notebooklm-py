@@ -130,22 +130,20 @@ async def test_token_fetch_and_cookie_jar_read_the_same_account(profiled_home: P
 @pytest.mark.asyncio
 async def test_auth_tokens_from_storage_keeps_env_auth_under_a_profile(
     profiled_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``AuthTokens.from_storage(profile=...)`` must not silently become file auth."""
     seen: dict[str, object] = {}
 
-    def spy(path=None):
-        seen["path"] = path
+    async def stop_after_resolution(self, source, policy):
+        seen["source"] = source
         raise RuntimeError("stop after resolution")
 
-    # ``from_storage`` loads through ``cookies.build_httpx_cookies_from_storage``.
-    with (
-        patch.object(cookies, "build_httpx_cookies_from_storage", spy),
-        pytest.raises(Exception),  # noqa: B017 - resolution is the subject
-    ):
+    monkeypatch.setattr(tokens.SessionSeedLoader, "load", stop_after_resolution)
+    with pytest.raises(RuntimeError, match="stop after resolution"):
         await tokens.AuthTokens.from_storage(profile="work")
 
-    assert seen.get("path", "unset") is None
+    assert isinstance(seen.get("source"), tokens.InlineAuthSource)
 
 
 @pytest.mark.asyncio

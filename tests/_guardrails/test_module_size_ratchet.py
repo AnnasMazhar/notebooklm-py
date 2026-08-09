@@ -311,7 +311,7 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # docstring paragraphs the reorder obsoleted into ADR-0030's amendment. The
     # ceiling stays shrink-only: the next change to this module still has to
     # come in at or below 1200.
-    "_auth/refresh.py": 1200,
+    "_auth/refresh.py": 1195,
     # sanctioned merge (ADR-0033) — the `_auth` browser-cluster merge (PR 4.1):
     # ``_auth/browser_state_validation.py`` (56) and ``_auth/login_wait_trace.py``
     # (181) were absorbed in full and reduced to re-export shims in the same
