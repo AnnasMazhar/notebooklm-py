@@ -20,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src" / "notebooklm"
 AUTH_ROOT = SRC_ROOT / "_auth"
 MODULE_PATH = AUTH_ROOT / "master_token_file.py"
+BOOTSTRAP_PATH = AUTH_ROOT / "master_token_bootstrap.py"
 ImportRecord = tuple[str, int, str, str, str | None]
 
 _MODULE_NAME = "notebooklm._auth.master_token_file"
@@ -1154,6 +1155,24 @@ def test_file_construction_and_private_raw_bridge_callers_are_exact() -> None:
     assert present_calls == _EXPECTED_PRESENT_RAW_CALLERS
     assert write_calls == _EXPECTED_WRITE_CALLERS
     assert violations == set()
+    bootstrap_label = "_auth/master_token_bootstrap.py:"
+    assert all(not owner.startswith(bootstrap_label) for owner in constructors)
+    assert all(not owner.startswith(bootstrap_label) for owner in raw_calls)
+    assert all(not owner.startswith(bootstrap_label) for owner in present_calls)
+    assert all(not owner.startswith(bootstrap_label) for owner in write_calls)
+
+
+def test_bootstrapper_has_zero_master_token_file_capability() -> None:
+    source = BOOTSTRAP_PATH.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(BOOTSTRAP_PATH))
+    assert "MasterTokenFile" not in source
+    assert "master_token_file" not in source
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name | ast.Attribute)
+        and ast.unparse(node.func).endswith((".read", ".write", "open"))
+        for node in ast.walk(tree)
+    )
 
 
 def test_raw_projection_exists_only_in_the_public_legacy_reader() -> None:

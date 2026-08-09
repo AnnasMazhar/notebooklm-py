@@ -549,9 +549,17 @@ def test_credential_store_and_migration_modules_use_the_ordinary_budget() -> Non
     assert _over_budget_offenders(synthetic, {}, MODULE_SIZE_BUDGET) == synthetic
 
 
-def test_phase_11b_touched_compatibility_modules_are_measured_exactly() -> None:
+def test_phase_11d_bootstrap_extraction_modules_are_measured_exactly() -> None:
     measured = _measure_all()
-    assert {path: measured[path] for path in {"_auth/master_token.py", "_auth/storage.py"}} == {
-        "_auth/master_token.py": 593,
+    assert {
+        path: measured[path]
+        for path in {
+            "_auth/master_token.py",
+            "_auth/master_token_bootstrap.py",
+            "_auth/storage.py",
+        }
+    } == {
+        "_auth/master_token.py": 463,
+        "_auth/master_token_bootstrap.py": 366,
         "_auth/storage.py": 1131,
     }

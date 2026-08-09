@@ -655,7 +655,7 @@ def test_capability_detector_bites_on_aliases_escapes_and_deferred_scopes(source
     assert _live_structure_violations(ast.parse(mutated))
 
 
-def test_production_consumers_are_exactly_the_phase_11c_owners() -> None:
+def test_production_consumers_are_exactly_the_phase_11d_owners() -> None:
     normalized = {
         (path, detail)
         for item in _production_consumers(SRC_ROOT)
@@ -664,6 +664,7 @@ def test_production_consumers_are_exactly_the_phase_11c_owners() -> None:
     assert normalized == {
         ("_auth/master_token.py", "from-import"),
         ("_auth/master_token.py", "bare-call:MasterToken"),
+        ("_auth/master_token_bootstrap.py", "from-import"),
         ("_auth/master_token_file.py", "from-import"),
         (
             "_auth/master_token_file.py",

@@ -94,6 +94,7 @@ _FORBIDDEN_TOKEN_MODULES = frozenset(
         "notebooklm._auth.headless_reauth",
         "notebooklm._auth.keepalive",
         "notebooklm._auth.master_token",
+        "notebooklm._auth.master_token_bootstrap",
         "notebooklm._auth.mint_service",
         "notebooklm._auth.recovery",
         "notebooklm._auth.storage_lock",

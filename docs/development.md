@@ -258,10 +258,10 @@ left on disk after release — both lock implementations reuse them).
 | Lock file | Owner | Scope | Acquisition |
 |---|---|---|---|
 | `<profile>/.storage_state.json.lock` | `_auth/profile_store.py` transaction owner via `_auth/storage_lock.py`; `_auth/storage.py` retains compatibility adapters | Every mutation of `storage_state.json`: cookie CAS, typed in-band account update/clear, and remint/login/minted full replacement | Cookie methods: blocking exclusive, fail-open. Account update and minted replacement: bounded 90s, fail-closed; clear: bounded best-effort; browser/remint and login: bounded typed status. |
-| `<profile>/.master_token.json.lock` | `_auth/storage.py::write_master_token` policy via `_auth/profile_store.py` bounded transaction and `_auth/credential_io.py` typed commit | Writes to `master_token.json` (the durable L4 credential) | Same bounded manager acquire as above (90s deadline), fail-closed. `MasterTokenFile` is not implemented yet. |
+| `<profile>/.master_token.json.lock` | `_auth/master_token_file.py` via the `ProfileStore` derived-token methods; `_auth/storage.py` retains the arbitrary-path v0.x adapter | Writes to `master_token.json` (the durable L4 credential) | Same bounded manager acquire as above (90s deadline), fail-closed. |
 | `<profile>/.storage_state.json.rotate.lock` | `_auth/keepalive.py::_poke_session` via `_auth/storage_lock.py` | Cross-process dedup of the `accounts.google.com/RotateCookies` keepalive POST | Non-blocking exclusive; skip on contention |
 | `<profile>/.storage_state.json.refresh.lock` | `_auth/refresh.py` via `_auth/keepalive.py` and `_auth/storage_lock.py` | Cross-process dedup of the `NOTEBOOKLM_REFRESH_CMD` subprocess | Non-blocking exclusive; skip on contention, waiter polls asynchronously with jittered backoff |
-| `<profile>/.storage_state.json.lock.bootstrap` | `_auth/master_token.py::bootstrap_storage_from_master_token` | Cross-process exclusion for the FIRST-TIME mint of a profile that has only a `master_token.json` — held across the mint, whose persist takes `.storage_state.json.lock` *inside* this section (so the two must never share a path) | Non-blocking exclusive (`filelock`), retried on a 50ms sleep so the event loop keeps running |
+| `<profile>/.storage_state.json.lock.bootstrap` | `_auth/master_token_bootstrap.py::MasterTokenBootstrapper.bootstrap_storage`; `_auth/master_token.py` retains the v0.x adapter | Cross-process exclusion for the FIRST-TIME mint of a profile that has only a `master_token.json` — held across the mint, whose persist takes `.storage_state.json.lock` *inside* this section (so the two must never share a path) | Non-blocking exclusive (`filelock`), retried on a 50ms sleep so the event loop keeps running |
 | `<home>/.migration.lock` | `migration.py::migrate_to_profiles` | One-shot legacy→profile layout migration on startup | Blocking exclusive, 30s timeout (raises `MigrationLockTimeoutError`) |
 | `<profile>/context.json.lock` | `_atomic_io.py::atomic_update_json` through CLI context helpers; also `_auth/profile_migration.py::LegacyAccountContext.scrub` for legacy `account` cleanup | Read-modify-write of the active-notebook/account-routing context for a profile | Blocking exclusive, 10s timeout (`filelock`); migration cleanup keeps best-effort error handling and the public atomic JSON writer |
 
@@ -345,6 +345,17 @@ the adapter translates its private refusal outside the handler to context-free c
 An empty in-band account mapping does not
 block promotion but is still preserved when remint carries the whole namespace;
 a non-empty unknown-only mapping remains present and wins.
+
+`_auth/master_token_bootstrap.py` owns the concrete bootstrap, re-mint, and
+missing-storage transaction over one `ProfileStore`. Keep new behavior tests on
+`MasterTokenBootstrapper`, `MintService`, `ProfileStore`, and the call-time
+strict-loader seam; do not restore patches of the v0.x coarse functions in
+`_auth/master_token.py`. The adapter composes one store/service/bootstrap lock
+and retains late-bound bridges for legacy owner lookup, Android-ID generation,
+strict reload, and default verification. Session persistence finishes before
+token persistence; a missing-storage leader remains shielded to settlement
+before its bootstrap lock is released. At the extraction freeze the coordinator
+is 366 lines and the compatibility adapter is 463 lines.
 
 The measured boundary is 1,150 lines in `_auth/storage.py`, 311 in
 `_auth/profile_migration.py`, 794 in `_auth/profile_store.py`, and 96 in

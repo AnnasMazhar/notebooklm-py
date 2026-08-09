@@ -14,6 +14,8 @@ interactive.
 
 from __future__ import annotations
 
+# ADR-0034 Phase 11D: ``MasterTokenBootstrapper`` now owns that coordination;
+# ``_auth.master_token`` retains the exact v0.x transaction adapters.
 # The single ``_auth`` module the CLI-boundary guardrail sanctions;
 # ``classify_launch_failure`` lives in its ``browser_launch_errors`` leaf and
 # is re-exported there.
