@@ -85,6 +85,18 @@
       "module": "cookies"
     },
     {
+      "attribute": "_atomic_write_json_unchecked",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "credential_io"
+    },
+    {
+      "attribute": "_commit_json_unchecked",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "credential_io"
+    },
+    {
       "attribute": "_get_drive_record",
       "count": 1,
       "idiom": "monkeypatch.setattr",
@@ -161,6 +173,30 @@
       "count": 14,
       "idiom": "patch.object",
       "module": "master_token"
+    },
+    {
+      "attribute": "_STORAGE_LOCKS",
+      "count": 2,
+      "idiom": "assignment",
+      "module": "profile_store"
+    },
+    {
+      "attribute": "_STORAGE_LOCKS",
+      "count": 6,
+      "idiom": "monkeypatch.setattr",
+      "module": "profile_store"
+    },
+    {
+      "attribute": "_commit_profile_json",
+      "count": 2,
+      "idiom": "monkeypatch.setattr",
+      "module": "profile_store"
+    },
+    {
+      "attribute": "_ensure_secure_parent_dir",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "module": "profile_store"
     },
     {
       "attribute": "_check_routable",
@@ -320,13 +356,7 @@
     },
     {
       "attribute": "_STORAGE_LOCKS",
-      "count": 2,
-      "idiom": "assignment",
-      "module": "storage"
-    },
-    {
-      "attribute": "_STORAGE_LOCKS",
-      "count": 7,
+      "count": 1,
       "idiom": "monkeypatch.setattr",
       "module": "storage"
     },
@@ -339,12 +369,6 @@
     {
       "attribute": "_drop_legacy_account_key",
       "count": 1,
-      "idiom": "monkeypatch.setattr",
-      "module": "storage"
-    },
-    {
-      "attribute": "_file_lock",
-      "count": 3,
       "idiom": "monkeypatch.setattr",
       "module": "storage"
     },
@@ -405,9 +429,9 @@
   ],
   "summary": {
     "TOTAL": {
-      "private": 106,
+      "private": 109,
       "public": 171,
-      "total": 277
+      "total": 280
     },
     "account": {
       "private": 2,
@@ -429,6 +453,11 @@
       "public": 11,
       "total": 12
     },
+    "credential_io": {
+      "private": 3,
+      "public": 0,
+      "total": 3
+    },
     "headless_reauth": {
       "private": 17,
       "public": 33,
@@ -443,6 +472,11 @@
       "private": 0,
       "public": 27,
       "total": 27
+    },
+    "profile_store": {
+      "private": 11,
+      "public": 0,
+      "total": 11
     },
     "psidts_recovery": {
       "private": 14,
@@ -465,9 +499,9 @@
       "total": 1
     },
     "storage": {
-      "private": 20,
+      "private": 9,
       "public": 27,
-      "total": 47
+      "total": 36
     },
     "storage_lock": {
       "private": 1,

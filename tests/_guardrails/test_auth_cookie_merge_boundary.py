@@ -152,7 +152,7 @@ def test_production_importer_detector_bites_at_every_scope(source: str) -> None:
     assert _imports_cookie_merge(AUTH_ROOT / "synthetic.py", ast.parse(source))
 
 
-def test_production_importers_are_exactly_storage() -> None:
+def test_production_importers_are_exactly_profile_store_and_storage() -> None:
     importers = {
         path.relative_to(AUTH_ROOT).as_posix()
         for path in AUTH_ROOT.rglob("*.py")
@@ -162,7 +162,7 @@ def test_production_importers_are_exactly_storage() -> None:
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
         )
     }
-    assert importers == {"storage.py"}
+    assert importers == {"profile_store.py", "storage.py"}
 
 
 def _decision_bindings(path: Path, tree: ast.AST) -> tuple[dict[str, str], set[str]]:
@@ -236,6 +236,12 @@ def _decision_callers(path: Path, tree: ast.AST) -> set[Caller]:
 
 
 _EXPECTED_CALLERS: set[Caller] = {
+    ("profile_store.py", "merge_cookie_observation", "decide_cookie_merge"),
+    (
+        "profile_store.py",
+        "merge_legacy_cookie_observation",
+        "decide_legacy_cookie_overlay",
+    ),
     ("storage.py", "_merge_cookies_legacy", "decide_legacy_cookie_overlay"),
     ("storage.py", "_merge_cookies_with_snapshot", "decide_cookie_merge"),
 }

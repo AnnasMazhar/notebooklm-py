@@ -91,10 +91,10 @@ def test_scope_duplicate_self_and_scc_rules(audit, tmp_path):
 def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
-        "modules": 30,
-        "total_lines": 14231,
-        "unique_edges": 80,
-        "module_edges": 66,
+        "modules": 32,
+        "total_lines": 14417,
+        "unique_edges": 89,
+        "module_edges": 75,
         "function_local_edges": 14,
     }
     assert result["sccs"] == {
@@ -112,11 +112,13 @@ def test_live_projection_is_the_frozen_scorecard(audit):
     assert {edge for edge in edges if "profile_account" in edge[:2]} == {
         ("profile_account", "cookie_types", "module"),
         ("profile_document", "profile_account", "module"),
+        ("profile_store", "profile_account", "module"),
     }
     assert {edge for edge in edges if "profile_document" in edge[:2]} == {
         ("cookie_merge", "profile_document", "module"),
         ("profile_document", "cookie_types", "module"),
         ("profile_document", "profile_account", "module"),
+        ("profile_store", "profile_document", "module"),
         ("storage", "profile_document", "module"),
     }
     assert {edge for edge in edges if "cookie_merge" in edge[:2]} == {
@@ -124,10 +126,26 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("cookie_merge", "cookie_semantics", "module"),
         ("cookie_merge", "cookie_types", "module"),
         ("cookie_merge", "profile_document", "module"),
+        ("profile_store", "cookie_merge", "module"),
         ("storage", "cookie_merge", "module"),
     }
     assert {edge for edge in edges if "storage_lock" in edge[:2]} == {
         ("keepalive", "storage_lock", "module"),
+        ("profile_store", "storage_lock", "module"),
         ("storage", "storage_lock", "module"),
     }
     assert ("keepalive", "storage", "module") not in edges
+    assert {edge for edge in edges if "credential_io" in edge[:2]} == {
+        ("profile_store", "credential_io", "module"),
+        ("storage", "credential_io", "module"),
+    }
+    assert {edge for edge in edges if "profile_store" in edge[:2]} == {
+        ("profile_store", "cookie_merge", "module"),
+        ("profile_store", "cookie_types", "module"),
+        ("profile_store", "credential_io", "module"),
+        ("profile_store", "paths", "module"),
+        ("profile_store", "profile_account", "module"),
+        ("profile_store", "profile_document", "module"),
+        ("profile_store", "storage_lock", "module"),
+        ("storage", "profile_store", "module"),
+    }

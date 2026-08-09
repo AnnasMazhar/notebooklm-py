@@ -134,7 +134,7 @@ def test_importer_detector_bites_at_every_scope(source: str) -> None:
     assert _imports_storage_lock(AUTH_ROOT / "synthetic.py", ast.parse(source))
 
 
-def test_production_importers_are_exactly_storage_and_keepalive() -> None:
+def test_production_importers_are_exactly_keepalive_profile_store_and_storage() -> None:
     importers = {
         path.relative_to(AUTH_ROOT).as_posix()
         for path in AUTH_ROOT.rglob("*.py")
@@ -144,7 +144,7 @@ def test_production_importers_are_exactly_storage_and_keepalive() -> None:
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path)),
         )
     }
-    assert importers == {"keepalive.py", "storage.py"}
+    assert importers == {"keepalive.py", "profile_store.py", "storage.py"}
 
 
 def test_storage_lock_leaf_participates_in_no_strongly_connected_component() -> None:

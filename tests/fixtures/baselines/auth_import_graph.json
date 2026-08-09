@@ -167,6 +167,41 @@
     },
     {
       "scope": "module",
+      "source": "profile_store",
+      "target": "cookie_merge"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
+      "target": "cookie_types"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
+      "target": "credential_io"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
+      "target": "paths"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
+      "target": "profile_account"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
+      "target": "profile_document"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
+      "target": "storage_lock"
+    },
+    {
+      "scope": "module",
       "source": "psidts_recovery",
       "target": "cookie_policy"
     },
@@ -341,6 +376,11 @@
       "target": "cookies"
     },
     {
+      "scope": "module",
+      "source": "storage",
+      "target": "credential_io"
+    },
+    {
       "scope": "function",
       "source": "storage",
       "target": "master_token"
@@ -354,6 +394,11 @@
       "scope": "module",
       "source": "storage",
       "target": "profile_document"
+    },
+    {
+      "scope": "module",
+      "source": "storage",
+      "target": "profile_store"
     },
     {
       "scope": "module",
@@ -463,6 +508,11 @@
       "path": "src/notebooklm/_auth/cookies.py"
     },
     {
+      "lines": 23,
+      "name": "credential_io",
+      "path": "src/notebooklm/_auth/credential_io.py"
+    },
+    {
       "lines": 453,
       "name": "extraction",
       "path": "src/notebooklm/_auth/extraction.py"
@@ -503,6 +553,11 @@
       "path": "src/notebooklm/_auth/profile_document.py"
     },
     {
+      "lines": 397,
+      "name": "profile_store",
+      "path": "src/notebooklm/_auth/profile_store.py"
+    },
+    {
       "lines": 1234,
       "name": "psidts_recovery",
       "path": "src/notebooklm/_auth/psidts_recovery.py"
@@ -528,7 +583,7 @@
       "path": "src/notebooklm/_auth/single_flight.py"
     },
     {
-      "lines": 2563,
+      "lines": 2329,
       "name": "storage",
       "path": "src/notebooklm/_auth/storage.py"
     },
@@ -566,10 +621,10 @@
   },
   "summary": {
     "function_local_edges": 14,
-    "module_edges": 66,
-    "modules": 30,
-    "total_lines": 14231,
-    "unique_edges": 80
+    "module_edges": 75,
+    "modules": 32,
+    "total_lines": 14417,
+    "unique_edges": 89
   },
   "version": 1
 }

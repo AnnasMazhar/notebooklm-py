@@ -4,9 +4,9 @@ The writers were absorbed into ``_auth/storage.py`` by ADR-0033's persistence
 merge; this suite drives them there (``storage_mod``).
 
 Covers the relocated intent-shaped API's per-intent lock-failure policy and the
-value-free outcome contract. The CAS ``merge_cookie_delta`` body is exercised
-verbatim by the existing 51-test CAS save-race suite (via the
-``save_cookies_to_storage`` delegate) and is not re-tested here.
+value-free outcome contract. The CAS ``merge_cookie_delta`` adapter and its
+``ProfileStore`` transaction are exercised by the cookie save-race suite via
+the ``save_cookies_to_storage`` delegate and are not re-tested here.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import httpx
 import pytest
 
 from notebooklm._auth import master_token as mt_mod
+from notebooklm._auth import profile_store
 from notebooklm._auth import storage as storage_mod
 from notebooklm._auth.storage_lock import LockState
 
@@ -31,7 +32,7 @@ class _UnavailableLocks:
 
 def _patch_lock_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     """Force bounded writer transactions to see infrastructure failure."""
-    monkeypatch.setattr(storage_mod, "_STORAGE_LOCKS", _UnavailableLocks())
+    monkeypatch.setattr(profile_store, "_STORAGE_LOCKS", _UnavailableLocks())
 
 
 # --- value-free outcome contract -------------------------------------------
@@ -625,6 +626,34 @@ def test_write_master_token_roundtrip_and_mode(tmp_path: Path) -> None:
         assert (path.stat().st_mode & 0o777) == 0o600  # full-account credential
 
 
+def test_write_master_token_accepts_storage_state_name_without_reading_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "storage_state.json"
+    path.write_bytes(b"opaque prior bytes that must not be parsed")
+    real_read_text = Path.read_text
+
+    def read_text(target: Path, *args: object, **kwargs: object) -> str:
+        if target == path:
+            pytest.fail("master-token commit must not read its destination")
+        return real_read_text(target, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    storage_mod.write_master_token(
+        path,
+        email="e@x.com",
+        master_token="aas_et/M",
+        android_id="abc",
+    )
+    assert path.read_bytes() == (
+        b'{\n  "version": 1,\n  "email": "e@x.com",\n'
+        b'  "android_id": "abc",\n  "master_token": "aas_et/M"\n}'
+    )
+    lock = tmp_path / ".storage_state.json.lock"
+    assert lock.exists()
+    assert not path.with_name(path.name + ".bak").exists()
+
+
 def test_write_master_token_fails_closed_on_lock_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -646,7 +675,7 @@ def test_ensure_secure_parent_dir_creates_at_0700(tmp_path: Path) -> None:
     if sys.platform == "win32":
         pytest.skip("POSIX permission semantics")
     path = tmp_path / "sub" / "storage_state.json"
-    storage_mod._ensure_secure_parent_dir(path)
+    profile_store._ensure_secure_parent_dir(path)
     assert path.parent.is_dir()
     assert (path.parent.stat().st_mode & 0o777) == 0o700
 
@@ -667,7 +696,7 @@ def test_ensure_secure_parent_dir_retightens_existing_loose_dir(tmp_path: Path) 
     os.chmod(parent, 0o755)
     assert (parent.stat().st_mode & 0o777) == 0o755
 
-    storage_mod._ensure_secure_parent_dir(parent / "storage_state.json")
+    profile_store._ensure_secure_parent_dir(parent / "storage_state.json")
 
     # Unconditional chmod re-tightened the already-existing directory.
     assert (parent.stat().st_mode & 0o777) == 0o700

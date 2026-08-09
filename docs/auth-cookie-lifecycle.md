@@ -434,7 +434,8 @@ hazards existed (a stale-in-memory-clobbers-fresh-disk race, `(name, domain)`
 path-collapse, sibling-domain allow-list asymmetry, round-trip attribute erosion).
 **All of them are resolved in-tree** — the persistence path is now snapshot/delta,
 CAS-guarded, cross-process flocked, fully `(name, domain, path)`-aware, and funneled
-through the single canonical writers in `_auth/storage.py`
+through the path-owned cookie transactions in `_auth/profile_store.py`, with
+v0.x input/result policy still adapted by `_auth/storage.py`
 ([ADR-0029](adr/0029-canonical-storage-writer.md)). If users
 report cookies "expiring fast", walk the
 [diagnostic checklist](#a2--diagnosing-cookies-expire-fast) in the Appendix (which
@@ -614,7 +615,8 @@ headless-browser ladder can't provide off-device.
   after L1 (homepage), L2 (`RotateCookies`), and L3 (headless browser) are
   exhausted. Both cold token loading and mid-session `refresh_auth_session`
   delegate to this adapter. It mints a new session, persists it through the
-  canonical writers in `_auth/storage.py` (§A2, [ADR-0029](adr/0029-canonical-storage-writer.md)),
+  compatibility writers in `_auth/storage.py`, which route transaction/commit mechanics through
+  `_auth/profile_store.py` and `_auth/credential_io.py` (§A2, [ADR-0029](adr/0029-canonical-storage-writer.md)),
   reloads the jar, and retries the homepage GET once. Cold-start callers on
   **any** event loop — not just the same one — now coalesce onto one recovery
   attempt via the `single_flight` core; `recovery.py` layers its own per-loop
@@ -1065,12 +1067,13 @@ reports still make sense:
   their own write path: cookie saves used the project's own `flock` primitive,
   `_auth/account.py` and `_auth/master_token.py` used `filelock.FileLock` with a
   10 s timeout, and `write_master_token` had no lock at all. Resolved by
-  [ADR-0029](adr/0029-canonical-storage-writer.md): `_auth/storage.py` is
-  now the only module permitted to perform the atomic write to
-  `storage_state.json` — enforced by an AST guardrail
-  (`tests/_guardrails/test_storage_writer_boundary.py`) — on one unified,
-  platform-neutral bounded lock (90 s deadline, up from 10 s). Full-replace
-  writers (account metadata, master-token persist) now **fail closed**, raising
+  [ADR-0029](adr/0029-canonical-storage-writer.md), then sealed by ADR-0034:
+  `_auth/credential_io.py` alone holds the unchecked atomic capability,
+  `_auth/profile_store.py` owns cookie transactions, and `_auth/storage.py`
+  temporarily owns the remaining v0.x operation policies. Function-granular AST guardrails
+  (`tests/_guardrails/test_storage_writer_boundary.py`) seal the capability and caller sets.
+  The full-replace paths share one platform-neutral bounded lock (90 s deadline, up from 10 s).
+  Those writers (account metadata, master-token persist) now **fail closed**, raising
   `LockUnavailableError` rather than silently skipping the write, while the CAS
   cookie merge keeps its status-quo **fail-open** behavior (availability is safe
   there; the CAS guard itself prevents a lost update). A save-ordering guard

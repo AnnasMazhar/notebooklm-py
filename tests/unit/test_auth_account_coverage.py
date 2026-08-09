@@ -777,7 +777,7 @@ class TestClearInBandLockFailure:
     def test_lock_unavailable_is_swallowed(self, tmp_path, monkeypatch):
         import contextlib
 
-        from notebooklm._auth import storage as _auth_storage
+        from notebooklm._auth import profile_store as _profile_store
         from notebooklm._auth.storage_lock import LockState
 
         storage = tmp_path / "storage_state.json"
@@ -788,7 +788,7 @@ class TestClearInBandLockFailure:
             def acquire(self, request):
                 yield LockState.UNAVAILABLE
 
-        monkeypatch.setattr(_auth_storage, "_STORAGE_LOCKS", UnavailableLocks())
+        monkeypatch.setattr(_profile_store, "_STORAGE_LOCKS", UnavailableLocks())
         # Should swallow the lock-unavailable outcome and not raise.
         _clear_in_band_account(storage)
         # File untouched because the lock was unavailable before any write.

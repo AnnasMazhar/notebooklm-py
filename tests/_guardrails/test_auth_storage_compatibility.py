@@ -24,9 +24,11 @@ from notebooklm._auth import (
     account,
     keepalive,
     master_token,
+    profile_store,
     psidts_recovery,
     refresh,
     storage,
+    storage_transaction,
     storage_writer,
     tokens,
 )
@@ -80,6 +82,28 @@ R = REQUIRED
 
 # Literal normalized descriptors: no live Signature/default object participates in equality.
 EXPECTED_SIGNATURES: dict[str, SignatureDescriptor] = {
+    "storage.in_storage_transaction": (
+        (
+            ("path", P, "Path", R),
+            ("body", P, "Callable[[], Any]", R),
+            ("log_prefix", K, "str", R),
+            ("on_unavailable", K, "_LockUnavailablePolicy", R),
+            ("deadline_seconds", K, "float", "90.0"),
+        ),
+        "Any",
+    ),
+    "storage.raise_on_lock_unavailable": (
+        (("operation", P, "str", R),),
+        "_LockUnavailablePolicy",
+    ),
+    "storage.report_on_lock_unavailable": (
+        (("outcome", P, "Any", R),),
+        "_LockUnavailablePolicy",
+    ),
+    "storage.skip_on_lock_unavailable": (
+        (("message", P, "str", R),),
+        "_LockUnavailablePolicy",
+    ),
     "storage._cookie_snapshot_key_variants": (
         (("key", P, "CookieSnapshotKey", R),),
         "set[CookieSnapshotKey]",
@@ -372,6 +396,10 @@ EXPECTED_SIGNATURES: dict[str, SignatureDescriptor] = {
 }
 
 LIVE_SIGNATURES: dict[str, Callable[..., object]] = {
+    "storage.in_storage_transaction": storage.in_storage_transaction,
+    "storage.raise_on_lock_unavailable": storage.raise_on_lock_unavailable,
+    "storage.report_on_lock_unavailable": storage.report_on_lock_unavailable,
+    "storage.skip_on_lock_unavailable": storage.skip_on_lock_unavailable,
     "storage._cookie_snapshot_key_variants": storage._cookie_snapshot_key_variants,
     "storage._stored_cookie_snapshot_key": storage._stored_cookie_snapshot_key,
     "storage._merge_cookies_legacy": storage._merge_cookies_legacy,
@@ -494,6 +522,17 @@ def test_result_projections_and_compatibility_value_identities() -> None:
     assert storage.CookieSaveResult.__qualname__ == "CookieSaveResult"
     assert storage.CookieSaveResult.__dataclass_params__.frozen is True
     assert storage_writer.merge_cookie_delta is storage.merge_cookie_delta
+    assert storage.in_storage_transaction is profile_store.in_storage_transaction
+    assert storage.raise_on_lock_unavailable is profile_store.raise_on_lock_unavailable
+    assert storage.report_on_lock_unavailable is profile_store.report_on_lock_unavailable
+    assert storage.skip_on_lock_unavailable is profile_store.skip_on_lock_unavailable
+    assert storage_transaction.in_storage_transaction is profile_store.in_storage_transaction
+    assert storage_transaction.raise_on_lock_unavailable is profile_store.raise_on_lock_unavailable
+    assert (
+        storage_transaction.report_on_lock_unavailable is profile_store.report_on_lock_unavailable
+    )
+    assert storage_transaction.skip_on_lock_unavailable is profile_store.skip_on_lock_unavailable
+    assert not hasattr(auth, "ProfileStore")
 
 
 def test_cookie_save_delegate_remains_same_module_and_late_bound() -> None:
@@ -527,6 +566,7 @@ def test_lock_wrapper_shapes_ownership_and_projections_are_exact(
     assert storage._file_lock is not keepalive._file_lock
     assert storage._STORAGE_LOCKS is keepalive._STORAGE_LOCKS
     assert storage._STORAGE_LOCKS is StorageLockManager.process_default()
+    assert profile_store._STORAGE_LOCKS is StorageLockManager.process_default()
     assert not hasattr(storage, "_FLOCK_UNAVAILABLE_WARNED")
     assert not hasattr(auth, "_FLOCK_UNAVAILABLE_WARNED")
     assert psidts_recovery._file_lock_try_exclusive is keepalive._file_lock_try_exclusive

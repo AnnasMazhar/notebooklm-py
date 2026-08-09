@@ -25,11 +25,9 @@ The file is organised in labelled sections mirroring the former modules:
 1. **Lock compatibility wrappers** — :func:`_file_lock` and blocking
    :func:`_file_lock_exclusive`, routed through the dependency-bottom
    :class:`~notebooklm._auth.storage_lock.StorageLockManager`.
-2. **Secure-parent preparation for writers**. Lock path derivation stays in
-   :mod:`notebooklm._auth.paths`; process/OS mechanics and bounded retry live in
-   :mod:`notebooklm._auth.storage_lock`.
-3. **The storage-write transaction template** — :func:`in_storage_transaction`
-   plus the three lock-unavailable policies.
+2. **Transaction compatibility aliases** — secure-parent preparation,
+   :func:`in_storage_transaction`, and its three lock-unavailable policies now
+   have their real definitions in :mod:`notebooklm._auth.profile_store`.
 4. **Snapshot types** — the path-aware cookie identity/value tuples and
    :class:`CookieSaveResult`.
 5. **CAS + merge math** — snapshotting, the legacy and snapshot/delta merges, and
@@ -43,8 +41,8 @@ The file is organised in labelled sections mirroring the former modules:
    (ADR-0033 PR 4.2). It is write-time policy, not browser code: three of its
    six call sites are the intent writers below, which apply it *under the
    lock* as ADR-0029's entry-path-independent guarantee.
-8. **The intent writers** — the seven sanctioned mutations of
-   ``storage_state.json`` and its sibling credential files.
+8. **Temporary policy writers** — five profile intents and the master-token
+   intent, all routed through typed credential commits.
 9. **Account records** (labelled ``SECTION 7b`` in the source, where it sits
    directly after the two in-band account writers it drives) — the record
    readers, the ``_sanitize_legacy_account_record`` derivation that gives
@@ -53,22 +51,18 @@ The file is organised in labelled sections mirroring the former modules:
    the sibling ``context.json`` scrub. Relocated from ``_auth/account.py``
    (ADR-0033 PR 5.2).
 
-This module is the **single sanctioned home** for mutations of
-``storage_state.json``. It is the only module under :mod:`notebooklm._auth`
-permitted to import the ``_atomic_io`` write primitives, and it reaches the
-module-private bypass under the local alias ``_write_state_unchecked``. The
-boundary is enforced by ``tests/_guardrails/test_storage_writer_boundary.py``,
-which since ADR-0033 pins it at **function** granularity: an equality-asserted
-allowlist of the intent-writer function names permitted to reach the bypass
-(a module-granular assertion over a module this size would say almost nothing).
+This module remains the v0.x compatibility and policy façade. The sealed
+atomic capability now lives in :mod:`notebooklm._auth.credential_io`, and
+:class:`notebooklm._auth.profile_store.ProfileStore` owns profile reads and the
+cookie transactions. The temporary account/replacement/master-token policy
+bodies below reach only the appropriate typed commit wrapper.
 
 Intent-shaped API (all synchronous, all serialize on the canonical storage lock,
-all write via ``_atomic_io``):
+all write through the typed credential commit spine):
 
-* :func:`merge_cookie_delta` — the CAS delta merge behind
+* :func:`merge_cookie_delta` — the compatibility adapter behind
   :func:`save_cookies_to_storage`. It is a **CAS** intent and therefore **fails
-  open** on lock unavailability (status quo): availability wins, and the
-  snapshot/delta CAS guards keep correctness.
+  open** on lock unavailability (status quo), delegated to ``ProfileStore``.
 * :func:`update_account_metadata` / :func:`clear_in_band_account` — the in-band
   account writers relocated from :mod:`notebooklm._auth.account`. These are
   **full-file RMW** intents: :func:`update_account_metadata` **fails closed**
@@ -100,8 +94,9 @@ Lock unification (see ADR-0029): the full-file RMW / re-mint intents drop
 ``filelock`` in favour of the project-internal storage lock manager via a
 **platform-neutral bounded acquire**: a non-blocking probe plus deadline/jitter
 retry (default 90 s), then the
-per-intent failure policy above. The CAS merge keeps the status-quo blocking
-:func:`_file_lock_exclusive` acquire (fail-open). ``StorageLockManager`` owns an
+per-intent failure policy above. The store's CAS merge keeps the status-quo
+blocking manager acquire (fail-open); :func:`_file_lock_exclusive` remains a
+v0.x compatibility alias only. ``StorageLockManager`` owns an
 in-process ``threading.Lock`` keyed by the exact raw ``os.fspath(lock_path)``
 spelling (ordering: in-process lock -> OS lock); :func:`_file_lock` delegates to
 that owner. Threads serialize before the OS lock, while the distinct
@@ -116,9 +111,10 @@ the ``filelock.Timeout`` MRO it replaces, so callers' existing
 keep catching a lock failure unchanged; only the exception type and the 10 s->90 s
 bound differ.
 
-Permission contract (POSIX): every writer ensures the parent directory is
-``0700`` on creation and the file is ``0600`` (the latter via the atomic write's
-default mode). On Windows we rely on ``%USERPROFILE%`` ACL inheritance.
+Permission contract (POSIX): bounded writers ensure the parent directory is
+``0700`` and typed commits write ``0600`` files. Cookie saves intentionally keep
+the manager's raw blocking-lock parent creation without an additional chmod.
+On Windows we rely on ``%USERPROFILE%`` ACL inheritance.
 
 Outcome types are **value-free by contract**: :class:`WriteOutcome` may carry
 only an enum status — never cookie values, state dicts, jar objects, or caught
@@ -136,29 +132,21 @@ import shutil
 import sys
 import threading
 import warnings
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol, TypeAlias, cast
+from typing import Any, NamedTuple, TypeAlias, cast
 
 import httpx
 from filelock import FileLock
 
-# This module is the SOLE sanctioned user of the module-private
-# ``_atomic_write_json_unchecked`` bypass: the public ``atomic_write_json``
-# rejects ``storage_state.json`` paths (#1215-style runtime guard, b-PR3), and
-# the writers below legitimately write them under the canonical dotted lock.
-# Bound as ``_write_state_unchecked`` — the former alias spelled it
-# ``atomic_write_json``, colliding with the name of the public primitive the
-# guard protects (ADR-0033 decision 2). The boundary is enforced at function
-# granularity in ``tests/_guardrails/test_storage_writer_boundary.py``.
-#
-# The PUBLIC ``atomic_write_json`` is imported alongside it (ADR-0033 PR 5.2):
+# The PUBLIC ``atomic_write_json`` remains here for the relocated legacy-account
+# scrub only. Credential/profile writes reach the sealed capability through the
+# typed wrappers in ``credential_io``.
 # the relocated legacy-account scrub :func:`_drop_legacy_account_key` writes the
 # SIBLING ``context.json``, not ``storage_state.json``, so it must go through the
 # guarded public primitive — the same primitive it used in ``account.py``.
-from .._atomic_io import _atomic_write_json_unchecked as _write_state_unchecked
 from .._atomic_io import atomic_write_json
 
 # ``LockUnavailableError`` is the public, canonical home for the fail-closed
@@ -173,14 +161,24 @@ from . import cookie_policy as _cookie_policy
 from . import cookie_semantics as _cookie_semantics
 from . import cookies as _auth_cookies
 from .cookie_types import Cookie, CookieIdentity, CookieJar
-from .paths import _storage_state_lock_path, canonical_storage_key, resolve_auth_json_env
+from .credential_io import _commit_master_token_json, _commit_profile_json
+from .paths import canonical_storage_key, resolve_auth_json_env
 from .profile_document import ProfileDocument
-from .storage_lock import (
-    _LOCK_ACQUIRE_DEADLINE_SECONDS,
-    LockRequest,
-    LockState,
-    StorageLockManager,
+from .profile_store import (
+    CookieMergeDisposition,
+    ProfileStore,
+    in_storage_transaction,
+    raise_on_lock_unavailable,
+    report_on_lock_unavailable,
+    skip_on_lock_unavailable,
 )
+from .profile_store import (
+    _ensure_secure_parent_dir as _ensure_secure_parent_dir,
+)
+from .profile_store import (
+    _LockUnavailablePolicy as _LockUnavailablePolicy,
+)
+from .storage_lock import LockRequest, StorageLockManager
 
 logger = logging.getLogger("notebooklm.auth")
 
@@ -278,199 +276,6 @@ def _file_lock_exclusive(lock_path: Path) -> Iterator[None]:
                 lock_path,
             )
         yield
-
-
-# ==========================================================================
-# SECTION 2 — SECURE PARENT PREPARATION FOR WRITERS
-# Lock PATH derivation lives in ``paths.py``
-# (``_storage_state_lock_path``) and is unchanged.
-# ==========================================================================
-
-
-def _ensure_secure_parent_dir(path: Path) -> None:
-    """Ensure ``path.parent`` exists and is ``0700`` on POSIX.
-
-    Closes the master-token path's mode-less ``mkdir(parents=True)`` gap. The
-    chmod is applied UNCONDITIONALLY (not only when this call creates the dir),
-    restoring the pre-refactor self-heal that ``cli/services/login/cookie_writes.py``
-    performed after every successful write: a credentials directory loosened by a
-    backup / restore / sync tool (e.g. to 0755) is re-tightened to 0700 on the
-    next login / refresh, so session-cookie files never sit under a
-    world-traversable parent. Windows is skipped (POSIX modes are a no-op there
-    and can confuse ACL inheritance from ``%USERPROFILE%``).
-    """
-    parent = path.parent
-    parent.mkdir(parents=True, exist_ok=True)
-    if sys.platform != "win32":
-        with contextlib.suppress(OSError):
-            os.chmod(parent, 0o700)
-
-
-# ==========================================================================
-# SECTION 3 — THE STORAGE-WRITE TRANSACTION TEMPLATE (ADR-0031 Stage 3)
-# ``in_storage_transaction`` owns the four-step preamble every writer used to
-# hand-roll; the not-held policy is a parameter because it genuinely differs.
-# ==========================================================================
-
-
-# Six of this module's writers each hand-rolled the same four-step preamble —
-# secure the parent dir, derive the sentinel lock path, take the bounded lock,
-# and branch on whether it was held. **All six route through this template**
-# since ADR-0033 PR 1.2, and the ratchet
-# ``tests/_guardrails/test_storage_transaction_ratchet.py`` now has an EMPTY
-# exception list, so a seventh writer cannot hand-roll it. Only the last step
-# differs, and it differs in three genuinely incompatible ways, so the policy is
-# a parameter rather than a decision baked into the template: a version that
-# picked one behavior would be a silent semantic change in a credential-write
-# path.
-#
-# ``merge_cookie_delta`` deliberately does NOT use this. It takes the BLOCKING
-# ``_file_lock_exclusive`` rather than the bounded acquire, and skips the
-# parent-dir prep because it only ever updates a file that already exists. Its
-# lock semantics are a different operation, not a variant of this one.
-
-
-#
-# THE POLICIES — two intents, three constructors
-# ----------------------------------------------
-# There are only TWO intents here, and it is worth stating which is which,
-# because the surface count of three invites the wrong mental model:
-#
-#   MUST-KNOW  the write mattered; a caller that proceeds as though it happened
-#              is wrong. Five writers. A master token that was not persisted
-#              means the mint was wasted; account metadata that was not written
-#              means routing silently targets the wrong Google account; a login
-#              that was not persisted means the user believes they are signed in.
-#
-#   TOLERABLE  the write was cleanup; missing it degrades gracefully. One writer.
-#
-# MUST-KNOW has *two constructors* only because the writers' return channels
-# differ in what they can express — not because the intent differs:
-#
-#   ``-> None``            no channel at all                      -> raise
-#   ``-> bool``            ``False`` already means "deliberately   -> raise
-#                          skipped (only_if_absent)", so reusing
-#                          it would conflate *chose not to* with
-#                          *could not*
-#   ``-> WriteOutcome``    a rich enum with room for a distinct    -> report
-#   ``-> LoginWriteOutcome`` LOCK_UNAVAILABLE status
-#
-# Each choice is locally forced. The inconsistency lives one level up, in
-# writers that do morally identical things having different return types.
-# Unifying that means giving every MUST-KNOW writer a rich outcome type, which
-# is a breaking change for callers that today catch ``OSError``/``TimeoutError``
-# around ``persist_minted_jar`` and ``update_account_metadata`` — a deprecation
-# runway, not a refactor stage. Tracked in ADR-0031.
-
-
-class _LockUnavailablePolicy(Protocol):
-    """What a writer does when the storage lock could not be acquired."""
-
-    def __call__(self, lock_path: Path) -> Any: ...
-
-
-def raise_on_lock_unavailable(operation: str) -> _LockUnavailablePolicy:
-    """MUST-KNOW, via exception — for writers with no usable return channel.
-
-    Used where the return type is ``None`` (``persist_minted_jar``,
-    ``write_master_token``) or a ``bool`` whose ``False`` already carries a
-    different meaning (``update_account_metadata``).
-    """
-
-    def _policy(lock_path: Path) -> Any:
-        raise LockUnavailableError(f"{operation}: storage lock unavailable at {lock_path}")
-
-    return _policy
-
-
-def report_on_lock_unavailable(outcome: Any) -> _LockUnavailablePolicy:
-    """MUST-KNOW, via return value — for writers with a rich outcome type.
-
-    Same intent as :func:`raise_on_lock_unavailable`; different mechanism only
-    because the caller has somewhere unambiguous to put it. The two full-replace
-    writers have their OWN outcome types (:class:`WriteOutcome` vs
-    :class:`LoginWriteOutcome`), so the value comes from the caller.
-
-    .. note::
-       The designated callers are ``replace_from_remint`` and
-       ``replace_from_login`` — the only writers whose return type can carry a
-       distinct lock-unavailable status. That is pinned rather than merely
-       noted: the ratchet asserts exactly one caller per CONVERTED member of
-       that pair, so this helper can neither be reached from a writer whose
-       return channel cannot express the report, nor quietly outlive its reason
-       to exist.
-    """
-
-    def _policy(lock_path: Path) -> Any:
-        return outcome
-
-    return _policy
-
-
-def skip_on_lock_unavailable(message: str) -> _LockUnavailablePolicy:
-    """TOLERABLE — log at DEBUG and do nothing.
-
-    Args:
-        message: a logging format string with **exactly one** ``%s``, which
-            receives the lock path. A message with no placeholder (or more than
-            one) raises inside ``logging``, which swallows it and prints to
-            stderr instead of logging — an unpleasant failure to trace back,
-            since it surfaces nowhere near this call.
-
-    The only genuinely different intent, and it has exactly one user today:
-    ``clear_in_band_account``. Its justification is functional — a missed clear
-    leaves the legacy reader still able to resolve the account record.
-
-    .. note::
-       That justification is narrower than the operation's motive. Clearing the
-       in-band account is **privacy**-motivated ("a stale key must not leave the
-       account email at rest" — see ``auth.py``), and a swallowed failure leaves
-       precisely that email on disk until the next successful write. Functional
-       degradation is graceful; the privacy miss is silent. Rare — it needs 90 s
-       of lock contention or a lock-infrastructure failure — but the swallow is
-       justified on a different axis than the one that matters most here.
-       Flagged in ADR-0031 rather than changed unilaterally, since promoting it
-       to MUST-KNOW would make a best-effort cleanup able to fail a caller.
-    """
-
-    def _policy(lock_path: Path) -> Any:
-        logger.debug(message, lock_path)
-        return None
-
-    return _policy
-
-
-def in_storage_transaction(
-    path: Path,
-    body: Callable[[], Any],
-    *,
-    log_prefix: str,
-    on_unavailable: _LockUnavailablePolicy,
-    deadline_seconds: float = _LOCK_ACQUIRE_DEADLINE_SECONDS,
-) -> Any:
-    """Run ``body()`` under the bounded storage lock for ``path``.
-
-    Owns the four steps every writer repeated: secure-parent-dir prep, lock-path
-    derivation, the bounded acquire, and the not-held branch. ``body`` returns
-    the writer's own return value, so an early ``return`` inside it (the
-    ``only_if_absent`` short-circuit, for instance) propagates unchanged.
-
-    The lock is held for the whole of ``body``, including its atomic write
-    — the read-decide-write sequence must not be re-entered by a concurrent
-    writer partway through.
-    """
-    _ensure_secure_parent_dir(path)
-    lock_path = _storage_state_lock_path(path)
-    request = LockRequest(
-        path=lock_path,
-        blocking=False,
-        operation=log_prefix,
-        deadline_seconds=deadline_seconds,
-    )
-    with _STORAGE_LOCKS.acquire(request) as state:
-        if state is not LockState.HELD:
-            return on_unavailable(lock_path)
-        return body()
 
 
 # ==========================================================================
@@ -993,9 +798,9 @@ class LoginWriteOutcome:
 
 # ==========================================================================
 # SECTION 7 — THE INTENT WRITERS
-# The seven sanctioned mutations of ``storage_state.json`` and its sibling
-# credential files. These are the only functions permitted to reach
-# ``_write_state_unchecked`` (equality-asserted in test_storage_writer_boundary).
+# The temporary v0.x policy bodies for profile and sibling credential writes.
+# Profile commits use the typed credential capability; cookie transactions are
+# owned by ``ProfileStore`` above this compatibility layer.
 # ==========================================================================
 
 
@@ -1019,8 +824,8 @@ def merge_cookie_delta(
     caller.
 
     This is a **CAS** intent: on lock unavailability it **fails open** (status
-    quo — the snapshot/delta CAS guards preserve correctness), driven by
-    :func:`_file_lock_exclusive`. The full signature (incl.
+    quo — the snapshot/delta CAS guards preserve correctness), delegated to
+    :class:`ProfileStore`'s blocking cookie transaction. The full signature (incl.
     ``recovery_observation``) and the :class:`CookieSaveResult` return with
     ``cas_rejected_keys`` are load-bearing for the PSIDTS-recovery and
     cookie-persistence baseline callers.
@@ -1033,66 +838,27 @@ def merge_cookie_delta(
         logger.debug("Skipping cookie sync: No storage file path available")
         return _cookie_save_return(CookieSaveResult(True), return_result=return_result)
 
-    lock_path = _storage_state_lock_path(path)
-    with _file_lock_exclusive(lock_path):
-        if not path.exists():
-            logger.debug("Skipping cookie sync: Storage file not found at %s", path)
-            return _cookie_save_return(CookieSaveResult(False), return_result=return_result)
+    store = ProfileStore(path)
+    if original_snapshot is None:
+        result = store.merge_legacy_cookie_observation(
+            _cookie_jar_for_merge(cookie_jar, include_none=True)
+        )
+    else:
+        result = store.merge_cookie_observation(
+            _cookie_jar_for_merge(cookie_jar, include_none=False),
+            baseline=_cookie_jar_from_snapshot(original_snapshot),
+            recovery_observation=_recovery_observation_value(recovery_observation),
+        )
 
-        try:
-            storage_data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as e:
-            logger.warning(
-                "Failed to read storage state for cookie sync: %s",
-                type(e).__name__,
-            )
-            return _cookie_save_return(CookieSaveResult(False), return_result=return_result)
-
-        cookies = storage_data.get("cookies") if isinstance(storage_data, dict) else None
-        if not isinstance(cookies, list):
-            logger.warning(
-                "storage_state at %s has an invalid 'cookies' key/payload; "
-                "rotated cookies will not be persisted",
-                path,
-            )
-            return _cookie_save_return(CookieSaveResult(False), return_result=return_result)
-
-        if original_snapshot is None:
-            updated_count = _merge_cookies_legacy(cookie_jar, storage_data)
-            cas_rejected_keys: frozenset[Any] = frozenset()
-        else:
-            updated_count, cas_rejected_keys = _merge_cookies_with_snapshot(
-                cookie_jar,
-                storage_data,
-                original_snapshot,
-                recovery_observation=recovery_observation,
-            )
-
-        if updated_count == 0:
-            # A CAS rejection with no other successful work means disk does
-            # not reflect our intent; the caller must not advance baseline.
-            return _cookie_save_return(
-                CookieSaveResult(not cas_rejected_keys, cas_rejected_keys),
-                return_result=return_result,
-            )
-
-        try:
-            _write_state_unchecked(path, storage_data)
-            logger.debug("Successfully synced %d refreshed cookies to %s", updated_count, path)
-            # Even on a successful disk write, if any CAS arm rejected work,
-            # disk diverges from ``post`` for at least one key — caller must
-            # not advance baseline.
-            return _cookie_save_return(
-                CookieSaveResult(not cas_rejected_keys, cas_rejected_keys),
-                return_result=return_result,
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to write updated cookies to %s: %s",
-                path,
-                type(e).__name__,
-            )
-            return _cookie_save_return(CookieSaveResult(False), return_result=return_result)
+    rejected = frozenset(
+        CookieSnapshotKey(identity.name, identity.domain, identity.path)
+        for identity in result.rejected
+    )
+    projected = CookieSaveResult(
+        result.disposition in {CookieMergeDisposition.APPLIED, CookieMergeDisposition.NO_CHANGE},
+        rejected,
+    )
+    return _cookie_save_return(projected, return_result=return_result)
 
 
 # --- In-band account writers (relocated from ``account.py``) ----------------
@@ -1158,7 +924,7 @@ def update_account_metadata(
         namespace["version"] = _STORAGE_NAMESPACE_VERSION
         namespace[_ACCOUNT_CONTEXT_KEY] = account_payload
         data[_STORAGE_NAMESPACE_KEY] = namespace
-        _write_state_unchecked(storage_path, data)
+        _commit_profile_json(storage_path, data)
         return True
 
     # MUST-KNOW via exception: the ``bool`` return already spends ``False`` on
@@ -1203,7 +969,7 @@ def clear_in_band_account(storage_path: Path) -> None:
             del data[_STORAGE_NAMESPACE_KEY]
         else:
             data[_STORAGE_NAMESPACE_KEY] = namespace
-        _write_state_unchecked(storage_path, data)
+        _commit_profile_json(storage_path, data)
 
     # TOLERABLE: the same failure mode the old filelock OSError arm swallowed.
     # See the caveat on ``skip_on_lock_unavailable`` — the functional argument
@@ -1785,8 +1551,8 @@ def _drop_legacy_account_key(storage_path: Path) -> None:
     This is the one writer in this module that does NOT touch
     ``storage_state.json``: it writes the SIBLING ``context.json``, so it goes
     through the guarded public ``atomic_write_json`` and the sibling
-    ``context.json.lock`` (``filelock``) — never the storage sentinel, never the
-    ``_write_state_unchecked`` bypass. Its lock mechanism is deliberately NOT
+    ``context.json.lock`` (``filelock``) — never the storage sentinel or sealed
+    credential commit spine. Its lock mechanism is deliberately NOT
     unified with :func:`_file_lock` (ADR-0033 plan §5: that is a cross-version
     interop change, explicitly deferred).
     """
@@ -2205,7 +1971,7 @@ def replace_from_remint(
         )
         if carried_namespace is not None:
             filtered[_STORAGE_NAMESPACE_KEY] = carried_namespace
-        _write_state_unchecked(path, filtered)
+        _commit_profile_json(path, filtered)
         return WriteOutcome(WriteStatus.OK)
 
     # MUST-KNOW via RETURN VALUE, not exception: ``WriteOutcome`` has a distinct
@@ -2371,7 +2137,7 @@ def replace_from_login(
                     os.chmod(candidate, 0o600)
             backup_path = candidate
 
-        _write_state_unchecked(path, filtered)
+        _commit_profile_json(path, filtered)
         return LoginWriteOutcome(LoginWriteStatus.OK, backup_path=backup_path)
 
     # MUST-KNOW via RETURN VALUE, not exception: ``LoginWriteOutcome`` has a
@@ -2429,8 +2195,8 @@ def persist_minted_jar(
 ) -> None:
     """Replace the cookies in ``storage_state.json`` with a freshly-minted jar.
 
-    Relocated from ``master_token.persist_minted_jar``, now routed through
-    :func:`_write_state_unchecked` (fsync durability + temp cleanup, closing
+    Relocated from ``master_token.persist_minted_jar``, now routed through the
+    typed profile commit spine (fsync durability + temp cleanup, closing
     [storage-F5]) while keeping the storage lock it already held and its
     rebind-to-minted-account namespace semantics. Old cookies are *replaced*, not
     merged — a re-mint is a brand-new session. Full-file replace intent:
@@ -2516,7 +2282,7 @@ def persist_minted_jar(
         ns["version"] = 1
         ns["account"] = {"authuser": 0, **({"email": email} if email else {})}
         data["notebooklm"] = ns
-        _write_state_unchecked(path, data)
+        _commit_profile_json(path, data)
 
     # MUST-KNOW via exception: the return type is ``None``, so there is no
     # channel to report into. ``raise_on_lock_unavailable`` formats the message
@@ -2533,9 +2299,9 @@ def persist_minted_jar(
 def write_master_token(path: Path, *, email: str, master_token: str, android_id: str) -> None:
     """Persist a ``master_token.json`` record at mode 0600 (full-account credential).
 
-    Relocated from ``master_token.write_master_token``, now routed through
-    :func:`_write_state_unchecked` (atomic + fsync-durable + temp cleanup) and guarded
-    by a bounded sibling ``.master_token.json.lock`` — it was previously lockless
+    Relocated from ``master_token.write_master_token``, now routed through the
+    typed master-token commit spine (atomic + fsync-durable + temp cleanup) and
+    guarded by a bounded sibling ``.master_token.json.lock`` — it was previously lockless
     (part of [storage-F5]). RMW intent: **fails closed**.
     """
     from . import (
@@ -2550,7 +2316,7 @@ def write_master_token(path: Path, *, email: str, master_token: str, android_id:
     }
 
     def _write() -> None:
-        _write_state_unchecked(path, payload)
+        _commit_master_token_json(path, payload)
 
     # The transaction template derives the sibling dotted lock for this
     # credential file (distinct from the profile's storage-state lock — a

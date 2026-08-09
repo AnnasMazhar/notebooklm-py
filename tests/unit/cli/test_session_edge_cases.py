@@ -243,6 +243,7 @@ class TestLoginWindowsPermissions:
         import os
 
         from notebooklm._atomic_io import _atomic_write_json_unchecked
+        from notebooklm._auth import profile_store
         from notebooklm._auth import storage as storage_mod
         from notebooklm._auth.storage_lock import LockState
 
@@ -268,7 +269,7 @@ class TestLoginWindowsPermissions:
 
                 return contextlib.nullcontext(LockState.HELD)
 
-        monkeypatch.setattr(storage_mod, "_STORAGE_LOCKS", HeldLocks())
+        monkeypatch.setattr(profile_store, "_STORAGE_LOCKS", HeldLocks())
         monkeypatch.setattr(os, "chmod", _spy_chmod)
         if real_fchmod is not None:
             monkeypatch.setattr(os, "fchmod", _spy_fchmod)

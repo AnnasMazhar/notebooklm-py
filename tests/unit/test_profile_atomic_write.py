@@ -395,8 +395,8 @@ def test_storage_state_mutators_share_one_lock_file(
     Tier-0 data-loss regression: cookie saves and account-metadata writes once
     used DIFFERENT lock files and could lose updates under concurrency. After
     the storage-writer refactor every mutator serializes on the project-internal
-    shared ``StorageLockManager`` (cookie saves via ``_file_lock_exclusive``,
-    account/clear via the bounded transaction). This test captures the lock
+    shared ``StorageLockManager`` (cookie saves via ``ProfileStore``'s blocking
+    primitive, account/clear via its bounded transaction). This test captures the lock
     request each mutator passes to that ONE owner and asserts they all
     derive the identical dotted ``.storage_state.json.lock`` sibling. The sibling
     ``context.json.lock`` (still ``filelock``, taken by
@@ -405,7 +405,7 @@ def test_storage_state_mutators_share_one_lock_file(
     """
     import httpx
 
-    from notebooklm._auth import storage as storage_mod
+    from notebooklm._auth import profile_store
     from notebooklm._auth.storage import save_cookies_to_storage
     from notebooklm._auth.storage_lock import StorageLockManager
 
@@ -420,7 +420,7 @@ def test_storage_state_mutators_share_one_lock_file(
             seen.append(request.path.expanduser().resolve())
             return real_locks.acquire(request)
 
-    monkeypatch.setattr(storage_mod, "_STORAGE_LOCKS", CapturingLocks())
+    monkeypatch.setattr(profile_store, "_STORAGE_LOCKS", CapturingLocks())
 
     # Canonical name is the dotted, hidden sibling (storage.py contract).
     expected = storage_path.with_name(f".{storage_path.name}.lock").expanduser().resolve()

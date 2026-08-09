@@ -135,13 +135,32 @@ identities. Unknown raw members survive ordinary changes; recovery replacement i
 one canonical winning row and drops that winner's unknown keys, preserving the established
 contract.
 
-`storage.py` remains the sole transaction and compatibility owner in this stage. It reads and
+In the pure-merge extraction stage, `storage.py` remained the sole transaction and compatibility
+owner. It read and
 classifies corruption under the existing blocking cookie lock, converts the legacy NamedTuple
 snapshot/recovery inputs to immutable values, invokes the pure decision, reproduces the existing
 value-free CAS logs, performs the single sanctioned raw write, and projects the old bool or
 `CookieSaveResult`. The old tuple types, private helper signatures, same-module late binding, lock
 semantics, writer authority, and caller identities do not move. This extraction lowers the exact
 facade line pin again without changing bytes or baseline advancement behavior.
+
+The commit spine and first real store boundary now land without moving the remaining operation
+policies. `credential_io.py` is the sole importer of the unchecked atomic JSON capability: one raw
+private forwarder has exactly two typed callers, for complete profile documents and arbitrary-path
+master-token documents. `ProfileStore` owns one caller-spelled path, a separately canonicalized
+ordering key, fresh document/session reads, the shared bounded-lock mechanics, and both blocking
+cookie transactions. It owns no cache, baseline, live jar, logger policy object, or injectable
+writer. Cookie decisions still come from `cookie_merge.py`; the store alone reads under the lock,
+projects the frozen result table, and performs at most one typed profile commit.
+
+`storage.py` remains the v0.x policy/compatibility facade. Its account and replacement bodies still
+choose corruption, backup, filtering, and result policy, but temporarily call the typed profile
+commit. `write_master_token` alone calls the typed arbitrary-path commit, preserving the legacy
+case where that token path is literally named `storage_state.json`. The transaction functions and
+lock-failure policies are exact aliases imported from `profile_store.py`; the old lock wrappers stay
+callable compatibility seams but no longer drive cookie persistence. Patch targets move to the
+actual owners, and the exact storage pin falls from 2,563 to 2,329 lines. `MasterTokenFile` and the
+remaining store methods are still future stages, not implied by this foundation.
 
 The compatibility inventory is explicit:
 
