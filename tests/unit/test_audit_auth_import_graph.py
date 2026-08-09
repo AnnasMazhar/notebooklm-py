@@ -92,9 +92,9 @@ def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
         "modules": 38,
-        "total_lines": 15079,
-        "unique_edges": 121,
-        "module_edges": 109,
+        "total_lines": 15074,
+        "unique_edges": 122,
+        "module_edges": 110,
         "function_local_edges": 12,
     }
     assert result["sccs"] == {
@@ -181,6 +181,7 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("master_token", "profile_store", "module"),
         ("master_token_bootstrap", "profile_store", "module"),
         ("profile_migration", "profile_store", "module"),
+        ("refresh", "profile_store", "module"),
         ("profile_store", "cookie_filter", "module"),
         ("profile_store", "cookie_merge", "module"),
         ("profile_store", "cookie_policy", "module"),

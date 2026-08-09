@@ -373,11 +373,25 @@ offloads. `_auth/cookies.py` owns one-sample live/SameSite-preserving seed prove
 delegates into the combined cold flow, while the existing `_run_cold_recovery` continues to own
 L3/L4, the per-loop lock/generation state, and same-sample replacement baselines until Phase 12C.
 The sole production adapter remains `refresh._cold_fallbacks`; its late-bound closures retain the
-exact DEBUG skip and WARNING start/failure logs and route timing. Cancellation before jar
+exact DEBUG skip and WARNING start/failure logs and raw caller / canonical L2.5 / raw caller route
+timing. Cancellation before jar
 replacement leaves the caller jar untouched; a later cancellation never rolls back an already
 replaced jar. `_auth/cookie_merge.py` advances the next baseline from accepted final rows while
 retaining rejected old entries. The measured owner sizes are 816 lines in `tokens.py`, 389 in
-`recovery.py`, 1,194 in `refresh.py`, and 996 in `client.py`.
+`recovery.py`, 1,189 in `refresh.py`, and 996 in `client.py`.
+
+`fetch_tokens_with_domains` now loads one paired live jar and SameSite-preserving baseline, then
+passes that baseline through the unchanged exact-baseline ladder. After the final fetch it captures
+an immutable `CookieJar` observation on the caller thread and makes exactly one direct positional
+`asyncio.to_thread` handoff to the private synchronous helper and one concrete `ProfileStore`.
+`HARD_FAILURE` retains the exact selected initial/L2.5/L3/L4 baseline object; every advancing
+result selects the exact returned next-baseline object. Cancellation is ordinary `to_thread`
+cancellation: the caller is cancelled immediately, while an already-dispatched worker may finish
+and commit. File auth alone constructs the store; inline env auth logs the existing skip and does
+not persist. Patch the private typed helper/store method for these tests, not the retired private
+`refresh.save_cookies_to_storage` alias. The public saver/facade and client/runtime saver-injection
+seams remain exact. The auth graph measures 38 modules / 15,074 lines / 122 edges (110 module + 12
+function-local); its sole new edge is `refresh -> profile_store`, with no module SCC.
 
 Phase 10 completes runtime ownership. `NotebookLMClient.from_storage` registers a
 `FileLoadedAuth` result's exact `ProfileStore`/baseline pair with `CookiePersistence`, without a

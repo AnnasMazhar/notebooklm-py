@@ -978,6 +978,20 @@ export NOTEBOOKLM_REFRESH_CMD='/opt/scripts/pull-cookies-from-cloud.sh'
 The library does not validate the command's output; the operator must ensure it
 produces a valid `storage_state.json`.
 
+For the active `fetch_tokens_with_domains` path, cookie acquisition and persistence now share one
+typed provenance chain. One raw load produces both the live jar and its SameSite-preserving
+baseline. The initial route uses the caller-spelled raw path, the L2.5 retry uses its canonical
+refresh path, and L3/L4 validation plus final fetch return to the caller-spelled raw path under the
+Phase 12A `ColdRecoveryCoordinator`. Whichever successful arm wins supplies the selected baseline.
+After token success, file auth snapshots the final live jar into an immutable observation and
+offloads exactly one concrete `ProfileStore` merge. `HARD_FAILURE`, the sole non-advancing result,
+keeps the exact selected baseline; an advancing result selects the exact returned next baseline.
+Ordinary `asyncio.to_thread`
+cancellation reaches the caller immediately, while an already-dispatched merge may still finish
+and commit. Inline env auth performs no store work. Only the private
+`refresh.save_cookies_to_storage` alias was retired; the public saver, storage/auth facades,
+permanent no-baseline overlay, and client/runtime saver-injection seams remain compatible.
+
 ### 6.3 `NOTEBOOKLM_HEADLESS_REAUTH=1` and `NOTEBOOKLM_HEADLESS_REAUTH_CDP_URL` (L3)
 
 Opt into automatic L3 headless re-auth during mid-RPC refresh (explicit
@@ -1210,6 +1224,16 @@ gate their writes correctly.
 ---
 
 ## Changelog
+
+- **2026-08-09 (typed refresh persistence)** — `fetch_tokens_with_domains` now consumes one paired
+  live/SameSite-preserving baseline sample, retains the baseline selected by the initial/L2.5/L3/L4
+  ladder, captures an immutable final observation, and dispatches one concrete `ProfileStore`
+  merge. Hard results retain the exact input baseline; advancing results return the exact next
+  baseline. Cancellation remains ordinary immediate `to_thread` propagation even though the
+  worker may finish. Only the private refresh saver alias retired; public compatibility remains.
+  The auth graph is 38 modules / 15,074 lines / 122 edges (110 module + 12 local), with sole new
+  edge `refresh -> profile_store`; measured owners are 389 lines in `recovery.py` and 1,189 in
+  `refresh.py`.
 
 - **2026-08-09 (cold recovery coordinator)** — The internal, one-shot
   `ColdRecoveryCoordinator` in `_auth/recovery.py` now owns the L2.5 decision/attempt and combined

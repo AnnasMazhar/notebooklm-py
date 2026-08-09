@@ -645,6 +645,8 @@ def test_result_projections_and_compatibility_value_identities() -> None:
     )
     assert storage_transaction.skip_on_lock_unavailable is profile_store.skip_on_lock_unavailable
     assert browser_capture.storage is storage
+    assert not hasattr(refresh, "save_cookies_to_storage")
+    assert callable(storage.save_cookies_to_storage)
     assert not hasattr(auth, "ProfileStore")
     assert not hasattr(auth, "ProfileAccount")
     assert "MintedSessionWriteRequest" not in storage.__all__
