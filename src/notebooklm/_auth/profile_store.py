@@ -138,6 +138,25 @@ class LoginWriteRequest:
             object.__setattr__(self, "account", SetAccount(ProfileAccount(authuser, email)))
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class MintedSessionWriteRequest:
+    cookies: CookieJar = field(repr=False)
+    email: str | None
+    force: bool = False
+    refuse_unknown_owner: bool = True
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.cookies, CookieJar):
+            raise TypeError("cookies must be a CookieJar")
+        cookies, email = copy.deepcopy((tuple(self.cookies), self.email))
+        object.__setattr__(self, "cookies", CookieJar(cookies))
+        object.__setattr__(self, "email", email)
+
+
+class _MintedSessionOwnershipRefused(Exception):
+    """Private store refusal translated by the v0.x compatibility adapter."""
+
+
 class ReplaceStatus(Enum):
     APPLIED = "applied"
     LOCK_UNAVAILABLE = "lock_unavailable"
@@ -375,6 +394,70 @@ class ProfileStore:
                 ReplaceResult(ReplaceStatus.LOCK_UNAVAILABLE)
             ),
         )
+
+    def replace_minted_session(self, request: MintedSessionWriteRequest) -> None:
+        def _replace() -> _MintedSessionOwnershipRefused | None:
+            data: dict[str, Any] = {}
+            document: ProfileDocument | None = None
+            existed = self.path.exists()
+            if existed:
+                try:
+                    document = self.read_document()
+                    data = cast(dict[str, Any], document.to_json())
+                except json.JSONDecodeError:
+                    data = {}
+                except _ProfileDocumentStructureError as exc:
+                    if exc.field != "root" or exc.reason != "not_object":
+                        raise
+                    data = {}
+
+            if existed and request.force:
+                logger.debug("persist_minted_jar: force=True bypasses the account-ownership guard.")
+            elif existed:
+                owner = document.account_for(AccountView.OWNER) if document is not None else None
+                existing_owner = owner.email if owner is not None else None
+                if not existing_owner:
+                    if request.refuse_unknown_owner:
+                        return _MintedSessionOwnershipRefused(
+                            "This profile has no recorded account owner; refusing to overwrite "
+                            "its session with a freshly minted one without force=True."
+                        )
+                    logger.debug(
+                        "persist_minted_jar: existing storage has no recorded owner; proceeding "
+                        "with refuse_unknown_owner=False (re-mint from a token already paired "
+                        "with this storage_path, not a fresh account selection)."
+                    )
+                elif existing_owner.casefold() != (request.email or "").casefold():
+                    return _MintedSessionOwnershipRefused(
+                        f"This profile already belongs to {existing_owner}, but the mint is "
+                        f"for {request.email or '(no account)'}. Minting here would overwrite "
+                        f"{existing_owner}'s session and master token. Pass force=True to "
+                        "overwrite this profile intentionally."
+                    )
+
+            filtered_minted = filter_storage_state_cookies_by_domain_policy(
+                request.cookies.to_storage_state()
+            )
+            data["cookies"] = filtered_minted["cookies"]
+            data.setdefault("origins", [])
+            namespace = data.get("notebooklm")
+            namespace = namespace if isinstance(namespace, dict) else {}
+            namespace["version"] = 1
+            namespace["account"] = {
+                "authuser": 0,
+                **({"email": request.email} if request.email else {}),
+            }
+            data["notebooklm"] = namespace
+            _commit_profile_json(self.path, data)
+            return None
+
+        refusal = self._under_bounded_lock(
+            operation="persist_minted_jar",
+            body=_replace,
+            on_unavailable=raise_on_lock_unavailable("persist_minted_jar"),
+        )
+        if isinstance(refusal, _MintedSessionOwnershipRefused):
+            raise refusal
 
     def _read_account_document(self) -> ProfileDocument | None:
         """Read one document using the tolerant in-band account policy."""

@@ -4,7 +4,7 @@ ADR-0034 PR6 seals the unchecked atomic primitive behind ``credential_io``.
 PR7A moves typed in-band account update/clear into ``ProfileStore`` beside its
 cookie transactions; PR7B moves remint replacement and PR7C moves login/import
 replacement onto the same store while ``storage.py`` retains the v0.x adapters
-plus the minted-session writer.
+and PR7D leaves only the minted-session snapshot/error adapter there.
 The legacy arbitrary-path token writer uses the distinct typed token commit.
 All caller sets below are equality assertions at function/method granularity.
 """
@@ -12,7 +12,7 @@ All caller sets below are equality assertions at function/method granularity.
 from __future__ import annotations
 
 import ast
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import pytest
@@ -41,10 +41,10 @@ _PROFILE_COMMIT_CALLERS = frozenset(
         "_auth/profile_store.ProfileStore.merge_cookie_observation",
         "_auth/profile_store.ProfileStore.merge_legacy_cookie_observation",
         "_auth/profile_store.ProfileStore.replace_from_login",
+        "_auth/profile_store.ProfileStore.replace_minted_session",
         "_auth/profile_store.ProfileStore.replace_from_remint",
         "_auth/profile_store.ProfileStore.clear_account",
         "_auth/profile_store.ProfileStore.update_account",
-        "_auth/storage.persist_minted_jar",
     }
 )
 _TOKEN_COMMIT_CALLERS = frozenset({"_auth/storage.write_master_token"})
@@ -273,6 +273,28 @@ def _storage_function(name: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
     return matches[0]
 
 
+_MINTED_ADAPTER_CALLS: Counter[str] = Counter(
+    {
+        "Cookie": 1,
+        "CookieJar": 1,
+        "MintedSessionWriteRequest": 1,
+        "ProfileStore": 1,
+        "ProfileStore(path).replace_minted_session": 1,
+        "_cookie_is_http_only": 1,
+        "_master_token.MasterTokenError": 1,
+        "cast": 1,
+        "str": 1,
+    }
+)
+
+
+def _assert_minted_adapter_call_multiset_is_exact(adapter: ast.AST) -> None:
+    actual = Counter(
+        ast.unparse(node.func) for node in ast.walk(adapter) if isinstance(node, ast.Call)
+    )
+    assert actual == _MINTED_ADAPTER_CALLS
+
+
 def test_remint_adapter_has_no_writer_transaction_read_or_filter_capability() -> None:
     adapter = _storage_function("replace_from_remint")
     called_members = [
@@ -336,6 +358,40 @@ def test_login_adapter_has_no_writer_transaction_read_or_filter_capability() -> 
         isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store)
         for node in ast.walk(adapter)
     )
+
+
+def test_minted_adapter_has_only_snapshot_delegation_and_error_projection() -> None:
+    adapter = _storage_function("persist_minted_jar")
+    _assert_minted_adapter_call_multiset_is_exact(adapter)
+    assert not any(
+        isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store)
+        for node in ast.walk(adapter)
+    )
+
+    handlers = [node for node in ast.walk(adapter) if isinstance(node, ast.ExceptHandler)]
+    raises = [node for node in ast.walk(adapter) if isinstance(node, ast.Raise)]
+    assert len(handlers) == len(raises) == 1
+    assert isinstance(handlers[0].type, ast.Name)
+    assert handlers[0].type.id == "_MintedSessionOwnershipRefused"
+    assert not any(isinstance(node, ast.Raise) for node in ast.walk(handlers[0]))
+    assert handlers[0].end_lineno is not None and raises[0].lineno > handlers[0].end_lineno
+    assert raises[0].cause is None
+
+
+@pytest.mark.parametrize("helper", ["_read_in_band_account", "_read_legacy_account"])
+def test_minted_adapter_call_gate_bites_on_legacy_account_helpers(helper: str) -> None:
+    adapter = _storage_function("persist_minted_jar")
+    adapter.body.append(
+        ast.Expr(
+            value=ast.Call(
+                func=ast.Name(id=helper, ctx=ast.Load()),
+                args=[ast.Name(id="path", ctx=ast.Load())],
+                keywords=[],
+            )
+        )
+    )
+    with pytest.raises(AssertionError):
+        _assert_minted_adapter_call_multiset_is_exact(adapter)
 
 
 def test_typed_master_token_commit_caller_is_exact() -> None:

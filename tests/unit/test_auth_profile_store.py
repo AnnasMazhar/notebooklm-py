@@ -20,6 +20,7 @@ from notebooklm._auth.profile_document import ProfileDocument
 from notebooklm._auth.profile_store import (
     CookieMergeDisposition,
     CookieMergeResult,
+    MintedSessionWriteRequest,
     ProfileStore,
     RemintWriteRequest,
     ReplaceResult,
@@ -104,6 +105,9 @@ def test_public_shapes_signatures_enum_and_raw_path_are_exact(tmp_path: Path) ->
     assert str(inspect.signature(ProfileStore.replace_from_login)) == (
         "(self, request: 'LoginWriteRequest') -> 'ReplaceResult'"
     )
+    assert str(inspect.signature(ProfileStore.replace_minted_session)) == (
+        "(self, request: 'MintedSessionWriteRequest') -> 'None'"
+    )
     assert [(member.name, member.value) for member in ReplaceStatus] == [
         ("APPLIED", "applied"),
         ("LOCK_UNAVAILABLE", "lock_unavailable"),
@@ -113,6 +117,12 @@ def test_public_shapes_signatures_enum_and_raw_path_are_exact(tmp_path: Path) ->
         "source",
         "carry_account",
         "domain_selection",
+    }
+    assert set(MintedSessionWriteRequest.__slots__) == {
+        "cookies",
+        "email",
+        "force",
+        "refuse_unknown_owner",
     }
     assert set(ReplaceResult.__slots__) == {
         "status",

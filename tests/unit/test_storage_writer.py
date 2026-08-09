@@ -618,6 +618,10 @@ def test_replace_from_login_account_copy_failure_precedes_store_and_parent_creat
 # --- persist_minted_jar: full replace, fails CLOSED ------------------------
 
 
+def test_persist_minted_jar_storage_writer_identity_is_unchanged() -> None:
+    assert storage_writer.persist_minted_jar is storage_mod.persist_minted_jar
+
+
 def _minted_jar() -> httpx.Cookies:
     jar = httpx.Cookies()
     for name in ("SID", "APISID", "SAPISID"):

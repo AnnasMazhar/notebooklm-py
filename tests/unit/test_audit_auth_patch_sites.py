@@ -230,9 +230,9 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src/notebooklm/_auth")
     projection = script.build_projection(sites)
     assert projection["summary"]["TOTAL"] == {
-        "public": 182,
-        "private": 123,
-        "total": 305,
+        "public": 189,
+        "private": 126,
+        "total": 315,
     }
     relevant = {
         (row["module"], row["attribute"], row["idiom"]): row["count"]
@@ -251,17 +251,17 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     }
     assert relevant == {
         ("storage", "replace_from_remint", "patch.object"): 1,
-        ("storage", "ProfileStore", "monkeypatch.setattr"): 4,
+        ("storage", "ProfileStore", "monkeypatch.setattr"): 8,
         ("storage", "promote_legacy_account", "monkeypatch.setattr"): 2,
         ("storage", "_drop_legacy_account_key", "monkeypatch.setattr"): 3,
         ("cookie_policy", "MINIMUM_REQUIRED_COOKIES", "monkeypatch.setattr"): 3,
         ("cookie_policy", "cookie_names_from_storage", "monkeypatch.setattr"): 1,
-        ("profile_store", "_commit_profile_json", "monkeypatch.setattr"): 14,
+        ("profile_store", "_commit_profile_json", "monkeypatch.setattr"): 17,
         (
             "profile_store",
             "filter_storage_state_cookies_by_domain_policy",
             "monkeypatch.setattr",
-        ): 4,
+        ): 7,
     }
 
 

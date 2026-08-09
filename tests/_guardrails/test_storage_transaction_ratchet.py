@@ -3,8 +3,8 @@
 ADR-0034 PR6 moved the real transaction definition and mechanics into the
 path-owned ``ProfileStore``. PR7A moved two account policy bodies onto its
 bounded primitive; PR7B added browser/remint replacement there; PR7C adds the
-login/import replacement. The remaining two storage writers retain the
-compatibility template. Their frozen 3 raise /
+login/import replacement; PR7D adds minted-session replacement. The remaining
+storage token writer retains the compatibility template. The frozen 3 raise /
 1 skip / 2 report outcomes remain exact. Cookie persistence deliberately uses
 the separate blocking primitive.
 """
@@ -34,7 +34,7 @@ _POLICY_CALLERS: dict[str, frozenset[str]] = {
     "raise_on_lock_unavailable": frozenset(
         {
             "profile_store.ProfileStore.update_account",
-            "storage.persist_minted_jar",
+            "profile_store.ProfileStore.replace_minted_session",
             "storage.write_master_token",
         }
     ),
@@ -49,7 +49,6 @@ _POLICY_CALLERS: dict[str, frozenset[str]] = {
 
 _STORAGE_TRANSACTION_CALLERS = frozenset(
     {
-        "persist_minted_jar",
         "write_master_token",
     }
 )
@@ -68,6 +67,7 @@ _BOUNDED_STORE_OWNERS = frozenset(
         "ProfileStore.clear_account",
         "ProfileStore.replace_from_login",
         "ProfileStore.replace_from_remint",
+        "ProfileStore.replace_minted_session",
     }
 )
 
@@ -137,7 +137,7 @@ def _top_level_callers(path: Path, target: str) -> set[str]:
     return callers
 
 
-def test_two_storage_policy_bodies_route_through_the_template_exactly() -> None:
+def test_storage_policy_body_routes_through_the_template_exactly() -> None:
     callers = _top_level_callers(STORAGE_PATH, "in_storage_transaction")
     assert callers == set(_STORAGE_TRANSACTION_CALLERS)
     assert frozenset() == _UNCONVERTED
@@ -300,7 +300,13 @@ def test_bounded_store_owners_are_exact_and_use_no_other_transaction() -> None:
         if "_under_bounded_lock" in _called_members(method)
     }
     assert actual == set(_BOUNDED_STORE_OWNERS)
-    for name in ("update_account", "clear_account", "replace_from_remint", "replace_from_login"):
+    for name in (
+        "update_account",
+        "clear_account",
+        "replace_from_remint",
+        "replace_from_login",
+        "replace_minted_session",
+    ):
         calls = _called_members(_class_method(name))
         assert calls.count("_under_bounded_lock") == 1
         assert "_under_blocking_cookie_lock" not in calls

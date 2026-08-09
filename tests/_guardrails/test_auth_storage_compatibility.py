@@ -524,6 +524,7 @@ def test_result_projections_and_compatibility_value_identities() -> None:
     assert storage.CookieSaveResult.__qualname__ == "CookieSaveResult"
     assert storage.CookieSaveResult.__dataclass_params__.frozen is True
     assert storage_writer.merge_cookie_delta is storage.merge_cookie_delta
+    assert storage_writer.persist_minted_jar is storage.persist_minted_jar
     assert storage_writer.replace_from_remint is storage.replace_from_remint
     assert storage_writer.update_account_metadata is storage.update_account_metadata
     assert storage_writer.clear_in_band_account is storage.clear_in_band_account
@@ -540,6 +541,10 @@ def test_result_projections_and_compatibility_value_identities() -> None:
     assert browser_capture.storage is storage
     assert not hasattr(auth, "ProfileStore")
     assert not hasattr(auth, "ProfileAccount")
+    assert "MintedSessionWriteRequest" not in storage.__all__
+    assert "MintedSessionWriteRequest" not in storage_writer.__all__
+    assert not hasattr(auth, "MintedSessionWriteRequest")
+    assert storage.MintedSessionWriteRequest is profile_store.MintedSessionWriteRequest
 
 
 def test_cookie_save_delegate_remains_same_module_and_late_bound() -> None:
@@ -550,6 +555,25 @@ def test_cookie_save_delegate_remains_same_module_and_late_bound() -> None:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     ]
     assert calls == ["merge_cookie_delta"]
+
+
+def test_minted_facade_identities_and_master_wrapper_late_lookup_are_exact() -> None:
+    assert auth.persist_minted_jar is master_token.persist_minted_jar
+    assert storage_writer.persist_minted_jar is storage.persist_minted_jar
+    assert master_token.persist_minted_jar is not storage.persist_minted_jar
+
+    source = ast.parse(inspect.getsource(master_token.persist_minted_jar))
+    imports = [node for node in ast.walk(source) if isinstance(node, ast.ImportFrom)]
+    assert [
+        (node.level, node.module, [(alias.name, alias.asname) for alias in node.names])
+        for node in imports
+    ] == [(1, None, [("storage", None)])]
+    calls = [
+        ast.unparse(node.func)
+        for node in ast.walk(source)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name | ast.Attribute)
+    ]
+    assert calls == ["storage.persist_minted_jar"]
 
 
 def test_lock_wrapper_shapes_ownership_and_projections_are_exact(

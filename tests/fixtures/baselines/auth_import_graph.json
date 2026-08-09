@@ -573,7 +573,7 @@
       "path": "src/notebooklm/_auth/profile_document.py"
     },
     {
-      "lines": 711,
+      "lines": 794,
       "name": "profile_store",
       "path": "src/notebooklm/_auth/profile_store.py"
     },
@@ -603,7 +603,7 @@
       "path": "src/notebooklm/_auth/single_flight.py"
     },
     {
-      "lines": 1771,
+      "lines": 1683,
       "name": "storage",
       "path": "src/notebooklm/_auth/storage.py"
     },
@@ -643,7 +643,7 @@
     "function_local_edges": 13,
     "module_edges": 79,
     "modules": 33,
-    "total_lines": 14269,
+    "total_lines": 14264,
     "unique_edges": 92
   },
   "version": 1

@@ -435,7 +435,7 @@ path-collapse, sibling-domain allow-list asymmetry, round-trip attribute erosion
 **All of them are resolved in-tree** — the persistence path is now snapshot/delta,
 CAS-guarded, cross-process flocked, fully `(name, domain, path)`-aware, and funneled
 through the path-owned cookie transactions in `_auth/profile_store.py`. The same
-store now owns browser/remint replacement, while the pure raw capture/domain filter
+store now owns browser/remint, login/import, and minted-session replacement, while the pure raw capture/domain filter
 and its value-free diagnostics live in `_auth/cookie_filter.py`; v0.x signatures,
 results, and browser patch timing remain adapted by `_auth/storage.py`
 ([ADR-0029](adr/0029-canonical-storage-writer.md)). If users
@@ -1072,14 +1072,20 @@ reports still make sense:
   [ADR-0029](adr/0029-canonical-storage-writer.md), then sealed by ADR-0034:
   `_auth/credential_io.py` alone holds the unchecked atomic capability,
   `_auth/profile_store.py` owns cookie transactions, typed in-band account
-  read/update/clear, browser/remint replacement, and login/import replacement.
+  read/update/clear, and browser/remint, login/import, and minted-session replacement.
   Login filters and validates required names before any destination access, applies
   directive-specific namespace rules, optionally backs up under the same lock, then commits once.
   `_auth/cookie_filter.py`
   owns that raw filter and its value-free diagnostics. `_auth/storage.py` retains
   the remint compatibility/browser patch seam plus raw account adapters, legacy
-  reconciliation/promotion/scrub, the login compatibility adapter, minted replacement, and token
-  policies. Only an applied login result reaches legacy promote-or-scrub, after lock release.
+  reconciliation/promotion/scrub, login compatibility, the minted snapshot/error adapter, and
+  token policies. Minted input is frozen before path/lock work: the live jar is copied with the raw
+  master-token serializer fields (including `same_site="None"`, not the filtering/SameSite-lossy
+  `CookieJar.from_httpx()` path), and the permissive email is deep-copied with the same memo.
+  The store then performs the latest-owner gate, default filter, destination rebind, and one commit
+  under one lock. The adapter translates a private refusal outside its handler to context-free
+  canonical `MasterTokenError`. This jar-and-email snapshot timing is the deliberate isolation
+  correction. Only an applied login result reaches legacy promote-or-scrub, after lock release.
   Empty account placeholders no longer block legacy promotion;
   non-empty unknown-only records still win. Function-granular AST guardrails
   (`tests/_guardrails/test_storage_writer_boundary.py`) seal the capability and caller sets.
@@ -1165,13 +1171,23 @@ gate their writes correctly.
 
 ## Changelog
 
+- **2026-08-09 (profile-store minted-session replacement)** —
+  `ProfileStore.replace_minted_session` now owns the authoritative same-lock latest-owner gate,
+  default raw filter, lossless destination preservation/rebind, and one profile commit.
+  `storage.persist_minted_jar` remains the exact v0.x adapter: it snapshots raw cookie fields plus
+  email before lock work and projects private refusal to canonical context-free `MasterTokenError`;
+  `master_token.persist_minted_jar` remains the public late-lookup wrapper. Corruption/unknown/force,
+  custom paths, exception messages, locks, permissions, on-disk schema, and callers are otherwise
+  unchanged. Legacy migration/composition remains PR 8; token value/file/network/bootstrap work
+  remains PR 11A–11D.
+
 - **2026-08-09 (profile-store login/import replacement)** —
   `ProfileStore.replace_from_login` now owns raw source filtering, required-name rejection before
   destination reads, KEEP/SET/CLEAR namespace construction, optional inside-lock backup, and the
   single profile commit. `storage.replace_from_login` remains the exact v0.x facade/patch identity
   and temporarily performs post-APPLIED legacy promote-or-scrub outside the profile lock. KEEP
-  carries the whole raw source namespace; SET/CLEAR rebuild it. Minted replacement remains in
-  storage, and legacy scheduler/services remain deferred. No schema, path, permission, warning,
+  carries the whole raw source namespace; SET/CLEAR rebuild it. Legacy scheduler/services remain
+  deferred. No schema, path, permission, warning,
   backup, result, or caller behavior changed.
 
 - **2026-08-08 (profile-store browser/remint replacement)** — The pure raw

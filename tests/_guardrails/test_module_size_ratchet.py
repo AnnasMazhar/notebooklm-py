@@ -257,7 +257,11 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # required-cookie gating, directive-specific namespace construction, backup,
     # and commit moved into ``ProfileStore``. Storage keeps the exact v0.x adapter
     # and post-success legacy reconciliation; minted-session replacement remains.
-    "_auth/storage.py": 1771,
+    #
+    # RATCHETED DOWN 1771 -> 1683 by ADR-0034 PR7D: minted-session snapshot and
+    # error projection remain here while the owner/filter/document/commit body
+    # moved to ``ProfileStore``.
+    "_auth/storage.py": 1683,
     # sanctioned merge (ADR-0033) — the `_auth` load-composition merge:
     # ``_auth/browser_cookie_recovery.py`` (142) was absorbed in full and reduced
     # to a re-export shim in the same change. It held the captured-cookie
@@ -518,13 +522,13 @@ def test_credential_and_store_modules_use_the_ordinary_budget() -> None:
     assert leaves.isdisjoint(ALLOWLISTED_CEILINGS)
     assert {path: measured[path] for path in leaves} == {
         "_auth/credential_io.py": 23,
-        "_auth/profile_store.py": 711,
+        "_auth/profile_store.py": 794,
     }
     assert (
         measured["_auth/storage.py"]
         + measured["_auth/profile_store.py"]
         + measured["_auth/cookie_filter.py"]
-        == 2578
+        == 2573
     )
     synthetic = dict.fromkeys(leaves, MODULE_SIZE_BUDGET + 1)
     assert _over_budget_offenders(synthetic, {}, MODULE_SIZE_BUDGET) == synthetic
