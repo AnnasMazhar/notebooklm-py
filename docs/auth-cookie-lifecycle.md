@@ -583,6 +583,17 @@ existing cross-loop pattern, not a change to the mid-session
 loop-affinity still governs the client itself: coalescing the *recovery attempt*
 across loops does not make a `NotebookLMClient` shareable across loops).
 
+Cold-token fallback composition now has one operation-scoped owner:
+`_auth/recovery.py::ColdRecoveryCoordinator` decides and attempts L2.5, then delegates into the
+combined cold flow. `_auth/refresh.py::_cold_fallbacks` remains its sole production adapter and
+retains the exact environment-auth skip, rung-start, and rung-failure logs plus call-time route
+lookups. L2.5 remains outside the shared cold flight. The existing `_run_cold_recovery` still owns
+L3 → L4, per-loop lock/generation state, and the replacement jar's same-sample typed baseline; its
+coalesced wrapper and `single_flight` retain flight settlement until Phase 12C. Cancellation before
+synchronous caller-jar replacement
+leaves that jar untouched; cancellation during the later route/fetch does not roll back a completed
+replacement.
+
 ### 4.1 L1 — per-call `RotateCookies` POST
 
 Fires inside the token-fetch path on every CLI invocation and client open. A best-
@@ -1199,6 +1210,14 @@ gate their writes correctly.
 ---
 
 ## Changelog
+
+- **2026-08-09 (cold recovery coordinator)** — The internal, one-shot
+  `ColdRecoveryCoordinator` in `_auth/recovery.py` now owns the L2.5 decision/attempt and combined
+  cold delegation. `refresh._cold_fallbacks` supplies the late-bound production closures and keeps
+  exact skip/start/failure logging, route timing, retained-error precedence, cancellation timing,
+  and same-sample snapshot/baseline results. Existing `_run_cold_recovery` remains the L3/L4 and
+  per-loop lock/generation owner; its coalesced wrapper retains shared flights until Phase 12C.
+  Measured owners are 389 lines in `recovery.py` and 1,194 in `refresh.py`.
 
 - **2026-08-09 (runtime profile-store cookie persistence)** — `FileLoadedAuth` now registers its
   exact store/baseline pair with first-party `CookiePersistence`; direct construction prepares one

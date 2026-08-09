@@ -753,12 +753,12 @@
       "path": "src/notebooklm/_auth/psidts_recovery.py"
     },
     {
-      "lines": 297,
+      "lines": 389,
       "name": "recovery",
       "path": "src/notebooklm/_auth/recovery.py"
     },
     {
-      "lines": 1195,
+      "lines": 1194,
       "name": "refresh",
       "path": "src/notebooklm/_auth/refresh.py"
     },
@@ -813,7 +813,7 @@
     "function_local_edges": 12,
     "module_edges": 109,
     "modules": 38,
-    "total_lines": 14988,
+    "total_lines": 15079,
     "unique_edges": 121
   },
   "version": 1

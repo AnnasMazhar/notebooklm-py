@@ -352,7 +352,7 @@ class TestCrossLoopCoalescing:
             nonlocal run_count
             with run_count_lock:
                 run_count += 1
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.1)
 
         async def fake_fetch_tokens_with_jar(cookie_jar, storage_path, **kwargs):
             if not getattr(cookie_jar, "_refresh_done", False):

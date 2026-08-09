@@ -368,10 +368,16 @@ closed `LoadedAuth` result, and `StoredAuthLoader`. Its only structural test sea
 `TokenAcquirer`; inject that seam for ladder-result tests, and patch the call-time
 `tokens._load_stored_auth` provider for `AuthTokens.from_storage`/client composition tests. Raw
 loads and PSIDTS heal, file-account resolution, and the initial `ProfileStore` merge remain worker
-offloads. `_auth/cookies.py` owns one-sample live/SameSite-preserving seed provenance,
-`_auth/recovery.py` carries exact replacement baselines, and `_auth/cookie_merge.py` advances the
-next baseline from accepted final rows while retaining rejected old entries. The measured owner
-sizes are 816 lines in `tokens.py`, 1,195 in `refresh.py`, and 996 in `client.py`.
+offloads. `_auth/cookies.py` owns one-sample live/SameSite-preserving seed provenance.
+`_auth/recovery.py` now owns the one-shot `ColdRecoveryCoordinator`: it decides/attempts L2.5 and
+delegates into the combined cold flow, while the existing `_run_cold_recovery` continues to own
+L3/L4, the per-loop lock/generation state, and same-sample replacement baselines until Phase 12C.
+The sole production adapter remains `refresh._cold_fallbacks`; its late-bound closures retain the
+exact DEBUG skip and WARNING start/failure logs and route timing. Cancellation before jar
+replacement leaves the caller jar untouched; a later cancellation never rolls back an already
+replaced jar. `_auth/cookie_merge.py` advances the next baseline from accepted final rows while
+retaining rejected old entries. The measured owner sizes are 816 lines in `tokens.py`, 389 in
+`recovery.py`, 1,194 in `refresh.py`, and 996 in `client.py`.
 
 Phase 10 completes runtime ownership. `NotebookLMClient.from_storage` registers a
 `FileLoadedAuth` result's exact `ProfileStore`/baseline pair with `CookiePersistence`, without a
