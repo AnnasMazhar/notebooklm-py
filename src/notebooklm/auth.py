@@ -334,15 +334,15 @@ _REFRESH_ATTEMPTED_ENV = _auth_paths._REFRESH_ATTEMPTED_ENV
 
 
 # --- Keepalive poke ----------------------------------------------------------
-# Rotation throttle + ``RotateCookies`` POST bodies live in
-# ``notebooklm._auth.keepalive``. Re-exported here so every name that was
-# previously module-level on ``notebooklm.auth`` (constants, the per-loop /
+# Rotation policy lives in ``_auth.keepalive``; the raw wire lives in
+# ``_auth.mint_service``. This facade re-exports through keepalive so every name formerly
+# module-level on ``notebooklm.auth`` (constants, the per-loop /
 # per-profile lock registry, ``KEEPALIVE_ROTATE_URL`` (de-blessed from ``__all__``
 # in #1592 but kept importable), and white-box helpers like ``_poke_session`` /
 # ``_rotate_cookies``) keeps resolving against this module. Tests that
-# need to substitute a moved body should patch the canonical home directly
-# (``_auth.keepalive.X``) — production code no longer mirrors writes
-# (``_AuthFacadeModule`` retired per ADR-0003).
+# need to substitute policy or its import-time wire binding should patch keepalive;
+# direct ``MintService`` wire substitutions patch ``_auth.mint_service.X``. Production
+# code no longer mirrors writes (``_AuthFacadeModule`` retired per ADR-0003).
 KEEPALIVE_ROTATE_URL = _auth_keepalive.KEEPALIVE_ROTATE_URL
 _KEEPALIVE_ROTATE_HEADERS = _auth_keepalive._KEEPALIVE_ROTATE_HEADERS
 _KEEPALIVE_ROTATE_BODY = _auth_keepalive._KEEPALIVE_ROTATE_BODY

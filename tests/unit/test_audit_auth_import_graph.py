@@ -91,11 +91,11 @@ def test_scope_duplicate_self_and_scc_rules(audit, tmp_path):
 def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
-        "modules": 36,
-        "total_lines": 14681,
-        "unique_edges": 112,
-        "module_edges": 99,
-        "function_local_edges": 13,
+        "modules": 37,
+        "total_lines": 14749,
+        "unique_edges": 114,
+        "module_edges": 102,
+        "function_local_edges": 12,
     }
     assert result["sccs"] == {
         "module_level": [],
@@ -166,8 +166,14 @@ def test_live_projection_is_the_frozen_scorecard(audit):
     assert {edge for edge in edges if "master_token_types" in edge[:2]} == {
         ("master_token", "master_token_types", "module"),
         ("master_token_file", "master_token_types", "module"),
+        ("mint_service", "master_token_types", "module"),
         ("profile_store", "master_token_types", "module"),
         ("storage", "master_token_types", "module"),
+    }
+    assert {edge for edge in edges if "mint_service" in edge[:2]} == {
+        ("keepalive", "mint_service", "module"),
+        ("master_token", "mint_service", "module"),
+        ("mint_service", "master_token_types", "module"),
     }
     assert {edge for edge in edges if "profile_store" in edge[:2]} == {
         ("profile_migration", "profile_store", "module"),

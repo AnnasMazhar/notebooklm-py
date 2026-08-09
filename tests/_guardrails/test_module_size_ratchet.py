@@ -552,6 +552,6 @@ def test_credential_store_and_migration_modules_use_the_ordinary_budget() -> Non
 def test_phase_11b_touched_compatibility_modules_are_measured_exactly() -> None:
     measured = _measure_all()
     assert {path: measured[path] for path in {"_auth/master_token.py", "_auth/storage.py"}} == {
-        "_auth/master_token.py": 679,
+        "_auth/master_token.py": 593,
         "_auth/storage.py": 1131,
     }

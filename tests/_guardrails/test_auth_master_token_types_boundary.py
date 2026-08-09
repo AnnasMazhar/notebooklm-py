@@ -453,6 +453,108 @@ def _bound_name(node: ast.AST, bindings: dict[str, str]) -> str | None:
     return None
 
 
+def _expression_origin(node: ast.AST, bindings: dict[str, str]) -> str | None:
+    origin = _bound_name(node, bindings)
+    if origin is not None:
+        return origin
+    if isinstance(node, ast.Call):
+        callable_name = _bound_name(node.func, bindings)
+        if callable_name in {"importlib.import_module", "__import__"} and node.args:
+            return _static_string(node.args[0])
+        if callable_name == "getattr" and len(node.args) >= 2:
+            owner = _expression_origin(node.args[0], bindings)
+            member = _static_string(node.args[1])
+            if owner is not None and member is not None:
+                return f"{owner}.{member}"
+    return None
+
+
+def _bind_assignment(target: ast.AST, value: ast.AST, bindings: dict[str, str]) -> bool:
+    changed = False
+    if isinstance(target, ast.Name):
+        origin = _expression_origin(value, bindings)
+        if origin is not None and target.id not in bindings:
+            bindings[target.id] = origin
+            changed = True
+    elif (
+        isinstance(target, ast.Tuple | ast.List)
+        and isinstance(value, ast.Tuple | ast.List)
+        and len(target.elts) == len(value.elts)
+    ):
+        for child_target, child_value in zip(target.elts, value.elts, strict=True):
+            changed |= _bind_assignment(child_target, child_value, bindings)
+    return changed
+
+
+def _alias_bindings(tree: ast.AST, *, path: Path, src_root: Path) -> dict[str, str]:
+    """Conservatively retain canonical bindings through later/local aliases."""
+    bindings = _import_bindings(tree, path=path, src_root=src_root)
+    assignments: list[tuple[ast.AST, ast.AST]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            assignments.extend((target, node.value) for target in node.targets)
+        elif (isinstance(node, ast.AnnAssign) and node.value is not None) or isinstance(
+            node, ast.NamedExpr
+        ):
+            assignments.append((node.target, node.value))
+    for _ in range(len(assignments) + 1):
+        if not any(_bind_assignment(target, value, bindings) for target, value in assignments):
+            break
+    return bindings
+
+
+class _ConstructorOwnerCollector(ast.NodeVisitor):
+    def __init__(self, bindings: dict[str, str]) -> None:
+        self.bindings = bindings
+        self.owners: set[str] = set()
+        self.scopes: list[str] = []
+
+    @property
+    def owner(self) -> str:
+        return ".".join(self.scopes) if self.scopes else "<module>"
+
+    def _visit_scope(self, node: ast.AST, name: str) -> None:
+        self.scopes.append(name)
+        self.generic_visit(node)
+        self.scopes.pop()
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self._visit_scope(node, node.name)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_scope(node, node.name)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self._visit_scope(node, "<lambda>")
+
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        self._visit_scope(node, "<comprehension>")
+
+    visit_SetComp = visit_ListComp
+    visit_DictComp = visit_ListComp
+    visit_GeneratorExp = visit_ListComp
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if _expression_origin(node.func, self.bindings) == f"{_MODULE_NAME}.MasterToken":
+            self.owners.add(self.owner)
+        self.generic_visit(node)
+
+
+def _master_token_constructor_owners(src_root: Path) -> set[tuple[str, str]]:
+    owners: set[tuple[str, str]] = set()
+    leaf_path = src_root / "_auth" / "master_token_types.py"
+    for path in sorted(src_root.rglob("*.py")):
+        if path == leaf_path:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        collector = _ConstructorOwnerCollector(_alias_bindings(tree, path=path, src_root=src_root))
+        collector.visit(tree)
+        owners.update((path.relative_to(src_root).as_posix(), owner) for owner in collector.owners)
+    return owners
+
+
 def _production_consumers(src_root: Path) -> list[str]:
     """Find any static, dynamic, aliased, deferred, or spelled consumer outside the leaf."""
     violations: list[str] = []
@@ -553,7 +655,7 @@ def test_capability_detector_bites_on_aliases_escapes_and_deferred_scopes(source
     assert _live_structure_violations(ast.parse(mutated))
 
 
-def test_production_consumers_are_exactly_the_phase_11b_owners() -> None:
+def test_production_consumers_are_exactly_the_phase_11c_owners() -> None:
     normalized = {
         (path, detail)
         for item in _production_consumers(SRC_ROOT)
@@ -561,6 +663,7 @@ def test_production_consumers_are_exactly_the_phase_11b_owners() -> None:
     }
     assert normalized == {
         ("_auth/master_token.py", "from-import"),
+        ("_auth/master_token.py", "bare-call:MasterToken"),
         ("_auth/master_token_file.py", "from-import"),
         (
             "_auth/master_token_file.py",
@@ -571,9 +674,49 @@ def test_production_consumers_are_exactly_the_phase_11b_owners() -> None:
             "bare-call:_master_token_to_legacy_record",
         ),
         ("_auth/profile_store.py", "from-import"),
+        ("_auth/mint_service.py", "bare-call:MasterToken"),
+        ("_auth/mint_service.py", "from-import"),
         ("_auth/storage.py", "bare-call:MasterToken"),
         ("_auth/storage.py", "from-import"),
     }
+
+
+def test_master_token_constructors_have_exact_typed_and_compatibility_owners() -> None:
+    assert _master_token_constructor_owners(SRC_ROOT) == {
+        ("_auth/master_token.py", "mint_cookies"),
+        ("_auth/mint_service.py", "MintService.exchange"),
+        ("_auth/storage.py", "write_master_token"),
+    }
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "from notebooklm._auth.master_token_types import MasterToken as Credential\n"
+        "def later():\n    return Credential(email='e', android_id='a', secret='s')\n",
+        "import notebooklm._auth.master_token_types as tokens\n"
+        "build = lambda: tokens.MasterToken(email='e', android_id='a', secret='s')\n",
+        "import importlib\n"
+        "tokens = importlib.import_module('notebooklm._auth.' + 'master_token_types')\n"
+        "items = [tokens.MasterToken(email='e', android_id='a', secret='s') for _ in (0,)]\n",
+        "import notebooklm._auth as auth\n"
+        "tokens = getattr(auth, 'master_' + 'token_types')\n"
+        "if ready:\n    value = tokens.MasterToken(email='e', android_id='a', secret='s')\n",
+        "from notebooklm._auth.master_token_types import MasterToken\n"
+        "def later():\n"
+        "    Constructor = MasterToken\n"
+        "    MasterToken = object\n"
+        "    return Constructor(email='e', android_id='a', secret='s')\n",
+    ],
+)
+def test_constructor_owner_collector_bites_aliases_and_every_deferred_scope(
+    tmp_path: Path, body: str
+) -> None:
+    src_root = tmp_path / "notebooklm"
+    source = src_root / "_auth" / "consumer.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(body, encoding="utf-8")
+    assert _master_token_constructor_owners(src_root)
 
 
 @pytest.mark.parametrize(

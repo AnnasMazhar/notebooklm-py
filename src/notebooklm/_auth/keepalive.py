@@ -1,6 +1,6 @@
-"""Keepalive ``RotateCookies`` poke helpers for authentication.
+"""Keepalive ``RotateCookies`` policy helpers for authentication.
 
-This private module hosts the rotation throttle + POST that
+This private module hosts the rotation throttle and re-exports the raw POST that
 ``notebooklm.auth`` previously owned at module level. ``notebooklm.auth`` keeps
 re-exporting compatibility names, but production no longer mirrors facade-level
 rebindings; tests that substitute keepalive internals should patch this
@@ -27,6 +27,7 @@ from typing import Any
 
 import httpx
 
+from . import mint_service as _mint_service
 from . import paths as _auth_paths
 from .storage_lock import (
     _LOCK_ACQUIRE_DEADLINE_SECONDS,
@@ -37,6 +38,16 @@ from .storage_lock import (
 )
 
 logger = logging.getLogger("notebooklm.auth")
+
+# Compatibility bindings for the one raw RotateCookies wire contract, now
+# owned dependency-bottom by ``mint_service``. Keepalive owns only policy.
+KEEPALIVE_ROTATE_URL = _mint_service.KEEPALIVE_ROTATE_URL
+_KEEPALIVE_ROTATE_HEADERS = _mint_service._KEEPALIVE_ROTATE_HEADERS
+_KEEPALIVE_ROTATE_BODY = _mint_service._KEEPALIVE_ROTATE_BODY
+_KEEPALIVE_POKE_TIMEOUT = _mint_service._KEEPALIVE_POKE_TIMEOUT
+_ROTATE_POST_KWARGS = _mint_service._ROTATE_POST_KWARGS
+_rotate_post = _mint_service._rotate_post
+_rotate_post_sync = _mint_service._rotate_post_sync
 
 
 # --- Keepalive constants -----------------------------------------------------
@@ -55,17 +66,6 @@ logger = logging.getLogger("notebooklm.auth")
 # ``__Secure-1PSIDTS`` / ``__Secure-3PSIDTS`` for either session type. The
 # response body declares the next-rotation interval (`["identity.hfcr",600]` —
 # 10 minutes), which sets the floor for how often this is worth firing.
-KEEPALIVE_ROTATE_URL = "https://accounts.google.com/RotateCookies"
-_KEEPALIVE_ROTATE_HEADERS = {
-    "Content-Type": "application/json",
-    "Origin": "https://accounts.google.com",
-}
-# Observed unbound RotateCookies request body — a placeholder pair Chrome sends
-# when there is no DBSC binding token to attest. Validated across Gemini-API and
-# the in-house experiments referenced in #345; kept in one place so it can be
-# changed if Google ever changes the contract.
-_KEEPALIVE_ROTATE_BODY = '[000,"-0000000000000000000"]'
-_KEEPALIVE_POKE_TIMEOUT = 15.0
 # Skip the poke if storage_state.json was rewritten within this window — protects
 # accounts.google.com from rapid CLI loops (e.g. 10 sequential `notebooklm`
 # invocations) that would each fire their own rotation. Google's own declared
@@ -80,46 +80,6 @@ _KEEPALIVE_PRECISION_TOLERANCE = 2.0
 # Env-var name lives in ``notebooklm._auth.paths``; aliased here so the
 # keepalive bodies can reference it without an extra module hop.
 NOTEBOOKLM_DISABLE_KEEPALIVE_POKE_ENV = _auth_paths.NOTEBOOKLM_DISABLE_KEEPALIVE_POKE_ENV
-
-# --- The single RotateCookies wire contract ----------------------------------
-# Every rotation path — the layer-1/layer-2 keepalive pokes (async, live
-# client), the file-based inline PSIDTS recovery, the in-memory
-# browser-extraction recovery, and the master-token mint's completing leg —
-# sends exactly this request through :func:`_rotate_post` /
-# :func:`_rotate_post_sync` below. There is ONE contract; the sync/async pair
-# exists only because httpx splits ``Client``/``AsyncClient``. A change to
-# Google's RotateCookies protocol is made here and nowhere else (enforced by
-# ``tests/_guardrails/test_rotate_wire_contract.py``).
-#
-# ``follow_redirects=True`` is defensive: empirically RotateCookies answers 200
-# directly with the rotated Set-Cookie, but if Google ever routes a 30x through
-# an identity hop we still pick up cookies from the terminal response.
-_ROTATE_POST_KWARGS: dict[str, Any] = {
-    "headers": _KEEPALIVE_ROTATE_HEADERS,
-    "content": _KEEPALIVE_ROTATE_BODY,
-    "follow_redirects": True,
-    "timeout": _KEEPALIVE_POKE_TIMEOUT,
-}
-
-
-async def _rotate_post(client: httpx.AsyncClient) -> httpx.Response:
-    """THE async ``RotateCookies`` POST. Wire only — no guards, no swallowing.
-
-    Raises ``httpx.HTTPError`` on transport failure *and* on a 4xx/5xx status:
-    httpx does not auto-raise on error statuses, and without the explicit
-    ``raise_for_status`` a 429 or 5xx from Google would log nothing while the
-    caller proceeds assuming the rotation happened.
-    """
-    response = await client.post(KEEPALIVE_ROTATE_URL, **_ROTATE_POST_KWARGS)
-    response.raise_for_status()
-    return response
-
-
-def _rotate_post_sync(client: httpx.Client) -> httpx.Response:
-    """Sync twin of :func:`_rotate_post` for the one-shot recovery clients."""
-    response = client.post(KEEPALIVE_ROTATE_URL, **_ROTATE_POST_KWARGS)
-    response.raise_for_status()
-    return response
 
 
 def _rotation_http_client(jar: httpx.Cookies) -> httpx.Client:

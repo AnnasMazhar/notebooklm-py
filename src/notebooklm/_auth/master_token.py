@@ -28,9 +28,7 @@ import enum
 import json
 import logging
 import secrets
-import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -47,34 +45,13 @@ from filelock import FileLock, Timeout
 # nothing from this package, so this is a plain module-level import, not one of
 # the deferred cycle-breaks below.
 from .master_token_file import MasterTokenFile
-from .master_token_types import _MasterTokenRecordError
+from .master_token_types import MasterToken, _MasterTokenRecordError
+from .mint_service import MintService, _MintError
 from .paths import _bootstrap_lock_path
-
-# perform_oauth for the OAuthLogin token rides the Chromecast app + signature
-# (the spike confirmed the labs-tailwind app's sig downscopes; chromecast yields
-# a uberauth-capable token; the labs-tailwind app's sig downscopes to email).
-_MASTER_APP = "com.google.android.apps.chromecast.app"
-_MASTER_SIG = "24bb24c05e47e0aefa68a58a766179d9b613a600"
-_OAUTHLOGIN_SERVICE = "oauth2:https://www.google.com/accounts/OAuthLogin"
-
-# Aligned with ``_has_rotatable_secondary_binding``, NOT the strict
-# ``_has_valid_secondary_binding``: this set feeds ``_recover_psidts_inline``, so
-# it answers "is a rotation worth attempting", which is the permissive question.
-# It is therefore *not* stale relative to the ``LSID`` conjunct added in #1977 —
-# do not "fix" it by adding LSID here.
-# MergeSession requires SID + a secondary binding (APISID+SAPISID or OSID) so the
-# client's _recover_psidts_inline can mint __Secure-1PSIDTS on first load.
-_REQUIRED_MINTED_COOKIES = {"SID", "APISID", "SAPISID"}
 
 _MASTER_TOKEN_VERSION = 1
 
 logger = logging.getLogger("notebooklm.auth.master_token")
-
-# Serializes the global-logger save/restore in _quiet_gpsoauth_logging so
-# overlapping re-mints on different threads (asyncio.to_thread) can't stomp each
-# other's saved levels. ponytail: one process-wide lock; the window is one short
-# sync RPC, so contention is negligible.
-_LOG_LOCK = threading.Lock()
 
 
 class MasterTokenError(Exception):
@@ -83,32 +60,6 @@ class MasterTokenError(Exception):
     Raised for revoked/expired master tokens, gpsoauth failures, and a minted
     cookie jar missing the cookies the web client needs. Carries no secrets.
     """
-
-
-def _require_gpsoauth() -> Any:
-    try:
-        import gpsoauth  # noqa: PLC0415  (lazy: optional [headless] extra)
-    except ImportError as exc:  # pragma: no cover - import guard
-        raise MasterTokenError(
-            "Master-token auth needs gpsoauth. Install: pip install 'notebooklm-py[headless]'"
-        ) from exc
-    return gpsoauth
-
-
-@contextmanager
-def _quiet_gpsoauth_logging() -> Iterator[None]:
-    """Silence urllib3/requests DEBUG bodies around the gpsoauth call so the
-    master token / ya29 in request bodies never reach a debug log sink."""
-    names = ("urllib3", "requests", "urllib3.connectionpool")
-    with _LOG_LOCK:
-        saved = {n: logging.getLogger(n).level for n in names}
-        try:
-            for n in names:
-                logging.getLogger(n).setLevel(logging.WARNING)
-            yield
-        finally:
-            for n, lvl in saved.items():
-                logging.getLogger(n).setLevel(lvl)
 
 
 def generate_android_id() -> str:
@@ -121,109 +72,72 @@ def generate_android_id() -> str:
 def exchange_master_token(email: str, oauth_token: str, android_id: str) -> str:
     """One-time: a single-use EmbeddedSetup ``oauth_token`` -> durable ``aas_et/``
     master token. Raises :class:`MasterTokenError` on rejection (no secret leak)."""
-    gpsoauth = _require_gpsoauth()
+    caller_exception = sys.exc_info()[1]
     try:
-        with _quiet_gpsoauth_logging():
-            res = gpsoauth.exchange_token(email, oauth_token, android_id)
-    except Exception as exc:  # noqa: BLE001 — any gpsoauth/transport failure; never leak the body
-        raise MasterTokenError("exchange_token failed (network or gpsoauth error).") from exc
-    token = res.get("Token")
-    if not token:
-        # res may carry Error/ErrorDetail (no secrets); include only the code.
-        raise MasterTokenError(
-            f"exchange_token rejected the oauth_token (Error={res.get('Error', 'unknown')}). "
-            "The oauth_token is single-use and short-lived — re-capture it."
+        token = MintService().exchange(email, oauth_token, android_id)
+    except _MintError as exc:
+        error_context = exc.__context__
+        if exc.__cause__ is None and error_context is caller_exception:
+            error_context = None
+        error_snapshot = (
+            str(exc),
+            exc.__cause__,
+            error_context,
+            exc.__suppress_context__,
         )
-    return str(token)
+    else:
+        return token.secret
+    caller_exception = None
+    error = MasterTokenError(error_snapshot[0])
+    try:
+        raise error
+    except MasterTokenError:
+        # Raising while the caller handles another exception overwrites
+        # ``__context__``. Restore the lower-layer projection after that first
+        # raise, then preserve it with a bare re-raise.
+        error.__cause__ = error_snapshot[1]
+        error.__context__ = error_snapshot[2]
+        error.__suppress_context__ = error_snapshot[3]
+        raise
 
 
 async def mint_cookies(email: str, master_token: str, android_id: str) -> httpx.Cookies:
     """Mint a fresh NotebookLM web cookie jar from the master token.
 
-    perform_oauth (sync, run inline — it is a single short request) -> ya29, then
+    perform_oauth (sync, offloaded once) -> ya29, then
     OAuthLogin?issueuberauth=1 -> uberauth -> MergeSession -> Set-Cookie jar.
     Raises :class:`MasterTokenError` if the token is revoked or the jar lacks the
     cookies the web client needs.
     """
-    gpsoauth = _require_gpsoauth()
-
-    def _perform() -> Any:
-        with _quiet_gpsoauth_logging():
-            return gpsoauth.perform_oauth(
-                email,
-                master_token,
-                android_id,
-                service=_OAUTHLOGIN_SERVICE,
-                app=_MASTER_APP,
-                client_sig=_MASTER_SIG,
-            )
-
+    caller_exception = sys.exc_info()[1]
     try:
-        # perform_oauth is a sync (requests) network call — off-thread it so it
-        # never blocks the event loop of a live client during layer-4 recovery.
-        oauth = await asyncio.to_thread(_perform)
-    except Exception as exc:  # noqa: BLE001 — any gpsoauth/transport failure; never leak the body
-        raise MasterTokenError("perform_oauth failed (network or gpsoauth error).") from exc
-    bearer = oauth.get("Auth")
-    if not bearer:
-        raise MasterTokenError(
-            f"perform_oauth rejected the master token (Error={oauth.get('Error', 'unknown')}). "
-            "Re-bootstrap with `notebooklm login --master-token`."
+        jar = await MintService().mint(
+            MasterToken(email=email, android_id=android_id, secret=master_token)
         )
-
-    # Wrap the cookie-mint HTTP legs: an unwrapped httpx error would escape the
-    # refresh path AND its ``.request.url`` embeds the uberauth token. Re-raise as
-    # a secret-free MasterTokenError so the caller declines gracefully.
+    except _MintError as exc:
+        error_context = exc.__context__
+        if exc.__cause__ is None and error_context is caller_exception:
+            error_context = None
+        error_snapshot = (
+            str(exc),
+            exc.__cause__,
+            error_context,
+            exc.__suppress_context__,
+        )
+    else:
+        return jar
+    caller_exception = None
+    error = MasterTokenError(error_snapshot[0])
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-            auth = {"Authorization": f"Bearer {bearer}"}
-            uber = await client.get(
-                "https://accounts.google.com/OAuthLogin",
-                params={"source": "ChromiumBrowser", "issueuberauth": "1"},
-                headers=auth,
-            )
-            uberauth = uber.text.strip()
-            if uber.status_code != 200 or not uberauth or " " in uberauth:
-                raise MasterTokenError("OAuthLogin did not return a uberauth token.")
-            await client.get(
-                "https://accounts.google.com/MergeSession",
-                params={
-                    "service": "mail",
-                    "continue": "https://www.google.com",
-                    "uberauth": uberauth,
-                },
-                headers=auth,
-            )
-            # Mint __Secure-1PSIDTS now too (the rotating freshness partner of
-            # __Secure-1PSID) so the stored jar is complete and valid at rest — no
-            # first-call recovery needed and `auth check` passes immediately.
-            # ``_rotate_post`` is the same single-wire-contract RotateCookies
-            # POST every other rotation path uses; it needs the SID +
-            # APISID/SAPISID binding the MergeSession jar already carries.
-            # Best-effort: Google may withhold it, and inline recovery remains
-            # the fallback, so a failure here must not fail the mint.
-            from .keepalive import _rotate_post  # noqa: PLC0415 (avoid import cycle)
-
-            try:
-                await _rotate_post(client)
-            except httpx.HTTPError as exc:
-                logger.debug("RotateCookies during mint failed (non-fatal): %s", exc)
-            jar = httpx.Cookies()
-            for cookie in client.cookies.jar:
-                jar.jar.set_cookie(cookie)
-    except httpx.HTTPError:
-        raise MasterTokenError(
-            "cookie minting failed (network error reaching accounts.google.com)."
-        ) from None  # drop the httpx __cause__ whose URL carries the uberauth
-
-    names = {c.name for c in jar.jar}
-    missing = _REQUIRED_MINTED_COOKIES - names
-    if missing:
-        raise MasterTokenError(
-            f"Minted cookie jar is missing required cookies: {sorted(missing)}. "
-            "MergeSession may have changed; the session would fail PSIDTS recovery."
-        )
-    return jar
+        raise error
+    except MasterTokenError:
+        # See ``exchange_master_token``: the first raise establishes the
+        # traceback; restoring here keeps an active caller exception out of
+        # the public chain without retaining the private translation error.
+        error.__cause__ = error_snapshot[1]
+        error.__context__ = error_snapshot[2]
+        error.__suppress_context__ = error_snapshot[3]
+        raise
 
 
 def storage_state_from_jar(jar: httpx.Cookies, *, email: str | None = None) -> dict[str, Any]:

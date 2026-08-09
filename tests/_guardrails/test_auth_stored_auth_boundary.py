@@ -94,6 +94,7 @@ _FORBIDDEN_TOKEN_MODULES = frozenset(
         "notebooklm._auth.headless_reauth",
         "notebooklm._auth.keepalive",
         "notebooklm._auth.master_token",
+        "notebooklm._auth.mint_service",
         "notebooklm._auth.recovery",
         "notebooklm._auth.storage_lock",
     }
@@ -125,10 +126,15 @@ _FORBIDDEN_TOKEN_CAPABILITIES = frozenset(
         "try_master_token_reauth",
         "remint_from_stored_token",
         "mint_cookies",
+        "MintService",
+        "_MintError",
+        "exchange",
+        "mint",
         "read_master_token",
         "_recover_psidts_inline",
         "recover_psidts_in_memory",
         "_attempt_rotation",
+        "_rotate_post",
         "_rotate_post_sync",
     }
 )
@@ -174,6 +180,31 @@ def _qualified_name(node: ast.expr) -> str | None:
         owner = _qualified_name(node.value)
         if owner is not None:
             return f"{owner}.{node.attr}"
+    return None
+
+
+def _static_string(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _static_string(node.left)
+        right = _static_string(node.right)
+        return left + right if left is not None and right is not None else None
+    if isinstance(node, ast.JoinedStr):
+        parts = [_static_string(item) for item in node.values]
+        return "".join(part for part in parts if part is not None) if None not in parts else None
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "join"
+        and not node.keywords
+        and len(node.args) == 1
+        and isinstance(node.args[0], ast.List | ast.Tuple)
+    ):
+        separator = _static_string(node.func.value)
+        parts = [_static_string(item) for item in node.args[0].elts]
+        if separator is not None and None not in parts:
+            return separator.join(part for part in parts if part is not None)
     return None
 
 
@@ -739,14 +770,24 @@ def _token_capability_violations(tree: ast.Module) -> set[str]:
             name = _call_name(node)
             if name in _FORBIDDEN_TOKEN_CAPABILITIES:
                 violations.add(f"call:{name}")
+            qualified = _qualified_name(node.func)
+            if (
+                qualified in {"importlib.import_module", "__import__", "import_module"}
+                and node.args
+            ):
+                target = _static_string(node.args[0])
+                if target is not None and any(
+                    target == module or target.startswith(f"{module}.")
+                    for module in _FORBIDDEN_TOKEN_MODULES
+                ):
+                    violations.add(f"dynamic-import:{target}")
             if (
                 isinstance(node.func, ast.Name)
                 and node.func.id == "getattr"
                 and len(node.args) >= 2
-                and isinstance(node.args[1], ast.Constant)
-                and node.args[1].value in _FORBIDDEN_TOKEN_CAPABILITIES
+                and _static_string(node.args[1]) in _FORBIDDEN_TOKEN_CAPABILITIES
             ):
-                violations.add(f"dynamic:{node.args[1].value}")
+                violations.add(f"dynamic:{_static_string(node.args[1])}")
         elif (
             isinstance(node, ast.Attribute)
             and isinstance(node.ctx, ast.Load)
@@ -1178,6 +1219,22 @@ def test_forbidden_token_capability_and_mutable_state_detectors_bite() -> None:
     assert _token_capability_violations(capability)
     mutable = ast.parse("_REGISTRY = {}\n")
     assert _mutable_process_state(mutable) == {"_REGISTRY"}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from .mint_service import MintService as Service\nService()\n",
+        "import importlib\nservice = importlib.import_module('notebooklm._auth.' + 'mint_service')\n",
+        "def later(service):\n    return service.mint\n",
+        "callback = getattr(service, 'mi' + 'nt')\nconsume(callback)\n",
+        "run = lambda service: service.exchange(token)\n",
+        "callbacks = [service._rotate_post for service in services]\n",
+        "def later(service):\n    callback = service._rotate_post_sync\n    return callback\n",
+    ],
+)
+def test_new_mint_service_capability_detector_bites_every_deferred_escape(source: str) -> None:
+    assert _token_capability_violations(ast.parse(source))
 
 
 def test_authtokens_retains_no_new_service_or_typed_baseline_capability() -> None:
