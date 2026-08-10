@@ -1,6 +1,6 @@
 # Auth cookie lifecycle — design notes and field findings
 
-**Last Updated:** 2026-08-05
+**Last Updated:** 2026-08-10
 
 > **Status:** current design notes for the auth refresh stack in `main`.
 > The numbered recovery ladder below is the canonical taxonomy, shared with
@@ -46,6 +46,23 @@ mechanism is a direct `POST` to `https://accounts.google.com/RotateCookies` —
 Google's dedicated unsigned rotation endpoint, the **L1** primitive at the bottom
 of a tiered recovery design that escalates as failure modes get harder.
 
+The built-in MCP and REST servers enable a 600-second L2 keepalive for their
+process-lifetime client. On a mid-session rejection, any file-backed client also
+performs a network-free reload of a different valid `storage_state.json` before
+escalating. That retry lets a long-lived process consume a session a CLI or
+sibling server has already refreshed. The selected sample's cookies and in-band
+account route advance together, so a sibling login that changes accounts also
+reroutes the immediate retry and subsequent RPCs; an account-only rewrite is not
+mistaken for an unchanged profile. A cleared/default route is recorded in-band,
+so legacy `context.json` fallback cannot cross the primary-file commit-to-scrub
+window. The reload is skipped for inline auth,
+invalid storage, and a profile identical to the live session. It adopts the
+exact disk sample as the next persistence baseline only if the profile has not
+advanced again, and it never overwrites a live jar that changed while the file
+read was in flight. The file-backed bridge is bounded: it can try one changed
+live jar, force-sample disk while preserving one newer authentication-bearing
+live candidate, then use one final disk sample if that candidate is rejected.
+
 The recovery ladder runs cheapest-to-heaviest — **L1** per-call `RotateCookies`
 POST, **L2** background keepalive, **L3** headless re-auth / loopback CDP, **L4**
 master-token re-mint, **L5** `NOTEBOOKLM_REFRESH_CMD` (which, when configured,
@@ -78,9 +95,10 @@ L1–L4** — those proactively keep the session fresh or re-mint it in-process,
 script" lever. See [§6.2](#62-notebooklm_refresh_cmdcommand-line-l5).
 
 L1 works today on every account type tested. Long-running Python workers should
-add L2; unattended/headless/server/CI deployments should adopt L4; idle profiles
-between processes can add L7. If Google extends DBSC enforcement to non-Chrome
-cookie paths, L3's CDP arm becomes the primary browser-backed recovery path.
+add L2; MCP and REST servers already enable it. Unattended/headless/server/CI
+deployments should adopt L4; idle profiles between processes can add L7. If
+Google extends DBSC enforcement to non-Chrome cookie paths, L3's CDP arm becomes
+the primary browser-backed recovery path.
 
 ---
 
@@ -613,7 +631,26 @@ the POST; HTTP failure and cancellation therefore consume the same 60-second slo
 `RotateCookies` every N seconds (floor 60 s) while the client is open. Self-paced,
 so it bypasses the L1 fast-path guards but still performs the atomic per-profile
 claim, so a sibling L1 poke sees the in-flight rotation and skips. Covers agents,
-MCP servers, and long-running workers.
+MCP servers, and long-running workers. The built-in MCP and REST adapters pass
+`keepalive=600` by default; general SDK clients retain the explicit opt-in.
+
+After a confirmed mid-session rejection, a file-backed client also re-reads its
+persisted cookie jar before invoking L2.5/L3/L4. This local retry performs no
+network I/O or write and only replaces an unchanged live jar when the selected
+profile generation differs. Cookies and the in-band `authuser`/account email are
+sampled once and installed coherently under the auth snapshot lock; the homepage
+URL is rebuilt from that route for each retry, including account-only rewrites
+and resets to the default account. Its exact disk sample becomes the persistence
+baseline for the retry's response cookies only while disk still matches; a newer sibling
+generation remains CAS-protected. Ambient redirect-cookie churn cannot starve
+the disk sample, while a newer in-memory SID/PSIDTS or secondary-binding
+candidate is tried before a lagging disk snapshot; one final disk attempt keeps
+the sequence bounded. Cold-start clients already load that same file, so the
+bridge is mid-session-only and does not add another numbered credential tier. A
+REST process that could not bind its client because startup auth was stale
+retries that bind on its next client-dependent request. After that immediate
+retry, repeated failures are negative-cached for five seconds so
+steady request traffic cannot launch an unbounded sequence of full bootstraps.
 
 ### 4.3 L3 — headless re-auth / CDP attach
 

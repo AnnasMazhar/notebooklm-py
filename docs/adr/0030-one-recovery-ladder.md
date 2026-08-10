@@ -13,6 +13,18 @@ refresh-cmd rung (L2.5) plus the refresh-cmd logging/env hardening and the
 **aligned** to the documented ladder (L2.5 → L3 → L4); it ran L3 → L4 → L2.5
 before. See the amendment note under "One ladder, rung availability as policy".
 
+**Amended 2026-08-10 ([#2161](https://github.com/teng-lin/notebooklm-py/issues/2161))** —
+mid-session recovery first performs a local, network- and write-free reload when
+a file-backed profile differs from the rejected live jar. The bounded bridge
+tries a changed live jar, force-samples disk while preserving one newer
+authentication-bearing live candidate, then uses one final disk sample if that
+candidate is rejected. The selected sample's cookies and in-band account route
+are installed as one generation, and each retry rebuilds its homepage route;
+an account-only profile rewrite is therefore retryable too. Cold start already
+loads that profile, so the bridge is
+mid-session-only and precedes the existing L2.5 → L3 → L4 escalation without
+creating another credential tier.
+
 Companion to [ADR-0029](0029-canonical-storage-writer.md) (refactor (b), the
 single canonical `storage_state.json` writer). Where ADR-0029 unifies the
 **write** side, this ADR unifies the **recovery/refresh** side.
@@ -130,6 +142,7 @@ the fresh-loop-runs-full-ladder behaviour.
 ```text
 L1 homepage refresh
   → L2 RotateCookies / PSIDTS rotation
+  → persisted-profile reload    (mid-session only; no network or write)
   → L2.5 refresh-cmd            (NEW rung; promoted from cold-only [refresh-4])
   → L3 headless re-mint
   → L4 master-token re-mint

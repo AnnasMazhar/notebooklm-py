@@ -231,14 +231,15 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     projection = script.build_projection(sites)
     assert projection["summary"]["TOTAL"] == {
         "public": 138,
-        "private": 154,
-        "total": 292,
+        "private": 156,
+        "total": 294,
     }
     relevant = {
         (row["module"], row["attribute"], row["idiom"]): row["count"]
         for row in projection["sites"]
         if (row["module"], row["attribute"])
         in {
+            ("account_email", "_write_account_metadata_if_document_unchanged"),
             ("profile_migration", "FileLock"),
             ("profile_migration", "atomic_write_json"),
             ("master_token", "MasterTokenFile"),
@@ -278,6 +279,11 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
         }
     }
     assert relevant == {
+        (
+            "account_email",
+            "_write_account_metadata_if_document_unchanged",
+            "monkeypatch.setattr",
+        ): 2,
         ("profile_migration", "FileLock", "monkeypatch.setattr"): 2,
         ("profile_migration", "atomic_write_json", "monkeypatch.setattr"): 2,
         ("master_token", "MasterTokenFile", "monkeypatch.setattr"): 4,

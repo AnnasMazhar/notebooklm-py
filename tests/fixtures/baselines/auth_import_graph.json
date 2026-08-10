@@ -17,6 +17,36 @@
     },
     {
       "scope": "module",
+      "source": "account_email",
+      "target": "cookie_types"
+    },
+    {
+      "scope": "module",
+      "source": "account_email",
+      "target": "profile_account"
+    },
+    {
+      "scope": "module",
+      "source": "account_email",
+      "target": "profile_document"
+    },
+    {
+      "scope": "module",
+      "source": "account_email",
+      "target": "profile_migration"
+    },
+    {
+      "scope": "module",
+      "source": "account_email",
+      "target": "profile_store"
+    },
+    {
+      "scope": "module",
+      "source": "account_email",
+      "target": "tokens"
+    },
+    {
+      "scope": "module",
       "source": "account_repair",
       "target": "account_types"
     },
@@ -278,6 +308,11 @@
     {
       "scope": "module",
       "source": "profile_migration",
+      "target": "cookies"
+    },
+    {
+      "scope": "module",
+      "source": "profile_migration",
       "target": "profile_account"
     },
     {
@@ -421,6 +456,16 @@
       "target": "paths"
     },
     {
+      "scope": "function",
+      "source": "recovery",
+      "target": "profile_migration"
+    },
+    {
+      "scope": "module",
+      "source": "recovery",
+      "target": "profile_migration"
+    },
+    {
       "scope": "module",
       "source": "recovery",
       "target": "single_flight"
@@ -494,6 +539,11 @@
       "scope": "module",
       "source": "session",
       "target": "account"
+    },
+    {
+      "scope": "module",
+      "source": "session",
+      "target": "cookie_types"
     },
     {
       "scope": "module",
@@ -658,6 +708,11 @@
       "path": "src/notebooklm/_auth/account.py"
     },
     {
+      "lines": 174,
+      "name": "account_email",
+      "path": "src/notebooklm/_auth/account_email.py"
+    },
+    {
       "lines": 132,
       "name": "account_repair",
       "path": "src/notebooklm/_auth/account_repair.py"
@@ -698,7 +753,7 @@
       "path": "src/notebooklm/_auth/cookie_merge.py"
     },
     {
-      "lines": 887,
+      "lines": 897,
       "name": "cookie_policy",
       "path": "src/notebooklm/_auth/cookie_policy.py"
     },
@@ -708,7 +763,7 @@
       "path": "src/notebooklm/_auth/cookie_semantics.py"
     },
     {
-      "lines": 396,
+      "lines": 401,
       "name": "cookie_types",
       "path": "src/notebooklm/_auth/cookie_types.py"
     },
@@ -773,7 +828,7 @@
       "path": "src/notebooklm/_auth/paths.py"
     },
     {
-      "lines": 90,
+      "lines": 92,
       "name": "profile_account",
       "path": "src/notebooklm/_auth/profile_account.py"
     },
@@ -783,12 +838,12 @@
       "path": "src/notebooklm/_auth/profile_document.py"
     },
     {
-      "lines": 311,
+      "lines": 375,
       "name": "profile_migration",
       "path": "src/notebooklm/_auth/profile_migration.py"
     },
     {
-      "lines": 814,
+      "lines": 864,
       "name": "profile_store",
       "path": "src/notebooklm/_auth/profile_store.py"
     },
@@ -798,7 +853,7 @@
       "path": "src/notebooklm/_auth/psidts_recovery.py"
     },
     {
-      "lines": 530,
+      "lines": 710,
       "name": "recovery",
       "path": "src/notebooklm/_auth/recovery.py"
     },
@@ -808,7 +863,7 @@
       "path": "src/notebooklm/_auth/refresh.py"
     },
     {
-      "lines": 174,
+      "lines": 267,
       "name": "session",
       "path": "src/notebooklm/_auth/session.py"
     },
@@ -838,7 +893,7 @@
       "path": "src/notebooklm/_auth/storage_writer.py"
     },
     {
-      "lines": 821,
+      "lines": 860,
       "name": "tokens",
       "path": "src/notebooklm/_auth/tokens.py"
     }
@@ -848,11 +903,11 @@
     "module_level": []
   },
   "summary": {
-    "function_local_edges": 11,
-    "module_edges": 117,
-    "modules": 40,
-    "total_lines": 15265,
-    "unique_edges": 128
+    "function_local_edges": 12,
+    "module_edges": 126,
+    "modules": 41,
+    "total_lines": 15882,
+    "unique_edges": 138
   },
   "version": 1
 }

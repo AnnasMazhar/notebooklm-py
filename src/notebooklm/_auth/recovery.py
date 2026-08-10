@@ -20,6 +20,7 @@ from .paths import canonical_storage_key
 if TYPE_CHECKING:
     from .cookies import _LoadedCookiePair
     from .extraction import _LoginRedirectError
+    from .profile_migration import _LoadedProfilePair
     from .storage import CookieSnapshot
 
 logger = logging.getLogger("notebooklm.auth")
@@ -391,6 +392,185 @@ async def coalesced_cold_recovery(
             initial_error=initial_error,
         ),
     )
+
+
+async def try_storage_cookie_reload(
+    *,
+    storage_path: Path | None,
+    cookie_jar: httpx.Cookies,
+    rejected_cookie_jar: CookieJar | None = None,
+    force_disk_read: bool = False,
+    preserve_auth_material_change: bool = True,
+    load_profile_pair: Callable[[Path], Awaitable[_LoadedProfilePair]] | None = None,
+    install_profile: Callable[
+        [httpx.Cookies, httpx.Cookies, CookieJar, int, str | None],
+        Awaitable[bool | None],
+    ]
+    | None = None,
+    adopt_baseline: Callable[[Path, CookieJar], Awaitable[None]] | None = None,
+) -> bool:
+    """Reload a file-backed session into a rejected live jar for one retry.
+
+    This is the cheap, default-on bridge between a long-lived client's stale
+    in-memory state and a profile that another process may already have
+    refreshed. The loader is deliberately pure and name-only: it performs one
+    disk read with no browser, subprocess, RotateCookies POST, or write. A jar
+    changed after the rejected request or during the read is preserved and
+    reported as retryable instead of being overwritten by the disk sample.
+    ``force_disk_read`` still samples storage after a post-request change, but
+    remembers that the current live state has not yet been tried. Ambient-only
+    changes may be superseded by the sampled profile, while a live auth-material
+    rotation is preserved against lagging disk. The caller disables that
+    preservation only for the final bounded disk candidate. Cookies and the
+    account route come from one raw profile generation and are installed together
+    before an optional callback adopts the paired baseline for following saves.
+    """
+    from .cookies import _replace_cookie_jar
+    from .profile_migration import _load_profile_pair_pure
+
+    live_before = CookieJar.from_httpx(cookie_jar)
+    live_changed_since_rejection = (
+        rejected_cookie_jar is not None and live_before != rejected_cookie_jar
+    )
+    if live_changed_since_rejection and not force_disk_read:
+        logger.info("Stored-cookie reload left a post-request jar change in place.")
+        return True
+    if storage_path is None:
+        return live_changed_since_rejection
+
+    try:
+        if load_profile_pair is None:
+            fresh_profile = await asyncio.to_thread(
+                _load_profile_pair_pure,
+                storage_path,
+                require_routable=False,
+            )
+        else:
+            fresh_profile = await load_profile_pair(storage_path)
+    except (OSError, UnicodeError, TypeError, ValueError, OverflowError) as exc:
+        logger.debug(
+            "Stored-cookie reload skipped for %s (%s).",
+            storage_path,
+            type(exc).__name__,
+        )
+        # A forced sample is best-effort. If it fails, the post-request live
+        # state is still untried and remains the only safe local retry.
+        return live_changed_since_rejection
+
+    fresh = fresh_profile.cookies
+    account = fresh_profile.account
+    authuser = 0 if account is None else account.authuser
+    account_email = None if account is None else account.email
+    live_after = CookieJar.from_httpx(cookie_jar)
+    if live_after != live_before:
+        logger.info(
+            "Stored-cookie reload left a concurrently refreshed live jar in place for %s.",
+            storage_path,
+        )
+        return True
+
+    fresh_state = {cookie.key: cookie for cookie in CookieJar.from_httpx(fresh.live)}
+    live_state = {cookie.key: cookie for cookie in live_after}
+    if (
+        fresh_state != live_state
+        and live_changed_since_rejection
+        and preserve_auth_material_change
+        and _auth_material_changed(
+            rejected=rejected_cookie_jar,
+            live=live_after,
+        )
+    ):
+        logger.info(
+            "Stored-cookie reload sampled a different profile but retained an untried "
+            "auth-material live-jar rotation for %s.",
+            storage_path,
+        )
+        return True
+
+    async def install_selected_profile() -> bool | None:
+        if install_profile is None:
+            _replace_cookie_jar(cookie_jar, fresh.live)
+            return False
+        return await install_profile(
+            cookie_jar,
+            fresh.live,
+            live_after,
+            authuser,
+            account_email,
+        )
+
+    if fresh_state == live_state:
+        route_changed = await install_selected_profile()
+        if route_changed is None:
+            logger.info(
+                "Stored-cookie reload left a live jar changed while installing the "
+                "sampled profile in place for %s.",
+                storage_path,
+            )
+            return True
+        if adopt_baseline is not None:
+            await _try_adopt_storage_baseline(
+                storage_path=storage_path,
+                baseline=fresh.baseline,
+                adopt_baseline=adopt_baseline,
+            )
+        if CookieJar.from_httpx(cookie_jar) != live_after:
+            logger.info(
+                "Stored-cookie reload left a live jar changed during baseline adoption "
+                "in place for %s.",
+                storage_path,
+            )
+            return True
+        if live_changed_since_rejection or route_changed:
+            logger.info(
+                "Stored-cookie reload retained an untried live state or installed an "
+                "updated account route for %s.",
+                storage_path,
+            )
+            return True
+        logger.debug("Stored-cookie reload skipped for %s: profile is unchanged.", storage_path)
+        return False
+
+    installed = await install_selected_profile()
+    if installed is None:
+        logger.info(
+            "Stored-cookie reload left a live jar changed while installing the sampled "
+            "profile in place for %s.",
+            storage_path,
+        )
+        return True
+    if adopt_baseline is not None:
+        await _try_adopt_storage_baseline(
+            storage_path=storage_path,
+            baseline=fresh.baseline,
+            adopt_baseline=adopt_baseline,
+        )
+    logger.info("Reloaded updated cookies from %s for authentication retry.", storage_path)
+    return True
+
+
+def _auth_material_changed(*, rejected: CookieJar | None, live: CookieJar) -> bool:
+    """Return whether rejected→live changed authentication-bearing cookies."""
+    if rejected is None:
+        return False
+    return rejected._auth_material_state() != live._auth_material_state()
+
+
+async def _try_adopt_storage_baseline(
+    *,
+    storage_path: Path,
+    baseline: CookieJar,
+    adopt_baseline: Callable[[Path, CookieJar], Awaitable[None]],
+) -> None:
+    """Best-effort persistence adoption after the live-jar decision."""
+    try:
+        await adopt_baseline(storage_path, baseline)
+    except (OSError, UnicodeError, TypeError, ValueError, OverflowError) as exc:
+        logger.debug(
+            "Stored-cookie baseline adoption skipped for %s (%s).",
+            storage_path,
+            type(exc).__name__,
+        )
 
 
 async def _try_headless_reauth_result(
