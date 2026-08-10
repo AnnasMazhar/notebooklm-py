@@ -569,7 +569,7 @@ The Phase 9 loader owners remain in `tokens.py` and `refresh.py`. Phase 10 consu
 transport; fileless clients capture only the live compatibility projection. Untouched first-party
 defaults use ordered typed merges, while custom/patched defaults and explicit non-default paths
 retain the v0.x save surface and per-key adapter snapshots. `ClientLifecycle` owns the sole
-`AuthTokens.cookie_snapshot` mirror. Measured Phase 10 owners are 452 lines in
+`AuthTokens.cookie_snapshot` mirror. Measured Phase 10 owners are 457 lines in
 `_cookie_persistence.py`, 618 in `_runtime/init.py`, 628 in `_runtime/lifecycle.py`, and 992 in
 `client.py`.
 

@@ -748,7 +748,7 @@
       "path": "src/notebooklm/_auth/master_token.py"
     },
     {
-      "lines": 366,
+      "lines": 373,
       "name": "master_token_bootstrap",
       "path": "src/notebooklm/_auth/master_token_bootstrap.py"
     },
@@ -851,7 +851,7 @@
     "function_local_edges": 11,
     "module_edges": 117,
     "modules": 40,
-    "total_lines": 15258,
+    "total_lines": 15265,
     "unique_edges": 128
   },
   "version": 1

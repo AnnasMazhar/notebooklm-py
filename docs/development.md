@@ -261,7 +261,7 @@ left on disk after release — both lock implementations reuse them).
 | `<profile>/.master_token.json.lock` | `_auth/master_token_file.py` via the `ProfileStore` derived-token methods; `_auth/storage.py` retains the arbitrary-path v0.x adapter | Writes to `master_token.json` (the durable L4 credential) | Same bounded manager acquire as above (90s deadline), fail-closed. |
 | `<profile>/.storage_state.json.rotate.lock` | `_auth/keepalive.py::_poke_session` via `_auth/storage_lock.py` | Cross-process dedup of the `accounts.google.com/RotateCookies` keepalive POST | Non-blocking exclusive; skip on contention |
 | `<profile>/.storage_state.json.refresh.lock` | `_auth/refresh.py` via `_auth/keepalive.py` and `_auth/storage_lock.py` | Cross-process dedup of the `NOTEBOOKLM_REFRESH_CMD` subprocess | Non-blocking exclusive; skip on contention, waiter polls asynchronously with jittered backoff |
-| `<profile>/.storage_state.json.lock.bootstrap` | `_auth/master_token_bootstrap.py::MasterTokenBootstrapper.bootstrap_storage`; `_auth/master_token.py` retains the v0.x adapter | Cross-process exclusion for the FIRST-TIME mint of a profile that has only a `master_token.json` — held across the mint, whose persist takes `.storage_state.json.lock` *inside* this section (so the two must never share a path) | Non-blocking exclusive (`filelock`), retried on a 50ms sleep so the event loop keeps running |
+| `<profile>/.storage_state.json.lock.bootstrap` | `_auth/master_token_bootstrap.py::MasterTokenBootstrapper.bootstrap_storage`; `_auth/master_token.py` retains the v0.x adapter | Cross-process exclusion for the FIRST-TIME mint of a profile that has only a `master_token.json` — held across the mint, whose persist takes `.storage_state.json.lock` *inside* this section (so the two must never share a path) | Non-blocking exclusive (`filelock`), retried on a 50ms async sleep up to a 90s deadline |
 | `<home>/.migration.lock` | `migration.py::migrate_to_profiles` | One-shot legacy→profile layout migration on startup | Blocking exclusive, 30s timeout (raises `MigrationLockTimeoutError`) |
 | `<profile>/context.json.lock` | `_atomic_io.py::atomic_update_json` through CLI context helpers; also `_auth/profile_migration.py::LegacyAccountContext.scrub` for legacy `account` cleanup | Read-modify-write of the active-notebook/account-routing context for a profile | Blocking exclusive, 10s timeout (`filelock`); migration cleanup keeps best-effort error handling and the public atomic JSON writer |
 
@@ -355,7 +355,7 @@ and retains late-bound bridges for legacy owner lookup, Android-ID generation,
 strict reload, and default verification. Session persistence finishes before
 token persistence; a missing-storage leader remains shielded to settlement
 before its bootstrap lock is released. At the extraction freeze the coordinator
-is 366 lines and the compatibility adapter is 463 lines.
+is 373 lines and the compatibility adapter is 463 lines.
 
 The final measured persistence boundary is 1,115 lines in `_auth/storage.py`, 311 in
 `_auth/profile_migration.py`, 814 in `_auth/profile_store.py`, 96 in
@@ -433,7 +433,7 @@ initialize their own retryable adapter snapshot and suppress the writer when the
 `ClientLifecycle` alone owns the client `AuthTokens` mirror and refreshes `cookie_snapshot` after
 open and accepted canonical or legacy saves. Tests should patch the public saver only when they
 intend to exercise legacy compatibility; canonical tests should target the private typed seam.
-Measured owners are 452 lines in `_cookie_persistence.py`, 618 in `_runtime/init.py`, 628 in
+Measured owners are 457 lines in `_cookie_persistence.py`, 618 in `_runtime/init.py`, 628 in
 `_runtime/lifecycle.py`, and 992 in `client.py`.
 
 - **In-process lock before OS lock.** `StorageLockManager` takes an in-process

@@ -305,11 +305,18 @@ class MasterTokenBootstrapper:
             del strict_loader
 
     async def _acquire_bootstrap_lock(self) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 90.0
         while True:
             try:
                 self._bootstrap_lock.acquire(blocking=False)
-            except Timeout:
-                await asyncio.sleep(0.05)
+            except Timeout as exc:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise _BootstrapError(
+                        "Timed out waiting for another process to finish master-token bootstrap."
+                    ) from exc
+                await asyncio.sleep(min(0.05, remaining))
             else:
                 return
 

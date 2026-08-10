@@ -189,7 +189,9 @@ async def test_prepare_samples_once_off_loop_and_keeps_exact_samesite(
 
 @pytest.mark.asyncio
 async def test_failed_prepare_is_sticky_until_exact_registration(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     path = tmp_path / "missing.json"
     store = ProfileStore(path)
@@ -202,13 +204,20 @@ async def test_failed_prepare_is_sticky_until_exact_registration(
         raise FileNotFoundError(path)
 
     monkeypatch.setattr(persistence_module, "_load_cookie_pair_pure", missing)
-    await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
-    await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
-    await persistence._save_canonical(_live("ignored"), path, to_thread=_inline_to_thread)
+    with caplog.at_level("WARNING", logger="notebooklm.auth"):
+        await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
+        await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
+        await persistence._save_canonical(_live("ignored"), path, to_thread=_inline_to_thread)
 
     state = persistence._states[store.ordering_key]
     assert calls == 1
     assert isinstance(state.baseline, persistence_module.FailedBaseline)
+    assert [(record.levelname, record.getMessage()) for record in caplog.records] == [
+        (
+            "WARNING",
+            f"Cookie persistence disabled for {path}: baseline load failed (FileNotFoundError)",
+        )
+    ]
     persistence.register_open_baseline(store, _typed("repaired"))
     assert isinstance(
         persistence._states[store.ordering_key].baseline,

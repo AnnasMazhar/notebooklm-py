@@ -51,7 +51,7 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
 
 _METHOD_HASHES = {
     "__init__": "fe7f475f5eaf98691e79e203fa2606d73a5df30d0d4dec57a28ae85bfbd1c37f",
-    "_acquire_bootstrap_lock": "2d4e88d80d3d422fc8f1a9782fd92985029aced44a690e5ceae2a2f5ab401df1",
+    "_acquire_bootstrap_lock": "68fd395a9407ca4007864d5532412505b4c20fa81357def3c10ca5e58cfeee87",
     "_exchange": "39b69a1dbbfade967791d42860df3225f06238df034372671e1e61c75d328d6c",
     "_mint": "f7aca3d4e7135e944feb55abd43a5f80d4c92daf0a416126961c9a30f8cfd107",
     "_minted_session_request": "8c5750553e3d51ef136ac138f211653928588c8c45bdeb31dc3a14bb01a31c69",
@@ -462,7 +462,12 @@ def test_order_cancellation_lock_and_ephemeral_callable_contract_is_exact() -> N
 
     acquire = ast.unparse(methods["_acquire_bootstrap_lock"])
     assert "self._bootstrap_lock.acquire(blocking=False)" in acquire
-    assert "await asyncio.sleep(0.05)" in acquire
+    assert "deadline = loop.time() + 90.0" in acquire
+    assert "remaining = deadline - loop.time()" in acquire
+    assert "if remaining <= 0:" in acquire
+    assert "raise _BootstrapError(" in acquire
+    assert "from exc" in acquire
+    assert "await asyncio.sleep(min(0.05, remaining))" in acquire
     settlement = ast.unparse(methods["_run_remint_to_settlement"])
     assert settlement.count("asyncio.shield(task)") == 2
     assert "while not task.done()" in settlement

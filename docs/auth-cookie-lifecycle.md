@@ -1279,7 +1279,7 @@ gate their writes correctly.
   Untouched defaults use the private typed merge, custom/patched defaults retain the exact public
   legacy saver, and non-default overrides lazily initialize retryable per-key adapter snapshots.
   `ClientLifecycle` owns the v0.x `AuthTokens.cookie_snapshot` mirror after open and accepted saves;
-  `_from_store` retains no `AuthTokens`. Measured owners are 452 lines in `_cookie_persistence.py`,
+  `_from_store` retains no `AuthTokens`. Measured owners are 457 lines in `_cookie_persistence.py`,
   618 in `_runtime/init.py`, 628 in `_runtime/lifecycle.py`, and 992 in `client.py`.
 
 - **2026-08-09 (typed stored-auth loader and paired baseline)** — `_auth/tokens.py` now owns the

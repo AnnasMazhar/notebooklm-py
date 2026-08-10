@@ -331,7 +331,12 @@ class CookiePersistence:
             pair = await to_thread(
                 lambda: _load_cookie_pair_pure(store.path, require_routable=False)
             )
-        except _BASELINE_ERRORS:
+        except _BASELINE_ERRORS as exc:
+            logger.warning(
+                "Cookie persistence disabled for %s: baseline load failed (%s)",
+                store.path,
+                type(exc).__name__,
+            )
             state.baseline = FailedBaseline()
             return
         ready = ReadyBaseline(pair.baseline)

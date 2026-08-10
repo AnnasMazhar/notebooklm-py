@@ -1244,6 +1244,29 @@ async def test_bootstrap_lock_polls_nonblocking_at_exact_50ms(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_bootstrap_lock_timeout_is_bounded_typed_and_never_releases(tmp_path, monkeypatch):
+    (tmp_path / "master_token.json").write_text("{}", encoding="utf-8")
+    lock = _ScriptedLock(Timeout("busy"))
+    bootstrapper, _ = _bootstrapper_with_lock(tmp_path, lock)
+    remint = AsyncMock(return_value=_jar())
+    loop = Mock()
+    loop.time.side_effect = [0.0, 90.0]
+    monkeypatch.setattr(bootstrapper, "remint_from_stored_token", remint)
+    monkeypatch.setattr(
+        "notebooklm._auth.master_token_bootstrap.asyncio.get_running_loop",
+        Mock(return_value=loop),
+    )
+
+    with pytest.raises(_BootstrapError, match="Timed out waiting") as raised:
+        await bootstrapper.bootstrap_storage(strict_loader=Mock())
+
+    assert isinstance(raised.value.__cause__, Timeout)
+    assert lock.acquire_calls == [False]
+    assert lock.released is False
+    remint.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_repeated_cancellation_waits_for_remint_settlement_before_release(
     tmp_path,
     monkeypatch,
