@@ -177,15 +177,18 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
     best_marked_refs: list[ChatReference] = []
     best_unmarked_answer = ""
     best_unmarked_refs: list[ChatReference] = []
+    best_unmarked_has_response_doc = False
     server_conv_id: str | None = None
     parseable_chunk_count = 0
 
     def process_chunk(json_str: str) -> None:
         """Process a JSON chunk, updating best answer candidates and their refs."""
         nonlocal best_marked_answer, best_marked_refs
-        nonlocal best_unmarked_answer, best_unmarked_refs
+        nonlocal best_unmarked_answer, best_unmarked_refs, best_unmarked_has_response_doc
         nonlocal server_conv_id, parseable_chunk_count
-        text, is_answer, refs, conv_id, parseable = _extract_chunk_with_parseable(json_str)
+        text, is_answer, refs, conv_id, parseable, has_response_doc = _extract_chunk_with_parseable(
+            json_str
+        )
         if parseable:
             parseable_chunk_count += 1
         if text:
@@ -195,6 +198,7 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
             elif not is_answer and len(text) > len(best_unmarked_answer):
                 best_unmarked_answer = text
                 best_unmarked_refs = refs
+                best_unmarked_has_response_doc = has_response_doc
         if conv_id:
             server_conv_id = conv_id
 
@@ -229,11 +233,12 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
         longest_answer = best_marked_answer
         final_refs = best_marked_refs
     elif best_unmarked_answer:
-        logger.warning(
-            "No marked answer found; falling back to longest unmarked "
-            "text (%d chars). The API response format may have changed.",
-            len(best_unmarked_answer),
-        )
+        if best_unmarked_has_response_doc:
+            logger.warning(
+                "No marked answer found; falling back to longest unmarked "
+                "text (%d chars). The API response format may have changed.",
+                len(best_unmarked_answer),
+            )
         longest_answer = best_unmarked_answer
         final_refs = best_unmarked_refs
     else:
@@ -273,18 +278,21 @@ def extract_answer_and_refs_from_chunk(
     parser's "zero parseable chunks" detection and is not part of this
     module's outward-facing contract.
     """
-    text, is_answer, refs, conv_id, _parseable = _extract_chunk_with_parseable(json_str)
+    text, is_answer, refs, conv_id, _parseable, _has_response_doc = _extract_chunk_with_parseable(
+        json_str
+    )
     return text, is_answer, refs, conv_id
 
 
 def _extract_chunk_with_parseable(
     json_str: str,
-) -> tuple[str | None, bool, list[ChatReference], str | None, bool]:
+) -> tuple[str | None, bool, list[ChatReference], str | None, bool, bool]:
     """Extract answer/refs/conv-id from one chunk and report wire-format parseability.
 
     The 5th element is True iff at least one ``wrb.fr`` envelope was
     found AND its inner JSON decoded successfully — regardless of whether
-    any answer text was extracted. This lets the streaming parser
+    any answer text was extracted. The 6th reports whether the selected row
+    carries a ``TailwindDoc``. Together these let the streaming parser
     distinguish two failure modes:
 
     * Zero parseable chunks → API drift or empty body (raise).
@@ -295,10 +303,10 @@ def _extract_chunk_with_parseable(
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError:
-        return None, False, refs, None, False
+        return None, False, refs, None, False, False
 
     if not isinstance(data, list):
-        return None, False, refs, None, False
+        return None, False, refs, None, False, False
 
     parseable = False
     for item in data:
@@ -404,7 +412,14 @@ def _extract_chunk_with_parseable(
                     continue
 
                 refs = parse_citations(first)
-                return text, answer.is_answer, refs, answer.server_conversation_id, parseable
+                return (
+                    text,
+                    answer.is_answer,
+                    refs,
+                    answer.server_conversation_id,
+                    parseable,
+                    answer.has_response_doc,
+                )
         # inner_json decoded but the record didn't yield usable answer data
         # — either the outer ``isinstance(inner_data, list) and len > 0``
         # guard failed (dict, empty list, non-list) OR the inner
@@ -415,7 +430,7 @@ def _extract_chunk_with_parseable(
         # heartbeats-only stream surfaces as "empty answer" rather than
         # "API drift" / ``ChatResponseParseError``.
 
-    return None, False, refs, None, parseable
+    return None, False, refs, None, parseable, False
 
 
 def _raise_chat_rejection(error_payload: list) -> NoReturn:

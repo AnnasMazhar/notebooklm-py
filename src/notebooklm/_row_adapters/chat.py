@@ -737,6 +737,11 @@ class AnswerRow:
         return block if isinstance(block, list) else None
 
     @property
+    def has_response_doc(self) -> bool:
+        """Whether the optional ``TailwindDoc`` slot is present."""
+        return len(self._raw) > self._TYPE_BLOCK_POS and self._raw[self._TYPE_BLOCK_POS] is not None
+
+    @property
     def is_answer(self) -> bool:
         """Whether the type block marks this record as an answer (``[4][4] == 1``).
 
