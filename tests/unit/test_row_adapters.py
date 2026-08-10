@@ -37,6 +37,7 @@ from notebooklm._row_adapters.notes import NoteRow
 from notebooklm._row_adapters.sources import (
     SourceRow,
     SourceRowShape,
+    _warned_status_codes,
     interpret_source_freshness,
 )
 from notebooklm._types.common import _datetime_from_timestamp
@@ -1702,6 +1703,19 @@ class TestSourceRowTimestamp:
 class TestSourceRowStatus:
     """Source status decoding fails closed for missing or unknown wire values."""
 
+    @pytest.fixture(autouse=True)
+    def _reset_warned_status_codes(self):
+        """Clear the warn-once set so drift assertions do not depend on test order.
+
+        ``_warned_status_codes`` is module-level (it has to outlive a row), so any
+        earlier test that decoded the same unmapped code would otherwise consume
+        this code's single warning. Mirrors how the sibling
+        ``_warned_source_types`` set is handled in ``tests/unit/test_types.py``.
+        """
+        _warned_status_codes.clear()
+        yield
+        _warned_status_codes.clear()
+
     def test_status_unknown_when_status_block_absent(self, caplog) -> None:
         row = SourceRow.from_entry(_entry(status_code=None))
         assert row.status == SourceStatus.UNKNOWN
@@ -1725,6 +1739,16 @@ class TestSourceRowStatus:
         row = SourceRow.from_entry(_entry(status_code=status_code))
         assert row.status is SourceStatus.UNKNOWN
         assert f"Unknown source status code {status_code}" in caplog.text
+
+    def test_unknown_status_warns_once_per_code(self, caplog) -> None:
+        """A polled source re-decodes every interval; the drift line fires once."""
+        for _ in range(3):
+            assert SourceRow.from_entry(_entry(status_code=999)).status is SourceStatus.UNKNOWN
+        assert caplog.text.count("Unknown source status code 999") == 1
+
+        # A *different* unmapped code is still reported.
+        assert SourceRow.from_entry(_entry(status_code=998)).status is SourceStatus.UNKNOWN
+        assert caplog.text.count("Unknown source status code 998") == 1
 
     def test_non_list_status_block_falls_back_to_unknown(self, caplog) -> None:
         entry = _entry()

@@ -15,6 +15,11 @@ from ..rpc.types import SourceStatus
 
 logger = logging.getLogger(__name__)
 
+#: Unmapped status codes already warned about, so a polled source does not
+#: re-emit the same drift line on every decode. Mirrors
+#: ``_types/sources.py::_warned_source_types``.
+_warned_status_codes: set[int] = set()
+
 __all__ = [
     "SourceFulltextRow",
     "SourceGuideRow",
@@ -654,7 +659,8 @@ class SourceRow:
         * position 3 is absent / non-list / too short, or
         * the status code is not one of the known enum values.
 
-        Unknown numeric codes emit a warning so backend enum drift is visible.
+        Unknown numeric codes emit a warning — once per code — so backend enum
+        drift is visible without repeating on every poll of the same source.
         Structurally malformed status blocks fail closed without warning because
         several valid non-listing response shapes omit the block entirely.
         """
@@ -670,8 +676,13 @@ class SourceRow:
             return SourceStatus.UNKNOWN
         try:
             return SourceStatus(status_code)
-        except (TypeError, ValueError):
-            if isinstance(status_code, int):
+        except ValueError:
+            # Warn once per code, like the sibling unmapped-enum path
+            # (``_types/sources.py::_warned_source_types``): ``SourceRow.status``
+            # is re-decoded on every poll, so an unmapped code on a source being
+            # waited on would otherwise repeat the same line ~17 times per wait.
+            if status_code not in _warned_status_codes:
+                _warned_status_codes.add(status_code)
                 logger.warning(
                     "Unknown source status code %r from RPC %s; treating as UNKNOWN",
                     status_code,
