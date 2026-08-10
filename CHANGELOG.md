@@ -263,10 +263,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Expected no-answer chat responses no longer emit a wire-drift warning.**
-  Responses without a TailwindDoc answer now return the backend apology quietly,
-  while present-but-unmarked response documents still warn
-  ([#2118](https://github.com/teng-lin/notebooklm-py/issues/2118)).
 - **An empty notebook no longer logs `schema drift?` on every
   `get_source_ids` call.** A genuinely empty notebook returns a healthy
   envelope whose sources slot is present but explicitly null — the backend
@@ -282,6 +278,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   type still warns. That is the same split the sibling walk over this slot
   already makes in `_source/listing.py`
   ([#2131](https://github.com/teng-lin/notebooklm-py/issues/2131)).
+- **Expected no-answer chat responses no longer emit a wire-drift warning.**
+  Responses without a TailwindDoc answer now return the backend apology quietly,
+  while present-but-unmarked response documents still warn
+  ([#2118](https://github.com/teng-lin/notebooklm-py/issues/2118)).
 - **Chat turn numbers now come from server history instead of the client-local
   cache.** Stateless remote MCP requests create a fresh client for each call, so
   a real continuation could previously report the contradictory pair
