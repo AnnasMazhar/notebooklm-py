@@ -65,10 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Deep-research sources expose observed citation ordinals.**
-  `ResearchSource.citation_number` and its serializers preserve integer
-  `src[8]` values from kind-`1` web-source rows, allowing callers to align
-  those sources with report `[cite: N]` markers
+- **Deep-research sources expose the backend's per-task source ordinal.**
+  `ResearchSource.source_ordinal` and its serializers preserve an integer
+  `src[8]` when the row carries one — in the captures a 1-based bijection over
+  a task's discovered sources, which the client previously decoded and threw
+  away. It is **not** established to resolve the report's own citation
+  markers; see the field docs before using it that way
   ([#2141](https://github.com/teng-lin/notebooklm-py/issues/2141)).
 - **Mid-session `NOTEBOOKLM_REFRESH_CMD` (opt-in for one release).** The external
   refresh command (the L2.5 rung of the unified recovery ladder) previously fired

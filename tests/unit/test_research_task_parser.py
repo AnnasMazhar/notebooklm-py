@@ -287,7 +287,7 @@ class TestParseResearchTasks:
             title="Video",
             result_type="video",
             research_task_id="task_123",
-            citation_number=9,
+            source_ordinal=9,
         )
 
         assert source.to_public_dict() == {
@@ -295,12 +295,12 @@ class TestParseResearchTasks:
             "title": "Video",
             "result_type": "video",
             "research_task_id": "task_123",
-            "citation_number": 9,
+            "source_ordinal": 9,
         }
 
         assert ResearchSource.from_public_dict(source.to_public_dict()) == source
 
-    def test_citation_numbers_stay_attached_across_reordered_duplicate_urls(self):
+    def test_source_ordinals_stay_attached_across_reordered_duplicate_urls(self):
         sources = [
             ["https://same.example", "Second", None, 1, None, None, [None, 1], None, 2],
             ["https://same.example", "First", None, 1, None, None, [None, 1], None, 1],
@@ -310,7 +310,7 @@ class TestParseResearchTasks:
 
         task = parse_research_task_models([[["task_deep", task_info]]])[0]
 
-        assert [(source.title, source.citation_number) for source in task.sources] == [
+        assert [(source.title, source.source_ordinal) for source in task.sources] == [
             ("Second", 2),
             ("First", 1),
             ("Deep Report", None),

@@ -489,11 +489,15 @@ PINNED: tuple[Pinned, ...] = (
     Pinned(
         "research",
         "ResearchResultRow",
-        "_CITATION_NUMBER_POS",
+        "_SOURCE_ORDINAL_POS",
         8,
-        "DiscoveredSource tag 9 — deep-report citation number",
-        "Issue #2141 live capture: 41/63 rows carried integer values 1-41; these "
-        "mapped one-to-one to the report's [cite: N] markers",
+        "DiscoveredSource tag 9 — per-task ordinal for a discovered source",
+        "Issue #2141 live capture: 41/63 rows (all kind-1) carried integer values "
+        "1-41, i.e. a bijection onto 1..N. Whether that ordinal equals the "
+        "report's own citation numbering is NOT established: "
+        "tests/cassettes/research_deep_poll_long.yaml carries 24 such ordinals "
+        "and its report contains no [cite: N] markers at all, so the mapping "
+        "recorded here is the ordinal itself, not a marker resolution table",
     ),
 )
 

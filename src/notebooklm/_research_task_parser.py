@@ -256,7 +256,7 @@ def _parse_source_row(
             title=title,
             result_type=result_type,
             research_task_id=task_id,
-            citation_number=row.citation_number,
+            source_ordinal=row.source_ordinal,
         )
 
     report = source_report

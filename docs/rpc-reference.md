@@ -2171,8 +2171,10 @@ await rpc_call(
 #
 # Deep research web source content blocks use kind 1 or 2 and carry their
 # snippet at position 2; they are not report rows. In the observed deep payload,
-# kind-1 web-source rows carry an integer citation ordinal at source position 8;
-# those ordinals align with the report's [cite: N] markers.
+# kind-1 web-source rows carry an integer ordinal at source position 8, a 1-based
+# bijection over the task's discovered sources. Whether that ordinal equals the
+# report's own citation numbering is NOT established: research_deep_poll_long.yaml
+# carries 24 such ordinals against a report containing no [cite: N] markers at all.
 #
 # Compatibility shape accepted by the parser (not seen in captures):
 # [None, [title, report_markdown], None, type, ...]
