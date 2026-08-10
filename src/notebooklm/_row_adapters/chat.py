@@ -678,6 +678,7 @@ class AnswerRow:
     # change signal.
     _TEXT_POS: ClassVar[int] = 0
     _CONV_BLOCK_POS: ClassVar[int] = 2
+    _EMPTY_ANSWER_REASON_POS: ClassVar[int] = 3
     _TYPE_BLOCK_POS: ClassVar[int] = 4
     _ANSWER_MARKER_POS: ClassVar[int] = 4
     _CITATIONS_POS: ClassVar[int] = 3
@@ -740,6 +741,18 @@ class AnswerRow:
     def has_response_doc(self) -> bool:
         """Whether the optional ``TailwindDoc`` slot is present."""
         return len(self._raw) > self._TYPE_BLOCK_POS and self._raw[self._TYPE_BLOCK_POS] is not None
+
+    @property
+    def suggests_wire_drift(self) -> bool:
+        """Whether an *unmarked* row looks like drift rather than an empty answer.
+
+        Drift when ``responseDoc`` is present but unmarked (the marker moved), or
+        when the row is too short to reach ``first[3]`` — a row that could not even
+        carry ``emptyAnswerReason`` is malformed, so "no doc" proves nothing about
+        it. A row long enough to have spoken, with no doc, is the observed
+        empty-answer shape and stays quiet.
+        """
+        return self.has_response_doc or len(self._raw) <= self._EMPTY_ANSWER_REASON_POS
 
     @property
     def is_answer(self) -> bool:

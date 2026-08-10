@@ -225,6 +225,17 @@ MAPPINGS: tuple[Mapping, ...] = (
         section=DOC,
         note="nested inside responseDoc, not a top-level AnswerResponse index",
     ),
+    Mapping(
+        "chat",
+        "AnswerRow",
+        "_EMPTY_ANSWER_REASON_POS",
+        "AnswerResponse",
+        "emptyAnswerReason",
+        note=(
+            "the authoritative expected-empty-answer signal (UNANSWERABLE / "
+            "FILTERED); read to keep the drift warning off deliberate non-answers"
+        ),
+    ),
     # ---- Notes: ProjectNote ------------------------------------------------
     Mapping("notes", "NoteRow", "_ID_POS", "ProjectNote", "id"),
     Mapping("notes", "NoteRow", "_CONTENT_POS", "ProjectNote", "content"),

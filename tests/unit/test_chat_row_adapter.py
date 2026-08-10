@@ -46,11 +46,12 @@ class TestAnswerRowPositionContract:
         assert (
             AnswerRow._TEXT_POS,
             AnswerRow._CONV_BLOCK_POS,
+            AnswerRow._EMPTY_ANSWER_REASON_POS,
             AnswerRow._TYPE_BLOCK_POS,
             AnswerRow._ANSWER_MARKER_POS,
             AnswerRow._CITATIONS_POS,
             AnswerRow._ANSWER_MARKER_VALUE,
-        ) == (0, 2, 4, 4, 3, 1)
+        ) == (0, 2, 3, 4, 4, 3, 1)
 
 
 class TestCitationPositionContract:

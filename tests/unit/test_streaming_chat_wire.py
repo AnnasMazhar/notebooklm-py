@@ -338,7 +338,13 @@ def test_no_answer_without_response_doc_does_not_log_drift_warning(caplog) -> No
     assert not any("No marked answer found" in record.message for record in caplog.records)
 
 
-def test_no_answer_with_shortened_row_does_not_log_drift_warning(caplog) -> None:
+def test_row_truncated_before_the_reason_slot_still_warns(caplog) -> None:
+    """A row too short to carry ``emptyAnswerReason`` is drift, not a clean no-answer.
+
+    "No ``responseDoc``" only means "deliberate empty answer" for a row that COULD
+    have said so. A single-element row cannot, so silencing it here would spend the
+    one drift signal on a genuinely malformed payload.
+    """
     inner_json = json.dumps([["No supported answer."]])
     response = _length_prefixed(json.dumps([["wrb.fr", None, inner_json]]))
 
@@ -346,7 +352,7 @@ def test_no_answer_with_shortened_row_does_not_log_drift_warning(caplog) -> None
         result = parse_streaming_chat_response(response)
 
     assert result.answer == "No supported answer."
-    assert not any("No marked answer found" in record.message for record in caplog.records)
+    assert any("No marked answer found" in record.message for record in caplog.records)
 
 
 def test_present_unmarked_doc_warns_even_when_absent_doc_text_is_longer(caplog) -> None:
