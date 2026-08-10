@@ -488,8 +488,8 @@ class SourcesAPI:
         Registers the source, opens an upload session, streams the file body (memory-efficient for
         large files), and — if a custom ``title`` is given — issues a follow-up ``UPDATE_SOURCE``
         rename (the file-add RPC has no title slot). Uploads run under the Sources-owned semaphore
-        (``max_concurrent_uploads``, default 4), which also caps open file descriptors; the path is
-        resolved before admission and opened exactly once, pinning the bytes against path swaps.
+        (``max_concurrent_uploads``, default 4), which also caps open descriptors; the path is
+        resolved before admission but opened after it, so a swap while queued still lands.
 
         Args:
             notebook_id: The notebook ID.
