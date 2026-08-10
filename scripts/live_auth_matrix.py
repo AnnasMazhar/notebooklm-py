@@ -821,6 +821,7 @@ class Matrix:
                 replacement = storage.with_suffix(".matrix-tmp")
                 replacement.write_text(json.dumps(state), encoding="utf-8")
                 os.replace(replacement, storage)
+                require(token.is_file(), "rest-stale profile has no master_token.json")
                 token.replace(held_token)
 
                 app = create_app(profile="rest-stale")

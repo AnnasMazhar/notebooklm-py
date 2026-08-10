@@ -283,6 +283,7 @@ def test_realistic_recovery_cells_wire_real_process_and_adapter_paths(
     assert 'http.get("/v1/notebooks"' in rest_script
     assert "app.state.notebooklm.client is None" in rest_script
     assert "--master-token-refresh" in rest_script
+    assert 'require(token.is_file(), "rest-stale profile has no master_token.json")' in rest_script
     assert "before_ids == after_ids == rebound_ids" in rest_script
 
     mcp_script = by_profile["mcp-live"][0][-1]
