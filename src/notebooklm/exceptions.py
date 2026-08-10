@@ -106,9 +106,7 @@ __all__ = [
 ]
 
 
-# =============================================================================
 # Base Exception
-# =============================================================================
 
 
 class NotebookLMError(Exception):
@@ -122,9 +120,7 @@ class NotebookLMError(Exception):
     """
 
 
-# =============================================================================
 # Cross-domain umbrellas
-# =============================================================================
 
 
 class NotFoundError(NotebookLMError):
@@ -206,9 +202,7 @@ class WaitTimeoutError(NotebookLMError, TimeoutError):
     """
 
 
-# =============================================================================
 # Validation/Configuration
-# =============================================================================
 
 
 class ValidationError(NotebookLMError):
@@ -251,9 +245,7 @@ class LockUnavailableError(NotebookLMError, TimeoutError):
     """
 
 
-# =============================================================================
 # Headless re-auth (layer-3 auth recovery; not an RPC-protocol error)
-# =============================================================================
 
 
 class HeadlessReauthError(NotebookLMError):
@@ -279,9 +271,7 @@ class HeadlessLoginRequiredError(HeadlessReauthError):
     """
 
 
-# =============================================================================
 # Network (NOT under RPC - happens before RPC processing)
-# =============================================================================
 
 
 class NetworkError(NotebookLMError):
@@ -306,9 +296,7 @@ class NetworkError(NotebookLMError):
         self.original_error = original_error
 
 
-# =============================================================================
 # RPC Protocol
-# =============================================================================
 
 
 class RPCError(NotebookLMError):
@@ -689,9 +677,7 @@ class RPCResponseTooLargeError(RPCError):
         self.bytes_read = bytes_read
 
 
-# =============================================================================
 # Idempotency
-# =============================================================================
 
 
 class NonIdempotentRetryError(NotebookLMError):
@@ -725,9 +711,7 @@ class IdempotencyVariantError(NotebookLMError):
     """
 
 
-# =============================================================================
 # Domain: Notebooks
-# =============================================================================
 
 
 class NotebookError(NotebookLMError):
@@ -839,9 +823,7 @@ class NotebookLimitError(NotebookError):
         return extra
 
 
-# =============================================================================
 # Domain: Chat
-# =============================================================================
 
 
 class ChatError(NotebookLMError):
@@ -866,9 +848,7 @@ class ChatResponseParseError(ChatError):
     """
 
 
-# =============================================================================
 # Domain: Sources (migrated from types.py)
-# =============================================================================
 
 
 class SourceError(NotebookLMError):
@@ -907,10 +887,19 @@ SourceAddStage = Literal["start_session", "upload_finalize"]
 
 
 class SourceAddPartialError(SourceAddError):
-    """A source was registered, but its upload did not complete; the row is retained."""
+    """A source was registered, but its upload did not complete.
+
+    The registered source is retained so callers can inspect or recover it.
+
+    Attributes:
+        source_id: ID of the registered source.
+        stage: Upload stage that failed.
+        cause: Underlying upload exception, inherited from :class:`SourceAddError`.
+    """
 
     def __init__(self, filename: str, *, source_id: str, stage: SourceAddStage, cause: Exception):
-        self.source_id, self.stage = source_id, stage
+        self.source_id = source_id
+        self.stage = stage
         message = f"Source {source_id} was registered for {filename!r}; {stage} failed"
         super().__init__(filename, cause=cause, message=message)
 
@@ -918,23 +907,36 @@ class SourceAddPartialError(SourceAddError):
 class SourceNotFoundError(NotFoundError, RPCError, SourceError):
     """Source not found in notebook.
 
-    Combines :class:`NotFoundError`, :class:`RPCError`, and :class:`SourceError`. Full-text and
-    readiness calls raise it for empty missing-source payloads, preserving transport-, domain-, and
-    cross-domain not-found catches alongside :class:`NotebookNotFoundError` and
-    :class:`ArtifactNotFoundError`.
+    Inherits from :class:`NotFoundError` (cross-domain umbrella),
+    :class:`RPCError` (transport-level catchability), and :class:`SourceError`
+    (domain base). The RPC base is what ``client.sources.get_fulltext`` raises
+    (and what ``client.sources.wait_until_ready`` raises during polling when
+    the source disappears) when the server returns an empty / degenerate
+    payload for a missing source ID, so ``except RPCError`` keeps working at
+    call sites that handle transport-level failures. ``except SourceError``
+    continues to work at domain-level call sites that don't care about the
+    RPC layer. ``except NotFoundError`` catches it alongside
+    :class:`NotebookNotFoundError` and :class:`ArtifactNotFoundError`.
 
-    Since v0.8.0, ``client.sources.get`` raises it; use ``client.sources.get_or_none`` for
-    ``None``-on-miss. Concrete-source workflows such as full-text and readiness calls also raise it.
+    As of v0.8.0 ``client.sources.get`` **raises** this error for a missing
+    source; use ``client.sources.get_or_none`` for a ``None``-on-miss lookup.
+    Workflows that need a concrete source to proceed (e.g. ``get_fulltext``,
+    ``wait_until_ready``) also surface the missing source as this exception.
 
     .. note::
-       Since v0.6.0 this also inherits :class:`RPCError`, restoring notebook-not-found symmetry.
-       Put a specific ``except SourceNotFoundError`` before ``except RPCError`` when both are used.
-       Earlier releases let the specific handler run even when the RPC handler appeared first.
+       **v0.6.0 BREAKING CHANGE:** prior to v0.6.0, :class:`SourceNotFoundError`
+       did NOT inherit from :class:`RPCError`. Code that catches ``RPCError``
+       *before* a more specific ``except SourceNotFoundError`` clause may now
+       intercept what previously fell through to the specific handler. Reorder
+       your ``except`` clauses to put the more specific exceptions first. This
+       restores symmetry with :class:`NotebookNotFoundError`, which has
+       inherited from :class:`RPCError` since the 0.5.x series.
 
     Attributes:
         source_id: The ID that was not found.
         method_id: The RPC method ID (inherited from :class:`RPCError`).
-        raw_response: First 80 response chars; ``NOTEBOOKLM_DEBUG=1`` preserves the full body.
+        raw_response: First 80 chars of the raw response, if any
+            (``NOTEBOOKLM_DEBUG=1`` preserves the full body).
     """
 
     def __init__(
@@ -993,9 +995,7 @@ class SourceTimeoutError(WaitTimeoutError, SourceError):
         super().__init__(f"Source {source_id} not ready after {timeout:.1f}s{status_info}")
 
 
-# =============================================================================
 # Domain: Artifacts (migrated from types.py)
-# =============================================================================
 
 
 class ArtifactError(NotebookLMError):
@@ -1369,9 +1369,7 @@ class AmbiguousResearchTaskError(ResearchError):
         )
 
 
-# =============================================================================
 # Domain: Notes
-# =============================================================================
 
 
 class NoteError(NotebookLMError):
@@ -1420,9 +1418,7 @@ class NoteNotFoundError(NotFoundError, RPCError, NoteError):
         )
 
 
-# =============================================================================
 # Domain: Mind maps
-# =============================================================================
 
 
 class MindMapError(NotebookLMError):
@@ -1473,9 +1469,7 @@ class MindMapNotFoundError(NotFoundError, RPCError, MindMapError):
         )
 
 
-# =============================================================================
 # Domain: Source labels
-# =============================================================================
 
 
 class LabelError(NotebookLMError):
@@ -1525,9 +1519,7 @@ class LabelNotFoundError(NotFoundError, RPCError, LabelError):
         )
 
 
-# =============================================================================
 # Domain: Collections (account-level notebook groups)
-# =============================================================================
 
 
 class CollectionError(NotebookLMError):
