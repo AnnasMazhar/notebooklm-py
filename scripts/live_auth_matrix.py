@@ -43,6 +43,7 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -94,22 +95,64 @@ class Matrix:
         """Run one isolated matrix subprocess with consistent timeout reporting."""
         effective_timeout = self.args.timeout if timeout is None else timeout
         try:
-            return subprocess.run(
+            process = subprocess.Popen(
                 command,
                 cwd=ROOT,
                 env=self.env(home, **(env_overrides or {})),
                 text=True,
-                capture_output=True,
-                timeout=effective_timeout,
-                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                **self._process_group_options(),
             )
+        except OSError as exc:
+            return subprocess.CompletedProcess(
+                command,
+                127,
+                "",
+                f"unable to launch matrix phase: {type(exc).__name__}",
+            )
+
+        try:
+            stdout, stderr = process.communicate(timeout=effective_timeout)
         except subprocess.TimeoutExpired as exc:
+            self._terminate_process_tree(process)
+            stdout, _stderr = process.communicate()
             return subprocess.CompletedProcess(
                 command,
                 124,
-                _timeout_text(exc.stdout),
+                stdout or _timeout_text(exc.stdout),
                 f"timed out after {effective_timeout}s",
             )
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+    @staticmethod
+    def _process_group_options() -> dict[str, Any]:
+        """Return platform-specific options for isolating a phase process tree."""
+        if os.name == "nt":
+            return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+        return {"start_new_session": True}
+
+    @staticmethod
+    def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+        """Terminate a timed-out phase and every child that inherited its credentials."""
+        if os.name == "nt":
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        if process.poll() is None:
+            process.kill()
 
     def cli(
         self, home: Path, *args: str, profile: str | None = None, **extra: str
@@ -257,8 +300,15 @@ class Matrix:
         # The report is meant for release-checklist attachment. A notebook
         # inventory contains private titles and stable ids; the cell needs only
         # the count to prove the RPC succeeded.
-        if proc.returncode == 0 and isinstance(self.results[-1].get("json"), dict):
-            self.results[-1]["json"] = {"count": self.results[-1]["json"].get("count")}
+        result = self.results[-1]
+        payload = result.pop("json", None)
+        result.pop("json_error", None)
+        count = payload.get("count") if isinstance(payload, dict) else None
+        if proc.returncode == 0 and type(count) is int and count >= 0:
+            result["json"] = {"count": count}
+        elif proc.returncode == 0:
+            result["status"] = "fail"
+            result["json_error"] = "baseline response has no non-negative integer count"
 
     def phase_browser_discovery(self) -> None:
         proc = self.cli(DEFAULT_HOME, "auth", "inspect", "--browser", self.args.browser, "--json")
@@ -338,38 +388,65 @@ class Matrix:
     def phase_concurrency(self) -> None:
         home = self.temp / "concurrency"
         self.copy_profile(self.args.profile, home, "shared")
-        processes = [
-            subprocess.Popen(
-                [
-                    sys.executable,
-                    "-m",
-                    "notebooklm.notebooklm_cli",
-                    "--profile",
-                    "shared",
-                    "auth",
-                    "refresh",
-                    "--verify",
-                    "--json",
-                ],
-                cwd=ROOT,
-                env=self.env(home),
-                text=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            )
-            for _ in range(4)
+        command = [
+            sys.executable,
+            "-m",
+            "notebooklm.notebooklm_cli",
+            "--profile",
+            "shared",
+            "auth",
+            "refresh",
+            "--verify",
+            "--json",
         ]
+        processes: list[subprocess.Popen[str]] = []
         statuses: list[int] = []
         stderrs: list[str] = []
-        for proc in processes:
-            try:
-                _out, err = proc.communicate(timeout=self.args.timeout)
-                statuses.append(proc.returncode)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                _out, err = proc.communicate()
-                statuses.append(-1)
-            stderrs.append(err or "")
+        launch_error: str | None = None
+        try:
+            for _ in range(4):
+                try:
+                    processes.append(
+                        subprocess.Popen(
+                            command,
+                            cwd=ROOT,
+                            env=self.env(home),
+                            text=True,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE,
+                            **self._process_group_options(),
+                        )
+                    )
+                except OSError as exc:
+                    launch_error = type(exc).__name__
+                    break
+
+            if launch_error is None:
+                for proc in processes:
+                    try:
+                        _out, err = proc.communicate(timeout=self.args.timeout)
+                        statuses.append(proc.returncode)
+                    except subprocess.TimeoutExpired:
+                        self._terminate_process_tree(proc)
+                        _out, err = proc.communicate()
+                        statuses.append(-1)
+                    stderrs.append(err or "")
+        finally:
+            for proc in processes:
+                if proc.poll() is None:
+                    self._terminate_process_tree(proc)
+                    proc.communicate()
+
+        if launch_error is not None:
+            self.results.append(
+                {
+                    "name": "concurrent-refresh",
+                    "status": "fail",
+                    "returncodes": [127],
+                    "error": f"unable to launch refresh worker: {launch_error}",
+                }
+            )
+            return
         entry: dict[str, Any] = {
             "name": "concurrent-refresh",
             "status": "pass" if statuses == [0] * 4 else "fail",
@@ -440,13 +517,16 @@ class Matrix:
             "import asyncio, json\n"
             "from notebooklm import NotebookLMClient\n"
             "from notebooklm._auth import session as auth_session\n"
+            "def require(condition, message):\n"
+            "    if not condition:\n"
+            "        raise RuntimeError(message)\n"
             "async def main():\n"
             "    reload_calls = 0\n"
             "    original_reload = getattr(auth_session, 'try_storage_cookie_reload', None)\n"
             "    async def tracked_reload(*args, **kwargs):\n"
             "        nonlocal reload_calls\n"
             "        reload_calls += 1\n"
-            "        assert original_reload is not None\n"
+            "        require(original_reload is not None, 'storage reload helper unavailable')\n"
             "        return await original_reload(*args, **kwargs)\n"
             "    async def forbidden(*args, **kwargs):\n"
             "        raise AssertionError('external recovery rung reached')\n"
@@ -457,12 +537,14 @@ class Matrix:
             "    auth_session._try_master_token_reauth = forbidden\n"
             "    async with NotebookLMClient.from_storage(profile='mid-session-storage') as c:\n"
             "        before = await c.notebooks.list()\n"
+            "        before_ids = tuple(sorted(item.id for item in before))\n"
             "        live = c._collaborators.kernel.get_http_client().cookies\n"
             "        live.clear()\n"
             "        after = await c.notebooks.list()\n"
-            "        assert reload_calls > 0, 'storage reload rung was not exercised'\n"
-            "        assert len(live) > 0, 'storage reload did not restore the live jar'\n"
-            "        assert len(before) == len(after), 'notebook result changed after recovery'\n"
+            "        after_ids = tuple(sorted(item.id for item in after))\n"
+            "        require(reload_calls > 0, 'storage reload rung was not exercised')\n"
+            "        require(len(live) > 0, 'storage reload did not restore the live jar')\n"
+            "        require(before_ids == after_ids, 'notebook identity changed after recovery')\n"
             "        print(json.dumps({'before': len(before), 'after': len(after), "
             "'reload_calls': reload_calls, 'live_cookies': len(live)}))\n"
             "asyncio.run(main())\n"
@@ -497,6 +579,10 @@ class Matrix:
             from notebooklm import NotebookLMClient
             from notebooklm._auth import session as auth_session
 
+            def require(condition, message):
+                if not condition:
+                    raise RuntimeError(message)
+
             async def main():
                 reload_calls = 0
                 original_reload = auth_session.try_storage_cookie_reload
@@ -519,6 +605,7 @@ class Matrix:
 
                 async with NotebookLMClient.from_storage(profile="mid-session-sibling") as client:
                     before = await client.notebooks.list()
+                    before_ids = tuple(sorted(item.id for item in before))
                     sibling = subprocess.run(
                         [
                             sys.executable,
@@ -535,17 +622,29 @@ class Matrix:
                         timeout=90,
                         check=False,
                     )
-                    assert sibling.returncode == 0, sibling.stderr[-1000:]
+                    require(sibling.returncode == 0, sibling.stderr[-1000:])
                     after_hash = hashlib.sha256(storage.read_bytes()).hexdigest()
-                    assert after_hash != before_hash, "sibling re-mint did not replace profile state"
+                    require(
+                        after_hash != before_hash,
+                        "sibling re-mint did not replace profile state",
+                    )
                     (profile_dir / "master_token.json").unlink()
                     live = client._collaborators.kernel.get_http_client().cookies
                     live.clear()
                     recovered = await asyncio.gather(*(client.notebooks.list() for _ in range(4)))
                     counts = [len(items) for items in recovered]
-                    assert counts == [len(before)] * 4
-                    assert 0 < reload_calls <= 3, "concurrent RPCs did not share one recovery wave"
-                    assert len(live) > 0
+                    recovered_ids = [
+                        tuple(sorted(item.id for item in items)) for items in recovered
+                    ]
+                    require(
+                        recovered_ids == [before_ids] * 4,
+                        "notebook identity changed after sibling recovery",
+                    )
+                    require(
+                        0 < reload_calls <= 3,
+                        "concurrent RPCs did not share one recovery wave",
+                    )
+                    require(len(live) > 0, "sibling recovery did not restore the live jar")
                     print(json.dumps({
                         "before": len(before),
                         "after": counts,
@@ -586,6 +685,10 @@ class Matrix:
             from notebooklm import NotebookLMClient
             from notebooklm._auth import session as auth_session
 
+            def require(condition, message):
+                if not condition:
+                    raise RuntimeError(message)
+
             async def main():
                 master_calls = 0
                 original_master = auth_session._try_master_token_reauth
@@ -601,6 +704,7 @@ class Matrix:
 
                 async with NotebookLMClient.from_storage(profile="mid-session-master") as client:
                     before = await client.notebooks.list()
+                    before_ids = tuple(sorted(item.id for item in before))
                     state = json.loads(storage.read_text(encoding="utf-8"))
                     state["cookies"] = []
                     replacement = storage.with_suffix(".matrix-tmp")
@@ -609,11 +713,21 @@ class Matrix:
                     live = client._collaborators.kernel.get_http_client().cookies
                     live.clear()
                     after = await client.notebooks.list()
+                    after_ids = tuple(sorted(item.id for item in after))
                     persisted = json.loads(storage.read_text(encoding="utf-8"))
-                    assert len(before) == len(after)
-                    assert master_calls == 1, "mid-session Layer-4 recovery was not exercised once"
-                    assert persisted.get("cookies"), "master-token recovery did not repair storage"
-                    assert len(live) > 0
+                    require(
+                        before_ids == after_ids,
+                        "notebook identity changed after master-token recovery",
+                    )
+                    require(
+                        master_calls == 1,
+                        "mid-session Layer-4 recovery was not exercised once",
+                    )
+                    require(
+                        persisted.get("cookies"),
+                        "master-token recovery did not repair storage",
+                    )
+                    require(len(live) > 0, "master-token recovery did not restore live jar")
                     print(json.dumps({
                         "before": len(before),
                         "after": len(after),
@@ -664,6 +778,13 @@ class Matrix:
             TOKEN = "matrix-rest-token"
             HEADERS = {"Authorization": f"Bearer {TOKEN}", "Host": "127.0.0.1"}
 
+            def require(condition, message):
+                if not condition:
+                    raise RuntimeError(message)
+
+            def notebook_ids(response):
+                return tuple(sorted(item["id"] for item in response.json()["notebooks"]))
+
             async def mid_session():
                 holder = {}
 
@@ -684,11 +805,11 @@ class Matrix:
                         transport=transport, base_url="http://127.0.0.1"
                     ) as http:
                         before = await http.get("/v1/notebooks", headers=HEADERS)
-                        assert before.status_code == 200, before.text[-1000:]
+                        require(before.status_code == 200, before.text[-1000:])
                         holder["client"]._collaborators.kernel.get_http_client().cookies.clear()
                         after = await http.get("/v1/notebooks", headers=HEADERS)
-                        assert after.status_code == 200, after.text[-1000:]
-                        return len(before.json()["notebooks"]), len(after.json()["notebooks"])
+                        require(after.status_code == 200, after.text[-1000:])
+                        return notebook_ids(before), notebook_ids(after)
 
             async def stale_startup():
                 profile_dir = Path(os.environ["NOTEBOOKLM_HOME"]) / "profiles" / "rest-stale"
@@ -704,7 +825,10 @@ class Matrix:
 
                 app = create_app(profile="rest-stale")
                 async with app.router.lifespan_context(app):
-                    assert app.state.notebooklm.client is None
+                    require(
+                        app.state.notebooklm.client is None,
+                        "REST server did not enter degraded startup",
+                    )
                     held_token.replace(token)
                     sibling = subprocess.run(
                         [
@@ -722,7 +846,7 @@ class Matrix:
                         timeout=90,
                         check=False,
                     )
-                    assert sibling.returncode == 0, sibling.stderr[-1000:]
+                    require(sibling.returncode == 0, sibling.stderr[-1000:])
                     transport = httpx.ASGITransport(
                         app=app, client=("127.0.0.1", 5555), raise_app_exceptions=False
                     )
@@ -730,18 +854,24 @@ class Matrix:
                         transport=transport, base_url="http://127.0.0.1"
                     ) as http:
                         response = await http.get("/v1/notebooks", headers=HEADERS)
-                    assert response.status_code == 200, response.text[-1000:]
-                    assert app.state.notebooklm.client is not None
-                    return len(response.json()["notebooks"])
+                    require(response.status_code == 200, response.text[-1000:])
+                    require(
+                        app.state.notebooklm.client is not None,
+                        "REST server did not bind a recovered client",
+                    )
+                    return notebook_ids(response)
 
             async def main():
-                before, after = await mid_session()
-                rebound = await stale_startup()
-                assert before == after == rebound
+                before_ids, after_ids = await mid_session()
+                rebound_ids = await stale_startup()
+                require(
+                    before_ids == after_ids == rebound_ids,
+                    "REST recovery changed notebook identity",
+                )
                 print(json.dumps({
-                    "before": before,
-                    "after_live_reload": after,
-                    "after_stale_startup_rebind": rebound,
+                    "before": len(before_ids),
+                    "after_live_reload": len(after_ids),
+                    "after_stale_startup_rebind": len(rebound_ids),
                     "stale_startup_rebound": True,
                 }))
 
@@ -780,6 +910,10 @@ class Matrix:
             from notebooklm import NotebookLMClient
             from notebooklm.mcp.server import create_server
 
+            def require(condition, message):
+                if not condition:
+                    raise RuntimeError(message)
+
             async def main():
                 holder = {}
 
@@ -794,18 +928,36 @@ class Matrix:
                 server = create_server(profile="mcp-live", client_factory=factory)
                 async with Client(server) as mcp:
                     before_result = await mcp.call_tool("notebook_list", {"limit": 50})
-                    assert before_result.structured_content is not None
+                    require(
+                        before_result.structured_content is not None,
+                        "MCP baseline returned no structured content",
+                    )
                     before = before_result.structured_content
-                    assert "total" in before and "notebooks" in before
+                    require(
+                        "total" in before and "notebooks" in before,
+                        "MCP baseline response is incomplete",
+                    )
                     holder["client"]._collaborators.kernel.get_http_client().cookies.clear()
                     after_result = await mcp.call_tool("notebook_list", {"limit": 50})
-                    assert after_result.structured_content is not None
+                    require(
+                        after_result.structured_content is not None,
+                        "MCP recovery returned no structured content",
+                    )
                     after = after_result.structured_content
-                    assert "total" in after and "notebooks" in after
-                    assert before.get("total") == after.get("total")
-                    assert before.get("notebooks") == after.get("notebooks")
+                    require(
+                        "total" in after and "notebooks" in after,
+                        "MCP recovery response is incomplete",
+                    )
+                    require(
+                        before.get("total") == after.get("total"),
+                        "MCP recovery changed the notebook count",
+                    )
+                    require(
+                        before.get("notebooks") == after.get("notebooks"),
+                        "MCP recovery changed notebook identity",
+                    )
                     live = holder["client"]._collaborators.kernel.get_http_client().cookies
-                    assert len(live) > 0
+                    require(len(live) > 0, "MCP recovery did not restore the live jar")
                     print(json.dumps({
                         "before": before.get("total"),
                         "after": after.get("total"),
@@ -846,6 +998,10 @@ class Matrix:
             from notebooklm import NotebookLMClient
             from notebooklm._auth import session as auth_session
 
+            def require(condition, message):
+                if not condition:
+                    raise RuntimeError(message)
+
             async def main():
                 refresh_calls = 0
                 original_refresh = auth_session._try_refresh_cmd_reauth
@@ -861,6 +1017,7 @@ class Matrix:
 
                 async with NotebookLMClient.from_storage(profile="mid-session-browser") as client:
                     before = await client.notebooks.list()
+                    before_ids = tuple(sorted(item.id for item in before))
                     state = json.loads(storage.read_text(encoding="utf-8"))
                     state["cookies"] = []
                     replacement = storage.with_suffix(".matrix-tmp")
@@ -869,9 +1026,16 @@ class Matrix:
                     live = client._collaborators.kernel.get_http_client().cookies
                     live.clear()
                     after = await client.notebooks.list()
-                    assert len(before) == len(after)
-                    assert refresh_calls == 1, "browser refresh command rung was not exercised once"
-                    assert len(live) > 0
+                    after_ids = tuple(sorted(item.id for item in after))
+                    require(
+                        before_ids == after_ids,
+                        "notebook identity changed after browser recovery",
+                    )
+                    require(
+                        refresh_calls == 1,
+                        "browser refresh command rung was not exercised once",
+                    )
+                    require(len(live) > 0, "browser recovery did not restore live jar")
                     print(json.dumps({
                         "before": len(before),
                         "after": len(after),
