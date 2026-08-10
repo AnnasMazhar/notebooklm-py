@@ -7,7 +7,7 @@ browser profile are read-only inputs.
 
 Example::
 
-    uv run --extra browser --extra cookies --extra headless \
+    uv run --extra browser --extra cookies --extra headless --extra mcp --extra server \
       python scripts/live_auth_matrix.py \
       --profile teng-lin-9420 \
       --browser 'chromium::Profile 3' \
@@ -19,15 +19,20 @@ The JSON report is suitable for attaching to a release checklist. All writes
 go to a disposable ``NOTEBOOKLM_HOME`` and the temporary credential copies are
 removed when the run finishes. Covered cells include baseline/live token
 checks, browser-cookie login, master-token re-mint, cookie import filtering,
-both NotebookLM hosts, concurrent refresh, true mid-session recovery,
-transient-fault recovery (503, connection failure, and read timeout), and
-crash-safe canonical writes.
+both NotebookLM hosts, live RPC and frontend-bundle health, concurrent refresh,
+strict storage-only mid-session recovery (#2161), a real sibling-process re-mint
+followed by simultaneous failing RPCs, actual mid-session master-token fallback,
+optional browser-backed mid-session recovery, access-gate classification
+(#2175), transient-fault recovery (503, connection failure, and read timeout),
+and crash-safe canonical writes.
 
 The browser cookie extractor is host-sensitive: use the host where the browser
 profile currently has its NotebookLM binding. Interactive Playwright login,
 initial master-token bootstrap, CDP capture, Workspace/SSO, regional-account,
-long-duration expiry, and MCP transport checks remain separate/manual cells.
-MCP file-route coverage is available from ``scripts/mcp_live_smoke.py``.
+long-duration expiry, and remote MCP HTTP/bearer/file-side-channel checks remain
+separate/manual cells. The matrix's MCP auth-recovery cell uses FastMCP's real
+in-memory protocol transport; deployed file-route coverage is available from
+``scripts/mcp_live_smoke.py``.
 """
 
 from __future__ import annotations
@@ -41,12 +46,20 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_HOME = Path(os.environ.get("NOTEBOOKLM_HOME", Path.home() / ".notebooklm"))
+
+
+def _timeout_text(value: str | bytes | None) -> str:
+    """Normalize ``TimeoutExpired`` output despite subprocess stub variance."""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value or ""
 
 
 class Matrix:
@@ -70,6 +83,34 @@ class Matrix:
         env.update(extra)
         return env
 
+    def _run(
+        self,
+        command: list[str],
+        home: Path,
+        *,
+        timeout: int | None = None,
+        env_overrides: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        """Run one isolated matrix subprocess with consistent timeout reporting."""
+        effective_timeout = self.args.timeout if timeout is None else timeout
+        try:
+            return subprocess.run(
+                command,
+                cwd=ROOT,
+                env=self.env(home, **(env_overrides or {})),
+                text=True,
+                capture_output=True,
+                timeout=effective_timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return subprocess.CompletedProcess(
+                command,
+                124,
+                _timeout_text(exc.stdout),
+                f"timed out after {effective_timeout}s",
+            )
+
     def cli(
         self, home: Path, *args: str, profile: str | None = None, **extra: str
     ) -> subprocess.CompletedProcess[str]:
@@ -77,26 +118,15 @@ class Matrix:
         if profile:
             command.extend(["--profile", profile])
         command.extend(args)
-        try:
-            return subprocess.run(
-                command,
-                cwd=ROOT,
-                env=self.env(home, **extra),
-                text=True,
-                capture_output=True,
-                timeout=self.args.timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            return subprocess.CompletedProcess(
-                command,
-                124,
-                exc.stdout or "",
-                f"timed out after {self.args.timeout}s",
-            )
+        return self._run(command, home, env_overrides=extra)
 
     def record(
-        self, name: str, proc: subprocess.CompletedProcess[str], *, expect_json: bool = False
+        self,
+        name: str,
+        proc: subprocess.CompletedProcess[str],
+        *,
+        expect_json: bool = False,
+        include_stdout_on_failure: bool = False,
     ) -> None:
         payload: dict[str, Any] = {
             "name": name,
@@ -111,6 +141,8 @@ class Matrix:
                 payload["status"] = "fail"
         if proc.returncode != 0:
             payload["stderr"] = proc.stderr[-2000:]
+            if include_stdout_on_failure:
+                payload["stdout_tail"] = proc.stdout[-4000:]
         self.results.append(payload)
 
     def copy_profile(self, source: str, home: Path, target: str) -> None:
@@ -139,9 +171,19 @@ class Matrix:
             self.phase_master_refresh()
             self.phase_import_filter()
             self.phase_hosts()
+            self.phase_rpc_bundle_health()
+            self.phase_rpc_health()
             self.phase_concurrency()
+            self.phase_storage_mid_session()
+            self.phase_sibling_concurrent_mid_session()
+            self.phase_master_token_mid_session()
+            if not self.args.skip_rest:
+                self.phase_rest_auth_recovery()
+            if not self.args.skip_mcp:
+                self.phase_mcp_auth_recovery()
             if not self.args.skip_browser:
-                self.phase_mid_session()
+                self.phase_browser_mid_session()
+            self.phase_rpc_access_gate_contract()
             self.phase_fault_injection()
             self.phase_crash_safety()
         finally:
@@ -153,6 +195,9 @@ class Matrix:
                     "browser": self.args.browser,
                     "base_url": self.args.base_url,
                     "browser_cells": "skipped" if self.args.skip_browser else "executed",
+                    "rest_cells": "skipped" if self.args.skip_rest else "executed",
+                    "mcp_cells": "skipped" if self.args.skip_mcp else "executed",
+                    "rpc_health_mode": "full" if self.args.rpc_health_full else "quick",
                     **self.worktree_info(),
                     "results": self.results,
                     "temporary_home": str(self.temp),
@@ -209,6 +254,11 @@ class Matrix:
         self.record("baseline-auth", proc, expect_json=True)
         proc = self.cli(home, "--quiet", "list", "--json", profile="baseline")
         self.record("baseline-list", proc, expect_json=True)
+        # The report is meant for release-checklist attachment. A notebook
+        # inventory contains private titles and stable ids; the cell needs only
+        # the count to prove the RPC succeeded.
+        if proc.returncode == 0 and isinstance(self.results[-1].get("json"), dict):
+            self.results[-1]["json"] = {"count": self.results[-1]["json"].get("count")}
 
     def phase_browser_discovery(self) -> None:
         proc = self.cli(DEFAULT_HOME, "auth", "inspect", "--browser", self.args.browser, "--json")
@@ -333,49 +383,529 @@ class Matrix:
                 err[-2000:] for status, err in zip(statuses, stderrs, strict=True) if status != 0
             ]
         self.results.append(entry)
-        proc = self.cli(home, "auth", "check", "--test", "--passive", "--json", profile="shared")
-        self.record("concurrent-refresh-final-check", proc, expect_json=True)
+        check_proc = self.cli(
+            home, "auth", "check", "--test", "--passive", "--json", profile="shared"
+        )
+        self.record("concurrent-refresh-final-check", check_proc, expect_json=True)
 
-    def phase_mid_session(self) -> None:
-        home = self.temp / "mid-session"
-        self.copy_profile(self.args.profile, home, "mid-session")
+    def phase_rpc_bundle_health(self) -> None:
+        """Exercise the authenticated bundle path and its typed exit codes live."""
+        home = self.temp / "rpc-bundle"
+        self.copy_profile(self.args.profile, home, "rpc-bundle")
+        command = [
+            sys.executable,
+            str(ROOT / "scripts" / "capture_rpc_registry.py"),
+            "--check",
+            "--check-enums",
+        ]
+        proc = self._run(
+            command,
+            home,
+            env_overrides={"NOTEBOOKLM_PROFILE": "rpc-bundle"},
+        )
+        self.record("rpc-bundle-health", proc, include_stdout_on_failure=True)
+
+    def phase_rpc_health(self) -> None:
+        """Run the real RPC canary, using configured stable notebooks when available."""
+        home = self.temp / "rpc-health"
+        self.copy_profile(self.args.profile, home, "rpc-health")
+        command = [sys.executable, str(ROOT / "scripts" / "check_rpc_health.py")]
+        if self.args.rpc_health_full:
+            command.append("--full")
+        extra = {"NOTEBOOKLM_PROFILE": "rpc-health"}
+        if self.args.read_only_notebook_id:
+            extra["NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID"] = self.args.read_only_notebook_id
+        if self.args.generation_notebook_id:
+            extra["NOTEBOOKLM_GENERATION_NOTEBOOK_ID"] = self.args.generation_notebook_id
+        proc = self._run(command, home, env_overrides=extra)
+        self.record(
+            "rpc-health-full" if self.args.rpc_health_full else "rpc-health-quick",
+            proc,
+            include_stdout_on_failure=True,
+        )
+
+    def phase_storage_mid_session(self) -> None:
+        """Prove #2161 recovery uses storage, without another rung masking it."""
+        home = self.temp / "mid-session-storage"
+        self.copy_profile(self.args.profile, home, "mid-session-storage")
+        (home / "profiles" / "mid-session-storage" / "master_token.json").unlink(missing_ok=True)
         script = (
-            "import asyncio\n"
+            "import asyncio, json\n"
             "from notebooklm import NotebookLMClient\n"
+            "from notebooklm._auth import session as auth_session\n"
             "async def main():\n"
-            "    async with NotebookLMClient.from_storage(profile='mid-session') as c:\n"
+            "    reload_calls = 0\n"
+            "    original_reload = getattr(auth_session, 'try_storage_cookie_reload', None)\n"
+            "    async def tracked_reload(*args, **kwargs):\n"
+            "        nonlocal reload_calls\n"
+            "        reload_calls += 1\n"
+            "        assert original_reload is not None\n"
+            "        return await original_reload(*args, **kwargs)\n"
+            "    async def forbidden(*args, **kwargs):\n"
+            "        raise AssertionError('external recovery rung reached')\n"
+            "    if original_reload is not None:\n"
+            "        auth_session.try_storage_cookie_reload = tracked_reload\n"
+            "    auth_session._try_refresh_cmd_reauth = forbidden\n"
+            "    auth_session._try_headless_reauth = forbidden\n"
+            "    auth_session._try_master_token_reauth = forbidden\n"
+            "    async with NotebookLMClient.from_storage(profile='mid-session-storage') as c:\n"
             "        before = await c.notebooks.list()\n"
-            "        c._collaborators.kernel.get_http_client().cookies.clear()\n"
+            "        live = c._collaborators.kernel.get_http_client().cookies\n"
+            "        live.clear()\n"
             "        after = await c.notebooks.list()\n"
-            "        print(f'{len(before)} {len(after)} {len(c._collaborators.kernel.get_http_client().cookies)}')\n"
+            "        assert reload_calls > 0, 'storage reload rung was not exercised'\n"
+            "        assert len(live) > 0, 'storage reload did not restore the live jar'\n"
+            "        assert len(before) == len(after), 'notebook result changed after recovery'\n"
+            "        print(json.dumps({'before': len(before), 'after': len(after), "
+            "'reload_calls': reload_calls, 'live_cookies': len(live)}))\n"
             "asyncio.run(main())\n"
         )
         command = [sys.executable, "-c", script]
-        try:
-            proc = subprocess.run(
-                command,
-                cwd=ROOT,
-                env=self.env(
-                    home,
-                    NOTEBOOKLM_REFRESH_CMD=(
-                        f"{shlex.quote(sys.executable)} "
-                        f"{shlex.quote(str(ROOT / 'examples' / 'refresh_browser_cookies.py'))}"
-                    ),
-                    NOTEBOOKLM_REFRESH_CMD_MIDSESSION="1",
+        proc = self._run(
+            command,
+            home,
+            env_overrides={
+                "NOTEBOOKLM_PROFILE": "mid-session-storage",
+                "NOTEBOOKLM_REFRESH_BROWSER": "",
+                "NOTEBOOKLM_REFRESH_CMD": "",
+                "NOTEBOOKLM_REFRESH_CMD_MIDSESSION": "",
+            },
+        )
+        self.record("mid-session-storage-reload", proc, expect_json=True)
+
+    def phase_sibling_concurrent_mid_session(self) -> None:
+        """Consume a real sibling re-mint through one concurrent recovery wave."""
+        home = self.temp / "mid-session-sibling"
+        self.copy_profile(self.args.profile, home, "mid-session-sibling")
+        script = textwrap.dedent(
+            """\
+            import asyncio
+            import hashlib
+            import json
+            import os
+            import subprocess
+            import sys
+            from pathlib import Path
+
+            from notebooklm import NotebookLMClient
+            from notebooklm._auth import session as auth_session
+
+            async def main():
+                reload_calls = 0
+                original_reload = auth_session.try_storage_cookie_reload
+
+                async def tracked_reload(*args, **kwargs):
+                    nonlocal reload_calls
+                    reload_calls += 1
+                    return await original_reload(*args, **kwargs)
+
+                async def forbidden(*args, **kwargs):
+                    raise AssertionError("external recovery rung reached")
+
+                auth_session.try_storage_cookie_reload = tracked_reload
+                auth_session._try_refresh_cmd_reauth = forbidden
+                auth_session._try_headless_reauth = forbidden
+                auth_session._try_master_token_reauth = forbidden
+                profile_dir = Path(os.environ["NOTEBOOKLM_HOME"]) / "profiles" / "mid-session-sibling"
+                storage = profile_dir / "storage_state.json"
+                before_hash = hashlib.sha256(storage.read_bytes()).hexdigest()
+
+                async with NotebookLMClient.from_storage(profile="mid-session-sibling") as client:
+                    before = await client.notebooks.list()
+                    sibling = subprocess.run(
+                        [
+                            sys.executable,
+                            "-m",
+                            "notebooklm.notebooklm_cli",
+                            "--profile",
+                            "mid-session-sibling",
+                            "login",
+                            "--master-token-refresh",
+                        ],
+                        env=os.environ.copy(),
+                        text=True,
+                        capture_output=True,
+                        timeout=90,
+                        check=False,
+                    )
+                    assert sibling.returncode == 0, sibling.stderr[-1000:]
+                    after_hash = hashlib.sha256(storage.read_bytes()).hexdigest()
+                    assert after_hash != before_hash, "sibling re-mint did not replace profile state"
+                    (profile_dir / "master_token.json").unlink()
+                    live = client._collaborators.kernel.get_http_client().cookies
+                    live.clear()
+                    recovered = await asyncio.gather(*(client.notebooks.list() for _ in range(4)))
+                    counts = [len(items) for items in recovered]
+                    assert counts == [len(before)] * 4
+                    assert 0 < reload_calls <= 3, "concurrent RPCs did not share one recovery wave"
+                    assert len(live) > 0
+                    print(json.dumps({
+                        "before": len(before),
+                        "after": counts,
+                        "reload_calls": reload_calls,
+                        "live_cookies": len(live),
+                        "sibling_profile_changed": True,
+                    }))
+
+            asyncio.run(main())
+            """
+        )
+        command = [sys.executable, "-c", script]
+        proc = self._run(
+            command,
+            home,
+            timeout=max(self.args.timeout, 120),
+            env_overrides={
+                "NOTEBOOKLM_PROFILE": "mid-session-sibling",
+                "NOTEBOOKLM_REFRESH_BROWSER": "",
+                "NOTEBOOKLM_REFRESH_CMD": "",
+                "NOTEBOOKLM_REFRESH_CMD_MIDSESSION": "",
+                "NOTEBOOKLM_HEADLESS_REAUTH": "",
+            },
+        )
+        self.record("mid-session-sibling-concurrent-reload", proc, expect_json=True)
+
+    def phase_master_token_mid_session(self) -> None:
+        """Force the real Layer-4 rung after both live and disk cookies become unusable."""
+        home = self.temp / "mid-session-master"
+        self.copy_profile(self.args.profile, home, "mid-session-master")
+        script = textwrap.dedent(
+            """\
+            import asyncio
+            import json
+            import os
+            from pathlib import Path
+
+            from notebooklm import NotebookLMClient
+            from notebooklm._auth import session as auth_session
+
+            async def main():
+                master_calls = 0
+                original_master = auth_session._try_master_token_reauth
+
+                async def tracked_master(*args, **kwargs):
+                    nonlocal master_calls
+                    master_calls += 1
+                    return await original_master(*args, **kwargs)
+
+                auth_session._try_master_token_reauth = tracked_master
+                profile_dir = Path(os.environ["NOTEBOOKLM_HOME"]) / "profiles" / "mid-session-master"
+                storage = profile_dir / "storage_state.json"
+
+                async with NotebookLMClient.from_storage(profile="mid-session-master") as client:
+                    before = await client.notebooks.list()
+                    state = json.loads(storage.read_text(encoding="utf-8"))
+                    state["cookies"] = []
+                    replacement = storage.with_suffix(".matrix-tmp")
+                    replacement.write_text(json.dumps(state), encoding="utf-8")
+                    os.replace(replacement, storage)
+                    live = client._collaborators.kernel.get_http_client().cookies
+                    live.clear()
+                    after = await client.notebooks.list()
+                    persisted = json.loads(storage.read_text(encoding="utf-8"))
+                    assert len(before) == len(after)
+                    assert master_calls == 1, "mid-session Layer-4 recovery was not exercised once"
+                    assert persisted.get("cookies"), "master-token recovery did not repair storage"
+                    assert len(live) > 0
+                    print(json.dumps({
+                        "before": len(before),
+                        "after": len(after),
+                        "master_token_calls": master_calls,
+                        "persisted_cookies": len(persisted["cookies"]),
+                        "live_cookies": len(live),
+                    }))
+
+            asyncio.run(main())
+            """
+        )
+        command = [sys.executable, "-c", script]
+        proc = self._run(
+            command,
+            home,
+            timeout=max(self.args.timeout, 120),
+            env_overrides={
+                "NOTEBOOKLM_PROFILE": "mid-session-master",
+                "NOTEBOOKLM_REFRESH_BROWSER": "",
+                "NOTEBOOKLM_REFRESH_CMD": "",
+                "NOTEBOOKLM_REFRESH_CMD_MIDSESSION": "",
+                "NOTEBOOKLM_HEADLESS_REAUTH": "",
+            },
+        )
+        self.record("mid-session-master-token-recovery", proc, expect_json=True)
+
+    def phase_rest_auth_recovery(self) -> None:
+        """Drive REST through live-jar recovery and degraded-startup lazy binding."""
+        home = self.temp / "rest-auth"
+        self.copy_profile(self.args.profile, home, "rest-live")
+        self.copy_profile(self.args.profile, home, "rest-stale")
+        (home / "profiles" / "rest-live" / "master_token.json").unlink(missing_ok=True)
+        script = textwrap.dedent(
+            """\
+            import asyncio
+            import contextlib
+            import json
+            import os
+            import subprocess
+            import sys
+            from pathlib import Path
+
+            import httpx
+
+            from notebooklm import NotebookLMClient
+            from notebooklm.server.app import create_app
+
+            TOKEN = "matrix-rest-token"
+            HEADERS = {"Authorization": f"Bearer {TOKEN}", "Host": "127.0.0.1"}
+
+            async def mid_session():
+                holder = {}
+
+                @contextlib.asynccontextmanager
+                async def factory():
+                    async with NotebookLMClient.from_storage(
+                        profile="rest-live", keepalive=600.0
+                    ) as client:
+                        holder["client"] = client
+                        yield client
+
+                app = create_app(profile="rest-live", client_factory=factory)
+                async with app.router.lifespan_context(app):
+                    transport = httpx.ASGITransport(
+                        app=app, client=("127.0.0.1", 5555), raise_app_exceptions=False
+                    )
+                    async with httpx.AsyncClient(
+                        transport=transport, base_url="http://127.0.0.1"
+                    ) as http:
+                        before = await http.get("/v1/notebooks", headers=HEADERS)
+                        assert before.status_code == 200, before.text[-1000:]
+                        holder["client"]._collaborators.kernel.get_http_client().cookies.clear()
+                        after = await http.get("/v1/notebooks", headers=HEADERS)
+                        assert after.status_code == 200, after.text[-1000:]
+                        return len(before.json()["notebooks"]), len(after.json()["notebooks"])
+
+            async def stale_startup():
+                profile_dir = Path(os.environ["NOTEBOOKLM_HOME"]) / "profiles" / "rest-stale"
+                storage = profile_dir / "storage_state.json"
+                token = profile_dir / "master_token.json"
+                held_token = profile_dir / "master_token.matrix-held"
+                state = json.loads(storage.read_text(encoding="utf-8"))
+                state["cookies"] = []
+                replacement = storage.with_suffix(".matrix-tmp")
+                replacement.write_text(json.dumps(state), encoding="utf-8")
+                os.replace(replacement, storage)
+                token.replace(held_token)
+
+                app = create_app(profile="rest-stale")
+                async with app.router.lifespan_context(app):
+                    assert app.state.notebooklm.client is None
+                    held_token.replace(token)
+                    sibling = subprocess.run(
+                        [
+                            sys.executable,
+                            "-m",
+                            "notebooklm.notebooklm_cli",
+                            "--profile",
+                            "rest-stale",
+                            "login",
+                            "--master-token-refresh",
+                        ],
+                        env=os.environ.copy(),
+                        text=True,
+                        capture_output=True,
+                        timeout=90,
+                        check=False,
+                    )
+                    assert sibling.returncode == 0, sibling.stderr[-1000:]
+                    transport = httpx.ASGITransport(
+                        app=app, client=("127.0.0.1", 5555), raise_app_exceptions=False
+                    )
+                    async with httpx.AsyncClient(
+                        transport=transport, base_url="http://127.0.0.1"
+                    ) as http:
+                        response = await http.get("/v1/notebooks", headers=HEADERS)
+                    assert response.status_code == 200, response.text[-1000:]
+                    assert app.state.notebooklm.client is not None
+                    return len(response.json()["notebooks"])
+
+            async def main():
+                before, after = await mid_session()
+                rebound = await stale_startup()
+                assert before == after == rebound
+                print(json.dumps({
+                    "before": before,
+                    "after_live_reload": after,
+                    "after_stale_startup_rebind": rebound,
+                    "stale_startup_rebound": True,
+                }))
+
+            asyncio.run(main())
+            """
+        )
+        command = [sys.executable, "-c", script]
+        proc = self._run(
+            command,
+            home,
+            timeout=max(self.args.timeout, 150),
+            env_overrides={
+                "NOTEBOOKLM_PROFILE": "rest-live",
+                "NOTEBOOKLM_SERVER_TOKEN": "matrix-rest-token",
+                "NOTEBOOKLM_REFRESH_BROWSER": "",
+                "NOTEBOOKLM_REFRESH_CMD": "",
+                "NOTEBOOKLM_REFRESH_CMD_MIDSESSION": "",
+                "NOTEBOOKLM_HEADLESS_REAUTH": "",
+            },
+        )
+        self.record("rest-auth-recovery", proc, expect_json=True)
+
+    def phase_mcp_auth_recovery(self) -> None:
+        """Drive a real FastMCP tool call across a live-jar invalidation."""
+        home = self.temp / "mcp-auth"
+        self.copy_profile(self.args.profile, home, "mcp-live")
+        (home / "profiles" / "mcp-live" / "master_token.json").unlink(missing_ok=True)
+        script = textwrap.dedent(
+            """\
+            import asyncio
+            import contextlib
+            import json
+
+            from fastmcp import Client
+
+            from notebooklm import NotebookLMClient
+            from notebooklm.mcp.server import create_server
+
+            async def main():
+                holder = {}
+
+                @contextlib.asynccontextmanager
+                async def factory():
+                    async with NotebookLMClient.from_storage(
+                        profile="mcp-live", keepalive=600.0
+                    ) as client:
+                        holder["client"] = client
+                        yield client
+
+                server = create_server(profile="mcp-live", client_factory=factory)
+                async with Client(server) as mcp:
+                    before_result = await mcp.call_tool("notebook_list", {"limit": 50})
+                    assert before_result.structured_content is not None
+                    before = before_result.structured_content
+                    assert "total" in before and "notebooks" in before
+                    holder["client"]._collaborators.kernel.get_http_client().cookies.clear()
+                    after_result = await mcp.call_tool("notebook_list", {"limit": 50})
+                    assert after_result.structured_content is not None
+                    after = after_result.structured_content
+                    assert "total" in after and "notebooks" in after
+                    assert before.get("total") == after.get("total")
+                    assert before.get("notebooks") == after.get("notebooks")
+                    live = holder["client"]._collaborators.kernel.get_http_client().cookies
+                    assert len(live) > 0
+                    print(json.dumps({
+                        "before": before.get("total"),
+                        "after": after.get("total"),
+                        "live_cookies": len(live),
+                        "transport": "fastmcp-in-memory",
+                    }))
+
+            asyncio.run(main())
+            """
+        )
+        command = [sys.executable, "-c", script]
+        proc = self._run(
+            command,
+            home,
+            timeout=max(self.args.timeout, 120),
+            env_overrides={
+                "NOTEBOOKLM_PROFILE": "mcp-live",
+                "NOTEBOOKLM_REFRESH_BROWSER": "",
+                "NOTEBOOKLM_REFRESH_CMD": "",
+                "NOTEBOOKLM_REFRESH_CMD_MIDSESSION": "",
+                "NOTEBOOKLM_HEADLESS_REAUTH": "",
+            },
+        )
+        self.record("mcp-auth-recovery", proc, expect_json=True)
+
+    def phase_browser_mid_session(self) -> None:
+        home = self.temp / "mid-session-browser"
+        self.copy_profile(self.args.profile, home, "mid-session-browser")
+        profile_dir = home / "profiles" / "mid-session-browser"
+        (profile_dir / "master_token.json").unlink(missing_ok=True)
+        script = textwrap.dedent(
+            """\
+            import asyncio
+            import json
+            import os
+            from pathlib import Path
+
+            from notebooklm import NotebookLMClient
+            from notebooklm._auth import session as auth_session
+
+            async def main():
+                refresh_calls = 0
+                original_refresh = auth_session._try_refresh_cmd_reauth
+
+                async def tracked_refresh(*args, **kwargs):
+                    nonlocal refresh_calls
+                    refresh_calls += 1
+                    return await original_refresh(*args, **kwargs)
+
+                auth_session._try_refresh_cmd_reauth = tracked_refresh
+                profile_dir = Path(os.environ["NOTEBOOKLM_HOME"]) / "profiles" / "mid-session-browser"
+                storage = profile_dir / "storage_state.json"
+
+                async with NotebookLMClient.from_storage(profile="mid-session-browser") as client:
+                    before = await client.notebooks.list()
+                    state = json.loads(storage.read_text(encoding="utf-8"))
+                    state["cookies"] = []
+                    replacement = storage.with_suffix(".matrix-tmp")
+                    replacement.write_text(json.dumps(state), encoding="utf-8")
+                    os.replace(replacement, storage)
+                    live = client._collaborators.kernel.get_http_client().cookies
+                    live.clear()
+                    after = await client.notebooks.list()
+                    assert len(before) == len(after)
+                    assert refresh_calls == 1, "browser refresh command rung was not exercised once"
+                    assert len(live) > 0
+                    print(json.dumps({
+                        "before": len(before),
+                        "after": len(after),
+                        "refresh_command_calls": refresh_calls,
+                        "live_cookies": len(live),
+                    }))
+
+            asyncio.run(main())
+            """
+        )
+        command = [sys.executable, "-c", script]
+        proc = self._run(
+            command,
+            home,
+            env_overrides={
+                "NOTEBOOKLM_PROFILE": "mid-session-browser",
+                "NOTEBOOKLM_REFRESH_CMD": (
+                    f"{shlex.quote(sys.executable)} "
+                    f"{shlex.quote(str(ROOT / 'examples' / 'refresh_browser_cookies.py'))}"
                 ),
-                text=True,
-                capture_output=True,
-                timeout=self.args.timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            proc = subprocess.CompletedProcess(
-                command,
-                124,
-                exc.stdout or "",
-                f"timed out after {self.args.timeout}s",
-            )
-        self.record("true-mid-session-recovery", proc)
+                "NOTEBOOKLM_REFRESH_CMD_MIDSESSION": "1",
+                "NOTEBOOKLM_HEADLESS_REAUTH": "",
+            },
+        )
+        self.record("mid-session-browser-refresh", proc, expect_json=True)
+
+    def phase_rpc_access_gate_contract(self) -> None:
+        """Run the deterministic #2175 classifier and workflow-routing regressions."""
+        home = self.temp / "rpc-access-gate"
+        home.mkdir(parents=True, exist_ok=True)
+        command = [
+            "uv",
+            "run",
+            "pytest",
+            "-q",
+            "tests/unit/test_scripts_auth_cookie_domains.py::test_capture_rpc_registry_classifies_access_gate_as_auth_failure",
+            "tests/unit/test_capture_rpc_registry.py::test_main_reports_bundle_auth_failure_without_drift",
+            "tests/unit/test_rpc_health_bundle_lane.py",
+        ]
+        proc = self._run(command, home)
+        self.record("rpc-access-gate-classification", proc)
 
     def phase_crash_safety(self) -> None:
         home = self.temp / "crash"
@@ -439,23 +969,7 @@ class Matrix:
             "tests/unit/test_retry_middleware.py",
             "tests/unit/test_auth_refresh_middleware.py",
         ]
-        try:
-            proc = subprocess.run(
-                command,
-                cwd=ROOT,
-                env=self.env(home),
-                text=True,
-                capture_output=True,
-                timeout=self.args.timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            proc = subprocess.CompletedProcess(
-                command,
-                124,
-                exc.stdout or "",
-                f"timed out after {self.args.timeout}s",
-            )
+        proc = self._run(command, home)
         self.record("transient-fault-injection-tests", proc)
 
 
@@ -468,9 +982,37 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=int, default=90)
     parser.add_argument("--output", type=Path)
     parser.add_argument(
+        "--rpc-health-full",
+        action="store_true",
+        help="Run the mutating full RPC canary (creates and deletes a temporary notebook).",
+    )
+    parser.add_argument(
+        "--read-only-notebook-id",
+        default=os.environ.get("NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID"),
+        help="Stable notebook used by the RPC health canary's read-only methods.",
+    )
+    parser.add_argument(
+        "--generation-notebook-id",
+        default=os.environ.get("NOTEBOOKLM_GENERATION_NOTEBOOK_ID"),
+        help="Stable notebook used by the RPC health canary's generation methods.",
+    )
+    parser.add_argument(
+        "--skip-rest",
+        action="store_true",
+        help="Skip REST adapter recovery cells when the server extra is unavailable.",
+    )
+    parser.add_argument(
+        "--skip-mcp",
+        action="store_true",
+        help="Skip MCP adapter recovery cells when the mcp extra is unavailable.",
+    )
+    parser.add_argument(
         "--skip-browser",
         action="store_true",
-        help="Skip rookiepy browser discovery/login cells when no fresh browser session is available.",
+        help=(
+            "Skip rookiepy browser discovery/login and browser-refresh cells. "
+            "Storage-only mid-session recovery and RPC access-gate cells still run."
+        ),
     )
     return parser.parse_args()
 
