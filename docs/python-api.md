@@ -2596,11 +2596,9 @@ class ArtifactType(str, Enum):
 
 class SourceStatus(Enum):
     UNKNOWN = -1     # Status is absent, malformed, or not yet mapped
-    UNSPECIFIED = 0  # Backend did not specify a source status
     PROCESSING = 1  # Source is being processed (indexing content)
     READY = 2       # Source is ready for use
     ERROR = 3       # Source processing failed
-    PENDING_DELETION = 4  # Source is queued for deletion
     PREPARING = 5   # Source is being prepared/uploaded (pre-processing stage)
 ```
 

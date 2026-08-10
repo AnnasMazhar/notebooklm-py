@@ -505,11 +505,9 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
     "SourceStatus": (
         "SourceStatus",
         {
-            0: "SOURCE_STATUS_UNSPECIFIED",
             1: "SOURCE_STATUS_PENDING",
             2: "SOURCE_STATUS_COMPLETE",
             3: "SOURCE_STATUS_ERROR",
-            4: "SOURCE_STATUS_PENDING_DELETION",
             5: "SOURCE_STATUS_TENTATIVE",
         },
     ),
@@ -546,6 +544,10 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
 #: Enum members our client cannot express today. Each entry is a real backend
 #: value that maps to "unknown" (or worse) in this client.
 ENUM_GAPS: dict[str, tuple[tuple[int, str, str], ...]] = {
+    "SourceStatus": (
+        (0, "SOURCE_STATUS_UNSPECIFIED", "#2124 — fails closed as UNKNOWN"),
+        (4, "SOURCE_STATUS_PENDING_DELETION", "#2124 — fails closed as UNKNOWN"),
+    ),
     "ArtifactStatus": (
         (0, "ARTIFACT_STATUS_UNKNOWN", "#2127"),
         (5, "ARTIFACT_STATUS_SUGGESTED", "#2127"),

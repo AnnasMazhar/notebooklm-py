@@ -263,6 +263,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Unknown source status codes no longer masquerade as ready.** Missing,
+  malformed, and unmapped wire statuses now resolve to `SourceStatus.UNKNOWN`
+  with `is_ready=False`; unmapped integers also emit a drift warning (#2124).
 - **An empty notebook no longer logs `schema drift?` on every
   `get_source_ids` call.** A genuinely empty notebook returns a healthy
   envelope whose sources slot is present but explicitly null — the backend

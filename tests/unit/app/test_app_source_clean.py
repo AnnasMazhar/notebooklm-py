@@ -69,11 +69,10 @@ class TestClassifyJunkSources:
         s = _src("src_u", status=99, url="https://ex.com/a")
         assert classify_junk_sources([s]) == []
 
-    def test_zero_status_candidate_reports_unspecified(self) -> None:
-        s = _src("src_z", title="403 Forbidden", status=SourceStatus.UNSPECIFIED)
-        assert classify_junk_sources([s]) == [
-            ("src_z", "403 Forbidden", "unspecified", "gateway_title")
-        ]
+    def test_zero_status_is_not_flagged(self) -> None:
+        # status=0 maps to "unknown" via the truthy fallback. Must NOT delete.
+        s = _src("src_z", status=0, url="https://ex.com/a")
+        assert classify_junk_sources([s]) == []
 
     def test_processing_status_is_not_flagged(self) -> None:
         s = _src("src_p", status=SourceStatus.PROCESSING, url="https://ex.com/a")

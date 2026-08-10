@@ -1702,9 +1702,10 @@ class TestSourceRowTimestamp:
 class TestSourceRowStatus:
     """Source status decoding fails closed for missing or unknown wire values."""
 
-    def test_status_unknown_when_status_block_absent(self) -> None:
+    def test_status_unknown_when_status_block_absent(self, caplog) -> None:
         row = SourceRow.from_entry(_entry(status_code=None))
         assert row.status == SourceStatus.UNKNOWN
+        assert not caplog.records
 
     def test_status_processing(self) -> None:
         row = SourceRow.from_entry(_entry(status_code=SourceStatus.PROCESSING))
@@ -1718,36 +1719,26 @@ class TestSourceRowStatus:
         row = SourceRow.from_entry(_entry(status_code=SourceStatus.PREPARING))
         assert row.status == SourceStatus.PREPARING
 
-    @pytest.mark.parametrize(
-        ("status_code", "expected"),
-        [
-            (0, SourceStatus.UNSPECIFIED),
-            (4, SourceStatus.PENDING_DELETION),
-        ],
-    )
-    def test_known_gap_statuses_are_explicit(
-        self, status_code: int, expected: SourceStatus
-    ) -> None:
-        row = SourceRow.from_entry(_entry(status_code=status_code))
-        assert row.status is expected
-
-    def test_unknown_status_falls_back_to_unknown_and_warns(self, caplog) -> None:
+    @pytest.mark.parametrize("status_code", [0, 4, 999])
+    def test_unknown_status_falls_back_to_unknown_and_warns(self, status_code: int, caplog) -> None:
         """An unmapped integer is non-ready and observable as enum drift."""
-        row = SourceRow.from_entry(_entry(status_code=999))
+        row = SourceRow.from_entry(_entry(status_code=status_code))
         assert row.status is SourceStatus.UNKNOWN
-        assert "Unknown source status code 999" in caplog.text
+        assert f"Unknown source status code {status_code}" in caplog.text
 
-    def test_non_list_status_block_falls_back_to_unknown(self) -> None:
+    def test_non_list_status_block_falls_back_to_unknown(self, caplog) -> None:
         entry = _entry()
         entry.append("not_a_list")  # status block at position 3
         row = SourceRow.from_entry(entry)
         assert row.status is SourceStatus.UNKNOWN
+        assert not caplog.records
 
-    def test_short_status_block_falls_back_to_unknown(self) -> None:
+    def test_short_status_block_falls_back_to_unknown(self, caplog) -> None:
         entry = _entry()
         entry.append([None])  # status block too short — no [1]
         row = SourceRow.from_entry(entry)
         assert row.status is SourceStatus.UNKNOWN
+        assert not caplog.records
 
     def test_non_int_status_code_falls_back_to_unknown_without_warning(self, caplog) -> None:
         """Malformed status blocks fail closed without noisy enum-drift warnings."""
