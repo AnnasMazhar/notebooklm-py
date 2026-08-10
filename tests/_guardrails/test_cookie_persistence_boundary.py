@@ -852,6 +852,8 @@ def test_compat_constructor_and_runtime_factory_split_is_exact() -> None:
     assert "auth=auth" in constructor
     assert "initial=auth.cookie_snapshot" in constructor
     assert "auth=None" in factory
+    assert "initial=initial_snapshot" in factory
+    assert "_typed_from_snapshot(initial_snapshot)" in factory
     assert "AuthTokens" not in factory
     assert ".auth" not in factory
 
@@ -941,6 +943,9 @@ def test_runtime_factory_has_no_auth_tokens_persistence_handoff() -> None:
     assert len(calls) == 1
     assert len(calls[0].args) == 1
     assert not any(keyword.arg == "auth" for keyword in calls[0].keywords)
+    assert {keyword.arg: ast.unparse(keyword.value) for keyword in calls[0].keywords} == {
+        "initial_snapshot": "auth.cookie_snapshot"
+    }
 
 
 @pytest.mark.parametrize(

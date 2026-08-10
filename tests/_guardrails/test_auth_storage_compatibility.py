@@ -249,6 +249,7 @@ EXPECTED_SIGNATURES: dict[str, SignatureDescriptor] = {
         (
             ("store", P, "ProfileStore | None", R),
             ("save_lock", K, "threading.Lock | None", "None"),
+            ("initial_snapshot", K, "CookieSnapshot | None", "None"),
         ),
         "CookiePersistence",
     ),

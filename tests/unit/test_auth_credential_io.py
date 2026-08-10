@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 import stat
 from pathlib import Path
 
@@ -85,7 +86,8 @@ def test_profile_commit_preserves_pretty_utf8_bytes_order_mode_and_no_newline(
         b'{\n  "first": "\xe7\xa7\x98\xe5\xaf\x86",\n  "second": {\n    "nested": true\n  }\n}'
     )
     assert not path.read_bytes().endswith(b"\n")
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert not path.with_name(path.name + ".bak").exists()
     assert reads == []
     assert len(replaces) == 1

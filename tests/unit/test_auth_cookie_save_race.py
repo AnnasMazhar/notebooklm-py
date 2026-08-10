@@ -1522,9 +1522,8 @@ class TestCASVariantAware:
            dotted delta. ``from_storage`` then runs the real
            ``advance_cookie_snapshot_after_save``, which must preserve the
            bare-host baseline rather than dropping the key.
-        4. Client open applies Phase 10's named direct-construction correction:
-           its typed baseline comes from the current disk sample (SIBLING), not
-           the pre-client compatibility snapshot (OLD). A Set-Cookie aligns the
+        4. Client open preserves the load-time comparison point (OLD), because
+           the live jar was derived from that state. A Set-Cookie aligns the
            live dotted variant to disk; convergence and a later rotation then
            retain the authoritative bare-row identity without re-clobbering.
         """
@@ -1596,10 +1595,10 @@ class TestCASVariantAware:
             assert core._collaborators.cookie_persistence.loaded_cookie_snapshot is not None
             assert (
                 core._collaborators.cookie_persistence.loaded_cookie_snapshot[bare_key].value
-                == "SIBLING"
+                == "OLD"
             ), (
-                "Direct client open must derive its typed baseline from the "
-                "current disk sample, not the stale compatibility snapshot"
+                "Direct client open must preserve the load-time baseline from "
+                "which its live jar was derived"
             )
             assert dotted_key not in (core._collaborators.cookie_persistence.loaded_cookie_snapshot)
 

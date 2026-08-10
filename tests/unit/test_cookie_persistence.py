@@ -87,6 +87,35 @@ def test_client_core_exposes_cookie_persistence(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_direct_client_preserves_auth_baseline_across_pre_open_sibling_write(
+    tmp_path: Path,
+) -> None:
+    """The supported loaded-AuthTokens -> client path keeps load provenance."""
+    path = tmp_path / "storage_state.json"
+    _write_storage(
+        path,
+        [_stored_cookie("SID", "old"), _stored_cookie("__Secure-1PSIDTS", "psidts")],
+    )
+    with pytest.warns(DeprecationWarning):
+        auth = _auth_tokens(path)
+    auth.cookie_snapshot = snapshot_cookie_jar(_jar(sid="old"))
+    core = build_client_shell_for_tests(auth)
+    persistence = core._collaborators.cookie_persistence
+
+    # A sibling advances disk after auth loaded but before this client opens.
+    _write_storage(
+        path,
+        [_stored_cookie("SID", "sibling"), _stored_cookie("__Secure-1PSIDTS", "psidts")],
+    )
+    await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
+    await persistence._save_canonical(_jar(sid="old"), path, to_thread=_inline_to_thread)
+
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    values = {row["name"]: row["value"] for row in stored["cookies"]}
+    assert values["SID"] == "sibling"
+
+
+@pytest.mark.asyncio
 async def test_client_core_save_cookies_routes_through_injected_seam_and_to_thread(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

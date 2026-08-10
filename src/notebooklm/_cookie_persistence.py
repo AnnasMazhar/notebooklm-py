@@ -17,7 +17,7 @@ import httpx
 
 from ._auth import storage as _auth_storage
 from ._auth.cookie_policy import RequiredCookieValidationError
-from ._auth.cookie_types import CookieJar
+from ._auth.cookie_types import Cookie, CookieJar
 from ._auth.cookies import StorageStateValidationError, _load_cookie_pair_pure
 from ._auth.profile_store import ProfileStore
 from ._auth.storage import (
@@ -93,6 +93,22 @@ def _snapshot_from_typed(jar: CookieJar) -> CookieSnapshot:
         )
         for cookie in jar
     }
+
+
+def _typed_from_snapshot(snapshot: CookieSnapshot) -> CookieJar:
+    """Restore the typed load-time baseline carried by ``AuthTokens``."""
+    return CookieJar(
+        Cookie(
+            name=key.name,
+            domain=key.domain,
+            path=key.path,
+            value=value.value,
+            expires=value.expires,
+            secure=value.secure,
+            http_only=value.http_only,
+        )
+        for key, value in snapshot.items()
+    )
 
 
 class _LegacySnapshotAdapter:
@@ -225,6 +241,7 @@ class CookiePersistence:
         store: ProfileStore | None,
         *,
         save_lock: threading.Lock | None = None,
+        initial_snapshot: CookieSnapshot | None = None,
     ) -> CookiePersistence:
         if store is not None and not isinstance(store, ProfileStore):
             raise TypeError("store must be a ProfileStore or None")
@@ -235,8 +252,13 @@ class CookiePersistence:
             adapter=_LegacySnapshotAdapter(
                 store.ordering_key if store is not None else None,
                 auth=None,
+                initial=initial_snapshot,
             ),
         )
+        if store is not None and initial_snapshot is not None:
+            instance._states[store.ordering_key] = _PathSaveState(
+                baseline=ReadyBaseline(_typed_from_snapshot(initial_snapshot))
+            )
         return instance
 
     def _initialize(

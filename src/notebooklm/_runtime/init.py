@@ -348,11 +348,13 @@ def build_collaborators(
         cookie_saver=cookie_saver,
         cookie_rotator=cookie_rotator,
     )
-    # Owns the in-process save lock and typed per-profile baselines. The raw
-    # auth provenance is retained here; lifecycle supplies constructor-path
-    # precedence separately when it prepares the effective open target.
+    # Owns the in-process save lock and typed per-profile baselines. Preserve
+    # only the load-time snapshot, not the AuthTokens capability: re-reading a
+    # newer file at open would make the older live jar overwrite a sibling
+    # writer's intervening cookie update during the eventual three-way merge.
     cookie_persistence = CookiePersistence._from_store(
-        ProfileStore(auth.storage_path) if auth.storage_path is not None else None
+        ProfileStore(auth.storage_path) if auth.storage_path is not None else None,
+        initial_snapshot=auth.cookie_snapshot,
     )
 
     return RuntimeCollaborators(
