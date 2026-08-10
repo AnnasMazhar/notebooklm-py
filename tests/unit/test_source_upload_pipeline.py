@@ -639,7 +639,16 @@ async def test_add_file_does_not_wrap_cancellation_after_registration(
     with pytest.raises(asyncio.CancelledError) as exc_info:
         await service.add_file("nb_123", file_path)
 
-    assert exc_info.value is cancelled
+    # The contract is that cancellation stays cancellation — ``except Exception``
+    # in the partial-upload wrap must not see it (``CancelledError`` is a
+    # ``BaseException``). Asserted by type, not identity: on the ``upload`` leg the
+    # cancellation crosses ``asyncio.shield(finalize_task)``, and on Python 3.10
+    # ``Task.__wakeup`` re-raises a FRESH ``CancelledError`` rather than
+    # propagating the instance the test constructed (3.11+ preserves it). Identity
+    # would pin an interpreter detail; not-wrapped is the behaviour we care about.
+    assert not isinstance(exc_info.value, SourceAddPartialError)
+    if cancel_stage == "start":
+        assert exc_info.value is cancelled
     assert opened_files and opened_files[0].closed
 
 
