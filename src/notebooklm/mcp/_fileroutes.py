@@ -690,12 +690,21 @@ def register_file_routes(mcp: FastMCP, config: FileTransferConfig) -> None:
                     # The row is registered but the upload did not finish. This is a
                     # SourceAddError, NOT a ValidationError, so without this clause it
                     # would fall to the NotebookLMError handler below and claim "your
-                    # file uploaded" — false for ``start_session``, where no bytes were
-                    # ever sent. Keep the precise wording for a rejected file, and let
-                    # ``stage`` pick the note otherwise.
+                    # file uploaded" — false whenever no bytes left the client.
+                    #
+                    # Every branch here names the retained ``source_id``: it is the whole
+                    # point of the exception, a retry registers ANOTHER row, and this
+                    # route is the one surface whose caller is a browser with no other
+                    # way to find it.
+                    #
+                    # The note deliberately does NOT claim bytes were sent. ``stage``
+                    # advances to ``upload_finalize`` BEFORE ``upload_file_streaming``
+                    # runs, so it also covers a connect failure that never sent a body —
+                    # inferring transfer from the stage would be a guess.
+                    retained = f"Registered source {exc.source_id} was left behind; delete it to retry cleanly."
                     if isinstance(exc.cause, ValidationError):
                         return PlainTextResponse(
-                            f"Upload rejected: {redact(str(exc.cause))}",
+                            f"Upload rejected: {redact(str(exc.cause))}\n{retained}",
                             status_code=400,
                             headers={
                                 "Cache-Control": "no-store",
@@ -703,14 +712,9 @@ def register_file_routes(mcp: FastMCP, config: FileTransferConfig) -> None:
                                 **_CORS_ORIGIN,
                             },
                         )
-                    sent = exc.stage == "upload_finalize"
                     return _upstream_error_response(
                         exc,
-                        note=(
-                            "Your file was uploaded but not finished (a retry re-uploads it)."
-                            if sent
-                            else "Your file was not uploaded (the upload session never started)."
-                        ),
+                        note=f"The upload did not complete ({exc.stage}). {retained}",
                     )
                 except ValidationError as exc:
                     # ValidationError ⊂ NotebookLMError, so this MUST precede the

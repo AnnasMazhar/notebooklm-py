@@ -59,12 +59,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SourceAddPartialError`, which is a **sibling** of them rather than a subclass,
   so an existing `except AuthError:` / `except ValidationError:` around
   `add_file()` stops matching. The original is available as both `.cause` and
-  `__cause__`, and the wrapper adds the `source_id` / `stage` needed to reconcile
-  the row the failure left behind. `except SourceAddError:` and
-  `except NotebookLMError:` are unaffected. Adapter behaviour is unchanged: the
-  CLI, MCP, and REST surfaces re-derive their category from `.cause`, so an
-  auth failure still projects as auth and a dropped connection still projects as
-  a retryable server error rather than a 4xx input rejection
+  `__cause__` (see the note below), and the wrapper adds the `source_id` /
+  `stage` needed to reconcile the row the failure left behind.
+  `except SourceAddError:` and `except NotebookLMError:` are unaffected.
+  Adapter behaviour is unchanged, by two different mechanisms: the MCP and REST
+  surfaces re-derive their category from `.cause` via `_app.errors.classify()`,
+  and the CLI — which dispatches on exception type and never calls `classify()`
+  — re-raises the typed cause so its re-auth / retry / `retry_after` guidance
+  still fires, with the retained source id folded into the message. So an auth
+  failure still projects as auth and a dropped connection still projects as a
+  retryable failure rather than a 4xx input rejection. One caveat on chaining: a
+  raw `httpx.RequestError` is normalised to `NetworkError` first, so for that
+  case `.cause` is the `NetworkError` (carrying the httpx exception on
+  `.original_error`) while `__cause__` is the raw httpx error
   ([#2138](https://github.com/teng-lin/notebooklm-py/issues/2138)).
 - **First-party profile replacements now use native typed results.** Browser capture consumes
   `ProfileStore.replace_from_remint()` directly, while cookie import/login/refresh use a narrow

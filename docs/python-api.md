@@ -479,12 +479,22 @@ except NonIdempotentRetryError:
 **Partial file uploads.** File registration creates the source row before the
 resumable HTTP upload starts. If session setup or the combined upload/finalize
 request then fails, `add_file` raises `SourceAddPartialError`, a
-`SourceAddError` subclass. The exception exposes the retained `source_id`, a
-`stage` of `"start_session"` or `"upload_finalize"`, and the original exception
-as both `cause` and `__cause__`. The client never deletes the row automatically:
-inspect it or remove it explicitly with `client.sources.delete(notebook_id,
-error.source_id)`. Cancellation still propagates as `CancelledError` rather than
-being converted into this exception.
+`SourceAddError` subclass. The exception exposes the retained `source_id` and a
+`stage` of `"start_session"` or `"upload_finalize"`. The client never deletes the
+row automatically: inspect it or remove it explicitly with
+`client.sources.delete(notebook_id, error.source_id)`. Cancellation still
+propagates as `CancelledError` rather than being converted into this exception.
+
+Note `stage` says **where** the failure happened, not whether any bytes were
+sent: it advances to `"upload_finalize"` before the body request is issued, so a
+connection that drops before the first byte still reports that stage.
+
+**`cause` vs `__cause__`.** For most failures these are the same object. A raw
+transport failure is the exception: an `httpx.RequestError` is normalised to a
+library `NetworkError` first, so `cause` is that `NetworkError` (with the httpx
+exception on its `original_error`) while `__cause__` stays the raw
+`httpx.RequestError`. Branch on `cause` — it is always a `notebooklm` exception,
+which is what makes the category reliable.
 
 ```python
 from notebooklm import SourceAddPartialError

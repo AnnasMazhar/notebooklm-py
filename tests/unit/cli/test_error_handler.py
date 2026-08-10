@@ -26,6 +26,7 @@ from notebooklm.exceptions import (
     NotFoundError,
     RateLimitError,
     RPCError,
+    SourceAddPartialError,
     SourceNotFoundError,
     ValidationError,
 )
@@ -115,6 +116,46 @@ class TestHandleErrorsJsonOutput:
         assert data["error"] is True
         assert data["code"] == "RATE_LIMITED"
         assert "retry_after" not in data
+
+    @pytest.mark.parametrize(
+        ("cause", "expected_code"),
+        [
+            (RateLimitError("Too many requests", retry_after=30), "RATE_LIMITED"),
+            (AuthError("Session expired"), "AUTH_ERROR"),
+            (NetworkError("Connection reset"), "NETWORK_ERROR"),
+            (ValidationError("File type rejected"), "VALIDATION_ERROR"),
+        ],
+    )
+    def test_partial_upload_error_keeps_its_cause_category(self, capsys, cause, expected_code):
+        """A partial upload must not flatten to NOTEBOOKLM_ERROR.
+
+        ``SourceAddPartialError`` is a *sibling* of these classes, not a subclass, and
+        this handler dispatches on type rather than through ``classify()`` — so without
+        the re-dispatch every ``source add`` upload failure would lose its category and,
+        with it, the re-auth hint / retry hint / ``retry_after`` field.
+        """
+        with pytest.raises(SystemExit), handle_errors(json_output=True):
+            raise SourceAddPartialError(
+                "report.pdf", source_id="src_123", stage="upload_finalize", cause=cause
+            )
+
+        data = json.loads(capsys.readouterr().out)
+        assert data["code"] == expected_code
+        assert data["code"] != "NOTEBOOKLM_ERROR"
+
+    def test_partial_upload_error_preserves_retry_after(self, capsys):
+        """The cause-specific extras survive the re-dispatch, not just the code."""
+        with pytest.raises(SystemExit), handle_errors(json_output=True):
+            raise SourceAddPartialError(
+                "report.pdf",
+                source_id="src_123",
+                stage="start_session",
+                cause=RateLimitError("Too many requests", retry_after=30),
+            )
+
+        data = json.loads(capsys.readouterr().out)
+        assert data["code"] == "RATE_LIMITED"
+        assert data["retry_after"] == 30
 
     def test_rpc_error_verbose_includes_method_id(self, capsys):
         """RPCError with verbose=True should include method_id in JSON."""

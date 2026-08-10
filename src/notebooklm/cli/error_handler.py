@@ -23,6 +23,7 @@ from ..exceptions import (
     NotFoundError,
     RateLimitError,
     RPCError,
+    SourceAddPartialError,
     ValidationError,
 )
 from ._encoding import safe_echo
@@ -228,7 +229,23 @@ def handle_errors(verbose: bool = False, json_output: bool = False) -> Generator
                 # ... command logic ...
     """
     try:
-        yield
+        try:
+            yield
+        except SourceAddPartialError as e:
+            # This handler dispatches on exception TYPE and never calls
+            # ``_app.errors.classify()``, so a ``SourceAddPartialError`` — a SIBLING
+            # of AuthError / RateLimitError / NetworkError / ValidationError, not a
+            # subclass — would skip every typed branch below and land in the generic
+            # ``NotebookLMError`` one, losing the re-auth hint, the retry hint, and
+            # the ``retry_after`` field for `source add`. Re-raise the typed cause so
+            # the branches below classify it as they always did. The retained
+            # ``source_id`` stays on the original exception for API callers (and is
+            # reported by the MCP / REST surfaces); it is deliberately NOT smuggled
+            # into the message here, because several branches build their text from a
+            # literal rather than from ``str(e)`` and would silently drop it.
+            if e.cause is None:
+                raise
+            raise e.cause from e
     except KeyboardInterrupt:
         if json_output:
             _output_error("Cancelled by user", "CANCELLED", True, 130)

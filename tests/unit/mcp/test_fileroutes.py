@@ -1146,8 +1146,11 @@ def test_upload_partial_error_does_not_claim_bytes_were_sent(
     url = config.upload_url({"op": "ul", "nb": NB})
     with starlette_testclient.TestClient(app) as client:
         resp = client.post(_path(url) + "?filename=a.pdf", content=b"DATA")
-    assert "was not uploaded" in resp.text
-    assert "Your file uploaded" not in resp.text
+    assert "did not complete" in resp.text
+    # Never claim bytes were transferred: the stage cannot prove it either way.
+    assert "uploaded" not in resp.text
+    # The retained row is named — a retry would otherwise register another orphan.
+    assert "src_1" in resp.text
 
 
 def test_upload_partial_error_from_a_rejected_file_keeps_the_400_wording(
@@ -1173,6 +1176,9 @@ def test_upload_partial_error_from_a_rejected_file_keeps_the_400_wording(
     assert resp.status_code == 400
     assert "Upload rejected:" in resp.text
     assert "secretuser" not in resp.text  # the redaction still applies to the cause
+    # The rejection path must ALSO name the retained row: it is the likeliest way
+    # to reach this state (#2138's own evidence is an HTTP-400 file rejection).
+    assert "src_1" in resp.text
 
 
 def test_file_route_status_table_covers_every_error_category() -> None:
