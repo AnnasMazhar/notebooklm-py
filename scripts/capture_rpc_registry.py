@@ -682,6 +682,8 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    if args.outcome_file is not None:
+        args.outcome_file.unlink(missing_ok=True)
 
     types_text = args.types.read_text(encoding="utf-8")
     ours = parse_ids_from_text(types_text)

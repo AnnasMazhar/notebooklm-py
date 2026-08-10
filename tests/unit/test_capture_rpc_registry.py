@@ -125,6 +125,23 @@ def test_main_bundle_file_mode(tmp_path: Path, capsys: pytest.CaptureFixture[str
     assert outcome.read_text(encoding="utf-8") == "drift\n"
 
 
+def test_main_clears_stale_outcome_before_unclassified_startup_failure(tmp_path: Path) -> None:
+    outcome = tmp_path / "outcome.txt"
+    outcome.write_text("drift\n", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError):
+        main(
+            [
+                "--types",
+                str(tmp_path / "missing-types.py"),
+                "--outcome-file",
+                str(outcome),
+            ]
+        )
+
+    assert not outcome.exists()
+
+
 def test_main_reports_bundle_auth_failure_without_drift(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
