@@ -4,8 +4,8 @@
 relocated from ``cli/services/auth_refresh.py`` into
 ``notebooklm._auth.master_token`` (``bootstrap_storage_from_master_token``,
 returning a four-state ``BootstrapOutcome`` rather than a bare bool). The CLI
-module (``auth_refresh_service`` below) is now a thin call that maps the
-outcome back onto the boolean ``cli/playwright_login_io.py`` has always used.
+The coarse app operation preserves that boolean adapter, and the CLI service
+(``auth_refresh_service`` below) is now its pure re-export.
 These tests therefore patch
 ``MasterTokenBootstrapper.remint_from_stored_token`` (the coordinator method
 the bootstrap transaction calls to do its actual mint) rather than either the
@@ -32,6 +32,9 @@ from filelock import FileLock
 
 import notebooklm.auth as auth_module
 import notebooklm.cli.services.auth_refresh as auth_refresh_service
+from notebooklm._app.master_token import (
+    bootstrap_missing_storage_from_master_token as app_bootstrap_missing_storage,
+)
 from notebooklm._auth import master_token as mt
 from notebooklm._auth.master_token_bootstrap import MasterTokenBootstrapper
 from notebooklm._auth.paths import _storage_state_lock_path
@@ -88,6 +91,10 @@ def _patch_remint(effect):
 def test_missing_storage_bootstraps_once_without_ordinary_recovery(
     tmp_path, extra_args, verified, expects_verified_line
 ):
+    assert (
+        auth_refresh_service.bootstrap_missing_storage_from_master_token
+        is app_bootstrap_missing_storage
+    )
     storage, _token = _cold_profile(tmp_path)
     mint = _minting_mock(storage)
     ordinary = AsyncMock()
