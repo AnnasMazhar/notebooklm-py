@@ -65,6 +65,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Deep-research sources expose observed citation ordinals.**
+  `ResearchSource.citation_number` and its serializers preserve integer
+  `src[8]` values from kind-`1` web-source rows, allowing callers to align
+  those sources with report `[cite: N]` markers
+  ([#2141](https://github.com/teng-lin/notebooklm-py/issues/2141)).
 - **Mid-session `NOTEBOOKLM_REFRESH_CMD` (opt-in for one release).** The external
   refresh command (the L2.5 rung of the unified recovery ladder) previously fired
   only at cold start; it can now also run **mid-session** — e.g. inside a

@@ -2170,8 +2170,9 @@ await rpc_call(
 #  [report_markdown, 3, None, None, None, structured_document]]
 #
 # Deep research web source content blocks use kind 1 or 2 and carry their
-# snippet at position 2; they are not report rows. Cited web-source rows carry
-# the report's 1-based [cite: N] citation_number at source position 8.
+# snippet at position 2; they are not report rows. In the observed deep payload,
+# kind-1 web-source rows carry an integer citation ordinal at source position 8;
+# those ordinals align with the report's [cite: N] markers.
 #
 # Compatibility shape accepted by the parser (not seen in captures):
 # [None, [title, report_markdown], None, type, ...]
