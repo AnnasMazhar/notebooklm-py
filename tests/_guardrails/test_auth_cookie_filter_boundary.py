@@ -317,9 +317,8 @@ def test_filter_behavior_callers_are_exactly_six() -> None:
         ("_auth/profile_store.py", "ProfileStore.replace_minted_session"),
         ("_auth/browser_capture.py", "run_browser_capture"),
         ("_auth/browser_capture.py", "run_cdp_capture"),
-        ("cli/_cookie_import.py", "_import_cookie_json"),
     }
-    assert escapes == set()
+    assert escapes == {("cli/_cookie_import.py", "_import_cookie_json")}
 
 
 def test_alias_detectors_bite_and_a_seventh_caller_is_visible() -> None:

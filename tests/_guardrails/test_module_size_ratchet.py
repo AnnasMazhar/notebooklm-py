@@ -560,3 +560,25 @@ def test_phase_11d_bootstrap_extraction_modules_are_measured_exactly() -> None:
         "_auth/master_token_bootstrap.py": 366,
         "_auth/storage.py": 1115,
     }
+
+
+def test_phase_13_caller_cleanup_modules_are_measured_exactly() -> None:
+    measured = _measure_all()
+    expected = {
+        "_app/login_cookie.py": 533,
+        "_app/master_token.py": 216,
+        "_app/profile.py": 355,
+        "cli/_cookie_import.py": 153,
+        "cli/master_token_login.py": 101,
+        "cli/playwright_login_io.py": 254,
+        "cli/profile_cmd.py": 436,
+        "cli/services/auth_refresh.py": 21,
+        "cli/services/login/browser_accounts.py": 365,
+        "cli/services/login/chromium_accounts.py": 266,
+        "cli/services/login/cookie_domains.py": 155,
+        "cli/services/login/cookie_jar.py": 244,
+        "cli/services/login/master_token.py": 152,
+        "cli/services/login/profile_targets.py": 150,
+        "cli/services/playwright_login.py": 539,
+    }
+    assert {path: measured[path] for path in expected} == expected
