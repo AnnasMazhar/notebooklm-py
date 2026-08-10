@@ -1001,6 +1001,13 @@ and commit. Inline env auth performs no store work. Only the private
 `refresh.save_cookies_to_storage` alias was retired; the public saver, storage/auth facades,
 permanent no-baseline overlay, and client/runtime saver-injection seams remain compatible.
 
+The v0.x `AuthTokens` value and signatures also remain compatible, but two storage-owning entry
+points now have an explicit v1 runway. Awaiting `AuthTokens.from_storage(...)` and constructing
+`AuthTokens(..., storage_path=..., cookie_jar=None)` emit `DeprecationWarning` from the user's call
+site. The recommended owner is `async with NotebookLMClient.from_storage(...) as client:` with
+`client.auth` used only inside that managed lifecycle. Suppress temporarily with
+`NOTEBOOKLM_QUIET_DEPRECATIONS=1`; both compatibility paths are scheduled for removal in v1.0.
+
 ### 6.3 `NOTEBOOKLM_HEADLESS_REAUTH=1` and `NOTEBOOKLM_HEADLESS_REAUTH_CDP_URL` (L3)
 
 Opt into automatic L3 headless re-auth during mid-RPC refresh (explicit

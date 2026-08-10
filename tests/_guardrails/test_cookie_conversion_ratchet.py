@@ -66,11 +66,10 @@ _GRANDFATHERED: dict[tuple[str, str], int] = {
     # into a single CookieJar and these become jar methods.
     ("_auth/tokens.py", "normalize_cookie_map"): 1,
     ("_auth/tokens.py", "flatten_cookie_map"): 1,
-    # The CLI browser-extraction probe path. Its converter choice is pinned
-    # to the routability predicates by design (see the module docstring in
-    # _auth/psidts_recovery.py), so it moves only with Stage 5's mode split.
-    ("cli/services/login/cookie_jar.py", "convert_rookiepy_cookies_to_storage_state"): 1,
-    ("cli/services/login/cookie_jar.py", "extract_cookies_with_domains"): 1,
+    # The coarse login-cookie application operation preserves the legacy
+    # converter choice while removing that policy assembly from the CLI.
+    ("_app/login_cookie.py", "convert_rookiepy_cookies_to_storage_state"): 1,
+    ("_app/login_cookie.py", "extract_cookies_with_domains"): 1,
 }
 
 

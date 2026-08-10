@@ -11,6 +11,7 @@ from typing import Any, Protocol, TypeAlias, cast
 
 import httpx
 
+from .._deprecation import warn_registered_deprecation
 from . import account as _auth_account
 from . import cookies as _auth_cookies
 from . import psidts_recovery as _auth_psidts_recovery
@@ -163,12 +164,14 @@ class AuthTokens:
            ``build_httpx_cookies_from_storage``, which performs a SYNCHRONOUS
            inline ``__Secure-1PSIDTS`` recovery POST + disk write. ``__post_init__``
            is sync and cannot offload, so doing this on a running event loop
-           reintroduces the HIGH#2 freeze. Prefer :meth:`from_storage` (which
-           offloads the loader via ``asyncio.to_thread``); pass a pre-built
-           ``cookie_jar`` when you must construct ``AuthTokens`` on the loop.
+           reintroduces the HIGH#2 freeze. Prefer
+           ``NotebookLMClient.from_storage(...)``; pass a pre-built ``cookie_jar``
+           when you must construct ``AuthTokens`` on the loop.
         """
         self.cookies = _auth_cookies.normalize_cookie_map(self.cookies)
         if self.cookie_jar is None:
+            if self.storage_path is not None:
+                warn_registered_deprecation("auth_tokens_sync_storage_construction")
             self.cookie_jar = _auth_cookies.build_cookie_jar(
                 cookies=self.cookies,
                 storage_path=self.storage_path,
@@ -368,8 +371,9 @@ class AuthTokens:
     ) -> AuthTokens:
         """Create AuthTokens from Playwright storage state file.
 
-        This is the recommended way to create AuthTokens for programmatic use.
-        It loads cookies from storage and fetches CSRF/session tokens automatically.
+        Compatibility loader for callers that still need a standalone token object.
+        Prefer ``NotebookLMClient.from_storage(...)`` and access ``client.auth``
+        within the managed client lifecycle.
 
         Args:
             path: Path to storage_state.json. If provided, takes precedence over profile.
@@ -388,13 +392,14 @@ class AuthTokens:
             httpx.HTTPError: If token fetch request fails
 
         Example:
-            auth = await AuthTokens.from_storage()
-            async with NotebookLMClient(auth) as client:
+            async with NotebookLMClient.from_storage() as client:
                 notebooks = await client.list_notebooks()
 
             # Load from a specific profile
-            auth = await AuthTokens.from_storage(profile="work")
+            async with NotebookLMClient.from_storage(profile="work") as client:
+                notebooks = await client.list_notebooks()
         """
+        warn_registered_deprecation("auth_tokens_from_storage")
         loaded = await _load_stored_auth(
             path=path,
             profile=profile,

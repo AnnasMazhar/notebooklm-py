@@ -57,7 +57,7 @@ def _coerce_cookie_json_to_storage_state(payload: Any) -> dict[str, Any]:
     try:
         result = normalize_cookie_payload(payload)
         if isinstance(result, CookieImportFailure):
-            raise click.ClickException(result.message) from None
+            raise click.ClickException(result.message) from None  # cli-input-validation: payload
         return result
     finally:
         del payload, result
@@ -69,7 +69,7 @@ def _normalize_imported_cookie(cookie: Any) -> dict[str, Any]:
     try:
         result = normalize_cookie_payload([cookie])
         if isinstance(result, CookieImportFailure):
-            raise click.ClickException(result.message) from None
+            raise click.ClickException(result.message) from None  # cli-input-validation: record
         return result["cookies"][0]
     finally:
         del cookie, result
@@ -146,7 +146,7 @@ def _import_cookie_json(
             replace_from_login=replace_from_login,
         )
         if isinstance(result, CookieImportFailure):
-            raise click.ClickException(result.message) from None
+            raise click.ClickException(result.message) from None  # cli-input-validation: policy
         assert isinstance(result, CookieImportSuccess)
         return result.storage_state, result.backup_path
     finally:

@@ -838,7 +838,7 @@
       "path": "src/notebooklm/_auth/storage_writer.py"
     },
     {
-      "lines": 816,
+      "lines": 821,
       "name": "tokens",
       "path": "src/notebooklm/_auth/tokens.py"
     }
@@ -851,7 +851,7 @@
     "function_local_edges": 11,
     "module_edges": 117,
     "modules": 40,
-    "total_lines": 15237,
+    "total_lines": 15242,
     "unique_edges": 128
   },
   "version": 1

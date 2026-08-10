@@ -1033,7 +1033,7 @@ async def fetch_tokens(
 ) -> tuple[str, str]:
     """Fetch tokens from a cookie mapping. For backward compatibility.
 
-    Prefer AuthTokens.from_storage() which preserves cookie domains. If
+    Prefer NotebookLMClient.from_storage(), which preserves cookie domains. If
     ``NOTEBOOKLM_REFRESH_CMD`` is set and auth has expired, the command is run
     with ``shell=False`` by default (or via the platform shell when
     ``NOTEBOOKLM_REFRESH_CMD_USE_SHELL=1``), cookies are reloaded from

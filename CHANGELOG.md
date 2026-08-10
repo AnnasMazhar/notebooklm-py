@@ -219,6 +219,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 
+- **`AuthTokens.from_storage(...)` is deprecated in favor of the managed client
+  lifecycle.** It remains available throughout v0.x, but now emits
+  `DeprecationWarning` and is scheduled for removal in v1.0. Migrate to
+  `async with NotebookLMClient.from_storage(...) as client:` and use
+  `client.auth` while the client is open.
+- **Implicit synchronous storage loading during `AuthTokens` construction is
+  deprecated.** `AuthTokens(..., storage_path=..., cookie_jar=None)` still
+  builds its cookie jar for v0.x compatibility, but now emits
+  `DeprecationWarning` and is scheduled for removal in v1.0. Prefer the managed
+  client lifecycle above; callers constructing tokens directly should supply
+  `cookie_jar=` explicitly. Set `NOTEBOOKLM_QUIET_DEPRECATIONS=1` to suppress
+  either warning temporarily while migrating.
 - **The pre-profiles home-root layout** (`~/.notebooklm/storage_state.json` /
   `context.json` / `browser_profile/` read directly, outside `profiles/<name>/`)
   now emits a `DeprecationWarning` on each read. It is reached only when the
@@ -794,8 +806,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   domains only under `NOTEBOOKLM_AUTH_JSON`, where there is no storage file to
   rebuild the jar from; the drift monitor lost them unconditionally, because a
   plain mapping handed to `httpx.get(cookies=...)` carries no domain at all.
-  Both now use the domain-preserving loaders the CLI already used
-  (`AuthTokens.from_storage()` / `build_httpx_cookies_from_storage()`), and a
+  Both now use the domain-preserving stored-auth and cookie-jar loaders shared
+  by the managed client lifecycle and CLI, and a
   unit guardrail pins — for both the env-var and the profile-file
   configuration — that the jar mirrors the `storage_state` domains, that a
   host-scoped cookie value never reaches a host it was not scoped to, and that

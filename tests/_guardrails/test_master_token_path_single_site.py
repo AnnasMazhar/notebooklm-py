@@ -45,13 +45,13 @@ PATHS_MODULE = SRC_ROOT / "paths.py"
 MASTER_TOKEN_FILENAME = "master_token.json"
 _CANONICAL_PATH_MODULE = "notebooklm.paths"
 _EXPECTED_CALLERS = {
-    "_app/auth_check.py:_master_token_status",
+    "_app/master_token.py:bootstrap_login",
+    "_app/master_token.py:inspect_master_token_status",
     "_auth/master_token_bootstrap.py:MasterTokenBootstrapper.bootstrap_from_oauth_token",
     "_auth/master_token_bootstrap.py:MasterTokenBootstrapper.bootstrap_storage",
     "_auth/master_token_bootstrap.py:MasterTokenBootstrapper.remint_from_stored_token",
     "_auth/profile_store.py:ProfileStore.read_master_token",
     "_auth/profile_store.py:ProfileStore.write_master_token",
-    "cli/master_token_login.py:run_master_token_login",
     "paths.py:get_master_token_path",
     "_auth/recovery.py:_try_master_token_reauth_result",
 }

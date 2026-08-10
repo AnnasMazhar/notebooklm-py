@@ -1040,11 +1040,6 @@ def test_all_remaining_facade_inventory_callables_are_exact_identity_reexports()
 
 
 EXPECTED_DIRECT_CALLERS = {
-    "Account": [
-        "src/notebooklm/cli/services/login/browser_accounts.py",
-        "src/notebooklm/cli/services/login/chromium_accounts.py",
-        "src/notebooklm/cli/services/login/cookie_jar.py",
-    ],
     "AccountRecord": [
         "src/notebooklm/cli/services/login/cookie_writes.py",
         "src/notebooklm/cli/services/login/refresh.py",
@@ -1063,34 +1058,17 @@ EXPECTED_DIRECT_CALLERS = {
         "src/notebooklm/client.py",
     ],
     "CLEAR_ACCOUNT": ["src/notebooklm/cli/services/login/refresh.py"],
-    "GOOGLE_REGIONAL_CCTLDS": ["src/notebooklm/cli/services/login/cookie_domains.py"],
     "MasterTokenError": [
-        "src/notebooklm/cli/master_token_login.py",
-        "src/notebooklm/cli/services/login/master_token.py",
+        "src/notebooklm/_app/master_token.py",
         "src/notebooklm/cli/session_cmd.py",
     ],
-    "OPTIONAL_COOKIE_DOMAINS_BY_LABEL": ["src/notebooklm/cli/services/login/cookie_domains.py"],
-    "REQUIRED_COOKIE_DOMAINS": ["src/notebooklm/cli/services/login/cookie_domains.py"],
-    "assert_account_writable": ["src/notebooklm/cli/master_token_login.py"],
-    "bootstrap_missing_storage_from_master_token": ["src/notebooklm/cli/services/auth_refresh.py"],
-    "build_cookie_jar": [
-        "src/notebooklm/_kernel.py",
-        "src/notebooklm/cli/services/login/cookie_jar.py",
-    ],
+    "build_cookie_jar": ["src/notebooklm/_kernel.py"],
     "build_httpx_cookies_from_storage": ["src/notebooklm/cli/auth_runtime.py"],
-    "convert_rookiepy_cookies_to_storage_state": [
-        "src/notebooklm/cli/services/login/cookie_jar.py"
-    ],
     "cookie_names_from_storage": [
         "src/notebooklm/_app/doctor.py",
-        "src/notebooklm/cli/_cookie_import.py",
-        "src/notebooklm/cli/services/login/cookie_jar.py",
         "src/notebooklm/cli/services/login/cookie_writes.py",
         "src/notebooklm/cli/services/login/refresh.py",
     ],
-    "enumerate_accounts": ["src/notebooklm/cli/services/login/cookie_jar.py"],
-    "extract_cookies_from_storage": ["src/notebooklm/cli/_cookie_import.py"],
-    "extract_cookies_with_domains": ["src/notebooklm/cli/services/login/cookie_jar.py"],
     "fetch_tokens_passive": [
         "src/notebooklm/_app/auth_check.py",
         "src/notebooklm/cli/playwright_login_io.py",
@@ -1103,27 +1081,15 @@ EXPECTED_DIRECT_CALLERS = {
         "src/notebooklm/cli/services/login/refresh.py",
         "src/notebooklm/cli/session_cmd.py",
     ],
-    "master_token_bootstrap": ["src/notebooklm/cli/master_token_login.py"],
-    "master_token_remint": ["src/notebooklm/cli/master_token_login.py"],
     "missing_cookies_hint": [
-        "src/notebooklm/cli/_cookie_import.py",
-        "src/notebooklm/cli/services/login/cookie_jar.py",
         "src/notebooklm/cli/services/login/cookie_writes.py",
         "src/notebooklm/cli/services/login/refresh.py",
     ],
     "read_account_metadata": [
-        "src/notebooklm/cli/playwright_login_io.py",
-        "src/notebooklm/cli/profile_cmd.py",
-        "src/notebooklm/cli/services/login/profile_targets.py",
+        "src/notebooklm/_app/profile.py",
         "src/notebooklm/cli/services/login/refresh.py",
     ],
-    "read_master_token": [
-        "src/notebooklm/_app/auth_check.py",
-        "src/notebooklm/cli/master_token_login.py",
-    ],
-    "repair_account_metadata_from_playwright_storage": [
-        "src/notebooklm/cli/services/playwright_login.py"
-    ],
+    "repair_account_metadata_from_playwright_storage": ["src/notebooklm/_app/profile.py"],
     "replace_from_login": [
         "src/notebooklm/cli/_cookie_import.py",
         "src/notebooklm/cli/services/login/cookie_writes.py",
@@ -1141,24 +1107,46 @@ EXPECTED_DIRECT_CALLERS = {
 }
 
 EXPECTED_ALIAS_CALLERS = {
-    "MINIMUM_REQUIRED_COOKIES": ["src/notebooklm/cli/_cookie_import.py"],
-    "_sanitize_cookie_entry": ["src/notebooklm/cli/_cookie_import.py"],
+    "Account": ["src/notebooklm/_app/login_cookie.py"],
+    "GOOGLE_REGIONAL_CCTLDS": ["src/notebooklm/_app/login_cookie.py"],
+    "LoginWriteOutcome": ["src/notebooklm/_app/login_cookie.py"],
+    "MINIMUM_REQUIRED_COOKIES": ["src/notebooklm/_app/login_cookie.py"],
+    "OPTIONAL_COOKIE_DOMAINS_BY_LABEL": ["src/notebooklm/_app/login_cookie.py"],
+    "REQUIRED_COOKIE_DOMAINS": ["src/notebooklm/_app/login_cookie.py"],
+    "_has_valid_secondary_binding": ["src/notebooklm/_app/login_cookie.py"],
+    "_sanitize_cookie_entry": ["src/notebooklm/_app/login_cookie.py"],
     "_sanitized_auth_entries": [
         "src/notebooklm/_app/auth_check.py",
-        "src/notebooklm/cli/_cookie_import.py",
+        "src/notebooklm/_app/login_cookie.py",
     ],
     "_storage_entry_to_cookie": [
         "src/notebooklm/_app/auth_check.py",
-        "src/notebooklm/cli/_cookie_import.py",
+        "src/notebooklm/_app/login_cookie.py",
     ],
-    "_validate_cookie_shape": ["src/notebooklm/cli/_cookie_import.py"],
+    "_validate_cookie_shape": ["src/notebooklm/_app/login_cookie.py"],
     "_validate_routable_entries": [
         "src/notebooklm/_app/auth_check.py",
-        "src/notebooklm/cli/_cookie_import.py",
+        "src/notebooklm/_app/login_cookie.py",
     ],
-    "build_cookie_jar": ["src/notebooklm/cli/helpers.py"],
-    "extract_cookies_from_storage": ["src/notebooklm/_app/auth_check.py"],
+    "assert_account_writable": ["src/notebooklm/_app/master_token.py"],
+    "bootstrap_missing_storage_from_master_token": ["src/notebooklm/_app/master_token.py"],
+    "build_cookie_jar": [
+        "src/notebooklm/_app/login_cookie.py",
+        "src/notebooklm/cli/helpers.py",
+    ],
+    "convert_rookiepy_cookies_to_storage_state": ["src/notebooklm/_app/login_cookie.py"],
+    "cookie_names_from_storage": ["src/notebooklm/_app/login_cookie.py"],
+    "enumerate_accounts": ["src/notebooklm/_app/login_cookie.py"],
+    "extract_cookies_from_storage": [
+        "src/notebooklm/_app/auth_check.py",
+        "src/notebooklm/_app/login_cookie.py",
+    ],
+    "extract_cookies_with_domains": ["src/notebooklm/_app/login_cookie.py"],
     "load_auth_from_storage": ["src/notebooklm/cli/helpers.py"],
+    "master_token_bootstrap": ["src/notebooklm/_app/master_token.py"],
+    "master_token_remint": ["src/notebooklm/_app/master_token.py"],
+    "missing_cookies_hint": ["src/notebooklm/_app/login_cookie.py"],
+    "read_master_token": ["src/notebooklm/_app/master_token.py"],
 }
 
 
@@ -1457,7 +1445,10 @@ class _AliasUseCollector(ast.NodeVisitor):
 
     def visit_Import(self, node: ast.Import) -> None:
         for imported in node.names:
-            self._bind(imported.asname or imported.name.split(".")[0], False)
+            self._bind(
+                imported.asname or imported.name.split(".")[0],
+                imported.name == "notebooklm.auth" and imported.asname is not None,
+            )
             snapshot = self._snapshot_bindings()
             for sink in self._exception_sinks:
                 sink.append(snapshot[: len(sink[0])])
@@ -2131,12 +2122,12 @@ def test_first_party_facade_callers_are_frozen_in_both_import_idioms() -> None:
     assert aliases == EXPECTED_ALIAS_CALLERS
     union = {(name, path) for name, paths in direct.items() for path in paths}
     union |= {(name, path) for name, paths in aliases.items() for path in paths}
-    assert len(direct) == 28
-    assert sum(map(len, direct.values())) == 66
-    assert len(aliases) == 9
-    assert sum(map(len, aliases.values())) == 12
-    assert len({name for name, _path in union}) == 35
-    assert len(union) == 78
+    assert len(direct) == 15
+    assert sum(map(len, direct.values())) == 42
+    assert len(aliases) == 25
+    assert sum(map(len, aliases.values())) == 30
+    assert len({name for name, _path in union}) == 37
+    assert len(union) == 72
 
 
 def test_facade_caller_detectors_bite_on_aliases_relative_imports_and_shadowing(

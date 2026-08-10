@@ -40,7 +40,7 @@ _MODULE_HASHES = {
     "master_token_types.py": "a334509070a06f7fa2fd00ddf739a36d3bf6e324205fe8e5758012b56863c5ee",
     "psidts_recovery.py": "b8b6235966af52d3fbe89de5789942cffd21c68d280cac9bc68939ca8bc2101f",
     "recovery.py": "a18e29629b273a3a7f4ae9660d088a7717b1054659f4eed8cf9bb6a61441dd89",
-    "refresh.py": "5698277ee40210016919ff24a30b539c60f597424c3b073dd225aaa1e7cb8df1",
+    "refresh.py": "0942b3a21907e49a4d50c46aaba28e800a9a574a6b50cb4458f6ce59319a19be",
     "single_flight.py": "9c394dc83e3866b624965801d55e43e05c2b133540044021c7333970b5dbb1c3",
     "storage.py": "0dc7916fc7119b270a1ede481b4b8d95c3b0a051a2796853754bee9f18ecc5bb",
 }

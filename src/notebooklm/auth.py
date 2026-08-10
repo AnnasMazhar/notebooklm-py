@@ -12,9 +12,8 @@ This module provides authentication utilities for the NotebookLM client:
    authenticated downloads from Google content servers.
 
 Usage:
-    # Recommended: Use AuthTokens.from_storage() for full initialization
-    auth = await AuthTokens.from_storage()
-    async with NotebookLMClient(auth) as client:
+    # Recommended: use the managed storage-backed client lifecycle
+    async with NotebookLMClient.from_storage() as client:
         ...
 
     # For authenticated artifact downloads, use the client's download methods
