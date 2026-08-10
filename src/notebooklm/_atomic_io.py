@@ -251,6 +251,7 @@ def _atomic_write_json_unchecked(path: Path, data: Any, *, mode: int = 0o600) ->
         with tempfile.NamedTemporaryFile(
             "w",
             encoding="utf-8",
+            newline="\n",
             dir=path.parent,
             prefix=f".{path.name}.",
             suffix=".tmp",

@@ -306,8 +306,14 @@ class _AliasResolver:
         if scope is None:
             return {}
         active = self._effective_from(self._free_parent(scope))
-        for name in scope.lexical | set(scope.bindings):
-            active.pop(name, None)
+        # Auth aliases are deliberately sparse while a function's lexical-name
+        # set can contain hundreds of ordinary locals. Filter the small active
+        # alias map instead of rebuilding the large shadow-name union for every
+        # AST node; under coverage on Python 3.10 the latter made this audit hit
+        # pytest's 60-second timeout.
+        for name in tuple(active):
+            if name in scope.lexical or name in scope.bindings:
+                active.pop(name)
         for name, target in scope.bindings.items():
             if target is not None:
                 active[name] = target
@@ -320,6 +326,15 @@ class _AliasResolver:
         # global/nonlocal declarations affect resolution inside this scope.  The
         # overlay is intentionally local to the definition traversal: merely
         # defining an uncalled helper must not mutate later module audit state.
+        # A non-alias binding only matters when it shadows an inherited alias or
+        # replaces a prior branch binding. Omitting every other ``None`` keeps
+        # snapshots proportional to auth aliases rather than all Python locals.
+        if target is None and name not in self.scope.bindings:
+            if name in self.scope.lexical:
+                return
+            parent = self._free_parent(self.scope)
+            if parent is None or name not in self._effective_from(parent):
+                return
         self.scope.bindings[name] = target
 
     def _snapshot(self) -> dict[str, str | None]:
@@ -712,6 +727,19 @@ def _patch_idiom(call: ast.Call) -> str | None:
     return None
 
 
+def _attribute_assignment_targets(
+    node: ast.Assign | ast.AugAssign | ast.AnnAssign,
+) -> list[ast.Attribute]:
+    """Return direct attribute targets that actually rebind a value."""
+    if isinstance(node, ast.Assign):
+        targets = node.targets
+    elif isinstance(node, ast.AugAssign):
+        targets = [node.target]
+    else:
+        targets = [node.target] if node.value is not None else []
+    return [target for target in targets if isinstance(target, ast.Attribute)]
+
+
 def collect_sites(tests_dir: Path, auth_dir: Path | None = None) -> list[PatchSite]:
     """Walk ``tests_dir`` and return every resolved ``_auth`` patch site."""
     if auth_dir is None:
@@ -724,12 +752,23 @@ def collect_sites(tests_dir: Path, auth_dir: Path | None = None) -> list[PatchSi
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except (OSError, SyntaxError):
             continue
+        candidates = [
+            node
+            for node in ast.walk(tree)
+            if (
+                isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign))
+                and _attribute_assignment_targets(node)
+            )
+            or (isinstance(node, ast.Call) and _patch_idiom(node) is not None)
+        ]
+        if not candidates:
+            continue
         alias_context = _alias_context(tree)
         try:
             rel = path.relative_to(REPO_ROOT).as_posix()
         except ValueError:
             rel = path.as_posix()
-        for node in ast.walk(tree):
+        for node in candidates:
             aliases = alias_context.get(id(node), {})
             # Plain rebinding: ``_auth_storage._FLOCK_UNAVAILABLE_WARNED = False``.
             # This is a patch site by every meaning that matters — it reaches into a
@@ -738,18 +777,7 @@ def collect_sites(tests_dir: Path, auth_dir: Path | None = None) -> list[PatchSi
             # let a later PR "improve" the metric by converting monkeypatch calls
             # into assignments while making the coupling worse.
             if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
-                # AnnAssign carries ONE target and may have no value at all
-                # (``x.y: int``) — a bare annotation rebinds nothing, so it is
-                # not a patch site.
-                if isinstance(node, ast.Assign):
-                    targets = node.targets
-                elif isinstance(node, ast.AugAssign):
-                    targets = [node.target]
-                else:
-                    targets = [node.target] if node.value is not None else []
-                for target_node in targets:
-                    if not isinstance(target_node, ast.Attribute):
-                        continue
+                for target_node in _attribute_assignment_targets(node):
                     module = _resolve_target(target_node.value, aliases, source_aliases)
                     if module is None:
                         continue

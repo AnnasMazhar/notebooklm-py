@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -364,7 +363,9 @@ async def test_alternating_default_and_override_saves_keep_independent_baselines
 @pytest.mark.asyncio
 async def test_alias_spellings_share_baseline_but_writer_receives_each_raw_path(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     default_path = tmp_path / "default" / "storage_state.json"
     resolved_path = tmp_path / "override" / "storage_state.json"
     _write_storage(
@@ -374,7 +375,7 @@ async def test_alias_spellings_share_baseline_but_writer_receives_each_raw_path(
             _stored_cookie("__Secure-1PSIDTS", "psidts"),
         ],
     )
-    relative_path = Path(os.path.relpath(resolved_path, start=Path.cwd()))
+    relative_path = Path("override") / "storage_state.json"
     symlink_path = tmp_path / "override-alias.json"
     symlink_path.symlink_to(resolved_path)
     persistence = CookiePersistence(_auth_tokens(default_path), default_path)

@@ -216,13 +216,14 @@ async def test_clear_error_is_logged_without_replacing_handled_error(
     scenario.load_error = ValueError("bad cookies")
     scenario.writer.clear_error = OSError("clear failed")
     service = scenario.service()
+    path = Path("/tmp/profile.json")
 
     with caplog.at_level("WARNING", logger="notebooklm.auth"):
-        result = await service.repair(Path("/tmp/profile.json"))
+        result = await service.repair(path)
 
     assert result.error == "bad cookies"
     assert [record.getMessage() for record in caplog.records] == [
-        "Failed to clear stale account metadata for /tmp/profile.json: clear failed"
+        f"Failed to clear stale account metadata for {path}: clear failed"
     ]
     _assert_scrubbed(service)
 

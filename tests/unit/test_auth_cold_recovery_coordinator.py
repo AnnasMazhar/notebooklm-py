@@ -342,7 +342,7 @@ async def test_typed_cold_success_wins_over_retained_refresh_error() -> None:
         "final-route",
     ]
     cold_event = scenario.events[3]
-    assert cold_event[1:4] == (storage, True, initial)
+    assert cold_event[1:4] == (storage.resolve(), True, initial)
     assert cold_event[4] == scenario.validate_recovered
     assert scenario.events[4][1] is scenario.cold_result.cookie_jar
     assert scenario.events[6][1] is caller

@@ -6,6 +6,7 @@ import contextlib
 import inspect
 import json
 import logging
+import os
 import stat
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -422,7 +423,8 @@ def test_real_blocking_manager_creates_raw_parent_and_0600_sentinel(tmp_path: Pa
     )
     assert path.parent.is_dir()
     assert lock.is_file()
-    assert stat.S_IMODE(lock.stat().st_mode) == 0o600
+    if os.name != "nt":
+        assert stat.S_IMODE(lock.stat().st_mode) == 0o600
 
 
 def test_equivalent_raw_spellings_share_ordering_but_not_request_spelling(tmp_path: Path) -> None:

@@ -156,7 +156,8 @@ def test_open_flags_mode_persistent_empty_sentinel_and_no_chmod(
     assert path.exists()
     assert path.read_bytes() == b""
     assert chmod_calls == []
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
 
 
 def test_acquire_and_reverse_release_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

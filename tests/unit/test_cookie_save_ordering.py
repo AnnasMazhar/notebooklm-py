@@ -18,7 +18,6 @@ instead of running them, so the test drives worker execution order explicitly
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -355,11 +354,13 @@ async def test_override_cas_partial_advances_accepted_keys_without_touching_defa
 @pytest.mark.asyncio
 async def test_alias_order_key_drops_stale_worker_and_preserves_raw_writer_path(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.chdir(tmp_path)
     default_path = tmp_path / "default.json"
     resolved_path = tmp_path / "override" / "storage_state.json"
     _write_storage(resolved_path, tag="disk")
-    relative_path = Path(os.path.relpath(resolved_path, start=Path.cwd()))
+    relative_path = Path("override") / "storage_state.json"
     symlink_path = tmp_path / "override-alias.json"
     symlink_path.symlink_to(resolved_path)
     persistence = CookiePersistence(_auth(default_path), default_path=default_path)

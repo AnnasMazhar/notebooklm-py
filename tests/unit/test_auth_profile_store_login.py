@@ -366,7 +366,10 @@ def test_required_rejection_uses_late_policy_attributes_and_precedes_destination
         f"replace_from_login: 2 required cookie(s) dropped by the write-time domain policy "
         f"for {path}; writing nothing"
     ]
-    assert "A" not in messages[0] and "Z" not in messages[0] and "B" not in messages[0]
+    policy_projection = messages[0].split(" for ", 1)[0]
+    assert "A" not in policy_projection
+    assert "Z" not in policy_projection
+    assert "B" not in policy_projection
 
 
 def test_set_projection_uses_a_second_shared_memo_copy_and_never_aliases_commit(

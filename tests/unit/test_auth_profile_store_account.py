@@ -222,17 +222,16 @@ def test_update_only_if_absent_uses_non_empty_mapping_presence(
 def test_update_corruption_and_shape_failures_are_exact(tmp_path: Path) -> None:
     path = tmp_path / "profile.json"
     path.write_text("{broken", encoding="utf-8")
-    with pytest.raises(RuntimeError, match=f"storage state at {path} is corrupted") as exc_info:
+    with pytest.raises(RuntimeError) as exc_info:
         ProfileStore(path).update_account(ProfileAccount(1))
+    assert str(exc_info.value).startswith(f"storage state at {path} is corrupted: ")
     assert isinstance(exc_info.value.__cause__, json.JSONDecodeError)
     assert path.read_text(encoding="utf-8") == "{broken"
 
     _write(path, [1, 2])
-    with pytest.raises(
-        RuntimeError,
-        match=f"storage state at {path} has unexpected shape: list",
-    ):
+    with pytest.raises(RuntimeError) as exc_info:
         ProfileStore(path).update_account(ProfileAccount(1))
+    assert str(exc_info.value) == f"storage state at {path} has unexpected shape: list"
     assert json.loads(path.read_text(encoding="utf-8")) == [1, 2]
 
 
