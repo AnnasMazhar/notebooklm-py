@@ -486,6 +486,15 @@ PINNED: tuple[Pinned, ...] = (
         "Two deep-research captures 14 months apart: report rows carry kind 3 with "
         "markdown at block[0]; 62/62 web rows carry kind 1/2 snippets at block[2]",
     ),
+    Pinned(
+        "research",
+        "ResearchResultRow",
+        "_CITATION_NUMBER_POS",
+        8,
+        "DiscoveredSource tag 9 — deep-report citation number",
+        "Issue #2141 live capture: 41/63 rows carried integer values 1-41; these "
+        "mapped one-to-one to the report's [cite: N] markers",
+    ),
 )
 
 

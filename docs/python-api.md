@@ -1616,6 +1616,7 @@ async def poll(notebook_id: str, task_id: str | None = None) -> ResearchTask:
       - result_type:        int — 1=web, 2=drive, 5=deep-research report entry
       - research_task_id:   str — task/report ID that produced this source
       - report_markdown:    str — deep-research report markdown (for type-5 entries)
+      - citation_number:    int | None — deep-report `[cite: N]` number from `src[8]`
     """
 
 async def wait_for_completion(

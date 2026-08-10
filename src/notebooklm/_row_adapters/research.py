@@ -51,6 +51,7 @@ Position contracts (pinned by ``tests/unit/test_research_row_adapter.py``):
   1      title (str) — or, for current deep research, ``[title, report]``
   3      authoritative result-type tag
   6      typed content block; kind 3 carries report markdown at position 0
+  8      deep-research citation number (int)
   =====  ============================================================
 """
 
@@ -240,6 +241,7 @@ class ResearchResultRow:
     _TITLE_POS: ClassVar[int] = 1
     _RESULT_TYPE_POS: ClassVar[int] = 3
     _CONTENT_BLOCK_POS: ClassVar[int] = 6
+    _CITATION_NUMBER_POS: ClassVar[int] = 8
     # A source row must carry at least ``[url/sentinel, title]`` to be usable —
     # mirrors the historical ``len(src) < 2`` early return.
     _MIN_LEN: ClassVar[int] = 2
@@ -323,6 +325,14 @@ class ResearchResultRow:
             return ""
         text = block[self._CONTENT_TEXT_POS]
         return text if isinstance(text, str) and text else ""
+
+    @property
+    def citation_number(self) -> int | None:
+        """Citation number at ``src[8]``, or ``None`` when absent or malformed."""
+        if self.length <= self._CITATION_NUMBER_POS:
+            return None
+        value = self._raw[self._CITATION_NUMBER_POS]
+        return value if type(value) is int else None
 
     @staticmethod
     def deep_payload(payload: Any) -> tuple[str, str] | None:

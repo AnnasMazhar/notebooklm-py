@@ -56,8 +56,9 @@ class TestResearchResultRowPositionContract:
             ResearchResultRow._TITLE_POS,
             ResearchResultRow._RESULT_TYPE_POS,
             ResearchResultRow._CONTENT_BLOCK_POS,
+            ResearchResultRow._CITATION_NUMBER_POS,
             ResearchResultRow._MIN_LEN,
-        ) == (0, 1, 3, 6, 2)
+        ) == (0, 1, 3, 6, 8, 2)
 
     def test_content_block_positions_pinned(self) -> None:
         assert (
@@ -160,6 +161,7 @@ class TestResearchResultRow:
         assert row.title_slot == "Example"
         assert row.has_result_type is True
         assert row.result_type_slot == "web"
+        assert row.citation_number is None
 
     def test_short_row_not_well_formed(self) -> None:
         row = ResearchResultRow(["only_one"])
@@ -201,6 +203,19 @@ class TestResearchResultRow:
         row = ResearchResultRow([None, "t", None, 5, None, None])
         assert row.content_block == []
         assert row.report_markdown == ""
+
+    def test_citation_number_reads_captured_ordinal(self) -> None:
+        row = ResearchResultRow(
+            ["https://example.com", "t", None, 1, None, None, [None, 1], None, 17]
+        )
+        assert row.citation_number == 17
+
+    @pytest.mark.parametrize("value", [None, True, 3.0, "3", []])
+    def test_citation_number_absent_or_non_integer_returns_none(self, value) -> None:
+        row = ResearchResultRow(
+            ["https://example.com", "t", None, 1, None, None, [None, 1], None, value]
+        )
+        assert row.citation_number is None
 
     @pytest.mark.parametrize("block", [[], ["# Report"], [None, 3], [42, 3]])
     def test_malformed_report_content_block_returns_empty(self, block) -> None:
