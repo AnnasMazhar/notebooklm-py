@@ -182,7 +182,7 @@ def test_error_body_carries_retriable_flag() -> None:
         (exc.ServerError("unavailable"), 502, "server", True),
         (exc.AuthError("expired"), 401, "auth", False),
         (exc.RateLimitError("slow down"), 429, "rate_limited", True),
-        (exc.ValidationError("rejected file"), 422, "source_add", False),
+        (exc.ValidationError("rejected file"), 400, "validation", False),
     ],
 )
 def test_partial_upload_error_preserves_cause_projection(

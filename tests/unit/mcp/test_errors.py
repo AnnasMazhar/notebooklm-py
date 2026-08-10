@@ -143,7 +143,7 @@ def test_retriable_categories_are_marked_retriable() -> None:
         (exc.ServerError("unavailable"), "SERVER", True),
         (exc.AuthError("expired"), "AUTH", False),
         (exc.RateLimitError("slow down"), "RATE_LIMITED", True),
-        (exc.ValidationError("rejected file"), "SOURCE_ADD", False),
+        (exc.ValidationError("rejected file"), "VALIDATION", False),
     ],
 )
 def test_partial_upload_error_projects_its_cause_consistently(

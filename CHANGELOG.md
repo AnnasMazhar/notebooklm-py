@@ -305,6 +305,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Partial file-upload failures now retain their recovery context.** If upload
+  session start or finalization fails after source registration,
+  `SourceAddPartialError` carries the `source_id`, failure `stage`, and original
+  cause without auto-deleting the source; wire source type code `0` now maps
+  silently to `UNKNOWN` instead of emitting a drift warning (#2138).
 - **Unknown source status codes no longer masquerade as ready.** Missing,
   malformed, and unmapped wire statuses now resolve to `SourceStatus.UNKNOWN`
   with `is_ready=False`; unmapped integers also emit a drift warning (#2124).

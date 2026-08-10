@@ -349,15 +349,15 @@ def _category_for(exc: BaseException) -> ErrorCategory:
     # --- Per-source ADD failure (SourceAddError). ----------------------------
     # ``_source/add.py`` leaves typed infrastructure failures unwrapped, while the
     # upload pipeline uses SourceAddPartialError to retain the registered source ID.
-    # Classify that subtype by any typed infrastructure cause. Other wrapped errors
-    # are usually per-source rejections and isolate as the non-fatal SOURCE_ADD, but
-    # a transient/server failure can still arrive as a bare RPCError with an infra
-    # ``rpc_code``. Keep those fatal for retry/backoff. This branch must precede the
-    # LIBRARY catch-all to preserve the distinct 4xx category.
+    # Classify that subtype by typed validation or infrastructure causes. Other
+    # wrapped errors are usually per-source rejections and isolate as the non-fatal
+    # SOURCE_ADD, but a transient/server failure can still arrive as a bare RPCError
+    # with an infra ``rpc_code``. Keep those fatal for retry/backoff. This branch must
+    # precede the LIBRARY catch-all to preserve the distinct 4xx category.
     if isinstance(exc, SourceAddError):
         cause = getattr(exc, "cause", None)
         if isinstance(exc, SourceAddPartialError) and isinstance(
-            cause, (AuthError, RateLimitError, ServerError, NetworkError)
+            cause, (AuthError, RateLimitError, ServerError, NetworkError, ValidationError)
         ):
             return _category_for(cause)
         if isinstance(cause, RPCError) and _is_transient_rpc_code(_normalized_rpc_code(cause)):

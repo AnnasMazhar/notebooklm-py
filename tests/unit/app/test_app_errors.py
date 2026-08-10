@@ -265,7 +265,7 @@ def test_source_add_error_with_transient_cause_stays_fatal() -> None:
         (exc.ServerError("unavailable"), ErrorCategory.SERVER, True),
         (exc.AuthError("expired"), ErrorCategory.AUTH, False),
         (exc.RateLimitError("slow down"), ErrorCategory.RATE_LIMITED, True),
-        (exc.ValidationError("rejected file"), ErrorCategory.SOURCE_ADD, False),
+        (exc.ValidationError("rejected file"), ErrorCategory.VALIDATION, False),
     ],
 )
 def test_source_add_partial_error_preserves_cause_classification(
