@@ -263,6 +263,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Expected no-answer chat responses no longer emit a wire-drift warning.**
+  Responses without a TailwindDoc answer now return the backend apology quietly,
+  while present-but-unmarked response documents still warn
+  ([#2118](https://github.com/teng-lin/notebooklm-py/issues/2118)).
 - **An empty notebook no longer logs `schema drift?` on every
   `get_source_ids` call.** A genuinely empty notebook returns a healthy
   envelope whose sources slot is present but explicitly null — the backend
