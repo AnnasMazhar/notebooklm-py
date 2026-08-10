@@ -1126,6 +1126,55 @@ def test_upload_validation_error_redacts_local_path(monkeypatch, mock_client, co
     assert "secretuser" not in resp.text  # home-dir username redacted
 
 
+def test_upload_partial_error_does_not_claim_bytes_were_sent(
+    monkeypatch, mock_client, config
+) -> None:
+    # A start_session failure means no bytes left the client. The generic upstream
+    # note says "your file uploaded", so this must NOT fall through to it.
+    from notebooklm.exceptions import NetworkError, SourceAddPartialError
+
+    async def fake(client, exec_plan):
+        raise SourceAddPartialError(
+            "a.pdf",
+            source_id="src_1",
+            stage="start_session",
+            cause=NetworkError("connection reset"),
+        )
+
+    monkeypatch.setattr(_fileroutes.add_core, "execute_source_add", fake)
+    app = _build(mock_client, config)
+    url = config.upload_url({"op": "ul", "nb": NB})
+    with starlette_testclient.TestClient(app) as client:
+        resp = client.post(_path(url) + "?filename=a.pdf", content=b"DATA")
+    assert "was not uploaded" in resp.text
+    assert "Your file uploaded" not in resp.text
+
+
+def test_upload_partial_error_from_a_rejected_file_keeps_the_400_wording(
+    monkeypatch, mock_client, config
+) -> None:
+    # #2138's own evidence is an HTTP-400 upload rejection. Wrapping it must not
+    # downgrade the precise "Upload rejected" 400 into a generic upstream error.
+    from notebooklm.exceptions import SourceAddPartialError, ValidationError
+
+    async def fake(client, exec_plan):
+        raise SourceAddPartialError(
+            "a.pdf",
+            source_id="src_1",
+            stage="upload_finalize",
+            cause=ValidationError("path /home/secretuser/private/x.pdf is not allowed"),
+        )
+
+    monkeypatch.setattr(_fileroutes.add_core, "execute_source_add", fake)
+    app = _build(mock_client, config)
+    url = config.upload_url({"op": "ul", "nb": NB})
+    with starlette_testclient.TestClient(app) as client:
+        resp = client.post(_path(url) + "?filename=a.pdf", content=b"DATA")
+    assert resp.status_code == 400
+    assert "Upload rejected:" in resp.text
+    assert "secretuser" not in resp.text  # the redaction still applies to the cause
+
+
 def test_file_route_status_table_covers_every_error_category() -> None:
     """Every ``ErrorCategory`` has a file-route status (no silent fallback)."""
     from notebooklm._app.errors import ErrorCategory

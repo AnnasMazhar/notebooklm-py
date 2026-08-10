@@ -543,6 +543,56 @@ async def test_add_file_surfaces_registered_source_when_upload_fails(
     assert opened_files and opened_files[0].closed
 
 
+@pytest.mark.parametrize(
+    ("failing_step", "expected_stage"),
+    [("start", "start_session"), ("upload", "upload_finalize")],
+)
+@pytest.mark.asyncio
+async def test_transport_failure_is_typed_as_network_error_not_input_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    failing_step: str,
+    expected_stage: str,
+) -> None:
+    """A dropped connection must not be projected as a per-source input rejection.
+
+    ``upload_file_streaming`` POSTs through a bare ``httpx.AsyncClient``, so a
+    mid-body reset surfaces as an untyped ``httpx.RequestError``. Left raw, the
+    cause-based classification in ``_app/errors.py`` has nothing to match on and
+    falls through to ``SOURCE_ADD`` — projected to REST/MCP as HTTP 422 "your
+    input is unacceptable", which tells a caller not to retry a failure that is
+    entirely retryable.
+    """
+    file_path = tmp_path / "report.pdf"
+    file_path.write_bytes(b"hello")
+    reset = httpx.RequestError("connection reset by peer")
+    factory = upload_client_factory(reset) if failing_step == "upload" else None
+    service = make_pipeline(async_client_factory=factory)
+    track_opened_files(monkeypatch)
+
+    monkeypatch.setattr(service, "register_file_source", AsyncMock(return_value="src_123"))
+    monkeypatch.setattr(
+        service,
+        "start_resumable_upload",
+        AsyncMock(
+            side_effect=reset if failing_step == "start" else None,
+            return_value="https://notebooklm.google.com/upload/_/?upload_id=session",
+        ),
+    )
+
+    with pytest.raises(SourceAddPartialError) as exc_info:
+        await service.add_file("nb_123", file_path)
+
+    error = exc_info.value
+    assert error.source_id == "src_123"
+    assert error.stage == expected_stage
+    # Typed, so the cause-based classifier can route it away from SOURCE_ADD…
+    assert isinstance(error.cause, NetworkError)
+    # …without losing the httpx exception it came from.
+    assert error.cause.original_error is reset
+    assert error.__cause__ is reset
+
+
 @pytest.mark.asyncio
 async def test_add_file_does_not_wrap_registration_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path

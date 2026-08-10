@@ -48,7 +48,7 @@ from starlette.types import Receive, Scope, Send
 from .._app import download as download_core
 from .._app import source_add as add_core
 from .._app.errors import ErrorCategory, classify
-from ..exceptions import NotebookLMError, ValidationError
+from ..exceptions import NotebookLMError, SourceAddPartialError, ValidationError
 from ._context import get_client_from_app
 from ._errors import redact
 from ._filelink import FileLinkError, FileTransferConfig
@@ -685,6 +685,32 @@ def register_file_routes(mcp: FastMCP, config: FileTransferConfig) -> None:
                         "<p>You can close this tab and return to your assistant.</p>"
                         "</body></html>",
                         headers=_HTML_SECURITY_HEADERS,
+                    )
+                except SourceAddPartialError as exc:
+                    # The row is registered but the upload did not finish. This is a
+                    # SourceAddError, NOT a ValidationError, so without this clause it
+                    # would fall to the NotebookLMError handler below and claim "your
+                    # file uploaded" — false for ``start_session``, where no bytes were
+                    # ever sent. Keep the precise wording for a rejected file, and let
+                    # ``stage`` pick the note otherwise.
+                    if isinstance(exc.cause, ValidationError):
+                        return PlainTextResponse(
+                            f"Upload rejected: {redact(str(exc.cause))}",
+                            status_code=400,
+                            headers={
+                                "Cache-Control": "no-store",
+                                "Referrer-Policy": "no-referrer",
+                                **_CORS_ORIGIN,
+                            },
+                        )
+                    sent = exc.stage == "upload_finalize"
+                    return _upstream_error_response(
+                        exc,
+                        note=(
+                            "Your file was uploaded but not finished (a retry re-uploads it)."
+                            if sent
+                            else "Your file was not uploaded (the upload session never started)."
+                        ),
                     )
                 except ValidationError as exc:
                     # ValidationError ⊂ NotebookLMError, so this MUST precede the

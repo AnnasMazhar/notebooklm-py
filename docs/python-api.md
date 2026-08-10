@@ -496,6 +496,27 @@ except SourceAddPartialError as error:
     # Reconcile first, then delete explicitly if the retained row is unusable.
 ```
 
+> **Migrating an existing handler.** These failures used to reach you as their own
+> types — `AuthError` on an expired session, `RateLimitError` on a 429,
+> `ServerError` on a 5xx, `NetworkError` on a dropped connection, `ValidationError`
+> on a rejected file, or a bare `SourceAddError`. `SourceAddPartialError` is a
+> **sibling** of those classes, not a subclass, so a handler written as
+> `except ValidationError:` around `add_file()` no longer matches. Catch
+> `SourceAddPartialError` (or `SourceAddError`, which still matches) and branch on
+> `error.cause`:
+>
+> ```python
+> except SourceAddPartialError as error:
+>     if isinstance(error.cause, (NetworkError, ServerError, RateLimitError)):
+>         ...  # transient: the row at error.source_id can be retried
+>     elif isinstance(error.cause, ValidationError):
+>         ...  # the file itself was rejected; delete the row
+> ```
+>
+> A transport-level failure (a reset mid-body) is normalised to `NetworkError`
+> before wrapping, so `error.cause` is always a library exception rather than a
+> raw `httpx` error.
+
 ---
 
 ## Concurrency contract

@@ -102,6 +102,12 @@ NonIdempotentRetryError            # Raised by idempotent=True calls on a non-id
 SourceError, SourceAddError, SourceAddPartialError, SourceProcessingError, SourceTimeoutError, SourceNotFoundError
 # SourceAddPartialError.source_id and .stage identify a retained row after an
 # upload boundary fails; the library does not delete that row automatically.
+# MIGRATION (v0.8.x): a post-registration add_file() failure now raises
+# SourceAddPartialError instead of the AuthError / RateLimitError / ServerError /
+# NetworkError / ValidationError / bare SourceAddError it used to. Those classes
+# are SIBLINGS of it, so `except AuthError` around add_file() no longer matches —
+# catch SourceAddPartialError (or SourceAddError, which still does) and read
+# .cause for the original. See docs/python-api.md#partial-file-uploads.
 NotebookError, NotebookNotFoundError
 ArtifactError, ArtifactDownloadError, ArtifactFeatureUnavailableError, ArtifactNotFoundError, ArtifactNotReadyError, ArtifactParseError
 ArtifactTimeoutError, ArtifactPendingTimeoutError, ArtifactInProgressTimeoutError

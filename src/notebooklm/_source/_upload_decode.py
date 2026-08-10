@@ -20,7 +20,15 @@ import httpx
 
 from .._env import PERSONAL_APP_HOSTS
 from .._transport_errors import parse_retry_after
-from ..exceptions import AuthError, RateLimitError, ServerError, ValidationError
+from ..exceptions import (
+    AuthError,
+    NetworkError,
+    RateLimitError,
+    ServerError,
+    SourceAddPartialError,
+    SourceAddStage,
+    ValidationError,
+)
 from ..rpc import get_upload_url
 
 _SOURCE_ID_UUID_PATTERN = re.compile(
@@ -399,6 +407,31 @@ def _validate_upload_file_supported(file_path: Path, content_type: str) -> None:
             "HTML file uploads are not supported by NotebookLM's upload endpoint: "
             f"{file_path.name}. Convert the page to .txt, .md, or .pdf first, then retry."
         )
+
+
+def raise_partial_upload_failure(
+    exc: Exception, filename: str, *, source_id: str, stage: SourceAddStage
+) -> NoReturn:
+    """Wrap a post-registration upload failure, categorising a bare transport reset.
+
+    Companion to :func:`_raise_from_upload_http_status`, for the failures that never
+    reach an HTTP status at all. ``SourceUploadPipeline.upload_file_streaming`` POSTs
+    the body through a bare ``httpx.AsyncClient``, so a reset mid-body surfaces as
+    ``httpx.RequestError`` — untyped, and therefore indistinguishable downstream from
+    a rejected file. ``_app/errors.py`` classifies
+    :class:`~notebooklm.exceptions.SourceAddPartialError` *by its cause*, so an
+    untyped cause falls through to the per-source ``SOURCE_ADD`` category and the
+    REST/MCP surfaces project a dropped connection as **HTTP 422** — "your input is
+    unacceptable, do not retry" — for the most retryable failure there is. Normalising
+    it to :class:`~notebooklm.exceptions.NetworkError` first keeps that projection
+    honest while ``original_error`` and ``__cause__`` both retain the httpx exception.
+
+    Anything already typed is wrapped unchanged.
+    """
+    cause: Exception = exc
+    if isinstance(exc, httpx.RequestError):
+        cause = NetworkError(f"Network error uploading {filename!r} ({stage})", original_error=exc)
+    raise SourceAddPartialError(filename, source_id=source_id, stage=stage, cause=cause) from exc
 
 
 def _raise_from_upload_http_status(exc: httpx.HTTPStatusError, filename: str) -> NoReturn:

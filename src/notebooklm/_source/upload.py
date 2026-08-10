@@ -30,7 +30,6 @@ from ..exceptions import (
     NetworkError,
     RateLimitError,
     ServerError,
-    SourceAddPartialError,
     SourceAddStage,
     ValidationError,
 )
@@ -82,6 +81,7 @@ from ._upload_decode import (  # noqa: F401
     _validate_resumable_upload_url,
     _validate_upload_file_supported,
     raise_for_upload_status,
+    raise_partial_upload_failure,
 )
 from .listing import SourceLister
 from .polling import SourcePoller
@@ -422,9 +422,9 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                             total_bytes=file_size,
                         )
                     except Exception as exc:  # noqa: BLE001 - preserve all post-register failures
-                        raise SourceAddPartialError(
-                            filename, source_id=source_id, stage=stage, cause=exc
-                        ) from exc
+                        raise_partial_upload_failure(
+                            exc, filename, source_id=source_id, stage=stage
+                        )
                 finally:
                     if not handed_off:
                         file_obj.close()

@@ -51,6 +51,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`sources.add_file()` raises `SourceAddPartialError` where it used to raise the
+  transport exception directly.** A failure *after* the source row is registered —
+  upload-session start, or the upload/finalize request — previously surfaced as
+  `AuthError`, `RateLimitError`, `ServerError`, `NetworkError`, `ValidationError`,
+  or a bare `SourceAddError`. All of those now arrive wrapped in
+  `SourceAddPartialError`, which is a **sibling** of them rather than a subclass,
+  so an existing `except AuthError:` / `except ValidationError:` around
+  `add_file()` stops matching. The original is available as both `.cause` and
+  `__cause__`, and the wrapper adds the `source_id` / `stage` needed to reconcile
+  the row the failure left behind. `except SourceAddError:` and
+  `except NotebookLMError:` are unaffected. Adapter behaviour is unchanged: the
+  CLI, MCP, and REST surfaces re-derive their category from `.cause`, so an
+  auth failure still projects as auth and a dropped connection still projects as
+  a retryable server error rather than a 4xx input rejection
+  ([#2138](https://github.com/teng-lin/notebooklm-py/issues/2138)).
 - **First-party profile replacements now use native typed results.** Browser capture consumes
   `ProfileStore.replace_from_remint()` directly, while cookie import/login/refresh use a narrow
   path-shaped login operation with primitive account modes. Existing v0.x storage wrapper

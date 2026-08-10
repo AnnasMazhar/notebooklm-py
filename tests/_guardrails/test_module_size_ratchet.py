@@ -144,7 +144,7 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # one of them to ``notebooklm.exceptions``) and because raising a ceiling
     # outside ``_auth/`` is not sanctioned. Flagged for the maintainer in the
     # #2138 PR discussion: say the word and the banners come back with a
-    # sanctioned raise instead.
+    # sanctioned raise to 1597 instead.
     "exceptions.py": 1567,
     # sanctioned merge (ADR-0033) — the `_auth` persistence merge: the seam that
     # was spelled as three cap-split files becomes one deep module.
