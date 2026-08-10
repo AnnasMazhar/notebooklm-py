@@ -401,6 +401,7 @@ class Matrix:
         proc = self._run(
             command,
             home,
+            timeout=max(self.args.timeout, 120),
             env_overrides={"NOTEBOOKLM_PROFILE": "rpc-bundle"},
         )
         self.record("rpc-bundle-health", proc, include_stdout_on_failure=True)
@@ -417,7 +418,13 @@ class Matrix:
             extra["NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID"] = self.args.read_only_notebook_id
         if self.args.generation_notebook_id:
             extra["NOTEBOOKLM_GENERATION_NOTEBOOK_ID"] = self.args.generation_notebook_id
-        proc = self._run(command, home, env_overrides=extra)
+        timeout_floor = 300 if self.args.rpc_health_full else 120
+        proc = self._run(
+            command,
+            home,
+            timeout=max(self.args.timeout, timeout_floor),
+            env_overrides=extra,
+        )
         self.record(
             "rpc-health-full" if self.args.rpc_health_full else "rpc-health-quick",
             proc,
@@ -879,6 +886,7 @@ class Matrix:
         proc = self._run(
             command,
             home,
+            timeout=max(self.args.timeout, 180),
             env_overrides={
                 "NOTEBOOKLM_PROFILE": "mid-session-browser",
                 "NOTEBOOKLM_REFRESH_CMD": (
@@ -973,7 +981,7 @@ class Matrix:
         self.record("transient-fault-injection-tests", proc)
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", default=os.environ.get("NOTEBOOKLM_PROFILE", "default"))
     parser.add_argument("--account", required=True)
@@ -1014,7 +1022,7 @@ def parse_args() -> argparse.Namespace:
             "Storage-only mid-session recovery and RPC access-gate cells still run."
         ),
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 if __name__ == "__main__":

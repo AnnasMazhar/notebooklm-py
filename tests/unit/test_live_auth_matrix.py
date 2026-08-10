@@ -13,20 +13,19 @@ from scripts import live_auth_matrix
 
 
 def _args(*, skip_browser: bool) -> argparse.Namespace:
-    return argparse.Namespace(
-        profile="source",
-        account="maintainer@example.com",
-        browser="chromium::Profile 3",
-        base_url="https://notebooklm.google.com",
-        timeout=10,
-        output=None,
-        skip_browser=skip_browser,
-        rpc_health_full=False,
-        read_only_notebook_id=None,
-        generation_notebook_id=None,
-        skip_rest=False,
-        skip_mcp=False,
-    )
+    argv = [
+        "--profile",
+        "source",
+        "--account",
+        "maintainer@example.com",
+        "--base-url",
+        "https://notebooklm.google.com",
+        "--timeout",
+        "10",
+    ]
+    if skip_browser:
+        argv.append("--skip-browser")
+    return live_auth_matrix.parse_args(argv)
 
 
 def _source_profile(tmp_path: Path) -> Path:
@@ -200,34 +199,37 @@ def test_realistic_recovery_cells_wire_real_process_and_adapter_paths(
     finally:
         live_auth_matrix.shutil.rmtree(matrix.temp, ignore_errors=True)
 
-    rpc_command, rpc_env = calls[0]
+    by_profile = {env["NOTEBOOKLM_PROFILE"]: (command, env) for command, env in calls}
+    assert len(by_profile) == len(calls), "a phase issued more than one subprocess call"
+
+    rpc_command, rpc_env = by_profile["rpc-health"]
     assert rpc_command[-1] == "--full"
     assert "check_rpc_health.py" in rpc_command[-2]
     assert rpc_env["NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID"] == "read-only-id"
     assert rpc_env["NOTEBOOKLM_GENERATION_NOTEBOOK_ID"] == "generation-id"
 
-    sibling_script = calls[1][0][-1]
+    sibling_script = by_profile["mid-session-sibling"][0][-1]
     assert "--master-token-refresh" in sibling_script
     assert "asyncio.gather" in sibling_script
     assert "reload_calls <= 3" in sibling_script
 
-    master_script = calls[2][0][-1]
+    master_script = by_profile["mid-session-master"][0][-1]
     assert 'state["cookies"] = []' in master_script
     assert "tracked_master" in master_script
     assert "master_calls == 1" in master_script
 
-    rest_script = calls[3][0][-1]
+    rest_script = by_profile["rest-live"][0][-1]
     assert 'http.get("/v1/notebooks"' in rest_script
     assert "app.state.notebooklm.client is None" in rest_script
     assert "--master-token-refresh" in rest_script
 
-    mcp_script = calls[4][0][-1]
+    mcp_script = by_profile["mcp-live"][0][-1]
     assert 'mcp.call_tool("notebook_list"' in mcp_script
     assert "keepalive=600.0" in mcp_script
     assert 'assert "total" in before and "notebooks" in before' in mcp_script
 
-    browser_script = calls[5][0][-1]
-    browser_env = calls[5][1]
+    browser_command, browser_env = by_profile["mid-session-browser"]
+    browser_script = browser_command[-1]
     assert 'state["cookies"] = []' in browser_script
     assert "tracked_refresh" in browser_script
     assert "refresh_calls == 1" in browser_script
