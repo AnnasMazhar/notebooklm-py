@@ -198,7 +198,14 @@ class SharingAPI:
             if permission == SharePermission._REMOVE:
                 raise ValueError("Use remove_user() instead")
 
-        logger.debug("Adding %d users to notebook %s", len(grants), notebook_id)
+        # Keep the grantee detail the single-user path used to log: a typoed
+        # address is exactly what this line gets read for.
+        logger.debug(
+            "Adding %d user(s) to notebook %s: %s",
+            len(grants),
+            notebook_id,
+            [(email, permission.name) for email, permission in grants],
+        )
 
         message_flag = 0 if welcome_message else 1
         notify_flag = 1 if notify else 0
