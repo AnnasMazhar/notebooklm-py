@@ -90,6 +90,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`SharingAPI.add_users()` grants mixed user permissions in one request.**
+  The client sends one `SHARE_NOTEBOOK` RPC for all email/permission pairs,
+  then refreshes the returned sharing status once. Notification and welcome
+  message settings apply to the whole call
+  ([#2000](https://github.com/teng-lin/notebooklm-py/issues/2000)).
 - **Deep-research sources expose the backend's per-task source ordinal.**
   `ResearchSource.source_ordinal` and its serializers preserve an integer
   `src[8]` when the row carries one — in the captures a 1-based bijection over

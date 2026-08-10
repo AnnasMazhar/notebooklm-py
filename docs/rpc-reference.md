@@ -132,7 +132,7 @@ or local convenience that has no stable web-control equivalent in the capture.
 | `NotesAPI.list/get/create/update/delete` | UI covered/partial | Add note, note row, note view close/title input, and note menu delete are documented. Rich body editing uses NotebookLM's internal editor; keep selectors conservative. |
 | `MindMapsAPI.list/generate/rename/delete/get_tree` | UI covered/partial | Interactive mind map generation is the live Studio tile. Note-backed mind maps are a synthetic/library backing; tree extraction via `GET_INTERACTIVE_HTML` is programmatic. |
 | `ResearchAPI.start/poll/wait/import_sources` | UI covered for start only | Source discovery corpus/mode/submit selectors map to fast/deep web/Drive research. Polling and import verification are backend workflow helpers. |
-| `SettingsAPI.get/set_output_language`, `SharingAPI.get_status/set_public/set_view_level/add_user/update_user/remove_user` | UI covered/partial | Settings and Share dialogs are covered at entry/save/copy selectors. Programmatic user-permission mutations go beyond the captured UI selectors. |
+| `SettingsAPI.get/set_output_language`, `SharingAPI.get_status/set_public/set_view_level/add_user/add_users/update_user/remove_user` | UI covered/partial | Settings and Share dialogs are covered at entry/save/copy selectors. Programmatic user-permission mutations go beyond the captured UI selectors. |
 | UI-only note operations | UI-only | Note menus expose `Convert to source`, `Convert all notes to source`, `Export to Docs`, and `Export to Sheets`; keep them documented as selectors unless/until a public library method owns those flows. |
 
 ---
@@ -1876,7 +1876,8 @@ await rpc_call(
 
 ### RPC: SHARE_NOTEBOOK (QDyure)
 
-**Source:** `_sharing.py::set_public()`, `_sharing.py::add_user()`, `_sharing.py::remove_user()`
+**Source:** `_sharing.py::set_public()`, `_sharing.py::add_user()`,
+`_sharing.py::add_users()`, `_sharing.py::remove_user()`
 
 Multi-purpose RPC for managing notebook sharing: toggle public access, add/update users, or remove users.
 
@@ -1900,17 +1901,22 @@ params = [
 # Response: [] (empty on success)
 ```
 
-**Add/update user:**
+**Add/update users:**
 ```python
 # permission: 2=editor, 3=viewer, 4=remove
 # notify_flag: 0=no email, 1=send notification
 # message_flag: 0=has message, 1=no message
+# entries may mix editor and viewer grants in one request
+entries = [
+    ["viewer@example.com", None, 3],
+    ["editor@example.com", None, 2],
+]
 params = [
     [
         [
             notebook_id,
-            [[email, None, permission]],  # user to add/update
-            None,                          # None = no public access change
+            entries,                       # users to add/update
+            None,                          # no public access change
             [message_flag, welcome_message]
         ]
     ],
@@ -1920,6 +1926,10 @@ params = [
 ]
 
 # Response: [] (empty on success)
+
+# SharingAPI.add_users() sends the SHARE_NOTEBOOK call above once, then calls
+# GET_SHARE_STATUS once and returns the refreshed ShareStatus. notify_flag and
+# welcome_message apply to every entry in this call.
 ```
 
 **Remove user:**
@@ -1993,6 +2003,15 @@ status = await client.sharing.get_status(notebook_id)
 await client.sharing.set_public(notebook_id, True)
 await client.sharing.set_view_level(notebook_id, ShareViewLevel.CHAT_ONLY)
 await client.sharing.add_user(notebook_id, "user@example.com", SharePermission.VIEWER)
+await client.sharing.add_users(
+    notebook_id,
+    [
+        ("viewer@example.com", SharePermission.VIEWER),
+        ("editor@example.com", SharePermission.EDITOR),
+    ],
+    notify=True,
+    welcome_message="Welcome, team!",
+)
 ```
 
 **Share URLs:**
