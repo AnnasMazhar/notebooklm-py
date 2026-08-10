@@ -12,6 +12,8 @@ from ._notebook_metadata import (
 )
 from ._notebook_payloads import (
     _PROMPT_SUGGESTIONS_DEFAULT_MODE,
+    build_create_notebook_params,
+    build_get_notebook_params,
     build_prompt_suggestions_params,
 )
 from ._row_adapters.notebooks import PromptSuggestionRow, unwrap_prompt_suggestions
@@ -19,7 +21,6 @@ from ._row_adapters.sources import SourceRow
 from ._runtime.contracts import RpcCaller
 from ._settings import build_get_user_settings_params, extract_account_limits
 from ._sharing_manager import ShareManager
-from ._source.upload_payloads import build_template_block
 from .exceptions import (
     AuthError,
     ClientError,
@@ -46,29 +47,6 @@ logger = logging.getLogger(__name__)
 
 
 CREATE_NOTEBOOK_QUOTA_RPC_CODE = 3
-
-
-def build_create_notebook_params(title: str) -> list[Any]:
-    """Return the canonical CREATE_NOTEBOOK RPC payload.
-
-    The trailing :func:`build_template_block` replaced the old flat ``[2], [1]``
-    tail that migrated backends now reject with ``status=3`` (#1546).
-    """
-    return [title, None, None, build_template_block()]
-
-
-def build_get_notebook_params(notebook_id: str) -> list[Any]:
-    """Return the canonical GET_NOTEBOOK (``rLM1Ne``) RPC payload.
-
-    The Gemini-3.5 rollout migrated the read path's trailing template block from
-    the flat ``[2]`` to the same nested :func:`build_template_block` wrapper the
-    write path adopted in #1548 (issue #1549). Live-verified forward-compatible:
-    the nested shape returns a byte-identical decoded notebook (notebook id /
-    title and every ``SourceRow``) as the flat ``[2]`` on an un-migrated account,
-    so it is safe across cohorts. The trailing ``None, 0`` is unchanged — only
-    the template block at position 2 is migrated (the narrow scope #1549 tracks).
-    """
-    return [notebook_id, None, build_template_block(), None, 0]
 
 
 def _extract_summary(outer: Any) -> str:

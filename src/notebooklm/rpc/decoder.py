@@ -7,6 +7,8 @@ import threading
 from enum import IntEnum
 from typing import Any
 
+from .._logging import _truncate_response_preview
+
 # Import exceptions from centralized module
 from ..exceptions import (
     AuthError,
@@ -17,7 +19,6 @@ from ..exceptions import (
     RPCTimeoutError,
     ServerError,
     UnknownRPCMethodError,
-    _truncate_response_preview,
 )
 from ._safe_index import safe_index
 from .types import GrpcStatusCode
