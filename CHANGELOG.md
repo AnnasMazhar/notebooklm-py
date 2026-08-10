@@ -263,10 +263,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Deep-research reports are identified by their typed content block instead
-  of row order.** Report markdown is extracted only from a kind-`3` content
-  block, so reordered web snippets can no longer be mistaken for the report
-  ([#2140](https://github.com/teng-lin/notebooklm-py/issues/2140)).
 - **An empty notebook no longer logs `schema drift?` on every
   `get_source_ids` call.** A genuinely empty notebook returns a healthy
   envelope whose sources slot is present but explicitly null — the backend
@@ -292,6 +288,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   while using the same server count for their ordinal, and stale local cache
   entries no longer control the result
   ([#1976](https://github.com/teng-lin/notebooklm-py/issues/1976)).
+- **Deep-research reports are identified by their typed content block instead
+  of row order.** Report markdown is extracted only from a kind-`3` content
+  block, so reordered web snippets can no longer be mistaken for the report
+  ([#2140](https://github.com/teng-lin/notebooklm-py/issues/2140)).
 - **Research that finds nothing is no longer an undifferentiated `failed`.** A
   Google Drive research run whose query matched no file came back as
   `status: failed` with no sources, no code, no message and no remediation —
