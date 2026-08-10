@@ -1751,7 +1751,7 @@ class TestSourceRowStatus:
 
     def test_non_int_status_code_falls_back_to_unknown_without_warning(self, caplog) -> None:
         """Malformed status blocks fail closed without noisy enum-drift warnings."""
-        for bad_code in (None, "not_a_status", []):
+        for bad_code in (None, "not_a_status", [], True, 2.0):
             entry = _entry()
             entry.append([None, bad_code])  # whatever-type status code at [3][1]
             row = SourceRow.from_entry(entry)

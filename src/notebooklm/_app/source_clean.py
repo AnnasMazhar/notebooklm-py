@@ -82,7 +82,7 @@ def classify_junk_sources(sources: list[Source]) -> list[CleanCandidate]:
 
     for source in sorted_sources:
         title = (source.title or "").strip()
-        status = source_status_to_str(source.status) if source.status else "unknown"
+        status = source_status_to_str(source.status)
 
         if status in _JUNK_STATUSES:
             candidates.append((source.id, title, status, "error_status"))

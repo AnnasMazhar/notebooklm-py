@@ -666,6 +666,8 @@ class SourceRow:
             return SourceStatus.UNKNOWN
 
         status_code = self._raw[self._STATUS_BLOCK_POS][self._STATUS_INNER_POS]
+        if not isinstance(status_code, int) or isinstance(status_code, bool):
+            return SourceStatus.UNKNOWN
         try:
             return SourceStatus(status_code)
         except (TypeError, ValueError):
