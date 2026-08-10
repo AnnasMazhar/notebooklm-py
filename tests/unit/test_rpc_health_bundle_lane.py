@@ -15,6 +15,7 @@ pytestmark = pytest.mark.repo_lint
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "rpc-health.yml"
+BASH = shutil.which("bash")
 
 
 def _steps() -> list[dict[str, Any]]:
@@ -64,17 +65,20 @@ def test_bundle_auth_failure_routes_to_auth_issue_report() -> None:
     assert create["with"]["content-filepath"] == "auth-failure-report.txt"
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+@pytest.mark.skipif(BASH is None, reason="needs bash")
 def test_bundle_command_skips_capture_after_health_auth_failure(tmp_path: Path) -> None:
     """Execute the auth branch: capture is skipped and no drift claim is emitted."""
     output = tmp_path / "github-output"
+    assert BASH is not None
     proc = subprocess.run(
-        ["bash", "-c", _step("Run bundle drift monitor")["run"]],
+        [BASH, "-c", _step("Run bundle drift monitor")["run"]],
         cwd=tmp_path,
         env={
             **os.environ,
             "HEALTH_EXIT_CODE": "2",
-            "GITHUB_OUTPUT": str(output),
+            # A cwd-relative path works in POSIX shells and Git Bash. Passing
+            # ``C:\\...`` directly makes Bash interpret the drive/path syntax.
+            "GITHUB_OUTPUT": output.name,
             # If the branch accidentally invokes uv, the restricted PATH makes
             # that regression fail instead of touching the network.
             "PATH": "/usr/bin:/bin",
@@ -92,24 +96,27 @@ def test_bundle_command_skips_capture_after_health_auth_failure(tmp_path: Path) 
     assert "ABSENT" not in report
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+@pytest.mark.skipif(BASH is None, reason="needs bash")
 def test_bundle_command_maps_unclassified_process_exit_to_runner_error(tmp_path: Path) -> None:
     """A raw Python/uv exit 1 cannot impersonate a classified drift result."""
     output = tmp_path / "github-output"
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     fake_uv = bin_dir / "uv"
-    fake_uv.write_text("#!/bin/sh\necho synthetic runner crash >&2\nexit 1\n", encoding="utf-8")
+    fake_uv.write_bytes(b"#!/bin/sh\necho synthetic runner crash >&2\nexit 1\n")
     fake_uv.chmod(0o755)
 
+    assert BASH is not None
     proc = subprocess.run(
-        ["bash", "-c", _step("Run bundle drift monitor")["run"]],
+        [BASH, "-c", _step("Run bundle drift monitor")["run"]],
         cwd=tmp_path,
         env={
             **os.environ,
             "HEALTH_EXIT_CODE": "0",
-            "GITHUB_OUTPUT": str(output),
-            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "GITHUB_OUTPUT": output.name,
+            # The shell runs with cwd=tmp_path, so a relative POSIX entry also
+            # addresses the shim correctly under Git Bash on Windows.
+            "PATH": "./bin:/usr/bin:/bin",
         },
         text=True,
         capture_output=True,
