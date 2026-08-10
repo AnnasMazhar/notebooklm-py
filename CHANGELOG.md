@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **RPC bundle monitoring no longer reports authentication/access failures as
+  protocol drift.** The live registry capture now classifies login,
+  CookieMismatch, region/anti-abuse, HTTP, and CDN failures as exit code 2 and
+  explicitly states that no drift conclusion was possible. The nightly workflow
+  opens its RPC/studio-drift issue only for the script's explicit `drift`
+  outcome; exit 2 and unclassified runner failures are routed into the existing
+  authentication/infrastructure report instead. The maintainer live-auth matrix
+  now runs the real RPC canary; always exercises fallback-disabled storage-only
+  mid-session recovery (#2161); tests a sibling-process re-mint under four
+  simultaneous RPCs and actual mid-session master-token fallback; drives both
+  REST (live recovery plus stale-start lazy rebind) and MCP (tool call
+  before/after live-jar invalidation) through their adapter lifespans; and
+  regression-tests the access-gate routing that caused
+  [#2174](https://github.com/teng-lin/notebooklm-py/issues/2174) alongside
+  [#2175](https://github.com/teng-lin/notebooklm-py/issues/2175).
 - **Long-lived MCP and REST servers now keep cookie sessions alive and recover
   from sibling profile refreshes.** Both server adapters enable the client's
   600-second background `RotateCookies` loop for their process-lifetime client.
