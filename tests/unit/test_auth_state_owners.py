@@ -441,10 +441,12 @@ async def test_coalesced_cold_returns_caller_copies_and_transports_expected_exha
 def test_rotation_state_boundaries_aliases_isolation_and_atomic_threads() -> None:
     owner = keepalive.RotationState()
     path = Path("/tmp/profile.json")
+    canonical_path = keepalive.canonical_storage_key(path)
+    assert canonical_path is not None
     now = time.monotonic()
-    owner._last_attempt_monotonic[path] = now - 59.0
+    owner._last_attempt_monotonic[canonical_path] = now - 59.0
     assert owner.try_claim(path) is False
-    owner._last_attempt_monotonic[path] = time.monotonic() - 60.0
+    owner._last_attempt_monotonic[canonical_path] = time.monotonic() - 60.0
     assert owner.try_claim(path) is True
     assert owner.try_claim(None) is True
     assert owner.try_claim(None) is False

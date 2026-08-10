@@ -218,7 +218,7 @@ def test_unicode_carry_failure_precedes_filter_and_releases_lock(
 def test_truthy_carry_existence_oserror_escapes_before_filter_or_commit(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    class ExistenceFailurePath(Path):
+    class ExistenceFailurePath(type(Path())):
         def exists(self, *, follow_symlinks: bool = True) -> bool:
             raise OSError("stat failed")
 

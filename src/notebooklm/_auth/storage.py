@@ -1079,6 +1079,18 @@ def persist_minted_jar(
     refuse_unknown_owner: bool = True,
 ) -> None:
     """Snapshot and delegate one freshly minted full-session replacement."""
+    required_order = ("SID", "APISID", "SAPISID")
+    ordered_cookies = sorted(
+        jar.jar,
+        key=lambda cookie: (
+            required_order.index(cookie.name)
+            if cookie.name in required_order
+            else len(required_order),
+            cookie.name,
+            cookie.domain,
+            cookie.path or "/",
+        ),
+    )
     cookies = CookieJar(
         Cookie(
             name=cookie.name,
@@ -1090,7 +1102,7 @@ def persist_minted_jar(
             secure=cookie.secure,
             same_site="None",
         )
-        for cookie in jar.jar
+        for cookie in ordered_cookies
     )
     request = MintedSessionWriteRequest(cookies, email, force, refuse_unknown_owner)
     refusal_message: str | None = None

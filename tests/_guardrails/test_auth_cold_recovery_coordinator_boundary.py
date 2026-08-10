@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import hashlib
 import inspect
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -19,6 +18,7 @@ from notebooklm._auth import recovery
 from notebooklm._auth.cookie_types import CookieJar
 from notebooklm._auth.cookies import _LoadedCookiePair
 from notebooklm._auth.extraction import _LoginRedirectError
+from tests._guardrails._ast_semantics import semantic_hash as _portable_semantic_hash
 
 pytestmark = pytest.mark.repo_lint
 
@@ -145,8 +145,8 @@ _EXPECTED_IMPORTS: tuple[ImportRecord, ...] = (
     ("_try_master_token_reauth_result", 1, "cookies", "_LoadedCookiePair", None),
     ("try_master_token_reauth", 1, "cookies", "_replace_cookie_jar", None),
 )
-_CLASS_HASH = "f4a57d4c6259d02b91891de4164532ee25b2def6881fa52742d23e8440abf30c"
-_ADAPTER_HASH = "9f407c24ce3093bac3dba8bcbfea7b0bcc965d90255744993fce08b0e2670ce9"
+_CLASS_HASH = "ebc51a5732119e65bc53999db2749985464ee2a587127c6f32db08a414455c19"
+_ADAPTER_HASH = "53737bcc7a75cd7c388108b0f5180df1defdbf2f48fedf2cb5eefc6260aafdb2"
 
 
 def _tree(path: Path) -> ast.Module:
@@ -184,7 +184,7 @@ def _function(tree: ast.Module, name: str) -> ast.FunctionDef | ast.AsyncFunctio
 
 
 def _semantic_hash(node: ast.AST) -> str:
-    return hashlib.sha256(ast.dump(node, include_attributes=False).encode()).hexdigest()
+    return _portable_semantic_hash(node)
 
 
 class _ImportCollector(ast.NodeVisitor):
@@ -790,7 +790,9 @@ async def test_validator_is_the_only_direct_cold_flight_handoff_and_scrubs_after
     coordinator._load_cookie_pair = lambda _path: _LoadedCookiePair(candidate, CookieJar(()))
     coordinator._fetch_recovered = fetch
     coordinator._replace_cookie_jar = lambda _target, _source: None
-    coordinator._state.note_success(path)
+    canonical_path = recovery.canonical_storage_key(path)
+    assert canonical_path is not None
+    coordinator._state.note_success(canonical_path)
     winner = asyncio.create_task(
         coordinator.recover(
             initial_error=_LoginRedirectError("redirect"),

@@ -1366,7 +1366,7 @@ class _AliasUseCollector(ast.NodeVisitor):
             return self._flow_for(entry, node)
         if isinstance(node, ast.While):
             return self._flow_while(entry, node)
-        if isinstance(node, ast.Try | ast.TryStar):
+        if isinstance(node, ast.Try) or type(node).__name__ == "TryStar":
             return self._flow_try(entry, node)
         if isinstance(node, ast.Match):
             return self._flow_match(entry, node)
@@ -1798,7 +1798,7 @@ class _AliasUseCollector(ast.NodeVisitor):
                 getattr(result, kind).extend(final.normal)
         return result
 
-    def _flow_try(self, entry: BindingSnapshot, node: ast.Try | ast.TryStar) -> _FlowResult:
+    def _flow_try(self, entry: BindingSnapshot, node: ast.Try) -> _FlowResult:
         body = self._visit_block([entry], node.body)
         handler_input = self._merged_snapshot([entry, *body.exceptions])
         orelse = (
@@ -1813,7 +1813,7 @@ class _AliasUseCollector(ast.NodeVisitor):
             returns=[*body.returns, *orelse.returns],
             exceptions=[*body.exceptions, *orelse.exceptions],
         )
-        if isinstance(node, ast.TryStar):
+        if type(node).__name__ == "TryStar":
             # ``except*`` clauses are non-exclusive and sequential; each may be
             # skipped, while later clauses see possible writes from earlier ones.
             star_state = handler_input
@@ -2130,6 +2130,7 @@ def test_first_party_facade_callers_are_frozen_in_both_import_idioms() -> None:
     assert len(union) == 72
 
 
+@pytest.mark.skipif(not hasattr(ast, "TryStar"), reason="exception-group AST requires 3.11+")
 def test_facade_caller_detectors_bite_on_aliases_relative_imports_and_shadowing(
     tmp_path: Path,
 ) -> None:

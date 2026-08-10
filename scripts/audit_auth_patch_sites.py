@@ -110,6 +110,7 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 AUTH_PACKAGE = ("notebooklm", "_auth")
 AUTH_DOTTED = ".".join(AUTH_PACKAGE)
@@ -525,11 +526,12 @@ class _AliasResolver:
                         self._bind(name, None)
             self._visit_seq(node.body)
             return
-        if isinstance(node, ast.Try | ast.TryStar):
+        if isinstance(node, ast.Try) or type(node).__name__ == "TryStar":
+            try_node = cast(ast.Try, node)
             entry = self._snapshot()
-            self._visit_seq(node.body)
+            self._visit_seq(try_node.body)
             exits = [self._snapshot()]
-            for handler in node.handlers:
+            for handler in try_node.handlers:
                 self._restore(entry)
                 if handler.type:
                     self._visit(handler.type)
@@ -540,8 +542,8 @@ class _AliasResolver:
                     self.scope.bindings.pop(handler.name, None)
                 exits.append(self._snapshot())
             self._restore(self._merge(exits))
-            self._visit_seq(node.orelse)
-            self._visit_seq(node.finalbody)
+            self._visit_seq(try_node.orelse)
+            self._visit_seq(try_node.finalbody)
             return
         if isinstance(node, ast.Match):
             self._visit(node.subject)

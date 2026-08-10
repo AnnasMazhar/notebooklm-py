@@ -184,7 +184,7 @@ Its closed results are `InBandAccount | LegacyAccount | NoAccount` and
 two-second-per-snapshot-worker exit drain; per-RPC reads never wait for the 90-second writer.
 `LoginProfileWriter` reconciles only after `APPLIED` and lock release using the literal raw-key rule;
 `AccountMetadataWriter` preserves write/clear-specific post-operation scrub and exception ordering.
-`storage.py` remains the v0.x signature/result/patch facade. Exact pins are storage 1,115,
+`storage.py` remains the v0.x signature/result/patch facade. Exact pins are storage 1,127,
 migration 311, store 814, filter 96, and token file 89 lines (2,425 combined).
 
 Phase 9 lands the typed stored-auth boundary in `tokens.py`: raw-profile-bearing file and captured inline sources, `LoadPolicy(allow_headless)`, paired seeds/acquisitions, final-attempt route resolution, the closed `LoadedAuth` union, and concrete `SessionSeedLoader`, `AccountRouteResolver`, and `StoredAuthLoader` around the sole structural port, `TokenAcquirer`.

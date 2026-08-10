@@ -231,7 +231,10 @@ def _module_violations(source: str) -> list[str]:
         violations.append(f"init-calls:{init_calls!r}")
 
     read_core = _method(tree, "_read_present_with_raw")
-    if any(isinstance(node, ast.Try | ast.TryStar) for node in ast.walk(read_core)):
+    if any(
+        isinstance(node, ast.Try) or type(node).__name__ == "TryStar"
+        for node in ast.walk(read_core)
+    ):
         violations.append("read-core-wraps-errors")
     read_calls = _calls_in_source_order(read_core)
     if [_call_name(call) for call in read_calls] != [
@@ -250,7 +253,10 @@ def _module_violations(source: str) -> list[str]:
         violations.append("read-pair-projection")
 
     read_probe = _method(tree, "_read_with_raw")
-    if any(isinstance(node, ast.Try | ast.TryStar) for node in ast.walk(read_probe)):
+    if any(
+        isinstance(node, ast.Try) or type(node).__name__ == "TryStar"
+        for node in ast.walk(read_probe)
+    ):
         violations.append("read-probe-wraps-errors")
     probe_calls = _calls_in_source_order(read_probe)
     if [_call_name(call) for call in probe_calls] != [

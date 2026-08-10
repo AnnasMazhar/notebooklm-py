@@ -384,7 +384,11 @@ def _legacy_candidate(
     identity: CookieIdentity,
     stored_value: object,
 ) -> Cookie | None:
-    candidates = [index[variant] for variant in equivalent_identities(identity) if variant in index]
+    variants = sorted(
+        equivalent_identities(identity),
+        key=lambda variant: (variant.domain.startswith("."), variant.domain),
+    )
+    candidates = [index[variant] for variant in variants if variant in index]
     return next((cookie for cookie in candidates if cookie.value != stored_value), None) or next(
         iter(candidates), None
     )

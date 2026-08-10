@@ -1253,7 +1253,7 @@ gate their writes correctly.
   module + 11 function-local), and both module-only and all-scope SCC sets are empty. Final touched
   owner LOC: account 252, account-repair 132, account-types 50, cookie-types 396, cookies 961,
   keepalive 438, master-token 455, master-token-types 68, PSIDTS recovery 1,222, recovery 530,
-  refresh 1,184, single-flight 268, storage 1,115.
+  refresh 1,184, single-flight 268, storage 1,127.
 
 - **2026-08-09 (typed refresh persistence)** — `fetch_tokens_with_domains` now consumes one paired
   live/SameSite-preserving baseline sample, retains the baseline selected by the initial/L2.5/L3/L4

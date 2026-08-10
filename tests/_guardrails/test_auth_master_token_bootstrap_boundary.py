@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import inspect
 from pathlib import Path
 
@@ -11,6 +10,7 @@ import pytest
 
 import notebooklm.auth as auth_facade
 from notebooklm._auth import master_token, master_token_bootstrap
+from tests._guardrails._ast_semantics import semantic_hash as _portable_semantic_hash
 
 pytestmark = pytest.mark.repo_lint
 
@@ -50,46 +50,32 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
 ]
 
 _METHOD_HASHES = {
-    "__init__": "0eefd43a7e671e5b8eb2e0e8ff49c13668d92b643905f5174c97f2c1f3135863",
-    "_read_master_token": "9680f4656c89db11629ea81fcee66f4a5b4bbb4019a943a71410bb59c55dd91c",
-    "assert_account_writable": "3356c0e0ea003526f8ce9017aad76a342f90e8faf1c4920d55e69d09c426c3b9",
-    "_resolve_android_id": "dc25c110dc729395610ee66adca9a2c36647fdbbc43695704912232962fbb927",
-    "_exchange": "f2418ce9e52b931bbd46f18bb82b3abef7f16374fe72980847a0eafbd7dba79a",
-    "_mint": "f72ae62a2db8fa6e817a55129f3c13408873cb63a18bdd989291b3dc985cc37e",
-    "_minted_session_request": ("c94e58f823dad46aa3e9a39561c87c8c5ec1597c6a8f987c4214102e1ab8b21a"),
-    "_replace_minted_session": ("aee40beafe61d1f19e0d4be5c3b9e33915b60a36ea337f7426cfa6c5c7af0516"),
-    "bootstrap_from_oauth_token": (
-        "033363fc9ecbc5b0af33574a21eca75bcbddca09cf68577c52efb4f15c7ebed6"
-    ),
-    "remint_from_stored_token": (
-        "a224d0e76eba28312d1693be018fd3e79e19ae340ee3d84f5959694045168224"
-    ),
-    "_acquire_bootstrap_lock": ("59d49c676dd41acbe6b1fc3bc741993528f756403160dec565862c9c62cb8798"),
-    "_run_remint_to_settlement": (
-        "4d74087648db70fbd0d45414eb47600a7281fac9639bc3f4b10f6acc39886cc7"
-    ),
-    "bootstrap_storage": "a66b4166a902428975a90043867c63fa84b37daac81772b50595211ab3d1dd11",
+    "__init__": "fe7f475f5eaf98691e79e203fa2606d73a5df30d0d4dec57a28ae85bfbd1c37f",
+    "_acquire_bootstrap_lock": "2d4e88d80d3d422fc8f1a9782fd92985029aced44a690e5ceae2a2f5ab401df1",
+    "_exchange": "39b69a1dbbfade967791d42860df3225f06238df034372671e1e61c75d328d6c",
+    "_mint": "f7aca3d4e7135e944feb55abd43a5f80d4c92daf0a416126961c9a30f8cfd107",
+    "_minted_session_request": "8c5750553e3d51ef136ac138f211653928588c8c45bdeb31dc3a14bb01a31c69",
+    "_read_master_token": "da12ade1d52b2e819016e247f28452f3c21b3398a863b504469c1492c5ff859d",
+    "_replace_minted_session": "e3e2bd9d4927a62b516c837675e8704ee8e4e081514da43ba4f7613ef3faa48d",
+    "_resolve_android_id": "0ff09eced4e0862a004af91fac5cde14823bfd41ff7e67d2abcaee36e40e9f79",
+    "_run_remint_to_settlement": "f79ba1a2e15f8fe10b822f79a4a9424dff69b13fd28079ab606d7175dbafbcbe",
+    "assert_account_writable": "3a98efea113ed30b1c200429479e89a871e3602d478e94ea580612c2e4513d3e",
+    "bootstrap_from_oauth_token": "5d2a2f8b3bb94cc398f88a232640e3ff42800379d301e97656bcbe846038b9de",
+    "bootstrap_storage": "4d509a0fd1d77fc9a13eb9a26f508d9e77ade387a2e773427e953636846ea1e6",
+    "remint_from_stored_token": "6955eaf1c625654f6b2a3c842fdd41f3baf4a5eb55b44393bd192bab35d8d148",
 }
 
 _ADAPTER_HASHES = {
-    "assert_account_writable": ("c7e0451c1ec7e6ae37c4bef3c6b9d98932bfe3e7fe4b5f8e0122fb92563b603b"),
-    "bootstrap_from_oauth_token": (
-        "d7cdd3b6e28a7adddbc30f668af2e653dc8b6b851879921519d3819f2a243275"
-    ),
-    "remint_from_stored_token": (
-        "2a7623979038fae29a3ee5a9663cb31b2614a8dbaa45fa5467c9365821780bcf"
-    ),
-    "bootstrap_storage_from_master_token": (
-        "9cd8f4d1776ac6352e3e8d9ba3a729369e46d83a2f00da25ea2f096d855ea96a"
-    ),
-    "bootstrap_missing_storage_from_master_token": (
-        "75e60a24e3d8889547381125196fd628c2c90dd22e6355edd47166db227e9ad1"
-    ),
-    "_session_owner_reader": ("5f69fcb81ff610e45cffd418387471a53c8dd71585eee1068d901d69ec5722e5"),
-    "_android_id_generator": ("5ca6d2beba8150d7e6239958c4363a462194e468148a195f8f17a23218497044"),
-    "_strict_loader": "93d263d64cd3225051c00cb69a9560dfd31f0183827446c816428f92a05ca478",
-    "_verifier": "09876ad43f4403b5145739d385d1dd4f561bd4b6f2243bb6762309185c870191",
-    "_bootstrapper": "af1366949d35d0b2c49f8251b39795096f1e8325e0ca3261e0e5a883fb29861e",
+    "_android_id_generator": "2d4f7f939bcf5d40a3084d99da970d8b48dcf9392d255810b691951e51bf524f",
+    "_bootstrapper": "e0a7ee8aba56403651b9a94c5e40e0d4bcd9b28986143b7391b8fcd6cda2ec09",
+    "_session_owner_reader": "ae9e4392bd8d94008fe2f0ac93a3351e064ba8f99d6556c69a3608915479f4bf",
+    "_strict_loader": "29109798c66e9918f3a5e25459ea7733642657fb76d4de245f3803981db08faf",
+    "_verifier": "2453c4a5fc904a1df9c42147900bc1c2918e9a28c20b8a1594737c83b95db09b",
+    "assert_account_writable": "9209e5ae1d2d617067d888a36109d034226a5386710e2b0397c750023e89344e",
+    "bootstrap_from_oauth_token": "6d40ca20b01a84b236cbc25ee83a8a748cba4bfdfd70fbed5c4058322b17817f",
+    "bootstrap_missing_storage_from_master_token": "9abd23fb9ff23b32fbc24430bef6aef833f111b1a766b39e1dc7d8ba0262babf",
+    "bootstrap_storage_from_master_token": "2807649b65e3f67e575c8221d0384377f58a8ce5ca1b1a9edc08eefbffa8568a",
+    "remint_from_stored_token": "143add0fd1b4b2eccba5a7ff6391a47720d00d001f9610b5d219c35bd8e8cc8a",
 }
 
 _FORBIDDEN_IMPORT_FRAGMENTS = {
@@ -154,8 +140,7 @@ def _functions(tree: ast.Module) -> dict[str, ast.FunctionDef | ast.AsyncFunctio
 
 
 def _semantic_hash(node: ast.AST) -> str:
-    payload = ast.dump(node, include_attributes=False).encode()
-    return hashlib.sha256(payload).hexdigest()
+    return _portable_semantic_hash(node)
 
 
 class _ImportCollector(ast.NodeVisitor):

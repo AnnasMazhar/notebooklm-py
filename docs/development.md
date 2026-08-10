@@ -418,7 +418,7 @@ seams remain exact. Phase 12C measures **40 modules / 15,237 lines / 128 unique 
 11 function-local)**. Module-only and all-scope SCC sets are both empty. The final touched production
 LOC is: account 252, account-repair 132, account-types 50, cookie-types 396, cookies 961, keepalive
 438, master-token 455, master-token-types 68, PSIDTS recovery 1,222, recovery 530, refresh 1,184,
-single-flight 268, and storage 1,115. These are ratchet evidence, not a budget to spend.
+single-flight 268, and storage 1,127. These are ratchet evidence, not a budget to spend.
 
 Phase 10 completes runtime ownership. `NotebookLMClient.from_storage` registers a
 `FileLoadedAuth` result's exact `ProfileStore`/baseline pair with `CookiePersistence`, without a

@@ -389,11 +389,10 @@ def _live_structure_violations(tree: ast.Module) -> list[str]:
         ast.With,
         ast.AsyncWith,
         ast.Try,
-        ast.TryStar,
         ast.Match,
     )
     for node in ast.walk(tree):
-        if isinstance(node, forbidden_nodes):
+        if isinstance(node, forbidden_nodes) or type(node).__name__ == "TryStar":
             violations.append(f"forbidden-node:{type(node).__name__}:{node.lineno}")
     return violations
 

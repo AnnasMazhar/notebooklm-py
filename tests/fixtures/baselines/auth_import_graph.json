@@ -693,7 +693,7 @@
       "path": "src/notebooklm/_auth/cookie_filter.py"
     },
     {
-      "lines": 444,
+      "lines": 448,
       "name": "cookie_merge",
       "path": "src/notebooklm/_auth/cookie_merge.py"
     },
@@ -818,7 +818,7 @@
       "path": "src/notebooklm/_auth/single_flight.py"
     },
     {
-      "lines": 1115,
+      "lines": 1127,
       "name": "storage",
       "path": "src/notebooklm/_auth/storage.py"
     },
@@ -851,7 +851,7 @@
     "function_local_edges": 11,
     "module_edges": 117,
     "modules": 40,
-    "total_lines": 15242,
+    "total_lines": 15258,
     "unique_edges": 128
   },
   "version": 1

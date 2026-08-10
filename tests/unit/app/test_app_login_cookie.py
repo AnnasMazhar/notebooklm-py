@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 import asyncio
 import gc
-import hashlib
 import inspect
 import traceback
 import warnings
@@ -41,6 +40,7 @@ from notebooklm._app.login_cookie import (
     resolve_cookie_domains,
 )
 from notebooklm.cli import _cookie_import as cookie_import_module
+from tests._guardrails._ast_semantics import semantic_hash as _portable_semantic_hash
 
 
 def _row(name: str, value: str = "value") -> dict[str, Any]:
@@ -463,18 +463,17 @@ def test_quiet_network_error_is_reraised_same_object(monkeypatch: pytest.MonkeyP
 
 
 _SEMANTIC_HASHES = {
-    "login_cookie": "ddfe87f35ed663bb5044dc669415b68e2315e88752150bd0d7ab81fc0dcfb44f",
-    "cookie_import": "7491a15aa1e75e301699c30ce8160e37bbbe3af74f06f13d80f446a2468741c1",
-    "browser_accounts": "7f45671910eeb46789e3e33f72602ac60880f2d04449886d5e9c9589ed008c1d",
-    "chromium_accounts": "7feb82ff79f7d678030a55a2bcfbd3fa6ff6a23ac4dac84576463ef9737823a7",
-    "cookie_domains": "01ce62dd194b83b50a686de5a3017b839d086e415de178c50d49da7def4f5e55",
-    "cookie_jar": "88e1f88b829c26e238ed8f0c398bb441d29aad668aecf161a85ba882069b02bd",
+    "login_cookie": "c6433e3b9441ed49935715179c213c199b1d8003b29203e1085962e9ca6d787d",
+    "cookie_import": "d79cba286f232b5c809877c8b94b672d2ff05c81fdb464ff5e566744aa158130",
+    "browser_accounts": "2ffaac1f3017e82ad9aca92337b6906e19a29ec11b14e76cad83b6418e598603",
+    "chromium_accounts": "7cd41ed186d67d604ffb30b43a0b0160cd80e1749cb124cb6d4d5ed0379d5486",
+    "cookie_domains": "9874aab5c760feab5cc772bf0792f3775c1377896db7bf4ba22542432c31b534",
+    "cookie_jar": "f1dbf33c2c8d389875c48f22caa1776190617fbbd422624c7fb67448767921eb",
 }
 
 
 def _semantic_hash(source: str) -> str:
-    dump = ast.dump(ast.parse(source), include_attributes=False)
-    return hashlib.sha256(dump.encode()).hexdigest()
+    return _portable_semantic_hash(ast.parse(source))
 
 
 def _module_sources() -> dict[str, str]:

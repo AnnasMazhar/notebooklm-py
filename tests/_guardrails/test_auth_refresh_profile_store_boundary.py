@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import inspect
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +13,7 @@ import notebooklm._auth as auth_package
 import notebooklm.auth as auth_facade
 from notebooklm._auth import refresh, storage
 from notebooklm._auth.cookie_types import CookieJar
+from tests._guardrails._ast_semantics import semantic_hash as _portable_semantic_hash
 
 pytestmark = pytest.mark.repo_lint
 
@@ -23,9 +23,9 @@ REFRESH_PATH = REPO_ROOT / "src" / "notebooklm" / "_auth" / "refresh.py"
 _HELPER = "_merge_domain_fetch_observation"
 _FETCH = "fetch_tokens_with_domains"
 _MERGE = "merge_cookie_observation"
-_MODULE_HASH = "0942b3a21907e49a4d50c46aaba28e800a9a574a6b50cb4458f6ce59319a19be"
-_HELPER_HASH = "4422d49bee837de33e0fa1f81deb39568a2d821fa01c99e5fbdb92a899f8f553"
-_FETCH_HASH = "58f25bab4c900a95c21406027d69e5bf5cfa2e01177e3dbb6ab9d3222327adcd"
+_MODULE_HASH = "ab411febaecc908a4d7c2ff3b338dcefb7d979e44d1b36987a09808563ae863a"
+_HELPER_HASH = "96fa4345674a291eee8906a51d5511438bb822b0c75785dc7ec52e5ffd82cc0c"
+_FETCH_HASH = "b1d2f00fbaea93d720d75547788dda8aa12a29e00026911c565cba3e76c7cf60"
 
 
 def _tree(source: str | None = None) -> ast.Module:
@@ -45,7 +45,7 @@ def _function(tree: ast.Module, name: str) -> ast.FunctionDef | ast.AsyncFunctio
 
 
 def _semantic_hash(node: ast.AST) -> str:
-    return hashlib.sha256(ast.dump(node, include_attributes=False).encode()).hexdigest()
+    return _portable_semantic_hash(node)
 
 
 def _qualified_name(node: ast.AST) -> str | None:

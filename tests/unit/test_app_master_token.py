@@ -6,7 +6,6 @@ import ast
 import asyncio
 import builtins
 import gc
-import hashlib
 import inspect
 import warnings
 from contextlib import contextmanager
@@ -19,8 +18,9 @@ import notebooklm._app.master_token as app
 import notebooklm.cli.master_token_login as driver
 import notebooklm.cli.services.login.master_token as capture_service
 from notebooklm.auth import MasterTokenError
+from tests._guardrails._ast_semantics import semantic_hash as _portable_semantic_hash
 
-_MODULE_SEMANTIC_HASH = "29e0d98c8fd9d1b6914161d65f573a137e383de413a990be12ddb959aaf9ad94"
+_MODULE_SEMANTIC_HASH = "e0eb708a49eb0112764ad05d95e25d8808df7da9bfae3393a8349c9017dfc31b"
 
 
 class _DirectBaseException(BaseException):
@@ -31,7 +31,7 @@ class _CoroutineStateProbe:
     def __init__(self, state: str) -> None:
         self.cr_running = False
         self.cr_suspended = state == "started"
-        self.cr_frame = None if state == "completed" else object()
+        self.cr_frame = None if state == "completed" else SimpleNamespace(f_lasti=0)
         self.close_calls = 0
 
     def close(self) -> None:
@@ -849,7 +849,7 @@ def _boundary_violations(source: str) -> set[str]:
             if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name):
                 if value.value.id == "auth" and value.attr != "MasterTokenError":
                     violations.add("captured-facade")
-    semantic_hash = hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest()
+    semantic_hash = _portable_semantic_hash(tree)
     if semantic_hash != _MODULE_SEMANTIC_HASH:
         violations.add("module-semantic-drift")
     return violations

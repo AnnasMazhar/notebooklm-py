@@ -271,6 +271,8 @@ def forbidden(path):
     ],
 )
 def test_direct_manager_detector_bites_inline_assigned_keyword_and_control_flow(body: str) -> None:
+    if "except*" in body and not hasattr(ast, "TryStar"):
+        pytest.skip("exception groups require Python 3.11+")
     assert _direct_acquire_owners(body) == {"synthetic.forbidden"}
 
 

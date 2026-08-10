@@ -285,6 +285,9 @@ _MINTED_ADAPTER_CALLS: Counter[str] = Counter(
         "_cookie_is_http_only": 1,
         "MasterTokenError": 1,
         "cast": 1,
+        "len": 1,
+        "required_order.index": 1,
+        "sorted": 1,
         "str": 1,
     }
 )

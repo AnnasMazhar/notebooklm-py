@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 import threading
 from http.cookiejar import Cookie as HttpCookie
 from pathlib import Path
@@ -454,10 +455,12 @@ async def test_public_token_read_io_projection_with_outer_exception(tmp_path, lo
 
     error = raised.value
     assert error.__cause__ is lower
-    assert error.__context__ is lower
+    expected_context = lower if sys.version_info >= (3, 13) else outer
+    assert error.__context__ is expected_context
     assert error.__suppress_context__ is True
     assert lower.__context__ is None
-    assert outer not in (error.__cause__, error.__context__)
+    if sys.version_info >= (3, 13):
+        assert outer not in (error.__cause__, error.__context__)
 
 
 @pytest.mark.parametrize("active_outer", [False, True])
@@ -486,7 +489,8 @@ async def test_public_malformed_projection_preserves_ordinary_context(
         error = await invoke()
 
     assert error.__cause__ is None
-    assert error.__context__ is (outer if active_outer else None)
+    expected_context = outer if active_outer and sys.version_info >= (3, 13) else None
+    assert error.__context__ is expected_context
     assert error.__suppress_context__ is False
     assert not isinstance(error.__context__, (_BootstrapError, _MasterTokenRecordError))
 
