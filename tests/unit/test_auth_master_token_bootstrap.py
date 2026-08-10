@@ -1252,10 +1252,7 @@ async def test_bootstrap_lock_timeout_is_bounded_typed_and_never_releases(tmp_pa
     loop = Mock()
     loop.time.side_effect = [0.0, 90.0]
     monkeypatch.setattr(bootstrapper, "remint_from_stored_token", remint)
-    monkeypatch.setattr(
-        "notebooklm._auth.master_token_bootstrap.asyncio.get_running_loop",
-        Mock(return_value=loop),
-    )
+    monkeypatch.setattr(asyncio, "get_running_loop", Mock(return_value=loop))
 
     with pytest.raises(_BootstrapError, match="Timed out waiting") as raised:
         await bootstrapper.bootstrap_storage(strict_loader=Mock())
