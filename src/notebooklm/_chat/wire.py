@@ -177,14 +177,14 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
     best_marked_refs: list[ChatReference] = []
     best_unmarked_answer = ""
     best_unmarked_refs: list[ChatReference] = []
-    best_unmarked_has_response_doc = False
+    saw_unmarked_response_doc = False
     server_conv_id: str | None = None
     parseable_chunk_count = 0
 
     def process_chunk(json_str: str) -> None:
         """Process a JSON chunk, updating best answer candidates and their refs."""
         nonlocal best_marked_answer, best_marked_refs
-        nonlocal best_unmarked_answer, best_unmarked_refs, best_unmarked_has_response_doc
+        nonlocal best_unmarked_answer, best_unmarked_refs, saw_unmarked_response_doc
         nonlocal server_conv_id, parseable_chunk_count
         text, is_answer, refs, conv_id, parseable, has_response_doc = _extract_chunk_with_parseable(
             json_str
@@ -195,10 +195,11 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
             if is_answer and len(text) > len(best_marked_answer):
                 best_marked_answer = text
                 best_marked_refs = refs
-            elif not is_answer and len(text) > len(best_unmarked_answer):
-                best_unmarked_answer = text
-                best_unmarked_refs = refs
-                best_unmarked_has_response_doc = has_response_doc
+            elif not is_answer:
+                saw_unmarked_response_doc |= has_response_doc
+                if len(text) > len(best_unmarked_answer):
+                    best_unmarked_answer = text
+                    best_unmarked_refs = refs
         if conv_id:
             server_conv_id = conv_id
 
@@ -233,7 +234,7 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
         longest_answer = best_marked_answer
         final_refs = best_marked_refs
     elif best_unmarked_answer:
-        if best_unmarked_has_response_doc:
+        if saw_unmarked_response_doc:
             logger.warning(
                 "No marked answer found; falling back to longest unmarked "
                 "text (%d chars). The API response format may have changed.",

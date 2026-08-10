@@ -338,6 +338,30 @@ def test_no_answer_without_response_doc_does_not_log_drift_warning(caplog) -> No
     assert not any("No marked answer found" in record.message for record in caplog.records)
 
 
+def test_no_answer_with_shortened_row_does_not_log_drift_warning(caplog) -> None:
+    inner_json = json.dumps([["No supported answer."]])
+    response = _length_prefixed(json.dumps([["wrb.fr", None, inner_json]]))
+
+    with caplog.at_level(logging.WARNING, logger="notebooklm._chat"):
+        result = parse_streaming_chat_response(response)
+
+    assert result.answer == "No supported answer."
+    assert not any("No marked answer found" in record.message for record in caplog.records)
+
+
+def test_present_unmarked_doc_warns_even_when_absent_doc_text_is_longer(caplog) -> None:
+    response = _length_prefixed(
+        _chunk("Drift.", marked=False),
+        _chunk("The sources do not contain enough information.", response_doc=False),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="notebooklm._chat"):
+        result = parse_streaming_chat_response(response)
+
+    assert result.answer == "The sources do not contain enough information."
+    assert any("No marked answer found" in record.message for record in caplog.records)
+
+
 def test_malformed_present_response_doc_still_logs_drift_warning(caplog) -> None:
     inner_json = json.dumps([["Fallback text.", None, None, None, {}]])
     response = _length_prefixed(json.dumps([["wrb.fr", None, inner_json]]))
