@@ -9,9 +9,9 @@ Example::
 
     uv run --extra browser --extra cookies --extra headless --extra mcp --extra server \
       python scripts/live_auth_matrix.py \
-      --profile teng-lin-9420 \
+      --profile source-profile \
       --browser 'chromium::Profile 3' \
-      --account teng.lin.9420@gmail.com \
+      --account maintainer@example.com \
       --base-url https://notebooklm.google.com \
       --output live-matrix.json
 
@@ -23,9 +23,9 @@ Opt-in human-interaction cells (start a loopback CDP browser first)::
       --user-data-dir=/tmp/notebooklm-live-cdp
     DISPLAY=:10 uv run --extra browser --extra cookies --extra headless \
       python scripts/live_auth_matrix.py \
-      --profile teng-lin-9420 \
+      --profile source-profile \
       --browser 'chromium::Profile 3' \
-      --account teng.lin.9420@gmail.com \
+      --account maintainer@example.com \
       --include-interactive \
       --cdp-url http://127.0.0.1:9222
 
@@ -414,9 +414,11 @@ class Matrix:
         proc = self.cli(
             home,
             "login",
+            "--browser-timeout",
+            str(self.args.interactive_timeout),
             *login_args,
             profile=profile,
-            timeout=self.args.interactive_timeout,
+            timeout=self.args.interactive_timeout + 30,
         )
         self.record(f"{result_prefix}-login", proc)
         profile_dir = home / "profiles" / profile
@@ -1372,7 +1374,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--interactive-timeout",
         type=_positive_int,
         default=360,
-        help="Per-login human interaction timeout in seconds (default: 360).",
+        help=(
+            "Per-login human interaction timeout in seconds (default: 360); "
+            "the child process gets 30 additional seconds for teardown."
+        ),
     )
     parser.add_argument(
         "--cdp-url",

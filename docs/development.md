@@ -619,6 +619,7 @@ uv run --extra browser --extra cookies --extra headless --extra mcp --extra serv
   --browser 'chromium::Profile 3' \
   --account <account-email> \
   --include-interactive \
+  --interactive-timeout 600 \
   --cdp-url http://127.0.0.1:9222 \
   --output live-matrix.json
 ```
@@ -629,8 +630,10 @@ disposable profiles. Each cell verifies the expected credential files and a
 passive live request. The CDP cell probes the endpoint before and after login,
 so it also proves the matrix did not close the operator-owned browser. Remote,
 credential-bearing, query-bearing, and non-root CDP URLs are rejected before
-any cell runs. Workspace/SSO, regional-account, and long-duration-expiry cases
-remain account-specific manual validation.
+any cell runs. `--interactive-timeout` is forwarded into each CLI browser wait;
+the matrix gives the child process 30 additional seconds to report failure and
+tear down. Workspace/SSO, regional-account, and long-duration-expiry cases remain
+account-specific manual validation.
 
 ### Selecting a profile for E2E tests
 

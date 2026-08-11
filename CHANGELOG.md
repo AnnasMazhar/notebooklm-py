@@ -26,7 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [#2175](https://github.com/teng-lin/notebooklm-py/issues/2175). Its new opt-in
   `--include-interactive` lane also covers ordinary headed Playwright login,
   initial headed master-token bootstrap, and loopback CDP-attached master-token
-  capture without changing the unattended default matrix.
+  capture without changing the unattended default matrix. Its configurable
+  interaction deadline is forwarded into the actual Playwright/CDP wait rather
+  than acting only as an outer subprocess timeout.
 - **Long-lived MCP and REST servers now keep cookie sessions alive and recover
   from sibling profile refreshes.** Both server adapters enable the client's
   600-second background `RotateCookies` loop for their process-lifetime client.

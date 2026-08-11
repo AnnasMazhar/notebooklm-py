@@ -532,21 +532,20 @@ def heal_captured_state(state: dict[str, Any]) -> tuple[dict[str, Any], ValueErr
 @dataclass(frozen=True)
 class BrowserCapturePlan:
     """Frozen description of one browser-capture attempt.
-
-    Fields:
-        browser: Channel; ``"chromium"`` or any :data:`CHANNEL_BROWSERS` key
-            (``"chrome"``, ``"msedge"``).
-        browser_profile: Persistent-context dir Playwright launches against
-            (survives across attempts so the session persists).
-        storage_path: Destination for the captured ``storage_state.json``.
-        include_domains: Optional ``--include-domains`` labels; ``None`` /
-            empty means "only required Google cookies + regional ccTLDs."
+    browser: Channel; ``"chromium"`` or any :data:`CHANNEL_BROWSERS` key
+        (``"chrome"``, ``"msedge"``).
+    browser_profile: Persistent-context dir Playwright launches against
+        (survives across attempts so the session persists).
+    storage_path: Destination for the captured ``storage_state.json``.
+    include_domains: Optional ``--include-domains`` labels; ``None`` /
+        empty means "only required Google cookies + regional ccTLDs."
     """
 
     browser: str
     browser_profile: Path
     storage_path: Path
     include_domains: set[str] | None = None
+    login_timeout_s: int = 300
 
 
 @dataclass(frozen=True)
@@ -780,36 +779,37 @@ def run_browser_capture(
                 io.emit("\n[bold green]Instructions:[/bold green]")
                 io.emit("1. Complete the Google login in the browser window")
                 io.emit("2. Authentication will be saved automatically once login is detected\n")
-                io.emit("[dim]Waiting for login (up to 5 minutes)...[/dim]")
-                # Name the accept set and the starting point BEFORE blocking:
-                # with these two lines plus the per-navigation trace below, a
-                # ``-vv`` paste from a stuck login is self-diagnosing (#2046).
-                # Explicitly level-gated: ``logger.debug``'s %-args are built
-                # eagerly, and this diagnostic must do NO work when logging is
-                # off — the wait has to stay byte-for-byte what it was.
+                timeout_s = plan.login_timeout_s
+                timeout_label = "5 minutes" if timeout_s == 300 else f"{timeout_s} seconds"
+                io.emit(f"[dim]Waiting for login (up to {timeout_label})...[/dim]")
+                # Name the accept set/start before blocking so a ``-vv`` paste
+                # diagnoses a stuck login (#2046). Keep all diagnostic work
+                # inside the explicit level gate.
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Login wait: accepting any of %s (currently on %s); timeout 300s",
+                        "Login wait: accepting any of %s (currently on %s); timeout %ss",
                         ", ".join(accepted_login_hosts()),
                         safe_page_url(page),
+                        timeout_s,
                     )
                 try:
-                    # wait_until="commit", not the default "load": the SPA never
-                    # fires "load", so a load-gated wait hangs the full 5 min even
-                    # though sign-in already succeeded and the URL already matches
-                    # (the #1697 symptom). "commit" returns as soon as we reach the
-                    # host. Cookies are read later at storage_state() (after the
-                    # cookie-forcing round-trips), so resolving early is safe;
-                    # page.content() at capture time is best-effort/None-tolerant.
+                    # The SPA never fires "load"; "commit" resolves as soon as
+                    # the accepted host is reached (#1697). Cookies are read later.
                     with log_observed_navigations(page):
                         page.wait_for_url(
-                            url_matches_base_host, wait_until="commit", timeout=300_000
+                            url_matches_base_host,
+                            wait_until="commit",
+                            timeout=timeout_s * 1000,
                         )
                 except PlaywrightTimeout:
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug("Login wait: timed out after 300s on %s", safe_page_url(page))
+                        logger.debug(
+                            "Login wait: timed out after %ss on %s",
+                            timeout_s,
+                            safe_page_url(page),
+                        )
                     io.emit(
-                        "[red]Login not detected within 5 minutes.[/red]\n"
+                        f"[red]Login not detected within {timeout_label}.[/red]\n"
                         "Try again with: notebooklm login\n"
                         "Already signed in to Google in Chrome? Retry with "
                         "[cyan]notebooklm login --browser chrome[/cyan] to reuse that "

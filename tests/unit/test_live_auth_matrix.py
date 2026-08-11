@@ -264,8 +264,15 @@ def test_interactive_login_cells_use_isolated_profiles_and_verify_artifacts(
         "interactive-master-token",
         "interactive-cdp-master-token",
     ]
-    assert all(call[3] == 360 for call in login_calls)
-    assert login_calls[0][1] == ("login", "--browser", "chromium")
+    assert all(call[3] == 390 for call in login_calls)
+    assert login_calls[0][1] == (
+        "login",
+        "--browser-timeout",
+        "360",
+        "--browser",
+        "chromium",
+    )
+    assert all(call[1][1:3] == ("--browser-timeout", "360") for call in login_calls)
     assert "--master-token" in login_calls[1][1]
     assert "--cdp-url" in login_calls[2][1]
     assert login_calls[2][1][-1] == "http://127.0.0.1:9222"
