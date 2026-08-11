@@ -116,13 +116,17 @@ class AuthTokens:
             per RFC 6265 §5.3 (issue #369). Legacy 2-tuple ``(name, domain)``
             and flat ``name -> value`` shapes are still accepted on
             construction and widened to the path-aware shape by
-            :func:`normalize_cookie_map` during ``__post_init__``.
+            :func:`normalize_cookie_map` during ``__post_init__``. This is a
+            public compatibility/bootstrap shadow: the kernel copies it once
+            during client composition and no first-party post-open decision
+            reads it.
         csrf_token: CSRF token (SNlM0e) extracted from page
         session_id: Session ID (FdrFJe) extracted from page
         storage_path: Path to the storage_state.json file, if file-based auth was used
-        cookie_jar: Domain-preserving httpx.Cookies jar. Preferred over flat cookies dict
-            for HTTP operations as it retains original cookie domains (e.g.,
-            .googleusercontent.com vs .google.com).
+        cookie_jar: Domain-preserving public compatibility/bootstrap shadow.
+            The kernel copies it once during client composition, then owns the
+            sole mutable jar used for HTTP, routing, recovery, and persistence.
+            Managed-client code must use the kernel jar, not this field.
         authuser: Google ``authuser`` index this profile authenticates as.
             ``0`` (the default account) is used when no in-band account
             metadata is present in ``storage_state.json``, matching
@@ -179,17 +183,14 @@ class AuthTokens:
             )
 
     def replace_cookie_jar(self, cookie_jar: httpx.Cookies) -> None:
-        """Rebind the live jar **and** the derived map together (ADR-0031 Stage 4).
+        """Rebind both public compatibility shadows together.
 
         ``cookies`` and ``cookie_jar`` hold the same information in two shapes,
-        synced once at construction. Rebinding only the jar — which is what the
-        mid-session refresh does — leaves ``cookies`` describing the *previous*
-        session, and ``AuthTokens`` is public API, so a caller reading
-        ``auth.cookies`` after a refresh silently gets stale values. Nothing
-        inside the library noticed, because the one internal reader
-        (``_kernel.py``) prefers ``cookie_jar`` and only falls back to
-        ``cookies`` when the jar is ``None``, which construction makes
-        impossible.
+        initialized together at bootstrap. The kernel owns the live jar after
+        composition; this method is the ADR-0032 Phase-A sync-back for public
+        callers that still inspect the old fields. Rebinding only one shadow
+        would expose two different sessions through the public object even
+        though no first-party runtime decision consults either field.
 
         Every rebind goes through here so the two cannot diverge. Enforced by
         ``tests/_guardrails/test_authtokens_jar_sync.py``.
@@ -211,10 +212,10 @@ class AuthTokens:
     ) -> bool | None:
         """Install one stored cookie/account generation without an await boundary.
 
-        The live HTTP jar, its two public compatibility views, and the routing
-        identity must advance together. The caller holds the auth snapshot lock,
-        so RPC snapshots cannot observe cookies from one stored generation with
-        ``authuser``/``account_email`` from another.
+        The kernel-owned target jar, the two public compatibility shadows, and
+        the routing identity advance together. The caller holds the auth
+        snapshot lock, so RPC snapshots cannot observe cookies from one stored
+        generation with ``authuser``/``account_email`` from another.
 
         Returns:
             Whether the account route changed, or ``None`` when the live jar
@@ -364,14 +365,14 @@ class AuthTokens:
 
     @property
     def jar(self) -> CookieJar:
-        """Return a typed, read-only :class:`CookieJar` view of the current cookies.
+        """Return a typed, read-only view of the compatibility cookie shadow.
 
-        The forward-looking accessor for new code (ADR-0032). Projected fresh
-        from the live ``cookie_jar`` each access, so it never goes stale — but it
-        is a **read-only question view** (``names`` / ``validate_required`` /
-        ``has_secondary_binding`` / ``missing_hint``), not the live jar. Mutating
-        the live session still goes through ``cookie_jar`` (the httpx jar the
-        transport owns); persistence still goes through the storage writer.
+        This preserves the public Phase-A projection and the future
+        ``initial_cookies`` migration shape. It is projected from
+        ``cookie_jar`` each access, but that field is itself a compatibility
+        shadow; managed-client code asks the kernel-owned jar instead. This is
+        a **read-only question view** (``names`` / ``validate_required`` /
+        ``has_secondary_binding`` / ``missing_hint``), never a live authority.
 
         ``same_site``-lossy by construction (:meth:`CookieJar.from_httpx`), so it
         must never be persisted — the SameSite the wire cookies carry is not
@@ -395,8 +396,8 @@ class AuthTokens:
            changes if ``storage_state`` is reordered (issue #2054).
 
            Kept for backward compatibility — see the migration note in the
-           v0.4.0 CHANGELOG entry that recommended it. For HTTP use
-           :meth:`cookie_header_for`, :attr:`cookie_jar`, or :attr:`cookies`.
+           v0.4.0 CHANGELOG entry that recommended it. Managed-client request
+           and persistence paths never consume this projection.
         """
         return _auth_cookies.flatten_cookie_map(self.cookies)
 
