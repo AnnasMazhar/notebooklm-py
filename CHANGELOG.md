@@ -256,6 +256,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 
+- **The `AuthTokens` cookie compatibility views now have an explicit v1
+  runway.** Direct `flat_cookies` access emits one caller-attributed
+  `DeprecationWarning`; use `jar` for bootstrap-cookie questions and managed
+  client APIs for requests. `cookies` and `cookie_jar` are docs-only deprecated
+  so construction, repr, equality, and `dataclasses.replace()` remain quiet.
+  `jar` is the transitional shape for v1's immutable `initial_cookies` field;
+  `cookie_header` and `cookie_header_for(url)` are scheduled for v1 deletion
+  and remain warning-free through v0.x. `CookieJar` stays an ordered sequence,
+  never a Mapping or live transport jar. Suppress the direct-access warning
+  temporarily with `NOTEBOOKLM_QUIET_DEPRECATIONS=1`.
 - **`AuthTokens.from_storage(...)` is deprecated in favor of the managed client
   lifecycle.** It remains available throughout v0.x, but now emits
   `DeprecationWarning` and is scheduled for removal in v1.0. Migrate to

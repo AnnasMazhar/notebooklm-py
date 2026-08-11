@@ -231,7 +231,6 @@ _COOKIE_SHADOW_INVENTORY: frozenset[tuple[str, str, str, str, str, int]] = froze
             "Call",
             1,
         ),
-        ("_auth/tokens.py", "AuthTokens.cookie_header", "self", "flat_cookies", "Load", 1),
         (
             "_auth/tokens.py",
             "AuthTokens.cookie_header_for",
@@ -240,7 +239,14 @@ _COOKIE_SHADOW_INVENTORY: frozenset[tuple[str, str, str, str, str, int]] = froze
             "Load",
             2,
         ),
-        ("_auth/tokens.py", "AuthTokens.flat_cookies", "self", "cookies", "Load", 1),
+        (
+            "_auth/tokens.py",
+            "AuthTokens._flat_cookie_projection",
+            "self",
+            "cookies",
+            "Load",
+            1,
+        ),
         ("_auth/tokens.py", "AuthTokens.jar", "self", "cookie_jar", "Load", 2),
         (
             "_auth/tokens.py",
