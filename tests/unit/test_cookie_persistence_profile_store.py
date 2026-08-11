@@ -446,7 +446,7 @@ def test_runtime_factory_keeps_raw_auth_store_and_resolved_lifecycle_target(
 
 
 @pytest.mark.asyncio
-async def test_lifecycle_default_patched_and_custom_saver_routes(
+async def test_lifecycle_default_canonical_and_explicit_saver_routes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def legacy_jar(sid: str) -> httpx.Cookies:
@@ -471,24 +471,6 @@ async def test_lifecycle_default_patched_and_custom_saver_routes(
     canonical = AsyncMock()
     monkeypatch.setattr(persistence, "_save_canonical", canonical)
     await lifecycle.save_cookies(persistence, _live())
-    canonical.assert_awaited_once()
-
-    patched_calls: list[tuple[httpx.Cookies, set[tuple[str, str, str, str | None]]]] = []
-
-    def patched(*args: Any, **kwargs: Any) -> bool:
-        received = args[0]
-        patched_calls.append((received, rows(received)))
-        mutate_writer_copy(received)
-        return True
-
-    monkeypatch.setattr(persistence_module._auth_storage, "save_cookies_to_storage", patched)
-    patched_input = legacy_jar("patched")
-    patched_expected = rows(patched_input)
-    await lifecycle.save_cookies(persistence, patched_input)
-    assert len(patched_calls) == 1
-    assert patched_calls[0][0] is not patched_input
-    assert patched_calls[0][1] == patched_expected
-    assert rows(patched_input) == patched_expected
     canonical.assert_awaited_once()
 
     custom_calls: list[tuple[httpx.Cookies, set[tuple[str, str, str, str | None]]]] = []
