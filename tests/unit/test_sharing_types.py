@@ -543,15 +543,6 @@ class TestSetUsers:
                 ],
                 "Duplicate email in grants",
             ),
-            # Case-only difference reaches the same account, so it hits the same
-            # silent no-op and must be rejected too.
-            (
-                [
-                    ("Dup@Example.com", SharePermission.VIEWER),
-                    ("dup@example.com", SharePermission.EDITOR),
-                ],
-                "Duplicate email in grants",
-            ),
         ],
     )
     async def test_set_users_rejects_invalid_grants(
@@ -563,7 +554,7 @@ class TestSetUsers:
     ):
         """Empty, owner, remove, and duplicate grants fail before an RPC is sent.
 
-        The duplicate cases are not cosmetic: a batch repeating one grantee comes
+        The duplicate case is not cosmetic: a batch repeating one grantee comes
         back **successful** from the backend while that user's permission stays
         unchanged (confirmed live), so there is no first-wins or last-wins rule to
         implement — only a request worth refusing to send.
@@ -573,6 +564,98 @@ class TestSetUsers:
                 await client.sharing.set_users("nb_123", grants)
 
         assert httpx_mock.get_requests() == []
+
+    @pytest.mark.asyncio
+    async def test_case_variant_emails_are_not_treated_as_duplicates(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        build_rpc_response,
+        rpc_request_params,
+    ):
+        """Duplicate detection is exact, and deliberately so.
+
+        The live probe covered the *same* address twice, not case variants. RFC 5321
+        makes the local part case-sensitive (only the domain is not), so folding case
+        here could reject two addresses the server may treat as distinct identities —
+        a client-side hard error standing in for a backend rule nobody has observed.
+        This pins the narrower behaviour so a future "improvement" to `casefold()`
+        has to argue with evidence.
+        """
+        httpx_mock.add_response(content=build_rpc_response(RPCMethod.SHARE_NOTEBOOK, []).encode())
+        httpx_mock.add_response(
+            content=build_rpc_response(RPCMethod.GET_SHARE_STATUS, [[], [False], 1000]).encode()
+        )
+
+        async with NotebookLMClient(auth_tokens) as client:
+            await client.sharing.set_users(
+                "nb_123",
+                [
+                    ("Dup@example.com", SharePermission.VIEWER),
+                    ("dup@example.com", SharePermission.EDITOR),
+                ],
+                notify=False,
+            )
+
+        assert rpc_request_params(httpx_mock.get_requests()[0])[0][0][1] == [
+            ["Dup@example.com", None, SharePermission.VIEWER.value],
+            ["dup@example.com", None, SharePermission.EDITOR.value],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_set_users_notifies_by_default(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        build_rpc_response,
+        rpc_request_params,
+    ):
+        """``notify`` defaults to True — every other test passes it explicitly.
+
+        Without this, flipping the new method's default to False would go unnoticed:
+        a brand-new method's default is not covered by the stable-API baseline.
+        """
+        httpx_mock.add_response(content=build_rpc_response(RPCMethod.SHARE_NOTEBOOK, []).encode())
+        httpx_mock.add_response(
+            content=build_rpc_response(RPCMethod.GET_SHARE_STATUS, [[], [False], 1000]).encode()
+        )
+
+        async with NotebookLMClient(auth_tokens) as client:
+            await client.sharing.set_users("nb_123", [("u@example.com", SharePermission.VIEWER)])
+
+        assert rpc_request_params(httpx_mock.get_requests()[0])[1] == 1
+
+    @pytest.mark.asyncio
+    async def test_add_user_forwards_its_welcome_message(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        build_rpc_response,
+        rpc_request_params,
+    ):
+        """The singular wrapper must not drop the caller's welcome message.
+
+        ``add_user`` now delegates to ``set_users``; nothing else asserts that the
+        message survives the hop, so dropping it would have been silent.
+        """
+        httpx_mock.add_response(content=build_rpc_response(RPCMethod.SHARE_NOTEBOOK, []).encode())
+        httpx_mock.add_response(
+            content=build_rpc_response(RPCMethod.GET_SHARE_STATUS, [[], [False], 1000]).encode()
+        )
+
+        async with NotebookLMClient(auth_tokens) as client:
+            await client.sharing.add_user(
+                "nb_123",
+                "u@example.com",
+                SharePermission.VIEWER,
+                notify=False,
+                welcome_message="Come look at this",
+            )
+
+        assert rpc_request_params(httpx_mock.get_requests()[0])[0][0][3] == [
+            0,
+            "Come look at this",
+        ]
 
     @pytest.mark.asyncio
     async def test_set_users_upserts_an_existing_grantee(

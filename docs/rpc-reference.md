@@ -1953,6 +1953,12 @@ issuing the RPC (there is no first/last-wins rule to honour), and plural removal
 not offered — it would need a `GET_SHARE_STATUS` preflight, an intersection with the
 currently-shared set, and post-verification to avoid the silent all-or-nothing trap.
 
+The duplicate check compares addresses **exactly**, because that is what the probe
+covered. Whether two addresses differing only in case resolve to one account is
+**not established** — RFC 5321 keeps the local part case-sensitive — so the client
+passes them through rather than raising on an unobserved rule. Worth a probe row if
+anyone runs this again.
+
 **Remove user:**
 ```python
 params = [

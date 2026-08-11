@@ -229,8 +229,14 @@ class SharingAPI:
         answers a batch containing the same grantee twice with success while
         silently leaving that user's permission unchanged, so there is no
         first-wins or last-wins rule to honour — sending one would be a lie.
-        Comparison is case-insensitive, because two entries differing only in
-        case reach the same account and hit exactly that silent no-op.
+
+        The comparison is **exact**, matching what was actually probed (the same
+        address twice). Addresses differing only in case are left alone: RFC 5321
+        makes the local part case-sensitive, only the domain is not, so folding
+        case here would reject two addresses the server may well treat as
+        distinct identities. If they do resolve to one account they hit the same
+        silent no-op the backend already has; establishing that needs a live
+        probe, not a guess in the client.
 
         Args:
             notebook_id: The notebook ID.
@@ -253,14 +259,13 @@ class SharingAPI:
                 raise ValueError("Cannot assign OWNER permission")
             if permission == SharePermission._REMOVE:
                 raise ValueError("Use remove_user() instead")
-            key = email.casefold()
-            if key in seen:
+            if email in seen:
                 raise ValueError(
                     f"Duplicate email in grants: {email!r}. The backend silently "
                     "ignores a repeated grantee instead of applying either entry; "
                     "send one grant per user."
                 )
-            seen.add(key)
+            seen.add(email)
 
         # Keep the grantee detail the single-user path used to log: a typoed
         # address is exactly what this line gets read for.

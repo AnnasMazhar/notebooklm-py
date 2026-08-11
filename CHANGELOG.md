@@ -102,7 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   their default `notify`. Two backend preconditions the probe exposed are
   encoded here: a batch naming one email twice returns success while silently
   leaving that user unchanged, so duplicates now raise `ValueError` before the
-  request is issued (case-insensitive); and a batch removal silently drops the
+  request is issued (exact match — case variants are passed through, since
+  RFC 5321 keeps the local part case-sensitive); and a batch removal silently drops the
   *whole* request if any target is already absent, so plural removal is
   deliberately not offered — it needs a share-status preflight and
   post-verification rather than a wider entry list. Both are recorded in

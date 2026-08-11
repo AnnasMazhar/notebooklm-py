@@ -1907,7 +1907,9 @@ knowing before you build on this:
 - **Duplicate grantees are rejected client-side.** A batch that names one email twice
   comes back *successful* from the backend while that user's permission stays
   unchanged. There is no first-wins or last-wins rule to rely on, so `set_users()`
-  raises `ValueError` instead of sending the request. Comparison is case-insensitive.
+  raises `ValueError` instead of sending the request. The comparison is **exact**:
+  addresses differing only in case are passed through, because RFC 5321 makes the
+  local part case-sensitive and no probe has shown that NotebookLM collapses them.
 - **Removal stays singular.** A batch of removals only applies when *every* target is
   currently shared; if any requested address is already absent, the backend drops the
   whole request — including the users that are present — and reports no failure.
