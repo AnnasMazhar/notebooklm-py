@@ -29,8 +29,9 @@ The file is organised in labelled sections mirroring the former modules:
 4. **Snapshot types** — the path-aware cookie identity/value tuples and
    :class:`CookieSaveResult`.
 5. **CAS + merge math** — snapshotting, the legacy and snapshot/delta merges, and
-   :func:`save_cookies_to_storage`, the ADR-0029-pinned monkeypatchable delegate
-   seam (``_runtime/lifecycle.py`` late-binds it; ~20 test files patch it).
+   :func:`save_cookies_to_storage`, retained as a direct v0.x facade and as a
+   callable that hosts may pass explicitly through ``cookie_saver=``. Normal
+   lifecycle persistence does not import or inspect its module identity.
 6. **Writer outcome types** — the value-free enums/records the intent writers
    return.
 7. **Write-time cookie-domain compatibility aliases** — the implementation and
@@ -325,9 +326,9 @@ class CookieSaveResult:
 
 
 # ==========================================================================
-# SECTION 5 — CAS + MERGE MATH (and the pinned delegate seam)
+# SECTION 5 — CAS + MERGE MATH (and the v0.x facade)
 # Snapshotting, baseline advancement, the legacy and snapshot/delta merges, and
-# ``save_cookies_to_storage`` — the ADR-0029-pinned monkeypatchable delegate.
+# ``save_cookies_to_storage`` — the ADR-0029-pinned direct-call facade.
 # ==========================================================================
 
 
@@ -509,10 +510,11 @@ def save_cookies_to_storage(
             stacklevel=2,
         )
 
-    # Canonical patch seam: the CAS delta merge body lives in
+    # Compatibility facade: the CAS delta merge body lives in
     # :func:`merge_cookie_delta` (section 5 below). This module-level
-    # ``save_cookies_to_storage`` symbol stays here as the monkeypatchable
-    # delegate (~18 test files patch it; ``_runtime/lifecycle.py`` late-binds it).
+    # ``save_cookies_to_storage`` symbol stays directly importable and may be
+    # supplied explicitly as ``NotebookLMClient(cookie_saver=...)``; normal
+    # lifecycle persistence does not late-bind or inspect it.
     # Before ADR-0033's persistence merge the delegate reached the body through a
     # function-local ``from . import storage_writer``; it is now a same-module call.
     return merge_cookie_delta(
@@ -798,8 +800,8 @@ def merge_cookie_delta(
     """CAS snapshot/delta merge of ``cookie_jar`` into ``storage_state.json``.
 
     Relocated verbatim (behaviour-preserving) from
-    ``save_cookies_to_storage``; that function remains the public,
-    monkeypatchable delegate seam. The ``original_snapshot=None`` legacy-warning
+    ``save_cookies_to_storage``; that function remains the public direct-call
+    compatibility facade. The ``original_snapshot=None`` legacy-warning
     branch stays on the delegate so its ``stacklevel`` still points at the
     caller.
 

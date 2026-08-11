@@ -278,7 +278,7 @@ EXPECTED_SIGNATURES: dict[str, SignatureDescriptor] = {
         ),
         "None",
     ),
-    "CookiePersistence.save": (
+    "CookiePersistence._save_v0_callback": (
         (
             ("self", P, None, R),
             ("jar", P, "httpx.Cookies", R),
@@ -507,7 +507,7 @@ LIVE_SIGNATURES: dict[str, Callable[..., object]] = {
     "CookiePersistence._prepare_open_baseline": CookiePersistence._prepare_open_baseline,
     "CookiePersistence.capture_open_snapshot": CookiePersistence.capture_open_snapshot,
     "CookiePersistence._save_canonical": CookiePersistence._save_canonical,
-    "CookiePersistence.save": CookiePersistence.save,
+    "CookiePersistence._save_v0_callback": CookiePersistence._save_v0_callback,
     "NotebookLMClient.__init__": NotebookLMClient.__init__,
     "AuthTokens.__init__": AuthTokens.__init__,
     "AuthTokens.from_storage": AuthTokens.from_storage,
@@ -992,7 +992,7 @@ def test_legacy_account_writer_preserves_odd_values_and_clears_unknowns(tmp_path
     }
 
 
-def test_facade_identities_and_three_cookie_save_lookup_seams() -> None:
+def test_facade_identities_and_explicit_cookie_save_adapter() -> None:
     assert auth.master_token_bootstrap is master_token.bootstrap_from_oauth_token
     assert auth.master_token_remint is master_token.remint_from_stored_token
     assert auth.replace_from_login is storage.replace_from_login
@@ -1002,17 +1002,18 @@ def test_facade_identities_and_three_cookie_save_lookup_seams() -> None:
         is account.repair_account_metadata_from_playwright_storage
     )
     assert auth.validate_with_recovery is psidts_recovery.validate_with_recovery
-    assert callable(lifecycle._default_cookie_saver)
     from notebooklm import _cookie_persistence as persistence_module
+    from notebooklm import _runtime
 
-    assert lifecycle._default_cookie_saver is persistence_module._default_cookie_saver
-    source = ast.parse(inspect.getsource(lifecycle._default_cookie_saver))
-    calls = [node for node in ast.walk(source) if isinstance(node, ast.Call)]
-    assert len(calls) == 1
-    assert ast.unparse(calls[0].func) == "_auth_storage.save_cookies_to_storage"
-    assert persistence_module._canonical_cookie_saver_is_current()
+    assert not hasattr(lifecycle, "_default_cookie_saver")
+    assert not hasattr(persistence_module, "_default_cookie_saver")
+    assert not hasattr(_runtime, "_default_cookie_saver")
+    assert not hasattr(persistence_module, "_canonical_cookie_saver_is_current")
     assert "cookie_saver" in inspect.signature(NotebookLMClient.__init__).parameters
-    assert "save_cookies_to_storage" in inspect.signature(CookiePersistence.save).parameters
+    assert (
+        "save_cookies_to_storage"
+        in inspect.signature(CookiePersistence._save_v0_callback).parameters
+    )
 
 
 def test_all_remaining_facade_inventory_callables_are_exact_identity_reexports() -> None:

@@ -346,9 +346,9 @@ def build_collaborators(
         auth=auth,
         cookie_persistence_path=config.keepalive_storage_path,
         kernel=kernel,
-        # Injectable seams. ``None`` is forwarded so the lifecycle's
-        # ``or _default_*`` resolves to the late-binding wrapper —
-        # preserving the existing monkeypatch surface for unchanged callers.
+        # Injectable seams. A ``None`` saver selects the unconditional typed
+        # ProfileStore route; only an explicit saver reaches the v0.x callback
+        # adapter. The rotator alone retains its late-bound default.
         cookie_saver=cookie_saver,
         cookie_rotator=cookie_rotator,
     )

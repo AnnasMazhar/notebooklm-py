@@ -50,11 +50,11 @@ import httpx
 import pytest
 
 from notebooklm._auth.storage import snapshot_cookie_jar
+from notebooklm._runtime.config import CORE_LOGGER_NAME
 from notebooklm._runtime.helpers import _resolve_keepalive_interval
 from notebooklm._runtime.lifecycle import (
     ClientLifecycle,
     _default_cookie_rotator,
-    _default_cookie_saver,
 )
 from notebooklm._transport_drain import TransportDrainTracker
 from notebooklm.auth import AuthTokens
@@ -85,8 +85,8 @@ class _StubHost:
       ``_drain_tracker._draining = False`` write) and ``set_bound_loop``
       on each of the three helpers (drain / reqid / auth_coord) from the
       open() path so cross-loop misuse can be caught.
-    * ``cookie_persistence`` — a ``MagicMock`` with an async ``save``
-      coroutine; assertions check it was called with the right args.
+    * ``cookie_persistence`` — a ``MagicMock`` with async canonical and explicit
+      v0 callback adapters; assertions check the selected route exactly.
     * ``_drain_tracker.run_drain_hooks`` — called by close(); set to an
       ``AsyncMock`` so tests can assert it ran and inspect call order.
 
@@ -162,8 +162,8 @@ class _StubHost:
         # ``test_open_captures_bound_loop_and_resets_drain``.
         self._chat = MagicMock()
         self.cookie_persistence = MagicMock()
-        self.cookie_persistence.save = AsyncMock()
         self.cookie_persistence._save_canonical = AsyncMock()
+        self.cookie_persistence._save_v0_callback = AsyncMock()
         self.cookie_persistence._prepare_open_baseline = AsyncMock()
         self.cookie_persistence.capture_open_snapshot = MagicMock()
         self.cookie_persistence.loaded_cookie_snapshot = None
@@ -513,24 +513,78 @@ async def test_close_runs_drain_hooks_before_transport_teardown() -> None:
 
 
 @pytest.mark.asyncio
-async def test_save_cookies_uses_typed_default_and_mirrors_snapshot(tmp_path: Path) -> None:
+async def test_save_cookies_uses_typed_default_and_mirrors_snapshot(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """An untouched default saver selects the private typed owner exactly once."""
     auth = AuthTokens(csrf_token="CSRF", session_id="SID", cookies={"SID": "v1"})
     lifecycle = _make_lifecycle(auth=auth, keepalive_storage_path=tmp_path / "storage.json")
     host = _StubHost()
     mirrored = snapshot_cookie_jar(httpx.Cookies({"SID": "v2"}))
     host.cookie_persistence.loaded_cookie_snapshot = mirrored
-    jar = httpx.Cookies({"SID": "v2"})
+    cookie_secret = "canonical-cookie-secret-sentinel"
+    jar = httpx.Cookies({"SID": cookie_secret})
 
-    await lifecycle.save_cookies(host.cookie_persistence, jar)
+    with caplog.at_level("DEBUG", logger=CORE_LOGGER_NAME):
+        await lifecycle.save_cookies(host.cookie_persistence, jar)
 
     host.cookie_persistence._save_canonical.assert_awaited_once_with(
         jar,
         tmp_path / "storage.json",
         to_thread=asyncio.to_thread,
     )
-    host.cookie_persistence.save.assert_not_awaited()
+    host.cookie_persistence._save_v0_callback.assert_not_awaited()
+    route_messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("Cookie persistence route:")
+    ]
+    assert route_messages == [
+        "Cookie persistence route: type=canonical_store status=dispatch "
+        f"path={tmp_path / 'storage.json'}"
+    ]
+    assert cookie_secret not in "\n".join(route_messages)
     assert auth.cookie_snapshot is mirrored
+
+
+@pytest.mark.asyncio
+async def test_save_cookies_logs_explicit_callback_route_without_cookie_values(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    saver = MagicMock(return_value=True)
+    path = tmp_path / "storage.json"
+    lifecycle = ClientLifecycle(
+        timeout=30.0,
+        connect_timeout=10.0,
+        limits=ConnectionLimits(),
+        keepalive_interval=None,
+        keepalive_storage_path=path,
+        cookie_persistence_path=path,
+        cookie_saver=saver,
+    )
+    host = _StubHost()
+    cookie_secret = "explicit-cookie-secret-sentinel"
+    jar = httpx.Cookies({"SID": cookie_secret})
+
+    with caplog.at_level("DEBUG", logger=CORE_LOGGER_NAME):
+        await lifecycle.save_cookies(host.cookie_persistence, jar)
+
+    host.cookie_persistence._save_canonical.assert_not_awaited()
+    host.cookie_persistence._save_v0_callback.assert_awaited_once_with(
+        jar,
+        path,
+        save_cookies_to_storage=saver,
+        to_thread=asyncio.to_thread,
+    )
+    route_messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("Cookie persistence route:")
+    ]
+    assert route_messages == [
+        f"Cookie persistence route: type=explicit_v0_callback status=dispatch path={path}"
+    ]
+    assert cookie_secret not in "\n".join(route_messages)
 
 
 @pytest.mark.asyncio
@@ -757,15 +811,15 @@ async def test_default_cookie_rotator_late_binds_to_canonical_seam(
     sentinel.assert_awaited_once_with(client, path)
 
 
-def test_init_wires_default_seams_when_none_supplied() -> None:
+def test_init_selects_canonical_saver_and_default_rotator_when_none_supplied() -> None:
     """When ``cookie_saver`` / ``cookie_rotator`` are omitted (or ``None``),
-    ``ClientLifecycle.__init__`` wires the module-level defaults; supplying
-    custom callables overrides them.
+    ``ClientLifecycle.__init__`` retains the canonical saver sentinel and wires
+    the module-level rotator default; supplied callables remain exact.
 
     This is what lets the production assembly path omit custom seam callables
     when no override is supplied: it constructs ``ClientLifecycle(...)``
-    without the new kwargs, and the ``or _default_*`` resolution preserves the
-    canonical seams.
+    without the new kwargs. The saver sentinel selects the typed store path;
+    the rotator preserves its historical late-bound default.
     """
     auth = AuthTokens(csrf_token="CSRF", session_id="SID", cookies={"SID": "v1"})
     # Defaults: omit the seam kwargs entirely.
@@ -778,7 +832,7 @@ def test_init_wires_default_seams_when_none_supplied() -> None:
         auth=auth,
         cookie_persistence_path=None,
     )
-    assert default_lifecycle._cookie_saver is _default_cookie_saver
+    assert default_lifecycle._cookie_saver is None
     assert default_lifecycle._cookie_rotator is _default_cookie_rotator
 
     # Explicit ``None`` resolves the same way as omission.
@@ -793,7 +847,7 @@ def test_init_wires_default_seams_when_none_supplied() -> None:
         cookie_saver=None,
         cookie_rotator=None,
     )
-    assert explicit_none_lifecycle._cookie_saver is _default_cookie_saver
+    assert explicit_none_lifecycle._cookie_saver is None
     assert explicit_none_lifecycle._cookie_rotator is _default_cookie_rotator
 
     # Custom callables override the defaults — pure pass-through, no
