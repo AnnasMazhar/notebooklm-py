@@ -119,7 +119,8 @@ class AuthTokens:
             :func:`normalize_cookie_map` during ``__post_init__``. This is a
             public compatibility/bootstrap shadow: the kernel copies it once
             during client composition and no first-party post-open decision
-            reads it.
+            reads it. Docs-only deprecated since v0.9.0 for removal in v1;
+            runtime warnings would make synthesized dataclass operations noisy.
         csrf_token: CSRF token (SNlM0e) extracted from page
         session_id: Session ID (FdrFJe) extracted from page
         storage_path: Path to the storage_state.json file, if file-based auth was used
@@ -127,6 +128,7 @@ class AuthTokens:
             The kernel copies it once during client composition, then owns the
             sole mutable jar used for HTTP, routing, recovery, and persistence.
             Managed-client code must use the kernel jar, not this field.
+            Docs-only deprecated since v0.9.0 for removal in v1.
         authuser: Google ``authuser`` index this profile authenticates as.
             ``0`` (the default account) is used when no in-band account
             metadata is present in ``storage_state.json``, matching
@@ -265,6 +267,10 @@ class AuthTokens:
     def cookie_header_for(self, url: str) -> str:
         """Return the ``Cookie:`` header this session would send to ``url``.
 
+        .. deprecated:: 0.9.0
+           Scheduled for removal in v1. Use managed-client request APIs, which
+           select from the kernel-owned live jar.
+
         This is the domain-correct way to build a raw header. Cookie selection
         follows RFC 6265 §5.4 via :attr:`cookie_jar`, so a cookie scoped to one
         host is not sent to another — unlike :attr:`cookie_header`, which
@@ -344,6 +350,10 @@ class AuthTokens:
     def cookie_header(self) -> str:
         """Generate a domain-blind Cookie header value.
 
+        .. deprecated:: 0.9.0
+           Scheduled for removal in v1. Use managed-client request APIs. This
+           property remains warning-free throughout v0.x.
+
         .. warning::
            **Not correct for building a request.** This is :attr:`flat_cookies`
            joined into header syntax, so it inherits that projection's one slot
@@ -356,7 +366,11 @@ class AuthTokens:
         Returns:
             Semicolon-separated cookie string (e.g., "SID=abc; HSID=def").
         """
-        return "; ".join(f"{k}={v}" for k, v in self.flat_cookies.items())
+        # Keep this separate compatibility property warning-free. Calling the
+        # public ``flat_cookies`` property here would attribute its warning to
+        # library internals and make a distinct deprecated surface warn
+        # indirectly.
+        return "; ".join(f"{k}={v}" for k, v in self._flat_cookie_projection().items())
 
     @property
     def account_route(self) -> str:
@@ -366,6 +380,10 @@ class AuthTokens:
     @property
     def jar(self) -> CookieJar:
         """Return a typed, read-only view of the compatibility cookie shadow.
+
+        .. deprecated:: 0.9.0
+           This warning-free v0.x migration shape becomes the immutable
+           ``initial_cookies: CookieJar`` bootstrap field in v1.
 
         This preserves the public Phase-A projection and the future
         ``initial_cookies`` migration shape. It is projected from
@@ -385,6 +403,11 @@ class AuthTokens:
     def flat_cookies(self) -> FlatCookieMap:
         """Return a legacy name→value cookie mapping.
 
+        .. deprecated:: 0.9.0
+           Scheduled for removal in v1. Direct access emits one
+           :class:`DeprecationWarning`; use :attr:`jar` for bootstrap-cookie
+           questions and managed-client request APIs for HTTP.
+
         .. warning::
            **Lossy, and not correct for building a request.** One slot per
            cookie name means duplicates across domains are discarded. Ranking
@@ -399,6 +422,11 @@ class AuthTokens:
            v0.4.0 CHANGELOG entry that recommended it. Managed-client request
            and persistence paths never consume this projection.
         """
+        warn_registered_deprecation("auth_tokens_flat_cookies")
+        return self._flat_cookie_projection()
+
+    def _flat_cookie_projection(self) -> FlatCookieMap:
+        """Build the legacy flat view without emitting a public warning."""
         return _auth_cookies.flatten_cookie_map(self.cookies)
 
     @classmethod

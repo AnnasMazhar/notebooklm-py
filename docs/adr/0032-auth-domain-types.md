@@ -140,8 +140,9 @@ live-cookie authority**. The Phase-A audit is equality-pinned by
 | `_runtime/auth.py:AuthRefreshCoordinator.update_auth_headers` | calls `replace_cookie_jar` | syncs public shadows after refresh |
 | `_auth/tokens.py:AuthTokens.__repr__` | reads both fields | redacted public representation only |
 | `_auth/tokens.py:AuthTokens.jar` | reads `cookie_jar` | public question/bootstrap migration projection only |
-| `_auth/tokens.py:AuthTokens.flat_cookies` | reads `cookies` | lossy public compatibility projection only |
-| `_auth/tokens.py:AuthTokens.cookie_header` | reads `flat_cookies` | domain-blind public compatibility projection only |
+| `_auth/tokens.py:AuthTokens._flat_cookie_projection` | reads `cookies` | warning-free implementation shared by lossy public compatibility projections |
+| `_auth/tokens.py:AuthTokens.flat_cookies` | calls the private projection after warning | directly deprecated public compatibility access only |
+| `_auth/tokens.py:AuthTokens.cookie_header` | calls the private projection without warning | distinct domain-blind public compatibility projection only |
 | `_auth/tokens.py:AuthTokens.cookie_header_for` | reads `cookie_jar` | public compatibility query; no first-party request path calls it |
 
 The three `replace_cookie_jar` callsites above write only to keep the two public shadows coherent;

@@ -1045,6 +1045,21 @@ site. The recommended owner is `async with NotebookLMClient.from_storage(...) as
 `client.auth` used only inside that managed lifecycle. Suppress temporarily with
 `NOTEBOOKLM_QUIET_DEPRECATIONS=1`; both compatibility paths are scheduled for removal in v1.0.
 
+Cookie compatibility views have a parallel v0.9 runway. Direct
+`AuthTokens.flat_cookies` access emits exactly one caller-attributed warning;
+the warning-free `AuthTokens.jar` projection is the migration shape for the v1
+`initial_cookies: CookieJar` bootstrap field. `cookies` and `cookie_jar` are
+docs-only deprecated because synthesized dataclass operations read fields.
+`cookie_header` and `cookie_header_for(url)` are also scheduled for v1 deletion
+in favor of managed-client request APIs, but remain warning-free through v0.x.
+The private flat projection used by `cookie_header` prevents an indirect
+`flat_cookies` warning with a library-internal attribution.
+
+This runway changes no routing semantics: `CookieJar` is an immutable, ordered
+sequence of full-fidelity rows, never a Mapping and never the live jar. The
+kernel-owned `httpx.Cookies` remains the sole mutable request/persistence
+authority after bootstrap.
+
 ### 6.3 `NOTEBOOKLM_HEADLESS_REAUTH=1` and `NOTEBOOKLM_HEADLESS_REAUTH_CDP_URL` (L3)
 
 Opt into automatic L3 headless re-auth during mid-RPC refresh (explicit
