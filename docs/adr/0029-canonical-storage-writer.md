@@ -61,14 +61,14 @@ intent-shaped, all-synchronous API: `merge_cookie_delta` (CAS delta merge),
 `update_account_metadata` / `clear_in_band_account` (in-band account), and
 `persist_minted_jar` / `write_master_token` (master-token).
 
-### Patch-seam continuity
+### Compatibility-facade continuity
 
-`_auth/storage.py` keeps `save_cookies_to_storage` as the importable,
-monkeypatchable delegate that forwards to `storage_writer.merge_cookie_delta`
-(the pattern of ADR-0017). `_runtime/lifecycle.py` late-binds it and ~18 test
-files patch it, so the seam does not move. The CAS math helpers
+`_auth/storage.py` keeps `save_cookies_to_storage` as the directly importable
+v0.x facade that forwards to the native cookie merge. Hosts that need the
+callback contract pass it explicitly through `NotebookLMClient(cookie_saver=...)`;
+the normal lifecycle route is an unconditional typed `ProfileStore` merge and
+does not late-bind or inspect the facade symbol. The CAS math helpers
 (`_merge_cookies_with_snapshot`, snapshot/baseline helpers, `CookieSaveResult`)
-and the `_file_lock` primitive stay in `storage.py`; the writer imports them.
 
 ### One lock, unified and bounded
 
@@ -112,7 +112,8 @@ dicts, or caught exceptions — so it is always safe to `repr`/log.
 
 ### Save-ordering ("close() must win", per client instance)
 
-`CookiePersistence.save()` stamps each dispatch from `itertools.count()`
+`CookiePersistence._save_v0_callback()` stamps each explicit callback dispatch from
+`itertools.count()`
 (`__next__` is GIL-atomic — the fix does not rest on the one-loop-per-client
 contract). Under the save lock a worker drops itself if its sequence is older
 than the newest sequence that already applied a merge to the same effective
@@ -262,7 +263,7 @@ path, scheduled from the read and joined by nobody
   writers are stateless and process-global (the lock lives on disk, the epoch in
   `single_flight`), so an instance adds lifecycle/wiring with no state to own; a
   module of intent functions matches the existing `_auth/` seam style and keeps
-  the delegate seam (`storage.save_cookies_to_storage`) monkeypatchable.
+  `storage.save_cookies_to_storage` available as a direct v0.x facade.
 - **Reuse `filelock` for the unified lock.** Rejected in favour of the
   project-internal `storage._file_lock` primitive (ADR-0029 lock unification): it
   shares one bounded-acquire deadline/backoff with the Windows `msvcrt` path and

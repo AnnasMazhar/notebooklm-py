@@ -478,10 +478,10 @@ transport; missing, malformed, or invalid input produces sticky failed typed sta
 clients keep a one-shot live compatibility projection and no typed state.
 
 `CookiePersistence` owns `Uninitialized`, `ReadyBaseline`, and `FailedBaseline` per canonical path
-plus a concrete per-key legacy snapshot adapter. An untouched first-party default saver uses the
-private ordered `ProfileStore` merge. A custom or patched default stays on the public v0.x saver;
-non-default overrides lazily initialize their own retryable adapter snapshot and do not write from
-invalid input. Successful legacy saves invalidate typed ready state for a fresh later read, but do
+plus a concrete per-key legacy snapshot adapter. A missing saver always uses the private ordered
+`ProfileStore` merge. Only an explicit `cookie_saver=` uses the public v0.x callback contract;
+those overrides lazily initialize their own retryable adapter snapshot and do not write from invalid
+input. Successful compatibility saves invalidate typed ready state for a fresh later read, but do
 not clear sticky failure. `ClientLifecycle` selects the route before default-failure gates and alone
 mirrors the loaded projection into the client-owned `AuthTokens.cookie_snapshot` after open and
 accepted saves; first-party persistence retains no `AuthTokens`.
@@ -1328,8 +1328,9 @@ gate their writes correctly.
 - **2026-08-09 (runtime profile-store cookie persistence)** — `FileLoadedAuth` now registers its
   exact store/baseline pair with first-party `CookiePersistence`; direct construction prepares one
   baseline before transport, with sticky typed failure and fileless compatibility-only capture.
-  Untouched defaults use the private typed merge, custom/patched defaults retain the exact public
-  legacy saver, and non-default overrides lazily initialize retryable per-key adapter snapshots.
+  At that checkpoint untouched defaults used the private typed merge while custom/patched defaults
+  retained the public legacy saver. B2 retired that identity fallback: only explicit overrides now
+  initialize retryable per-key adapter snapshots.
   `ClientLifecycle` owns the v0.x `AuthTokens.cookie_snapshot` mirror after open and accepted saves;
   `_from_store` retains no `AuthTokens`. Measured owners are 457 lines in `_cookie_persistence.py`,
   618 in `_runtime/init.py`, 628 in `_runtime/lifecycle.py`, and 992 in `client.py`.

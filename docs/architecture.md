@@ -567,9 +567,9 @@ The migration module is internal composition, not a public `ProfileStore` extens
 The Phase 9 loader owners remain in `tokens.py` and `refresh.py`. Phase 10 consumes their closed
 `FileLoadedAuth` result by registering its exact `ProfileStore`/baseline pair in runtime
 `CookiePersistence`, without rereading disk. Direct clients prepare a one-shot disk baseline before
-transport; fileless clients capture only the live compatibility projection. Untouched first-party
-defaults use ordered typed merges, while custom/patched defaults and explicit non-default paths
-retain the v0.x save surface and per-key adapter snapshots. `ClientLifecycle` owns the sole
+transport; fileless clients capture only the live compatibility projection. A missing saver always
+uses ordered typed merges; only an explicit `cookie_saver=` retains the v0.x callback surface and
+its per-key adapter snapshot. `ClientLifecycle` owns the sole
 `AuthTokens.cookie_snapshot` mirror. Measured Phase 10 owners are 457 lines in
 `_cookie_persistence.py`, 618 in `_runtime/init.py`, 628 in `_runtime/lifecycle.py`, and 992 in
 `client.py`.

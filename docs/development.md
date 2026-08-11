@@ -426,13 +426,13 @@ second disk read. A direct file client prepares its baseline once before transpo
 missing, malformed, or invalid input becomes a sticky typed failure for canonical saves. A
 fileless client records only a one-shot live compatibility projection and creates no typed state.
 
-First-party `_from_store` persistence retains no `AuthTokens`. An untouched default saver routes
-through the private canonical merge; a custom or patched default routes through the exact public
-legacy `save(cookie_jar, storage_path, *, to_thread)` signature. Non-default legacy paths lazily
-initialize their own retryable adapter snapshot and suppress the writer when the source is invalid.
+First-party `_from_store` persistence retains no `AuthTokens`. A missing saver routes
+unconditionally through the private canonical merge. Only an explicit `cookie_saver=` routes
+through `_save_v0_callback`; it lazily initializes its own retryable adapter snapshot and suppresses
+the writer when the source is invalid.
 `ClientLifecycle` alone owns the client `AuthTokens` mirror and refreshes `cookie_snapshot` after
-open and accepted canonical or legacy saves. Tests should patch the public saver only when they
-intend to exercise legacy compatibility; canonical tests should target the private typed seam.
+open and accepted canonical or compatibility saves. Tests inject a saver on the client when they
+intend to exercise the callback contract; canonical tests target the private typed seam.
 Measured owners are 457 lines in `_cookie_persistence.py`, 618 in `_runtime/init.py`, 628 in
 `_runtime/lifecycle.py`, and 992 in `client.py`.
 

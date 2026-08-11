@@ -923,6 +923,15 @@ class NotebookLMClient:
 forwards to the underlying `RpcExecutor.rpc_call` with its canonical
 defaults.
 
+**Cookie persistence override:** `cookie_saver=None` (the default) uses the
+canonical typed `ProfileStore` merge for close, refresh, and keepalive saves.
+Supplying `cookie_saver=` retains the v0.x callback compatibility seam; the
+callback receives a defensive copy and runs in a worker thread. It is invoked
+as `saver(jar, path, original_snapshot=..., return_result=True)` and may return
+`bool` or `CookieSaveResult`. Rebinding
+`notebooklm._auth.storage.save_cookies_to_storage` does not change a live
+client's normal persistence route.
+
 > **Removed in v0.6.0.** The three previously-deprecated kwargs
 > (`source_path`, `_is_retry`, `operation_variant`) were removed after
 > their v0.5.0 deprecation cycle. The default-shape call

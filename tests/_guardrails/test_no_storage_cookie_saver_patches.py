@@ -448,7 +448,7 @@ def test_guard_detects_every_supported_mutation_spelling(source: str) -> None:
         "from notebooklm._auth.storage import save_cookies_to_storage",
         "assert storage.save_cookies_to_storage is expected",
         'TARGET = "notebooklm._auth.storage.save_cookies_to_storage"',
-        "cookie_persistence.save(jar, save_cookies_to_storage=writer)",
+        "cookie_persistence._save_v0_callback(jar, save_cookies_to_storage=writer)",
         'def patch(target): return target\npatch("save_cookies_to_storage")',
         'def f(monkeypatch, storage, fake):\n monkeypatch.setattr(storage, "other", fake)',
         'setattr(storage, "other", fake)',

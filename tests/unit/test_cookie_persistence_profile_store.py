@@ -373,7 +373,7 @@ async def test_legacy_success_invalidates_ready_but_failed_remains_sticky(tmp_pa
         calls += 1
         return True
 
-    await persistence.save(
+    await persistence._save_v0_callback(
         _live("new"),
         path,
         save_cookies_to_storage=writer,
@@ -386,7 +386,7 @@ async def test_legacy_success_invalidates_ready_but_failed_remains_sticky(tmp_pa
     )
 
     persistence._states[store.ordering_key].baseline = persistence_module.FailedBaseline()
-    await persistence.save(
+    await persistence._save_v0_callback(
         _live("newer"),
         path,
         save_cookies_to_storage=writer,
@@ -410,7 +410,7 @@ async def test_nondefault_legacy_override_uses_own_retryable_snapshot(tmp_path: 
         calls.append(kwargs["original_snapshot"])
         return CookieSaveResult(True)
 
-    await persistence.save(
+    await persistence._save_v0_callback(
         _live("skipped"),
         override,
         save_cookies_to_storage=writer,
@@ -418,7 +418,7 @@ async def test_nondefault_legacy_override_uses_own_retryable_snapshot(tmp_path: 
     )
     assert calls == []
     _write(override, "disk")
-    await persistence.save(
+    await persistence._save_v0_callback(
         _live("saved"),
         override,
         save_cookies_to_storage=writer,
@@ -535,5 +535,6 @@ async def test_file_loaded_client_registers_pair_inline_does_not_and_subclass_sk
     assert not hasattr(bare, "_collaborators")
 
 
-def test_default_saver_remains_exact_lifecycle_alias() -> None:
-    assert lifecycle_module._default_cookie_saver is persistence_module._default_cookie_saver
+def test_deleted_default_saver_is_not_reexported() -> None:
+    assert not hasattr(lifecycle_module, "_default_cookie_saver")
+    assert not hasattr(persistence_module, "_default_cookie_saver")

@@ -259,11 +259,11 @@ class NotebookLMClient:
                 another metrics backend without this package depending on one.
             cookie_saver: Optional injectable seam overriding
                 the on-disk cookie writer used on close / refresh / keepalive.
-                ``None`` (default) preserves the current behavior of resolving
-                ``notebooklm._auth.storage.save_cookies_to_storage`` via a
-                late-bound wrapper. Must be sync (``def``, not ``async def``)
-                — it runs inside ``asyncio.to_thread``. Custom callables
-                bypass the late-bind hop entirely.
+                ``None`` (default) uses the canonical typed ``ProfileStore``
+                path. Must be sync (``def``, not ``async def``) — an explicit
+                callback runs inside ``asyncio.to_thread`` through the v0.x
+                compatibility adapter and receives ``jar``, ``path``,
+                ``original_snapshot=...``, and ``return_result=True``.
             cookie_rotator: Optional injectable seam
                 overriding the keepalive-loop cookie rotator. ``None``
                 (default) preserves the current behavior of resolving
