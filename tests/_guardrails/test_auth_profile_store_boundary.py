@@ -77,7 +77,7 @@ _NATIVE_REPLACE_CALLER_TESTS: dict[NativeReplaceCaller, tuple[str, ...]] = {
         "tests/unit/test_storage_writer.py::test_replace_from_login_is_one_typed_store_delegation_and_exhaustive_projection",
     ),
     ("_auth/storage.py", "replace_from_remint", "replace_from_remint"): (
-        "tests/unit/test_storage_writer.py::test_replace_from_remint_projection_map_is_exhaustive",
+        "tests/unit/test_storage_writer.py::test_replace_from_remint_is_one_typed_store_delegation_and_exact_legacy_result",
     ),
     (
         "cli/_cookie_import.py",
@@ -138,23 +138,97 @@ def _source_label(path: Path) -> str:
 
 
 class _NativeReplaceCallerCollector(ast.NodeVisitor):
-    """Find direct native calls and the CLI cookie-import injection boundary."""
+    """Find bounded static native calls and dependency-injection boundaries.
+
+    Resolution follows same-scope aliases, exact string constants, static
+    dict/list/tuple entries, ``getattr``, ``partial``, and expanded keyword
+    dictionaries. Values propagated through calls or selected by dynamic keys
+    remain outside this structural proof.
+    """
 
     _OPERATIONS = frozenset({"replace_from_remint", "replace_profile_from_login"})
 
     def __init__(self, path: Path, root: Path) -> None:
         self._path = path.relative_to(root).as_posix()
         self._scope: list[str] = []
-        self._aliases: dict[str, str] = {}
+        self._alias_scopes: list[dict[str, str]] = [{}]
+        self._container_scopes: list[dict[str, dict[str | int, str]]] = [{}]
+        self._string_scopes: list[dict[str, str]] = [{}]
+        self._partial_scopes: list[set[str]] = [{"partial"}]
         self.callers: set[NativeReplaceCaller] = set()
+
+    @staticmethod
+    def _lookup(scopes: list[dict[str, object]], name: str) -> object | None:
+        for bindings in reversed(scopes):
+            if name in bindings:
+                return bindings[name]
+        return None
+
+    def _static_string(self, expression: ast.expr) -> str | None:
+        if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+            return expression.value
+        if isinstance(expression, ast.Name):
+            value = self._lookup(self._string_scopes, expression.id)
+            return value if isinstance(value, str) else None
+        return None
+
+    def _static_key(self, expression: ast.expr) -> str | int | None:
+        if isinstance(expression, ast.Constant) and isinstance(expression.value, str | int):
+            return expression.value
+        return self._static_string(expression)
+
+    def _container_operations(self, expression: ast.expr) -> dict[str | int, str]:
+        if isinstance(expression, ast.Name):
+            value = self._lookup(self._container_scopes, expression.id)
+            return dict(value) if isinstance(value, dict) else {}
+        if isinstance(expression, ast.Dict):
+            operations: dict[str | int, str] = {}
+            for key_node, value_node in zip(expression.keys, expression.values, strict=True):
+                if key_node is None:
+                    continue
+                key = self._static_key(key_node)
+                operation = self._operation(value_node)
+                if key is not None and operation is not None:
+                    operations[key] = operation
+            return operations
+        if isinstance(expression, ast.List | ast.Tuple):
+            return {
+                index: operation
+                for index, item in enumerate(expression.elts)
+                if (operation := self._operation(item)) is not None
+            }
+        return {}
+
+    def _is_partial_factory(self, expression: ast.expr) -> bool:
+        if isinstance(expression, ast.Name):
+            return any(expression.id in names for names in reversed(self._partial_scopes))
+        return isinstance(expression, ast.Attribute) and expression.attr == "partial"
 
     def _operation(self, expression: ast.expr) -> str | None:
         if isinstance(expression, ast.Name):
             if expression.id in self._OPERATIONS:
                 return expression.id
-            return self._aliases.get(expression.id)
+            value = self._lookup(self._alias_scopes, expression.id)
+            return value if isinstance(value, str) else None
         if isinstance(expression, ast.Attribute) and expression.attr in self._OPERATIONS:
             return expression.attr
+        if isinstance(expression, ast.Subscript):
+            key = self._static_key(expression.slice)
+            if isinstance(key, str) and key in self._OPERATIONS:
+                return key
+            return (
+                self._container_operations(expression.value).get(key) if key is not None else None
+            )
+        if isinstance(expression, ast.Call):
+            if (
+                isinstance(expression.func, ast.Name)
+                and expression.func.id == "getattr"
+                and len(expression.args) >= 2
+            ):
+                name = self._static_string(expression.args[1])
+                return name if name in self._OPERATIONS else None
+            if self._is_partial_factory(expression.func) and expression.args:
+                return self._operation(expression.args[0])
         return None
 
     def _record(self, operation: str) -> None:
@@ -164,25 +238,55 @@ class _NativeReplaceCallerCollector(ast.NodeVisitor):
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
         for imported in node.names:
             if imported.name in self._OPERATIONS:
-                self._aliases[imported.asname or imported.name] = imported.name
+                self._alias_scopes[-1][imported.asname or imported.name] = imported.name
+            if node.module == "functools" and imported.name == "partial":
+                self._partial_scopes[-1].add(imported.asname or imported.name)
+
+    def _bind_assignment(self, target: ast.expr, value: ast.expr) -> None:
+        if not isinstance(target, ast.Name):
+            return
+        name = target.id
+        self._alias_scopes[-1].pop(name, None)
+        self._container_scopes[-1].pop(name, None)
+        self._string_scopes[-1].pop(name, None)
+        operation = self._operation(value)
+        if operation is not None:
+            self._alias_scopes[-1][name] = operation
+        operations = self._container_operations(value)
+        if operations:
+            self._container_scopes[-1][name] = operations
+        static_string = self._static_string(value)
+        if static_string is not None:
+            self._string_scopes[-1][name] = static_string
 
     def visit_Assign(self, node: ast.Assign) -> None:  # noqa: N802
-        operation = self._operation(node.value)
-        if operation is not None:
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    self._aliases[target.id] = operation
+        for target in node.targets:
+            self._bind_assignment(target, node.value)
         self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802
+        if node.value is not None:
+            self._bind_assignment(node.target, node.value)
+        self.generic_visit(node)
+
+    def _visit_scope(self, node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        self._scope.append(node.name)
+        self._alias_scopes.append({})
+        self._container_scopes.append({})
+        self._string_scopes.append({})
+        self._partial_scopes.append(set())
+        self.generic_visit(node)
+        self._partial_scopes.pop()
+        self._string_scopes.pop()
+        self._container_scopes.pop()
+        self._alias_scopes.pop()
+        self._scope.pop()
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
-        self._scope.append(node.name)
-        self.generic_visit(node)
-        self._scope.pop()
+        self._visit_scope(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
-        self._scope.append(node.name)
-        self.generic_visit(node)
-        self._scope.pop()
+        self._visit_scope(node)
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
@@ -191,10 +295,14 @@ class _NativeReplaceCallerCollector(ast.NodeVisitor):
         if operation is not None:
             self._record(operation)
         for keyword in node.keywords:
-            if keyword.arg == "replace_profile_from_login":
+            if keyword.arg in self._OPERATIONS:
                 injected = self._operation(keyword.value)
-                if injected == "replace_profile_from_login":
-                    self._record("replace_profile_from_login[injected]")
+                if injected == keyword.arg:
+                    self._record(f"{keyword.arg}[injected]")
+            elif keyword.arg is None:
+                for name, injected in self._container_operations(keyword.value).items():
+                    if isinstance(name, str) and name in self._OPERATIONS and injected == name:
+                        self._record(f"{name}[injected]")
         self.generic_visit(node)
 
 
@@ -638,21 +746,41 @@ def test_every_native_replace_caller_has_a_live_b3_behavior_test() -> None:
             assert qualname in _test_qualnames(REPO_ROOT / relative)
 
 
-def test_native_replace_caller_inventory_bites_on_alias_and_injection(tmp_path: Path) -> None:
+def test_native_replace_caller_inventory_bites_on_static_indirection(tmp_path: Path) -> None:
     root = tmp_path / "notebooklm"
     root.mkdir()
     (root / "feature.py").write_text(
+        "import functools\n"
+        "import notebooklm.auth as auth\n"
         "from notebooklm.auth import replace_profile_from_login as native_login\n"
+        "LOGIN_NAME = 'replace_profile_from_login'\n"
+        "OPERATIONS = {'login': auth.replace_profile_from_login}\n"
         "def direct(store, request):\n"
         "    store.replace_from_remint(request)\n"
         "    native_login('path', {})\n"
+        "def via_getattr(store, request):\n"
+        "    getattr(store, 'replace_from_remint')(request)\n"
+        "    getattr(auth, LOGIN_NAME)('path', {})\n"
+        "def via_container(store, request):\n"
+        "    operations = {'remint': store.replace_from_remint}\n"
+        "    operations['remint'](request)\n"
+        "    OPERATIONS['login']('path', {})\n"
+        "def via_partial():\n"
+        "    functools.partial(auth.replace_profile_from_login)('path', {})\n"
         "def adapter(consume):\n"
-        "    consume(replace_profile_from_login=native_login)\n",
+        "    consume(replace_profile_from_login=native_login)\n"
+        "    kwargs = {'replace_profile_from_login': auth.replace_profile_from_login}\n"
+        "    consume(**kwargs)\n",
         encoding="utf-8",
     )
     assert _native_replace_callers(root) == {
         ("feature.py", "direct", "replace_from_remint"),
         ("feature.py", "direct", "replace_profile_from_login"),
+        ("feature.py", "via_getattr", "replace_from_remint"),
+        ("feature.py", "via_getattr", "replace_profile_from_login"),
+        ("feature.py", "via_container", "replace_from_remint"),
+        ("feature.py", "via_container", "replace_profile_from_login"),
+        ("feature.py", "via_partial", "replace_profile_from_login"),
         ("feature.py", "adapter", "replace_profile_from_login[injected]"),
     }
 
