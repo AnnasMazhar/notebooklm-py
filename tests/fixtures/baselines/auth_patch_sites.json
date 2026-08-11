@@ -445,12 +445,6 @@
       "module": "storage"
     },
     {
-      "attribute": "save_cookies_to_storage",
-      "count": 3,
-      "idiom": "monkeypatch.setattr",
-      "module": "storage"
-    },
-    {
       "attribute": "write_master_token",
       "count": 1,
       "idiom": "monkeypatch.setattr",
@@ -478,8 +472,8 @@
   "summary": {
     "TOTAL": {
       "private": 156,
-      "public": 138,
-      "total": 294
+      "public": 135,
+      "total": 291
     },
     "account": {
       "private": 2,
@@ -568,8 +562,8 @@
     },
     "storage": {
       "private": 2,
-      "public": 20,
-      "total": 22
+      "public": 17,
+      "total": 19
     },
     "storage_lock": {
       "private": 1,
