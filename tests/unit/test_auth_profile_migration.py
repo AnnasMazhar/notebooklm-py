@@ -500,6 +500,7 @@ def _login_state() -> dict[str, Any]:
     [
         ("keep", None, None, {"account": {"authuser": 9, "email": "old@example.com"}}),
         ("clear", None, None, {"account_route_cleared": True}),
+        ("set", 3, None, {"account": {"authuser": 3}}),
         ("set", 3, "new@example.com", {"account": {"authuser": 3, "email": "new@example.com"}}),
     ],
 )
@@ -537,6 +538,7 @@ def test_native_login_replacement_translates_primitive_account_modes(
         {"account_mode": "clear", "account_authuser": 0},
         {"account_mode": "clear", "account_email": "x@example.com"},
         {"account_mode": "set"},
+        {"account_mode": "set", "account_email": "x@example.com"},
     ],
 )
 def test_native_login_replacement_rejects_invalid_account_combinations_before_io(

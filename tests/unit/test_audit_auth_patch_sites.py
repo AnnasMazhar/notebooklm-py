@@ -273,6 +273,7 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
             ("recovery", "try_master_token_reauth"),
             ("refresh", "_fetch_tokens_with_exact_baseline"),
             ("refresh", "_fetch_tokens_with_refresh"),
+            ("storage", "save_cookies_to_storage"),
             ("storage", "get_account_email_for_storage"),
             ("tokens", "_load_stored_auth"),
             ("tokens", "resolve_auth_json_env"),

@@ -539,9 +539,9 @@ async def test_save_cookies_uses_typed_default_and_mirrors_snapshot(
         for record in caplog.records
         if record.getMessage().startswith("Cookie persistence route:")
     ]
+    storage_path = tmp_path / "storage.json"
     assert route_messages == [
-        "Cookie persistence route: type=canonical_store status=dispatch "
-        f"path={tmp_path / 'storage.json'}"
+        f"Cookie persistence route: type=canonical_store status=dispatch path={storage_path}"
     ]
     assert cookie_secret not in "\n".join(route_messages)
     assert auth.cookie_snapshot is mirrored

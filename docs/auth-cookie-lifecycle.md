@@ -1056,9 +1056,11 @@ The private flat projection used by `cookie_header` prevents an indirect
 `flat_cookies` warning with a library-internal attribution.
 
 This runway changes no routing semantics: `CookieJar` is an immutable, ordered
-sequence of full-fidelity rows, never a Mapping and never the live jar. The
-kernel-owned `httpx.Cookies` remains the sole mutable request/persistence
-authority after bootstrap.
+sequence, never a Mapping and never the live jar. It preserves full-fidelity
+rows when constructed from authoritative row data; `CookieJar.from_httpx()` is
+SameSite-lossy and is only a transient live observation. The kernel-owned
+`httpx.Cookies` remains the sole mutable request/persistence authority after
+bootstrap.
 
 ### 6.3 `NOTEBOOKLM_HEADLESS_REAUTH=1` and `NOTEBOOKLM_HEADLESS_REAUTH_CDP_URL` (L3)
 
