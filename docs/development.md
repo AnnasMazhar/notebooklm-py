@@ -583,6 +583,55 @@ controller must own complete collection and phase accounting. This distinction
 is deliberate: a skipped reality probe must never look like evidence that the
 external assumption was tested.
 
+### Live authentication matrix
+
+`scripts/live_auth_matrix.py` is the maintainer/release runner for live cookie,
+master-token, recovery, RPC, REST, MCP, concurrency, and crash-safety checks. It
+reads the selected source/browser profiles but performs every write inside a
+disposable `NOTEBOOKLM_HOME`, scrubs credential values from its report, and
+removes the temporary credential copies in a `finally` block. Its default cells
+are unattended:
+
+```bash
+uv run --extra browser --extra cookies --extra headless --extra mcp --extra server \
+  python scripts/live_auth_matrix.py \
+  --profile <source-profile> \
+  --browser 'chromium::Profile 3' \
+  --account <account-email> \
+  --output live-matrix.json
+```
+
+The three generic human-interaction cells are available but deliberately off by
+default. Start an operator-owned Chrome/Chromium with a loopback-only CDP root,
+then opt in. On X11, set `DISPLAY` and `XAUTHORITY` for both commands so every
+headed window appears on the maintainer's desktop:
+
+```bash
+DISPLAY=:10 XAUTHORITY="$HOME/.Xauthority" google-chrome \
+  --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port=9222 \
+  --user-data-dir=/tmp/notebooklm-live-cdp
+
+DISPLAY=:10 XAUTHORITY="$HOME/.Xauthority" \
+uv run --extra browser --extra cookies --extra headless --extra mcp --extra server \
+  python scripts/live_auth_matrix.py \
+  --profile <source-profile> \
+  --browser 'chromium::Profile 3' \
+  --account <account-email> \
+  --include-interactive \
+  --cdp-url http://127.0.0.1:9222 \
+  --output live-matrix.json
+```
+
+The opt-in lane runs ordinary headed Playwright login, initial headed
+master-token bootstrap, and CDP-attached master-token bootstrap in separate
+disposable profiles. Each cell verifies the expected credential files and a
+passive live request. The CDP cell probes the endpoint before and after login,
+so it also proves the matrix did not close the operator-owned browser. Remote,
+credential-bearing, query-bearing, and non-root CDP URLs are rejected before
+any cell runs. Workspace/SSO, regional-account, and long-duration-expiry cases
+remain account-specific manual validation.
+
 ### Selecting a profile for E2E tests
 
 The E2E suite picks up the active NotebookLM profile from (highest precedence first):
