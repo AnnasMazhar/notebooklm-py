@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **First-party profile replacements now use native typed results.** Browser capture consumes
+  `ProfileStore.replace_from_remint()` directly, while cookie import/login/refresh use a narrow
+  path-shaped login operation with primitive account modes. Existing v0.x storage wrapper
+  signatures, results, facade identities, and explicit `cookie_saver=` behavior are unchanged;
+  native-to-legacy projections now live only in the compatibility owner.
 - **Reading a profile's account binding no longer writes to disk.** On a
   pre-v0.5.0 two-file profile (account metadata in a sibling `context.json`),
   every read of the account binding — including the one that runs on **every

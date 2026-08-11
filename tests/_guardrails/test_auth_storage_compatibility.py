@@ -51,6 +51,53 @@ REQUIRED = "<required>"
 ParameterDescriptor = tuple[str, str, str | None, str]
 SignatureDescriptor = tuple[tuple[ParameterDescriptor, ...], str | None]
 
+_LEGACY_RESULT_NAMES = frozenset(
+    {
+        "CookieSaveResult",
+        "LoginWriteOutcome",
+        "LoginWriteStatus",
+        "WriteOutcome",
+        "WriteStatus",
+    }
+)
+_EXPECTED_LEGACY_RESULT_DEPENDENCIES = {
+    "CookieSaveResult": frozenset({"_auth/storage.py", "_cookie_persistence.py", "auth.py"}),
+    "LoginWriteOutcome": frozenset({"_auth/storage.py", "_auth/storage_writer.py", "auth.py"}),
+    "LoginWriteStatus": frozenset({"_auth/storage.py", "_auth/storage_writer.py"}),
+    "WriteOutcome": frozenset({"_auth/storage.py", "_auth/storage_writer.py"}),
+    "WriteStatus": frozenset({"_auth/storage.py", "_auth/storage_writer.py"}),
+}
+
+
+def _legacy_result_dependency_paths(root: Path) -> dict[str, frozenset[str]]:
+    """Conservatively inventory code references to the v0.x result family.
+
+    Original import names are recorded even when locally aliased; qualified attributes,
+    annotations, exact dynamic strings, and star imports are also visible. The proof is
+    intentionally path-granular: these compatibility owners are reviewed as whole modules,
+    while any new first-party module immediately changes the equality-pinned exception set.
+    """
+    result: dict[str, set[str]] = {name: set() for name in _LEGACY_RESULT_NAMES}
+    for path in sorted(root.rglob("*.py")):
+        relative = path.relative_to(root).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            referenced: set[str] = set()
+            if isinstance(node, ast.Name):
+                referenced.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                referenced.add(node.attr)
+            elif isinstance(node, ast.alias):
+                if node.name == "*":
+                    referenced.update(_LEGACY_RESULT_NAMES)
+                else:
+                    referenced.add(node.name.rsplit(".", 1)[-1])
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                referenced.add(node.value)
+            for name in referenced & _LEGACY_RESULT_NAMES:
+                result[name].add(relative)
+    return {name: frozenset(paths) for name, paths in sorted(result.items())}
+
 
 def _annotation(value: object) -> str | None:
     if value is inspect.Signature.empty:
@@ -645,7 +692,8 @@ def test_result_projections_and_compatibility_value_identities() -> None:
         storage_transaction.report_on_lock_unavailable is profile_store.report_on_lock_unavailable
     )
     assert storage_transaction.skip_on_lock_unavailable is profile_store.skip_on_lock_unavailable
-    assert browser_capture.storage is storage
+    assert not hasattr(browser_capture, "storage")
+    assert browser_capture.ReplaceResult is profile_store.ReplaceResult
     assert not hasattr(refresh, "save_cookies_to_storage")
     assert callable(storage.save_cookies_to_storage)
     assert not hasattr(auth, "ProfileStore")
@@ -949,6 +997,36 @@ def test_legacy_account_facade_shim_and_default_identities_are_exact() -> None:
     assert account_default is storage.KEEP_ACCOUNT
 
 
+def test_legacy_result_dependencies_are_only_compatibility_owners() -> None:
+    assert _legacy_result_dependency_paths(SRC_ROOT) == _EXPECTED_LEGACY_RESULT_DEPENDENCIES
+
+
+def test_legacy_result_dependency_inventory_bites_on_aliases_and_dynamic_access(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "notebooklm"
+    package.mkdir()
+    (package / "aliases.py").write_text(
+        "from notebooklm._auth.storage import WriteOutcome as WO\n"
+        "import notebooklm.auth as facade\n"
+        "RESULT = 'LoginWriteOutcome'\n"
+        "def use(value):\n"
+        "    return WO, facade.LoginWriteStatus, getattr(facade, RESULT), "
+        "facade.__dict__['CookieSaveResult']\n",
+        encoding="utf-8",
+    )
+    (package / "star.py").write_text(
+        "from notebooklm._auth.storage_writer import *\n", encoding="utf-8"
+    )
+
+    inventory = _legacy_result_dependency_paths(package)
+    assert inventory["WriteOutcome"] == frozenset({"aliases.py", "star.py"})
+    assert inventory["LoginWriteOutcome"] == frozenset({"aliases.py", "star.py"})
+    assert inventory["LoginWriteStatus"] == frozenset({"aliases.py", "star.py"})
+    assert inventory["CookieSaveResult"] == frozenset({"aliases.py", "star.py"})
+    assert inventory["WriteStatus"] == frozenset({"star.py"})
+
+
 def test_legacy_account_writer_preserves_odd_values_and_clears_unknowns(tmp_path: Path) -> None:
     state = {
         "cookies": [
@@ -1049,10 +1127,6 @@ def test_all_remaining_facade_inventory_callables_are_exact_identity_reexports()
 
 
 EXPECTED_DIRECT_CALLERS = {
-    "AccountRecord": [
-        "src/notebooklm/cli/services/login/cookie_writes.py",
-        "src/notebooklm/cli/services/login/refresh.py",
-    ],
     "AuthTokens": [
         "src/notebooklm/__init__.py",
         "src/notebooklm/_client_assembly.py",
@@ -1066,7 +1140,6 @@ EXPECTED_DIRECT_CALLERS = {
         "src/notebooklm/cli/language_cmd.py",
         "src/notebooklm/client.py",
     ],
-    "CLEAR_ACCOUNT": ["src/notebooklm/cli/services/login/refresh.py"],
     "MasterTokenError": [
         "src/notebooklm/_app/master_token.py",
         "src/notebooklm/cli/session_cmd.py",
@@ -1099,7 +1172,8 @@ EXPECTED_DIRECT_CALLERS = {
         "src/notebooklm/cli/services/login/refresh.py",
     ],
     "repair_account_metadata_from_playwright_storage": ["src/notebooklm/_app/profile.py"],
-    "replace_from_login": [
+    "ReplaceResult": ["src/notebooklm/cli/services/login/refresh.py"],
+    "replace_profile_from_login": [
         "src/notebooklm/cli/_cookie_import.py",
         "src/notebooklm/cli/services/login/cookie_writes.py",
         "src/notebooklm/cli/services/login/refresh.py",
@@ -1118,10 +1192,10 @@ EXPECTED_DIRECT_CALLERS = {
 EXPECTED_ALIAS_CALLERS = {
     "Account": ["src/notebooklm/_app/login_cookie.py"],
     "GOOGLE_REGIONAL_CCTLDS": ["src/notebooklm/_app/login_cookie.py"],
-    "LoginWriteOutcome": ["src/notebooklm/_app/login_cookie.py"],
     "MINIMUM_REQUIRED_COOKIES": ["src/notebooklm/_app/login_cookie.py"],
     "OPTIONAL_COOKIE_DOMAINS_BY_LABEL": ["src/notebooklm/_app/login_cookie.py"],
     "REQUIRED_COOKIE_DOMAINS": ["src/notebooklm/_app/login_cookie.py"],
+    "ReplaceResult": ["src/notebooklm/_app/login_cookie.py"],
     "_has_valid_secondary_binding": ["src/notebooklm/_app/login_cookie.py"],
     "_sanitize_cookie_entry": ["src/notebooklm/_app/login_cookie.py"],
     "_sanitized_auth_entries": [
@@ -2131,12 +2205,12 @@ def test_first_party_facade_callers_are_frozen_in_both_import_idioms() -> None:
     assert aliases == EXPECTED_ALIAS_CALLERS
     union = {(name, path) for name, paths in direct.items() for path in paths}
     union |= {(name, path) for name, paths in aliases.items() for path in paths}
-    assert len(direct) == 15
-    assert sum(map(len, direct.values())) == 42
+    assert len(direct) == 14
+    assert sum(map(len, direct.values())) == 40
     assert len(aliases) == 25
     assert sum(map(len, aliases.values())) == 30
-    assert len({name for name, _path in union}) == 37
-    assert len(union) == 72
+    assert len({name for name, _path in union}) == 35
+    assert len(union) == 70
 
 
 @pytest.mark.skipif(not hasattr(ast, "TryStar"), reason="exception-group AST requires 3.11+")

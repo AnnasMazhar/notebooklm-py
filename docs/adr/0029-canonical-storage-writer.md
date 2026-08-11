@@ -107,8 +107,10 @@ gap.
 
 ### Value-free outcomes
 
-`WriteOutcome` carries only an enum status — never cookie values, jars, state
-dicts, or caught exceptions — so it is always safe to `repr`/log.
+The v0.x `WriteOutcome` carries only an enum status — never cookie values, jars,
+state dicts, or caught exceptions — so it is always safe to `repr`/log. First-party
+browser capture consumes the equally value-free native `ReplaceResult`; the legacy
+outcome is projected only inside the compatibility wrapper.
 
 ### Save-ordering ("close() must win", per client instance)
 
@@ -152,14 +154,15 @@ during the migration window.
 
 ### Login / import full-replace intent (b-PR3)
 
-`replace_from_login` is the single sanctioned persist for the CLI
-`login --browser-cookies`, `auth refresh --browser-cookies`, and
-`auth import-cookies` flows. Under the storage lock it applies the write-time
+The native `profile_migration.replace_profile_from_login` operation is the sanctioned persist for
+the CLI `login --browser-cookies`, `auth refresh --browser-cookies`, and
+`auth import-cookies` flows. The v0.x `storage.replace_from_login` wrapper delegates to that
+operation and preserves its old signature and result. Under the storage lock the native path applies the write-time
 domain filter, re-validates `MINIMUM_REQUIRED_COOKIES` on the FILTERED state
-(returning a value-free `LoginWriteOutcome(required_cookies_dropped, …)` — mapping
-to #2086's `CookieValidationFailure(COOKIE_VALIDATION_FAILED)` / `io.fail(1)` /
-not-exists contract), embeds/clears the in-band `notebooklm.account` binding via
-an `account` sentinel (`KEEP_ACCOUNT` | `CLEAR_ACCOUNT` | `AccountRecord`),
+(returning a value-free `ReplaceResult`; the wrapper projects this to the historical
+`LoginWriteOutcome` and #2086 failure contract), embeds/clears the in-band
+`notebooklm.account` binding through a primitive keep/clear/set directive (the compatibility
+wrapper translates `KEEP_ACCOUNT` | `CLEAR_ACCOUNT` | `AccountRecord`),
 records the `include_domains` opt-in set in the namespace, and (import flavour)
 takes the pre-overwrite `.bak` backup INSIDE the lock.
 
@@ -183,9 +186,9 @@ requirement — the reader retries regardless). `drop_legacy_account_key` is
 consequently no longer imported by any
 first-party caller; it remains importable from `notebooklm.auth` for
 back-compat (de-blessed, not removed). `replace_from_login` / `LoginWriteOutcome`
-/ `AccountRecord` / `KEEP_ACCOUNT` / `CLEAR_ACCOUNT` are additive
-`notebooklm.auth` re-exports so the CLI reaches them without importing private
-`_auth` modules.
+/ `AccountRecord` / `KEEP_ACCOUNT` / `CLEAR_ACCOUNT` remain importable compatibility aliases.
+First-party CLI code instead reaches the internal-ledger aliases `replace_profile_from_login` and
+`ReplaceResult` through `notebooklm.auth`; neither is added to public `__all__`.
 
 *Amended again (auth-deepening PR 5.1, ADR-0033):* the anti-wrong-account
 contract above is unchanged, but it is no longer implemented by writing on a

@@ -318,21 +318,25 @@ Design notes:
   could silently overwrite a concurrent CAS delta.
 
 `ProfileStore` also owns typed account reads, best-effort clear, and the complete
-browser/remint, login/import, and minted-session replacement transactions. Remint carries the latest whole raw
-`notebooklm` namespace only when requested, filters through the pure
-`_auth/cookie_filter.py` leaf, and commits once; `storage.replace_from_remint`
-remains the compatibility and browser patch seam. Login filtering, required-name
-validation, KEEP/SET/CLEAR construction, optional backup, and commit now run under one bounded
-store lock. `_auth/profile_migration.py` owns the legacy-account boundary:
+browser/remint, login/import, and minted-session replacement transactions. Remint carries the
+latest whole raw `notebooklm` namespace only when requested, filters through the pure
+`_auth/cookie_filter.py` leaf, and commits once. Browser capture constructs a
+`RemintWriteRequest` and consumes the native `ReplaceResult` directly;
+`storage.replace_from_remint` remains only the v0.x direct-call adapter. Login filtering,
+required-name validation, KEEP/SET/CLEAR construction, optional backup, and commit run under one
+bounded store lock. `_auth/profile_migration.py` owns the path-shaped
+`replace_profile_from_login` operation and the legacy-account boundary:
 `LegacyAccountMigrator` performs lossless in-band/legacy/in-band two-read resolution, typed legacy
 sanitization, only-if-absent promotion, and embed-before-scrub ordering;
 `LegacyAccountContext` owns the sibling file and lock. `LegacyPromotionScheduler` owns the
 canonical process one-shot registry and daemon workers. Reads only schedule and return; the
 process-default exit hook drains for two seconds per snapshot worker.
 
-`storage.replace_from_login` keeps its v0.x identity but delegates post-`APPLIED`, outside-lock
-promotion/scrub to `LoginProfileWriter`; failed store results do no sibling work. Raw source account
-key presence still chooses scrub versus promotion. `AccountMetadataWriter` similarly preserves the
+First-party app and CLI flows pass primitive account modes to `replace_profile_from_login` and
+consume `ReplaceResult`; `storage.replace_from_login` keeps its v0.x signature and projects that
+native result to `LoginWriteOutcome`. Post-`APPLIED`, outside-lock promotion/scrub remains owned by
+`LoginProfileWriter`; failed store results do no sibling work. Raw source account key presence
+still chooses scrub versus promotion. `AccountMetadataWriter` similarly preserves the
 distinct update-then-scrub and best-effort-clear-then-scrub order, while naturally escaping store
 exceptions abort before scrub. For minted persistence,
 `storage.persist_minted_jar` eagerly snapshots the live jar with the raw master-token serializer
@@ -357,9 +361,9 @@ token persistence; a missing-storage leader remains shielded to settlement
 before its bootstrap lock is released. At the extraction freeze the coordinator
 is 373 lines and the compatibility adapter is 463 lines.
 
-The final measured persistence boundary is 1,115 lines in `_auth/storage.py`, 311 in
-`_auth/profile_migration.py`, 814 in `_auth/profile_store.py`, 96 in
-`_auth/cookie_filter.py`, and 89 in `_auth/master_token_file.py` (2,425 total). `storage.py`
+The current measured persistence boundary is 1,090 lines in `_auth/storage.py`, 419 in
+`_auth/profile_migration.py`, 876 in `_auth/profile_store.py`, 96 in
+`_auth/cookie_filter.py`, and 89 in `_auth/master_token_file.py` (2,570 total). `storage.py`
 remains the v0.x signature/result facade; the extracted owners do not create a second facade.
 
 `_auth/tokens.py` now owns the Phase 9 stored-auth composition: captured-inline/file sources,
