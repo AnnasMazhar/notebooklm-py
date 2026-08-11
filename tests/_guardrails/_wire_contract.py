@@ -545,8 +545,8 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
 #: value that maps to "unknown" (or worse) in this client.
 ENUM_GAPS: dict[str, tuple[tuple[int, str, str], ...]] = {
     "SourceStatus": (
-        (0, "SOURCE_STATUS_UNSPECIFIED", "#2124 — falls back to READY, asserting health"),
-        (4, "SOURCE_STATUS_PENDING_DELETION", "#2124 — falls back to READY, asserting health"),
+        (0, "SOURCE_STATUS_UNSPECIFIED", "#2124 — fails closed as UNKNOWN"),
+        (4, "SOURCE_STATUS_PENDING_DELETION", "#2124 — fails closed as UNKNOWN"),
     ),
     "ArtifactStatus": (
         (0, "ARTIFACT_STATUS_UNKNOWN", "#2127"),

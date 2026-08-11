@@ -2065,7 +2065,7 @@ class Source:
     title: Optional[str]
     url: Optional[str]
     created_at: Optional[datetime]
-    status: int                          # 1=processing, 2=ready, 3=error, 5=preparing (defaults to READY)
+    status: SourceStatus                 # UNKNOWN when the wire status is missing or unmapped
 
     @property
     def kind(self) -> SourceType:
@@ -2595,6 +2595,7 @@ class ArtifactType(str, Enum):
     UNKNOWN = "unknown"
 
 class SourceStatus(Enum):
+    UNKNOWN = -1     # Status is absent, malformed, or not yet mapped
     PROCESSING = 1  # Source is being processed (indexing content)
     READY = 2       # Source is ready for use
     ERROR = 3       # Source processing failed
