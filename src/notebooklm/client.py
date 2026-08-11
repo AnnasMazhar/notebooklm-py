@@ -840,6 +840,7 @@ class NotebookLMClient:
             cached_email=self._account_email_cache,
             cached_key=self._account_email_cache_route,
             live_fallback=live_fallback,
+            get_cookies=self._collaborators.kernel.get_cookies,
             get_http_client=self._collaborators.kernel.get_http_client,
             probe=_probe_authuser,
             to_thread=asyncio.to_thread,
