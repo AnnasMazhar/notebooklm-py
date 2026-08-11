@@ -765,10 +765,17 @@ def test_native_replace_caller_inventory_bites_on_static_indirection(tmp_path: P
         "    operations = {'remint': store.replace_from_remint}\n"
         "    operations['remint'](request)\n"
         "    OPERATIONS['login']('path', {})\n"
+        "def via_list(store, request):\n"
+        "    operations = [store.replace_from_remint]\n"
+        "    operations[0](request)\n"
+        "def via_tuple():\n"
+        "    operations = (auth.replace_profile_from_login,)\n"
+        "    operations[0]('path', {})\n"
         "def via_partial():\n"
         "    functools.partial(auth.replace_profile_from_login)('path', {})\n"
-        "def adapter(consume):\n"
+        "def explicit_adapter(consume):\n"
         "    consume(replace_profile_from_login=native_login)\n"
+        "def expanded_adapter(consume):\n"
         "    kwargs = {'replace_profile_from_login': auth.replace_profile_from_login}\n"
         "    consume(**kwargs)\n",
         encoding="utf-8",
@@ -780,8 +787,11 @@ def test_native_replace_caller_inventory_bites_on_static_indirection(tmp_path: P
         ("feature.py", "via_getattr", "replace_profile_from_login"),
         ("feature.py", "via_container", "replace_from_remint"),
         ("feature.py", "via_container", "replace_profile_from_login"),
+        ("feature.py", "via_list", "replace_from_remint"),
+        ("feature.py", "via_tuple", "replace_profile_from_login"),
         ("feature.py", "via_partial", "replace_profile_from_login"),
-        ("feature.py", "adapter", "replace_profile_from_login[injected]"),
+        ("feature.py", "explicit_adapter", "replace_profile_from_login[injected]"),
+        ("feature.py", "expanded_adapter", "replace_profile_from_login[injected]"),
     }
 
 
