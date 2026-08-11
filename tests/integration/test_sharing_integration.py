@@ -438,6 +438,6 @@ class TestSharingAPIIntegration:
             assert hasattr(client.sharing, "set_public")
             assert hasattr(client.sharing, "set_view_level")
             assert hasattr(client.sharing, "add_user")
-            assert hasattr(client.sharing, "add_users")
+            assert hasattr(client.sharing, "set_users")
             assert hasattr(client.sharing, "update_user")
             assert hasattr(client.sharing, "remove_user")

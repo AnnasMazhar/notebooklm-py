@@ -1891,10 +1891,28 @@ print(f"Language set to: {result}")
 | `get_status(notebook_id)` | `str` | `ShareStatus` | Get current sharing configuration |
 | `set_public(notebook_id, public)` | `str, bool` | `ShareStatus` | Enable/disable public link sharing |
 | `set_view_level(notebook_id, level)` | `str, ShareViewLevel` | `ShareStatus` | Set what viewers can access |
-| `add_user(notebook_id, email, permission, notify, welcome_message)` | `str, str, SharePermission, bool, str` | `ShareStatus` | Share with a user |
-| `add_users(notebook_id, grants, notify, welcome_message)` | `str, list[tuple[str, SharePermission]], bool, str` | `ShareStatus` | Share with multiple users in one request |
-| `update_user(notebook_id, email, permission)` | `str, str, SharePermission` | `ShareStatus` | Update user's permission |
+| `set_users(notebook_id, grants, notify, welcome_message)` | `str, list[tuple[str, SharePermission]], bool, str` | `ShareStatus` | Set several users' permissions in one request (upsert) |
+| `add_user(notebook_id, email, permission, notify, welcome_message)` | `str, str, SharePermission, bool, str` | `ShareStatus` | Share with a user (wrapper over `set_users`) |
+| `update_user(notebook_id, email, permission)` | `str, str, SharePermission` | `ShareStatus` | Update user's permission (wrapper over `set_users`) |
 | `remove_user(notebook_id, email)` | `str, str` | `ShareStatus` | Remove user's access |
+
+**User permissions are an upsert, not an add.** One `SHARE_NOTEBOOK` call sets the
+permission for each email in the batch: an address that is not shared yet is added,
+and one that already has access has its permission replaced. `add_user()` and
+`update_user()` are intent wrappers over the same `set_users()` operation and differ
+only in their default `notify` — `update_user()` will happily add an absent user, and
+`add_user()` will happily change an existing one. Two backend preconditions are worth
+knowing before you build on this:
+
+- **Duplicate grantees are rejected client-side.** A batch that names one email twice
+  comes back *successful* from the backend while that user's permission stays
+  unchanged. There is no first-wins or last-wins rule to rely on, so `set_users()`
+  raises `ValueError` instead of sending the request. Comparison is case-insensitive.
+- **Removal stays singular.** A batch of removals only applies when *every* target is
+  currently shared; if any requested address is already absent, the backend drops the
+  whole request — including the users that are present — and reports no failure.
+  A plural removal therefore needs a share-status preflight and post-verification,
+  not a wider entry list, so it is deliberately not offered as a one-liner.
 
 **Example:**
 ```python
@@ -1921,9 +1939,10 @@ status = await client.sharing.add_user(
     welcome_message="Check out my research!"
 )
 
-# Share with multiple users in one RPC. Notifications and the welcome message
-# apply to every grant in the call.
-status = await client.sharing.add_users(
+# Set several users' permissions in one RPC. Notifications and the welcome
+# message apply to the whole call, not per grant. Existing grantees are updated
+# rather than duplicated; repeating one email raises ValueError.
+status = await client.sharing.set_users(
     notebook_id,
     [
         ("viewer@example.com", SharePermission.VIEWER),

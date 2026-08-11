@@ -458,11 +458,11 @@ class TestShareStatusDefaultValues:
         assert len(status2.shared_users) == 0
 
 
-class TestAddUsers:
-    """Tests for SharingAPI.add_users()."""
+class TestSetUsers:
+    """Tests for SharingAPI.set_users()."""
 
     @pytest.mark.asyncio
-    async def test_add_users_sends_mixed_grants_in_one_request(
+    async def test_set_users_sends_mixed_grants_in_one_request(
         self,
         auth_tokens,
         httpx_mock: HTTPXMock,
@@ -487,7 +487,7 @@ class TestAddUsers:
         )
 
         async with NotebookLMClient(auth_tokens) as client:
-            status = await client.sharing.add_users(
+            status = await client.sharing.set_users(
                 "nb_123",
                 [
                     ("viewer@example.com", SharePermission.VIEWER),
@@ -536,18 +536,153 @@ class TestAddUsers:
                 [("removed@example.com", SharePermission._REMOVE)],
                 r"Use remove_user\(\) instead",
             ),
+            (
+                [
+                    ("dup@example.com", SharePermission.VIEWER),
+                    ("dup@example.com", SharePermission.EDITOR),
+                ],
+                "Duplicate email in grants",
+            ),
+            # Case-only difference reaches the same account, so it hits the same
+            # silent no-op and must be rejected too.
+            (
+                [
+                    ("Dup@Example.com", SharePermission.VIEWER),
+                    ("dup@example.com", SharePermission.EDITOR),
+                ],
+                "Duplicate email in grants",
+            ),
         ],
     )
-    async def test_add_users_rejects_invalid_grants(
+    async def test_set_users_rejects_invalid_grants(
         self,
         auth_tokens,
         httpx_mock: HTTPXMock,
         grants,
         message,
     ):
-        """Empty, owner, and remove grants fail before an RPC is sent."""
+        """Empty, owner, remove, and duplicate grants fail before an RPC is sent.
+
+        The duplicate cases are not cosmetic: a batch repeating one grantee comes
+        back **successful** from the backend while that user's permission stays
+        unchanged (confirmed live), so there is no first-wins or last-wins rule to
+        implement — only a request worth refusing to send.
+        """
         async with NotebookLMClient(auth_tokens) as client:
             with pytest.raises(ValueError, match=message):
-                await client.sharing.add_users("nb_123", grants)
+                await client.sharing.set_users("nb_123", grants)
 
         assert httpx_mock.get_requests() == []
+
+    @pytest.mark.asyncio
+    async def test_set_users_upserts_an_existing_grantee(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        build_rpc_response,
+        rpc_request_params,
+    ):
+        """Re-sending an email that already has access replaces its permission.
+
+        This is the naming contract: the operation is an upsert, so ``set_users``
+        sends the same entry shape whether the grantee is new or existing, and
+        the caller gets the changed permission back.
+        """
+        httpx_mock.add_response(content=build_rpc_response(RPCMethod.SHARE_NOTEBOOK, []).encode())
+        httpx_mock.add_response(
+            content=build_rpc_response(
+                RPCMethod.GET_SHARE_STATUS,
+                [
+                    [
+                        ["owner@example.com", 1, [], ["Owner", "https://avatar"]],
+                        ["existing@example.com", 2, [], ["Existing", "https://e"]],
+                    ],
+                    [False],
+                    1000,
+                ],
+            ).encode()
+        )
+
+        async with NotebookLMClient(auth_tokens) as client:
+            status = await client.sharing.set_users(
+                "nb_123",
+                [("existing@example.com", SharePermission.EDITOR)],
+                notify=False,
+            )
+
+        assert rpc_request_params(httpx_mock.get_requests()[0])[0][0][1] == [
+            ["existing@example.com", None, SharePermission.EDITOR.value]
+        ]
+        promoted = next(u for u in status.shared_users if u.email == "existing@example.com")
+        assert promoted.permission == SharePermission.EDITOR
+
+    @pytest.mark.asyncio
+    async def test_add_user_and_update_user_send_the_same_wire_shape(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        build_rpc_response,
+        rpc_request_params,
+    ):
+        """The singular wrappers differ only in ``notify``, not in the operation.
+
+        ``update_user`` adds an absent user and ``add_user`` updates a present one
+        — both are the same upsert — so pinning their entry blocks equal is what
+        stops a future change from re-splitting them into distinct operations.
+        """
+        for _ in range(2):
+            httpx_mock.add_response(
+                content=build_rpc_response(RPCMethod.SHARE_NOTEBOOK, []).encode()
+            )
+            httpx_mock.add_response(
+                content=build_rpc_response(RPCMethod.GET_SHARE_STATUS, [[], [False], 1000]).encode()
+            )
+
+        async with NotebookLMClient(auth_tokens) as client:
+            await client.sharing.add_user(
+                "nb_123", "u@example.com", SharePermission.EDITOR, notify=False
+            )
+            await client.sharing.update_user("nb_123", "u@example.com", SharePermission.EDITOR)
+
+        added, updated = (
+            rpc_request_params(r)
+            for r in httpx_mock.get_requests()
+            if r.url.params["rpcids"] == RPCMethod.SHARE_NOTEBOOK.value
+        )
+        assert added == updated
+
+    @pytest.mark.asyncio
+    async def test_removal_keeps_its_own_message_block(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        build_rpc_response,
+        rpc_request_params,
+    ):
+        """Grants and removals disagree on the message flag; both shapes are pinned.
+
+        A grant with no welcome message sends ``[1, ""]``; a removal sends
+        ``[0, ""]``. They share ``_share_params``, so without this test the next
+        person to "unify" the flag would silently rewrite the removal payload.
+        """
+        for _ in range(2):
+            httpx_mock.add_response(
+                content=build_rpc_response(RPCMethod.SHARE_NOTEBOOK, []).encode()
+            )
+            httpx_mock.add_response(
+                content=build_rpc_response(RPCMethod.GET_SHARE_STATUS, [[], [False], 1000]).encode()
+            )
+
+        async with NotebookLMClient(auth_tokens) as client:
+            await client.sharing.set_users(
+                "nb_123", [("u@example.com", SharePermission.VIEWER)], notify=False
+            )
+            await client.sharing.remove_user("nb_123", "u@example.com")
+
+        grant, removal = (
+            rpc_request_params(r)
+            for r in httpx_mock.get_requests()
+            if r.url.params["rpcids"] == RPCMethod.SHARE_NOTEBOOK.value
+        )
+        assert grant[0][0][3] == [1, ""]
+        assert removal[0][0][3] == [0, ""]

@@ -137,6 +137,44 @@ class SharingAPI:
             share_url=status.share_url,
         )
 
+    @staticmethod
+    def _share_params(
+        notebook_id: str,
+        entries: list[tuple[str, SharePermission]],
+        *,
+        notify: bool,
+        message_block: list,
+    ) -> list:
+        """Build the ``SHARE_NOTEBOOK`` envelope for a batch of permission entries.
+
+        The single wire-shape site for every permission mutation — grants and
+        removals alike, since a removal is just ``_REMOVE`` in the same entry
+        slot. Position-sensitive: see ``docs/rpc-reference.md``.
+
+        ``message_block`` is passed in rather than derived from a welcome message,
+        because the two callers do not agree on it: the grant path sends
+        ``[0, msg]`` with a message and ``[1, ""]`` without, while removal has
+        always sent ``[0, ""]``. Deriving it here would silently rewrite the
+        removal payload that ``test_remove_user`` pins.
+
+        Policy (which permissions a caller may send, and whether the batch is
+        coherent) lives with the callers, not here, so a future ``remove_users()``
+        can reuse the encoder without inheriting grant-side validation.
+        """
+        return [
+            [
+                [
+                    notebook_id,
+                    [[email, None, permission.value] for email, permission in entries],
+                    None,
+                    message_block,
+                ]
+            ],
+            1 if notify else 0,
+            None,
+            [2],
+        ]
+
     async def add_user(
         self,
         notebook_id: str,
@@ -146,6 +184,9 @@ class SharingAPI:
         welcome_message: str = "",
     ) -> ShareStatus:
         """Share notebook with a user.
+
+        Intent wrapper over :meth:`set_users`. The underlying operation is an
+        upsert, so this also updates a user who already has access.
 
         Args:
             notebook_id: The notebook ID.
@@ -160,23 +201,36 @@ class SharingAPI:
         Raises:
             ValueError: If permission is OWNER or _REMOVE.
         """
-        return await self.add_users(
+        return await self.set_users(
             notebook_id,
             [(email, permission)],
             notify=notify,
             welcome_message=welcome_message,
         )
 
-    async def add_users(
+    async def set_users(
         self,
         notebook_id: str,
         grants: list[tuple[str, SharePermission]],
         notify: bool = True,
         welcome_message: str = "",
     ) -> ShareStatus:
-        """Share a notebook with multiple users in one request.
+        """Set several users' permissions on a notebook in one request.
 
-        ``notify`` and ``welcome_message`` apply to every grant in this call.
+        This is an **upsert**, not an add: an email that is not shared yet is
+        added, and an email that already has access has its permission replaced.
+        That is the backend's own behaviour — confirmed live — and it is why the
+        singular :meth:`add_user` and :meth:`update_user` are both wrappers over
+        this method rather than distinct operations.
+
+        ``notify`` and ``welcome_message`` apply to the whole call, not per grant.
+
+        Duplicate emails are rejected before the request is issued. The backend
+        answers a batch containing the same grantee twice with success while
+        silently leaving that user's permission unchanged, so there is no
+        first-wins or last-wins rule to honour — sending one would be a lie.
+        Comparison is case-insensitive, because two entries differing only in
+        case reach the same account and hit exactly that silent no-op.
 
         Args:
             notebook_id: The notebook ID.
@@ -188,44 +242,43 @@ class SharingAPI:
             Updated ShareStatus.
 
         Raises:
-            ValueError: If grants is empty or a permission is OWNER or _REMOVE.
+            ValueError: If grants is empty, contains a duplicate email, or a
+                permission is OWNER or _REMOVE.
         """
         if not grants:
             raise ValueError("Must provide at least one user grant")
-        for _email, permission in grants:
+        seen: set[str] = set()
+        for email, permission in grants:
             if permission == SharePermission.OWNER:
                 raise ValueError("Cannot assign OWNER permission")
             if permission == SharePermission._REMOVE:
                 raise ValueError("Use remove_user() instead")
+            key = email.casefold()
+            if key in seen:
+                raise ValueError(
+                    f"Duplicate email in grants: {email!r}. The backend silently "
+                    "ignores a repeated grantee instead of applying either entry; "
+                    "send one grant per user."
+                )
+            seen.add(key)
 
         # Keep the grantee detail the single-user path used to log: a typoed
         # address is exactly what this line gets read for.
         logger.debug(
-            "Adding %d user(s) to notebook %s: %s",
+            "Setting %d user permission(s) on notebook %s: %s",
             len(grants),
             notebook_id,
             [(email, permission.name) for email, permission in grants],
         )
 
-        message_flag = 0 if welcome_message else 1
-        notify_flag = 1 if notify else 0
-
-        params = [
-            [
-                [
-                    notebook_id,
-                    [[email, None, permission.value] for email, permission in grants],
-                    None,
-                    [message_flag, welcome_message],
-                ]
-            ],
-            notify_flag,
-            None,
-            [2],
-        ]
         await self._rpc.rpc_call(
             RPCMethod.SHARE_NOTEBOOK,
-            params,
+            self._share_params(
+                notebook_id,
+                grants,
+                notify=notify,
+                message_block=[0 if welcome_message else 1, welcome_message],
+            ),
             source_path=f"/notebook/{notebook_id}",
             allow_null=True,
         )
@@ -238,6 +291,9 @@ class SharingAPI:
         permission: SharePermission,
     ) -> ShareStatus:
         """Update a user's permission level.
+
+        Intent wrapper over :meth:`set_users`. The underlying operation is an
+        upsert, so this adds a user who does not have access yet.
 
         Args:
             notebook_id: The notebook ID.
@@ -253,8 +309,7 @@ class SharingAPI:
             permission.name,
             notebook_id,
         )
-        # Same RPC as add_user, just updates existing user
-        return await self.add_user(notebook_id, email, permission, notify=False)
+        return await self.set_users(notebook_id, [(email, permission)], notify=False)
 
     async def remove_user(
         self,
@@ -262,6 +317,13 @@ class SharingAPI:
         email: str,
     ) -> ShareStatus:
         """Remove a user's access to the notebook.
+
+        Singular by design. A batch of ``_REMOVE`` entries only works when every
+        target is currently shared: if any requested email is already absent the
+        backend silently drops the whole request — including the users that *are*
+        present — and reports no failure. A plural removal therefore needs a
+        share-status preflight and post-verification rather than a wider entry
+        list; see ``docs/rpc-reference.md``.
 
         Args:
             notebook_id: The notebook ID.
@@ -271,12 +333,14 @@ class SharingAPI:
             Updated ShareStatus.
         """
         logger.debug("Removing user %s from notebook %s", email, notebook_id)
-        params = [
-            [[notebook_id, [[email, None, SharePermission._REMOVE.value]], None, [0, ""]]],
-            0,
-            None,
-            [2],
-        ]
+        # ``[0, ""]``, not the grant path's ``[1, ""]`` — the captured removal
+        # payload has always sent flag 0 with an empty message.
+        params = self._share_params(
+            notebook_id,
+            [(email, SharePermission._REMOVE)],
+            notify=False,
+            message_block=[0, ""],
+        )
         await self._rpc.rpc_call(
             RPCMethod.SHARE_NOTEBOOK,
             params,
