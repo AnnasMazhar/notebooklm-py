@@ -18,9 +18,9 @@ Two complementary tests guard the contract:
 1. The snapshot test (``test_*_module_has_expected_all``) pins the exact
    list, so accidental drift in shape or ordering fails loudly.
 2. The audit test (``test_*_all_matches_external_imports_audit``) AST-scans
-   ``src/``, ``tests/``, ``docs/`` for ``from notebooklm.<module> import X``
-   patterns and fails if any externally imported public name was added
-   without updating ``__all__``.
+   ``src/``, ``tests/``, ``docs/`` for direct imports and binding-aware
+   first-party ``auth.Name`` uses, then fails if any externally imported public
+   name was added without updating ``__all__``.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ import pytest
 
 import notebooklm.auth as auth_module
 import notebooklm.client as client_module
+from tests._guardrails import test_auth_storage_compatibility as _auth_compat
 from tests._guardrails._public_import_manifest import _DOCUMENTED_PUBLIC_IMPORTS
 
 pytestmark = pytest.mark.repo_lint
@@ -86,12 +87,10 @@ EXPECTED_AUTH_ALL: list[str] = [
 # prefer routing new CLI needs through ``_app/`` service functions instead.
 AUTH_CROSS_BOUNDARY_NAMES: list[str] = [
     "Account",
-    "AccountRecord",
     "assert_account_writable",
     "bootstrap_missing_storage_from_master_token",
     "build_cookie_jar",
     "build_httpx_cookies_from_storage",
-    "CLEAR_ACCOUNT",
     "cookie_names_from_storage",
     "enumerate_accounts",
     "extract_cookies_from_storage",
@@ -106,7 +105,8 @@ AUTH_CROSS_BOUNDARY_NAMES: list[str] = [
     "read_account_metadata",
     "read_master_token",
     "repair_account_metadata_from_playwright_storage",
-    "replace_from_login",
+    "ReplaceResult",
+    "replace_profile_from_login",
     "resolve_account_identity",
     "validate_with_recovery",
 ]
@@ -152,10 +152,12 @@ AUTH_CROSS_BOUNDARY_NAMES: list[str] = [
 # earlier revision of this PR did) silently broke that documented promise with no
 # guardrail catching it, since the audit script only diffs ``__all__`` membership.
 _AUTH_DEBLESSED_KEEP_IMPORTABLE: list[str] = [
+    "AccountRecord",
     "advance_cookie_snapshot_after_save",
     "ALLOWED_COOKIE_DOMAINS",
     "authuser_query",
     "clear_account_metadata",
+    "CLEAR_ACCOUNT",
     "CookieSaveResult",
     "CookieSnapshot",
     "CookieSnapshotKey",
@@ -185,6 +187,7 @@ _AUTH_DEBLESSED_KEEP_IMPORTABLE: list[str] = [
     "persist_minted_jar",
     "read_account_metadata_from_storage_state",
     "recover_psidts_in_memory",
+    "replace_from_login",
     "save_cookies_to_storage",
     "snapshot_cookie_jar",
     "write_account_metadata",
@@ -337,6 +340,15 @@ def _collect_external_imports_by_root() -> dict[tuple[str, str], frozenset[str]]
                     if alias.name == "*" or alias.name.startswith("_"):
                         continue
                     imports.setdefault((root, module_basename), set()).add(alias.name)
+
+    # Phase 13 app operations use the public facade as a qualified module
+    # binding (``from .. import auth; auth.Name``). Reuse the caller ledger's
+    # binding-aware, control-flow-aware detector so this liveness audit has one
+    # truth source for shadowing rather than a weaker parallel scanner.
+    qualified = _auth_compat._alias_callers(src_root / "notebooklm")
+    imports.setdefault(("src", "auth"), set()).update(
+        name for name in qualified if not name.startswith("_")
+    )
     return {key: frozenset(names) for key, names in imports.items()}
 
 
@@ -459,7 +471,7 @@ def test_auth_cross_boundary_names_stay_importable_and_unblessed() -> None:
         )
 
 
-def test_auth_cross_boundary_names_have_first_party_importers() -> None:
+def test_auth_cross_boundary_names_have_first_party_importers(tmp_path: pathlib.Path) -> None:
     """No dead entries: every cross-boundary name is really imported by ``src/``.
 
     The list is a cost, not a catalogue — each entry pins a name the auth layer
@@ -474,6 +486,66 @@ def test_auth_cross_boundary_names_have_first_party_importers() -> None:
         "Drop them from the list (they stay importable via "
         "_AUTH_DEBLESSED_KEEP_IMPORTABLE only if an external caller still needs them)."
     )
+
+    path = tmp_path / "src" / "notebooklm" / "feature" / "synthetic.py"
+    path.parent.mkdir(parents=True)
+
+    def qualified_attributes(source: str) -> set[str]:
+        old_root = _auth_compat.REPO_ROOT
+        try:
+            _auth_compat.REPO_ROOT = tmp_path
+            collector = _auth_compat._AliasUseCollector(path)
+            collector.visit(ast.parse(source))
+            return collector.attributes
+        finally:
+            _auth_compat.REPO_ROOT = old_root
+
+    recognized = qualified_attributes(
+        "import notebooklm.auth as module\n"
+        "from notebooklm import auth as absolute\n"
+        "from .. import auth as relative\n"
+        "module.AbsoluteModule\n"
+        "@absolute.Decorator\n"
+        "def outer(value: relative.Parameter = absolute.Default) -> relative.Return:\n"
+        "    if value:\n"
+        "        relative.ControlFlow\n"
+        "    def inner():\n"
+        "        return absolute.Closure\n"
+        "    return inner\n"
+    )
+    assert recognized == {
+        "AbsoluteModule",
+        "Closure",
+        "ControlFlow",
+        "Decorator",
+        "Default",
+        "Parameter",
+        "Return",
+    }
+
+    shadowed = qualified_attributes(
+        "from .. import auth as facade\n"
+        "def parameter(facade):\n    return facade.ParameterShadow\n"
+        "def assigned():\n    facade = object()\n    return facade.AssignmentShadow\n"
+        "def imported():\n    import math as facade\n    return facade.ImportShadow\n"
+        "def local_scope():\n    facade.LocalShadow\n    facade = object()\n"
+        "[facade.ComprehensionShadow for facade in values]\n"
+        "match value:\n    case facade:\n        facade.PatternShadow\n"
+        "try:\n    operation()\nexcept Exception as facade:\n    facade.ExceptionShadow\n"
+        "(facade := object()).WalrusShadow\n"
+    )
+    assert shadowed == set()
+
+    dynamic = qualified_attributes(
+        "from .. import auth as facade\n"
+        "getattr(facade, 'Getattr')\n"
+        "vars(facade)['Vars']\n"
+        "globals()['facade'].Globals\n"
+        "facade.__dict__['Dict']\n"
+        "facade['Subscript']\n"
+        "facade['Computed' + 'Key']\n"
+    )
+    assert dynamic == {"__dict__"}
 
 
 def test_auth_deblessed_names_stay_importable_but_unblessed() -> None:
@@ -494,9 +566,11 @@ def test_auth_deblessed_names_stay_importable_but_unblessed() -> None:
     cross-boundary ledger shrink (follow-up to #2103), plus
     ``read_account_metadata_from_storage_state``, whose facade alias the same
     follow-up must keep per ``scripts/api-compat-allowlist.json``'s explicit
-    retained-and-importable promise.
+    retained-and-importable promise, plus ``AccountRecord``, ``CLEAR_ACCOUNT``,
+    and ``replace_from_login``, whose last first-party callers migrated to the
+    native primitive-shaped login operation in B3.
     """
-    assert len(_AUTH_DEBLESSED_KEEP_IMPORTABLE) == 37
+    assert len(_AUTH_DEBLESSED_KEEP_IMPORTABLE) == 40
     assert len(_AUTH_DEBLESSED_KEEP_IMPORTABLE) == len(set(_AUTH_DEBLESSED_KEEP_IMPORTABLE)), (
         "_AUTH_DEBLESSED_KEEP_IMPORTABLE must not contain duplicates"
     )

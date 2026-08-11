@@ -17,8 +17,11 @@ import pytest
 import notebooklm.auth as auth_module
 import notebooklm.cli._firefox_containers as firefox_containers
 import notebooklm.cli.services.session_context as _sc
+from notebooklm.cli.services.login.browser_accounts import _read_browser_cookies
+from notebooklm.cli.services.login.outcomes import CookieValidationFailure
 from notebooklm.notebooklm_cli import cli
 from tests._fixtures import patch_session_login_dual
+from tests._fixtures.login_io import make_recording_io
 
 from ._session_helpers import (
     _multiaccount_rookie_cookies_mock,
@@ -1155,6 +1158,14 @@ class TestLoginBrowserCookies:
         assert result.exit_code != 0
         assert "rookie-cookies" in result.output
         assert "pip install" in result.output
+
+    def test_rookie_cookies_not_installed_preserves_stable_error_code(self):
+        """The dependency rename must not break machine-readable CLI consumers."""
+        with patch.dict(sys.modules, {"rookie_cookies": None}):
+            outcome = _read_browser_cookies("auto", verbose=False, io=make_recording_io())
+
+        assert isinstance(outcome, CookieValidationFailure)
+        assert outcome.code == "ROOKIEPY_NOT_INSTALLED"
 
     def test_auto_detect_calls_rookie_cookies_load(self, runner, tmp_path):
         """Auto-detect calls rookie_cookies.load()."""

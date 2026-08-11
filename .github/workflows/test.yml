@@ -235,6 +235,17 @@ jobs:
       shell: bash
       run: uv run python -c "import curl_cffi"
 
+    - name: Assert rookie-cookies imports (native wheel; no mock-only pass)
+      # The cookie behavior tests replace this optional native module with
+      # fakes. Import the installed wheel and pin the two entry points used by
+      # production so a broken ABI wheel or incompatible package API fails on
+      # every supported OS/Python pair.
+      shell: bash
+      run: >-
+        uv run python -c "import rookie_cookies;
+        assert callable(rookie_cookies.load);
+        assert callable(rookie_cookies.any_browser)"
+
     - name: Get Playwright version
       id: playwright-version
       shell: bash

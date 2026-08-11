@@ -352,8 +352,8 @@ def _row_to_rookie_cookies_dict(row: tuple[Any, ...], *, expiry_in_ms: bool) -> 
     Columns match the SELECT in :func:`_select_for_container` exactly:
     ``(host, name, value, path, expiry, isSecure, isHttpOnly, sameSite)``.
 
-    rookie-cookies's Firefox path emits the same shape, so the resulting list can flow into
-    :func:`notebooklm.auth.convert_rookiepy_cookies_to_storage_state`
+    rookie-cookies' Firefox path emits the same shape, so the resulting list
+    can flow into :func:`notebooklm.auth.convert_rookiepy_cookies_to_storage_state`
     unchanged.
     """
     host, name, value, path, expiry, is_secure, is_http_only, same_site = row

@@ -339,12 +339,15 @@ def test_encode_new_method():
 **Unit test with a fake RPC executor** (`tests/unit/`):
 ```python
 @pytest.mark.asyncio
-async def test_new_method(mock_client):
+async def test_new_method():
     mock_response = ["result_id", "Result Title"]
-    with patch("notebooklm._rpc_executor.RpcExecutor.rpc_call", new_callable=AsyncMock) as mock:
-        mock.return_value = mock_response
-        result = await mock_client.some_api.new_method("nb_id", "param")
-        assert result.id == "result_id"
+    fake = make_fake_core(rpc_call=AsyncMock(return_value=mock_response))
+    api = SomeAPI(fake.rpc_executor)
+
+    result = await api.new_method("nb_id", "param")
+
+    assert result.id == "result_id"
+    fake.rpc_executor.rpc_call.assert_awaited_once()
 ```
 
 **VCR-backed integration test** (`tests/integration/`) or authenticated E2E
@@ -505,6 +508,15 @@ error:
 - **RPC ID mismatch** issues (exit code 1): labeled `bug, rpc-breakage, automated`.
 - **Auth failure** issues (exit code 2): labeled `bug, automated` (no `rpc-breakage`
   label — auth is an operational concern, not a protocol break).
+- **Frontend bundle drift** is a separate live monitor. Its exit code 1 is
+  reserved for confirmed ABSENT RPC IDs or CHANGED/STALE studio enums. If its
+  authenticated homepage request instead lands on login, CookieMismatch, or the
+  region/anti-abuse gate—or the app/CDN cannot be read—it exits 2, says that no
+  drift conclusion was possible, and joins the authentication/infrastructure
+  issue lane. The script also writes a classified outcome file; the workflow
+  opens `Studio enum / RPC drift detected` only for the explicit `drift`
+  outcome. A Python, dependency, or runner failure that exits 1 before writing
+  that outcome is therefore treated as infrastructure, never as protocol drift.
 - **Non-transient ERROR detected** issues (exit code 3): labeled `rpc-error, bug,
   automated`. Opened when `check_rpc_health.py` surfaces failures that survive
   the rate-limit / `RESOURCE_EXHAUSTED` filter (timeouts, parse failures,

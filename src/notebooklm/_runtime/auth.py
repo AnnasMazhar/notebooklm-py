@@ -32,7 +32,8 @@ tests/integration/concurrency/test_refresh_cancellation_propagation.py):
   ``auth.session_id`` under the snapshot lock. It does NOT touch the
   http client. The cookie-jar sync is a separate concern handled by
   :meth:`update_auth_headers` (sync, no await — it runs the
-  ``kernel.get_http_client().cookies`` read outside any auth lock).
+  ``kernel.cookies`` read outside any auth lock). That sync is public
+  compatibility-only; first-party decisions already read the kernel jar.
 * The ``_refresh_task`` slot is intentionally NOT cleared when a waiter is
   cancelled mid-shield — concurrency tests assert task identity across
   cancellation so siblings joined to the same single-flight refresh see the
@@ -57,6 +58,8 @@ import time
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import TYPE_CHECKING, Any, cast
 
+import httpx
+
 from .._loop_affinity import assert_bound_loop
 from .._loop_bound import LoopBoundPrimitive
 from .._request_types import AuthSnapshot
@@ -64,6 +67,7 @@ from ..auth import AuthTokens
 from .config import CORE_LOGGER_NAME
 
 if TYPE_CHECKING:
+    from .._auth.cookie_types import CookieJar
     from .._client_metrics import ClientMetrics
     from .._kernel import Kernel
 
@@ -297,8 +301,48 @@ class AuthRefreshCoordinator(LoopBoundPrimitive):
         finally:
             lock.release()
 
+    async def install_profile_session(
+        self,
+        *,
+        auth: AuthTokens,
+        target_cookie_jar: httpx.Cookies,
+        source_cookie_jar: httpx.Cookies,
+        expected_cookie_jar: CookieJar,
+        expected_authuser: int,
+        expected_account_email: str | None,
+        expected_generation: int,
+        authuser: int,
+        account_email: str | None,
+    ) -> bool | None:
+        """Atomically install one stored cookie and account-route generation.
+
+        ``None`` means the authoritative live jar changed while the disk sample
+        was being selected, so the caller must preserve and retry that newer
+        live state. Once the lock is acquired, the check and all cookie/route
+        writes are synchronous: cancellation cannot leave a mixed generation,
+        and :meth:`snapshot` cannot observe a torn routing pair.
+        """
+        lock = self.get_auth_snapshot_lock()
+        wait_start = time.perf_counter()
+        await lock.acquire()
+        try:
+            if self._metrics is not None:
+                self._metrics.record_lock_wait(time.perf_counter() - wait_start)
+            return auth._replace_profile_session(
+                target_cookie_jar=target_cookie_jar,
+                source_cookie_jar=source_cookie_jar,
+                expected_cookie_jar=expected_cookie_jar,
+                expected_authuser=expected_authuser,
+                expected_account_email=expected_account_email,
+                expected_generation=expected_generation,
+                authuser=authuser,
+                account_email=account_email,
+            )
+        finally:
+            lock.release()
+
     def update_auth_headers(self, *, auth: AuthTokens, kernel: Kernel) -> None:
-        """Sync ``auth.cookie_jar`` with the live HTTP client's jar.
+        """Update public AuthTokens cookie shadows from the kernel-owned jar.
 
         Compat-only (ADR-0032 Phase A): the kernel's jar is already the sole
         internal live-cookie authority — persistence reads ``kernel.cookies``
@@ -318,13 +362,14 @@ class AuthRefreshCoordinator(LoopBoundPrimitive):
         coordinator does not need an owner-shaped host.
 
         Raises:
-            RuntimeError: If the kernel's HTTP client is not initialised (the
-                error originates from :meth:`Kernel.get_http_client`).
+            RuntimeError: If a directly constructed kernel has neither an auth
+                bootstrap seed nor an initialized HTTP client.
         """
-        # Rebinds the derived ``auth.cookies`` map alongside the jar. Assigning
-        # ``auth.cookie_jar`` directly here left the public ``auth.cookies``
-        # describing the pre-refresh session (ADR-0031 Stage 4).
-        auth.replace_cookie_jar(kernel.get_http_client().cookies)
+        # Compatibility-only assignment (ADR-0032 Phase A). Rebind the derived
+        # public map alongside the public jar; no first-party request, routing,
+        # recovery, or persistence decision reads either shadow after the
+        # bootstrap hand-off to Kernel.
+        auth.replace_cookie_jar(kernel.cookies)
 
     # ------------------------------------------------------------------
     # Single-flight refresh task.

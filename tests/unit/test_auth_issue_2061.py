@@ -468,6 +468,7 @@ def test_fresh_routed_loader_does_not_post(tmp_path: Path, httpx_mock: HTTPXMock
 def test_route_unusable_rookiepy_row_recovers_in_memory_without_file_save(
     httpx_mock: HTTPXMock,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     psidts_overrides: dict[str, object],
 ) -> None:
     rookiepy_rows = [
@@ -482,11 +483,7 @@ def test_route_unusable_rookiepy_row_recovers_in_memory_without_file_save(
             **psidts_overrides,
         },
     ]
-    monkeypatch.setattr(
-        storage,
-        "save_cookies_to_storage",
-        lambda *args, **kwargs: pytest.fail("in-memory recovery must not save to disk"),
-    )
+    monkeypatch.setenv("NOTEBOOKLM_HOME", str(tmp_path))
     httpx_mock.add_response(url=_ROTATE_URL, **_rotate_response())
 
     state, error = psidts_recovery.validate_with_recovery(rookiepy_rows)
@@ -497,6 +494,7 @@ def test_route_unusable_rookiepy_row_recovers_in_memory_without_file_save(
         for row in state["cookies"]
     )
     assert len(_rotate_requests(httpx_mock)) == 1
+    assert not list(tmp_path.rglob("*")), "in-memory recovery must not create profile state"
 
 
 def test_contended_recovery_requires_routed_disk_state(
@@ -506,13 +504,12 @@ def test_contended_recovery_requires_routed_disk_state(
     initial = _required_state()
     app_only = _required_state({"domain": ".notebooklm.google.com", "expires": time.time() + 3600})
     path.write_text(json.dumps(initial), encoding="utf-8")
-    loads = iter([initial, app_only])
-    monkeypatch.setattr(psidts_recovery, "_load_storage_state", lambda _path: next(loads))
 
     from contextlib import contextmanager
 
     @contextmanager
     def contended(_lock_path: Path):
+        path.write_text(json.dumps(app_only), encoding="utf-8")
         yield False
 
     monkeypatch.setattr(psidts_recovery, "_file_lock_try_exclusive", contended)

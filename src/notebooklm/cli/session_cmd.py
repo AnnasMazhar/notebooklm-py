@@ -1,21 +1,8 @@
-"""Session and context management CLI commands.
+"""Session, login, context, and authentication-management CLI commands.
 
-Commands:
-    login   Log in to NotebookLM via browser
-    use     Set the current notebook context
-    status  Show current context
-    clear   Clear current notebook context
-    auth    Authentication management (logout / inspect / check / refresh)
-
-This module is split into thin Click handlers over service modules for
-Playwright login, browser-cookie login/refresh, session context,
-auth diagnostics, and auth-source precedence. Command-side wrappers in
-:mod:`notebooklm.cli.playwright_login_io` provide the concrete rendering,
-exit, and async-runner seams for the Playwright and browser-cookie login
-services.
-
-Body-used names that moved into services are re-imported here as command-layer
-bindings and legacy patch seams.
+Thin Click handlers delegate to service modules; command-side wrappers provide
+rendering, exit, and async-runner seams. Re-imported service names preserve the
+legacy command-layer patch surfaces.
 """
 
 from __future__ import annotations
@@ -136,6 +123,7 @@ def _run_playwright_login(
     browser_profile: Path,
     storage_path: Path,
     include_domains: set[str] | None = None,
+    browser_timeout: int = 300,
 ) -> None:
     """Backward-compat wrapper around :func:`run_login`."""
     plan = PlaywrightLoginPlan(
@@ -143,6 +131,7 @@ def _run_playwright_login(
         browser_profile=browser_profile,
         storage_path=storage_path,
         include_domains=include_domains,
+        login_timeout_s=browser_timeout,
     )
     run_login(plan)
 
@@ -181,6 +170,13 @@ def register_session_commands(cli):
             "Use 'chrome' for system Google Chrome (workaround when bundled "
             "Chromium crashes, e.g. macOS 15+), 'msedge' for Microsoft Edge."
         ),
+    )
+    @click.option(
+        "--browser-timeout",
+        type=click.IntRange(min=1),
+        default=300,
+        show_default=True,
+        help="Seconds to wait for a human to complete browser sign-in.",
     )
     @click.option(
         "--browser-cookies",
@@ -311,6 +307,7 @@ def register_session_commands(cli):
         ctx,
         storage,
         browser,
+        browser_timeout,
         browser_cookies,
         account_email,
         all_accounts,
@@ -336,98 +333,100 @@ def register_session_commands(cli):
         Note: Cannot be used when the env-var auth fast path is active
         (use file-based auth or unset the env var first).
         """
-        # Wrap entire body in handle_errors so unexpected failures (e.g.
-        # Playwright internal crashes) emit a friendly 'Unexpected error:
-        # <msg>' line + exit 2 instead of a Python traceback. Existing
-        # ``exit_with_code(N)`` calls inside the body propagate unchanged.
-        with handle_errors():
-            if has_env_auth_json():
-                console.print(
-                    f"[red]Error: Cannot run 'login' when {AUTH_JSON_ENV_NAME} is set.[/red]\n"
-                    f"The {AUTH_JSON_ENV_NAME} environment variable provides inline authentication,\n"
-                    "which conflicts with browser-based login that saves to a file.\n\n"
-                    "Either:\n"
-                    f"  1. Unset {AUTH_JSON_ENV_NAME} and run 'login' again\n"
-                    f"  2. Continue using {AUTH_JSON_ENV_NAME} for authentication"
-                )
-                exit_with_code(1)
-
-            if master_token or master_token_refresh:
-                from .master_token_login import run_master_token_login
-
-                run_master_token_login(
-                    ctx,
-                    storage=storage,
-                    browser=browser,
-                    account_email=account_email,
-                    oauth_token=oauth_token,
-                    android_id=android_id,
-                    cdp_url=cdp_url,
-                    refresh=master_token_refresh,
-                    force=force,
-                )
-                return
-
-            validate_flags_or_exit(
-                browser_cookies=browser_cookies,
-                account_email=account_email,
-                all_accounts=all_accounts,
-                update=update,
-                profile_name=profile_name,
-                storage=storage,
-            )
-
-            include_domains = _parse_include_domains(include_domains_raw)
-
-            # rookiepy fast-path: skip Playwright entirely
-            if browser_cookies is not None:
-                if fresh:
+        run_master_token_login: Any = None
+        include_domains = active_profile = None
+        confirm_overwrite = profile = storage_path = browser_profile = None
+        try:
+            with handle_errors():
+                if has_env_auth_json():
                     console.print(
-                        "[yellow]Warning: --fresh has no effect with --browser-cookies "
-                        "(no browser profile is used).[/yellow]"
+                        f"[red]Error: Cannot run 'login' when {AUTH_JSON_ENV_NAME} is set.[/red]\n"
+                        f"The {AUTH_JSON_ENV_NAME} environment variable provides inline authentication,\n"
+                        "which conflicts with browser-based login that saves to a file.\n\n"
+                        "Either:\n"
+                        f"  1. Unset {AUTH_JSON_ENV_NAME} and run 'login' again\n"
+                        f"  2. Continue using {AUTH_JSON_ENV_NAME} for authentication"
                     )
-                _warn_missing_optional_domains(include_domains)
-                if all_accounts:
-                    _login_all_accounts_from_browser(
-                        browser_cookies,
-                        update=update,
-                        include_domains=include_domains,
+                    exit_with_code(1)
+
+                if master_token or master_token_refresh:
+                    from .master_token_login import run_master_token_login
+
+                    run_master_token_login(
+                        ctx,
+                        storage=storage,
+                        browser=browser,
+                        browser_timeout=browser_timeout,
+                        account_email=account_email,
+                        oauth_token=oauth_token,
+                        android_id=android_id,
+                        cdp_url=cdp_url,
+                        refresh=master_token_refresh,
+                        force=force,
                     )
                     return
-                active_profile = ctx.obj.get("profile") if ctx.obj else None
-                # Inject ``click.confirm`` as the overwrite confirmer so the
-                # login service stays Click-free (ADR-0015 Pattern B). The
-                # service defaults ``confirm=None`` to "auto-accept" for
-                # non-interactive callers; production CLI runs always inject
-                # an actual prompt here.
-                confirm_overwrite = functools.partial(click.confirm, default=False)
-                try:
-                    _login_browser_cookies_single(
-                        browser_cookies,
-                        storage=storage,
-                        account_email=account_email,
-                        profile_name=profile_name,
-                        active_profile=active_profile,
-                        include_domains=include_domains,
-                        confirm=confirm_overwrite,
-                    )
-                except LoginConfigurationError as exc:
-                    raise _click_exception_from(exc) from None
-                return
 
-            profile = ctx.obj.get("profile") if ctx.obj else None
-            storage_path, browser_profile = prepare_paths_or_exit(profile, storage, fresh)
-            _run_playwright_login(
-                browser=browser,
-                browser_profile=browser_profile,
-                storage_path=storage_path,
-                include_domains=include_domains,
-            )
-            console.print(f"\n[green]Authentication saved to:[/green] {storage_path}")
+                validate_flags_or_exit(
+                    browser_cookies=browser_cookies,
+                    account_email=account_email,
+                    all_accounts=all_accounts,
+                    update=update,
+                    profile_name=profile_name,
+                    storage=storage,
+                )
 
-            # Sync server language setting to local config so generate commands
-            # respect the user's global language preference (fixes #121).
-            _sync_server_language_to_config(storage_path=storage_path, profile=profile)
+                include_domains = _parse_include_domains(include_domains_raw)
+
+                if browser_cookies is not None:
+                    if fresh:
+                        console.print(
+                            "[yellow]Warning: --fresh has no effect with --browser-cookies "
+                            "(no browser profile is used).[/yellow]"
+                        )
+                    _warn_missing_optional_domains(include_domains)
+                    if all_accounts:
+                        _login_all_accounts_from_browser(
+                            browser_cookies,
+                            update=update,
+                            include_domains=include_domains,
+                        )
+                        return
+                    active_profile = ctx.obj.get("profile") if ctx.obj else None
+                    # The production CLI always injects an actual overwrite prompt.
+                    confirm_overwrite = functools.partial(click.confirm, default=False)
+                    try:
+                        _login_browser_cookies_single(
+                            browser_cookies,
+                            storage=storage,
+                            account_email=account_email,
+                            profile_name=profile_name,
+                            active_profile=active_profile,
+                            include_domains=include_domains,
+                            confirm=confirm_overwrite,
+                        )
+                    except LoginConfigurationError as exc:
+                        raise _click_exception_from(exc) from None
+                    return
+
+                profile = ctx.obj.get("profile") if ctx.obj else None
+                storage_path, browser_profile = prepare_paths_or_exit(profile, storage, fresh)
+                _run_playwright_login(
+                    browser=browser,
+                    browser_profile=browser_profile,
+                    storage_path=storage_path,
+                    include_domains=include_domains,
+                    browser_timeout=browser_timeout,
+                )
+                console.print(f"\n[green]Authentication saved to:[/green] {storage_path}")
+
+                # Keep the local language in sync with the server (fixes #121).
+                _sync_server_language_to_config(storage_path=storage_path, profile=profile)
+        finally:
+            del ctx, storage, browser, browser_timeout, browser_cookies, account_email
+            del all_accounts, update, profile_name, fresh, include_domains_raw
+            del master_token, master_token_refresh, oauth_token, android_id, cdp_url, force
+            del run_master_token_login, include_domains, active_profile, confirm_overwrite
+            del profile, storage_path, browser_profile
 
     @cli.command("use")
     @click.argument("notebook_id")
@@ -493,10 +492,10 @@ def register_session_commands(cli):
             if isinstance(exc, click.ClickException):
                 raise exc
             if isinstance(exc, NotebookNotFoundError):
+                # ``str(exc)`` keeps a status-5 account-routing hint (#2132).
                 _output_error(
-                    f"Error: Notebook {notebook_id!r} not found. "
-                    "Run 'notebooklm list' to see available notebooks, "
-                    "or pass --force to bypass verification.",
+                    f"Error: {exc}. Run 'notebooklm list' to see available "
+                    "notebooks, or pass --force to bypass verification.",
                     "NOT_FOUND",
                     json_output,
                     1,

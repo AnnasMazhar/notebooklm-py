@@ -137,11 +137,31 @@ auth = AuthTokens(
 )
 client = NotebookLMClient(auth)
 
-# AuthTokens also supports profiles (AuthTokens.from_storage is async)
-auth = await AuthTokens.from_storage(profile="work")
-# Or permit one cold-start L3 browser recovery as an alternative:
-# auth = await AuthTokens.from_storage(profile="work", allow_headless=True)
 ```
+
+`AuthTokens.from_storage(...)` remains available as a v0.x compatibility loader,
+but it is deprecated in v0.9.0 and emits `DeprecationWarning` when awaited. Use
+the managed `NotebookLMClient.from_storage(...)` examples above and access
+`client.auth` while the client is open. It is scheduled for removal in v1.0.
+
+Constructing `AuthTokens(..., storage_path=..., cookie_jar=None)` also remains
+compatible through v0.x, but its implicit synchronous storage/recovery I/O is
+deprecated on the same schedule. Prefer the managed client; low-level callers
+that already own a live jar should pass `cookie_jar=` explicitly.
+
+The v0.9 cookie-view runway preserves the `AuthTokens` constructor and dataclass
+behavior while moving managed clients toward one live authority:
+
+| Surface | v0.9 behavior and migration |
+|---|---|
+| `flat_cookies` | Direct access warns because the name-only map loses domain/path siblings. Use `jar` for bootstrap-cookie questions and managed client APIs for requests. |
+| `cookies`, `cookie_jar` | Docs-only deprecated compatibility fields. They cannot warn without making construction, repr, equality, and `dataclasses.replace()` noisy. |
+| `jar` | Warning-free transitional shape for the v1 immutable `initial_cookies: CookieJar` bootstrap field. |
+| `cookie_header`, `cookie_header_for(url)` | Scheduled for v1 deletion; use managed client request APIs. Both remain warning-free in v0.x. |
+
+`CookieJar` is an immutable, ordered sequence of `Cookie` rows—not a mapping and
+not a live transport jar. Iteration yields rows, `len()` counts rows, and
+duplicate names on different domain/path routes remain distinct.
 
 **Building a storage state from existing browser cookies (`[cookies]` extra):**
 
@@ -295,7 +315,17 @@ decode faults rather than swallowing them. (The one documented carve-out is
 `artifacts`, which inherits `client.artifacts.list(...)`'s deliberate
 partial-availability behavior: a transport failure of the mind-map sub-fetch is
 logged and the studio artifacts that loaded are still returned — see ADR-0019
-Rule 3.) The workflows that
+Rule 3.)
+
+For `notebooks` specifically, gRPC status `5` reaches `None` under **both** its
+meanings: the notebook is genuinely absent, or it exists under a different
+signed-in Google account (the account-routing case behind issues #114 / #294).
+The backend sends the same status either way, so `get_or_none()` cannot
+distinguish them and the routing guidance is unobservable there. Use
+`client.notebooks.get(...)` when that matters — it raises
+`NotebookNotFoundError` carrying the guidance in its message, the originating
+`rpc_code`, and the original rejection as `__cause__`. `PERMISSION_DENIED`
+(status `7`) is never folded into `None` and always propagates. The workflows that
 *already* raise `SourceNotFoundError` are `client.sources.get_fulltext(...)` and
 `client.sources.wait_until_ready(...)`. Artifact-download workflows raise
 `ArtifactNotFoundError` when a requested artifact ID is not in the listing.
@@ -899,6 +929,15 @@ class NotebookLMClient:
 `typing.Any`. The default-shape call (`client.rpc_call(method, params)`)
 forwards to the underlying `RpcExecutor.rpc_call` with its canonical
 defaults.
+
+**Cookie persistence override:** `cookie_saver=None` (the default) uses the
+canonical typed `ProfileStore` merge for close, refresh, and keepalive saves.
+Supplying `cookie_saver=` retains the v0.x callback compatibility seam; the
+callback receives a defensive copy and runs in a worker thread. It is invoked
+as `saver(jar, path, original_snapshot=..., return_result=True)` and may return
+`bool` or `CookieSaveResult`. Rebinding
+`notebooklm._auth.storage.save_cookies_to_storage` does not change a live
+client's normal persistence route.
 
 > **Removed in v0.6.0.** The three previously-deprecated kwargs
 > (`source_path`, `_is_retry`, `operation_variant`) were removed after
@@ -1592,6 +1631,11 @@ async def poll(notebook_id: str, task_id: str | None = None) -> ResearchTask:
       - result_type:        int — 1=web, 2=drive, 5=deep-research report entry
       - research_task_id:   str — task/report ID that produced this source
       - report_markdown:    str — deep-research report markdown (for type-5 entries)
+      - source_ordinal:     int | None — the backend's 1-based ordinal for this
+                            discovered source within its research task (`src[8]`).
+                            NOT verified to resolve the report's citation markers:
+                            research_deep_poll_long.yaml carries 24 ordinals and
+                            its report has no `[cite: N]` markers at all.
     """
 
 
@@ -2042,7 +2086,7 @@ class Source:
     title: Optional[str]
     url: Optional[str]
     created_at: Optional[datetime]
-    status: int  # 1=processing, 2=ready, 3=error, 5=preparing (defaults to READY)
+    status: SourceStatus                 # UNKNOWN when the wire status is missing or unmapped
 
     @property
     def kind(self) -> SourceType:
@@ -2588,6 +2632,7 @@ class ArtifactType(str, Enum):
 
 
 class SourceStatus(Enum):
+    UNKNOWN = -1     # Status is absent, malformed, or not yet mapped
     PROCESSING = 1  # Source is being processed (indexing content)
     READY = 2  # Source is ready for use
     ERROR = 3  # Source processing failed

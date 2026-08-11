@@ -325,7 +325,7 @@ def read_chromium_profile_cookies(
         domains: Domain allowlist to forward to rookie-cookies.
 
     Returns:
-        Raw cookie dicts (rookie-cookies's native shape).
+        Raw cookie dicts (rookie-cookies' native shape).
 
     Raises:
         ImportError: When the optional ``rookie-cookies`` dependency isn't

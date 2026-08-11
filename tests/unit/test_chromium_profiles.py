@@ -321,7 +321,7 @@ class TestResolveChromiumProfile:
 
 
 class TestReadChromiumProfileCookies:
-    def test_dispatches_to_rookiepy_any_browser(self, tmp_path, monkeypatch):
+    def test_dispatches_to_rookie_cookies_any_browser(self, tmp_path, monkeypatch):
         """Confirms we use any_browser (which decrypts non-Default profiles
         on macOS) rather than the chromium_based path that errors with
         ``missing osx_key_service`` per #511.

@@ -87,7 +87,7 @@ def _read_firefox_container_cookies(
                 "Looked for profiles.ini in the standard Firefox locations. "
                 "If you have Firefox installed in a non-standard location, the "
                 "container-aware extractor cannot find it. Drop the '::<container>' "
-                "suffix to fall back to rookie-cookies's autodetection."
+                "suffix to fall back to rookie-cookies' autodetection."
             ),
         )
 

@@ -31,6 +31,7 @@ wrappers render + exit. Entry points: :class:`PlaywrightLoginPlan`,
 
 from __future__ import annotations
 
+import inspect
 import logging
 import shutil
 import subprocess
@@ -42,6 +43,10 @@ from typing import Any, NoReturn, Protocol
 
 import httpx
 
+from ..._app.profile import (
+    ProfileRepairRequest,
+    repair_playwright_account,
+)
 from ..._auth.browser_capture import (
     BROWSER_CLOSED_HELP,
     CHANNEL_BROWSERS,
@@ -121,53 +126,56 @@ def repair_playwright_account_metadata(
     concept). Returns ``True`` when metadata was written, ``False`` when it
     was cleared or left absent.
 
-    The discovery/select/write recipe itself lives in
-    :func:`notebooklm._auth.account.repair_account_metadata_from_playwright_storage`
-    (auth cross-boundary ledger shrink, follow-up to #2103) — this wrapper owns
-    only the ``LoginIO``-mediated presentation, keyed off which field of the
-    returned result is set. ``io.run_async`` itself is still wrapped here (not
-    just the coroutine's own try/except): a ``RuntimeError`` from ``run_async``
-    scheduling the coroutine (e.g. the nested-event-loop guard) happens outside
-    the coroutine's own exception handling, and must degrade to the same
-    best-effort warning the pre-consolidation code gave the whole sequence
-    rather than aborting login/refresh (review finding on PR #2139).
+    The coarse app operation owns the public repair invocation and neutral
+    result classification; this wrapper owns only ``LoginIO`` presentation.
+    ``io.run_async`` itself is still wrapped here (not just the coroutine's own
+    handling): a scheduling ``RuntimeError`` must degrade to the historical
+    best-effort warning rather than aborting login/refresh.
     """
-    from ...auth import repair_account_metadata_from_playwright_storage
-
-    if not quiet:
-        io.emit("[dim]Identifying Google account...[/dim]")
+    request: ProfileRepairRequest | None = None
+    operation = None
+    result = None
     try:
-        result = io.run_async(
-            repair_account_metadata_from_playwright_storage(storage_path, page_html=page_html)
-        )
-    except (OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
         if not quiet:
-            io.emit(
-                "[yellow]Warning: account metadata was not written. "
-                "NotebookLM auth still saved, but multi-account routing may "
-                "fall back to authuser=0. "
-                f"{ACCOUNT_METADATA_REMEDIATION} Details: {exc}[/yellow]"
-            )
-        return False
-    if not result.written:
-        if not quiet:
-            if result.error is not None:
+            io.emit("[dim]Identifying Google account...[/dim]")
+        request = ProfileRepairRequest(storage_path=storage_path, page_html=page_html)
+        operation = repair_playwright_account(request)
+        try:
+            try:
+                result = io.run_async(operation)
+            except BaseException:
+                if inspect.getcoroutinestate(operation) == inspect.CORO_CREATED:
+                    operation.close()
+                raise
+        except (OSError, ValueError, RuntimeError, httpx.HTTPError) as exc:
+            if not quiet:
                 io.emit(
                     "[yellow]Warning: account metadata was not written. "
                     "NotebookLM auth still saved, but multi-account routing may "
                     "fall back to authuser=0. "
-                    f"{ACCOUNT_METADATA_REMEDIATION} Details: {result.error}[/yellow]"
+                    f"{ACCOUNT_METADATA_REMEDIATION} Details: {exc}[/yellow]"
+                )
+            return False
+        if result.status == "WRITTEN":
+            if not quiet:
+                io.emit(f"[green]Account:[/green] {result.email}")
+            return True
+        if not quiet:
+            if result.status == "ERROR":
+                io.emit(
+                    "[yellow]Warning: account metadata was not written. "
+                    "NotebookLM auth still saved, but multi-account routing may "
+                    "fall back to authuser=0. "
+                    f"{ACCOUNT_METADATA_REMEDIATION} Details: {result.detail}[/yellow]"
                 )
             else:
                 io.emit(
                     "[yellow]Warning: account metadata was not written; "
-                    f"{result.ambiguity_reason}. {ACCOUNT_METADATA_REMEDIATION}[/yellow]"
+                    f"{result.detail}. {ACCOUNT_METADATA_REMEDIATION}[/yellow]"
                 )
         return False
-
-    if not quiet:
-        io.emit(f"[green]Account:[/green] {result.email}")
-    return True
+    finally:
+        del storage_path, io, page_html, request, operation, result
 
 
 # ---------------------------------------------------------------------------
@@ -448,12 +456,14 @@ class PlaywrightLoginPlan:
         storage_path: Destination for the captured ``storage_state.json``.
         include_domains: Optional ``--include-domains`` labels; ``None`` /
             empty means "only required Google cookies + regional ccTLDs."
+        login_timeout_s: Human-interaction window before headed login fails.
     """
 
     browser: str
     browser_profile: Path
     storage_path: Path
     include_domains: set[str] | None = None
+    login_timeout_s: int = 300
 
 
 def run_playwright_login(plan: PlaywrightLoginPlan, io: LoginIO) -> None:
@@ -495,6 +505,7 @@ def run_playwright_login(plan: PlaywrightLoginPlan, io: LoginIO) -> None:
             browser_profile=plan.browser_profile,
             storage_path=plan.storage_path,
             include_domains=plan.include_domains,
+            login_timeout_s=plan.login_timeout_s,
         ),
         io,
         headless=False,

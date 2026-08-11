@@ -173,10 +173,11 @@ def _assemble_client(
     # runs this exact function, so tests exercise the same code path as
     # production.
     client._auth = auth
-    # Per-client memo for ``get_account_email`` (a successful live probe runs at
-    # most once per process). Set here — not in ``__init__`` — so the factory-built
-    # shell has it too (test_client_factory_parity, incidents #1196/#1225).
+    # Per-client, route-keyed memo for ``get_account_email``. Set here — not in
+    # ``__init__`` — so the factory-built shell has it too
+    # (test_client_factory_parity, incidents #1196/#1225).
     client._account_email_cache = None
+    client._account_email_cache_route = None
 
     # Production default: the client's own ``refresh_auth`` bound method.
     # The test factory overrides this (typically with ``None`` or a fake)
@@ -275,9 +276,9 @@ def _assemble_client(
         max_concurrent_uploads=max_concurrent_uploads,
         max_concurrent_rpcs=max_concurrent_rpcs,
         on_rpc_event=on_rpc_event,
-        # Injectable seams — pass-through to the lifecycle. ``None``
-        # (default) preserves the late-binding contract via
-        # ``_default_cookie_saver`` / ``_default_cookie_rotator``.
+        # Injectable seams — pass-through to the lifecycle. A ``None`` cookie
+        # saver selects the canonical typed store path; a ``None`` rotator
+        # preserves its historical late-bound default.
         cookie_saver=cookie_saver,
         cookie_rotator=cookie_rotator,
         async_client_factory=async_client_factory,
