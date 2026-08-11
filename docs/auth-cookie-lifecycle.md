@@ -1357,6 +1357,16 @@ gate their writes correctly.
   measured boundary is 1,150 storage + 311 migration + 794 store + 96 filter = 2,351 lines. Loader,
   account-network, runtime, recovery, master-token, and shim ownership is unchanged by this stage.
 
+- **2026-08-11 (native profile-replacement results)** — Browser capture now builds a
+  `RemintWriteRequest` and consumes `ProfileStore.replace_from_remint` directly. Login/import app
+  and CLI flows call the path-shaped `replace_profile_from_login` operation through the internal
+  `notebooklm.auth` ledger, pass primitive keep/clear/set account modes, and consume the same
+  value-free `ReplaceResult`. The v0.x `storage.replace_from_remint` and
+  `storage.replace_from_login` signatures and return objects remain unchanged; exhaustive maps in
+  that compatibility owner perform the only native-to-legacy status projection. PSIDTS recovery
+  and ordinary lifecycle saves continue to consume `CookieMergeResult` directly. The auth graph is
+  41 modules / 15,898 lines / 142 edges (130 module + 12 local), with no SCC.
+
 - **2026-08-09 (profile-store minted-session replacement)** —
   `ProfileStore.replace_minted_session` now owns the authoritative same-lock latest-owner gate,
   default raw filter, lossless destination preservation/rebind, and one profile commit.

@@ -230,9 +230,9 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src/notebooklm/_auth")
     projection = script.build_projection(sites)
     assert projection["summary"]["TOTAL"] == {
-        "public": 135,
+        "public": 131,
         "private": 156,
-        "total": 291,
+        "total": 287,
     }
     relevant = {
         (row["module"], row["attribute"], row["idiom"]): row["count"]
@@ -240,6 +240,7 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
         if (row["module"], row["attribute"])
         in {
             ("account_email", "_write_account_metadata_if_document_unchanged"),
+            ("browser_capture", "replace_captured_profile"),
             ("profile_migration", "FileLock"),
             ("profile_migration", "atomic_write_json"),
             ("master_token", "MasterTokenFile"),
@@ -252,11 +253,11 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
             ("master_token_file", "_master_token_to_legacy_record"),
             ("master_token_file", "_storage_state_lock_path"),
             ("profile_store", "MasterTokenFile"),
-            ("storage", "replace_from_remint"),
             ("storage", "MasterTokenFile"),
             ("storage", "write_master_token"),
             ("storage", "ProfileStore"),
             ("storage", "LegacyAccountMigrator"),
+            ("storage", "replace_profile_from_login"),
             ("cookie_policy", "MINIMUM_REQUIRED_COOKIES"),
             ("cookie_policy", "cookie_names_from_storage"),
             ("profile_store", "_commit_profile_json"),
@@ -283,6 +284,7 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
             "_write_account_metadata_if_document_unchanged",
             "monkeypatch.setattr",
         ): 2,
+        ("browser_capture", "replace_captured_profile", "patch.object"): 1,
         ("profile_migration", "FileLock", "monkeypatch.setattr"): 2,
         ("profile_migration", "atomic_write_json", "monkeypatch.setattr"): 2,
         ("master_token", "MasterTokenFile", "monkeypatch.setattr"): 4,
@@ -303,11 +305,11 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
         ): 2,
         ("master_token_file", "_storage_state_lock_path", "monkeypatch.setattr"): 2,
         ("profile_store", "MasterTokenFile", "monkeypatch.setattr"): 1,
-        ("storage", "replace_from_remint", "patch.object"): 1,
         ("storage", "MasterTokenFile", "monkeypatch.setattr"): 1,
         ("storage", "write_master_token", "monkeypatch.setattr"): 1,
-        ("storage", "ProfileStore", "monkeypatch.setattr"): 9,
-        ("storage", "LegacyAccountMigrator", "monkeypatch.setattr"): 3,
+        ("storage", "ProfileStore", "monkeypatch.setattr"): 5,
+        ("storage", "LegacyAccountMigrator", "monkeypatch.setattr"): 1,
+        ("storage", "replace_profile_from_login", "monkeypatch.setattr"): 2,
         ("cookie_policy", "MINIMUM_REQUIRED_COOKIES", "monkeypatch.setattr"): 3,
         ("cookie_policy", "cookie_names_from_storage", "monkeypatch.setattr"): 1,
         ("profile_store", "_commit_profile_json", "monkeypatch.setattr"): 18,

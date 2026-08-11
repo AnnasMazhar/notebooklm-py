@@ -21,9 +21,7 @@ import pytest
 from notebooklm._auth import master_token as mt_mod
 from notebooklm._auth import master_token_file, profile_store, storage_writer
 from notebooklm._auth import storage as storage_mod
-from notebooklm._auth.profile_account import ClearAccount, DomainSelection, KeepAccount
-from notebooklm._auth.profile_document import ProfileDocument
-from notebooklm._auth.profile_store import LoginWriteRequest, ReplaceResult, ReplaceStatus
+from notebooklm._auth.profile_store import ReplaceResult, ReplaceStatus
 from notebooklm._auth.storage_lock import LockState
 
 
@@ -252,39 +250,34 @@ def test_replace_from_remint_filters_domains_but_keeps_trusted_subdomains(
         (ReplaceStatus.LOCK_UNAVAILABLE, storage_mod.WriteStatus.LOCK_UNAVAILABLE),
     ],
 )
-def test_replace_from_remint_is_one_typed_store_delegation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_replace_from_remint_projection_map_is_exhaustive(
     typed_status: ReplaceStatus,
     compatibility_status: storage_mod.WriteStatus,
 ) -> None:
-    path = tmp_path / "custom.json"
-    state = _captured_state()
-    seen: list[object] = []
-
-    class FakeStore:
-        def __init__(self, actual_path: Path) -> None:
-            seen.append(actual_path)
-
-        def replace_from_remint(self, request):  # type: ignore[no-untyped-def]
-            seen.append(request)
-            return ReplaceResult(typed_status)
-
-    monkeypatch.setattr(storage_mod, "ProfileStore", FakeStore)
-    outcome = storage_mod.replace_from_remint(
-        path,
-        state,
-        carry_account="truthy",  # type: ignore[arg-type]
-        include_domains={"mail"},
-    )
+    assert set(storage_mod._REMINT_RESULT_PROJECTORS) == set(ReplaceStatus)
+    outcome = storage_mod._REMINT_RESULT_PROJECTORS[typed_status](ReplaceResult(typed_status))
     assert outcome.status is compatibility_status
-    assert seen[0] is path
-    request = seen[1]
-    assert isinstance(request.source, ProfileDocument)
-    assert request.source.to_json() == state
-    assert request.carry_account == "truthy"
-    assert request.domain_selection == DomainSelection(frozenset({"mail"}), False)
     assert storage_writer.replace_from_remint is storage_mod.replace_from_remint
+
+
+def test_replace_from_remint_impossible_status_uses_named_contract_violation() -> None:
+    result = ReplaceResult(
+        ReplaceStatus.REQUIRED_COOKIES_DROPPED,
+        missing_required=("SID",),
+    )
+    with pytest.raises(AssertionError, match="impossible required-cookie status"):
+        storage_mod._REMINT_RESULT_PROJECTORS[result.status](result)
+
+
+def test_native_projection_maps_cover_every_status_and_cookie_disposition_exactly() -> None:
+    assert set(storage_mod._REMINT_RESULT_PROJECTORS) == set(ReplaceStatus)
+    assert set(storage_mod._LOGIN_RESULT_PROJECTORS) == set(ReplaceStatus)
+    assert storage_mod._COOKIE_MERGE_OK_BY_DISPOSITION == {
+        profile_store.CookieMergeDisposition.APPLIED: True,
+        profile_store.CookieMergeDisposition.NO_CHANGE: True,
+        profile_store.CookieMergeDisposition.CONFLICT: False,
+        profile_store.CookieMergeDisposition.HARD_FAILURE: False,
+    }
 
 
 # --- replace_from_login: CLI login / import full-replace (b-PR3) -----------
@@ -530,23 +523,13 @@ def test_replace_from_login_is_one_typed_store_delegation_and_exhaustive_project
 ) -> None:
     path = tmp_path / "custom.json"
     state = _login_state()
-    seen: list[object] = []
+    calls: list[tuple[object, ...]] = []
 
-    class FakeStore:
-        def __init__(self, actual_path: Path) -> None:
-            seen.append(actual_path)
+    def native(*args: object, **kwargs: object) -> ReplaceResult:
+        calls.append((*args, kwargs))
+        return result
 
-        def replace_from_login(self, request: LoginWriteRequest) -> ReplaceResult:
-            seen.append(request)
-            return result
-
-    class FakeMigrator:
-        def scrub(self, store: FakeStore) -> None:
-            assert isinstance(store, FakeStore)
-            seen.append("scrub")
-
-    monkeypatch.setattr(storage_mod, "ProfileStore", FakeStore)
-    monkeypatch.setattr(storage_mod, "LegacyAccountMigrator", FakeMigrator)
+    monkeypatch.setattr(storage_mod, "replace_profile_from_login", native)
 
     outcome = storage_mod.replace_from_login(
         path,
@@ -559,72 +542,69 @@ def test_replace_from_login_is_one_typed_store_delegation_and_exhaustive_project
     )
 
     assert outcome == expected
-    assert seen[0] is path
-    request = seen[1]
-    assert isinstance(request, LoginWriteRequest)
-    assert request.source.to_json() == state
-    assert request.domain_selection == DomainSelection(frozenset({"mail"}), "truthy")
-    assert isinstance(request.account, ClearAccount)
-    assert request.backup == "truthy"
-    if result.status is ReplaceStatus.APPLIED:
-        assert seen[2:] == ["scrub"]
-    else:
-        assert seen[2:] == []
+    assert calls == [
+        (
+            path,
+            state,
+            {
+                "include_domains": {"mail"},
+                "include_optional": "truthy",
+                "account_mode": "clear",
+                "account_authuser": None,
+                "account_email": None,
+                "backup": "truthy",
+            },
+        )
+    ]
 
 
 @pytest.mark.parametrize(
-    "namespace",
+    ("account", "mode", "authuser", "email"),
     [
-        {"account": {}},
-        {"account": None},
-        {"account": "odd"},
-        {"account": {"unknown": "only"}},
+        (storage_mod.KEEP_ACCOUNT, "keep", None, None),
+        (storage_mod.CLEAR_ACCOUNT, "clear", None, None),
+        (storage_mod.AccountRecord(7, "user@example.com"), "set", 7, "user@example.com"),
     ],
 )
-def test_replace_from_login_keep_uses_literal_raw_account_key_for_legacy_scrub(
+def test_replace_from_login_compatibility_account_translation_is_exact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    namespace: dict[str, object],
+    account: storage_mod.AccountArg,
+    mode: str,
+    authuser: int | None,
+    email: str | None,
 ) -> None:
-    events: list[str] = []
+    calls: list[dict[str, object]] = []
 
-    class FakeStore:
-        def __init__(self, path: Path) -> None:
-            pass
+    def native(*args: object, **kwargs: object) -> ReplaceResult:
+        calls.append(kwargs)
+        return ReplaceResult(ReplaceStatus.APPLIED)
 
-        def replace_from_login(self, request: LoginWriteRequest) -> ReplaceResult:
-            assert isinstance(request.account, KeepAccount)
-            events.append("store")
-            return ReplaceResult(ReplaceStatus.APPLIED)
+    monkeypatch.setattr(storage_mod, "replace_profile_from_login", native)
+    state = _login_state()
 
-    class FakeMigrator:
-        def promote(self, store: FakeStore) -> None:
-            events.append("promote")
-
-        def scrub(self, store: FakeStore) -> None:
-            events.append("scrub")
-
-    monkeypatch.setattr(storage_mod, "ProfileStore", FakeStore)
-    monkeypatch.setattr(storage_mod, "LegacyAccountMigrator", FakeMigrator)
-    state = {**_login_state(), "notebooklm": namespace}
-
-    assert storage_mod.replace_from_login(tmp_path / "A.json", state, include_domains=None).ok
-    assert events == ["store", "scrub"]
+    assert storage_mod.replace_from_login(
+        tmp_path / "A.json", state, include_domains=None, account=account
+    ).ok
+    assert calls == [
+        {
+            "include_domains": None,
+            "include_optional": False,
+            "account_mode": mode,
+            "account_authuser": authuser,
+            "account_email": email,
+            "backup": False,
+        }
+    ]
 
 
 def test_replace_from_login_account_copy_failure_precedes_store_and_parent_creation(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class FailsCopy:
         def __deepcopy__(self, memo: dict[int, object]) -> object:
             raise RuntimeError("bounded account copy failure")
 
-    monkeypatch.setattr(
-        storage_mod,
-        "ProfileStore",
-        lambda path: pytest.fail("store must not be constructed"),
-    )
     path = tmp_path / "missing" / "A.json"
     with pytest.raises(RuntimeError, match="bounded account copy failure"):
         storage_mod.replace_from_login(

@@ -11,7 +11,7 @@ import pytest
 
 import notebooklm._auth as auth_package
 import notebooklm.auth as auth_facade
-from notebooklm._auth import profile_store, storage, storage_writer
+from notebooklm._auth import profile_migration, profile_store, storage, storage_writer
 from notebooklm._auth.cookie_types import Cookie, CookieJar
 from notebooklm._auth.master_token_types import MasterToken
 from notebooklm._auth.profile_account import DomainSelection
@@ -27,6 +27,7 @@ FACADE_PATH = SRC_ROOT / "auth.py"
 AUTH_INIT_PATH = AUTH_ROOT / "__init__.py"
 ImportRecord = tuple[str, int, str, str, str | None]
 Caller = tuple[str, str, str]
+NativeReplaceCaller = tuple[str, str, str]
 
 _STORE_METHODS = {
     "_read_account_document",
@@ -64,11 +65,171 @@ _MIGRATION_SERVICES = frozenset(
     }
 )
 
+_NATIVE_REPLACE_CALLER_TESTS: dict[NativeReplaceCaller, tuple[str, ...]] = {
+    ("_app/login_cookie.py", "import_cookie_payload", "replace_profile_from_login"): (
+        "tests/unit/app/test_app_login_cookie.py::test_import_preserves_callback_order_identity_and_backup",
+    ),
+    ("_auth/browser_capture.py", "replace_captured_profile", "replace_from_remint"): (
+        "tests/unit/test_browser_capture_headless_arm.py::test_headless_authenticated_landing_persists_storage",
+        "tests/unit/test_browser_capture_cdp_arm.py::test_cdp_authenticated_landing_persists_and_filters",
+    ),
+    ("_auth/storage.py", "replace_from_login", "replace_profile_from_login"): (
+        "tests/unit/test_storage_writer.py::test_replace_from_login_is_one_typed_store_delegation_and_exhaustive_projection",
+    ),
+    ("_auth/storage.py", "replace_from_remint", "replace_from_remint"): (
+        "tests/unit/test_storage_writer.py::test_replace_from_remint_projection_map_is_exhaustive",
+    ),
+    (
+        "cli/_cookie_import.py",
+        "_import_cookie_json",
+        "replace_profile_from_login[injected]",
+    ): (
+        "tests/unit/cli/test_login_cookie_app_adapters.py::test_import_adapter_injects_native_login_operation",
+    ),
+    (
+        "cli/services/login/cookie_writes.py",
+        "_write_extracted_cookies",
+        "replace_profile_from_login",
+    ): (
+        "tests/unit/cli/test_cookie_writes.py::TestWriteExtractedCookies.test_lock_unavailable_returns_outcome",
+    ),
+    (
+        "cli/services/login/refresh.py",
+        "_login_with_browser_cookies",
+        "replace_profile_from_login",
+    ): (
+        "tests/unit/cli/test_login_refresh_coverage.py::test_login_with_cookies_lock_unavailable_exits",
+    ),
+    (
+        "cli/services/login/refresh.py",
+        "default_refresh_deps",
+        "replace_profile_from_login[injected]",
+    ): (
+        "tests/unit/cli/test_login_refresh_coverage.py::test_default_refresh_deps_uses_native_login_operation",
+    ),
+}
+
+_B3_ACCEPTANCE_TEST_FILES = frozenset(
+    {
+        "tests/_guardrails/test_auth_profile_store_boundary.py",
+        "tests/_guardrails/test_auth_storage_compatibility.py",
+        "tests/_guardrails/test_public_surface.py",
+        "tests/_guardrails/test_storage_writer_boundary.py",
+        "tests/unit/app/test_app_login_cookie.py",
+        "tests/unit/cli/test_cookie_writes.py",
+        "tests/unit/cli/test_login_cookie_app_adapters.py",
+        "tests/unit/cli/test_login_refresh_coverage.py",
+        "tests/unit/cli/test_playwright_login_render_contract.py",
+        "tests/unit/test_auth_profile_migration.py",
+        "tests/unit/test_auth_profile_store.py",
+        "tests/unit/test_auth_profile_store_login.py",
+        "tests/unit/test_auth_profile_store_remint.py",
+        "tests/unit/test_browser_capture_cdp_arm.py",
+        "tests/unit/test_browser_capture_headless_arm.py",
+        "tests/unit/test_storage_writer.py",
+    }
+)
+
 
 def _source_label(path: Path) -> str:
     if path.is_relative_to(AUTH_ROOT):
         return path.relative_to(AUTH_ROOT).as_posix()
     return path.relative_to(SRC_ROOT).as_posix()
+
+
+class _NativeReplaceCallerCollector(ast.NodeVisitor):
+    """Find direct native calls and the CLI cookie-import injection boundary."""
+
+    _OPERATIONS = frozenset({"replace_from_remint", "replace_profile_from_login"})
+
+    def __init__(self, path: Path, root: Path) -> None:
+        self._path = path.relative_to(root).as_posix()
+        self._scope: list[str] = []
+        self._aliases: dict[str, str] = {}
+        self.callers: set[NativeReplaceCaller] = set()
+
+    def _operation(self, expression: ast.expr) -> str | None:
+        if isinstance(expression, ast.Name):
+            if expression.id in self._OPERATIONS:
+                return expression.id
+            return self._aliases.get(expression.id)
+        if isinstance(expression, ast.Attribute) and expression.attr in self._OPERATIONS:
+            return expression.attr
+        return None
+
+    def _record(self, operation: str) -> None:
+        owner = ".".join(self._scope) if self._scope else "<module>"
+        self.callers.add((self._path, owner, operation))
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        for imported in node.names:
+            if imported.name in self._OPERATIONS:
+                self._aliases[imported.asname or imported.name] = imported.name
+
+    def visit_Assign(self, node: ast.Assign) -> None:  # noqa: N802
+        operation = self._operation(node.value)
+        if operation is not None:
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    self._aliases[target.id] = operation
+        self.generic_visit(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
+        self._scope.append(node.name)
+        self.generic_visit(node)
+        self._scope.pop()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+        self._scope.append(node.name)
+        self.generic_visit(node)
+        self._scope.pop()
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+        operation = self._operation(node.func)
+        if operation is not None:
+            self._record(operation)
+        for keyword in node.keywords:
+            if keyword.arg == "replace_profile_from_login":
+                injected = self._operation(keyword.value)
+                if injected == "replace_profile_from_login":
+                    self._record("replace_profile_from_login[injected]")
+        self.generic_visit(node)
+
+
+def _native_replace_callers(root: Path) -> set[NativeReplaceCaller]:
+    callers: set[NativeReplaceCaller] = set()
+    for path in sorted(root.rglob("*.py")):
+        collector = _NativeReplaceCallerCollector(path, root)
+        collector.visit(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+        callers.update(collector.callers)
+    return callers
+
+
+def _test_qualnames(path: Path) -> set[str]:
+    names: set[str] = set()
+
+    class Collector(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.scope: list[str] = []
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
+            self.scope.append(node.name)
+            self.generic_visit(node)
+            self.scope.pop()
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+            self.scope.append(node.name)
+            if node.name.startswith("test_"):
+                names.add(".".join(self.scope))
+            self.generic_visit(node)
+            self.scope.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+    Collector().visit(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+    return names
 
 
 _EXPECTED_IMPORTS: list[ImportRecord] = [
@@ -247,6 +408,8 @@ def test_production_importers_are_exactly_approved_store_owners_and_loader() -> 
         "_runtime/init.py",
         "account_email.py",
         "account_repair.py",
+        "auth.py",
+        "browser_capture.py",
         "master_token.py",
         "master_token_bootstrap.py",
         "profile_migration.py",
@@ -408,12 +571,13 @@ def test_replace_types_remain_internal_to_profile_store() -> None:
         "LoginWriteRequest",
         "MintedSessionWriteRequest",
         "ReplaceStatus",
-        "ReplaceResult",
     }
     assert names.isdisjoint(storage.__all__)
     assert names.isdisjoint(storage_writer.__all__)
     assert all(not hasattr(auth_facade, name) for name in names)
     assert all(not hasattr(auth_package, name) for name in names)
+    assert auth_facade.ReplaceResult is profile_store.ReplaceResult
+    assert "ReplaceResult" not in auth_facade.__all__
 
 
 def test_profile_store_constructor_and_replace_method_signatures_are_exact() -> None:
@@ -437,6 +601,60 @@ def test_profile_store_constructor_and_replace_method_signatures_are_exact() -> 
     )
     assert profile_store.ProfileStore.write_master_token.__annotations__["token"] == "MasterToken"
     assert MasterToken.__module__ == "notebooklm._auth.master_token_types"
+
+
+def test_native_login_operation_signature_and_construction_are_exact() -> None:
+    assert str(inspect.signature(profile_migration.replace_profile_from_login)) == (
+        "(path: 'Path', state: 'Mapping[str, Any]', *, include_domains: 'set[str] | None', "
+        "include_optional: 'bool' = False, account_mode: \"Literal['keep', 'clear', 'set']\" "
+        "= 'keep', account_authuser: 'int | None' = None, account_email: 'str | None' = None, "
+        "backup: 'bool' = False) -> 'ReplaceResult'"
+    )
+    path = AUTH_ROOT / "profile_migration.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    operation = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "replace_profile_from_login"
+    )
+    called = [ast.unparse(node.func) for node in ast.walk(operation) if isinstance(node, ast.Call)]
+    assert called.count("ProfileStore") == 1
+    assert called.count("LoginWriteRequest") == 1
+    assert called.count("LoginProfileWriter") == 1
+    assert called.count("LegacyAccountMigrator") == 1
+    source = ast.unparse(operation)
+    assert source.index("account_mode not in") < source.index("ProfileDocument.decode")
+    assert source.index("account_mode == 'set'") < source.index("ProfileDocument.decode")
+    assert all(name not in source for name in {"AccountRecord", "KEEP_ACCOUNT", "CLEAR_ACCOUNT"})
+
+
+def test_every_native_replace_caller_has_a_live_b3_behavior_test() -> None:
+    assert _native_replace_callers(SRC_ROOT) == set(_NATIVE_REPLACE_CALLER_TESTS)
+    for targets in _NATIVE_REPLACE_CALLER_TESTS.values():
+        assert targets
+        for target in targets:
+            relative, qualname = target.split("::", 1)
+            assert relative in _B3_ACCEPTANCE_TEST_FILES
+            assert qualname in _test_qualnames(REPO_ROOT / relative)
+
+
+def test_native_replace_caller_inventory_bites_on_alias_and_injection(tmp_path: Path) -> None:
+    root = tmp_path / "notebooklm"
+    root.mkdir()
+    (root / "feature.py").write_text(
+        "from notebooklm.auth import replace_profile_from_login as native_login\n"
+        "def direct(store, request):\n"
+        "    store.replace_from_remint(request)\n"
+        "    native_login('path', {})\n"
+        "def adapter(consume):\n"
+        "    consume(replace_profile_from_login=native_login)\n",
+        encoding="utf-8",
+    )
+    assert _native_replace_callers(root) == {
+        ("feature.py", "direct", "replace_from_remint"),
+        ("feature.py", "direct", "replace_profile_from_login"),
+        ("feature.py", "adapter", "replace_profile_from_login[injected]"),
+    }
 
 
 def _master_token_method_violations(source: str) -> list[str]:
@@ -1214,6 +1432,8 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
             "_write_account_metadata_if_document_unchanged",
             "_update_account_if_document_unchanged",
         ),
+        ("browser_capture.py", "replace_captured_profile", "ProfileStore"),
+        ("browser_capture.py", "replace_captured_profile", "replace_from_remint"),
         ("master_token.py", "_bootstrapper", "ProfileStore"),
         (
             "master_token_bootstrap.py",
@@ -1249,6 +1469,8 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
             "_read_account_document",
         ),
         ("profile_migration.py", "LegacyAccountMigrator.promote", "update_account"),
+        ("profile_migration.py", "replace_profile_from_login", "ProfileStore"),
+        ("profile_migration.py", "replace_profile_from_login", _INSTANCE_ESCAPE),
         ("profile_migration.py", "LoginProfileWriter.write", "replace_from_login"),
         ("profile_migration.py", "AccountMetadataWriter.write", "update_account"),
         ("profile_migration.py", "AccountMetadataWriter.clear", "clear_account"),
@@ -1269,7 +1491,6 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
         ("storage.py", "read_account_metadata", "ProfileStore"),
         ("storage.py", "replace_from_remint", "ProfileStore"),
         ("storage.py", "replace_from_remint", "replace_from_remint"),
-        ("storage.py", "replace_from_login", "ProfileStore"),
         ("storage.py", "persist_minted_jar", "ProfileStore"),
         ("storage.py", "persist_minted_jar", "replace_minted_session"),
         ("storage.py", "update_account_metadata", "ProfileStore"),
@@ -1894,11 +2115,8 @@ def test_account_method_signatures_and_storage_leaf_import_are_exact() -> None:
     )
     imports = _collect_imports(storage_tree)
     assert [record for record in imports if record[2] == "profile_account"] == [
-        ("module", 1, "profile_account", "ClearAccount", None),
         ("module", 1, "profile_account", "DomainSelection", None),
-        ("module", 1, "profile_account", "KeepAccount", None),
         ("module", 1, "profile_account", "ProfileAccount", None),
-        ("module", 1, "profile_account", "SetAccount", None),
     ]
 
 
@@ -1956,4 +2174,10 @@ def test_profile_store_is_not_exposed_by_facade_or_auth_package() -> None:
     for path in (FACADE_PATH, AUTH_INIT_PATH):
         source = path.read_text(encoding="utf-8")
         assert "ProfileStore" not in source
-        assert "profile_store" not in source
+    facade_imports = _collect_imports(
+        ast.parse(FACADE_PATH.read_text(encoding="utf-8"), filename=str(FACADE_PATH))
+    )
+    assert [record for record in facade_imports if record[2] == "_auth.profile_store"] == [
+        ("module", 1, "_auth.profile_store", "ReplaceResult", None)
+    ]
+    assert "profile_store" not in AUTH_INIT_PATH.read_text(encoding="utf-8")
