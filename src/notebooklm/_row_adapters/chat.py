@@ -27,7 +27,7 @@ Position contracts (pinned by ``tests/unit/test_chat_row_adapter.py``):
   =====  ============================================================
   0      answer text (str)
   2      conversation-id block; ``[2][0]`` is the server conversation id
-  4      type/flags block; ``[4][-1] == 1`` marks an answer record and
+  4      type/flags block; ``[4][4] == 1`` marks an answer record and
          ``[4][3]`` is the citation list
   =====  ============================================================
 
