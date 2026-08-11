@@ -157,6 +157,55 @@ class TestHandleErrorsJsonOutput:
         assert data["code"] == "RATE_LIMITED"
         assert data["retry_after"] == 30
 
+    @pytest.mark.parametrize(
+        ("cause", "expected_code"),
+        [
+            (ValidationError("File type rejected"), "VALIDATION_ERROR"),
+            (NetworkError("Connection reset"), "NETWORK_ERROR"),
+            (RateLimitError("Too many requests", retry_after=30), "RATE_LIMITED"),
+        ],
+    )
+    def test_partial_upload_json_keeps_category_and_recovery_together(
+        self, capsys, cause, expected_code
+    ):
+        """Re-dispatching on the cause must not cost the recovery context.
+
+        The category / ``retry_after`` projection comes from the typed branch; the
+        retained ``source_id`` / ``stage`` come from the wrapper. Both have to
+        survive in the same envelope, or ``source add`` reports *why* it failed
+        without saying *what it left behind*.
+        """
+        with pytest.raises(SystemExit), handle_errors(json_output=True):
+            raise SourceAddPartialError(
+                "report.pdf", source_id="src_123", stage="upload_finalize", cause=cause
+            )
+
+        data = json.loads(capsys.readouterr().out)
+        assert data["code"] == expected_code
+        assert data["source_id"] == "src_123"
+        assert data["stage"] == "upload_finalize"
+        if isinstance(cause, RateLimitError):
+            assert data["retry_after"] == 30
+
+    def test_partial_upload_text_names_the_retained_source(self, capsys):
+        """Text mode must be actionable: which row was left, and how to drop it."""
+        with pytest.raises(SystemExit), handle_errors(json_output=False):
+            raise SourceAddPartialError(
+                "report.pdf",
+                source_id="src_123",
+                stage="upload_finalize",
+                cause=AuthError("Session expired"),
+            )
+
+        err = capsys.readouterr().err
+        assert "src_123" in err
+        assert "upload_finalize" in err
+        assert "notebooklm source delete src_123" in err
+        # The cause's own projection (here: the re-auth hint) still has to show.
+        assert "notebooklm login" in err
+        # ``stage`` is a location, not proof of transfer — never claim bytes moved.
+        assert "uploaded" not in err
+
     def test_rpc_error_verbose_includes_method_id(self, capsys):
         """RPCError with verbose=True should include method_id in JSON."""
         with pytest.raises(SystemExit), handle_errors(json_output=True, verbose=True):

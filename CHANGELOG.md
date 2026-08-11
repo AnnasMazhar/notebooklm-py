@@ -66,13 +66,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   surfaces re-derive their category from `.cause` via `_app.errors.classify()`,
   and the CLI — which dispatches on exception type and never calls `classify()`
   — re-raises the typed cause so its re-auth / retry / `retry_after` guidance
-  still fires, with the retained source id folded into the message. So an auth
-  failure still projects as auth and a dropped connection still projects as a
-  retryable failure rather than a 4xx input rejection. One caveat on chaining: a
-  raw `httpx.RequestError` is normalised to `NetworkError` first, so for that
-  case `.cause` is the `NetworkError` (carrying the httpx exception on
-  `.original_error`) while `__cause__` is the raw httpx error
-  ([#2138](https://github.com/teng-lin/notebooklm-py/issues/2138)).
+  still fires. So an auth failure still projects as auth and a dropped
+  connection still projects as a retryable failure rather than a 4xx input
+  rejection. `notebooklm source add` keeps the recovery context alongside that
+  guidance rather than instead of it: text mode adds a line naming the retained
+  `source_id`, the failure `stage`, and the `source delete` needed to retry
+  cleanly, and `--json` adds `source_id` / `stage` fields beside the existing
+  code / `retry_after`. Two caveats. Chaining: a raw `httpx.RequestError` is
+  normalised to `NetworkError` first, so for that case `.cause` is the
+  `NetworkError` (carrying the httpx exception on `.original_error`) while
+  `__cause__` is the raw httpx error. Typing: the post-registration wrapper
+  catches `Exception`, so a cause the client does not recognise — a local
+  file-read error, a raising `on_progress` callback — is wrapped unchanged and
+  `.cause` is then not a library exception; give any `isinstance` chain over it
+  a fallback branch ([#2138](https://github.com/teng-lin/notebooklm-py/issues/2138)).
 - **First-party profile replacements now use native typed results.** Browser capture consumes
   `ProfileStore.replace_from_remint()` directly, while cookie import/login/refresh use a narrow
   path-shaped login operation with primitive account modes. Existing v0.x storage wrapper

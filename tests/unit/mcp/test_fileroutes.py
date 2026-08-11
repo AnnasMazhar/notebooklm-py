@@ -1146,6 +1146,8 @@ def test_upload_partial_error_does_not_claim_bytes_were_sent(
     url = config.upload_url({"op": "ul", "nb": NB})
     with starlette_testclient.TestClient(app) as client:
         resp = client.post(_path(url) + "?filename=a.pdf", content=b"DATA")
+    # A transport cause is upstream-infrastructure, not bad input: 502, not 4xx.
+    assert resp.status_code == 502
     assert "did not complete" in resp.text
     # Never claim bytes were transferred: the stage cannot prove it either way.
     assert "uploaded" not in resp.text

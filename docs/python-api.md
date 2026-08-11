@@ -493,8 +493,16 @@ connection that drops before the first byte still reports that stage.
 transport failure is the exception: an `httpx.RequestError` is normalised to a
 library `NetworkError` first, so `cause` is that `NetworkError` (with the httpx
 exception on its `original_error`) while `__cause__` stays the raw
-`httpx.RequestError`. Branch on `cause` — it is always a `notebooklm` exception,
-which is what makes the category reliable.
+`httpx.RequestError`. Branch on `cause`: every failure the client *recognises*
+— transport resets, and the HTTP statuses the upload endpoint answers with — is
+normalised to a library exception there, which is what makes the category
+reliable.
+
+It is not, however, a guarantee for every possible cause. The post-registration
+wrapper catches `Exception`, so anything else raised between registering the row
+and finishing the upload — a file-read `OSError`, or an exception from your own
+`on_progress` callback — is wrapped **unchanged** and reaches you as itself.
+Give any `isinstance` chain over `cause` a fallback branch.
 
 ```python
 from notebooklm import SourceAddPartialError
@@ -521,11 +529,15 @@ except SourceAddPartialError as error:
 >         ...  # transient: the row at error.source_id can be retried
 >     elif isinstance(error.cause, ValidationError):
 >         ...  # the file itself was rejected; delete the row
+>     else:
+>         ...  # local/callback failure, wrapped unchanged: treat as unknown
 > ```
 >
 > A transport-level failure (a reset mid-body) is normalised to `NetworkError`
-> before wrapping, so `error.cause` is always a library exception rather than a
-> raw `httpx` error.
+> before wrapping, so a dropped connection reaches you as a library exception
+> rather than a raw `httpx` error. The `else` branch is not decorative: the
+> wrapper catches `Exception`, so a local file-read error or a raising
+> `on_progress` callback arrives untyped.
 
 ---
 
