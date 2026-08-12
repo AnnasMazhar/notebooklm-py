@@ -21,8 +21,7 @@ logger = logging.getLogger(__name__)
 _warned_status_codes: set[int] = set()
 
 #: ``(method_id, block_pos)`` pairs already warned about by
-#: :meth:`SourceRow._document_id_at` — one drift line per drifted slot, not one
-#: per row per poll.
+#: :meth:`SourceRow._document_id_at` — one line per drifted slot, not per row.
 _warned_drive_id_slots: set[tuple[str, int]] = set()
 
 __all__ = [
@@ -474,7 +473,7 @@ class SourceRow:
         source carries — the URL slots are empty and ``metadata[0]`` holds the
         Drive block, not a URL, so :attr:`url` is ``None`` on every Drive row.
         ``sources.add_drive`` probes on it (#2113); non-Drive rows return
-        ``None``, so an equality match on a ``file_id`` can never select one.
+        ``None``, so a ``file_id`` equality match can never select one.
         """
         metadata = self.metadata
         if metadata is None:
@@ -498,7 +497,10 @@ class SourceRow:
         if not isinstance(block, list) or len(block) <= self._DRIVE_DOCUMENT_ID_POS:
             return None
         value = block[self._DRIVE_DOCUMENT_ID_POS]
-        if isinstance(value, str) and value:
+        # Test with ``.strip()`` but return the wire value verbatim: a blank or
+        # whitespace-only id is unmatchable (``add_drive`` rejects such a
+        # ``file_id`` outright), so it is drift, not an id.
+        if isinstance(value, str) and value.strip():
             return value
         key = (self.method_id, block_pos)
         if block and key not in _warned_drive_id_slots:

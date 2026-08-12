@@ -546,11 +546,9 @@ class SourcesAPI:
             title: Display title. Native Drive imports re-derive the title from
                 live Drive metadata server-side, so a supplied ``title`` is honored
                 via a best-effort follow-up :meth:`rename` (non-fatal; #1960).
-            mime_type: MIME type of the Drive document. Common values:
-                - application/vnd.google-apps.document (Google Docs)
-                - application/vnd.google-apps.presentation (Slides)
-                - application/vnd.google-apps.spreadsheet (Sheets)
-                - application/pdf (PDF files in Drive)
+            mime_type: MIME type of the Drive document — ``…google-apps.document``
+                (Docs), ``…presentation`` (Slides), ``…spreadsheet`` (Sheets), or
+                ``application/pdf``. See :class:`~notebooklm.types.DriveMimeType`.
             wait: If True, wait for source to be ready before returning.
             wait_timeout: Maximum seconds to wait if wait=True (default: 120).
 
@@ -559,7 +557,6 @@ class SourcesAPI:
 
         Example:
             from notebooklm.types import DriveMimeType
-
             source = await client.sources.add_drive(
                 notebook_id, file_id="1abc123xyz", title="My Document",
                 mime_type=DriveMimeType.GOOGLE_DOC.value, wait=True)
@@ -577,7 +574,10 @@ class SourcesAPI:
             logger=logger,
             return_result=True,
         )
-        return await honor_requested_title_if_fresh(self.rename, notebook_id, result, title, logger)
+        # Baseline-filtered probe ⇒ even a PROBED result is ours to rename (#2113).
+        return await honor_requested_title_if_fresh(
+            self.rename, notebook_id, result, title, logger, probe_proves_freshness=True
+        )
 
     async def add_drive_file(
         self,

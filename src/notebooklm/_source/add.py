@@ -85,10 +85,22 @@ async def honor_requested_title_if_fresh(
     result: Source | _IdempotentCreateResult[Source],
     requested_title: str | None,
     logger: logging.Logger,
+    *,
+    probe_proves_freshness: bool = False,
 ) -> Source:
-    """Apply a requested title only to a source created by this call."""
+    """Apply a requested title only to a source created by this call.
+
+    A ``PROBED`` result is normally skipped because the probe may have matched a
+    source that predates this call, and renaming someone else's source would be
+    a surprise. Set ``probe_proves_freshness`` when the caller's probe already
+    guarantees the match is new — ``add_drive`` filters probe matches against a
+    baseline captured before the create, so its ``PROBED`` value is provably a
+    source this call created and must still honor the requested title (#2113).
+    Without this, a Drive add that commits but loses its response silently keeps
+    the Drive-derived name instead of the caller's ``title``.
+    """
     if isinstance(result, _IdempotentCreateResult):
-        if result.kind is _CreateResultKind.PROBED:
+        if result.kind is _CreateResultKind.PROBED and not probe_proves_freshness:
             return result.value
         source = result.value
     else:
@@ -279,7 +291,19 @@ class SourceAddService:
         create attempt, exactly like
         :meth:`~notebooklm._source.upload.SourceUploader.register_file_source`
         does for filenames, so a pre-existing copy is never handed back as if
-        it were the one just created.
+        it were the one just created. This costs one extra source list per
+        call; it is the price of telling "my create landed" apart from "a copy
+        was already there".
+
+        .. warning::
+           The baseline establishes *when* a matching source appeared, not
+           *who* created it. If two callers add the same Drive file to one
+           notebook concurrently and one create fails before committing, the
+           failed caller's probe can attribute the other caller's source to
+           itself. A list-based probe cannot close that gap — the wire carries
+           no client-supplied idempotency key — so serialize concurrent adds of
+           the same file into a notebook if you need that guarantee. The same
+           limitation applies to ``register_file_source``'s filename probe.
 
         .. note::
            The ``title`` is sent on the wire but **ignored** for native Drive

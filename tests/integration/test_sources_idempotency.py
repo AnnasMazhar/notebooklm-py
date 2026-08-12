@@ -918,3 +918,52 @@ def test_registry_has_variant_entries_for_add_source_and_add_source_file() -> No
     assert drive_entry.policy is IdempotencyPolicy.PROBE_THEN_CREATE
     assert text_entry.policy is IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY
     assert file_entry.policy is IdempotencyPolicy.PROBE_THEN_CREATE
+
+
+async def test_add_drive_recovered_create_still_honors_the_requested_title(auth_tokens) -> None:
+    """A probed-but-fresh Drive add must still get the caller's title (#2113).
+
+    Drive imports re-derive the display title server-side, so ``add_drive``
+    issues a best-effort rename afterwards. That rename is normally skipped for
+    a ``PROBED`` result, because a probe match may predate the call — but this
+    probe filters against a pre-create baseline, so its match is provably ours.
+    Without the freshness signal the caller silently gets the Drive name instead
+    of the title they asked for whenever a create commits but loses its response.
+    """
+    notebook_id = "nb_test"
+    requested_title = "The Title I Asked For"
+    drive_name = "Whatever Drive Called It"
+    src_id = "src_recovered"
+
+    committed = _google_docs_source_row(src_id, drive_name, _DRIVE_FILE_ID)
+    counts = {"add": 0, "get": 0}
+    renames: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        rpc_id = _rpc_id_in_request(request)
+        if rpc_id == RPCMethod.ADD_SOURCE.value:
+            counts["add"] += 1
+            return httpx.Response(502, text="bad gateway")
+        if rpc_id == RPCMethod.GET_NOTEBOOK.value:
+            counts["get"] += 1
+            rows = [] if counts["add"] == 0 else [committed]
+            return httpx.Response(200, text=_get_notebook_response(rows))
+        if rpc_id == RPCMethod.UPDATE_SOURCE.value:
+            renames.append((src_id, requested_title))
+            return httpx.Response(
+                200,
+                text=_wrb_response(RPCMethod.UPDATE_SOURCE.value, [[src_id], requested_title]),
+            )
+        return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
+
+    transport = httpx.MockTransport(handler)
+    client = _make_client_with_transport(transport, auth_tokens)
+    try:
+        source = await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, requested_title)
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    assert source.id == src_id
+    assert renames == [(src_id, requested_title)], "the recovery path skipped the rename"
+    assert source.title == requested_title
+    assert counts["add"] == 1

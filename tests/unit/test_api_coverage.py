@@ -218,8 +218,13 @@ class TestAddSourceDrive:
         """Test add_drive creates the expected payload."""
         # Echo the requested title so the #1960 honor-title path is a no-op (the
         # add already returned "My Document") and only the ADD_SOURCE call fires.
+        # First response is the pre-create baseline GET_NOTEBOOK (an empty
+        # notebook), second is the ADD_SOURCE echo.
         rpc_call = AsyncMock(
-            return_value=[[[["source_id_123"], "My Document", [None, 0], [None, 2]]]]
+            side_effect=[
+                [["Notebook", []]],
+                [[[["source_id_123"], "My Document", [None, 0], [None, 2]]]],
+            ]
         )
         core = make_fake_core(rpc_call=rpc_call)
         sources = SourcesAPI(core.rpc_executor, uploader=MagicMock())

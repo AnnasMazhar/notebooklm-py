@@ -539,10 +539,20 @@ def test_drive_document_id_is_none_without_metadata() -> None:
         [],  # present but empty
         [None],  # documentId slot explicitly null
         [""],  # documentId slot blank
+        ["   "],  # documentId slot whitespace-only (unmatchable, so drift)
         [42],  # non-string
         {"documentId": "x"},  # non-list container
     ],
-    ids=["bare_http_str", "null", "empty", "null_id", "blank_id", "non_string", "non_list"],
+    ids=[
+        "bare_http_str",
+        "null",
+        "empty",
+        "null_id",
+        "blank_id",
+        "whitespace_id",
+        "non_string",
+        "non_list",
+    ],
 )
 def test_drive_document_id_rejects_malformed_google_docs_block(block: object) -> None:
     meta = _meta_with(type_code=1)
@@ -552,8 +562,8 @@ def test_drive_document_id_rejects_malformed_google_docs_block(block: object) ->
 
 @pytest.mark.parametrize(
     "block",
-    [None, [], [None], [""], [42], "not-a-list"],
-    ids=["null", "empty", "null_id", "blank_id", "non_string", "non_list"],
+    [None, [], [None], [""], ["   "], [42], "not-a-list"],
+    ids=["null", "empty", "null_id", "blank_id", "whitespace_id", "non_string", "non_list"],
 )
 def test_drive_document_id_rejects_malformed_drive_descriptor(block: object) -> None:
     meta = _meta_with(type_code=14)
