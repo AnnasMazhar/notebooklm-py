@@ -540,15 +540,16 @@ class SourcesAPI:
     ) -> Source:
         """Add a Google Drive document as a source.
 
+        Fires one ``GET_NOTEBOOK`` before the create for the retry probe (#2113);
+        that read bumps Recent position (#2126). See the service method's docs.
+
         Args:
             notebook_id: The notebook ID.
             file_id: The Google Drive file ID.
-            title: Display title. Native Drive imports re-derive the title from
-                live Drive metadata server-side, so a supplied ``title`` is honored
-                via a best-effort follow-up :meth:`rename` (non-fatal; #1960).
-            mime_type: MIME type of the Drive document — ``…google-apps.document``
-                (Docs), ``…presentation`` (Slides), ``…spreadsheet`` (Sheets), or
-                ``application/pdf``. See :class:`~notebooklm.types.DriveMimeType`.
+            title: Display title. Drive imports re-derive it server-side, so a
+                supplied ``title`` is honored via a follow-up :meth:`rename` (#1960).
+            mime_type: Drive MIME type (Docs / Slides / Sheets /
+                ``application/pdf``) — see :class:`~notebooklm.types.DriveMimeType`.
             wait: If True, wait for source to be ready before returning.
             wait_timeout: Maximum seconds to wait if wait=True (default: 120).
 
@@ -557,9 +558,8 @@ class SourcesAPI:
 
         Example:
             from notebooklm.types import DriveMimeType
-            source = await client.sources.add_drive(
-                notebook_id, file_id="1abc123xyz", title="My Document",
-                mime_type=DriveMimeType.GOOGLE_DOC.value, wait=True)
+            source = await client.sources.add_drive(notebook_id, file_id="1abc123xyz",
+                title="My Document", mime_type=DriveMimeType.GOOGLE_DOC.value, wait=True)
         """
         result = await self._adder.add_drive(
             notebook_id,

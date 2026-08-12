@@ -251,6 +251,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ambiguous multi-match raises `SourceAddError` rather than guessing. `add_drive`
   also now rejects a blank `file_id` with `ValidationError` instead of writing an
   unmatchable source.
+
+  **Behaviour change:** `add_drive` previously listed sources only inside its
+  retry probe (i.e. only after a transport failure); it now takes that snapshot
+  on *every* call, matching the shape `add_file` has always had. That is one
+  extra `GET_NOTEBOOK` per `add_drive`, and because the backend writes
+  `lastViewedTime` when answering one
+  ([#2126](https://github.com/teng-lin/notebooklm-py/issues/2126)), every
+  `add_drive` now bumps the notebook's position in the web UI's *Recent* list.
+  No cheaper probe exists — source ids are published only inside the
+  `GET_NOTEBOOK` payload — and the trade is deliberate: reporting a create that
+  never happened is far worse than a reordered Recent list.
+
 - **RPC bundle monitoring no longer reports authentication/access failures as
   protocol drift.** The live registry capture now classifies login,
   CookieMismatch, region/anti-abuse, HTTP, and CDN failures as exit code 2 and

@@ -295,6 +295,30 @@ class SourceAddService:
         call; it is the price of telling "my create landed" apart from "a copy
         was already there".
 
+        .. note::
+           **This is a behaviour change.** ``add_drive`` now captures a baseline
+           on *every* call; previously it listed sources only inside ``_probe``,
+           which ``idempotent_create`` runs only after a transport failure. It
+           now matches the shape ``register_file_source`` has always had (an
+           unconditional pre-create baseline), so the cost is an extension of an
+           existing pattern rather than a wholly new one — but for the Drive path
+           it is new, moving from retry-only to every call.
+
+           The concrete cost: that list is a ``GET_NOTEBOOK``, and the backend
+           **writes** ``lastViewedTime`` when answering one (#2126), so every
+           ``add_drive`` now promotes the notebook to the top of the user's
+           *Recent* list in the web UI. No cheaper probe exists — source ids are
+           published only inside the ``GET_NOTEBOOK`` payload, and
+           ``LIST_NOTEBOOKS`` (which does not bump) does not carry them. The bump
+           is accepted: silently returning a pre-existing source and reporting a
+           create that never happened is far worse than a reordered Recent list.
+
+           Sibling paths, so the next reader need not re-derive it: ``add_text``
+           is ``NON_IDEMPOTENT_NO_RETRY`` and has no probe, so it has no such
+           exposure. ``add_url`` *does* share the un-baselined shape this fix
+           replaced — a notebook can hold two sources with the same URL — and is
+           tracked separately in #2204; it is deliberately not changed here.
+
         .. warning::
            The baseline establishes *when* a matching source appeared, not
            *who* created it. If two callers add the same Drive file to one
@@ -388,6 +412,13 @@ class SourceAddService:
         # one just created, silently masking a failed create. ``None`` is the
         # "baseline unavailable" sentinel; the probe then refuses to guess.
         # Mirrors ``register_file_source`` in ``_source/upload.py``.
+        #
+        # NEW on every call (it used to list only inside _probe, i.e. only after
+        # a transport failure). This list is a GET_NOTEBOOK, which the backend
+        # answers by WRITING lastViewedTime (#2126) — so every add_drive now
+        # reshuffles the user's Recent ordering. Unavoidable (source ids live
+        # only in that payload; LIST_NOTEBOOKS does not bump but does not carry
+        # them) and accepted; see the ``.. note::`` on this method.
         baseline_ids: set[str] | None
         try:
             baseline_ids = {source.id for source in await list_sources(notebook_id)}
