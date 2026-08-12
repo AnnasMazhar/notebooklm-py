@@ -6,6 +6,18 @@ Accepted (#2156). Amended by
 [ADR-0034](0034-auth-storage-object-model.md), which preserves this record's consolidation safety
 boundary while extracting independently owned state and lifecycles from the consolidated facade.
 
+**Amended 2026-08-12 (module-size budget raise):** `MODULE_SIZE_BUDGET` moved 1000 → 1500 under
+ADR-0008. This ADR's sanctioned-merge machinery is unaffected in substance, but one mechanical
+consequence needed handling: the shrink-lock guarantee below was carried by
+`ALLOWLISTED_CEILINGS`, which only holds a module while its pin sits *above* the budget. At 1500
+all four sanctioned `_auth` pins fell under it, so dropping them — as the raise's first draft did
+— would have silently repealed this ADR's "shrink-locked at its pin" rule and handed 275–410 lines
+of unratcheted growth back to already-consolidated modules. The locks therefore moved to a
+dedicated `SHRINK_LOCKED_CEILINGS` map in `tests/_guardrails/test_module_size_ratchet.py`, which
+carries the same grow/tighten semantics but is deliberately exempt from the
+budget-below-every-ceiling invariant. **The guarantee in this ADR is unchanged; only its
+enforcement site moved.**
+
 **Amended during PR 1.2 (2026-08-08):** decision 1 gains a **third** sanctioned class, *template
 adoption*. The effort's plan assumed PR 1.2 would shrink `storage.py`; it does not — converting a
 hand-rolled preamble onto a shared template is net-additive in lines, as #2152 already demonstrated
@@ -81,7 +93,10 @@ reaches the same seam-narrowing without the package tax.
 
 ### 1. The cap constrains file size, not where seams go
 
-`MODULE_SIZE_BUDGET` stays at 1000 and stays global. What changes is that a **deliberate
+`MODULE_SIZE_BUDGET` stays global. (It stood at 1000 when this ADR was accepted; raised to
+1500 — see the 2026-08-12 amendment in Status. The number is not what this decision turns on:
+what matters is that the cap constrains file size and does not dictate where seams go.)
+What changes is that a **deliberate
 consolidation under `src/notebooklm/_auth/`** may register its merged module in
 `ALLOWLISTED_CEILINGS` at its **measured** line count, annotated
 `# sanctioned merge (ADR-0033)` with a one-line note naming the absorbed modules and the PR.
@@ -142,7 +157,8 @@ three writers hand-rolling the lock forever.
 
 Everything else about the ratchet is unchanged and continues to apply to `_auth`:
 
-- the global 1000-line budget is untouched, inside `_auth` and out;
+- the global budget is untouched *by this ADR*, inside `_auth` and out (1000 when accepted,
+  1500 since the 2026-08-12 amendment);
 - **un-merged `_auth` modules stay under it** — `cookies.py` (919) must not silently grow, and
   neither may any module the plan deliberately does not merge;
 - each sanctioned entry is **shrink-locked at its pin** the moment it lands: it may only ratchet

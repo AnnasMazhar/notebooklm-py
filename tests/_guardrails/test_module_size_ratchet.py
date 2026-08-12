@@ -83,10 +83,22 @@ SRC_ROOT = REPO_ROOT / "src" / "notebooklm"
 # cap that new work must come in at/under or split before merge. The allowlist
 # below is the *complete* set of modules over budget today, so the gate is green
 # on main. (Raised from 900 -> 1000 once ``_chat/api.py``, ``_research.py`` and
-# ``cli/source_cmd.py`` were trimmed below the round cap; raised 1000 -> 1500
-# because the old cap had stopped being a design signal and become an ambush —
-# ``cli/session_cmd.py`` sat at 999 on main, so unrelated PRs failed all 15
-# matrix jobs for adding one line to a file they merely touched.)
+# ``cli/source_cmd.py`` were trimmed below the round cap.)
+#
+# Raised 1000 -> 1500 because the headroom left under the old cap had shrunk to
+# the point where ordinary feature work tripped it. The concrete case:
+# ``cli/session_cmd.py`` sat at 999 on main, and #2192 — a bug fix to
+# ``Notebook.is_owner`` that merely rendered a role — pushed it to 1006 and
+# failed all 15 test-matrix jobs. It was resolved by extracting the ``use``
+# one-row table into ``cli/_session_render.py``, which was a genuine improvement,
+# but the gate fired on a module the PR was not about.
+#
+# NOTE the trigger is 7 lines, not 1: this gate rejects only ``n > budget``, and
+# ``test_ratchet_checks_detect_their_offending_shapes`` pins that exactly-at-budget
+# passes. A 999-line module absorbs one more line and stays green. An earlier draft
+# of this comment claimed a one-line failure; that was wrong (caught in review) and
+# is corrected here rather than quietly dropped, because the false version overstated
+# the case for weakening the cap by 500 lines.
 MODULE_SIZE_BUDGET = 1500
 
 # Every module currently over budget, pinned at its ratchet ceiling. These are
@@ -138,34 +150,56 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # must be public so callers catch it), then 1599 -> 1575 after the private
     # response-preview helper moved to its credential-redaction home (#2132).
     "exceptions.py": 1575,
-    # ── Formerly allowlisted, dropped when the budget rose 1000 -> 1500 ──
-    # Four ``_auth`` modules held sanctioned ADR-0033 merge pins and were then
-    # ratcheted down hard by the ADR-0034 ownership split. When the budget moved
-    # to 1500 each landed at or under it, so their entries became redundant and
-    # are dropped per ``test_budget_is_below_every_allowlisted_ceiling`` — the
-    # same one-way rule that retired ``mcp/tools/sources.py`` below:
-    #
-    #     _auth/storage.py           3102 -> 1090   (ADR-0034 PR4..PR11B, #2172 B3)
-    #     _auth/browser_capture.py   1251 -> 1225   (ADR-0033 PR4.1, #2172 B3)
-    #     _auth/psidts_recovery.py   1222 -> 1214   (ADR-0033 load-composition merge)
-    #     _auth/refresh.py           1184           (ADR-0033 token-route fold)
-    #
-    # The per-module merge and ratchet rationale (the ADR-0033 "sanctioned merge"
-    # and ADR-0034 "RATCHETED DOWN" annotations) is preserved in this file's git
-    # history at the commit that raised the budget.
-    #
-    # CAVEAT worth reading before growing any of them: dropping a pin returns real
-    # headroom to a module that was deliberately drained. ``_auth/storage.py``
-    # keeps an exact independent pin at 1090 in
-    # ``tests/_guardrails/test_auth_profile_document_boundary.py``; the other
-    # three have no such backstop and may now grow to the 1500 budget.
-    #
     # ``mcp/tools/sources.py`` was allowlisted at 1020 (over the then-1000-line budget
     # after #1871's shared source-policy wiring + the await_upload era). #1890 folded
     # source_add_and_wait + source_upload_bytes BACK into source_add — removing the two
     # tool bodies (and ``_add_source_to_wait_on``) drained it to ~970 LOC, back UNDER the
     # budget, so its exemption is dropped (one-way ratchet). The module is now gated
     # by MODULE_SIZE_BUDGET like any other; keep it there.
+    #
+    # The four ``_auth`` modules that used to be listed here did NOT lose their ratchet
+    # when the budget rose 1000 -> 1500. They moved to :data:`SHRINK_LOCKED_CEILINGS`
+    # below, which preserves ADR-0033's shrink-lock guarantee independently of the
+    # global budget. This map is only for modules genuinely OVER budget.
+}
+
+
+# ADR-0033 shrink locks that must survive a budget raise.
+#
+# ADR-0033 requires every sanctioned ``_auth`` consolidation to stay **shrink-locked at
+# its measured pin** from the moment it lands. That guarantee was originally carried by
+# :data:`ALLOWLISTED_CEILINGS`, which only works while the pin sits above the budget.
+# When the budget rose 1000 -> 1500 all four fell under it, and simply dropping them
+# would have handed 275-410 lines of unratcheted growth back to modules that were
+# deliberately drained — silently repealing ADR-0033 as a side effect of an ADR-0008
+# change. (Caught in review on the budget-raise PR; the first draft did exactly that.)
+#
+# So the lock moved here instead. Same ratchet semantics as ALLOWLISTED_CEILINGS — may
+# not grow past the pin, must tighten when it shrinks — but deliberately NOT subject to
+# ``test_budget_is_below_every_allowlisted_ceiling``, because these pins are *below* the
+# budget by design. That is the whole point: a module can be under the global budget and
+# still be forbidden from re-accreting.
+#
+# DO NOT raise a pin to make room for new code. Split, or take the ADR-0033 sanctioned
+# route (which requires the ``# sanctioned merge (ADR-0033)`` annotation naming donor
+# and PR). DO lower a pin when a module shrinks — the gate prints the exact value.
+#
+# The arcs these pins lock in, for context on why they are worth keeping:
+#     _auth/storage.py           3102 -> 1090   (ADR-0034 PR4..PR11B, #2172 B3)
+#     _auth/browser_capture.py   1251 -> 1225   (ADR-0033 PR4.1, #2172 B3)
+#     _auth/psidts_recovery.py   1222 -> 1214   (ADR-0033 load-composition merge)
+#     _auth/refresh.py           1184           (ADR-0033 token-route fold)
+# The per-module "sanctioned merge" / "RATCHETED DOWN" annotations are preserved in this
+# file's git history at the commit that raised the budget.
+#
+# Note ``_auth/storage.py`` is *also* pinned at 1090 by
+# ``tests/_guardrails/test_auth_profile_document_boundary.py``, for a different reason
+# (a consumer boundary). Both are deliberate; a shrink there updates both.
+SHRINK_LOCKED_CEILINGS: dict[str, int] = {
+    "_auth/browser_capture.py": 1225,
+    "_auth/psidts_recovery.py": 1214,
+    "_auth/refresh.py": 1184,
+    "_auth/storage.py": 1090,
 }
 
 
@@ -276,6 +310,53 @@ def test_allowlisted_ceilings_ratchet_down() -> None:
         "ratchet by lowering each ceiling in ALLOWLISTED_CEILINGS to the "
         "'current' value (or removing the entry entirely if 'current' is now at "
         f"or below the {MODULE_SIZE_BUDGET}-line budget): {slack}"
+    )
+
+
+def test_shrink_locked_modules_do_not_exceed_their_pin() -> None:
+    """ADR-0033 sanctioned modules must not re-accrete, budget raise or not.
+
+    These pins sit *below* :data:`MODULE_SIZE_BUDGET` on purpose. Without this
+    check, raising the global budget would silently repeal ADR-0033's shrink-lock
+    guarantee for every already-consolidated ``_auth`` module — which is exactly
+    what the first draft of the 1000 -> 1500 raise did.
+    """
+    grown = _grown_offenders(_measure_all(), SHRINK_LOCKED_CEILINGS)
+    assert grown == {}, (
+        "ADR-0033 shrink-locked module(s) grew past their pin. These are locked "
+        "BELOW the global budget deliberately — being under MODULE_SIZE_BUDGET is "
+        "not permission to grow. Split, or take the sanctioned-merge route with its "
+        f"annotation {{path: (current, pin)}}: {grown}"
+    )
+
+
+def test_shrink_locked_ceilings_ratchet_down() -> None:
+    """A shrunk shrink-locked module must tighten its pin to the new count."""
+    slack = _slack_offenders(_measure_all(), SHRINK_LOCKED_CEILINGS)
+    assert slack == {}, (
+        "ADR-0033 shrink-locked module(s) shrank below their pin — lower each pin in "
+        "SHRINK_LOCKED_CEILINGS to the 'current' value to lock the saved ground. Do "
+        "NOT delete the entry: unlike ALLOWLISTED_CEILINGS these pins are meant to "
+        f"live below the budget: {slack}"
+    )
+
+
+def test_shrink_locked_entries_are_disjoint_and_not_stale() -> None:
+    """The two ceiling maps must not overlap, and neither may go stale.
+
+    An overlap would mean one module answers to two pins that can drift apart;
+    a stale path can never trip any check, silently weakening the gate.
+    """
+    overlap = sorted(set(SHRINK_LOCKED_CEILINGS) & set(ALLOWLISTED_CEILINGS))
+    assert overlap == [], (
+        "Module(s) appear in BOTH ALLOWLISTED_CEILINGS and SHRINK_LOCKED_CEILINGS. "
+        "A module is either over budget (allowlist) or shrink-locked under it — "
+        f"never both: {overlap}"
+    )
+    missing = _stale_entries(_measure_all(), SHRINK_LOCKED_CEILINGS)
+    assert missing == [], (
+        "Shrink-locked path(s) no longer exist under src/notebooklm/ (renamed or "
+        f"deleted). Update SHRINK_LOCKED_CEILINGS: {missing}"
     )
 
 
