@@ -20,6 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`docs/rpc-reference.md` no longer misstates the research path.** Four
+  corrections, each against a captured payload: `START_FAST_RESEARCH` returns a
+  one-element response (only deep carries `report_id`); the `1` / `5` start
+  params are `DiscoveryMode`, echoed back at `task_info[2]`; the `POLL_RESEARCH`
+  sketch now documents the slots it omitted (`task[2]`/`[3]`/`[4]`,
+  `task_info[2]`, the deep-only `task_info[5]`, and the deep source row's
+  populated `[5]`/`[6]`/`[8]`); and status code `6` is recorded as never
+  observed — all three completed runs, deep included, report `2`. The `6 →
+  completed` coarsening is kept as forward-compat, and the unit fixtures that
+  used `6` to stand for a completed deep run now use the captured `2`.
+  ([#2143](https://github.com/teng-lin/notebooklm-py/issues/2143))
+
 - **RPC bundle monitoring no longer reports authentication/access failures as
   protocol drift.** The live registry capture now classifies login,
   CookieMismatch, region/anti-abuse, HTTP, and CDN failures as exit code 2 and

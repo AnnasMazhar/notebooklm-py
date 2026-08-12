@@ -306,7 +306,7 @@ class TestParseResearchTasks:
             ["https://same.example", "First", None, 1, None, None, [None, 1], None, 1],
             [None, "Deep Report", None, 5, None, None, ["# Report", 3]],
         ]
-        task_info = [None, ["deep query"], None, [sources], 6]
+        task_info = [None, ["deep query"], None, [sources], 2]
 
         task = parse_research_task_models([[["task_deep", task_info]]])[0]
 
@@ -318,7 +318,7 @@ class TestParseResearchTasks:
 
     def test_current_deep_research_report_source(self):
         sources = [[None, ["Deep Report", "# Report"], None, 1]]
-        task_info = [None, ["deep query"], None, [sources], 6]
+        task_info = [None, ["deep query"], None, [sources], 2]
 
         tasks = parse_research_tasks([[["task_deep", task_info]]])
 
@@ -346,7 +346,7 @@ class TestParseResearchTasks:
                 ["# Report markdown", 3, None, None, None, ["structured doc"]],
             ]
         ]
-        task_info = [None, ["deep query"], None, [sources], 6]
+        task_info = [None, ["deep query"], None, [sources], 2]
 
         tasks = parse_research_tasks([[["task_deep", task_info]]])
 
@@ -361,7 +361,7 @@ class TestParseResearchTasks:
             ["https://bool.example", "Bool", "desc", 1, None, None, ["# Fake", True]],
             [None, "Deep Report", None, 5, None, None, ["# Actual report", 3]],
         ]
-        task_info = [None, ["deep query"], None, [sources], 6]
+        task_info = [None, ["deep query"], None, [sources], 2]
 
         tasks = parse_research_tasks([[["task_reordered", task_info]]])
 
@@ -374,7 +374,7 @@ class TestParseResearchTasks:
             ["https://one.example", "One", "desc", 1, None, None, [None, 1, "snippet"]],
             ["https://two.example", "Two", "desc", 1, None, None, [None, 2, "snippet"]],
         ]
-        task_info = [None, ["deep query"], None, [sources], 6]
+        task_info = [None, ["deep query"], None, [sources], 2]
 
         task = parse_research_tasks([[["task_no_report", task_info]]])[0]
 
@@ -650,9 +650,16 @@ class TestStatusCodeTableIsSingleSourced:
         if reason == "unknown":
             assert status == "failed"
 
-    def test_deep_completion_produces_no_misleading_explanation(self):
-        """The concrete payload the code-6 gap would have produced: a
-        successful deep run told to retry itself."""
+    def test_unobserved_completion_code_6_produces_no_misleading_explanation(self):
+        """Code ``6`` coarsens to completed without acquiring a retry hint.
+
+        ``6`` has never appeared in a capture (0 of 9 task rows across the POLL
+        cassettes; every completed run, deep included, reports ``2``), so this
+        is a forward-compat mapping, NOT deep research's completion code — see
+        the status-code table in ``docs/rpc-reference.md``. The mapping is worth
+        keeping precisely because the failure mode it prevents is a successful
+        run being told to retry itself.
+        """
         sources = [[None, ["Deep Report", "# Report"], None, 1]]
         task_info = [None, ["deep query", 1], 1, [sources], 6]
         task = parse_research_task_models([[["task_deep", task_info]]])[0]
