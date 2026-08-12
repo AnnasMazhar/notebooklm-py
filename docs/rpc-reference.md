@@ -1315,7 +1315,7 @@ params = [
 
 #### Quiz (Type 4, Variant 2)
 
-**Source:** `_artifacts.py::generate_quiz()`
+**Source:** `_artifact/payloads.py::build_quiz_artifact_params()`
 
 ```python
 params = [
@@ -1341,7 +1341,7 @@ params = [
                 None,
                 None,
                 None,
-                [quantity_code, difficulty_code],  # quantity: 1=FEWER, 2=STANDARD
+                [quantity_code, difficulty_code],  # quantity: 1=FEWER, 2=STANDARD, 3=MORE
             ],                                     # difficulty: 1=EASY, 2=MEDIUM, 3=HARD
         ],                            # [9]
     ],
@@ -1350,7 +1350,7 @@ params = [
 
 #### Flashcards (Type 4, Variant 1)
 
-**Source:** `_artifacts.py::generate_flashcards()`
+**Source:** `_artifact/payloads.py::build_flashcards_artifact_params()`
 
 ```python
 params = [
@@ -1375,9 +1375,9 @@ params = [
                 None,
                 None,
                 None,
-                [difficulty_code, quantity_code],  # Note: reversed order from quiz!
-            ],
-        ],                            # [9]
+                [quantity_code, difficulty_code],  # Same order as quiz (#2116).
+            ],                                     # quantity: 1=FEWER, 2=STANDARD, 3=MORE
+        ],                            # [9]         # difficulty: 1=EASY, 2=MEDIUM, 3=HARD
     ],
 ]
 ```

@@ -118,12 +118,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`QuizQuantity.MORE` no longer compares equal to `QuizQuantity.STANDARD`.**
-  `MORE` was a value-alias of `STANDARD` (`2`) and is now its own wire value
-  (`3`), so the identity and equality between the two members no longer hold.
-  Callers that branched on that collapse, or that relied on `--quantity more`
-  producing a standard-sized artifact, will see different behavior. See the
-  `### Fixed` entry above for the live evidence
+- **BREAKING: `QuizQuantity.MORE` no longer compares equal to
+  `QuizQuantity.STANDARD`.** `MORE` was a value-alias of `STANDARD` (`2`) and is
+  now its own wire value (`3`), so the identity and equality between the two
+  members no longer hold. `QuizQuantity` is part of the documented-stable public
+  surface (`docs/stability.md`), so this is an intentional, allowlisted
+  wire-value correction rather than an incidental change — see
+  `scripts/api-compat-allowlist.json`. **Migration:** callers that branched on
+  `MORE == STANDARD` must drop that assumption; callers passing `--quantity
+  more` / `quantity=QuizQuantity.MORE` now receive a genuinely larger quiz or
+  flashcard set instead of a standard-sized one, which is what they were asking
+  for all along. Nothing needs to change to *get* the old output — pass
+  `standard` explicitly. See the `### Fixed` entry above for the live evidence
   ([#2117](https://github.com/teng-lin/notebooklm-py/issues/2117)).
 - **First-party profile replacements now use native typed results.** Browser capture consumes
   `ProfileStore.replace_from_remint()` directly, while cookie import/login/refresh use a narrow

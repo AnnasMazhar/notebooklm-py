@@ -595,7 +595,16 @@ class TestArtifactsGenerateAPI:
     @pytest.mark.asyncio
     @notebooklm_vcr.use_cassette("artifacts_generate_flashcards.yaml")
     async def test_generate_flashcards(self):
-        """Generate flashcards."""
+        """Generate flashcards.
+
+        Note: this tier cannot pin the quantity/difficulty pair. The ``freq``
+        matcher compares request bodies *shape-only* (see ``_shape_only`` in
+        ``tests/vcr_config.py``), so ``[1, 3]``, ``[3, 1]`` and the ``[null,
+        null]`` this cassette actually recorded are indistinguishable to it.
+        The transposition in #2116 was therefore invisible here and would be
+        again — the ordering is pinned by the unit golden payloads in
+        ``tests/unit/test_rpc_golden_payloads.py`` instead.
+        """
         async with vcr_client() as client:
             result = await client.artifacts.generate_flashcards(MUTABLE_NOTEBOOK_ID)
         assert result is not None
