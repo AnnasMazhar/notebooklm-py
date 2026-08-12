@@ -2617,6 +2617,74 @@ class TestLastViewedAtAlias:
             warnings.simplefilter("error", DeprecationWarning)
             assert metadata.modified_at is not None
 
+    def test_replace_on_the_legacy_name_is_a_documented_no_op(self):
+        """``replace(nb, modified_at=X)`` cannot win — pinned, because it is odd.
+
+        ``dataclasses.replace`` re-passes every field from the source instance,
+        so the canonical ``last_viewed_at`` is supplied too and (being assigned
+        last) takes precedence. ``docs/deprecations.md`` and ``__post_init__``
+        both document this; without a pin, a refactor that made ``modified_at``
+        authoritative would silently flip which argument wins.
+        """
+        nb = Notebook(id="nb_1", title="N", last_viewed_at=datetime(2020, 1, 1))
+
+        replaced = dataclasses.replace(nb, modified_at=datetime(2026, 8, 12))
+
+        assert replaced.last_viewed_at == datetime(2020, 1, 1)
+        assert replaced.modified_at == datetime(2020, 1, 1)
+
+    def test_canonical_name_wins_when_both_are_supplied(self):
+        """The tie-break of the whole runway: ``last_viewed_at`` is authoritative."""
+        nb = Notebook(
+            id="nb_1",
+            title="N",
+            modified_at=datetime(2020, 1, 1),
+            last_viewed_at=datetime(2026, 8, 12),
+        )
+
+        assert nb.last_viewed_at == datetime(2026, 8, 12)
+        assert nb.modified_at == datetime(2026, 8, 12)
+
+    def test_clearing_one_name_leaves_the_other_stale_by_design(self):
+        """Characterization: both mirrors are guarded on ``value is not None``.
+
+        That guard is load-bearing, not an oversight — an unguarded mirror would
+        let ``__init__``'s ``last_viewed_at=None`` default wipe out a legacy
+        ``Notebook(..., modified_at=X)`` argument, because ``__init__`` assigns
+        ``modified_at`` first. Clearing a decoded timestamp is not something any
+        caller does, so the hole is accepted; this test exists so that anyone who
+        "fixes" the guard sees *this* fail with the reason, rather than
+        ``test_legacy_kwarg_still_seeds_the_canonical_field`` failing obscurely.
+        """
+        nb = Notebook(id="nb_1", title="N", last_viewed_at=datetime(2026, 8, 12))
+
+        nb.last_viewed_at = None
+
+        assert nb.last_viewed_at is None
+        assert nb.modified_at == datetime(2026, 8, 12)  # deliberately not mirrored
+
+    def test_metadata_serialization_never_warns_through_to_jsonable(self):
+        """The MCP ``notebook_describe`` path must not warn either.
+
+        ``to_dict()`` is the CLI/REST path; ``mcp/tools/notebooks.py`` reaches
+        ``NotebookMetadata`` through ``to_jsonable`` instead. The
+        "only a caller who *types* the old name gets a warning" claim has to hold
+        on both, and ``to_jsonable``'s fields-only rule is what makes it hold —
+        so pin it here rather than depending on that rule never changing.
+        """
+        from notebooklm._app.serialize import to_jsonable
+        from notebooklm.types import NotebookMetadata
+
+        metadata = NotebookMetadata(
+            notebook=Notebook(id="nb_1", title="N", last_viewed_at=datetime(2026, 8, 12))
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            payload = to_jsonable(metadata)
+
+        assert payload["notebook"]["last_viewed_at"] == payload["notebook"]["modified_at"]
+
     def test_metadata_to_dict_emits_both_keys_without_warning(self):
         """Serializing reads the canonical field, so it never warns."""
         from notebooklm.types import NotebookMetadata
@@ -2631,18 +2699,3 @@ class TestLastViewedAtAlias:
 
         assert payload["last_viewed_at"] == "2026-08-12T10:00:00"
         assert payload["modified_at"] == payload["last_viewed_at"]
-
-    def test_view_helper_returns_both_keys(self):
-        """``notebook_viewed_keys`` is the single home for the alias policy."""
-        from notebooklm._app.views import notebook_viewed_keys
-
-        nb = Notebook(id="nb_1", title="N", last_viewed_at=datetime(2026, 8, 12, 10, 0))
-
-        assert notebook_viewed_keys(nb) == {
-            "last_viewed_at": "2026-08-12T10:00:00",
-            "modified_at": "2026-08-12T10:00:00",
-        }
-        assert notebook_viewed_keys(Notebook(id="nb_1", title="N")) == {
-            "last_viewed_at": None,
-            "modified_at": None,
-        }
