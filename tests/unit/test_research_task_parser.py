@@ -613,10 +613,12 @@ class TestStatusCodeTableIsSingleSourced:
             (2, "completed", "completed"),
             (3, "failed", "no_results"),
             (4, "failed", "cancelled"),
-            # Deep-research completion. Pinned explicitly: without this row the
-            # entry can be deleted and every deep run silently reports
-            # "unrecognised backend status code (6)" while still saying
-            # ``completed``.
+            # Forward-compat only: ``2`` is the observed completion code (every
+            # completed run across the POLL cassettes, deep included), and ``6``
+            # appears in no capture. Pinned explicitly so the entry cannot be
+            # deleted as dead — were it to start appearing, dropping the mapping
+            # would report "unrecognised backend status code (6)" on a run that
+            # still says ``completed``.
             (6, "completed", "completed"),
             (0, "failed", "unknown"),
             (5, "failed", "unknown"),

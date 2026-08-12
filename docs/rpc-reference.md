@@ -2143,8 +2143,8 @@ await rpc_call(
 # second slot (2/2 captured deep starts); a fast start never carries a report_id
 # (`research_start_fast.yaml` → `['ac0bc757-…']`, `research_start_deep.yaml` →
 # `['e9b7cb1c-…', '24f83c74-…']`). `start()` returns both ids as-is; the
-# adapters that poll/import/cancel pick the handle by MODE rather than falling
-# back to `report_id or task_id`, which would misread a fast run.
+# adapters that poll/import/cancel select the mode-specific handle — slot 0 for
+# fast, slot 1 for deep (`_app/source_research.py`).
 ```
 
 ### RPC: START_DEEP_RESEARCH (QA9ei)
