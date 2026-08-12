@@ -293,20 +293,59 @@ INTERACTIVE_MIND_MAP_VARIANT: Final[int] = 4
 class ArtifactStatus(int, Enum):
     """Processing status of an artifact.
 
-    Values correspond to artifact_data[4] in API responses.
+    Values correspond to artifact_data[4] in API responses and mirror the
+    backend's own ``ArtifactStatus`` enum (recovered in ``docs/mobile/enums.txt``
+    and pinned by ``tests/_guardrails/_wire_contract.py``):
+
+    * 0 — ``ARTIFACT_STATUS_UNKNOWN`` -> :attr:`UNKNOWN` -> ``"unknown"``
+    * 1 — ``ARTIFACT_STATUS_INITIALIZED`` -> :attr:`PENDING` -> ``"pending"``
+    * 2 — ``ARTIFACT_STATUS_PROCESSING`` -> :attr:`PROCESSING` -> ``"in_progress"``
+    * 3 — ``ARTIFACT_STATUS_READY`` -> :attr:`COMPLETED` -> ``"completed"``
+    * 4 — ``ARTIFACT_STATUS_FAILED`` -> :attr:`FAILED` -> ``"failed"``
+    * 5 — ``ARTIFACT_STATUS_SUGGESTED`` -> :attr:`SUGGESTED` -> ``"suggested"``
+    * 6 — ``ARTIFACT_PENDING_REVIEW`` -> :attr:`PENDING_REVIEW` -> ``"pending_review"``
+
+    Member *names* describe the lifecycle phase, not the backend spelling, so
+    they are stable across this correction: ``PENDING`` has always meant
+    "queued, worker not started" and ``PROCESSING`` "actively generating". Only
+    the wire integers behind them moved — until issue #2127 they were swapped
+    (1 was read as PROCESSING and 2 as PENDING), which made
+    :attr:`~notebooklm.types.Artifact.is_pending` and
+    :attr:`~notebooklm.types.Artifact.is_processing` answer each other's
+    question during the transitional window.
     """
 
-    PROCESSING = 1  # Artifact is being generated
-    PENDING = 2  # Artifact is queued
+    UNKNOWN = 0  # Status unset/unrecognized by the backend
+    PENDING = 1  # ARTIFACT_STATUS_INITIALIZED — row created, worker not started
+    PROCESSING = 2  # Artifact is actively being generated
     COMPLETED = 3  # Artifact is ready for use/download
     FAILED = 4  # Generation failed
+    SUGGESTED = 5  # A suggestion, not a real artifact; LIST_ARTIFACTS filters these out
+    # Backend spelling is ARTIFACT_PENDING_REVIEW (no ``ARTIFACT_STATUS_``
+    # prefix). Semantics are UNCONFIRMED: the member exists in the backend enum
+    # dump but has never been observed on this transport (0 of 42 live
+    # artifacts, 0 of 301 recorded rows). It is modeled so a caller can *detect*
+    # it distinctly instead of having it collapse into "unknown" — do not infer
+    # a workflow from the name.
+    PENDING_REVIEW = 6
+
+
+#: Wire spelling of :attr:`ArtifactStatus.SUGGESTED` for the server-side
+#: LIST_ARTIFACTS filter expression. The backend filter grammar takes the
+#: symbolic enum-value name, not the integer, so the string cannot be derived
+#: from the member value — keeping it beside the enum is what ties the filter
+#: to the code it excludes.
+ARTIFACT_STATUS_SUGGESTED_WIRE_NAME: Final[str] = "ARTIFACT_STATUS_SUGGESTED"
 
 
 _ARTIFACT_STATUS_MAP: dict[int, str] = {
-    ArtifactStatus.PROCESSING: "in_progress",
+    ArtifactStatus.UNKNOWN: "unknown",
     ArtifactStatus.PENDING: "pending",
+    ArtifactStatus.PROCESSING: "in_progress",
     ArtifactStatus.COMPLETED: "completed",
     ArtifactStatus.FAILED: "failed",
+    ArtifactStatus.SUGGESTED: "suggested",
+    ArtifactStatus.PENDING_REVIEW: "pending_review",
 }
 
 
@@ -320,8 +359,10 @@ def artifact_status_to_str(status_code: int) -> str:
         status_code: Numeric status from API response (artifact_data[4]).
 
     Returns:
-        String status: "in_progress", "pending", "completed", "failed", or "unknown".
-        Returns "unknown" for unrecognized codes (future-proofing).
+        String status: "unknown", "pending", "in_progress", "completed",
+        "failed", "suggested", or "pending_review". Returns "unknown" for
+        unrecognized codes (future-proofing), which is also what code ``0``
+        (``ARTIFACT_STATUS_UNKNOWN``) maps to.
     """
     return _ARTIFACT_STATUS_MAP.get(status_code, "unknown")
 

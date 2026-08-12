@@ -246,7 +246,7 @@ class TestWaitForCompletion:
                     "Title",
                     2,  # REPORT type (no URL check needed)
                     None,
-                    1,  # PROCESSING status
+                    2,  # PROCESSING status -> "in_progress"
                 ]
             ]
         ]
@@ -439,12 +439,20 @@ class TestParseGenerationResult:
         with pytest.raises(UnknownRPCMethodError):
             api._parse_generation_result([], method_id="R7cb6c")
 
-    def test_parse_valid_in_progress(self, mock_artifacts_api):
-        """Test parsing valid in_progress status (code 1)."""
+    def test_parse_valid_pending(self, mock_artifacts_api):
+        """A fresh CREATE_ARTIFACT row carries code 1 (INITIALIZED) -> "pending"."""
         api, _ = mock_artifacts_api
-        # Valid result with status code 1 (in_progress)
         result = api._parse_generation_result(
             [["artifact_001", "Title", 1, None, 1]], method_id="R7cb6c"
+        )
+        assert result.task_id == "artifact_001"
+        assert result.status == "pending"
+
+    def test_parse_valid_in_progress(self, mock_artifacts_api):
+        """Code 2 (PROCESSING) — the state a live artifact reports while generating."""
+        api, _ = mock_artifacts_api
+        result = api._parse_generation_result(
+            [["artifact_001", "Title", 1, None, 2]], method_id="R7cb6c"
         )
         assert result.task_id == "artifact_001"
         assert result.status == "in_progress"
@@ -957,7 +965,7 @@ class TestPollStatusMediaReadiness:
                     "Audio Overview",
                     1,  # AUDIO
                     None,
-                    1,  # PROCESSING (not COMPLETED)
+                    2,  # PROCESSING (not COMPLETED)
                     None,
                     [None, None, None, None, None, []],
                 ]

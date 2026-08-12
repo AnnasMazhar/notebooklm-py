@@ -728,9 +728,9 @@ class TestArtifactsWriteGoldenDecoded:
             "31dc7d61-2b07-444e-8be2-5da70154ac5a",
             field="artifacts_generate_report.task_id",
         )
-        assert_decoded_equals(
-            status.status, "in_progress", field="artifacts_generate_report.status"
-        )
+        # The recorded row's status slot is code 1 (ARTIFACT_STATUS_INITIALIZED):
+        # a just-created artifact is queued, not yet generating (#2127).
+        assert_decoded_equals(status.status, "pending", field="artifacts_generate_report.status")
         assert_decoded_equals(status.error, None, field="artifacts_generate_report.error")
 
     @pytest.mark.vcr
@@ -802,7 +802,8 @@ class TestArtifactsWriteGoldenDecoded:
             "b84c4e66-ce7b-43b8-ac86-80c8add3fa23",
             field="artifacts_revise_slide.task_id",
         )
-        assert_decoded_equals(status.status, "in_progress", field="artifacts_revise_slide.status")
+        # Status slot is code 1 (ARTIFACT_STATUS_INITIALIZED) → "pending" (#2127).
+        assert_decoded_equals(status.status, "pending", field="artifacts_revise_slide.status")
 
 
 # =============================================================================

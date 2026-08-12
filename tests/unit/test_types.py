@@ -1700,22 +1700,36 @@ class TestArtifact:
         assert processing.is_completed is False
 
     def test_is_processing_property(self):
-        """Test is_processing property."""
-        processing = Artifact.from_api_response(["id", "title", 1, None, 1])
+        """is_processing is code 2 (ARTIFACT_STATUS_PROCESSING) — #2127."""
+        processing = Artifact.from_api_response(["id", "title", 1, None, 2])
+        pending = Artifact.from_api_response(["id", "title", 1, None, 1])
         completed = Artifact.from_api_response(["id", "title", 1, None, 3])
 
         assert processing.is_processing is True
+        assert pending.is_processing is False
         assert completed.is_processing is False
 
     def test_is_pending_property(self):
-        """Test is_pending property for status=2 (transitional state)."""
-        pending = Artifact.from_api_response(["id", "title", 1, None, 2])
-        processing = Artifact.from_api_response(["id", "title", 1, None, 1])
+        """is_pending is code 1 (ARTIFACT_STATUS_INITIALIZED) — #2127."""
+        pending = Artifact.from_api_response(["id", "title", 1, None, 1])
+        processing = Artifact.from_api_response(["id", "title", 1, None, 2])
         completed = Artifact.from_api_response(["id", "title", 1, None, 3])
 
         assert pending.is_pending is True
         assert processing.is_pending is False
         assert completed.is_pending is False
+
+    def test_pending_and_processing_are_mutually_exclusive(self):
+        """The two transitional predicates never both answer True (#2127).
+
+        Before the fix they were wired to each other's wire code, so an
+        artifact that was actively generating reported ``is_pending``.
+        """
+        for code in (0, 1, 2, 3, 4, 5, 6):
+            artifact = Artifact.from_api_response(["id", "title", 1, None, code])
+            assert not (artifact.is_pending and artifact.is_processing)
+        assert Artifact.from_api_response(["id", "title", 1, None, 2]).is_processing is True
+        assert Artifact.from_api_response(["id", "title", 1, None, 2]).is_pending is False
 
     def test_is_failed_property(self):
         """Test is_failed property for status=4 (generation failed)."""
@@ -1728,18 +1742,20 @@ class TestArtifact:
         assert completed.is_failed is False
 
     def test_status_str_property(self):
-        """Test status_str property returns correct human-readable strings."""
-        processing = Artifact.from_api_response(["id", "title", 1, None, 1])
-        pending = Artifact.from_api_response(["id", "title", 1, None, 2])
-        completed = Artifact.from_api_response(["id", "title", 1, None, 3])
-        failed = Artifact.from_api_response(["id", "title", 1, None, 4])
-        unknown = Artifact.from_api_response(["id", "title", 1, None, 99])
-
-        assert processing.status_str == "in_progress"
-        assert pending.status_str == "pending"
-        assert completed.status_str == "completed"
-        assert failed.status_str == "failed"
-        assert unknown.status_str == "unknown"
+        """status_str covers every backend ArtifactStatus code (#2127)."""
+        expected = {
+            0: "unknown",
+            1: "pending",
+            2: "in_progress",
+            3: "completed",
+            4: "failed",
+            5: "suggested",
+            6: "pending_review",
+            99: "unknown",  # unrecognized codes fail closed
+        }
+        for code, status_str in expected.items():
+            artifact = Artifact.from_api_response(["id", "title", 1, None, code])
+            assert artifact.status_str == status_str, f"code {code}"
 
     def test_report_subtype_briefing_doc(self):
         """Test report_subtype for briefing doc."""

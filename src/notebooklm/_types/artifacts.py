@@ -304,12 +304,18 @@ class Artifact:
 
     @property
     def is_processing(self) -> bool:
-        """Check if artifact is being generated (status=PROCESSING)."""
+        """Check if artifact is actively being generated (status=PROCESSING, code 2).
+
+        Distinct from :attr:`is_pending`, which reports the earlier
+        "row created, worker not started" phase. Before issue #2127 the two
+        wire codes were transposed, so this answered ``False`` for an artifact
+        that was in fact mid-generation.
+        """
         return self.status == ArtifactStatus.PROCESSING
 
     @property
     def is_pending(self) -> bool:
-        """Check if artifact is queued/transitional (status=PENDING)."""
+        """Check if artifact is queued and not yet started (status=PENDING, code 1)."""
         return self.status == ArtifactStatus.PENDING
 
     @property
@@ -322,7 +328,9 @@ class Artifact:
         """Get human-readable status string.
 
         Returns:
-            "in_progress", "pending", "completed", "failed", or "unknown".
+            "pending", "in_progress", "completed", "failed", "suggested",
+            "pending_review", or "unknown". See :class:`ArtifactStatus` for the
+            code-to-string table.
         """
         return artifact_status_to_str(self.status)
 
@@ -404,6 +412,15 @@ class GenerationState(str, Enum):
     FAILED = "failed"
     NOT_FOUND = "not_found"
     UNKNOWN = "unknown"
+    # Rare backend states, modeled so they stay distinguishable from UNKNOWN
+    # (issue #2127). SUGGESTED backs a suggestion row rather than a real
+    # artifact and is filtered out server-side by LIST_ARTIFACTS, so it should
+    # not reach a poll; PENDING_REVIEW's semantics are unconfirmed — see
+    # :class:`~notebooklm.rpc.types.ArtifactStatus`. Neither is terminal, so a
+    # poll loop keeps waiting on them exactly as it did when they read as
+    # ``unknown``.
+    SUGGESTED = "suggested"
+    PENDING_REVIEW = "pending_review"
     # wait-only: emitted by wait_for_completion() on a sustained delisting
     REMOVED = "removed"
 

@@ -43,7 +43,17 @@ pytestmark = pytest.mark.repo_lint
 # ---------------------------------------------------------------------------
 
 _RPC_ENUM_SNAPSHOT: dict[str, dict[str, int]] = {
-    "ArtifactStatus": {"PROCESSING": 1, "PENDING": 2, "COMPLETED": 3, "FAILED": 4},
+    # #2127: 1/2 were transposed (1 read as PROCESSING, 2 as PENDING) and 0/5/6
+    # were absent. Corrected against the backend enum dump + two live traces.
+    "ArtifactStatus": {
+        "UNKNOWN": 0,
+        "PENDING": 1,
+        "PROCESSING": 2,
+        "COMPLETED": 3,
+        "FAILED": 4,
+        "SUGGESTED": 5,
+        "PENDING_REVIEW": 6,
+    },
     # google.rpc.Code, as embedded at index 5 of a wrb.fr entry. Not our
     # numbering to choose — these are the canonical gRPC statuses, so a diff
     # here means either a typo or that the backend stopped speaking gRPC codes.

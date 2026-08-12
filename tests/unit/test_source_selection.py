@@ -324,7 +324,7 @@ class TestArtifactsSourceSelection:
 
         # Mock successful generation response
         mock_core.rpc_executor.rpc_call.return_value = [
-            ["artifact_123", "Audio", 1, None, 1]  # status 1 = in_progress
+            ["artifact_123", "Audio", 1, None, 1]  # status 1 = INITIALIZED -> pending
         ]
 
         result = await api.generate_audio(
@@ -333,7 +333,7 @@ class TestArtifactsSourceSelection:
         )
 
         assert result.task_id == "artifact_123"
-        assert result.status == "in_progress"
+        assert result.status == "pending"
 
         # Verify RPC was called with correct source encoding
         mock_core.rpc_executor.rpc_call.assert_called_once()

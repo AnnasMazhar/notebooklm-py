@@ -207,6 +207,34 @@ def test_status_from_code_covers_every_mapped_code():
         assert result.value == expected
 
 
+def test_status_from_code_pins_every_backend_artifact_status_code():
+    """#2127: each backend ``ArtifactStatus`` code maps to its own state.
+
+    Codes 1/2 were transposed and 0/5/6 were unmodelled (all three collapsed
+    into ``UNKNOWN``). Pin the whole table so a future transposition or a
+    silently-dropped member fails here.
+    """
+    assert {
+        code: _status_from_code(code) for code in (member.value for member in ArtifactStatus)
+    } == {
+        0: GenerationState.UNKNOWN,
+        1: GenerationState.PENDING,
+        2: GenerationState.IN_PROGRESS,
+        3: GenerationState.COMPLETED,
+        4: GenerationState.FAILED,
+        5: GenerationState.SUGGESTED,
+        6: GenerationState.PENDING_REVIEW,
+    }
+
+
+def test_rare_backend_states_are_distinguishable_from_unknown():
+    """SUGGESTED / PENDING_REVIEW must not collapse into ``UNKNOWN`` (#2127)."""
+    for code in (ArtifactStatus.SUGGESTED, ArtifactStatus.PENDING_REVIEW):
+        assert _status_from_code(code) is not GenerationState.UNKNOWN
+    # ...while a code the backend enum does not define still fails closed.
+    assert _status_from_code(7) is GenerationState.UNKNOWN
+
+
 def test_status_from_code_none_defaults_to_pending():
     assert _status_from_code(None) is GenerationState.PENDING
 

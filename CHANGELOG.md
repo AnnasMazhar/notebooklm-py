@@ -53,6 +53,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ship `status` plus `status_label`.
   ([#2125](https://github.com/teng-lin/notebooklm-py/issues/2125))
 
+- **`ArtifactStatus` codes 1 and 2 are no longer transposed, and codes 0/5/6 are
+  now modeled**
+  ([#2127](https://github.com/teng-lin/notebooklm-py/issues/2127)). The client
+  read wire code 1 as `PROCESSING` and code 2 as `PENDING`, the inverse of the
+  backend enum. Two independent live traces of a generating artifact showed
+  `2 → 3`, so code 2 is what an artifact reports *while generating*; every
+  recorded `CREATE_ARTIFACT` / `RETRY_ARTIFACT` row starts at code 1
+  (`ARTIFACT_STATUS_INITIALIZED` — "row created, worker not started").
+  Consequently `Artifact.is_pending` returned `True` for an artifact that was
+  mid-generation while `Artifact.is_processing` returned `False` for it, and any
+  caller distinguishing "queued" from "running" — progress UIs, timeout
+  heuristics, retry logic — read the two states backwards. Codes 0
+  (`ARTIFACT_STATUS_UNKNOWN`), 5 (`ARTIFACT_STATUS_SUGGESTED`, the state
+  `LIST_ARTIFACTS` already filters on server-side) and 6
+  (`ARTIFACT_PENDING_REVIEW`) were unmodeled and all collapsed into `"unknown"`;
+  they are now distinct members, with `GenerationState.SUGGESTED` /
+  `GenerationState.PENDING_REVIEW` added so a caller can detect them. Code 6's
+  semantics are unconfirmed (it appears in the backend enum dump but was
+  observed in none of 42 live artifacts, 301 recorded rows, or a fresh
+  generation) — it is modeled for detectability only.
+
+  **User-visible changes.** The `ArtifactStatus` member *names* and the
+  `status_str` / `GenerationState` vocabulary are unchanged — `PENDING` still
+  means "queued" and `PROCESSING` still means "generating" — but the wire code
+  behind each moved, so the strings a given artifact reports change:
+  - wire code 1 now renders `"pending"` (was `"in_progress"`), and code 2 now
+    renders `"in_progress"` (was `"pending"`). This affects `Artifact.status_str`,
+    `GenerationStatus.status`, the CLI's `artifact poll` / `--json` output, the
+    MCP status payloads, and `GET /v1/notebooks/{id}/artifacts/{task_id}`;
+  - a generation that times out while the backend reports code 2 now raises
+    `ArtifactInProgressTimeoutError` (was `ArtifactPendingTimeoutError`), which
+    is the classification the phase actually warrants;
+  - codes 5 and 6 now render `"suggested"` / `"pending_review"` instead of
+    `"unknown"`. Both remain non-terminal for poll loops, as `"unknown"` was.
+
+  Callers that hard-coded the raw integers (`artifact.status == 1` to mean
+  "generating") must flip them; callers using `.is_pending` / `.is_processing` /
+  `.status_str` / `GenerationState` now get the correct answer with no change.
+
 - **RPC bundle monitoring no longer reports authentication/access failures as
   protocol drift.** The live registry capture now classifies login,
   CookieMismatch, region/anti-abuse, HTTP, and CDN failures as exit code 2 and
