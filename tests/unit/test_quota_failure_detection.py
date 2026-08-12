@@ -57,10 +57,9 @@ async def _noop_operation_scope():
     yield None
 
 
-def _art(artifact_id: str, status: int, artifact_type: int = 1, error_at_3: str | None = None):
-    """Build a minimal raw artifact list entry."""
-    entry = [artifact_id, "Title", artifact_type, error_at_3, status]
-    return entry
+def _art(artifact_id: str, status: int, artifact_type: int = 1, sources: list | None = None):
+    """Build a constructed artifact row; index 3 models ``Artifact.sources`` (#2134)."""
+    return [artifact_id, "Title", artifact_type, sources, status]
 
 
 # ---------------------------------------------------------------------------
@@ -129,66 +128,6 @@ class TestPollStatusNotFound:
 
         assert result.status == "failed"
         assert result.is_failed is True
-
-
-# ---------------------------------------------------------------------------
-# poll_status: extracts error message from failed artifacts
-# ---------------------------------------------------------------------------
-
-
-class TestPollStatusErrorExtraction:
-    """poll_status surfaces error details from failed artifacts."""
-
-    @pytest.mark.asyncio
-    async def test_error_string_at_index_3_is_surfaced(self):
-        """When art[3] is a non-empty string, it becomes error in GenerationStatus."""
-        api = _make_api()
-        api._list_raw = AsyncMock(
-            return_value=[_art("task_abc", ArtifactStatus.FAILED, error_at_3="Daily limit reached")]
-        )
-
-        result = await api.poll_status("nb1", "task_abc")
-
-        assert result.status == "failed"
-        assert result.error == "Daily limit reached"
-
-    @pytest.mark.asyncio
-    async def test_no_error_at_index_3_error_is_none(self):
-        """When art[3] is None, error field remains None."""
-        api = _make_api()
-        api._list_raw = AsyncMock(return_value=[_art("task_abc", ArtifactStatus.FAILED)])
-
-        result = await api.poll_status("nb1", "task_abc")
-
-        assert result.status == "failed"
-        assert result.error is None
-
-    @pytest.mark.asyncio
-    async def test_art5_fallback_end_to_end(self):
-        """Error in art[5] is surfaced through poll_status (end-to-end, not just helper)."""
-        api = _make_api()
-        # art[3] is None, error is in art[5] nested list
-        art = ["task_abc", "Title", 1, None, ArtifactStatus.FAILED, ["Veo daily limit hit"]]
-        api._list_raw = AsyncMock(return_value=[art])
-
-        result = await api.poll_status("nb1", "task_abc")
-
-        assert result.status == "failed"
-        assert result.error == "Veo daily limit hit"
-
-    @pytest.mark.asyncio
-    async def test_error_extraction_only_for_failed_status(self):
-        """Error extraction is skipped for non-failed statuses."""
-        api = _make_api()
-        # art[3] has content, but status is PROCESSING — should not surface error
-        art = _art("task_abc", ArtifactStatus.PROCESSING, error_at_3="some stray text")
-        api._list_raw = AsyncMock(return_value=[art])
-
-        result = await api.poll_status("nb1", "task_abc")
-
-        # Status is in_progress; error should not be set
-        assert result.status == "in_progress"
-        assert result.error is None
 
 
 # ---------------------------------------------------------------------------
@@ -583,50 +522,3 @@ class TestGenerationStatusIsRemoved:
     def test_removed_without_quota_wording_is_not_rate_limited(self):
         status = GenerationStatus(task_id="x", status="removed", error="just gone")
         assert status.is_rate_limited is False
-
-
-# ---------------------------------------------------------------------------
-# _extract_artifact_error helper
-# ---------------------------------------------------------------------------
-
-
-class TestExtractArtifactError:
-    """Unit tests for the static _extract_artifact_error helper."""
-
-    def test_string_at_index_3_is_returned(self):
-        art = ["id", "title", 1, "Quota exceeded", 4]
-        result = ArtifactsAPI._extract_artifact_error(art)
-        assert result == "Quota exceeded"
-
-    def test_none_at_index_3_returns_none(self):
-        art = ["id", "title", 1, None, 4]
-        result = ArtifactsAPI._extract_artifact_error(art)
-        assert result is None
-
-    def test_empty_string_at_index_3_returns_none(self):
-        art = ["id", "title", 1, "   ", 4]
-        result = ArtifactsAPI._extract_artifact_error(art)
-        assert result is None
-
-    def test_short_artifact_no_index_3_returns_none(self):
-        art = ["id", "title"]
-        result = ArtifactsAPI._extract_artifact_error(art)
-        assert result is None
-
-    def test_nested_string_at_index_5_is_returned(self):
-        """Error text in art[5] as nested list is extracted."""
-        art = ["id", "title", 1, None, 4, ["Daily cinematic limit reached"]]
-        result = ArtifactsAPI._extract_artifact_error(art)
-        assert result == "Daily cinematic limit reached"
-
-    def test_deeply_nested_string_at_index_5(self):
-        """Error text in art[5] as doubly nested list is extracted."""
-        art = ["id", "title", 1, None, 4, [["Veo quota exhausted"]]]
-        result = ArtifactsAPI._extract_artifact_error(art)
-        assert result == "Veo quota exhausted"
-
-    def test_index_3_takes_priority_over_index_5(self):
-        """When both art[3] and art[5] contain strings, art[3] wins."""
-        art = ["id", "title", 1, "Primary error", 4, ["Secondary error"]]
-        result = ArtifactsAPI._extract_artifact_error(art)
-        assert result == "Primary error"

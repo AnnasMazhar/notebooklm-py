@@ -182,27 +182,6 @@ MAPPINGS: tuple[Mapping, ...] = (
     ),
     Mapping("artifacts", "ArtifactRow", "_INFOGRAPHIC_METADATA_POS", "Artifact", "infographic"),
     Mapping("artifacts", "ArtifactRow", "_SLIDE_DECK_METADATA_POS", "Artifact", "slides"),
-    # Known-wrong: these two name fields that do not exist. Index 3 is
-    # `sources` (repeated message) and index 5 is `isPubliclyReadable` (bool).
-    # `failed_error_text` is consequently dead code that always returns None.
-    Mapping(
-        "artifacts",
-        "ArtifactRow",
-        "_ERROR_TEXT_POS",
-        "Artifact",
-        "sources",
-        known_bad="#2134",
-        note="constant claims 'failed-artifact error text'; the field is `sources`",
-    ),
-    Mapping(
-        "artifacts",
-        "ArtifactRow",
-        "_ERROR_PAYLOAD_POS",
-        "Artifact",
-        "isPubliclyReadable",
-        known_bad="#2134",
-        note="constant claims 'nested error payload'; the field is `isPubliclyReadable`",
-    ),
     # ---- Answer row: AnswerResponse / TailwindDoc -------------------------
     Mapping("chat", "AnswerRow", "_TEXT_POS", "AnswerResponse", "response"),
     Mapping("chat", "AnswerRow", "_CONV_BLOCK_POS", "AnswerResponse", "conversationTurnKey"),
