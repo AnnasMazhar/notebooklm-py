@@ -121,6 +121,22 @@ class TestNotebookList:
             assert label in result.output, f"{label!r} missing from:\n{result.output}"
         assert "Shared" not in result.output
 
+    def test_notebook_list_unknown_role_renders_as_owner(self, runner, mock_auth):
+        """An unstated role renders "Owner", matching ``is_owner``'s soft-degrade."""
+        mock_client = create_mock_client()
+        mock_client.notebooks.list = AsyncMock(
+            return_value=[Notebook(id="nb_x", title="No Role Stated")]
+        )
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(cli, ["list"], obj=inject_client(mock_client))
+
+        assert result.exit_code == 0
+        assert "Owner" in result.output
+
     def test_notebook_list_json_output(self, runner, mock_auth):
         mock_client = create_mock_client()
         mock_client.notebooks.list = AsyncMock(
@@ -1289,6 +1305,7 @@ class TestNotebookMetadata:
             id="nb_1",
             title="Test Notebook",
             created_at=datetime(2024, 1, 1),
+            role=SharePermission.EDITOR,
         )
         # Override notebooks.list to return only our test notebook (avoid partial ID conflicts)
         mock_client.notebooks.list = AsyncMock(return_value=[notebook])
@@ -1324,6 +1341,9 @@ class TestNotebookMetadata:
         assert "Test Notebook" in result.output
         assert "[pdf]" in result.output
         assert "nb_1" in result.output
+        # The Access line reports the caller's real role, not Owner/Shared (#2125).
+        assert "Access:" in result.output
+        assert "Editor" in result.output
 
     def test_metadata_json_output(self, runner, mock_auth):
         """Test JSON output with --json flag."""
@@ -1339,6 +1359,7 @@ class TestNotebookMetadata:
             notebook=notebook,
             sources=[SourceSummary(kind=SourceType.PDF, title="test.pdf")],
         )
+        assert metadata.to_dict()["role"] is None  # unstated role stays null in JSON
 
         # Use side_effect to avoid potential pickling issues with enums
         async def return_metadata(nb_id):

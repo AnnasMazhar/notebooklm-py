@@ -102,6 +102,19 @@ async def verify_and_set_notebook(
 # ---------------------------------------------------------------------------
 
 
+#: Role labels the context file may legitimately carry — the same strings
+#: ``share_permission_to_str`` writes. The context file is user-editable, so the
+#: read side validates rather than trusting it: an unrecognized value would
+#: otherwise be title-cased straight onto the ``status`` table (a hand-edited
+#: ``"role": "wizard"`` printing ``Access: Wizard``).
+_ROLE_LABELS = frozenset({"owner", "editor", "viewer"})
+
+
+def _valid_role_label(raw: object) -> str | None:
+    """Return ``raw`` if it is a known role label, else ``None``."""
+    return raw if isinstance(raw, str) and raw in _ROLE_LABELS else None
+
+
 @dataclass(frozen=True)
 class StatusContext:
     """The context-file payload joined with the active notebook id.
@@ -214,7 +227,7 @@ def read_status(inputs: StatusInputs) -> StatusReport:
             is_owner=data.get("is_owner"),
             created_at=data.get("created_at"),
             conversation_id=data.get("conversation_id"),
-            role=data.get("role"),
+            role=_valid_role_label(data.get("role")),
         ),
         paths=inputs.path_info,
         has_env_auth=inputs.has_env_auth,

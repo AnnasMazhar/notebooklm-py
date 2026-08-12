@@ -28,7 +28,7 @@ from .options import json_option, list_options, notebook_option
 from .rendering import (
     cli_print,
     console,
-    get_permission_display,
+    get_notebook_access_display,
     json_output_response,
     render_list,
 )
@@ -73,7 +73,7 @@ def register_notebook_commands(cli):
                     row=lambda nb: [
                         nb.id,
                         nb.title,
-                        get_permission_display(nb.role),
+                        get_notebook_access_display(nb.role),
                         nb.created_at.strftime("%Y-%m-%d") if nb.created_at else "-",
                     ],
                 )
@@ -392,7 +392,9 @@ def register_notebook_commands(cli):
                         console.print(
                             f"[dim]Created:[/dim] {metadata.created_at.strftime('%Y-%m-%d %H:%M')}"
                         )
-                    console.print(f"[dim]Access:[/dim] {get_permission_display(metadata.role)}")
+                    console.print(
+                        f"[dim]Access:[/dim] {get_notebook_access_display(metadata.role)}"
+                    )
 
                     console.print(f"\n[bold]Sources ({len(metadata.sources)}):[/bold]")
                     if not metadata.sources:

@@ -30,6 +30,7 @@ from ._session_render import (
     _render_auth_inspect_error,
     _render_logout_outcome,
     _render_status,
+    _render_use_notebook,
     _use_notebook_table,
 )
 from .auth_runtime import (
@@ -50,12 +51,7 @@ from .playwright_login_io import (
 from .playwright_login_io import (
     repair_after_refresh as repair_after_refresh,
 )
-from .rendering import (
-    console,
-    get_permission_display,
-    json_error_response,
-    json_output_response,
-)
+from .rendering import console, json_error_response, json_output_response
 from .resolve import resolve_notebook_id
 from .runtime import run_async
 from .services.auth_diagnostics import (
@@ -552,10 +548,7 @@ def register_session_commands(cli):
             )
             return
 
-        table = _use_notebook_table()
-        created = created_str or "-"
-        table.add_row(nb.id, nb.title, get_permission_display(nb.role), created)
-        console.print(table)
+        _render_use_notebook(nb, notebook_id=nb.id, created=created_str or "-")
 
     @cli.command("status")
     @click.option("--json", "json_output", is_flag=True, help="Output as JSON")

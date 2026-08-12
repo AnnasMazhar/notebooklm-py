@@ -15,7 +15,12 @@ from rich.markup import render as render_markup
 from rich.table import Table
 
 from .error_handler import _output_error, exit_with_code
-from .rendering import console, json_error_response, json_output_response
+from .rendering import (
+    console,
+    get_notebook_access_display,
+    json_error_response,
+    json_output_response,
+)
 from .services.auth_diagnostics import AuthCheckResult
 from .services.auth_source import AUTH_JSON_ENV_NAME
 from .services.login.outcomes import BrowserCookieOutcome
@@ -31,6 +36,19 @@ def _use_notebook_table() -> Table:
     t.add_column("Access")
     t.add_column("Created", style="dim")
     return t
+
+
+def _render_use_notebook(notebook: Any, *, notebook_id: str, created: str) -> None:
+    """Print the one-row table ``use`` shows after selecting a notebook.
+
+    Lives here rather than inline in ``session_cmd`` so the Access-column
+    label lookup sits next to ``_use_notebook_table`` and the sibling
+    ``status`` renderer that formats the same role (ADR-0008 also keeps
+    ``session_cmd`` under its module-size budget).
+    """
+    table = _use_notebook_table()
+    table.add_row(notebook_id, notebook.title, get_notebook_access_display(notebook.role), created)
+    console.print(table)
 
 
 def _render_status(report: StatusReport, *, json_output: bool) -> None:

@@ -92,6 +92,48 @@ class TestStatusCommand:
         assert "abc123" in result.output
         assert "Demo NB" in result.output
 
+    def test_status_text_renders_recorded_role(
+        self, runner: CliRunner, isolated_home: Path
+    ) -> None:
+        """The Access row shows the recorded role, not just Owner/Shared (#2125)."""
+        _seed_context(
+            isolated_home, notebook_id="abc123", title="Demo NB", is_owner=False, role="viewer"
+        )
+
+        result = runner.invoke(cli, ["status"])
+
+        assert result.exit_code == 0, result.output
+        assert "Access" in result.output
+        assert "Viewer" in result.output
+
+    def test_status_text_falls_back_to_is_owner_for_legacy_context(
+        self, runner: CliRunner, isolated_home: Path
+    ) -> None:
+        """A context written before ``role`` existed still renders (compat promise).
+
+        ``docs/configuration.md`` documents this fallback, so it is pinned here.
+        """
+        _seed_context(isolated_home, notebook_id="abc123", title="Demo NB", is_owner=False)
+
+        result = runner.invoke(cli, ["status"])
+
+        assert result.exit_code == 0, result.output
+        assert "Shared" in result.output
+
+    def test_status_text_ignores_unknown_role_label(
+        self, runner: CliRunner, isolated_home: Path
+    ) -> None:
+        """context.json is hand-editable, so a bogus role must not reach the table."""
+        _seed_context(
+            isolated_home, notebook_id="abc123", title="Demo NB", is_owner=True, role="wizard"
+        )
+
+        result = runner.invoke(cli, ["status"])
+
+        assert result.exit_code == 0, result.output
+        assert "Wizard" not in result.output
+        assert "Owner" in result.output
+
     def test_status_with_context_json(self, runner: CliRunner, isolated_home: Path) -> None:
         """``--json`` envelope echoes notebook id/title/is_owner/role + conversation_id."""
         _seed_context(

@@ -417,6 +417,26 @@ class TestCreateNotebookQuotaDetection:
         assert exc_info.value.current_count == 500
 
     @pytest.mark.asyncio
+    async def test_quota_check_counts_rows_with_no_stated_role(self):
+        """An unstated role counts as owned — matching ``is_owner``'s soft-degrade.
+
+        Pinned deliberately: it means widespread protocol drift would inflate
+        ``owned_count`` rather than deflate it. That direction is the safe one
+        here — this path only runs to reclassify an already-failed create, so
+        the worst case is a more specific error message, never a blocked create.
+        """
+        api = _make_api(rpc_call=AsyncMock(side_effect=_create_invalid_argument_error()))
+        _set_account_limit(api, 500)
+        unstated = [Notebook(id=f"nb_{i}", title=f"N{i}") for i in range(500)]
+        assert all(nb.role is None for nb in unstated)
+        api.list = AsyncMock(return_value=unstated)
+
+        with pytest.raises(NotebookLimitError) as exc_info:
+            await api.create("Unknown Roles")
+
+        assert exc_info.value.current_count == 500
+
+    @pytest.mark.asyncio
     async def test_quota_check_excludes_notebooks_shared_with_the_user(self):
         """Notebooks owned by *someone else* still must not count toward quota."""
         api = _make_api(rpc_call=AsyncMock(side_effect=_create_invalid_argument_error()))

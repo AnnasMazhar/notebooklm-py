@@ -551,6 +551,41 @@ class TestNotebook:
         assert notebook.role is None
         assert notebook.is_owner is True
 
+    @pytest.mark.parametrize("raw_role", [0, 4, 99, True, False, "1", []])
+    def test_from_api_response_unmapped_role_warns(self, caplog, raw_role):
+        """A present-but-unmapped ``userRole`` is drift, so it degrades LOUDLY.
+
+        This WARNING is the tripwire for the repo's #1 breakage class (Google
+        changing the wire shape). ``True``/``False`` matter most: ``bool`` is an
+        ``int`` subclass, so a slot slip onto the neighbouring has-sharing flag
+        would otherwise decode as a confident ``OWNER`` (#1485 policy).
+        """
+        import logging
+
+        data = ["A Notebook", [], "nb_role", "📓", None, _notebook_meta(user_role=raw_role)]
+        with caplog.at_level(logging.WARNING, logger="notebooklm"):
+            notebook = Notebook.from_api_response(data)
+
+        assert notebook.role is None
+        assert any(
+            r.levelno == logging.WARNING and "userRole slot unmapped" in r.message
+            for r in caplog.records
+        ), f"no drift WARNING for raw_role={raw_role!r}"
+
+    def test_from_api_response_absent_role_is_silent(self, caplog):
+        """A ``None`` slot / missing meta block is absence, not drift — no WARNING."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="notebooklm"):
+            null_slot = Notebook.from_api_response(
+                ["A Notebook", [], "nb_role", "📓", None, _notebook_meta(user_role=None)]
+            )
+            no_meta = Notebook.from_api_response(["No Meta", [], "nb_nometa", "📓"])
+
+        assert null_slot.role is None
+        assert no_meta.role is None
+        assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+
     def test_from_api_response_ignores_has_sharing_slot(self):
         """``meta[1]`` no longer participates in the ownership decision.
 
@@ -589,6 +624,26 @@ class TestNotebook:
             Notebook(id="a", title="t", role=SharePermission.VIEWER, is_owner=True).is_owner
             is False
         )
+
+    def test_is_owner_tracks_role_reassigned_after_construction(self):
+        """``Notebook`` is mutated in place elsewhere, so the invariant must survive it.
+
+        ``_app.notebooks._backfill_created_timestamps`` already assigns to a
+        live ``Notebook``, so a construction-only hook would let ``is_owner`` go
+        stale the moment anyone assigned ``role``.
+        """
+        notebook = Notebook(id="a", title="t", role=SharePermission.OWNER)
+        assert notebook.is_owner is True
+
+        notebook.role = SharePermission.VIEWER
+        assert notebook.is_owner is False
+
+        notebook.role = SharePermission.OWNER
+        assert notebook.is_owner is True
+
+        # Clearing the role leaves the last derived value rather than guessing.
+        notebook.role = None
+        assert notebook.is_owner is True
 
     def test_is_owner_is_untouched_when_role_is_unknown(self):
         """With no role stated, the caller's explicit ``is_owner`` still wins."""

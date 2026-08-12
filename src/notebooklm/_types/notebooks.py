@@ -56,12 +56,17 @@ def _extract_notebook_sources_count(data: list[Any]) -> int:
     return len(sources) if isinstance(sources, list) else 0
 
 
-#: Wire codes the ``userRole`` slot may legitimately carry. ``SharePermission``
-#: also owns ``_REMOVE = 4`` (proto ``NOT_SHARED``), but that is a write-only
-#: sentinel for the share-mutation call — a notebook row never reports it (a
-#: revoked account gets ``PERMISSION_DENIED``, not role 4), so it is excluded
-#: here rather than surfaced as a nonsensical role.
-_NOTEBOOK_ROLES = frozenset({SharePermission.OWNER, SharePermission.EDITOR, SharePermission.VIEWER})
+#: Wire codes the ``userRole`` slot may legitimately carry, as plain ints —
+#: comparing ints to ints rather than relying on ``SharePermission`` hashing as
+#: its value, so the check cannot quietly start rejecting everything if the enum
+#: ever stops mixing in ``int``. ``SharePermission`` also owns ``_REMOVE = 4``
+#: (proto ``NOT_SHARED``), but that is a write-only sentinel for the
+#: share-mutation call — a notebook row never reports it (a revoked account gets
+#: ``PERMISSION_DENIED``, not role 4), so it is excluded here rather than
+#: surfaced as a nonsensical role.
+_NOTEBOOK_ROLES = frozenset(
+    {SharePermission.OWNER.value, SharePermission.EDITOR.value, SharePermission.VIEWER.value}
+)
 
 
 def _role_from_wire(raw_role: Any, row: list[Any]) -> SharePermission | None:
@@ -79,9 +84,8 @@ def _role_from_wire(raw_role: Any, row: list[Any]) -> SharePermission | None:
     # of the neighbouring has-sharing slot, i.e. exactly the drift we would
     # most want to notice.
     if isinstance(raw_role, int) and not isinstance(raw_role, bool):
-        role = SharePermission(raw_role) if raw_role in _NOTEBOOK_ROLES else None
-        if role is not None:
-            return role
+        if raw_role in _NOTEBOOK_ROLES:
+            return SharePermission(raw_role)
     logger.warning(
         "Notebook row userRole slot unmapped — reporting unknown role "
         "(expected 1/2/3 at data[5][0], got %r; row=%s)",
@@ -111,18 +115,33 @@ class Notebook:
     #: carries an unmapped code.
     role: SharePermission | None = None
 
-    def __post_init__(self) -> None:
-        """Keep ``is_owner`` in lock-step with ``role``.
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Keep ``is_owner`` in lock-step with ``role``, at construction *and* after.
 
-        ``is_owner`` stays a *field* (not a property) so it keeps appearing in
-        ``dataclasses.fields`` — the MCP/REST serializer emits fields only, and
-        dropping it would be a breaking wire change. Deriving it here instead
-        makes ``Notebook(role=VIEWER, is_owner=True)`` unrepresentable rather
-        than merely discouraged. When ``role`` is ``None`` (unknown), the caller's
-        explicit ``is_owner`` is left untouched.
+        ``is_owner`` stays a *field* rather than becoming a property because the
+        MCP/REST serializer emits ``dataclasses.fields`` only — a property would
+        silently vanish from every adapter's response, a breaking wire change.
+        So the invariant is maintained on assignment instead.
+
+        Hooking ``__setattr__`` rather than ``__post_init__`` matters because
+        this dataclass is mutated in place after construction (see the
+        timestamp backfill in ``_app.notebooks._backfill_created_timestamps``);
+        a construction-only hook would let ``is_owner`` go stale the moment
+        anyone assigned ``role``.
+
+        A contradictory ``is_owner`` is *corrected*, not rejected. Raising is not
+        actually available here: ``is_owner`` has a plain ``True`` default, so
+        the ordinary ``Notebook(id=..., title=..., role=VIEWER)`` call is
+        indistinguishable from an explicit ``is_owner=True``, and rejecting the
+        contradiction would reject the most natural construction in the codebase.
+
+        When ``role`` is ``None`` (the row stated no level) the caller's
+        ``is_owner`` is left untouched, preserving the historical
+        optimistic-``True`` soft-degrade.
         """
-        if self.role is not None:
-            self.is_owner = self.role is SharePermission.OWNER
+        super().__setattr__(name, value)
+        if name == "role" and value is not None:
+            super().__setattr__("is_owner", value is SharePermission.OWNER)
 
     @classmethod
     def from_api_response(cls, data: list[Any]) -> Notebook:
@@ -156,7 +175,7 @@ class Notebook:
                 )
 
         # ``data[5]`` is the metadata block; bind it once so the timestamp and
-        # owner-flag descents read a single named local instead of re-chaining
+        # role descents read a single named local instead of re-chaining
         # ``data[5][...]`` (the legitimately-absent block defaults below). The
         # slot read goes through ``safe_index`` (length-guarded first, so it
         # cannot raise) and the result is only retained when it is a list.
