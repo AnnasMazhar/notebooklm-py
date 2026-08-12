@@ -538,6 +538,30 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
             4: "ARTIFACT_STATUS_FAILED",
         },
     ),
+    # rpc/types.py::QuizQuantity. Shared by quiz AND flashcards; the two backend
+    # enums (``QuizGenerationOptions.QuestionQuantity`` and
+    # ``FlashcardsGenerationOptions.CardQuantity``) declare identical values, so
+    # binding to either one gates both. #2117 landed precisely because these
+    # values were pinned to a snapshot without ever being bound to the backend:
+    # ``MORE`` sat at 2 as a documented "API limitation" while the backend has
+    # always declared it as 3.
+    "QuizQuantity": (
+        "QuizGenerationOptions_QuestionQuantity",
+        {
+            1: "QUESTION_QUANTITY_FEWER",
+            2: "QUESTION_QUANTITY_STANDARD",
+            3: "QUESTION_QUANTITY_MORE",
+        },
+    ),
+    # rpc/types.py::QuizDifficulty, the sibling of the pair above.
+    "QuizDifficulty": (
+        "QuizGenerationOptions_QuizDifficulty",
+        {
+            1: "QUIZ_DIFFICULTY_EASY",
+            2: "QUIZ_DIFFICULTY_MEDIUM",
+            3: "QUIZ_DIFFICULTY_HARD",
+        },
+    ),
     # _types/sources.py::_SOURCE_TYPE_CODE_MAP
     "SourceType": (
         "OriginalSourceContentType",

@@ -53,6 +53,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ship `status` plus `status_label`.
   ([#2125](https://github.com/teng-lin/notebooklm-py/issues/2125))
 
+- **Flashcard generation no longer swaps `quantity` and `difficulty`.** The
+  flashcards payload builder emitted the option pair as
+  `[difficulty, quantity]` while the backend's `FlashcardsGenerationOptions` —
+  and the quiz builder next to it — expect `[quantity, difficulty]`. Asking for
+  the fewest, hardest cards silently produced the most, easiest ones, with no
+  error at any layer (CLI, MCP, REST). The regression test meant to pin this
+  ordering used symmetric fixtures (`[2, 2]` and `[1, 1]`) and so passed under
+  either ordering; it is now asymmetric (`FEWER` + `HARD` → `[1, 3]`), and a new
+  test asserts the quiz and flashcards builders agree side by side
+  ([#2116](https://github.com/teng-lin/notebooklm-py/issues/2116)).
+- **`QuizQuantity.MORE` now emits its own wire value.** It was defined as a
+  value-alias of `STANDARD` (`2`), on the documented but incorrect belief that
+  Google's API could not distinguish the two, so `--quantity more` produced a
+  standard-sized quiz or flashcard set with no warning. The backend accepts and
+  persists `cardQuantity = 3`, matching both
+  `QuizGenerationOptions.QuestionQuantity` and
+  `FlashcardsGenerationOptions.CardQuantity`, so `MORE = 3`. **Behavior change
+  for existing callers:** `QuizQuantity.MORE == QuizQuantity.STANDARD` was
+  `True` and is now `False`, and unchanged code passing `--quantity more` /
+  `quantity=QuizQuantity.MORE` now receives a genuinely larger quiz or flashcard
+  set rather than the standard-sized one it silently got before — which is what
+  those callers were asking for all along
+  ([#2117](https://github.com/teng-lin/notebooklm-py/issues/2117)).
 - **RPC bundle monitoring no longer reports authentication/access failures as
   protocol drift.** The live registry capture now classifies login,
   CookieMismatch, region/anti-abuse, HTTP, and CDN failures as exit code 2 and
@@ -95,6 +118,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`QuizQuantity.MORE` no longer compares equal to `QuizQuantity.STANDARD`.**
+  `MORE` was a value-alias of `STANDARD` (`2`) and is now its own wire value
+  (`3`), so the identity and equality between the two members no longer hold.
+  Callers that branched on that collapse, or that relied on `--quantity more`
+  producing a standard-sized artifact, will see different behavior. See the
+  `### Fixed` entry above for the live evidence
+  ([#2117](https://github.com/teng-lin/notebooklm-py/issues/2117)).
 - **First-party profile replacements now use native typed results.** Browser capture consumes
   `ProfileStore.replace_from_remint()` directly, while cookie import/login/refresh use a narrow
   path-shaped login operation with primitive account modes. Existing v0.x storage wrapper

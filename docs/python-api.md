@@ -1453,7 +1453,7 @@ status = await client.artifacts.generate_quiz(
     notebook_id,
     source_ids=None,
     instructions="...",
-    quantity=QuizQuantity.MORE,        # FEWER, STANDARD, MORE (MORE aliases STANDARD)
+    quantity=QuizQuantity.MORE,        # FEWER, STANDARD, MORE
     difficulty=QuizDifficulty.MEDIUM,  # EASY, MEDIUM, HARD
 )
 ```
@@ -2610,7 +2610,7 @@ class VideoStyle(Enum):
 class QuizQuantity(Enum):
     FEWER = 1
     STANDARD = 2
-    MORE = 2  # Alias of STANDARD used by the CLI/web UI
+    MORE = 3
 
 class QuizDifficulty(Enum):
     EASY = 1

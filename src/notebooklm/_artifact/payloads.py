@@ -328,7 +328,10 @@ def build_flashcards_artifact_params(
                     None,
                     None,
                     None,
-                    [difficulty_code, quantity_code],
+                    # ``FlashcardsGenerationOptions`` is {1: cardQuantity,
+                    # 2: flashcardsDifficulty}, i.e. quantity first — the same
+                    # order the quiz builder above uses (#2116).
+                    [quantity_code, difficulty_code],
                 ],
             ],
         ],
