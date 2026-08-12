@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **PowerPoint sources now decode as their own type.** A source row with backend
+  content type `6` returns the new `SourceType.POWERPOINT` (`kind="powerpoint"`,
+  legacy compatibility label `text_file`) instead of `UNKNOWN`, and no longer emits
+  the misleading "Consider updating notebooklm-py" `UnknownTypeWarning` — no released
+  version mapped the code. The CLI's source-type display gains a matching label.
+  Refs [#2137](https://github.com/teng-lin/notebooklm-py/issues/2137).
 - **RPC bundle monitoring no longer reports authentication/access failures as
   protocol drift.** The live registry capture now classifies login,
   CookieMismatch, region/anti-abuse, HTTP, and CDN failures as exit code 2 and

@@ -802,6 +802,7 @@ class TestSource:
             (3, SourceType.PDF),
             (4, SourceType.PASTED_TEXT),
             (5, SourceType.WEB_PAGE),
+            (6, SourceType.POWERPOINT),
             (8, SourceType.MARKDOWN),
             (9, SourceType.YOUTUBE),
             (10, SourceType.MEDIA),
@@ -827,6 +828,34 @@ class TestSource:
         assert source.kind == expected_kind
         # Also verify str comparison works
         assert source.kind == expected_kind.value
+
+    def test_pptx_row_decodes_without_unknown_type_warning(self):
+        """A constructed row matching #2137 decodes to POWERPOINT, no warning (#2137).
+
+        Constructed, not captured: the slots come from the field values #2137
+        reports (``type_code=6``; the PowerPoint MIME at ``metadata[19]``). The
+        MIME is included because the wire carries it and it must NOT re-route
+        the code the way the overloaded ``14`` does.
+
+        ``UnknownTypeWarning`` is emitted on ``.kind`` access, not at
+        construction, so the property is evaluated INSIDE the filter — and the
+        warn-once set is cleared first, otherwise a stale entry would suppress
+        the warning and hide a regression.
+        """
+        from notebooklm.types import _warned_source_types
+
+        pptx_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        metadata: list = [None] * 20
+        metadata[4] = 6
+        metadata[19] = pptx_mime
+        data = [[[["src_pptx"], "Deck.pptx", metadata]]]
+
+        _warned_source_types.discard(6)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UnknownTypeWarning)
+            kind = Source.from_api_response(data).kind
+
+        assert kind is SourceType.POWERPOINT
 
     def test_from_api_response_empty_data_raises(self):
         """Test that empty data raises ValueError."""
@@ -1157,6 +1186,12 @@ class TestSourceTypeCompatMapping:
 
         assert SourceType.EPUB in _SOURCE_TYPE_COMPAT_MAP
         assert _SOURCE_TYPE_COMPAT_MAP[SourceType.EPUB] == "text_file"
+
+    def test_powerpoint_maps_to_text_file(self):
+        """POWERPOINT uses the legacy ``text_file`` compatibility label (#2137)."""
+        from notebooklm.types import _SOURCE_TYPE_COMPAT_MAP
+
+        assert _SOURCE_TYPE_COMPAT_MAP[SourceType.POWERPOINT] == "text_file"
 
 
 class TestSourceKindProperty:
