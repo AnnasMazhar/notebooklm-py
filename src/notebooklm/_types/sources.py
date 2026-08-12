@@ -88,8 +88,10 @@ _SOURCE_TYPE_COMPAT_MAP: dict[SourceType, str] = {
 
 # The type_code==14 overload (#1828/#1832): the backend returns 14 for BOTH a
 # native Google Sheet AND a Drive-hosted binary file (e.g. a PDF). Live capture
-# showed Drive sources carry no URL (metadata[0]/[5]/[7] are null), so the only
-# disambiguation signal is the MIME at metadata[19] / metadata[9][2]. A native
+# showed Drive sources carry no URL (metadata[5]/[7] are null and metadata[0]
+# holds the Drive metadata block — see ``SourceRow.drive_document_id`` — rather
+# than a URL), so the only disambiguation signal is the MIME at
+# metadata[19] / metadata[9][2]. A native
 # Sheet carries "application/vnd.google-apps.spreadsheet" (→ stay 14); a Drive
 # PDF carries "application/pdf" (→ 3). Only MIMEs proven by live capture are
 # mapped; anything else under 14 is left as GOOGLE_SPREADSHEET (conservative —
@@ -209,6 +211,12 @@ class Source:
     # with a ``SourceStatus``; ``SourceStatus`` is the accurate declared type
     # and remains ``int``-compatible at runtime and for equality.
     status: SourceStatus = SourceStatus.READY
+    #: Google Drive file id for Drive-backed sources; ``None`` for every other
+    #: kind. Drive sources carry no :attr:`url` (the backend leaves the URL
+    #: slots empty), so this is the only field tying such a source back to the
+    #: ``file_id`` it was created from — ``sources.add_drive`` matches on it to
+    #: stay idempotent when a create has to be retried (#2113).
+    drive_document_id: str | None = None
 
     @property
     def kind(self) -> SourceType:
@@ -267,6 +275,7 @@ class Source:
             _type_code=type_code,
             created_at=row.created_at,
             status=row.status,
+            drive_document_id=row.drive_document_id,
         )
 
     @classmethod

@@ -2245,6 +2245,7 @@ class Source:
     url: Optional[str]
     created_at: Optional[datetime]
     status: SourceStatus                 # UNKNOWN when the wire status is missing or unmapped
+    drive_document_id: Optional[str]     # Drive file id for Drive-backed sources; None otherwise
 
     @property
     def kind(self) -> SourceType:

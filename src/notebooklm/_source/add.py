@@ -266,8 +266,11 @@ class SourceAddService:
         pattern as ``add_url``: a 5xx / network failure
         between server-side commit and client-side response could
         otherwise duplicate the source on a naive retry. The probe matches
-        by ``file_id`` substring against ``source.url`` (Drive URLs embed
-        the file_id, e.g. ``https://docs.google.com/document/d/<id>/edit``).
+        on :attr:`~notebooklm.types.Source.drive_document_id`, the Drive
+        ``documentId`` the backend echoes back in the source metadata.
+        Drive-backed sources carry **no** URL (their URL slots are empty),
+        so a URL-based probe could never match one — it silently duplicated
+        the source on every retry until #2113.
 
         .. note::
            The ``title`` is sent on the wire but **ignored** for native Drive
@@ -336,18 +339,20 @@ class SourceAddService:
                 )
             return Source.from_api_response(result, method_id=RPCMethod.ADD_SOURCE.value)
 
-        # Drive URLs canonically embed the file_id as a path segment, e.g.
-        # ``https://docs.google.com/document/d/<file_id>/edit``. Match the
-        # ``/d/<file_id>`` slug with a trailing segment boundary (either a
-        # ``/`` or end-of-string) so neither an interior substring nor a
-        # prefix-collision (e.g. ``/d/abc`` matching ``/d/abcdef/edit``)
-        # produces a false-positive. Real-world Drive IDs are 33–44-char
-        # Base64URL strings making prefix collisions astronomically unlikely
-        # in practice, but the boundary check costs nothing.
-        drive_url_marker = f"/d/{file_id}/"
-        drive_url_tail = f"/d/{file_id}"
-
+        # A Drive-backed source echoes the requested ``file_id`` back as the
+        # ``documentId`` in its metadata (``SourceRow.drive_document_id``);
+        # it carries no URL at all, which is why the previous ``/d/<file_id>``
+        # URL-segment probe could never match and let every retry duplicate the
+        # source (#2113). Exact equality — not a substring test — so neither an
+        # interior substring nor a prefix collision (``abc`` vs ``abcdef``) can
+        # produce a false positive, and non-Drive rows (``drive_document_id is
+        # None``) can never match a requested file_id.
         async def _probe() -> Source | None:
+            if not file_id:
+                # No identity to match on. Bail out before the list() round-trip
+                # rather than letting a falsy file_id compare equal to the
+                # ``None`` ``drive_document_id`` of an unrelated source.
+                return None
             try:
                 sources = await list_sources(notebook_id)
             except (AuthError, RateLimitError, ServerError, NetworkError):
@@ -361,9 +366,7 @@ class SourceAddService:
                 )
                 return None
             for source in sources:
-                if source.url and (
-                    drive_url_marker in source.url or source.url.endswith(drive_url_tail)
-                ):
+                if source.drive_document_id == file_id:
                     return source
             return None
 

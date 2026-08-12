@@ -99,8 +99,12 @@ class SourceRow:
     =====  ============================================================
     Index  Meaning
     =====  ============================================================
-    0      Mixed — sometimes a bare ``http(s)://...`` URL (legacy
-           shape, only honored when ``url_allow_bare_http=True``).
+    0      ``SourceMetadata.googleDocsMetadata`` — the Drive metadata
+           block a Google-native Doc / Slides / Sheet carries;
+           ``[0][0]`` is its ``documentId`` (see
+           :attr:`drive_document_id`). Legacy shapes occasionally put a
+           bare ``http(s)://...`` URL here instead, honored only when
+           ``url_allow_bare_http=True``.
     2      timestamp block; ``[2][0]`` is the creation timestamp
            (seconds since epoch).
     4      type code (int — see
@@ -110,8 +114,11 @@ class SourceRow:
     7      url block; ``[7][0]`` is the canonical source URL when
            present (takes precedence over ``metadata[5][0]`` and
            ``metadata[0]``).
-    9      Drive-file descriptor for Drive-hosted sources:
-           ``[drive_id, kind_int, mime, ""]``; ``[9][2]`` is the MIME.
+    9      ``SourceMetadata.googleDriveSourceMetadata`` — the Drive-file
+           descriptor for Drive-hosted binaries:
+           ``[document_id, kind_int, mime, ""]``; ``[9][0]`` is the
+           ``documentId`` (see :attr:`drive_document_id`) and ``[9][2]``
+           the MIME.
     19     top-level MIME string for Drive-hosted sources. Used with
            ``[9][2]`` to disambiguate the type-code ``14`` overload
            (native Sheet vs Drive-hosted PDF) — see :attr:`mime`.
@@ -161,20 +168,30 @@ class SourceRow:
     _STATUS_INNER_POS: ClassVar[int] = 1
 
     # Metadata sub-list positions.
-    _META_BARE_URL_POS: ClassVar[int] = 0
+    # Index 0 is ``SourceMetadata.googleDocsMetadata`` (schema-confirmed), not
+    # a URL slot: the historical ``_META_BARE_URL_POS`` name described only the
+    # legacy ``url_allow_bare_http`` fallback that reads it as a bare string.
+    _META_GOOGLE_DOCS_POS: ClassVar[int] = 0
     _META_TIMESTAMP_POS: ClassVar[int] = 2
     _META_TYPE_POS: ClassVar[int] = 4
     _META_YOUTUBE_POS: ClassVar[int] = 5
     _META_URL_POS: ClassVar[int] = 7
     # Drive-hosted sources carry the true file MIME here (#1832 live capture):
-    # the drive-file descriptor ``[drive_id, kind_int, mime, ""]`` at [9] and a
-    # top-level MIME string at [19]. Used to disambiguate the type_code==14
+    # the drive-file descriptor ``[document_id, kind_int, mime, ""]`` at [9] and
+    # a top-level MIME string at [19]. Used to disambiguate the type_code==14
     # overload (native Sheet vs Drive-hosted binary like a PDF), which the URL
-    # slots can't — Drive sources carry no URL (metadata[0]/[5]/[7] all null).
+    # slots can't — Drive sources carry no URL (metadata[5]/[7] are null and
+    # metadata[0] holds the Drive metadata block, not a URL string).
     _META_DRIVE_DESCRIPTOR_POS: ClassVar[int] = 9
     _META_MIME_POS: ClassVar[int] = 19
     # Position of the MIME string inside the drive-file descriptor at [9].
     _DRIVE_DESCRIPTOR_MIME_POS: ClassVar[int] = 2
+    # Position of the Drive ``documentId`` inside each of the two Drive
+    # metadata blocks (#2113). Both messages declare ``documentId`` as tag 1,
+    # so both read index 0 — kept as two named constants so a future reshape of
+    # either message can move independently.
+    _DRIVE_DESCRIPTOR_DOCUMENT_ID_POS: ClassVar[int] = 0
+    _GOOGLE_DOCS_DOCUMENT_ID_POS: ClassVar[int] = 0
 
     # Id-envelope inner positions (the three layouts at ``self._raw[0]``).
     _ID_ENVELOPE_PLAIN_POS: ClassVar[int] = 0
@@ -444,6 +461,58 @@ class SourceRow:
         return value if isinstance(value, str) and value else None
 
     @property
+    def drive_document_id(self) -> str | None:
+        """Google Drive file id of a Drive-backed source — ``None`` otherwise.
+
+        Read from whichever Drive metadata block the row carries, in order:
+
+        1. ``metadata[0][0]`` — ``googleDocsMetadata.documentId``, the block a
+           Google-native Doc / Slides / Sheet lands in (live-captured shape:
+           ``["1oAk_INJ…", "<opaque>", 17]``).
+        2. ``metadata[9][0]`` — ``googleDriveSourceMetadata.documentId``, the
+           block a Drive-hosted binary (e.g. a Drive PDF) lands in
+           (live-captured shape ``[document_id, kind_int, mime, ""]``, #1832).
+
+        The two blocks belong to different source kinds and carry the same
+        identifier, so the order only decides which wins on a row carrying both.
+
+        This is the only identity-bearing echo of the Drive ``file_id`` such a
+        source carries: the URL slots (``metadata[7]`` / ``metadata[5]``) are
+        empty and ``metadata[0]`` holds the Drive block rather than a URL
+        string, so :attr:`url` decodes to ``None`` on every Drive row.
+        ``sources.add_drive`` matches on this in its idempotency probe to
+        recognise an already-committed create after a transient failure (#2113).
+        Non-Drive rows return ``None``, so an equality match against a requested
+        ``file_id`` can never select one.
+        """
+        metadata = self.metadata
+        if metadata is None:
+            return None
+        return self._document_id_at(
+            metadata, self._META_GOOGLE_DOCS_POS, self._GOOGLE_DOCS_DOCUMENT_ID_POS
+        ) or self._document_id_at(
+            metadata, self._META_DRIVE_DESCRIPTOR_POS, self._DRIVE_DESCRIPTOR_DOCUMENT_ID_POS
+        )
+
+    @classmethod
+    def _document_id_at(cls, metadata: list[Any], block_pos: int, id_pos: int) -> str | None:
+        """Read a ``documentId`` from the Drive metadata block at ``block_pos``.
+
+        Returns ``None`` when the block is absent or is not a list — notably the
+        legacy bare ``http(s)://…`` string that :attr:`url_allow_bare_http`
+        honors at ``metadata[0]`` is a ``str``, and indexing it would otherwise
+        yield a one-character "id". Empty strings degrade to ``None`` so a blank
+        slot never compares equal to a caller-supplied ``file_id``.
+        """
+        if len(metadata) <= block_pos:
+            return None
+        block = metadata[block_pos]
+        if not isinstance(block, list) or len(block) <= id_pos:
+            return None
+        value = block[id_pos]
+        return value if isinstance(value, str) and value else None
+
+    @property
     def url(self) -> str | None:
         """Canonical source URL — ``None`` when absent.
 
@@ -524,9 +593,9 @@ class SourceRow:
         ``metadata[0]`` strings (e.g. drive ids, mime types) as URLs
         on shapes where this slot packs unrelated content.
         """
-        if not self.url_allow_bare_http or len(metadata) <= self._META_BARE_URL_POS:
+        if not self.url_allow_bare_http or len(metadata) <= self._META_GOOGLE_DOCS_POS:
             return None
-        candidate = metadata[self._META_BARE_URL_POS]
+        candidate = metadata[self._META_GOOGLE_DOCS_POS]
         if isinstance(candidate, str) and candidate.startswith("http"):
             return candidate
         return None
@@ -643,8 +712,8 @@ class SourceRow:
                 and isinstance(yt_data[cls._LIST_FIRST_POS], str)
             ):
                 url = yt_data[cls._LIST_FIRST_POS]
-        if not url and allow_bare_http and len(metadata) > cls._META_BARE_URL_POS:
-            candidate = metadata[cls._META_BARE_URL_POS]
+        if not url and allow_bare_http and len(metadata) > cls._META_GOOGLE_DOCS_POS:
+            candidate = metadata[cls._META_GOOGLE_DOCS_POS]
             if isinstance(candidate, str) and candidate.startswith("http"):
                 url = candidate
         return url
