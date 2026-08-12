@@ -728,6 +728,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   such alias and still accepts only itself
   ([#2013](https://github.com/teng-lin/notebooklm-py/issues/2013)).
 
+- **Partial file-upload failures now retain their recovery context.** If upload
+  session start or finalization fails after source registration, the retained
+  source row is no longer silently orphaned: the failure carries `source_id` and
+  `stage` attributes naming that row (read with
+  `getattr(exc, "source_id", None)`), and `notebooklm source add` prints the
+  `source delete` needed to retry cleanly (`--json` adds `source_id` / `stage`
+  beside the existing code / `retry_after`). The exception **type is unchanged**
+  — `AuthError`, `RateLimitError`, `ServerError`, `NetworkError`,
+  `ValidationError`, or a bare `SourceAddError` still propagate as themselves, so
+  every existing `except` clause around `add_file()` keeps matching. A raw
+  `httpx.RequestError` is normalised to `NetworkError` first (httpx exception on
+  `.original_error`, `__cause__` unchanged) so a dropped connection projects as
+  retryable infrastructure rather than a 4xx input rejection. Wire source type
+  code `0` now maps silently to `UNKNOWN` instead of emitting a drift warning
+  (#2138).
 - **Resumable-upload URL trust is now host-relative, and `Origin`/`Referer`
   derive from the validated upload URL.** Google's Scotty frontend picks which
   personal host it names in the `X-Goog-Upload-URL` response header, so an

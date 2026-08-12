@@ -542,6 +542,7 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
     "SourceType": (
         "OriginalSourceContentType",
         {
+            0: "SOURCE_CONTENT_TYPE_UNKNOWN",
             1: "SOURCE_CONTENT_TYPE_GOOGLE_DOC",
             2: "SOURCE_CONTENT_TYPE_GOOGLE_SLIDES",
             3: "SOURCE_CONTENT_TYPE_PDF",
@@ -572,12 +573,6 @@ ENUM_GAPS: dict[str, tuple[tuple[int, str, str], ...]] = {
         (6, "ARTIFACT_PENDING_REVIEW", "#2127 — state discovered only in the object store"),
     ),
     "SourceType": (
-        (
-            0,
-            "SOURCE_CONTENT_TYPE_UNKNOWN",
-            "occurs live (rejected upload, failed processing) and triggers a "
-            "misleading 'Consider updating notebooklm-py' prompt no upgrade fixes",
-        ),
         (
             6,
             "SOURCE_CONTENT_TYPE_POWERPOINT",

@@ -476,6 +476,50 @@ except NonIdempotentRetryError:
 
 `client.sources.add_file(...)` and `client.sources.add_drive(...)` are now also covered by the probe-then-create wrapper: the create RPC runs with `disable_internal_retries=True` and, on transport failure, the wrapper probes the server-side source list (via `idempotent_create`) before deciding whether to retry — so transient failures no longer produce duplicate sources. See `_source/add.py` (`SourceAddService.add_drive`) and `_source/upload.py` (`SourceUploadPipeline.register_file_source`) for the implementation.
 
+**Partial file uploads.** File registration creates the source row before the
+resumable HTTP upload starts. If session setup or the combined upload/finalize
+request then fails, the source row is **retained** — the client never deletes it
+automatically.
+
+The failure is raised as **its own type, unwrapped**: `AuthError` on an expired
+session, `RateLimitError` on a 429, `ServerError` on a 5xx, `NetworkError` on a
+dropped connection, `ValidationError` on a rejected file, or a bare
+`SourceAddError`. An existing `except ValidationError:` around `add_file()` keeps
+working unchanged — there is no new exception type to catch.
+
+To identify the retained row, read the `source_id` and `stage` attributes the
+client attaches to that exception. They are present *only* on a
+post-registration upload failure, so read them defensively:
+
+```python
+try:
+    source = await client.sources.add_file(nb_id, "report.pdf")
+except NotebookLMError as error:
+    source_id = getattr(error, "source_id", None)
+    if source_id is not None:
+        # A row was registered and left behind; reconcile it, then remove it with
+        # client.sources.delete(nb_id, source_id) if it is unusable.
+        print(source_id, error.stage)  # stage: "start_session" | "upload_finalize"
+    raise
+```
+
+`stage` says **where** the failure happened, not whether any bytes were sent: it
+advances to `"upload_finalize"` before the body request is issued, so a
+connection that drops before the first byte still reports that stage.
+Cancellation still propagates as `CancelledError`, with no attributes attached.
+
+A raw transport failure is the one case where the raised exception is not the
+original object: an `httpx.RequestError` is normalised to a library
+`NetworkError` first (the httpx exception on its `original_error`, and
+`__cause__` still the raw `httpx.RequestError`), so a dropped connection reaches
+you as a library exception rather than a raw `httpx` error — which is what makes
+it classify as retryable infrastructure instead of a rejected input.
+
+Everything else propagates as itself. The post-registration handler catches
+`Exception`, so a local file-read `OSError` or an exception raised by your own
+`on_progress` callback also arrives carrying `source_id` / `stage`; give any
+`isinstance` chain over the caught exception a fallback branch.
+
 ---
 
 ## Concurrency contract
