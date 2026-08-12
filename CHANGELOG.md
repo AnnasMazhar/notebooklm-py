@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`notebooklm research wait --timeout` now defaults to 1800 seconds, up from
+  300.** Every observed deep run exceeded the old cap (374s live, 358s in the
+  `research_deep_poll_long` cassette), so an unattended wait reported a timeout
+  on work the backend went on to finish; fast runs settle in seconds, so the
+  raised ceiling costs them nothing. The value is a cap, not a wait, and it now
+  matches `source add-research`. With `--import-all` it is also the
+  import-retry budget, so that budget grows with it.
+  ([#2142](https://github.com/teng-lin/notebooklm-py/issues/2142))
+
+### Fixed
+
+- **`docs/rpc-reference.md` no longer misstates the research path.** Four
+  corrections, each against a captured payload: `START_FAST_RESEARCH` returns a
+  one-element response (only deep carries `report_id`); the `1` / `5` start
+  params are `DiscoveryMode`, echoed back at `task_info[2]`; the `POLL_RESEARCH`
+  sketch now documents the slots it omitted (`task[2]`/`[3]`/`[4]`,
+  `task_info[2]`, the deep-only `task_info[5]`, and the deep source row's
+  populated `[5]`/`[6]`/`[8]`); and status code `6` is recorded as never
+  observed — all three completed runs, deep included, report `2`. The `6 →
+  completed` coarsening is kept as forward-compat, and the unit fixtures that
+  used `6` to stand for a completed deep run now use the captured `2`.
+  ([#2143](https://github.com/teng-lin/notebooklm-py/issues/2143))
+### Added
+
+- **`notebooklm.types.share_permission_to_str`** — the single source of truth
+  for permission/role code to string (`"owner"` / `"editor"` / `"viewer"`,
+  `"unknown"` for unmapped codes), joining the existing `source_status_to_str`
+  and `artifact_status_to_str` helpers.
+  ([#2125](https://github.com/teng-lin/notebooklm-py/issues/2125))
+
 ### Fixed
 
 - **PowerPoint sources now decode as their own type.** A source row with backend
@@ -15,6 +47,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the misleading "Consider updating notebooklm-py" `UnknownTypeWarning` — no released
   version mapped the code. The CLI's source-type display gains a matching label.
   Refs [#2137](https://github.com/teng-lin/notebooklm-py/issues/2137).
+- **Deep-research imports no longer crash on a known backend retry rejection.**
+  `IMPORT_RESEARCH` gets a batch-size-scaled read timeout (60-240s, scaled by
+  requested source count) instead of the shared 30s default, since the server
+  fetches/parses/embeds every entry before responding and routinely exceeds it
+  on large batches. `ResearchAPI.import_sources_with_verification`'s
+  timeout-retry loop also now recovers from the documented gRPC 9
+  (`FAILED_PRECONDITION`) the server returns when a retry lands against a
+  task it already partially committed — verified via `sources.list` the same
+  way a lost-response timeout is, but only a fully-verified success is
+  accepted (a partial/no match surfaces the error immediately rather than
+  retrying against the already-rejected task). Fixes
+  [#2187](https://github.com/teng-lin/notebooklm-py/issues/2187).
+- **`Notebook.is_owner` no longer inverts on shared notebooks, and the notebook's
+  role is now surfaced.** `is_owner` was decoded from `meta[1]` (proto tag 2) on
+  the belief that the slot flagged ownership. A two-account live probe showed
+  tag 2 actually tracks *"this notebook has any sharing at all"*, so the flag
+  evaluated to `not (shared with anyone)`: **every notebook you own and have
+  shared reported `is_owner=False`** and rendered as "Shared" in your own CLI.
+  The same undercount reached `NotebookLimitError`, whose owned-notebook quota
+  check silently dropped each shared notebook.
+
+  The flag now derives from `meta[0]` (tag 1, `userRole`), which is present on
+  every `LIST_NOTEBOOKS` and `GET_NOTEBOOK` row, so the fix costs no extra RPC.
+
+  **Migration.** `is_owner` keeps working and keeps its type; it simply returns
+  the right answer now, so callers relying on the inverted value should drop
+  their workaround. Because one boolean cannot separate an owner-who-shared from
+  an editor or a viewer — all three previously collapsed onto `False` — a new
+  `Notebook.role` field carries the real level as a `SharePermission`
+  (`OWNER` / `EDITOR` / `VIEWER`, or `None` when the row states no level), and
+  `is_owner` is now the `role is SharePermission.OWNER` shorthand. Prefer `role`
+  when read-only access must be distinguished from edit access:
+
+  ```python
+  from notebooklm.types import SharePermission
+
+  for nb in await client.notebooks.list():
+      if nb.role is SharePermission.VIEWER:
+          print(f"{nb.title}: read-only")
+  ```
+
+  The CLI's `list` / `use` "Owner" column is renamed **"Access"** and now shows
+  Owner / Editor / Viewer, `metadata` and `status` follow, and `list --json`
+  gains a `role` string alongside `is_owner`. MCP and REST notebook payloads
+  gain `role` (the raw code) plus `role_label`, mirroring how sources already
+  ship `status` plus `status_label`.
+  ([#2125](https://github.com/teng-lin/notebooklm-py/issues/2125))
+
 - **RPC bundle monitoring no longer reports authentication/access failures as
   protocol drift.** The live registry capture now classifies login,
   CookieMismatch, region/anti-abuse, HTTP, and CDN failures as exit code 2 and
