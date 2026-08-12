@@ -2158,8 +2158,28 @@ class Notebook:
     title: str
     created_at: Optional[datetime]   # creation time (tz-aware UTC)
     sources_count: int
-    is_owner: bool
+    is_owner: bool                   # role is SharePermission.OWNER
     modified_at: Optional[datetime]  # last-modified time (tz-aware UTC)
+    role: Optional[SharePermission]  # your own level: OWNER / EDITOR / VIEWER
+```
+
+`role` is the calling account's permission level on the notebook, decoded from
+the backend's `userRole` field. It is `None` only when the row does not state a
+level (an unexpectedly short or unmapped row), in which case `is_owner`
+defaults to `True`.
+
+`is_owner` is kept as the `role is SharePermission.OWNER` shorthand for
+backward compatibility. Prefer `role` when the distinction matters: a read-only
+collaborator (`VIEWER`) and a full editor (`EDITOR`) both report
+`is_owner=False`.
+
+```python
+from notebooklm.types import SharePermission, share_permission_to_str
+
+for nb in await client.notebooks.list():
+    if nb.role is SharePermission.VIEWER:
+        print(f"{nb.title}: read-only")
+    print(share_permission_to_str(nb.role))  # "owner" / "editor" / "viewer"
 ```
 
 ### Source

@@ -26,7 +26,9 @@ def _use_notebook_table() -> Table:
     t = Table()
     t.add_column("ID", style="cyan")
     t.add_column("Title", style="green")
-    t.add_column("Owner")
+    # "Access" (not "Owner") because the column reports the caller's actual
+    # role — Owner / Editor / Viewer (#2125).
+    t.add_column("Access")
     t.add_column("Created", style="dim")
     return t
 
@@ -92,6 +94,7 @@ def _render_status(report: StatusReport, *, json_output: bool) -> None:
                         "id": ctx_view.notebook_id,
                         "title": None,
                         "is_owner": None,
+                        "role": None,
                     },
                     "conversation_id": None,
                 }
@@ -103,7 +106,7 @@ def _render_status(report: StatusReport, *, json_output: bool) -> None:
         table.add_column("Value", style="cyan")
         table.add_row("Notebook ID", ctx_view.notebook_id or "")
         table.add_row("Title", "-")
-        table.add_row("Ownership", "-")
+        table.add_row("Access", "-")
         table.add_row("Created", "-")
         table.add_row("Conversation", "[dim]None[/dim]")
         console.print(table)
@@ -117,6 +120,7 @@ def _render_status(report: StatusReport, *, json_output: bool) -> None:
                     "id": ctx_view.notebook_id,
                     "title": ctx_view.title if ctx_view.title and ctx_view.title != "-" else None,
                     "is_owner": ctx_view.is_owner if ctx_view.is_owner is not None else True,
+                    "role": ctx_view.role,
                 },
                 "conversation_id": ctx_view.conversation_id,
             }
@@ -129,9 +133,14 @@ def _render_status(report: StatusReport, *, json_output: bool) -> None:
 
     table.add_row("Notebook ID", ctx_view.notebook_id or "")
     table.add_row("Title", str(ctx_view.title or "-"))
-    is_owner = ctx_view.is_owner if ctx_view.is_owner is not None else True
-    owner_status = "Owner" if is_owner else "Shared"
-    table.add_row("Ownership", owner_status)
+    # Contexts written before the role was recorded (#2125) carry only the
+    # boolean, so fall back to it rather than showing nothing.
+    if ctx_view.role:
+        access = ctx_view.role.capitalize()
+    else:
+        is_owner = ctx_view.is_owner if ctx_view.is_owner is not None else True
+        access = "Owner" if is_owner else "Shared"
+    table.add_row("Access", access)
     table.add_row("Created", ctx_view.created_at or "-")
     if ctx_view.conversation_id:
         table.add_row("Conversation", ctx_view.conversation_id)

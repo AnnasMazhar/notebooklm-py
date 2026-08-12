@@ -93,7 +93,7 @@ class TestStatusCommand:
         assert "Demo NB" in result.output
 
     def test_status_with_context_json(self, runner: CliRunner, isolated_home: Path) -> None:
-        """``--json`` envelope echoes notebook id/title/is_owner + conversation_id."""
+        """``--json`` envelope echoes notebook id/title/is_owner/role + conversation_id."""
         _seed_context(
             isolated_home,
             notebook_id="abc123",
@@ -107,7 +107,14 @@ class TestStatusCommand:
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["has_context"] is True
-        assert data["notebook"] == {"id": "abc123", "title": "Demo NB", "is_owner": True}
+        # ``role`` is ``None`` for a context written before the role was
+        # recorded (#2125); the renderer then falls back to ``is_owner``.
+        assert data["notebook"] == {
+            "id": "abc123",
+            "title": "Demo NB",
+            "is_owner": True,
+            "role": None,
+        }
         assert data["conversation_id"] == "conv-99"
 
     def test_status_paths_json(self, runner: CliRunner, isolated_home: Path) -> None:

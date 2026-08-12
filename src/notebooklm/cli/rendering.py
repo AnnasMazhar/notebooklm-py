@@ -15,10 +15,10 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from ..types import ArtifactType
+from ..types import ArtifactType, share_permission_to_str
 
 if TYPE_CHECKING:
-    from ..types import Artifact
+    from ..types import Artifact, SharePermission
     from .services.listing import ListRender
 
 
@@ -312,6 +312,19 @@ def get_source_type_display(source_type: str) -> str:
         "unknown": "❓ Unknown",
     }
     return type_map.get(type_str, f"❓ {type_str}")
+
+
+def get_permission_display(permission: SharePermission | None) -> str:
+    """Get display string for a share permission / notebook role.
+
+    ``None`` means the backend did not state a level for this row, which the
+    notebook decoder treats as "assume the caller owns it" — so it renders the
+    same as ``OWNER`` rather than inventing a fourth label. Unmapped codes
+    render as ``"Unknown"``.
+    """
+    if permission is None:
+        return "Owner"
+    return share_permission_to_str(permission).capitalize()
 
 
 def _list_column_options(header: str, *, no_truncate: bool) -> dict[str, Any]:

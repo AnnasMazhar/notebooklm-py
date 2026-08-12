@@ -117,6 +117,10 @@ class StatusContext:
     created_at: str | None = None
     conversation_id: str | None = None
     payload_readable: bool = True
+    #: Cached ``"owner"`` / ``"editor"`` / ``"viewer"`` label (#2125). Appended
+    #: last so positional construction stays unaffected. ``None`` for contexts
+    #: written before the role was recorded, which fall back to ``is_owner``.
+    role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -210,6 +214,7 @@ def read_status(inputs: StatusInputs) -> StatusReport:
             is_owner=data.get("is_owner"),
             created_at=data.get("created_at"),
             conversation_id=data.get("conversation_id"),
+            role=data.get("role"),
         ),
         paths=inputs.path_info,
         has_env_auth=inputs.has_env_auth,
