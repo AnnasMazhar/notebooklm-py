@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`notebooklm research wait --timeout` now defaults to 1800 seconds, up from
+  300.** Every observed deep run exceeded the old cap (374s live, 358s in the
+  `research_deep_poll_long` cassette), so an unattended wait reported a timeout
+  on work the backend went on to finish; fast runs settle in seconds, so the
+  raised ceiling costs them nothing. The value is a cap, not a wait, and it now
+  matches `source add-research`. With `--import-all` it is also the
+  import-retry budget, so that budget grows with it.
+  ([#2142](https://github.com/teng-lin/notebooklm-py/issues/2142))
+
 ### Fixed
 
 - **RPC bundle monitoring no longer reports authentication/access failures as
