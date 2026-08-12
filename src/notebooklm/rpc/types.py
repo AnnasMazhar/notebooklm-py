@@ -326,15 +326,19 @@ class ArtifactStatus(int, Enum):
     # dump but has never been observed on this transport (0 of 42 live
     # artifacts, 0 of 301 recorded rows). It is modeled so a caller can *detect*
     # it distinctly instead of having it collapse into "unknown" — do not infer
-    # a workflow from the name.
+    # a workflow from the name. Despite the shared prefix it is UNRELATED to
+    # PENDING above; the collision is the backend's own spelling, kept so the
+    # member stays greppable against the recovered dump.
     PENDING_REVIEW = 6
 
 
 #: Wire spelling of :attr:`ArtifactStatus.SUGGESTED` for the server-side
 #: LIST_ARTIFACTS filter expression. The backend filter grammar takes the
 #: symbolic enum-value name, not the integer, so the string cannot be derived
-#: from the member value — keeping it beside the enum is what ties the filter
-#: to the code it excludes.
+#: from the member value. ``tests/_guardrails/test_wire_contract.py`` asserts
+#: this equals the recovered dump's name for code 5, so a backend rename
+#: cannot leave the filter stale (a stale filter matches nothing, and
+#: suggestion rows would start appearing in every listing).
 ARTIFACT_STATUS_SUGGESTED_WIRE_NAME: Final[str] = "ARTIFACT_STATUS_SUGGESTED"
 
 

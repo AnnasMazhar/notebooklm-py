@@ -1146,7 +1146,7 @@ result = [
         title,            # [0][1]
         artifact_type,    # [0][2]
         None,             # [0][3]
-        status_code,      # [0][4]: 1=in_progress in both captures
+        status_code,      # [0][4]: 1 in both captures = ARTIFACT_STATUS_INITIALIZED ("pending")
         # ... additional artifact metadata slots; first row len was 20
     ]
 ]
@@ -1543,14 +1543,18 @@ params = [
     'NOT artifact.status = "ARTIFACT_STATUS_SUGGESTED"',
 ]
 
-# Response contains artifacts array with status:
-# status = 1 → Processing
-# status = 2 → Pending
-# status = 3 → Completed
+# Response contains artifacts array with an ArtifactStatus code:
+# status = 0 → Unknown
+# status = 1 → Pending    (ARTIFACT_STATUS_INITIALIZED — queued, worker not started)
+# status = 2 → In progress (ARTIFACT_STATUS_PROCESSING — actively generating)
+# status = 3 → Completed  (ARTIFACT_STATUS_READY)
 # status = 4 → Failed
+# status = 5 → Suggested  (excluded by the filter above)
+# status = 6 → ARTIFACT_PENDING_REVIEW (semantics unconfirmed; never observed here)
+# Codes 1 and 2 were transposed in this client before #2127.
 ```
 
-**Python API Note:** `artifacts.list()` also fetches mind maps from GET_NOTES_AND_MIND_MAPS and includes them as Artifact objects (type=5). This provides a unified list of all AI-generated content. Mind maps with status=2 (deleted) are filtered out.
+**Python API Note:** `artifacts.list()` also fetches mind maps from GET_NOTES_AND_MIND_MAPS and includes them as Artifact objects (type=5). This provides a unified list of all AI-generated content. Mind maps with status=2 (deleted) are filtered out — note that this is the *note* row's own status field, unrelated to the `ArtifactStatus` table above.
 
 ---
 
@@ -2562,9 +2566,9 @@ propagates as `RateLimitError` / `RPCError`; a null result raises
 Retry a failed Studio artifact in place — the equivalent of the NotebookLM web
 UI "Retry" button. The failed artifact is **not** deleted first; the same
 `artifact_id` is preserved and the artifact moves from `failed` back to
-`in_progress`, so existing `poll_status()` / `wait_for_completion()` flows keep
-working against it. Captured/validated across video, audio, and infographic
-artifacts (issue #1319).
+`pending` (re-queued), so existing `poll_status()` / `wait_for_completion()`
+flows keep working against it. Captured/validated across video, audio, and
+infographic artifacts (issue #1319).
 
 ```python
 params = [
@@ -2594,10 +2598,11 @@ await rpc_call(
 
 **Response:** payload index `0` is a standard artifact row (positionally
 identical to a `LIST_ARTIFACTS` row): `row[0]` is the same `artifact_id`
-(returned as the task id) and `row[4] == 1` (`PROCESSING` → `in_progress`).
+(returned as the task id) and `row[4] == 1` (`ARTIFACT_STATUS_INITIALIZED` →
+`"pending"`; this was mislabelled `PROCESSING`/`in_progress` before #2127).
 
 Contract (ADR-0019 "async kickoff"): an accepted retry returns
-`GenerationStatus(status="in_progress")`; a synchronous server refusal
+`GenerationStatus(status="pending")`; a synchronous server refusal
 (`USER_DISPLAYABLE_ERROR` — rate limit, quota, or non-retryable artifact)
 **raises** the underlying `RateLimitError` / `RPCError`; a null / missing-id
 result raises `ArtifactFeatureUnavailableError`. A retry may still fail again

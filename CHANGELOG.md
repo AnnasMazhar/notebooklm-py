@@ -59,8 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read wire code 1 as `PROCESSING` and code 2 as `PENDING`, the inverse of the
   backend enum. Two independent live traces of a generating artifact showed
   `2 → 3`, so code 2 is what an artifact reports *while generating*; every
-  recorded `CREATE_ARTIFACT` / `RETRY_ARTIFACT` row starts at code 1
-  (`ARTIFACT_STATUS_INITIALIZED` — "row created, worker not started").
+  `CREATE_ARTIFACT` / `RETRY_ARTIFACT` row recorded on the **web** transport
+  starts at code 1 (`ARTIFACT_STATUS_INITIALIZED` — "row created, worker not
+  started"), a window short enough that live sampling regularly misses it and
+  catches code 2 on the very first poll instead.
   Consequently `Artifact.is_pending` returned `True` for an artifact that was
   mid-generation while `Artifact.is_processing` returned `False` for it, and any
   caller distinguishing "queued" from "running" — progress UIs, timeout
@@ -74,6 +76,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   observed in none of 42 live artifacts, 301 recorded rows, or a fresh
   generation) — it is modeled for detectability only.
 
+  **⚠ BREAKING for callers that compare `Artifact.status` / `ArtifactStatus`
+  members to raw integers, or that catch one artifact timeout exception but not
+  its sibling.** `notebooklm.types.ArtifactStatus` is a public name and its
+  member integers changed. This is filed under *Fixed* because the old integers
+  were simply wrong about the wire, but the migration below is required.
+
   **User-visible changes.** The `ArtifactStatus` member *names* and the
   `status_str` / `GenerationState` vocabulary are unchanged — `PENDING` still
   means "queued" and `PROCESSING` still means "generating" — but the wire code
@@ -82,11 +90,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     renders `"in_progress"` (was `"pending"`). This affects `Artifact.status_str`,
     `GenerationStatus.status`, the CLI's `artifact poll` / `--json` output, the
     MCP status payloads, and `GET /v1/notebooks/{id}/artifacts/{task_id}`;
-  - a generation that times out while the backend reports code 2 now raises
-    `ArtifactInProgressTimeoutError` (was `ArtifactPendingTimeoutError`), which
-    is the classification the phase actually warrants;
+  - the two artifact timeout exceptions swap with the codes, in **both**
+    directions: a task that times out while the backend reports code 2 now
+    raises `ArtifactInProgressTimeoutError` (was `ArtifactPendingTimeoutError`),
+    and — the more common case, since it is the state every `CREATE_ARTIFACT` /
+    `RETRY_ARTIFACT` row starts in — a task stuck at code 1 now raises
+    `ArtifactPendingTimeoutError` (was `ArtifactInProgressTimeoutError`). Both
+    are separately catchable and both are reachable via the
+    `ArtifactTimeoutError` / `WaitTimeoutError` umbrellas, so `except
+    ArtifactInProgressTimeoutError` callers should add the sibling. The
+    `stalled_phase` attribute and the CLI's `--json` error envelope follow;
   - codes 5 and 6 now render `"suggested"` / `"pending_review"` instead of
-    `"unknown"`. Both remain non-terminal for poll loops, as `"unknown"` was.
+    `"unknown"`. All three remain *still-running* for the poll loop and the
+    REST poll route (`GenerationState.UNKNOWN` is now handled there explicitly
+    rather than falling through the terminal branch), exactly as `"unknown"`
+    behaved for the client loop before.
 
   Callers that hard-coded the raw integers (`artifact.status == 1` to mean
   "generating") must flip them; callers using `.is_pending` / `.is_processing` /

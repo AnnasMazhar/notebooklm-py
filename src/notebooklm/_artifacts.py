@@ -430,7 +430,7 @@ class ArtifactsAPI:
         Re-runs generation for an already-failed artifact without deleting it
         first; the same ``artifact_id`` is preserved as the task id, so existing
         :meth:`poll_status` / :meth:`wait_for_completion` flows keep working. An
-        accepted retry returns ``GenerationStatus(status="in_progress")``.
+        accepted retry returns ``GenerationStatus(status="pending")`` (#2127).
 
         Follows the ADR-0019 "async kickoff" contract: a synchronous
         ``USER_DISPLAYABLE_ERROR`` refusal (rate limit, quota, non-retryable

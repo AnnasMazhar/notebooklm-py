@@ -213,6 +213,22 @@ def test_declared_enum_gaps_still_exist(client_enum: str) -> None:
     assert not wrong, "ENUM_GAPS is out of date:\n" + "\n".join(wrong)
 
 
+def test_suggested_filter_constant_tracks_the_backend_enum_name() -> None:
+    """The LIST_ARTIFACTS filter string stays tied to the code it excludes.
+
+    ``_artifact/listing.py`` sends ``NOT artifact.status = "<name>"`` using the
+    symbolic backend enum-value name, which cannot be derived from the integer.
+    Without this, a backend rename would fail ``test_enum_values_match_backend``
+    on the binding, someone would update ``ENUM_BINDINGS``, and the filter
+    constant would silently stay stale — the filter would then match nothing
+    and suggestion rows would start appearing in every listing.
+    """
+    from notebooklm.rpc.types import ARTIFACT_STATUS_SUGGESTED_WIRE_NAME, ArtifactStatus
+
+    _backend_name, bindings = ENUM_BINDINGS["ArtifactStatus"]
+    assert bindings[ArtifactStatus.SUGGESTED.value] == ARTIFACT_STATUS_SUGGESTED_WIRE_NAME
+
+
 def test_reference_data_is_present_and_parsable() -> None:
     """Fail loudly if the recovered reference data is missing or empty."""
     schema = load_proto_schema()

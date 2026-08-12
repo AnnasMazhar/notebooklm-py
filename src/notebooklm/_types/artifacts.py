@@ -155,7 +155,9 @@ class Artifact:
         id: Unique artifact identifier.
         title: Artifact title.
         kind: Artifact type as ArtifactType enum (str enum, comparable to strings).
-        status: Processing status (1=processing, 2=pending, 3=completed, 4=failed).
+        status: Processing status code — see :class:`ArtifactStatus` for the
+            code-to-meaning table. Prefer :attr:`status_str` or the ``is_*``
+            predicates over comparing the raw integer.
         created_at: When the artifact was created.
         url: Download URL (if available). For slide decks this is the PDF URL
             only — PPTX is fetched separately via ``download_slide_deck(output_format="pptx")``.
@@ -169,7 +171,7 @@ class Artifact:
     id: str
     title: str
     _artifact_type: int = field(repr=False)  # ArtifactTypeCode enum value
-    status: int  # 1=processing, 2=pending, 3=completed, 4=failed
+    status: int  # ArtifactStatus code; read via .status_str / .is_* , not by integer
     created_at: datetime | None = None
     url: str | None = None
     _variant: int | None = field(
@@ -413,13 +415,26 @@ class GenerationState(str, Enum):
     NOT_FOUND = "not_found"
     UNKNOWN = "unknown"
     # Rare backend states, modeled so they stay distinguishable from UNKNOWN
-    # (issue #2127). SUGGESTED backs a suggestion row rather than a real
-    # artifact and is filtered out server-side by LIST_ARTIFACTS, so it should
-    # not reach a poll; PENDING_REVIEW's semantics are unconfirmed — see
-    # :class:`~notebooklm.rpc.types.ArtifactStatus`. Neither is terminal, so a
-    # poll loop keeps waiting on them exactly as it did when they read as
-    # ``unknown``.
+    # (issue #2127). Neither says generation finished, so the poll loop and the
+    # REST poll route treat both as still-running — exactly as they did when
+    # both decoded to ``"unknown"``. That is a statement about how this library
+    # handles them, not a claim about what the backend means by code 6.
+    #
+    # SUGGESTED has no producer *today*: ``ArtifactListingService.list_raw``
+    # unconditionally sends the server-side ``NOT artifact.status =
+    # "ARTIFACT_STATUS_SUGGESTED"`` filter, and every artifact row this library
+    # decodes comes from that one call, so code 5 cannot reach a poll. It is
+    # modeled anyway as defence in depth: if the filter is ever dropped or the
+    # backend stops honouring it, a suggestion row surfaces as ``"suggested"``
+    # rather than silently as ``"unknown"``. The filter's presence is itself
+    # pinned by ``tests/integration/test_artifacts_integration.py`` (exact
+    # LIST_ARTIFACTS params), so this member's premise cannot rot unnoticed.
     SUGGESTED = "suggested"
+    # PENDING_REVIEW mirrors backend ``ARTIFACT_PENDING_REVIEW`` and is NOT
+    # related to PENDING above despite the shared prefix — that collision comes
+    # from the backend's own spelling, which we keep so the member stays
+    # greppable against the recovered enum dump. Semantics unconfirmed; see
+    # :class:`~notebooklm.rpc.types.ArtifactStatus`.
     PENDING_REVIEW = "pending_review"
     # wait-only: emitted by wait_for_completion() on a sustained delisting
     REMOVED = "removed"
@@ -472,7 +487,7 @@ class GenerationStatus:
     """
 
     task_id: str  # Same as artifact_id - used for polling and becomes Artifact.id
-    # "pending", "in_progress", "completed", "failed", "not_found", "removed", "unknown".
+    # One of the :class:`GenerationState` values — see that enum for the full set.
     # Typed as GenerationState, but stays raw-string-permissive: instances built
     # with a plain str keep working (the .is_* predicates compare with ==).
     status: GenerationState

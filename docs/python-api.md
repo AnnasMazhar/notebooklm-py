@@ -1205,7 +1205,7 @@ print(f"Keywords: {guide.keywords}")
 | `rename(notebook_id, artifact_id, new_title, *, return_object=True)` | `str, str, str` | `Artifact \| None` | Rename artifact (re-fetched; raises `ArtifactNotFoundError` if missing). `return_object=False` skips the re-fetch and returns `None`. |
 | `poll_status(notebook_id, task_id)` | `str, str` | `GenerationStatus` | Check generation status |
 | `wait_for_completion(notebook_id, task_id, ...)` | `str, str, ...` | `GenerationStatus` | Wait for generation. Pass `on_status_change(status)` for sync or async progress callbacks. |
-| `retry_failed(notebook_id, artifact_id)` | `str, str` | `GenerationStatus` | Retry a failed Studio artifact in place (the UI "Retry"). Same `artifact_id` preserved; accepted → `status="in_progress"`; a synchronous refusal (rate limit / quota / not-retryable) **raises** `RateLimitError`/`RPCError`. See below. |
+| `retry_failed(notebook_id, artifact_id)` | `str, str` | `GenerationStatus` | Retry a failed Studio artifact in place (the UI "Retry"). Same `artifact_id` preserved; accepted → `status="pending"` (re-queued; advances to `in_progress` on a later poll); a synchronous refusal (rate limit / quota / not-retryable) **raises** `RateLimitError`/`RPCError`. See below. |
 
 #### Type-Specific List Methods
 
@@ -1252,7 +1252,9 @@ not deleted first; the same `artifact_id` is preserved and returned as the task
 id, so `poll_status()` / `wait_for_completion()` keep working against it.
 
 It follows the ADR-0019 "async kickoff" contract: an accepted retry returns
-`GenerationStatus(status="in_progress")`, while a **synchronous refusal**
+`GenerationStatus(status="pending")` — the response row carries wire code 1
+(`ARTIFACT_STATUS_INITIALIZED`), i.e. re-queued but not yet picked up, advancing
+to `in_progress` on a later poll — while a **synchronous refusal**
 (`USER_DISPLAYABLE_ERROR` — rate limit, quota, or a non-retryable artifact)
 **raises** the underlying `RateLimitError` / `RPCError` rather than returning a
 `status="failed"` handle. (As a brand-new method it is born on the right side
@@ -1263,7 +1265,7 @@ callers decide whether to re-invoke.
 
 ```python
 status = await client.artifacts.retry_failed(nb_id, failed_artifact_id)
-# status.task_id == failed_artifact_id, status.status == "in_progress"
+# status.task_id == failed_artifact_id, status.status == "pending"
 final = await client.artifacts.wait_for_completion(nb_id, status.task_id)
 
 # Auto-retry on a rate-limited refusal with the public helper. Because
@@ -2364,7 +2366,7 @@ Returned by `poll_status`, `wait_for_completion`, and most artifact generation m
 @dataclass
 class GenerationStatus:
     task_id: str                          # Same value as Artifact.id once complete
-    status: GenerationState               # str-Enum: "pending" | "in_progress" | "completed" | "failed" | "not_found" | "removed" | "unknown"
+    status: GenerationState               # str-Enum; see the member table below for all nine values
     url: str | None = None                # Populated for media artifacts when status == "completed"
     error: str | None = None
     error_code: str | None = None         # e.g. "USER_DISPLAYABLE_ERROR" for rate limits
@@ -2440,8 +2442,10 @@ working unchanged. **Prefer the `.is_*` predicates** (`status.is_complete`,
 | `PENDING_REVIEW` | `"pending_review"` | status code 6 — backend state with unconfirmed semantics ([#2127](https://github.com/teng-lin/notebooklm-py/issues/2127)) |
 | `REMOVED` | `"removed"` | `wait_for_completion` after a sustained delisting |
 
-`SUGGESTED` and `PENDING_REVIEW` are non-terminal: a poll loop keeps waiting on
-them, exactly as it did when they decoded as `"unknown"`.
+`UNKNOWN`, `SUGGESTED` and `PENDING_REVIEW` are all treated as *still running*:
+`wait_for_completion` keeps polling and the REST poll route keeps the task in
+its pending registry, exactly as they did when 5 and 6 decoded to `"unknown"`.
+Only `COMPLETED`, `FAILED` and `REMOVED` are terminal.
 
 > **Note:** because `status` is now typed `GenerationState`, constructing
 > `GenerationStatus(..., status="completed")` with a bare string literal is a

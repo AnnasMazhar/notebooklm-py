@@ -73,6 +73,32 @@ def test_poll_transitions_to_completed(authed_client: TestClient, fake_client: F
     assert done.json()["status"] == "completed"
 
 
+@pytest.mark.parametrize(
+    "state",
+    [GenerationState.UNKNOWN, GenerationState.SUGGESTED, GenerationState.PENDING_REVIEW],
+    ids=lambda s: s.value,
+)
+def test_poll_still_running_states_keep_the_task_in_the_registry(
+    authed_client: TestClient, fake_client: FakeClient, state: GenerationState
+) -> None:
+    """#2127: none of these says generation finished, so none may evict the task.
+
+    Evicting on a non-terminal state would make the *next* benign NOT_FOUND poll
+    (post-create lag, transient delisting) 404 instead of projecting — so the
+    second half of each case is the one that matters.
+    """
+    task_id = _generate_audio(authed_client)
+    fake_client.poll_states[("nb-1", task_id)] = state
+    resp = authed_client.get(f"/v1/notebooks/nb-1/artifacts/{task_id}")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == state.value
+
+    fake_client.poll_states[("nb-1", task_id)] = GenerationState.NOT_FOUND
+    lagged = authed_client.get(f"/v1/notebooks/nb-1/artifacts/{task_id}")
+    assert lagged.status_code == 200, f"{state.value} evicted the task from the registry"
+    assert lagged.json()["status"] == "not_found"
+
+
 def test_poll_removed_is_410(authed_client: TestClient, fake_client: FakeClient) -> None:
     task_id = _generate_audio(authed_client)
     fake_client.poll_states[("nb-1", task_id)] = GenerationState.REMOVED
