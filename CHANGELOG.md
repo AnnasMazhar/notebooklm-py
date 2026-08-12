@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Deep-research imports no longer crash on a known backend retry rejection.**
+  `IMPORT_RESEARCH` gets a batch-size-scaled read timeout (60-240s, scaled by
+  requested source count) instead of the shared 30s default, since the server
+  fetches/parses/embeds every entry before responding and routinely exceeds it
+  on large batches. `ResearchAPI.import_sources_with_verification`'s
+  timeout-retry loop also now recovers from the documented gRPC 9
+  (`FAILED_PRECONDITION`) the server returns when a retry lands against a
+  task it already partially committed — verified via `sources.list` the same
+  way a lost-response timeout is, but only a fully-verified success is
+  accepted (a partial/no match surfaces the error immediately rather than
+  retrying against the already-rejected task). Fixes
+  [#2187](https://github.com/teng-lin/notebooklm-py/issues/2187).
 - **`Notebook.is_owner` no longer inverts on shared notebooks, and the notebook's
   role is now surfaced.** `is_owner` was decoded from `meta[1]` (proto tag 2) on
   the belief that the slot flagged ownership. A two-account live probe showed
