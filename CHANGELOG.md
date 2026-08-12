@@ -82,10 +82,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   member integers changed. This is filed under *Fixed* because the old integers
   were simply wrong about the wire, but the migration below is required.
 
-  **User-visible changes.** The `ArtifactStatus` member *names* and the
-  `status_str` / `GenerationState` vocabulary are unchanged — `PENDING` still
-  means "queued" and `PROCESSING` still means "generating" — but the wire code
-  behind each moved, so the strings a given artifact reports change:
+  **User-visible changes.** No existing `ArtifactStatus` member name, and no
+  existing `status_str` / `GenerationState` value, was renamed or removed —
+  `PENDING` still means "queued" and `PROCESSING` still means "generating".
+  What changed is which wire code produces which string, plus two *additions*
+  to the vocabulary (`SUGGESTED` / `"suggested"` and `PENDING_REVIEW` /
+  `"pending_review"`, for codes 5 and 6, which previously had no members and
+  decoded to `"unknown"`). So an exhaustive `if`/`elif` or `match` over the
+  status strings needs a new arm, while every existing arm keeps its meaning:
   - wire code 1 now renders `"pending"` (was `"in_progress"`), and code 2 now
     renders `"in_progress"` (was `"pending"`). This affects `Artifact.status_str`,
     `GenerationStatus.status`, the CLI's `artifact poll` / `--json` output, the

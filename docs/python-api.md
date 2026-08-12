@@ -2321,16 +2321,17 @@ class Artifact:
 | 5 | `SUGGESTED` | `"suggested"` | A suggestion row, not a real artifact; filtered out of listings server-side |
 | 6 | `PENDING_REVIEW` | `"pending_review"` | Backend state whose semantics are unconfirmed; modeled so it stays distinguishable from `"unknown"` |
 
-> **Corrected ([#2127](https://github.com/teng-lin/notebooklm-py/issues/2127)):**
-> codes 1 and 2 were transposed relative to the backend — the library read 1 as
-> "in_progress" and 2 as "pending". `Artifact.is_pending` therefore returned
-> `True` for an artifact that was mid-generation, and `is_processing` returned
-> `False` for it. The member *names* and the `status_str` vocabulary are
-> unchanged; only the wire code behind each one was corrected. Callers that
-> hard-coded the integers (`artifact.status == 1` to mean "generating") must
-> flip them; callers using `.is_pending` / `.is_processing` / `.status_str`
-> now get the correct answer with no change. Codes 0/5/6 previously all read
-> as `"unknown"`.
+**Corrected in [#2127](https://github.com/teng-lin/notebooklm-py/issues/2127):**
+codes 1 and 2 were transposed relative to the backend — the library read 1 as
+`"in_progress"` and 2 as `"pending"`. `Artifact.is_pending` therefore returned
+`True` for an artifact that was mid-generation, and `is_processing` returned
+`False` for it. No member name or existing status string was renamed; what moved
+is the wire code behind each, and codes 0/5/6 gained members where they had
+previously all decoded to `"unknown"` (so `"suggested"` and `"pending_review"`
+are new strings an exhaustive match must now handle). Callers that hard-coded
+the integers (`artifact.status == 1` to mean "generating") must flip them;
+callers using `.is_pending` / `.is_processing` / `.status_str` get the correct
+answer with no change.
 
 > **Removed in v0.5.0:** `Artifact.artifact_type` and `Artifact.variant`
 > were replaced by `Artifact.kind` plus `.is_quiz` / `.is_flashcards`.
