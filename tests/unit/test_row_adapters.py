@@ -1248,9 +1248,9 @@ class TestSourceRowPositionContract:
         assert SourceRow._META_DRIVE_DESCRIPTOR_POS == 9
         assert SourceRow._META_MIME_POS == 19
         assert SourceRow._DRIVE_DESCRIPTOR_MIME_POS == 2
-        # Drive documentId positions — both messages declare it as tag 1 (#2113).
-        assert SourceRow._GOOGLE_DOCS_DOCUMENT_ID_POS == 0
-        assert SourceRow._DRIVE_DESCRIPTOR_DOCUMENT_ID_POS == 0
+        # Drive documentId position — one constant for both blocks, since
+        # GoogleDocs/GoogleDrive SourceMetadata both declare it as tag 1 (#2113).
+        assert SourceRow._DRIVE_DOCUMENT_ID_POS == 0
 
     def test_id_envelope_positions(self) -> None:
         """Id-envelope positions: plain id at [0]; drive-backed at [2][0]."""
@@ -1282,13 +1282,12 @@ class TestSourceRowPositionContract:
             SourceRow._META_DRIVE_DESCRIPTOR_POS,
             SourceRow._META_MIME_POS,
             SourceRow._DRIVE_DESCRIPTOR_MIME_POS,
-            SourceRow._GOOGLE_DOCS_DOCUMENT_ID_POS,
-            SourceRow._DRIVE_DESCRIPTOR_DOCUMENT_ID_POS,
+            SourceRow._DRIVE_DOCUMENT_ID_POS,
             SourceRow._ID_ENVELOPE_PLAIN_POS,
             SourceRow._ID_ENVELOPE_DRIVE_PAYLOAD_POS,
             SourceRow._ID_ENVELOPE_DRIVE_INNER_POS,
             SourceRow._LIST_FIRST_POS,
-        ) == (0, 1, 2, 3, 1, 0, 2, 4, 5, 7, 9, 19, 2, 0, 0, 0, 2, 0, 0)
+        ) == (0, 1, 2, 3, 1, 0, 2, 4, 5, 7, 9, 19, 2, 0, 0, 2, 0, 0)
 
 
 # ---------------------------------------------------------------------------

@@ -203,9 +203,13 @@ async def test_mcp_source_add_url_over_vcr() -> None:
         "_type_code",
         "created_at",
         "status",
+        # Drive file id for Drive-backed sources; ``None`` here (a URL add) but
+        # always present, since the projection emits every typed field (#2113).
+        "drive_document_id",
         "kind",
         "status_label",
     }
+    assert source["drive_document_id"] is None
     assert source["status"] == 2  # SourceStatus.READY
     assert source["status_label"] == "ready"
 

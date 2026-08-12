@@ -54,7 +54,13 @@ import pytest
 import notebooklm._runtime.helpers as _runtime_helpers
 from notebooklm import NotebookLMClient
 from notebooklm._idempotency import IDEMPOTENCY_REGISTRY, IdempotencyPolicy
-from notebooklm.exceptions import NetworkError, NotebookLMError
+from notebooklm.exceptions import (
+    NetworkError,
+    NotebookLMError,
+    ServerError,
+    SourceAddError,
+    ValidationError,
+)
 from notebooklm.rpc import RPCMethod
 from tests._fixtures.kernel_test_helpers import install_http_client_for_test
 
@@ -143,7 +149,7 @@ def _drive_descriptor_source_row(src_id: str, title: str, document_id: str) -> l
     return [[src_id], title, metadata, [None, 2]]
 
 
-def _get_notebook_response(notebook_id: str, src_rows: list) -> str:
+def _get_notebook_response(src_rows: list) -> str:
     """Build a GET_NOTEBOOK response from pre-built source rows."""
     return _wrb_response(RPCMethod.GET_NOTEBOOK.value, [["Test Notebook", src_rows]])
 
@@ -242,11 +248,52 @@ async def test_add_url_probe_short_circuits_when_first_response_lost(auth_tokens
 
 
 _DRIVE_ROW_BUILDERS = {
-    # metadata[0] — googleDocsMetadata.documentId (Google-native Doc/Slides/Sheet)
+    # metadata[0] — googleDocsMetadata.documentId. Live-observed on type codes
+    # 1 (Docs) and 2 (Slides).
     "google_docs_metadata": _google_docs_source_row,
-    # metadata[9] — googleDriveSourceMetadata.documentId (Drive-hosted binary)
+    # metadata[9] — googleDriveSourceMetadata.documentId. Live-observed on type
+    # code 14 (Drive-hosted files, incl. native Sheets and Drive PDFs).
     "drive_descriptor": _drive_descriptor_source_row,
 }
+
+#: A Drive file id as it appears on the wire (44-char Base64URL), from the live
+#: ADD_SOURCE capture in ``tests/cassettes/sources_add_drive.yaml``.
+_DRIVE_FILE_ID = "1oAk_INJHbIPsIh49jgNqj3FESSGHZrzxFY7t05Lvvl0"
+
+
+def _drive_probe_handler(
+    *,
+    baseline_rows: list,
+    post_create_rows: list,
+    counts: dict[str, int],
+    baseline_status: int = 200,
+):
+    """Build a mock handler modelling the real add_drive call sequence.
+
+    ``add_drive`` lists once *before* the create to snapshot a baseline, then
+    the create 502s, then the probe lists again. Returning different notebook
+    contents for the two GET_NOTEBOOK calls is what lets a test distinguish "the
+    create landed" from "a copy was already there".
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        rpc_id = _rpc_id_in_request(request)
+        if rpc_id == RPCMethod.ADD_SOURCE.value:
+            counts["add"] += 1
+            return httpx.Response(502, text="bad gateway")
+        if rpc_id == RPCMethod.GET_NOTEBOOK.value:
+            counts["get"] += 1
+            # Any list before the first create attempt is the baseline snapshot;
+            # anything after it is a probe. Keyed off the create rather than a
+            # call index so an internally-retried baseline still counts as one.
+            if counts["add"] == 0:
+                if baseline_status != 200:
+                    return httpx.Response(baseline_status, text="baseline unavailable")
+                return httpx.Response(200, text=_get_notebook_response(baseline_rows))
+            return httpx.Response(200, text=_get_notebook_response(post_create_rows))
+        return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
+
+    return handler
 
 
 @pytest.mark.parametrize("slot", sorted(_DRIVE_ROW_BUILDERS), ids=sorted(_DRIVE_ROW_BUILDERS))
@@ -260,56 +307,159 @@ async def test_add_drive_probe_short_circuits_when_first_response_lost(
     thing standing between the user and a second copy of the same Drive file.
 
     Both live-captured Drive row shapes are exercised: the ``documentId`` lands
-    in ``metadata[0]`` for a Google-native doc and in ``metadata[9]`` for a
-    Drive-hosted binary. Neither row carries a URL — the previous
+    in ``metadata[0]`` for a Google-native Doc/Slides and in ``metadata[9]`` for
+    a Drive-hosted file. Neither row carries a URL — the previous
     ``/d/<file_id>``-in-``source.url`` probe therefore matched nothing and let
     ``idempotent_create`` re-issue the add every single time.
     """
     notebook_id = "nb_test"
-    file_id = "1oAk_INJHbIPsIh49jgNqj3FESSGHZrzxFY7t05Lvvl0"
     title = "My Drive Doc"
     src_id = "src_drive_lost"
 
-    add_count = 0
-    get_count = 0
+    # A neighbouring non-Drive source proves the probe skips rows whose
+    # ``drive_document_id`` is ``None``.
+    web_row = _url_source_row("src_web", "A Web Page", "https://example.com/article")
+    committed = _DRIVE_ROW_BUILDERS[slot](src_id, title, _DRIVE_FILE_ID)
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal add_count, get_count
-        rpc_id = _rpc_id_in_request(request)
-        if rpc_id == RPCMethod.ADD_SOURCE.value:
-            add_count += 1
-            return httpx.Response(502, text="bad gateway")
-        if rpc_id == RPCMethod.GET_NOTEBOOK.value:
-            get_count += 1
-            return httpx.Response(
-                200,
-                text=_get_notebook_response(
-                    notebook_id,
-                    [
-                        # A neighbouring non-Drive source proves the probe skips
-                        # rows whose ``drive_document_id`` is ``None``.
-                        _url_source_row("src_web", "A Web Page", "https://example.com/article"),
-                        _DRIVE_ROW_BUILDERS[slot](src_id, title, file_id),
-                    ],
-                ),
-            )
-        return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
-
-    transport = httpx.MockTransport(handler)
+    counts = {"add": 0, "get": 0}
+    transport = httpx.MockTransport(
+        _drive_probe_handler(
+            baseline_rows=[web_row],
+            post_create_rows=[web_row, committed],
+            counts=counts,
+        )
+    )
     client = _make_client_with_transport(transport, auth_tokens)
     try:
-        source = await client.sources.add_drive(notebook_id, file_id, title)
+        source = await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, title)
     finally:
         await client._collaborators.kernel.get_http_client().aclose()
 
     assert source.id == src_id
     # The committed source is recognised by its Drive documentId, not a URL.
-    assert source.drive_document_id == file_id
+    assert source.drive_document_id == _DRIVE_FILE_ID
     assert source.url is None
     # Exactly ONE ADD_SOURCE — the retry that would have duplicated the file
-    # never fires.
-    assert add_count == 1, f"expected 1 ADD_SOURCE, got {add_count}"
-    assert get_count == 1, f"expected 1 GET_NOTEBOOK probe, got {get_count}"
+    # never fires — and exactly TWO lists (baseline + probe).
+    assert counts == {"add": 1, "get": 2}
+
+
+async def test_add_drive_probe_ignores_a_pre_existing_copy_of_the_same_file(
+    auth_tokens,
+) -> None:
+    """A Drive file already in the notebook must not be adopted as "my create".
+
+    ``documentId`` is NOT unique within a notebook — the backend lets the same
+    Drive file be added twice, and the live capture in
+    ``tests/cassettes/sources_check_freshness_drive.yaml`` contains exactly that
+    (two source ids sharing one documentId). Without the baseline filter the
+    probe would return the pre-existing copy and report success even though the
+    create never landed, hiding the failure instead of surfacing it.
+    """
+    notebook_id = "nb_test"
+    title = "My Drive Doc"
+    # Present before the add, and still the only match afterwards: the create
+    # genuinely did not land.
+    pre_existing = _google_docs_source_row("src_pre_existing", "Older Copy", _DRIVE_FILE_ID)
+
+    counts = {"add": 0, "get": 0}
+    transport = httpx.MockTransport(
+        _drive_probe_handler(
+            baseline_rows=[pre_existing],
+            post_create_rows=[pre_existing],
+            counts=counts,
+        )
+    )
+    client = _make_client_with_transport(transport, auth_tokens)
+    try:
+        with pytest.raises(ServerError):
+            await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, title)
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    # The probe found no *new* match, so idempotent_create retried, exhausted
+    # its two attempts, and re-raised the transport error rather than handing
+    # back a source the caller did not create.
+    assert counts["add"] == 2
+
+
+async def test_add_drive_probe_raises_when_baseline_unavailable_and_a_copy_exists(
+    auth_tokens,
+) -> None:
+    """No baseline + a matching source = ambiguity, surfaced rather than guessed.
+
+    Mirrors ``register_file_source``'s contract: when the pre-create snapshot
+    could not be taken, a match may or may not predate the add, and silently
+    picking one is the data-corruption mode the baseline exists to prevent.
+    """
+    notebook_id = "nb_test"
+    title = "My Drive Doc"
+    existing = _google_docs_source_row("src_ambiguous", "Some Copy", _DRIVE_FILE_ID)
+
+    counts = {"add": 0, "get": 0}
+    transport = httpx.MockTransport(
+        _drive_probe_handler(
+            baseline_rows=[],
+            post_create_rows=[existing],
+            counts=counts,
+            baseline_status=500,  # baseline snapshot unavailable
+        )
+    )
+    # No executor-level retries: the baseline 500 should fail fast here, the
+    # point of the test being what the *probe* does afterwards.
+    client = _make_client_with_transport(transport, auth_tokens, server_error_max_retries=0)
+    try:
+        with pytest.raises(SourceAddError, match="baseline snapshot was unavailable"):
+            await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, title)
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+
+async def test_add_drive_probe_raises_when_multiple_new_matches_appear(auth_tokens) -> None:
+    """Two *new* sources with the requested documentId is ambiguity, not a match."""
+    notebook_id = "nb_test"
+    title = "My Drive Doc"
+    first = _google_docs_source_row("src_new_a", title, _DRIVE_FILE_ID)
+    second = _google_docs_source_row("src_new_b", title, _DRIVE_FILE_ID)
+
+    counts = {"add": 0, "get": 0}
+    transport = httpx.MockTransport(
+        _drive_probe_handler(
+            baseline_rows=[],
+            post_create_rows=[first, second],
+            counts=counts,
+        )
+    )
+    client = _make_client_with_transport(transport, auth_tokens)
+    try:
+        with pytest.raises(SourceAddError, match="probe found 2 new sources"):
+            await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, title)
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+
+async def test_add_drive_rejects_a_blank_file_id_before_writing(auth_tokens) -> None:
+    """A blank Drive id fails validation instead of POSTing an unmatchable add.
+
+    A blank id can never be matched by the probe (a row's ``drive_document_id``
+    is never ``""``), so without this guard a transport failure would retry the
+    blank add and could leave two garbage sources behind.
+    """
+    counts = {"add": 0, "get": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        counts["add"] += 1
+        return httpx.Response(200, text="should never be reached")
+
+    transport = httpx.MockTransport(handler)
+    client = _make_client_with_transport(transport, auth_tokens)
+    try:
+        with pytest.raises(ValidationError):
+            await client.sources.add_drive("nb_test", "   ", "My Drive Doc")
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    assert counts["add"] == 0, "no RPC may be issued for a blank file_id"
 
 
 @pytest.mark.parametrize(
@@ -354,40 +504,30 @@ async def test_add_drive_probe_does_not_match_unrelated_sources(
     returned in place of the one being created.
 
     In each case the probe must return ``None`` so ``idempotent_create``
-    retries the create rather than handing back the wrong source.
+    retries the create rather than handing back the wrong source — so both
+    attempts fire and the transport error is re-raised.
     """
-    from notebooklm.exceptions import ServerError
-
     notebook_id = "nb_test"
-    file_id = "1oAk_INJHbIPsIh49jgNqj3FESSGHZrzxFY7t05Lvvl0"
     title = "My Drive Doc"
+    rows = existing_rows_factory(_DRIVE_FILE_ID)
 
-    add_count = 0
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal add_count
-        rpc_id = _rpc_id_in_request(request)
-        if rpc_id == RPCMethod.ADD_SOURCE.value:
-            add_count += 1
-            return httpx.Response(502, text="bad gateway")
-        if rpc_id == RPCMethod.GET_NOTEBOOK.value:
-            return httpx.Response(
-                200,
-                text=_get_notebook_response(notebook_id, existing_rows_factory(file_id)),
-            )
-        return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
-
-    transport = httpx.MockTransport(handler)
+    counts = {"add": 0, "get": 0}
+    transport = httpx.MockTransport(
+        _drive_probe_handler(
+            baseline_rows=rows,
+            post_create_rows=rows,
+            counts=counts,
+        )
+    )
     client = _make_client_with_transport(transport, auth_tokens)
     try:
         with pytest.raises(ServerError):
-            await client.sources.add_drive(notebook_id, file_id, title)
+            await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, title)
     finally:
         await client._collaborators.kernel.get_http_client().aclose()
 
-    # The probe must NOT have spuriously matched — the wrapper retried,
-    # exhausted, and re-raised.
-    assert add_count >= 1
+    # Both create attempts fired: the probe never spuriously matched.
+    assert counts["add"] == 2
 
 
 # ---------------------------------------------------------------------------
@@ -497,8 +637,6 @@ async def test_register_file_source_does_not_match_pre_existing_filename(
     The load-bearing assertion is that the wrapper does NOT return the
     pre-existing source's id under any failure mode.
     """
-    from notebooklm.exceptions import ServerError
-
     notebook_id = "nb_test"
     filename = "report.pdf"
     pre_existing_src_id = "src_OLD_report"

@@ -24,8 +24,9 @@ This module hosts two cooperating pieces:
 
 Per-API probes used by :func:`idempotent_create` are caller-supplied
 because there is no universal probe key (notebooks: title +
-baseline-diff; sources: url-match; ``add_text``: no probe possible — see
-:class:`~notebooklm.exceptions.NonIdempotentRetryError`).
+baseline-diff; ``add_url``: url-match; ``add_drive``: Drive
+``documentId``-match + baseline-diff; ``add_text``: no probe possible —
+see :class:`~notebooklm.exceptions.NonIdempotentRetryError`).
 
 This module is private (``_idempotency.py``); call sites live in the
 domain APIs (``_notebooks.py``, ``_sources.py``) and the RPC executor
@@ -116,7 +117,8 @@ async def idempotent_create(
         probe: Coroutine factory that returns the resource if it
             already exists server-side, or ``None`` if not. Probes are
             API-specific (notebooks: list-then-baseline-diff by title;
-            sources: list-then-url-match).
+            ``add_url``: list-then-url-match; ``add_drive``:
+            list-then-documentId-match filtered by a pre-create baseline).
         max_attempts: Maximum total ``create()`` invocations (default
             2 — one initial + one retry). Each attempt is followed by
             a probe; the probe runs only after a transport failure.

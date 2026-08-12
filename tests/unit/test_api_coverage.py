@@ -231,9 +231,12 @@ class TestAddSourceDrive:
             mime_type=DriveMimeType.GOOGLE_DOC.value,
         )
 
-        rpc_call.assert_called_once()
-        call_args = rpc_call.call_args
-        params = call_args[0][1]
+        # Two calls: add_drive first snapshots the notebook's source ids so its
+        # idempotency probe can tell a fresh add from a pre-existing copy of the
+        # same Drive file (#2113), then issues the ADD_SOURCE.
+        methods = [call.args[0] for call in rpc_call.call_args_list]
+        assert methods == [RPCMethod.GET_NOTEBOOK, RPCMethod.ADD_SOURCE]
+        params = rpc_call.call_args_list[-1].args[1]
 
         # Verify source data structure - params[0] is [source_data] (single wrap)
         source_data = params[0][0]

@@ -232,6 +232,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set rather than the standard-sized one it silently got before — which is what
   those callers were asking for all along
   ([#2117](https://github.com/teng-lin/notebooklm-py/issues/2117)).
+
+- **`sources.add_drive` no longer duplicates a Drive source when a create has to
+  be retried.** Its idempotency probe matched an existing source by looking for
+  a `/d/<file_id>` segment inside `source.url`, but Drive-backed sources carry no
+  URL at all, so the probe could never match. Since this variant runs with
+  internal retries disabled, a 5xx or network failure *after* the server had
+  committed the create left the probe reporting "not committed" and the add was
+  re-issued, producing two copies of the same Drive file
+  ([#2113](https://github.com/teng-lin/notebooklm-py/issues/2113)). The probe now
+  matches on the Drive `documentId` the backend echoes back — exposed as the new
+  `Source.drive_document_id` and decoded from either
+  `SourceMetadata.googleDocsMetadata` (Docs/Slides) or
+  `googleDriveSourceMetadata` (Drive-hosted files). Because a `documentId` is not
+  unique within a notebook, matches are filtered against a snapshot of source ids
+  taken before the create, so a pre-existing copy of the same file is never
+  handed back as if it were the one just created; an unavailable snapshot or an
+  ambiguous multi-match raises `SourceAddError` rather than guessing. `add_drive`
+  also now rejects a blank `file_id` with `ValidationError` instead of writing an
+  unmatchable source.
 - **RPC bundle monitoring no longer reports authentication/access failures as
   protocol drift.** The live registry capture now classifies login,
   CookieMismatch, region/anti-abuse, HTTP, and CDN failures as exit code 2 and

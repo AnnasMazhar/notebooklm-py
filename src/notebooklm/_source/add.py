@@ -18,6 +18,7 @@ from ..exceptions import (
     RateLimitError,
     ServerError,
     SourceAddError,
+    ValidationError,
 )
 from ..rpc import RPCError, RPCMethod
 from ..types import Source
@@ -272,6 +273,14 @@ class SourceAddService:
         so a URL-based probe could never match one — it silently duplicated
         the source on every retry until #2113.
 
+        A ``documentId`` is **not** unique within a notebook: the backend
+        happily holds the same Drive file twice. The probe therefore filters
+        matches against a baseline of source ids captured before the first
+        create attempt, exactly like
+        :meth:`~notebooklm._source.upload.SourceUploader.register_file_source`
+        does for filenames, so a pre-existing copy is never handed back as if
+        it were the one just created.
+
         .. note::
            The ``title`` is sent on the wire but **ignored** for native Drive
            imports: NotebookLM re-derives the display title from live Drive
@@ -280,6 +289,13 @@ class SourceAddService:
            :meth:`~notebooklm._sources.SourcesAPI.rename` after the add if you
            need a specific title.
         """
+        if not file_id or not file_id.strip():
+            # Fail before the write rather than POSTing a blank Drive id. A
+            # blank id is also unmatchable by the probe below (a row's
+            # ``drive_document_id`` is never ``""``), so without this guard a
+            # transport failure would retry the blank add and could leave two
+            # garbage sources behind.
+            raise ValidationError("Drive file_id cannot be empty or whitespace-only")
         logger.debug("Adding Drive source to notebook %s: %s", notebook_id, title)
         source_data = [
             [file_id, mime_type, 1, title],
@@ -339,6 +355,25 @@ class SourceAddService:
                 )
             return Source.from_api_response(result, method_id=RPCMethod.ADD_SOURCE.value)
 
+        # Capture baseline source ids before the first create attempt so the
+        # probe can tell "this Drive add landed" from "the same Drive file was
+        # already in the notebook". A ``documentId`` is NOT unique within a
+        # notebook — live capture (``tests/cassettes/sources_check_freshness_
+        # drive.yaml``) holds two source ids sharing one documentId — so an
+        # unfiltered match could hand back a pre-existing copy as if it were the
+        # one just created, silently masking a failed create. ``None`` is the
+        # "baseline unavailable" sentinel; the probe then refuses to guess.
+        # Mirrors ``register_file_source`` in ``_source/upload.py``.
+        baseline_ids: set[str] | None
+        try:
+            baseline_ids = {source.id for source in await list_sources(notebook_id)}
+        except Exception:
+            logger.debug(
+                "add_drive: baseline list() failed; baseline unavailable",
+                exc_info=True,
+            )
+            baseline_ids = None
+
         # A Drive-backed source echoes the requested ``file_id`` back as the
         # ``documentId`` in its metadata (``SourceRow.drive_document_id``);
         # it carries no URL at all, which is why the previous ``/d/<file_id>``
@@ -348,11 +383,6 @@ class SourceAddService:
         # produce a false positive, and non-Drive rows (``drive_document_id is
         # None``) can never match a requested file_id.
         async def _probe() -> Source | None:
-            if not file_id:
-                # No identity to match on. Bail out before the list() round-trip
-                # rather than letting a falsy file_id compare equal to the
-                # ``None`` ``drive_document_id`` of an unrelated source.
-                return None
             try:
                 sources = await list_sources(notebook_id)
             except (AuthError, RateLimitError, ServerError, NetworkError):
@@ -360,14 +390,44 @@ class SourceAddService:
                 # — see the rationale in ``add_url._probe``.
                 raise
             except Exception:
-                logger.debug(
-                    "add_drive: probe list() failed with non-transport error; treating as no match",
+                # WARNING, not DEBUG: a decode failure here (e.g. the strict
+                # ``RPCError`` GET_NOTEBOOK raises on a drifted response) is
+                # indistinguishable from "the create did not land", so
+                # idempotent_create re-issues the add — and this variant runs
+                # with ``disable_internal_retries=True``, leaving no other net
+                # against the duplicate this probe exists to prevent.
+                logger.warning(
+                    "add_drive: probe list() failed with a non-transport error; treating as "
+                    "no match, so a retry may create a duplicate Drive source",
                     exc_info=True,
                 )
                 return None
-            for source in sources:
-                if source.drive_document_id == file_id:
-                    return source
+            matches = [source for source in sources if source.drive_document_id == file_id]
+            if baseline_ids is not None:
+                matches = [source for source in matches if source.id not in baseline_ids]
+            elif matches:
+                # Without a baseline a match may predate this add — see the
+                # ``baseline_ids`` comment for the failure mode this guards.
+                raise SourceAddError(
+                    title,
+                    message=(
+                        f"Cannot disambiguate Drive source {file_id!r}: baseline snapshot "
+                        "was unavailable, so a matching source may predate this add. "
+                        "Check the notebook source list before retrying."
+                    ),
+                )
+            if len(matches) == 1:
+                (match,) = matches  # exactly one (len==1 guard); unpack, not matches[0]
+                return match
+            if len(matches) > 1:
+                raise SourceAddError(
+                    title,
+                    message=(
+                        f"Cannot disambiguate Drive source {file_id!r}: probe found "
+                        f"{len(matches)} new sources with this documentId after a "
+                        "transport failure. Check the notebook source list before retrying."
+                    ),
+                )
             return None
 
         result = await idempotent_create(

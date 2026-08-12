@@ -166,22 +166,20 @@ MAPPINGS: tuple[Mapping, ...] = (
         "SourceMetadata",
         "googleDriveSourceMetadata",
     ),
-    # ---- Source row: the two Drive documentId slots (#2113) ----------------
-    # Both nested messages declare `documentId` as tag 1, so both constants are
-    # 0. Named separately so a reshape of either message is caught on its own.
+    # ---- Source row: the Drive documentId slot (#2113) ---------------------
     Mapping(
         "sources",
         "SourceRow",
-        "_GOOGLE_DOCS_DOCUMENT_ID_POS",
-        "GoogleDocsSourceMetadata",
-        "documentId",
-    ),
-    Mapping(
-        "sources",
-        "SourceRow",
-        "_DRIVE_DESCRIPTOR_DOCUMENT_ID_POS",
+        "_DRIVE_DOCUMENT_ID_POS",
         "GoogleDriveSourceMetadata",
         "documentId",
+        note=(
+            "one constant indexes BOTH Drive blocks: GoogleDocsSourceMetadata "
+            "(metadata[0]) and GoogleDriveSourceMetadata (metadata[9]) each "
+            "declare documentId as tag 1, so both read index 0. Asserted here "
+            "against the Drive copy; the Docs copy is checked by "
+            "test_google_docs_document_id_shares_the_drive_tag."
+        ),
     ),
     Mapping(
         "sources",
