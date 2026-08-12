@@ -2447,9 +2447,8 @@ it is `True` for exactly `COMPLETED`, `FAILED` and `REMOVED`. Everything else �
 including `NOT_FOUND`, `UNKNOWN`, and the `SUGGESTED` / `PENDING_REVIEW` states
 added in #2127 — means *keep waiting*, so `wait_for_completion` keeps polling
 and the REST poll route keeps the task in its pending registry. Prefer it over
-enumerating members yourself:
-
-`GenerationStatus.is_terminal` delegates to it, so branch on the status object:
+enumerating members yourself — and since `GenerationStatus.is_terminal`
+delegates to it, branch on the status object:
 
 ```python
 status = await client.artifacts.poll_status(nb_id, task_id)

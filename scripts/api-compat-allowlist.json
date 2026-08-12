@@ -144,6 +144,16 @@
       "code": "changed-constant-value",
       "object": "notebooklm.auth.REQUIRED_COOKIE_DOMAINS",
       "reason": "Gemini Notebook rebrand (#2013, shipped in #2020): notebook.google.com and .notebook.google.com joined the required cookie-domain tier because Google sets the per-product binding cookies (OSID / __Secure-OSID) on that host. Additive for the constant's documented use (an extractor allowlist); a narrower set would drop binding cookies and break login."
+    },
+    {
+      "code": "changed-enum-value",
+      "object": "notebooklm.types.ArtifactStatus.PENDING",
+      "reason": "Value changed 2 -> 1. #2127: this client had ArtifactStatus wire codes 1 and 2 transposed relative to Google's backend enum. Code 1 is ARTIFACT_STATUS_INITIALIZED (queued; the worker has not started) and code 2 is ARTIFACT_STATUS_PROCESSING (actively generating) \u2014 confirmed by the recovered enum dump in docs/mobile/enums.txt, by two independent live traces showing 2 -> 3 on a generating artifact, and by a live probe on the fixing branch. The old integers were wrong about the wire rather than a contract worth preserving, so this is a decode correction, not an API redesign. Member NAMES and the status-string vocabulary are unchanged: PENDING has always meant 'queued' and PROCESSING 'actively generating', so callers using .is_pending / .is_processing / .status_str / GenerationState get the correct answer with no change. Only callers comparing the raw integers must flip them. Documented in CHANGELOG.md (with the timeout-exception consequence), docs/stability.md and docs/python-api.md; pinned by tests/_guardrails/_wire_contract.py ENUM_BINDINGS against the backend dump."
+    },
+    {
+      "code": "changed-enum-value",
+      "object": "notebooklm.types.ArtifactStatus.PROCESSING",
+      "reason": "Value changed 1 -> 2. #2127: this client had ArtifactStatus wire codes 1 and 2 transposed relative to Google's backend enum. Code 1 is ARTIFACT_STATUS_INITIALIZED (queued; the worker has not started) and code 2 is ARTIFACT_STATUS_PROCESSING (actively generating) \u2014 confirmed by the recovered enum dump in docs/mobile/enums.txt, by two independent live traces showing 2 -> 3 on a generating artifact, and by a live probe on the fixing branch. The old integers were wrong about the wire rather than a contract worth preserving, so this is a decode correction, not an API redesign. Member NAMES and the status-string vocabulary are unchanged: PENDING has always meant 'queued' and PROCESSING 'actively generating', so callers using .is_pending / .is_processing / .status_str / GenerationState get the correct answer with no change. Only callers comparing the raw integers must flip them. Documented in CHANGELOG.md (with the timeout-exception consequence), docs/stability.md and docs/python-api.md; pinned by tests/_guardrails/_wire_contract.py ENUM_BINDINGS against the backend dump."
     }
   ],
   "extra_public_names": {

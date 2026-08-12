@@ -171,7 +171,7 @@ class Artifact:
     id: str
     title: str
     _artifact_type: int = field(repr=False)  # ArtifactTypeCode enum value
-    status: int  # ArtifactStatus code; read via .status_str / .is_* , not by integer
+    status: int  # ArtifactStatus code; read via .status_str / .is_*, not by integer
     created_at: datetime | None = None
     url: str | None = None
     _variant: int | None = field(
