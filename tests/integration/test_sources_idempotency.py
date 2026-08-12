@@ -45,6 +45,7 @@ flatly keyed by request shape, not call order.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -514,7 +515,12 @@ async def test_add_drive_probe_does_not_match_unrelated_sources(
     counts = {"add": 0, "get": 0}
     transport = httpx.MockTransport(
         _drive_probe_handler(
-            baseline_rows=rows,
+            # Baseline is EMPTY on purpose: these rows must be rejected by the
+            # *match predicate*, not merely filtered out for pre-dating the add.
+            # With them in the baseline this test passes even against a
+            # substring match or the old `/d/<file_id>/` URL probe — it would
+            # only be re-testing the pre-existing-copy case.
+            baseline_rows=[],
             post_create_rows=rows,
             counts=counts,
         )
@@ -967,3 +973,141 @@ async def test_add_drive_recovered_create_still_honors_the_requested_title(auth_
     assert renames == [(src_id, requested_title)], "the recovery path skipped the rename"
     assert source.title == requested_title
     assert counts["add"] == 1
+
+
+async def test_add_drive_probe_transport_error_propagates(auth_tokens) -> None:
+    """A probe that itself 5xxes must propagate, not read as "no match".
+
+    Mirrors ``test_add_url_probe_network_error_propagates``. Swallowing it would
+    make a broken probe indistinguishable from "the create did not land", so
+    ``idempotent_create`` would retry on top of it — recreating the very
+    duplicate this probe exists to prevent.
+    """
+    notebook_id = "nb_test"
+    counts = {"add": 0, "get": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        rpc_id = _rpc_id_in_request(request)
+        if rpc_id == RPCMethod.ADD_SOURCE.value:
+            counts["add"] += 1
+            return httpx.Response(502, text="bad gateway")
+        if rpc_id == RPCMethod.GET_NOTEBOOK.value:
+            counts["get"] += 1
+            # Baseline succeeds; every later list (the probe) is a hard 503.
+            if counts["add"] == 0:
+                return httpx.Response(200, text=_get_notebook_response([]))
+            return httpx.Response(503, text="probe unavailable")
+        return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
+
+    transport = httpx.MockTransport(handler)
+    client = _make_client_with_transport(transport, auth_tokens, server_error_max_retries=0)
+    try:
+        with pytest.raises(ServerError):
+            await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, "My Drive Doc")
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    # The probe raised on the first attempt, so no second create was issued.
+    assert counts["add"] == 1
+
+
+async def test_add_drive_probe_decode_failure_warns_and_does_not_match(auth_tokens, caplog) -> None:
+    """A non-transport probe failure is loud, and still lets the retry proceed.
+
+    A drifted GET_NOTEBOOK makes the strict decoder raise ``RPCError``. That is
+    NOT a transport signal, so it must not propagate as one — but it also cannot
+    pass unremarked, because it is indistinguishable from "the create did not
+    land" and this variant has no internal retries to fall back on.
+    """
+    notebook_id = "nb_test"
+    counts = {"add": 0, "get": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        rpc_id = _rpc_id_in_request(request)
+        if rpc_id == RPCMethod.ADD_SOURCE.value:
+            counts["add"] += 1
+            return httpx.Response(502, text="bad gateway")
+        if rpc_id == RPCMethod.GET_NOTEBOOK.value:
+            counts["get"] += 1
+            if counts["add"] == 0:
+                return httpx.Response(200, text=_get_notebook_response([]))
+            # Structurally undecodable notebook envelope -> RPCError, not 5xx.
+            return httpx.Response(200, text=_wrb_response(RPCMethod.GET_NOTEBOOK.value, "nonsense"))
+        return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
+
+    transport = httpx.MockTransport(handler)
+    client = _make_client_with_transport(transport, auth_tokens)
+    with caplog.at_level(logging.WARNING, logger="notebooklm._sources"):
+        try:
+            with pytest.raises(ServerError):
+                await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, "My Drive Doc")
+        finally:
+            await client._collaborators.kernel.get_http_client().aclose()
+
+    # Treated as "no match", so both attempts fire and the transport error wins.
+    assert counts["add"] == 2
+    assert "may create a duplicate Drive source" in caplog.text
+
+
+async def test_add_drive_probe_matches_on_the_second_attempt(auth_tokens) -> None:
+    """The baseline captured before attempt 1 is still correct at probe 2.
+
+    Sequence: create fails, probe finds nothing, create fails again, and only
+    then does the committed source surface (source lists lag). The single
+    pre-create baseline must still identify it as new.
+    """
+    notebook_id = "nb_test"
+    src_id = "src_late"
+    committed = _google_docs_source_row(src_id, "My Drive Doc", _DRIVE_FILE_ID)
+    counts = {"add": 0, "get": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        rpc_id = _rpc_id_in_request(request)
+        if rpc_id == RPCMethod.ADD_SOURCE.value:
+            counts["add"] += 1
+            return httpx.Response(502, text="bad gateway")
+        if rpc_id == RPCMethod.GET_NOTEBOOK.value:
+            counts["get"] += 1
+            # baseline (get 1) and probe 1 (get 2) see nothing; probe 2 sees it.
+            rows = [committed] if counts["get"] >= 3 else []
+            return httpx.Response(200, text=_get_notebook_response(rows))
+        return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
+
+    transport = httpx.MockTransport(handler)
+    client = _make_client_with_transport(transport, auth_tokens)
+    try:
+        source = await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, "My Drive Doc")
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    assert source.id == src_id
+    assert counts["add"] == 2, "both attempts should have fired before the probe matched"
+
+
+async def test_add_drive_baseline_unavailable_without_a_match_still_retries(auth_tokens) -> None:
+    """No baseline and no match is not ambiguous — it is simply "not committed".
+
+    The ambiguity raise must fire only when there is something to be ambiguous
+    about; otherwise a notebook that legitimately has no copy of the file would
+    turn a recoverable transport blip into a hard error.
+    """
+    notebook_id = "nb_test"
+    counts = {"add": 0, "get": 0}
+
+    transport = httpx.MockTransport(
+        _drive_probe_handler(
+            baseline_rows=[],
+            post_create_rows=[_url_source_row("src_web", "A Web Page", "https://example.com")],
+            counts=counts,
+            baseline_status=500,  # baseline snapshot unavailable
+        )
+    )
+    client = _make_client_with_transport(transport, auth_tokens, server_error_max_retries=0)
+    try:
+        with pytest.raises(ServerError):
+            await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, "My Drive Doc")
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    # ServerError (the real failure), not SourceAddError — and the retry ran.
+    assert counts["add"] == 2

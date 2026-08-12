@@ -646,7 +646,7 @@ class TestDriveDocumentIdDriftWarning:
         ("block", "why"),
         [
             (None, "absent block — the overwhelmingly common non-Drive row"),
-            ([], "empty block carries no claim to be a Drive row"),
+            ([], "block too short to hold the id slot at all"),
             ("https://example.com/page", "the legacy bare-http string at metadata[0]"),
         ],
         ids=["null", "empty", "bare_http_str"],

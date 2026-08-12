@@ -469,11 +469,10 @@ class SourceRow:
         #1832 overload). No corpus row populates both, so the order is an
         arbitrary-but-pinned tie-break, not a precedence claim.
 
-        This is the only identity-bearing echo of the Drive ``file_id`` such a
-        source carries — the URL slots are empty and ``metadata[0]`` holds the
-        Drive block, not a URL, so :attr:`url` is ``None`` on every Drive row.
-        ``sources.add_drive`` probes on it (#2113); non-Drive rows return
-        ``None``, so a ``file_id`` equality match can never select one.
+        The only identity-bearing echo of the Drive ``file_id``: the URL slots
+        are empty and ``metadata[0]`` holds the Drive block, not a URL, so
+        :attr:`url` is ``None`` on every Drive row. ``sources.add_drive`` probes
+        on it (#2113); non-Drive rows return ``None`` and never match a file_id.
         """
         metadata = self.metadata
         if metadata is None:
@@ -486,10 +485,10 @@ class SourceRow:
         """Read a ``documentId`` from the Drive block at ``block_pos``.
 
         Structural absence degrades silently — a missing / non-list block just
-        means "not a Drive row". Semantic drift warns once (like the
-        unmapped-status path): a present, non-empty block IS a Drive row, so a
-        non-string / blank id means the slot moved — the #2113 signature, where
-        the probe then reports "not committed" forever.
+        means "not a Drive row". Semantic drift warns once (like the unmapped-
+        status path): a present block IS a Drive row, so a non-string / blank id
+        means the slot moved — the #2113 signature, where the probe then reports
+        "not committed" forever.
         """
         if len(metadata) <= block_pos:
             return None
@@ -499,11 +498,12 @@ class SourceRow:
         value = block[self._DRIVE_DOCUMENT_ID_POS]
         # Test with ``.strip()`` but return the wire value verbatim: a blank or
         # whitespace-only id is unmatchable (``add_drive`` rejects such a
-        # ``file_id`` outright), so it is drift, not an id.
+        # ``file_id`` outright), so it is drift, not an id. No emptiness guard
+        # below — the length check above already returned for a short block.
         if isinstance(value, str) and value.strip():
             return value
         key = (self.method_id, block_pos)
-        if block and key not in _warned_drive_id_slots:
+        if key not in _warned_drive_id_slots:
             _warned_drive_id_slots.add(key)
             logger.warning(
                 "Drive metadata block at metadata[%d] carries no usable documentId "
