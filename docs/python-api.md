@@ -478,66 +478,47 @@ except NonIdempotentRetryError:
 
 **Partial file uploads.** File registration creates the source row before the
 resumable HTTP upload starts. If session setup or the combined upload/finalize
-request then fails, `add_file` raises `SourceAddPartialError`, a
-`SourceAddError` subclass. The exception exposes the retained `source_id` and a
-`stage` of `"start_session"` or `"upload_finalize"`. The client never deletes the
-row automatically: inspect it or remove it explicitly with
-`client.sources.delete(notebook_id, error.source_id)`. Cancellation still
-propagates as `CancelledError` rather than being converted into this exception.
+request then fails, the source row is **retained** — the client never deletes it
+automatically.
 
-Note `stage` says **where** the failure happened, not whether any bytes were
-sent: it advances to `"upload_finalize"` before the body request is issued, so a
-connection that drops before the first byte still reports that stage.
+The failure is raised as **its own type, unwrapped**: `AuthError` on an expired
+session, `RateLimitError` on a 429, `ServerError` on a 5xx, `NetworkError` on a
+dropped connection, `ValidationError` on a rejected file, or a bare
+`SourceAddError`. An existing `except ValidationError:` around `add_file()` keeps
+working unchanged — there is no new exception type to catch.
 
-**`cause` vs `__cause__`.** For most failures these are the same object. A raw
-transport failure is the exception: an `httpx.RequestError` is normalised to a
-library `NetworkError` first, so `cause` is that `NetworkError` (with the httpx
-exception on its `original_error`) while `__cause__` stays the raw
-`httpx.RequestError`. Branch on `cause`: every failure the client *recognises*
-— transport resets, and the HTTP statuses the upload endpoint answers with — is
-normalised to a library exception there, which is what makes the category
-reliable.
-
-It is not, however, a guarantee for every possible cause. The post-registration
-wrapper catches `Exception`, so anything else raised between registering the row
-and finishing the upload — a file-read `OSError`, or an exception from your own
-`on_progress` callback — is wrapped **unchanged** and reaches you as itself.
-Give any `isinstance` chain over `cause` a fallback branch.
+To identify the retained row, read the `source_id` and `stage` attributes the
+client attaches to that exception. They are present *only* on a
+post-registration upload failure, so read them defensively:
 
 ```python
-from notebooklm import SourceAddPartialError
-
 try:
     source = await client.sources.add_file(nb_id, "report.pdf")
-except SourceAddPartialError as error:
-    print(error.source_id, error.stage)
-    # Reconcile first, then delete explicitly if the retained row is unusable.
+except NotebookLMError as error:
+    source_id = getattr(error, "source_id", None)
+    if source_id is not None:
+        # A row was registered and left behind; reconcile it, then remove it with
+        # client.sources.delete(nb_id, source_id) if it is unusable.
+        print(source_id, error.stage)  # stage: "start_session" | "upload_finalize"
+    raise
 ```
 
-> **Migrating an existing handler.** These failures used to reach you as their own
-> types — `AuthError` on an expired session, `RateLimitError` on a 429,
-> `ServerError` on a 5xx, `NetworkError` on a dropped connection, `ValidationError`
-> on a rejected file, or a bare `SourceAddError`. `SourceAddPartialError` is a
-> **sibling** of those classes, not a subclass, so a handler written as
-> `except ValidationError:` around `add_file()` no longer matches. Catch
-> `SourceAddPartialError` (or `SourceAddError`, which still matches) and branch on
-> `error.cause`:
->
-> ```python
-> except SourceAddPartialError as error:
->     if isinstance(error.cause, (NetworkError, ServerError, RateLimitError)):
->         ...  # transient: the row at error.source_id can be retried
->     elif isinstance(error.cause, ValidationError):
->         ...  # the file itself was rejected; delete the row
->     else:
->         ...  # local/callback failure, wrapped unchanged: treat as unknown
-> ```
->
-> A transport-level failure (a reset mid-body) is normalised to `NetworkError`
-> before wrapping, so a dropped connection reaches you as a library exception
-> rather than a raw `httpx` error. The `else` branch is not decorative: the
-> wrapper catches `Exception`, so a local file-read error or a raising
-> `on_progress` callback arrives untyped.
+`stage` says **where** the failure happened, not whether any bytes were sent: it
+advances to `"upload_finalize"` before the body request is issued, so a
+connection that drops before the first byte still reports that stage.
+Cancellation still propagates as `CancelledError`, with no attributes attached.
+
+A raw transport failure is the one case where the raised exception is not the
+original object: an `httpx.RequestError` is normalised to a library
+`NetworkError` first (the httpx exception on its `original_error`, and
+`__cause__` still the raw `httpx.RequestError`), so a dropped connection reaches
+you as a library exception rather than a raw `httpx` error — which is what makes
+it classify as retryable infrastructure instead of a rejected input.
+
+Everything else propagates as itself. The post-registration handler catches
+`Exception`, so a local file-read `OSError` or an exception raised by your own
+`on_progress` callback also arrives carrying `source_id` / `stage`; give any
+`isinstance` chain over the caught exception a fallback branch.
 
 ---
 

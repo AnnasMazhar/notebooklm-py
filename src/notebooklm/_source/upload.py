@@ -30,7 +30,6 @@ from ..exceptions import (
     NetworkError,
     RateLimitError,
     ServerError,
-    SourceAddStage,
     ValidationError,
 )
 from ..rpc import RPCError, RPCMethod, get_upload_url
@@ -58,6 +57,7 @@ from ._upload_decode import (  # noqa: F401
     _STRICT_TRANSIENT_ERROR_TYPES,
     _TIER_SOURCE_LIMITS_SUMMARY,
     GetSourceLimit,
+    SourceAddStage,
     _build_invalid_argument_source_limit_hint,
     _coerce_filename_candidate,
     _coerce_source_id_candidate,

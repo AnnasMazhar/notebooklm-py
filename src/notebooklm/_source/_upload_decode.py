@@ -13,7 +13,7 @@ import mimetypes
 import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 from urllib.parse import SplitResult, parse_qsl, urlsplit
 
 import httpx
@@ -25,11 +25,14 @@ from ..exceptions import (
     NetworkError,
     RateLimitError,
     ServerError,
-    SourceAddPartialError,
-    SourceAddStage,
     ValidationError,
 )
 from ..rpc import get_upload_url
+
+#: The two HTTP boundaries after the source registration RPC has succeeded.
+#: Internal: surfaced to callers only as the duck-typed ``stage`` attribute
+#: :func:`raise_partial_upload_failure` attaches, never in a public signature.
+SourceAddStage = Literal["start_session", "upload_finalize"]
 
 _SOURCE_ID_UUID_PATTERN = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -412,26 +415,32 @@ def _validate_upload_file_supported(file_path: Path, content_type: str) -> None:
 def raise_partial_upload_failure(
     exc: Exception, filename: str, *, source_id: str, stage: SourceAddStage
 ) -> NoReturn:
-    """Wrap a post-registration upload failure, categorising a bare transport reset.
+    """Attach retained-source recovery context to a post-registration upload failure,
+    categorising a bare transport reset, and re-raise the real exception UNWRAPPED.
 
     Companion to :func:`_raise_from_upload_http_status`, for the failures that never
     reach an HTTP status at all. ``SourceUploadPipeline.upload_file_streaming`` POSTs
     the body through a bare ``httpx.AsyncClient``, so a reset mid-body surfaces as
     ``httpx.RequestError`` — untyped, and therefore indistinguishable downstream from
-    a rejected file. ``_app/errors.py`` classifies
-    :class:`~notebooklm.exceptions.SourceAddPartialError` *by its cause*, so an
-    untyped cause falls through to the per-source ``SOURCE_ADD`` category and the
-    REST/MCP surfaces project a dropped connection as **HTTP 422** — "your input is
-    unacceptable, do not retry" — for the most retryable failure there is. Normalising
-    it to :class:`~notebooklm.exceptions.NetworkError` first keeps that projection
-    honest while ``original_error`` and ``__cause__`` both retain the httpx exception.
+    a rejected file. Normalising it to :class:`~notebooklm.exceptions.NetworkError`
+    first keeps the HTTP-status projection honest (502, not the per-source-rejection
+    422) while ``original_error`` and ``__cause__`` both retain the httpx exception.
 
-    Anything already typed is wrapped unchanged.
+    ``source_id`` and ``stage`` are set directly as attributes on the exception that
+    actually propagates rather than a wrapper type, so ``except AuthError:`` /
+    ``except NetworkError:`` / ``except ValidationError:`` around ``add_file()``
+    keeps matching a post-registration failure exactly as it would without this
+    recovery context. Callers that want the retained source read it with
+    ``getattr(exc, "source_id", None)`` / ``getattr(exc, "stage", None)``.
     """
     cause: Exception = exc
     if isinstance(exc, httpx.RequestError):
         cause = NetworkError(f"Network error uploading {filename!r} ({stage})", original_error=exc)
-    raise SourceAddPartialError(filename, source_id=source_id, stage=stage, cause=cause) from exc
+    cause.source_id = source_id  # type: ignore[attr-defined]
+    cause.stage = stage  # type: ignore[attr-defined]
+    if cause is exc:
+        raise cause
+    raise cause from exc
 
 
 def _raise_from_upload_http_status(exc: httpx.HTTPStatusError, filename: str) -> NoReturn:

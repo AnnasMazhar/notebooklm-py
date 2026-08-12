@@ -26,7 +26,6 @@ from notebooklm.exceptions import (
     NetworkError,
     RateLimitError,
     ServerError,
-    SourceAddPartialError,
     ValidationError,
 )
 from notebooklm.rpc import RPCError, RPCMethod
@@ -531,15 +530,15 @@ async def test_add_file_surfaces_registered_source_when_upload_fails(
         ),
     )
 
-    with pytest.raises(SourceAddPartialError) as exc_info:
+    with pytest.raises(ValidationError) as exc_info:
         await service.add_file("nb_123", file_path)
 
     error = exc_info.value
-    assert isinstance(error, SourceAddError)
-    assert error.source_id == "src_123"
-    assert error.stage == expected_stage
-    assert error.cause is failure
-    assert error.__cause__ is failure
+    # Unwrapped: the real cause propagates directly, with recovery context
+    # attached rather than wrapped in a new exception type.
+    assert error is failure
+    assert error.source_id == "src_123"  # type: ignore[attr-defined]
+    assert error.stage == expected_stage  # type: ignore[attr-defined]
     assert opened_files and opened_files[0].closed
 
 
@@ -580,16 +579,15 @@ async def test_transport_failure_is_typed_as_network_error_not_input_rejection(
         ),
     )
 
-    with pytest.raises(SourceAddPartialError) as exc_info:
+    with pytest.raises(NetworkError) as exc_info:
         await service.add_file("nb_123", file_path)
 
     error = exc_info.value
-    assert error.source_id == "src_123"
-    assert error.stage == expected_stage
-    # Typed, so the cause-based classifier can route it away from SOURCE_ADD…
-    assert isinstance(error.cause, NetworkError)
+    assert error.source_id == "src_123"  # type: ignore[attr-defined]
+    assert error.stage == expected_stage  # type: ignore[attr-defined]
+    # Typed, so the classifier routes it as NETWORK, not SOURCE_ADD…
+    assert error.original_error is reset
     # …without losing the httpx exception it came from.
-    assert error.cause.original_error is reset
     assert error.__cause__ is reset
 
 
@@ -610,7 +608,7 @@ async def test_add_file_does_not_wrap_registration_failure(
         await service.add_file("nb_123", file_path)
 
     assert exc_info.value is failure
-    assert not isinstance(exc_info.value, SourceAddPartialError)
+    assert not hasattr(exc_info.value, "source_id")
     assert opened_files and opened_files[0].closed
     start.assert_not_awaited()
 
@@ -646,7 +644,7 @@ async def test_add_file_does_not_wrap_cancellation_after_registration(
     # ``Task.__wakeup`` re-raises a FRESH ``CancelledError`` rather than
     # propagating the instance the test constructed (3.11+ preserves it). Identity
     # would pin an interpreter detail; not-wrapped is the behaviour we care about.
-    assert not isinstance(exc_info.value, SourceAddPartialError)
+    assert not hasattr(exc_info.value, "source_id")
     if cancel_stage == "start":
         assert exc_info.value is cancelled
     assert opened_files and opened_files[0].closed

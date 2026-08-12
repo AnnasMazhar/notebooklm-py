@@ -1222,15 +1222,6 @@ class TestSourceKindProperty:
             assert len([x for x in w if "888" in str(x.message)]) == 1
 
 
-def test_source_add_partial_error_is_exported_from_public_facades() -> None:
-    from notebooklm import SourceAddPartialError as package_error
-    from notebooklm.exceptions import SourceAddPartialError as canonical_error
-    from notebooklm.types import SourceAddPartialError as types_error
-
-    assert package_error is canonical_error
-    assert types_error is canonical_error
-
-
 class TestArtifact:
     def test_from_api_response_basic(self):
         """Test parsing basic artifact data."""

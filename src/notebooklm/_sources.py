@@ -514,9 +514,9 @@ class SourcesAPI:
         Raises:
             ValidationError: If the path is not a regular file, the title is
                 empty, or the file is an HTML-family type the upload endpoint
-                rejects (convert to text/Markdown/PDF first).
-            SourceAddPartialError: If a registered source row's upload start or finalization fails;
-                its ``source_id`` and ``stage`` identify the retained row and recovery boundary.
+                rejects (convert to text/Markdown/PDF first). A failure *after*
+                registration raises its real type unwrapped, carrying
+                ``source_id`` / ``stage`` attributes naming the retained row.
         """
         return await self._uploader.add_file(
             notebook_id,

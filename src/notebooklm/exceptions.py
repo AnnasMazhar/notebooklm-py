@@ -71,7 +71,6 @@ __all__ = [
     # Domain: Sources
     "SourceError",
     "SourceAddError",
-    "SourceAddPartialError",
     "SourceNotFoundError",
     "SourceProcessingError",
     "SourceTimeoutError",
@@ -106,7 +105,9 @@ __all__ = [
 ]
 
 
+# =============================================================================
 # Base Exception
+# =============================================================================
 
 
 class NotebookLMError(Exception):
@@ -120,7 +121,9 @@ class NotebookLMError(Exception):
     """
 
 
+# =============================================================================
 # Cross-domain umbrellas
+# =============================================================================
 
 
 class NotFoundError(NotebookLMError):
@@ -202,7 +205,9 @@ class WaitTimeoutError(NotebookLMError, TimeoutError):
     """
 
 
+# =============================================================================
 # Validation/Configuration
+# =============================================================================
 
 
 class ValidationError(NotebookLMError):
@@ -245,7 +250,9 @@ class LockUnavailableError(NotebookLMError, TimeoutError):
     """
 
 
+# =============================================================================
 # Headless re-auth (layer-3 auth recovery; not an RPC-protocol error)
+# =============================================================================
 
 
 class HeadlessReauthError(NotebookLMError):
@@ -271,7 +278,9 @@ class HeadlessLoginRequiredError(HeadlessReauthError):
     """
 
 
+# =============================================================================
 # Network (NOT under RPC - happens before RPC processing)
+# =============================================================================
 
 
 class NetworkError(NotebookLMError):
@@ -296,7 +305,9 @@ class NetworkError(NotebookLMError):
         self.original_error = original_error
 
 
+# =============================================================================
 # RPC Protocol
+# =============================================================================
 
 
 class RPCError(NotebookLMError):
@@ -677,7 +688,9 @@ class RPCResponseTooLargeError(RPCError):
         self.bytes_read = bytes_read
 
 
+# =============================================================================
 # Idempotency
+# =============================================================================
 
 
 class NonIdempotentRetryError(NotebookLMError):
@@ -711,7 +724,9 @@ class IdempotencyVariantError(NotebookLMError):
     """
 
 
+# =============================================================================
 # Domain: Notebooks
+# =============================================================================
 
 
 class NotebookError(NotebookLMError):
@@ -823,7 +838,9 @@ class NotebookLimitError(NotebookError):
         return extra
 
 
+# =============================================================================
 # Domain: Chat
+# =============================================================================
 
 
 class ChatError(NotebookLMError):
@@ -848,7 +865,9 @@ class ChatResponseParseError(ChatError):
     """
 
 
+# =============================================================================
 # Domain: Sources (migrated from types.py)
+# =============================================================================
 
 
 class SourceError(NotebookLMError):
@@ -880,28 +899,6 @@ class SourceAddError(SourceError):
             "  - Rate limiting or quota exceeded"
         )
         super().__init__(msg)
-
-
-# The two HTTP boundaries after the source registration RPC has succeeded.
-SourceAddStage = Literal["start_session", "upload_finalize"]
-
-
-class SourceAddPartialError(SourceAddError):
-    """A source was registered, but its upload did not complete.
-
-    The registered source is retained so callers can inspect or recover it.
-
-    Attributes:
-        source_id: ID of the registered source.
-        stage: Upload stage that failed.
-        cause: Underlying upload exception, inherited from :class:`SourceAddError`.
-    """
-
-    def __init__(self, filename: str, *, source_id: str, stage: SourceAddStage, cause: Exception):
-        self.source_id = source_id
-        self.stage = stage
-        message = f"Source {source_id} was registered for {filename!r}; {stage} failed"
-        super().__init__(filename, cause=cause, message=message)
 
 
 class SourceNotFoundError(NotFoundError, RPCError, SourceError):
@@ -972,9 +969,10 @@ class SourceProcessingError(SourceError):
 class SourceTimeoutError(WaitTimeoutError, SourceError):
     """Timed out waiting for source readiness.
 
-    Inherits from :class:`WaitTimeoutError` (and therefore the built-in :class:`TimeoutError`) in
-    addition to :class:`SourceError`. The ``WaitTimeoutError`` mixin is additive:
-    ``except SourceError`` and ``except WaitTimeoutError`` / ``except TimeoutError`` all catch it.
+    Inherits from :class:`WaitTimeoutError` (and therefore the built-in
+    :class:`TimeoutError`) in addition to :class:`SourceError`. The
+    ``WaitTimeoutError`` mixin is additive: ``except SourceError`` and the new
+    ``except WaitTimeoutError`` / ``except TimeoutError`` clauses all catch it.
 
     Attributes:
         source_id: The ID of the source.
@@ -995,7 +993,9 @@ class SourceTimeoutError(WaitTimeoutError, SourceError):
         super().__init__(f"Source {source_id} not ready after {timeout:.1f}s{status_info}")
 
 
+# =============================================================================
 # Domain: Artifacts (migrated from types.py)
+# =============================================================================
 
 
 class ArtifactError(NotebookLMError):
@@ -1369,7 +1369,9 @@ class AmbiguousResearchTaskError(ResearchError):
         )
 
 
+# =============================================================================
 # Domain: Notes
+# =============================================================================
 
 
 class NoteError(NotebookLMError):
@@ -1418,7 +1420,9 @@ class NoteNotFoundError(NotFoundError, RPCError, NoteError):
         )
 
 
+# =============================================================================
 # Domain: Mind maps
+# =============================================================================
 
 
 class MindMapError(NotebookLMError):
@@ -1469,7 +1473,9 @@ class MindMapNotFoundError(NotFoundError, RPCError, MindMapError):
         )
 
 
+# =============================================================================
 # Domain: Source labels
+# =============================================================================
 
 
 class LabelError(NotebookLMError):
@@ -1519,7 +1525,9 @@ class LabelNotFoundError(NotFoundError, RPCError, LabelError):
         )
 
 
+# =============================================================================
 # Domain: Collections (account-level notebook groups)
+# =============================================================================
 
 
 class CollectionError(NotebookLMError):

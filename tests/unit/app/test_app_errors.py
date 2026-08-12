@@ -268,14 +268,18 @@ def test_source_add_error_with_transient_cause_stays_fatal() -> None:
         (exc.ValidationError("rejected file"), ErrorCategory.VALIDATION, False),
     ],
 )
-def test_source_add_partial_error_preserves_cause_classification(
+def test_partial_upload_recovery_attributes_do_not_change_classification(
     cause: Exception, category: ErrorCategory, retriable: bool
 ) -> None:
-    error = exc.SourceAddPartialError(
-        "report.pdf", source_id="source-1", stage="upload_finalize", cause=cause
-    )
+    """``raise_partial_upload_failure()`` attaches ``source_id``/``stage`` directly
+    to the real cause rather than wrapping it in a new type — confirm that doing
+    so does not perturb ``_category_for``'s isinstance dispatch for any of the
+    five typed causes a post-registration upload failure can be.
+    """
+    cause.source_id = "source-1"  # type: ignore[attr-defined]
+    cause.stage = "upload_finalize"  # type: ignore[attr-defined]
 
-    result = classify(error)
+    result = classify(cause)
 
     assert result.category is category
     assert result.retriable is retriable

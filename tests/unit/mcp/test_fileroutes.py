@@ -1131,15 +1131,15 @@ def test_upload_partial_error_does_not_claim_bytes_were_sent(
 ) -> None:
     # A start_session failure means no bytes left the client. The generic upstream
     # note says "your file uploaded", so this must NOT fall through to it.
-    from notebooklm.exceptions import NetworkError, SourceAddPartialError
+    from notebooklm.exceptions import NetworkError
 
     async def fake(client, exec_plan):
-        raise SourceAddPartialError(
-            "a.pdf",
-            source_id="src_1",
-            stage="start_session",
-            cause=NetworkError("connection reset"),
-        )
+        # Mirrors raise_partial_upload_failure(): source_id/stage attached
+        # directly to the real cause, not a wrapper type.
+        exc = NetworkError("connection reset")
+        exc.source_id = "src_1"  # type: ignore[attr-defined]
+        exc.stage = "start_session"  # type: ignore[attr-defined]
+        raise exc
 
     monkeypatch.setattr(_fileroutes.add_core, "execute_source_add", fake)
     app = _build(mock_client, config)
@@ -1158,17 +1158,16 @@ def test_upload_partial_error_does_not_claim_bytes_were_sent(
 def test_upload_partial_error_from_a_rejected_file_keeps_the_400_wording(
     monkeypatch, mock_client, config
 ) -> None:
-    # #2138's own evidence is an HTTP-400 upload rejection. Wrapping it must not
-    # downgrade the precise "Upload rejected" 400 into a generic upstream error.
-    from notebooklm.exceptions import SourceAddPartialError, ValidationError
+    # #2138's own evidence is an HTTP-400 upload rejection. Attaching the recovery
+    # context must not downgrade the precise "Upload rejected" 400 into a generic
+    # upstream error.
+    from notebooklm.exceptions import ValidationError
 
     async def fake(client, exec_plan):
-        raise SourceAddPartialError(
-            "a.pdf",
-            source_id="src_1",
-            stage="upload_finalize",
-            cause=ValidationError("path /home/secretuser/private/x.pdf is not allowed"),
-        )
+        exc = ValidationError("path /home/secretuser/private/x.pdf is not allowed")
+        exc.source_id = "src_1"  # type: ignore[attr-defined]
+        exc.stage = "upload_finalize"  # type: ignore[attr-defined]
+        raise exc
 
     monkeypatch.setattr(_fileroutes.add_core, "execute_source_add", fake)
     app = _build(mock_client, config)

@@ -149,11 +149,14 @@ def test_retriable_categories_are_marked_retriable() -> None:
 def test_partial_upload_error_projects_its_cause_consistently(
     cause: Exception, code: str, retriable: bool
 ) -> None:
-    error = exc.SourceAddPartialError(
-        "report.pdf", source_id="source-1", stage="upload_finalize", cause=cause
-    )
+    """``raise_partial_upload_failure()`` attaches ``source_id``/``stage`` directly
+    to the real cause rather than wrapping it, so it must project exactly like an
+    ordinary instance of its own type.
+    """
+    cause.source_id = "source-1"  # type: ignore[attr-defined]
+    cause.stage = "upload_finalize"  # type: ignore[attr-defined]
 
-    payload = tool_error_payload(error)
+    payload = tool_error_payload(cause)
 
     assert payload["code"] == code
     assert payload["retriable"] is retriable

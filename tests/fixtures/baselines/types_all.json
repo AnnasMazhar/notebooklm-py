@@ -38,7 +38,6 @@
   "SourceGuide",
   "SourceError",
   "SourceAddError",
-  "SourceAddPartialError",
   "SourceProcessingError",
   "SourceTimeoutError",
   "SourceNotFoundError",

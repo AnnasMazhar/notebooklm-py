@@ -99,15 +99,14 @@ NonIdempotentRetryError            # Raised by idempotent=True calls on a non-id
 # TimeoutError). v0.7.0 added the WaitTimeoutError umbrella so `except
 # WaitTimeoutError` catches source/artifact/research wait timeouts uniformly,
 # while `except TimeoutError` keeps working — see docs/python-api.md#waittimeouterror.
-SourceError, SourceAddError, SourceAddPartialError, SourceProcessingError, SourceTimeoutError, SourceNotFoundError
-# SourceAddPartialError.source_id and .stage identify a retained row after an
-# upload boundary fails; the library does not delete that row automatically.
-# MIGRATION (v0.8.x): a post-registration add_file() failure now raises
-# SourceAddPartialError instead of the AuthError / RateLimitError / ServerError /
-# NetworkError / ValidationError / bare SourceAddError it used to. Those classes
-# are SIBLINGS of it, so `except AuthError` around add_file() no longer matches —
-# catch SourceAddPartialError (or SourceAddError, which still does) and read
-# .cause for the original. See docs/python-api.md#partial-file-uploads.
+SourceError, SourceAddError, SourceProcessingError, SourceTimeoutError, SourceNotFoundError
+# A post-registration add_file() failure keeps raising its own type (AuthError /
+# RateLimitError / ServerError / NetworkError / ValidationError / bare
+# SourceAddError), so existing `except` clauses around add_file() are unaffected.
+# It additionally carries `source_id` and `stage` attributes identifying the
+# source row the failure left behind; the library does not delete that row
+# automatically. Read them with getattr(exc, "source_id", None) — they are absent
+# on every other failure. See docs/python-api.md#partial-file-uploads.
 NotebookError, NotebookNotFoundError
 ArtifactError, ArtifactDownloadError, ArtifactFeatureUnavailableError, ArtifactNotFoundError, ArtifactNotReadyError, ArtifactParseError
 ArtifactTimeoutError, ArtifactPendingTimeoutError, ArtifactInProgressTimeoutError

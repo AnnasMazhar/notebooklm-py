@@ -51,35 +51,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`sources.add_file()` raises `SourceAddPartialError` where it used to raise the
-  transport exception directly.** A failure *after* the source row is registered —
-  upload-session start, or the upload/finalize request — previously surfaced as
-  `AuthError`, `RateLimitError`, `ServerError`, `NetworkError`, `ValidationError`,
-  or a bare `SourceAddError`. All of those now arrive wrapped in
-  `SourceAddPartialError`, which is a **sibling** of them rather than a subclass,
-  so an existing `except AuthError:` / `except ValidationError:` around
-  `add_file()` stops matching. The original is available as both `.cause` and
-  `__cause__` (see the note below), and the wrapper adds the `source_id` /
-  `stage` needed to reconcile the row the failure left behind.
-  `except SourceAddError:` and `except NotebookLMError:` are unaffected.
-  Adapter behaviour is unchanged, by two different mechanisms: the MCP and REST
-  surfaces re-derive their category from `.cause` via `_app.errors.classify()`,
-  and the CLI — which dispatches on exception type and never calls `classify()`
-  — re-raises the typed cause so its re-auth / retry / `retry_after` guidance
-  still fires. So an auth failure still projects as auth and a dropped
-  connection still projects as a retryable failure rather than a 4xx input
-  rejection. `notebooklm source add` keeps the recovery context alongside that
-  guidance rather than instead of it: text mode adds a line naming the retained
-  `source_id`, the failure `stage`, and the `source delete` needed to retry
-  cleanly, and `--json` adds `source_id` / `stage` fields beside the existing
-  code / `retry_after`. Two caveats. Chaining: a raw `httpx.RequestError` is
-  normalised to `NetworkError` first, so for that case `.cause` is the
-  `NetworkError` (carrying the httpx exception on `.original_error`) while
-  `__cause__` is the raw httpx error. Typing: the post-registration wrapper
-  catches `Exception`, so a cause the client does not recognise — a local
-  file-read error, a raising `on_progress` callback — is wrapped unchanged and
-  `.cause` is then not a library exception; give any `isinstance` chain over it
-  a fallback branch ([#2138](https://github.com/teng-lin/notebooklm-py/issues/2138)).
 - **First-party profile replacements now use native typed results.** Browser capture consumes
   `ProfileStore.replace_from_remint()` directly, while cookie import/login/refresh use a narrow
   path-shaped login operation with primitive account modes. Existing v0.x storage wrapper
@@ -735,10 +706,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#2013](https://github.com/teng-lin/notebooklm-py/issues/2013)).
 
 - **Partial file-upload failures now retain their recovery context.** If upload
-  session start or finalization fails after source registration,
-  `SourceAddPartialError` carries the `source_id`, failure `stage`, and original
-  cause without auto-deleting the source; wire source type code `0` now maps
-  silently to `UNKNOWN` instead of emitting a drift warning (#2138).
+  session start or finalization fails after source registration, the retained
+  source row is no longer silently orphaned: the failure carries `source_id` and
+  `stage` attributes naming that row (read with
+  `getattr(exc, "source_id", None)`), and `notebooklm source add` prints the
+  `source delete` needed to retry cleanly (`--json` adds `source_id` / `stage`
+  beside the existing code / `retry_after`). The exception **type is unchanged**
+  — `AuthError`, `RateLimitError`, `ServerError`, `NetworkError`,
+  `ValidationError`, or a bare `SourceAddError` still propagate as themselves, so
+  every existing `except` clause around `add_file()` keeps matching. A raw
+  `httpx.RequestError` is normalised to `NetworkError` first (httpx exception on
+  `.original_error`, `__cause__` unchanged) so a dropped connection projects as
+  retryable infrastructure rather than a 4xx input rejection. Wire source type
+  code `0` now maps silently to `UNKNOWN` instead of emitting a drift warning
+  (#2138).
 - **Resumable-upload URL trust is now host-relative, and `Origin`/`Referer`
   derive from the validated upload URL.** Google's Scotty frontend picks which
   personal host it names in the `X-Goog-Upload-URL` response header, so an

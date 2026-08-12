@@ -188,12 +188,15 @@ def test_error_body_carries_retriable_flag() -> None:
 def test_partial_upload_error_preserves_cause_projection(
     cause: Exception, status: int, category: str, retriable: bool
 ) -> None:
-    error = exc.SourceAddPartialError(
-        "report.pdf", source_id="source-1", stage="upload_finalize", cause=cause
-    )
+    """``raise_partial_upload_failure()`` attaches ``source_id``/``stage`` directly
+    to the real cause rather than wrapping it, so it must project exactly like an
+    ordinary instance of its own type.
+    """
+    cause.source_id = "source-1"  # type: ignore[attr-defined]
+    cause.stage = "upload_finalize"  # type: ignore[attr-defined]
 
-    response = error_response(error)
-    body = _error_body(error)
+    response = error_response(cause)
+    body = _error_body(cause)
 
     assert response.status_code == status
     assert body["category"] == category
