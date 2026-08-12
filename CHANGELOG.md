@@ -68,7 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   across repeated `LIST_NOTEBOOKS`, so listing reads the ordering without
   touching it. `docs/python-api.md` now documents the semantics and carries an
   inventory of the internal call paths that bump recency — `chat.ask()` without
-  explicit `source_ids` is the most frequent;
+  explicit `source_ids` is the most frequent, and `sources.add_file()` carries an
+  unconditional pre-create baseline read;
   `client.notebooks.remove_from_recent()` is the only way to undo it. The
   backend exposes no lighter-weight existence/status probe than `GET_NOTEBOOK`,
   so no call path could be narrowed. `Notebook.modified_at` stays a dataclass
