@@ -128,6 +128,11 @@ def register_notebook_commands(cli):
                         "notebook": {
                             "id": nb.id,
                             "title": nb.title,
+                            # Kept in step with `list --json` / `use --json` so
+                            # automation sees one notebook shape (#2125).
+                            "role": (
+                                share_permission_to_str(nb.role) if nb.role is not None else None
+                            ),
                             "created_at": nb.created_at.isoformat() if nb.created_at else None,
                             "modified_at": nb.modified_at.isoformat() if nb.modified_at else None,
                         }

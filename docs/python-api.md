@@ -2179,7 +2179,10 @@ from notebooklm.types import SharePermission, share_permission_to_str
 for nb in await client.notebooks.list():
     if nb.role is SharePermission.VIEWER:
         print(f"{nb.title}: read-only")
-    print(share_permission_to_str(nb.role))  # "owner" / "editor" / "viewer"
+    # Guard the None case: share_permission_to_str is typed int | SharePermission,
+    # and an unstated role is not a level to label.
+    label = share_permission_to_str(nb.role) if nb.role is not None else "unstated"
+    print(label)  # "owner" / "editor" / "viewer" / "unstated"
 ```
 
 ### Source

@@ -348,7 +348,10 @@ class TestNotebookCreate:
         mock_client = create_mock_client()
         mock_client.notebooks.create = AsyncMock(
             return_value=Notebook(
-                id="new_nb_id", title="Test Notebook", created_at=datetime(2024, 1, 1)
+                id="new_nb_id",
+                title="Test Notebook",
+                created_at=datetime(2024, 1, 1),
+                role=SharePermission.OWNER,
             )
         )
 
@@ -363,6 +366,8 @@ class TestNotebookCreate:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["notebook"]["id"] == "new_nb_id"
+        # One notebook shape across `create` / `list` / `use` --json (#2125).
+        assert data["notebook"]["role"] == "owner"
         assert not mock_context_file.exists()
 
     def test_notebook_create_with_use_flag(self, runner, mock_auth, mock_context_file):
