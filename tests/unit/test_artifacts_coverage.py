@@ -263,9 +263,15 @@ class TestWaitForCompletion:
         with (
             patch.object(loop, "time", mock_time),
             patch("asyncio.sleep", new_callable=AsyncMock),
-            pytest.raises(ArtifactInProgressTimeoutError, match="timed out"),
+            pytest.raises(ArtifactInProgressTimeoutError, match="timed out") as exc_info,
         ):
             await api.wait_for_completion("nb_123", "task_123", timeout=1.5)
+        # Pin the phase fields to the same depth as the wire-code-1 companion
+        # below: ``_artifact_timeout_error`` classifies off the literal
+        # "in_progress" string, so ``stalled_phase`` is the load-bearing output,
+        # not just the exception class.
+        assert exc_info.value.last_status == "in_progress"
+        assert exc_info.value.stalled_phase == "in_progress"
 
     @pytest.mark.asyncio
     async def test_timeout_on_wire_code_1_is_classified_pending(self, mock_artifacts_api):

@@ -251,12 +251,14 @@ def test_is_terminal_partitions_the_enum_exactly():
     }
 
 
-def test_is_terminal_agrees_with_the_poll_loop_stop_condition():
-    """The loop stops on ``is_complete or is_failed``; ``REMOVED`` it synthesizes.
+def test_is_terminal_equals_the_is_complete_or_is_failed_predicate_pair():
+    """The enum partition matches the predicate pair ``_run_poll_loop`` stops on.
 
-    Guards against the enum's partition drifting away from the behaviour it
-    describes: for every state ``poll_status`` can emit, ``is_terminal`` must
-    match what actually ends ``_run_poll_loop``.
+    Scope note: this compares two derivations, it does not drive the loop —
+    ``_run_poll_loop`` itself returns on ``status.is_complete or
+    status.is_failed`` (``REMOVED`` it synthesizes locally, so ``poll_status``
+    can never hand it back). Pinning the pair is what keeps the enum's partition
+    from drifting away from the condition the loop actually evaluates.
     """
     for state in GenerationState:
         if state is GenerationState.REMOVED:

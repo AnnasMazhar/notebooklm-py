@@ -36,6 +36,7 @@ from pathlib import Path
 
 import pytest
 
+from notebooklm.rpc.types import ARTIFACT_STATUS_SUGGESTED_WIRE_NAME, ArtifactStatus
 from tests._guardrails._wire_contract import (
     ENUM_BINDINGS,
     ENUM_GAPS,
@@ -223,8 +224,6 @@ def test_suggested_filter_constant_tracks_the_backend_enum_name() -> None:
     constant would silently stay stale — the filter would then match nothing
     and suggestion rows would start appearing in every listing.
     """
-    from notebooklm.rpc.types import ARTIFACT_STATUS_SUGGESTED_WIRE_NAME, ArtifactStatus
-
     _backend_name, bindings = ENUM_BINDINGS["ArtifactStatus"]
     assert bindings[ArtifactStatus.SUGGESTED.value] == ARTIFACT_STATUS_SUGGESTED_WIRE_NAME
 

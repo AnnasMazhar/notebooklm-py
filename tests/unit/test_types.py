@@ -1719,17 +1719,34 @@ class TestArtifact:
         assert processing.is_pending is False
         assert completed.is_pending is False
 
-    def test_pending_and_processing_are_mutually_exclusive(self):
-        """The two transitional predicates never both answer True (#2127).
+    def test_predicate_table_for_every_status_code(self):
+        """Every code's full ``is_*`` answer set, pinned as a table (#2127).
 
-        Before the fix they were wired to each other's wire code, so an
-        artifact that was actively generating reported ``is_pending``.
+        A bare "the two are mutually exclusive" check would survive the very
+        transposition this issue fixed — swapping 1 and 2 keeps them exclusive.
+        Pinning the whole tuple per code makes the table transposition-sensitive
+        instead: before the fix, code 1 answered ``is_processing`` and code 2
+        answered ``is_pending``.
         """
-        for code in (0, 1, 2, 3, 4, 5, 6):
+        # code -> (is_pending, is_processing, is_completed, is_failed)
+        expected = {
+            0: (False, False, False, False),  # UNKNOWN
+            1: (True, False, False, False),  # INITIALIZED -> queued
+            2: (False, True, False, False),  # PROCESSING -> generating
+            3: (False, False, True, False),  # READY
+            4: (False, False, False, True),  # FAILED
+            5: (False, False, False, False),  # SUGGESTED
+            6: (False, False, False, False),  # PENDING_REVIEW
+        }
+        for code, answers in expected.items():
             artifact = Artifact.from_api_response(["id", "title", 1, None, code])
-            assert not (artifact.is_pending and artifact.is_processing)
-        assert Artifact.from_api_response(["id", "title", 1, None, 2]).is_processing is True
-        assert Artifact.from_api_response(["id", "title", 1, None, 2]).is_pending is False
+            actual = (
+                artifact.is_pending,
+                artifact.is_processing,
+                artifact.is_completed,
+                artifact.is_failed,
+            )
+            assert actual == answers, f"code {code}"
 
     def test_is_failed_property(self):
         """Test is_failed property for status=4 (generation failed)."""

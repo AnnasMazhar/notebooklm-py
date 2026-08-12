@@ -42,7 +42,12 @@ from notebooklm._row_adapters.sources import (
 )
 from notebooklm._types.common import _datetime_from_timestamp
 from notebooklm.exceptions import DecodingError, UnknownRPCMethodError
-from notebooklm.rpc.types import ArtifactStatus, ArtifactTypeCode, SourceStatus
+from notebooklm.rpc.types import (
+    ArtifactStatus,
+    ArtifactTypeCode,
+    SourceStatus,
+    artifact_status_to_str,
+)
 
 # ---------------------------------------------------------------------------
 # 1. Position-contract pin (the canary)
@@ -198,6 +203,23 @@ class TestRequiredPositionsAcceptShortRows:
     def test_non_int_status_falls_back_to_zero(self) -> None:
         row = ArtifactRow(["id", "title", 1, None, None])
         assert row.status == 0
+
+    def test_synthetic_zero_is_indistinguishable_from_backend_unknown(self) -> None:
+        """Pins the consequence #2127 accepted rather than fixed.
+
+        Modeling ``ArtifactStatus.UNKNOWN = 0`` means the ``0`` this adapter
+        synthesizes for a truncated or non-int status leaf now resolves to a
+        real member — where ``ArtifactStatus(...)`` used to raise ``ValueError``
+        and thereby signal a malformed row. The documented clean fix is to
+        narrow this property to ``int | None``; until then this test makes the
+        accepted conflation visible, and will fail (correctly) when someone
+        does narrow it.
+        """
+        truncated = ArtifactRow(["id", "title"])
+        non_int_leaf = ArtifactRow(["id", "title", 1, None, "not-a-code"])
+        for row in (truncated, non_int_leaf):
+            assert ArtifactStatus(row.status) is ArtifactStatus.UNKNOWN
+            assert artifact_status_to_str(row.status) == "unknown"
 
     def test_minimal_row_no_variant_no_timestamp(self) -> None:
         """The smallest meaningful row: positions 0..4 present, 9 and 15 absent."""
