@@ -56,15 +56,23 @@ def _run_workers(workers: Sequence[Callable[[], None]]) -> None:
     writes, so the counter/key assertions below report a "lost update" that
     never happened. Collecting the exceptions and re-raising keeps the two
     diagnoses distinguishable.
+
+    The catch is deliberately ``BaseException``, not ``Exception``. Pytest's own
+    outcome signals — ``pytest.fail()`` -> ``Failed``, ``pytest.skip()`` ->
+    ``Skipped`` — derive from ``OutcomeException(BaseException)`` precisely so
+    that stray ``except Exception`` clauses cannot swallow them. Narrowing here
+    would re-open this helper's own failure mode for the most natural way to
+    assert from inside a worker.
     """
-    errors: list[Exception] = []
+    errors: list[BaseException] = []
     errors_lock = threading.Lock()
 
     def guarded(worker: Callable[[], None]) -> Callable[[], None]:
         def _run() -> None:
             try:
                 worker()
-            except Exception as exc:
+            # Broad by design (see docstring); every capture is re-raised below.
+            except BaseException as exc:
                 with errors_lock:
                     errors.append(exc)
 
@@ -95,6 +103,36 @@ def test_run_workers_propagates_worker_exception() -> None:
 
     with pytest.raises(Timeout):
         _run_workers([succeeds, raises_timeout])
+
+
+def test_run_workers_propagates_base_exception() -> None:
+    """Propagation must survive a ``BaseException`` that is not an ``Exception``.
+
+    Pytest's outcome signals (``pytest.fail`` -> ``Failed``, ``pytest.skip`` ->
+    ``Skipped``) sit on ``OutcomeException(BaseException)`` specifically so a
+    blanket ``except Exception`` cannot eat them. If ``_run_workers`` narrowed
+    its catch, a worker calling ``pytest.fail(...)`` would vanish exactly the
+    way a worker's ``filelock.Timeout`` used to.
+    """
+
+    class _WorkerSignal(BaseException):
+        """Stands in for ``OutcomeException`` — deliberately not an ``Exception``."""
+
+    def raises_base_exception() -> None:
+        raise _WorkerSignal("not an Exception subclass")
+
+    with pytest.raises(_WorkerSignal):
+        _run_workers([raises_base_exception])
+
+    # The real motivating case, exercised through pytest's own API.
+    # ``pytest.fail.Exception`` is the public handle on ``Failed``, so this
+    # stays out of the private ``_pytest`` namespace.
+    def calls_pytest_fail() -> None:
+        pytest.fail("worker asserted from inside a thread")
+
+    assert not issubclass(pytest.fail.Exception, Exception)  # the whole point
+    with pytest.raises(pytest.fail.Exception):
+        _run_workers([calls_pytest_fail])
 
 
 def test_public_shim_is_same_callable() -> None:
