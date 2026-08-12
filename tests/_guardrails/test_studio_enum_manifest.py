@@ -34,9 +34,9 @@ pytestmark = pytest.mark.repo_lint
 #
 # Every ``int``-valued ``Enum`` defined in ``notebooklm.rpc.types`` is pinned to
 # its exact ``{member_name: value}`` map, INCLUDING value-aliases like
-# ``QuizQuantity.MORE`` and ``ArtifactTypeCode.QUIZ_FLASHCARD`` (the map is built
-# from ``__members__``, so aliases are frozen too — an alias whose wire value
-# drifted independently would otherwise slip past the gate).
+# ``ArtifactTypeCode.QUIZ_FLASHCARD`` (the map is built from ``__members__``, so
+# aliases are frozen too — an alias whose wire value drifted independently would
+# otherwise slip past the gate).
 #
 # To change a value here you MUST edit this snapshot in the SAME PR — that diff
 # line is the deliberate, reviewed acknowledgement that a wire contract moved.
@@ -98,7 +98,7 @@ _RPC_ENUM_SNAPSHOT: dict[str, dict[str, int]] = {
         "SCIENTIFIC": 11,
     },
     "QuizDifficulty": {"EASY": 1, "MEDIUM": 2, "HARD": 3},
-    "QuizQuantity": {"FEWER": 1, "STANDARD": 2, "MORE": 2},  # MORE = value-alias of STANDARD
+    "QuizQuantity": {"FEWER": 1, "STANDARD": 2, "MORE": 3},
     "ShareAccess": {"RESTRICTED": 0, "ANYONE_WITH_LINK": 1},
     "SharePermission": {"OWNER": 1, "EDITOR": 2, "VIEWER": 3, "_REMOVE": 4},
     "ShareViewLevel": {"FULL_NOTEBOOK": 0, "CHAT_ONLY": 1},

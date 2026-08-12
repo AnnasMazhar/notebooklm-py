@@ -623,7 +623,8 @@ def _expected_rpc_envelope(method: RPCMethod, params: list[Any]) -> list[Any]:
                     None,
                     [
                         None,
-                        [1, None, "Use short prompts", None, None, None, [1, 2]],
+                        # [quantity, difficulty] — asymmetric on purpose (#2116).
+                        [1, None, "Use short prompts", None, None, None, [2, 1]],
                     ],
                 ],
             ],
@@ -825,6 +826,53 @@ def test_artifact_payload_builders_match_golden_rpc_envelopes(
 
     assert params == expected
     assert encode_rpc_request(method, params) == _expected_rpc_envelope(method, expected)
+
+
+def test_quiz_and_flashcards_agree_on_option_order() -> None:
+    """Both builders emit ``[quantity, difficulty]`` — they must not drift apart.
+
+    The two option pairs live at different slots (quiz ``[7]``, flashcards
+    ``[6]``) of otherwise near-identical payloads, which is exactly how the
+    flashcards builder came to be transposed (#2116) while the quiz one stayed
+    correct. Asserting them side by side with an asymmetric fixture makes any
+    future transposition of either builder fail.
+    """
+    kwargs: dict[str, Any] = {
+        "instructions": None,
+        "quantity": QuizQuantity.FEWER,
+        "difficulty": QuizDifficulty.HARD,
+    }
+    quiz = build_quiz_artifact_params("nb_payload", ["src_alpha"], **kwargs)
+    flashcards = build_flashcards_artifact_params("nb_payload", ["src_alpha"], **kwargs)
+
+    expected = [QuizQuantity.FEWER.value, QuizDifficulty.HARD.value]
+    assert expected == [1, 3]
+    assert quiz[2][9][1][7] == expected
+    assert flashcards[2][9][1][6] == expected
+
+
+def test_quiz_quantity_more_is_distinct_on_the_wire() -> None:
+    """``MORE`` emits 3, not the ``STANDARD`` value it used to alias (#2117)."""
+    assert QuizQuantity.MORE.value == 3
+    assert QuizQuantity.MORE is not QuizQuantity.STANDARD
+
+    quiz = build_quiz_artifact_params(
+        "nb_payload",
+        ["src_alpha"],
+        instructions=None,
+        quantity=QuizQuantity.MORE,
+        difficulty=QuizDifficulty.EASY,
+    )
+    flashcards = build_flashcards_artifact_params(
+        "nb_payload",
+        ["src_alpha"],
+        instructions=None,
+        quantity=QuizQuantity.MORE,
+        difficulty=QuizDifficulty.EASY,
+    )
+
+    assert quiz[2][9][1][7] == [3, 1]
+    assert flashcards[2][9][1][6] == [3, 1]
 
 
 def test_video_style_values_match_live_web_ui() -> None:
