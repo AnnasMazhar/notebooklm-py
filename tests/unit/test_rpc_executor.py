@@ -98,6 +98,7 @@ class _Owner:
         rpc_method: str | None = None,
         refresh_budget: Any = None,
         retry_deadline: Any = None,
+        read_timeout: float | None = None,
     ) -> httpx.Response:
         url, body, headers = build_request(self.snapshot)
         self.perform_calls.append(
@@ -109,6 +110,7 @@ class _Owner:
                 "headers": headers,
                 "refresh_budget": refresh_budget,
                 "retry_deadline": retry_deadline,
+                "read_timeout": read_timeout,
             }
         )
         return self.response
@@ -252,6 +254,7 @@ async def test_constructor_injected_decode_response_drives_executor(monkeypatch)
         rpc_method: str | None = None,
         refresh_budget: Any = None,
         retry_deadline: Any = None,
+        read_timeout: float | None = None,
     ) -> httpx.Response:
         return _ok_response("wire")
 
@@ -311,6 +314,35 @@ async def test_execute_threads_override_source_allow_null_and_retry_flag(monkeyp
     assert body["at"] == "CSRF_SNAPSHOT"
     assert '"OverrideRpc"' in body["f.req"]
     assert decode_calls == [{"raw": "raw", "rpc_id": "OverrideRpc", "allow_null": True}]
+
+
+@pytest.mark.asyncio
+async def test_rpc_call_threads_read_timeout_override_to_transport() -> None:
+    """#2187: ``read_timeout`` (e.g. IMPORT_RESEARCH's batch-scaled budget)
+    reaches ``perform_authed_post`` through the public ``rpc_call`` entry
+    point, mirroring the existing chat-transport precedent."""
+    owner = _Owner()
+
+    result = await _executor(owner).rpc_call(
+        RPCMethod.LIST_NOTEBOOKS,
+        [],
+        read_timeout=123.0,
+    )
+
+    assert result == {"rpc_id": RPCMethod.LIST_NOTEBOOKS.value, "allow_null": False}
+    assert owner.perform_calls[0]["read_timeout"] == 123.0
+
+
+@pytest.mark.asyncio
+async def test_rpc_call_omits_read_timeout_by_default() -> None:
+    """Every existing caller that doesn't pass ``read_timeout`` must see no
+    behavior change: the transport receives ``None`` (inherit the client
+    default), not a spuriously-set override."""
+    owner = _Owner()
+
+    await _executor(owner).rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+
+    assert owner.perform_calls[0]["read_timeout"] is None
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Deep-research imports no longer crash on a known backend retry rejection.**
+  `IMPORT_RESEARCH` gets a batch-size-scaled read timeout (60-240s, scaled by
+  requested source count) instead of the shared 30s default, since the server
+  fetches/parses/embeds every entry before responding and routinely exceeds it
+  on large batches. `ResearchAPI.import_sources_with_verification`'s
+  timeout-retry loop also now recovers from the documented gRPC 9
+  (`FAILED_PRECONDITION`) the server returns when a retry lands against a
+  task it already partially committed — verified via `sources.list` the same
+  way a lost-response timeout is, but only a fully-verified success is
+  accepted (a partial/no match surfaces the error immediately rather than
+  retrying against the already-rejected task). Fixes
+  [#2187](https://github.com/teng-lin/notebooklm-py/issues/2187).
 - **RPC bundle monitoring no longer reports authentication/access failures as
   protocol drift.** The live registry capture now classifies login,
   CookieMismatch, region/anti-abuse, HTTP, and CDN failures as exit code 2 and
