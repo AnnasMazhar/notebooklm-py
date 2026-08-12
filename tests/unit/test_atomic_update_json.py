@@ -5,6 +5,10 @@ The locked read-modify-write helper used to mutate ``context.json`` and
 The critical invariant is the concurrent-writer test: two threads racing on
 the same path must produce a final state containing BOTH writers' keys
 (versus the lost-update outcome where only one writer's payload survives).
+
+Every threaded test here runs through :func:`_run_workers` rather than raw
+``threading.Thread`` + ``join``, so that a worker which fails outright can
+never be mistaken for a lock that lost an update — see that helper.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ import json
 import sys
 import threading
 import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import pytest
@@ -20,6 +25,76 @@ from filelock import FileLock, Timeout
 
 from notebooklm._atomic_io import atomic_update_json as atomic_update_json_private
 from notebooklm.io import atomic_update_json
+
+# Barrier arrival deadline for the interleaving tests. Without it, a worker that
+# dies before reaching the barrier leaves its peer blocked until the global 60s
+# pytest-timeout kills the whole run; with it, the peers raise
+# ``BrokenBarrierError`` promptly and ``_run_workers`` surfaces that.
+_BARRIER_TIMEOUT_SECONDS = 30.0
+
+# Lock-acquire budget for the multi-thread stress test. The contract under test
+# is mutual exclusion, NOT the 10s production acquire default, so give
+# acquisition real headroom: ``filelock`` polls unfairly (50ms, no queue) and the
+# critical section holds the lock across an fsync + os.replace, so on a Windows
+# CI runner saturated by ``-n auto`` a thread could lose ~200 consecutive polls
+# and blow the default. That killed the worker, which then silently contributed
+# no increments and was misreported as a lost update.
+_STRESS_LOCK_TIMEOUT_SECONDS = 30.0
+
+# Raised above the global 60s ceiling (pyproject ``timeout = 60``) so that a
+# slow-but-correct run using the acquire headroom above is not killed mid-flight.
+_STRESS_TEST_TIMEOUT_SECONDS = 120
+
+
+def _run_workers(workers: Sequence[Callable[[], None]]) -> None:
+    """Run ``workers`` on threads, re-raising the first failure in the caller.
+
+    ``threading.Thread`` swallows worker exceptions: ``join()`` returns normally
+    and the failure survives only as a stderr traceback. In these lock tests
+    that silently converts an infrastructure failure into a false correctness
+    verdict — a worker that dies on ``filelock.Timeout`` simply contributes no
+    writes, so the counter/key assertions below report a "lost update" that
+    never happened. Collecting the exceptions and re-raising keeps the two
+    diagnoses distinguishable.
+    """
+    errors: list[Exception] = []
+    errors_lock = threading.Lock()
+
+    def guarded(worker: Callable[[], None]) -> Callable[[], None]:
+        def _run() -> None:
+            try:
+                worker()
+            except Exception as exc:
+                with errors_lock:
+                    errors.append(exc)
+
+        return _run
+
+    threads = [threading.Thread(target=guarded(w)) for w in workers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    if errors:
+        raise errors[0]
+
+
+def test_run_workers_propagates_worker_exception() -> None:
+    """A failing worker must surface as its own exception, not as a silent no-op.
+
+    This is the guard for the CI flake ``_run_workers`` was written for: a
+    worker dying on ``filelock.Timeout`` was invisible to ``join()``, so the
+    concurrency assertions below reported a lost update instead of the timeout.
+    """
+
+    def raises_timeout() -> None:
+        raise Timeout("some.lock")
+
+    def succeeds() -> None:
+        return None
+
+    with pytest.raises(Timeout):
+        _run_workers([succeeds, raises_timeout])
 
 
 def test_public_shim_is_same_callable() -> None:
@@ -97,7 +172,7 @@ def test_concurrent_threads_no_lost_update(tmp_path: Path) -> None:
     # Pre-create the file so neither thread takes the "doesn't exist" branch.
     target.write_text(json.dumps({"seed": True}), encoding="utf-8")
 
-    barrier = threading.Barrier(2)
+    barrier = threading.Barrier(2, timeout=_BARRIER_TIMEOUT_SECONDS)
 
     def make_mutator(key: str, value: str):
         def _mutator(current: dict) -> dict:
@@ -109,18 +184,16 @@ def test_concurrent_threads_no_lost_update(tmp_path: Path) -> None:
 
         return _mutator
 
-    def worker(key: str, value: str) -> None:
-        barrier.wait()
-        atomic_update_json(target, make_mutator(key, value))
+    def make_worker(key: str, value: str) -> Callable[[], None]:
+        def _worker() -> None:
+            barrier.wait()
+            atomic_update_json(target, make_mutator(key, value))
 
-    threads = [
-        threading.Thread(target=worker, args=("alpha", "A")),
-        threading.Thread(target=worker, args=("beta", "B")),
-    ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+        return _worker
+
+    # Failures propagate — a worker that never wrote must not read as a lost
+    # update. See ``_run_workers``.
+    _run_workers([make_worker("alpha", "A"), make_worker("beta", "B")])
 
     final = json.loads(target.read_text(encoding="utf-8"))
     # Both writers' keys must be present — no lost update.
@@ -130,10 +203,16 @@ def test_concurrent_threads_no_lost_update(tmp_path: Path) -> None:
     assert final.get("seed") is True
 
 
+@pytest.mark.timeout(_STRESS_TEST_TIMEOUT_SECONDS)
 def test_many_concurrent_increments(tmp_path: Path) -> None:
     """Stress test: N threads each increment a counter K times.
 
     Final counter must equal N*K — any lost update would leave it lower.
+
+    A shortfall here means one thing only: the lock failed to serialize a
+    read-modify-write. It must never mean "a worker died before writing" — that
+    ambiguity is what ``_run_workers`` and ``_STRESS_LOCK_TIMEOUT_SECONDS``
+    exist to remove.
     """
     target = tmp_path / "counter.json"
     target.write_text(json.dumps({"count": 0}), encoding="utf-8")
@@ -147,13 +226,9 @@ def test_many_concurrent_increments(tmp_path: Path) -> None:
 
     def worker() -> None:
         for _ in range(increments_per_thread):
-            atomic_update_json(target, increment)
+            atomic_update_json(target, increment, timeout=_STRESS_LOCK_TIMEOUT_SECONDS)
 
-    threads = [threading.Thread(target=worker) for _ in range(n_threads)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    _run_workers([worker] * n_threads)
 
     final = json.loads(target.read_text(encoding="utf-8"))
     assert final["count"] == n_threads * increments_per_thread, (
@@ -278,7 +353,7 @@ def test_concurrent_corrupt_recovery_does_not_lose_valid_write(tmp_path: Path) -
     # Start corrupt so the recovery thread has something to recover from.
     target.write_text("{ corrupt", encoding="utf-8")
 
-    barrier = threading.Barrier(2)
+    barrier = threading.Barrier(2, timeout=_BARRIER_TIMEOUT_SECONDS)
 
     def recovery_worker() -> None:
         barrier.wait()
@@ -302,14 +377,9 @@ def test_concurrent_corrupt_recovery_does_not_lose_valid_write(tmp_path: Path) -
         # sees corrupt content or the recovered dict.
         atomic_update_json(target, _mutate, recover_from_corrupt=True)
 
-    threads = [
-        threading.Thread(target=recovery_worker),
-        threading.Thread(target=peer_worker),
-    ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    # Failures propagate — a worker that never wrote must not read as a lost
+    # update. See ``_run_workers``.
+    _run_workers([recovery_worker, peer_worker])
 
     final = json.loads(target.read_text(encoding="utf-8"))
     # Both writers' keys must be present — neither lost the other's update.
