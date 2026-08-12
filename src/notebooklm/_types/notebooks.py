@@ -225,6 +225,32 @@ class Notebook:
             self.last_viewed_at = self.modified_at
         self.modified_at = self.last_viewed_at
 
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Restore from a pickle, re-establishing the timestamp-alias invariant.
+
+        Unpickling bypasses ``__init__``, ``__post_init__`` *and*
+        ``__setattr__``: the default protocol writes ``__dict__`` directly. So a
+        pickle written before #2126 restores with ``modified_at`` populated and
+        no ``last_viewed_at`` key at all.
+
+        That does **not** raise ``AttributeError``, which is the tempting
+        assumption — ``last_viewed_at`` is a dataclass field with a ``None``
+        class-level default, so the lookup falls through to the class and
+        quietly yields ``None``. The silent outcome is the worse one: the object
+        reports a populated ``modified_at`` next to a ``None``
+        ``last_viewed_at``, precisely the "the two names disagree" state the
+        alias runway promises cannot happen, and precisely the shape of bug this
+        whole change exists to remove. Seed the canonical field so the promise
+        holds for unpickled objects too.
+
+        ``role`` needs no equivalent: an old pickle restores it as ``None``
+        (unknown), and an unknown role deliberately leaves the pickled
+        ``is_owner`` untouched — already the documented soft-degrade (#2125).
+        """
+        self.__dict__.update(state)
+        if state.get("last_viewed_at") is None and state.get("modified_at") is not None:
+            self.__dict__["last_viewed_at"] = state["modified_at"]
+
     @classmethod
     def from_api_response(cls, data: list[Any]) -> Notebook:
         """Parse notebook from API response."""

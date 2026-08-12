@@ -2569,6 +2569,41 @@ class TestLastViewedAtAlias:
         nb.role = SharePermission.OWNER
         assert nb.is_owner is True
 
+    def test_pre_rename_pickle_restores_with_the_names_in_agreement(self):
+        """An old pickle must not restore into the "names disagree" state.
+
+        Unpickling bypasses ``__init__``/``__post_init__``/``__setattr__``, so a
+        pickle written before the rename carries ``modified_at`` and no
+        ``last_viewed_at`` key. It does NOT raise — ``last_viewed_at`` is a
+        dataclass field with a ``None`` class default, so the lookup silently
+        falls through to the class. That silence is the hazard: the caller sees
+        a populated legacy name beside a ``None`` canonical one. ``__setstate__``
+        seeds the canonical field so the alias runway holds here too.
+        """
+        nb = Notebook(id="nb_1", title="N", modified_at=datetime(2026, 8, 12))
+        # Simulate the pre-#2126 payload: the field simply did not exist then.
+        del nb.__dict__["last_viewed_at"]
+
+        restored = pickle.loads(pickle.dumps(nb))
+
+        assert restored.last_viewed_at == datetime(2026, 8, 12)
+        assert restored.modified_at == restored.last_viewed_at
+
+    def test_current_pickle_round_trip_is_unchanged(self):
+        """The ordinary round trip keeps equality — ``__setstate__`` is additive."""
+        nb = Notebook(
+            id="nb_1",
+            title="N",
+            last_viewed_at=datetime(2026, 8, 12),
+            role=SharePermission.VIEWER,
+        )
+
+        restored = pickle.loads(pickle.dumps(nb))
+
+        assert restored == nb
+        assert restored.role is SharePermission.VIEWER
+        assert restored.is_owner is False
+
     def test_notebook_field_access_does_not_warn(self):
         """``Notebook.modified_at`` is a docs-only deprecation (a dataclass field)."""
         nb = Notebook(id="nb_1", title="N", last_viewed_at=datetime(2026, 8, 12))
