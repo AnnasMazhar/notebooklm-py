@@ -415,14 +415,16 @@ class VideoStyle(int, Enum):
 class QuizQuantity(int, Enum):
     """Quiz/Flashcards quantity options.
 
-    Note: Google's API only distinguishes between FEWER (1) and STANDARD (2).
-    MORE is an alias for STANDARD - the API treats them identically.
-    This matches the observed behavior from NotebookLM's web interface.
+    Values match the backend ``QuizGenerationOptions.QuestionQuantity`` /
+    ``FlashcardsGenerationOptions.CardQuantity`` enums, both of which declare
+    FEWER (1), STANDARD (2) and MORE (3). ``MORE`` was previously an alias for
+    ``STANDARD`` on the (incorrect) belief that the API could not express the
+    distinction; the backend accepts and persists ``cardQuantity = 3`` (#2117).
     """
 
     FEWER = 1
     STANDARD = 2
-    MORE = 2  # Alias for STANDARD - API limitation
+    MORE = 3
 
 
 class QuizDifficulty(int, Enum):

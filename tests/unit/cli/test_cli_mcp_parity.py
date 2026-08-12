@@ -334,16 +334,21 @@ _OPTION_CASES = [
         "quiz",
         "quiz",
         "generate_quiz",
-        {"quantity": "more", "difficulty": "hard"},
-        ["--quantity", "more", "--difficulty", "hard"],
+        # Asymmetric on the wire: more(3) + easy(1). Avoid pairing "more" with
+        # "hard" -- both encode to 3 (#2117), which would hide a quantity /
+        # difficulty swap in the adapter.
+        {"quantity": "more", "difficulty": "easy"},
+        ["--quantity", "more", "--difficulty", "easy"],
     ),
     (
         "flashcards",
         "flashcards",
         "flashcards",
         "generate_flashcards",
-        {"quantity": "fewer", "difficulty": "easy"},
-        ["--quantity", "fewer", "--difficulty", "easy"],
+        # Asymmetric on the wire: fewer(1) + hard(3). "fewer" + "easy" both
+        # encode to 1 and could not detect a swap.
+        {"quantity": "fewer", "difficulty": "hard"},
+        ["--quantity", "fewer", "--difficulty", "hard"],
     ),
     (
         "report",

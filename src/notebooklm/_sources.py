@@ -798,8 +798,8 @@ class SourcesAPI:
 
         Note:
             Source type codes include: 1=google_docs, 2=google_slides, 3=pdf,
-            4=pasted_text, 5=web_page, 8=markdown, 9=youtube, 10=media,
-            11=docx, 13=image, 14=google_spreadsheet, 16=csv, 17=epub.
+            4=pasted_text, 5=web_page, 6=powerpoint, 8=markdown, 9=youtube,
+            10=media, 11=docx, 13=image, 14=google_spreadsheet, 16=csv, 17=epub.
 
             The ``"markdown"`` format works by requesting the HTML rendition
             from the API (params ``[3],[3]`` instead of ``[2],[2]``) and

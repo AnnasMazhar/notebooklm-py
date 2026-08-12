@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`notebooklm research wait --timeout` now defaults to 1800 seconds, up from
+  300.** Every observed deep run exceeded the old cap (374s live, 358s in the
+  `research_deep_poll_long` cassette), so an unattended wait reported a timeout
+  on work the backend went on to finish; fast runs settle in seconds, so the
+  raised ceiling costs them nothing. The value is a cap, not a wait, and it now
+  matches `source add-research`. With `--import-all` it is also the
+  import-retry budget, so that budget grows with it.
+  ([#2142](https://github.com/teng-lin/notebooklm-py/issues/2142))
+
+### Fixed
+
+- **`docs/rpc-reference.md` no longer misstates the research path.** Four
+  corrections, each against a captured payload: `START_FAST_RESEARCH` returns a
+  one-element response (only deep carries `report_id`); the `1` / `5` start
+  params are `DiscoveryMode`, echoed back at `task_info[2]`; the `POLL_RESEARCH`
+  sketch now documents the slots it omitted (`task[2]`/`[3]`/`[4]`,
+  `task_info[2]`, the deep-only `task_info[5]`, and the deep source row's
+  populated `[5]`/`[6]`/`[8]`); and status code `6` is recorded as never
+  observed — all three completed runs, deep included, report `2`. The `6 →
+  completed` coarsening is kept as forward-compat, and the unit fixtures that
+  used `6` to stand for a completed deep run now use the captured `2`.
+  ([#2143](https://github.com/teng-lin/notebooklm-py/issues/2143))
 ### Added
 
 - **`notebooklm.types.share_permission_to_str`** — the single source of truth
@@ -15,8 +39,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `artifact_status_to_str` helpers.
   ([#2125](https://github.com/teng-lin/notebooklm-py/issues/2125))
 
+### Changed
+
+- **Failed artifact polling no longer derives `GenerationStatus.error` from
+  nonexistent artifact-row fields.** `poll_status()` treated row index 3 as
+  "failure text" and index 5 as a "nested error payload"; those slots are
+  `Artifact.sources` and `Artifact.isPubliclyReadable`, so the read could only
+  ever produce a wrong answer. For schema-conformant rows the observed output is
+  unchanged — #2134 reports `error=None` for 3/3 real failed artifacts — but a
+  nonconforming row carrying a string in either slot no longer populates the
+  public field. `wait_for_completion()` still sets its own client-authored
+  message for `REMOVED`, and `generate_*(retry=...)` still synthesizes
+  `error=str(exc)` for retry callbacks; neither reads the wire for it. Capturing
+  a genuine provider failure reason (delivered on the `CreateArtifact` RPC
+  status, not persisted on the artifact) is not implemented.
+  ([#2134](https://github.com/teng-lin/notebooklm-py/issues/2134))
+
 ### Fixed
 
+- **PowerPoint sources now decode as their own type.** A source row with backend
+  content type `6` returns the new `SourceType.POWERPOINT` (`kind="powerpoint"`,
+  legacy compatibility label `text_file`) instead of `UNKNOWN`, and no longer emits
+  the misleading "Consider updating notebooklm-py" `UnknownTypeWarning` — no released
+  version mapped the code. The CLI's source-type display gains a matching label.
+  Refs [#2137](https://github.com/teng-lin/notebooklm-py/issues/2137).
+- **Deep-research imports no longer crash on a known backend retry rejection.**
+  `IMPORT_RESEARCH` gets a batch-size-scaled read timeout (60-240s, scaled by
+  requested source count) instead of the shared 30s default, since the server
+  fetches/parses/embeds every entry before responding and routinely exceeds it
+  on large batches. `ResearchAPI.import_sources_with_verification`'s
+  timeout-retry loop also now recovers from the documented gRPC 9
+  (`FAILED_PRECONDITION`) the server returns when a retry lands against a
+  task it already partially committed — verified via `sources.list` the same
+  way a lost-response timeout is, but only a fully-verified success is
+  accepted (a partial/no match surfaces the error immediately rather than
+  retrying against the already-rejected task). Fixes
+  [#2187](https://github.com/teng-lin/notebooklm-py/issues/2187).
 - **`Notebook.is_owner` no longer inverts on shared notebooks, and the notebook's
   role is now surfaced.** `is_owner` was decoded from `meta[1]` (proto tag 2) on
   the belief that the slot flagged ownership. A two-account live probe showed
@@ -125,6 +183,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "generating") must flip them; callers using `.is_pending` / `.is_processing` /
   `.status_str` / `GenerationState` now get the correct answer with no change.
 
+- **Flashcard generation no longer swaps `quantity` and `difficulty`.** The
+  flashcards payload builder emitted the option pair as
+  `[difficulty, quantity]` while the backend's `FlashcardsGenerationOptions` —
+  and the quiz builder next to it — expect `[quantity, difficulty]`. Asking for
+  the fewest, hardest cards silently produced the most, easiest ones, with no
+  error at any layer (CLI, MCP, REST). The regression test meant to pin this
+  ordering used symmetric fixtures (`[2, 2]` and `[1, 1]`) and so passed under
+  either ordering; it is now asymmetric (`FEWER` + `HARD` → `[1, 3]`), and a new
+  test asserts the quiz and flashcards builders agree side by side
+  ([#2116](https://github.com/teng-lin/notebooklm-py/issues/2116)).
+- **`QuizQuantity.MORE` now emits its own wire value.** It was defined as a
+  value-alias of `STANDARD` (`2`), on the documented but incorrect belief that
+  Google's API could not distinguish the two, so `--quantity more` produced a
+  standard-sized quiz or flashcard set with no warning. The backend accepts and
+  persists `cardQuantity = 3`, matching both
+  `QuizGenerationOptions.QuestionQuantity` and
+  `FlashcardsGenerationOptions.CardQuantity`, so `MORE = 3`. **Behavior change
+  for existing callers:** `QuizQuantity.MORE == QuizQuantity.STANDARD` was
+  `True` and is now `False`, and unchanged code passing `--quantity more` /
+  `quantity=QuizQuantity.MORE` now receives a genuinely larger quiz or flashcard
+  set rather than the standard-sized one it silently got before — which is what
+  those callers were asking for all along
+  ([#2117](https://github.com/teng-lin/notebooklm-py/issues/2117)).
 - **RPC bundle monitoring no longer reports authentication/access failures as
   protocol drift.** The live registry capture now classifies login,
   CookieMismatch, region/anti-abuse, HTTP, and CDN failures as exit code 2 and
@@ -167,6 +248,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING: `QuizQuantity.MORE` no longer compares equal to
+  `QuizQuantity.STANDARD`.** `MORE` was a value-alias of `STANDARD` (`2`) and is
+  now its own wire value (`3`), so the identity and equality between the two
+  members no longer hold. `QuizQuantity` is part of the documented-stable public
+  surface (`docs/stability.md`), so this is an intentional, allowlisted
+  wire-value correction rather than an incidental change — see
+  `scripts/api-compat-allowlist.json`. **Migration:** callers that branched on
+  `MORE == STANDARD` must drop that assumption; callers passing `--quantity
+  more` / `quantity=QuizQuantity.MORE` now receive a genuinely larger quiz or
+  flashcard set instead of a standard-sized one, which is what they were asking
+  for all along. Nothing needs to change to *get* the old output — pass
+  `standard` explicitly. See the `### Fixed` entry above for the live evidence
+  ([#2117](https://github.com/teng-lin/notebooklm-py/issues/2117)).
 - **First-party profile replacements now use native typed results.** Browser capture consumes
   `ProfileStore.replace_from_remint()` directly, while cookie import/login/refresh use a narrow
   path-shaped login operation with primitive account modes. Existing v0.x storage wrapper

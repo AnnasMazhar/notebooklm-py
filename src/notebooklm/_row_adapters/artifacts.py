@@ -114,9 +114,9 @@ class ArtifactRow:
     0      artifact id (str)
     1      artifact title (str)
     2      type code (int — see :class:`notebooklm.rpc.ArtifactTypeCode`)
-    3      failed-artifact plain error text (when present)
+    3      sources (repeated message — unread; see #2134)
     4      processing status (int — see :class:`notebooklm.rpc.ArtifactStatus`)
-    5      failed-artifact nested error payload (when present)
+    5      isPubliclyReadable (bool — unread; see #2134)
     6      audio metadata; ``[6][5]`` is the audio media list
     7      report markdown payload (string or one-element wrapper)
     8      video metadata; nested media variants
@@ -168,9 +168,7 @@ class ArtifactRow:
     _ID_POS: ClassVar[int] = 0
     _TITLE_POS: ClassVar[int] = 1
     _TYPE_POS: ClassVar[int] = 2
-    _ERROR_TEXT_POS: ClassVar[int] = 3
     _STATUS_POS: ClassVar[int] = 4
-    _ERROR_PAYLOAD_POS: ClassVar[int] = 5
     _AUDIO_METADATA_POS: ClassVar[int] = 6
     _REPORT_MARKDOWN_POS: ClassVar[int] = 7
     _VIDEO_METADATA_POS: ClassVar[int] = 8
@@ -562,28 +560,6 @@ class ArtifactRow:
             source="ArtifactRow.generation_prompt",
         )
         return value if isinstance(value, str) else None
-
-    @property
-    def failed_error_text(self) -> str | None:
-        """Human-readable error text from a failed artifact row, when present."""
-        if len(self._raw) > self._ERROR_TEXT_POS:
-            direct = self._raw[self._ERROR_TEXT_POS]
-            if isinstance(direct, str) and direct.strip():
-                return direct.strip()
-
-        if len(self._raw) <= self._ERROR_PAYLOAD_POS:
-            return None
-        nested = self._raw[self._ERROR_PAYLOAD_POS]
-        if not isinstance(nested, list):
-            return None
-        for item in nested:
-            if isinstance(item, str) and item.strip():
-                return item.strip()
-            if isinstance(item, list):
-                for sub_item in item:
-                    if isinstance(sub_item, str) and sub_item.strip():
-                        return sub_item.strip()
-        return None
 
     def artifact_url(
         self,

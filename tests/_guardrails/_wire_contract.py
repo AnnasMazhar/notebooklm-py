@@ -182,27 +182,6 @@ MAPPINGS: tuple[Mapping, ...] = (
     ),
     Mapping("artifacts", "ArtifactRow", "_INFOGRAPHIC_METADATA_POS", "Artifact", "infographic"),
     Mapping("artifacts", "ArtifactRow", "_SLIDE_DECK_METADATA_POS", "Artifact", "slides"),
-    # Known-wrong: these two name fields that do not exist. Index 3 is
-    # `sources` (repeated message) and index 5 is `isPubliclyReadable` (bool).
-    # `failed_error_text` is consequently dead code that always returns None.
-    Mapping(
-        "artifacts",
-        "ArtifactRow",
-        "_ERROR_TEXT_POS",
-        "Artifact",
-        "sources",
-        known_bad="#2134",
-        note="constant claims 'failed-artifact error text'; the field is `sources`",
-    ),
-    Mapping(
-        "artifacts",
-        "ArtifactRow",
-        "_ERROR_PAYLOAD_POS",
-        "Artifact",
-        "isPubliclyReadable",
-        known_bad="#2134",
-        note="constant claims 'nested error payload'; the field is `isPubliclyReadable`",
-    ),
     # ---- Answer row: AnswerResponse / TailwindDoc -------------------------
     Mapping("chat", "AnswerRow", "_TEXT_POS", "AnswerResponse", "response"),
     Mapping("chat", "AnswerRow", "_CONV_BLOCK_POS", "AnswerResponse", "conversationTurnKey"),
@@ -541,6 +520,30 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
             6: "ARTIFACT_PENDING_REVIEW",
         },
     ),
+    # rpc/types.py::QuizQuantity. Shared by quiz AND flashcards; the two backend
+    # enums (``QuizGenerationOptions.QuestionQuantity`` and
+    # ``FlashcardsGenerationOptions.CardQuantity``) declare identical values, so
+    # binding to either one gates both. #2117 landed precisely because these
+    # values were pinned to a snapshot without ever being bound to the backend:
+    # ``MORE`` sat at 2 as a documented "API limitation" while the backend has
+    # always declared it as 3.
+    "QuizQuantity": (
+        "QuizGenerationOptions_QuestionQuantity",
+        {
+            1: "QUESTION_QUANTITY_FEWER",
+            2: "QUESTION_QUANTITY_STANDARD",
+            3: "QUESTION_QUANTITY_MORE",
+        },
+    ),
+    # rpc/types.py::QuizDifficulty, the sibling of the pair above.
+    "QuizDifficulty": (
+        "QuizGenerationOptions_QuizDifficulty",
+        {
+            1: "QUIZ_DIFFICULTY_EASY",
+            2: "QUIZ_DIFFICULTY_MEDIUM",
+            3: "QUIZ_DIFFICULTY_HARD",
+        },
+    ),
     # _types/sources.py::_SOURCE_TYPE_CODE_MAP
     "SourceType": (
         "OriginalSourceContentType",
@@ -551,6 +554,7 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
             3: "SOURCE_CONTENT_TYPE_PDF",
             4: "SOURCE_CONTENT_TYPE_TEXT",
             5: "SOURCE_CONTENT_TYPE_URL",
+            6: "SOURCE_CONTENT_TYPE_POWERPOINT",
             8: "SOURCE_CONTENT_TYPE_MARKDOWN",
             9: "SOURCE_CONTENT_TYPE_YOUTUBE_VIDEO",
             10: "SOURCE_CONTENT_TYPE_AUDIO",
@@ -571,12 +575,6 @@ ENUM_GAPS: dict[str, tuple[tuple[int, str, str], ...]] = {
         (4, "SOURCE_STATUS_PENDING_DELETION", "#2124 — fails closed as UNKNOWN"),
     ),
     "SourceType": (
-        (
-            6,
-            "SOURCE_CONTENT_TYPE_POWERPOINT",
-            "LIVE BUG: a valid .pptx uploads, reaches READY, decodes to code 6, and "
-            "falls through to SourceType.UNKNOWN with the spurious upgrade warning",
-        ),
         (
             7,
             "SOURCE_CONTENT_TYPE_GOOGLE_SHEET",

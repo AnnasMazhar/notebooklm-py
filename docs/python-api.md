@@ -844,7 +844,7 @@ compatibility shim was removed in v0.5.0.
 | `_kernel` | Concrete `Kernel` transport core; owns the `httpx.AsyncClient` (constructed in `Kernel.__init__`, closed in `Kernel.aclose()`) and the cookie jar. | Pure transport surface (see `Kernel` Protocol in `_runtime/contracts.py`). |
 | `_runtime/init.py` | Client composition root helpers: constructor validation, collaborator construction, `RuntimeTransport`, middleware chain, and `RpcExecutor` wiring. | `NotebookLMClient` calls this during construction and stores the result directly. |
 | `_runtime/transport.py` | Authenticated transport leg used by `RpcExecutor` and the middleware chain terminal. | Routes through `Kernel.post` and centralizes request-envelope materialization. |
-| `_runtime/config.py` | Module-level constants: `DEFAULT_TIMEOUT`, `DEFAULT_CHAT_TIMEOUT`, `DEFAULT_KEEPALIVE_MIN_INTERVAL`, `DEFAULT_MAX_CONCURRENT_RPCS`, `DEFAULT_MAX_CONCURRENT_UPLOADS`, `CORE_LOGGER_NAME`, `normalize_max_concurrent_uploads`. | Pure constants; importable without side effects. |
+| `_runtime/config.py` | Module-level constants: `DEFAULT_TIMEOUT`, `DEFAULT_CHAT_TIMEOUT`, `DEFAULT_IMPORT_RESEARCH_BASE_TIMEOUT`/`_PER_SOURCE_TIMEOUT`/`_MAX_TIMEOUT`, `DEFAULT_KEEPALIVE_MIN_INTERVAL`, `DEFAULT_MAX_CONCURRENT_RPCS`, `DEFAULT_MAX_CONCURRENT_UPLOADS`, `CORE_LOGGER_NAME`, `normalize_max_concurrent_uploads`. | Pure constants; importable without side effects. |
 | `_runtime/helpers.py` | `is_auth_error`, `AUTH_ERROR_PATTERNS`, `_resolve_keepalive_interval`. | Cross-seam pure helpers; behaviour-bearing (and therefore unit-tested). |
 | `_error_injection` | `ERROR_INJECT_ENV_VAR`, `_get_error_injection_mode`, `_refuse_synthetic_error_outside_test_context`. | Env-var resolver + startup guard for the synthetic-error harness. |
 | `_runtime/auth.py` | `AuthRefreshCoordinator`: refresh-task lifecycle, refresh lock, `AuthSnapshot` rotation. | Lazy `asyncio.Lock` construction; never instantiated outside a running loop. |
@@ -959,13 +959,17 @@ class NotebookLMClient:
         allow_null: bool = False,
         *,
         disable_internal_retries: bool = False,
+        read_timeout: float | None = None,
     ) -> Any:
 ```
 
 `RPCMethod` is imported from `notebooklm.rpc` for raw-RPC calls; `Any` is
 `typing.Any`. The default-shape call (`client.rpc_call(method, params)`)
 forwards to the underlying `RpcExecutor.rpc_call` with its canonical
-defaults.
+defaults. `read_timeout` (added in #2187) overrides the client-wide read
+timeout for this one call — internal callers use it for RPCs known to run
+long (e.g. `ResearchAPI.import_sources`'s batch-scaled IMPORT_RESEARCH
+timeout); `None` (the default) inherits the client's configured `timeout`.
 
 **Cookie persistence override:** `cookie_saver=None` (the default) uses the
 canonical typed `ProfileStore` merge for close, refresh, and keepalive saves.
@@ -1455,7 +1459,7 @@ status = await client.artifacts.generate_quiz(
     notebook_id,
     source_ids=None,
     instructions="...",
-    quantity=QuizQuantity.MORE,        # FEWER, STANDARD, MORE (MORE aliases STANDARD)
+    quantity=QuizQuantity.MORE,        # FEWER, STANDARD, MORE
     difficulty=QuizDifficulty.MEDIUM,  # EASY, MEDIUM, HARD
 )
 ```
@@ -2674,7 +2678,7 @@ class VideoStyle(Enum):
 class QuizQuantity(Enum):
     FEWER = 1
     STANDARD = 2
-    MORE = 2  # Alias of STANDARD used by the CLI/web UI
+    MORE = 3
 
 class QuizDifficulty(Enum):
     EASY = 1
@@ -2764,6 +2768,7 @@ class SourceType(str, Enum):
     YOUTUBE = "youtube"
     MARKDOWN = "markdown"
     DOCX = "docx"
+    POWERPOINT = "powerpoint"
     CSV = "csv"
     EPUB = "epub"
     IMAGE = "image"
