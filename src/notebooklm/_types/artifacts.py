@@ -294,7 +294,8 @@ class Artifact:
             id=row.id,
             title=title,
             _artifact_type=ArtifactTypeCode.MIND_MAP.value,
-            status=3,  # Mind maps are always "completed" once created
+            # Mind maps are always "completed" once created.
+            status=ArtifactStatus.COMPLETED.value,
             created_at=created_at,
             _variant=None,
         )
@@ -415,20 +416,23 @@ class GenerationState(str, Enum):
     NOT_FOUND = "not_found"
     UNKNOWN = "unknown"
     # Rare backend states, modeled so they stay distinguishable from UNKNOWN
-    # (issue #2127). Neither says generation finished, so the poll loop and the
-    # REST poll route treat both as still-running — exactly as they did when
-    # both decoded to ``"unknown"``. That is a statement about how this library
-    # handles them, not a claim about what the backend means by code 6.
+    # (issue #2127). Neither says generation finished, so :attr:`is_terminal` is
+    # False for both and every waiter keeps waiting — exactly as they behaved
+    # when both decoded to ``"unknown"``. That is a statement about how this
+    # library handles them, not a claim about what the backend means by code 6.
     #
     # SUGGESTED has no producer *today*: ``ArtifactListingService.list_raw``
     # unconditionally sends the server-side ``NOT artifact.status =
-    # "ARTIFACT_STATUS_SUGGESTED"`` filter, and every artifact row this library
-    # decodes comes from that one call, so code 5 cannot reach a poll. It is
-    # modeled anyway as defence in depth: if the filter is ever dropped or the
-    # backend stops honouring it, a suggestion row surfaces as ``"suggested"``
-    # rather than silently as ``"unknown"``. The filter's presence is itself
-    # pinned by ``tests/integration/test_artifacts_integration.py`` (exact
-    # LIST_ARTIFACTS params), so this member's premise cannot rot unnoticed.
+    # "ARTIFACT_STATUS_SUGGESTED"`` filter, and every row that reaches a poll
+    # comes from that one call, so code 5 cannot reach ``poll_status``. (The
+    # CREATE_ARTIFACT / RETRY_ARTIFACT kickoff parsers decode ``row[4]`` without
+    # going through ``list_raw``, but the backend does not answer those with a
+    # suggestion row.) It is modeled anyway as defence in depth: if the filter
+    # is ever dropped or the backend stops honouring it, a suggestion row
+    # surfaces as ``"suggested"`` rather than silently as ``"unknown"``. The
+    # filter's presence is itself pinned by
+    # ``tests/integration/test_artifacts_integration.py`` (exact LIST_ARTIFACTS
+    # params), so this member's premise cannot rot unnoticed.
     SUGGESTED = "suggested"
     # PENDING_REVIEW mirrors backend ``ARTIFACT_PENDING_REVIEW`` and is NOT
     # related to PENDING above despite the shared prefix — that collision comes
@@ -438,6 +442,35 @@ class GenerationState(str, Enum):
     PENDING_REVIEW = "pending_review"
     # wait-only: emitted by wait_for_completion() on a sustained delisting
     REMOVED = "removed"
+
+    @property
+    def is_terminal(self) -> bool:
+        """Whether generation reached an end state and will not change again.
+
+        The single authority for the terminal/still-running partition, which
+        several consumers need and which was previously restated at each of
+        them. Anything *not* terminal means "keep waiting": that is why the
+        rare states added in #2127 (``SUGGESTED``, ``PENDING_REVIEW``) and the
+        long-standing ``UNKNOWN`` all answer ``False`` — none of them says
+        generation finished, so treating them as terminal would abandon a task
+        that is still running.
+
+        ``NOT_FOUND`` is deliberately non-terminal too, but it is *not*
+        interchangeable with the others: it is a transport-level absence (the
+        post-create lag, or a delisting) rather than a generation outcome, and
+        ``wait_for_completion`` escalates a sustained run of it to the terminal
+        ``REMOVED``. Consumers that must distinguish "absent" from "still
+        working" test :attr:`GenerationStatus.is_not_found` explicitly.
+
+        Defined so a member added later is non-terminal by default — the safe
+        side, since the cost of waiting on a finished task is a wasted poll
+        while the cost of finalizing a running one is a lost result.
+        """
+        return self in (
+            GenerationState.COMPLETED,
+            GenerationState.FAILED,
+            GenerationState.REMOVED,
+        )
 
     def __str__(self) -> str:
         # Keep str(member) == member.value (e.g. "completed", not

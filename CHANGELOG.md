@@ -102,9 +102,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `stalled_phase` attribute and the CLI's `--json` error envelope follow;
   - codes 5 and 6 now render `"suggested"` / `"pending_review"` instead of
     `"unknown"`. All three remain *still-running* for the poll loop and the
-    REST poll route (`GenerationState.UNKNOWN` is now handled there explicitly
-    rather than falling through the terminal branch), exactly as `"unknown"`
-    behaved for the client loop before.
+    REST poll route (`GenerationState.UNKNOWN` is now classified there
+    explicitly rather than falling through the terminal branch), exactly as
+    `"unknown"` behaved for the client loop before;
+  - because code 0 is now a modeled member, `ArtifactStatus(artifact.status)`
+    on a **truncated or malformed** artifact row no longer raises `ValueError`
+    — the row adapter synthesizes `0` for a short row or a non-int status leaf,
+    which now resolves to `ArtifactStatus.UNKNOWN` instead. Code reading that
+    `ValueError` as a decode-failure signal needs another check.
+
+  New: `GenerationState.is_terminal` is now the single authority for
+  "generation ended" (`COMPLETED` / `FAILED` / `REMOVED`); everything else,
+  including the two new states, means keep waiting. Prefer it over enumerating
+  members. A state added to the enum later is non-terminal by default, so a
+  waiter can no longer silently abandon a running task.
 
   Callers that hard-coded the raw integers (`artifact.status == 1` to mean
   "generating") must flip them; callers using `.is_pending` / `.is_processing` /

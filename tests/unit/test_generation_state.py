@@ -227,6 +227,44 @@ def test_status_from_code_pins_every_backend_artifact_status_code():
     }
 
 
+def test_is_terminal_partitions_the_enum_exactly():
+    """``is_terminal`` is the single authority for "generation ended".
+
+    Pinned as an exact partition so a member added later has to be classified
+    deliberately here rather than silently inheriting a default. Everything
+    non-terminal means "keep waiting" — including ``NOT_FOUND``, which is a
+    transport-level absence rather than an outcome.
+    """
+    terminal = {state for state in GenerationState if state.is_terminal}
+    assert terminal == {
+        GenerationState.COMPLETED,
+        GenerationState.FAILED,
+        GenerationState.REMOVED,
+    }
+    assert {state for state in GenerationState if not state.is_terminal} == {
+        GenerationState.PENDING,
+        GenerationState.IN_PROGRESS,
+        GenerationState.NOT_FOUND,
+        GenerationState.UNKNOWN,
+        GenerationState.SUGGESTED,
+        GenerationState.PENDING_REVIEW,
+    }
+
+
+def test_is_terminal_agrees_with_the_poll_loop_stop_condition():
+    """The loop stops on ``is_complete or is_failed``; ``REMOVED`` it synthesizes.
+
+    Guards against the enum's partition drifting away from the behaviour it
+    describes: for every state ``poll_status`` can emit, ``is_terminal`` must
+    match what actually ends ``_run_poll_loop``.
+    """
+    for state in GenerationState:
+        if state is GenerationState.REMOVED:
+            continue  # never emitted by poll_status; wait_for_completion makes it
+        status = GenerationStatus(task_id="t", status=state)
+        assert state.is_terminal == (status.is_complete or status.is_failed), state
+
+
 def test_rare_backend_states_are_distinguishable_from_unknown():
     """SUGGESTED / PENDING_REVIEW must not collapse into ``UNKNOWN`` (#2127)."""
     for code in (ArtifactStatus.SUGGESTED, ArtifactStatus.PENDING_REVIEW):

@@ -65,24 +65,18 @@ __all__ = ["DOWNLOAD_SPECS", "GENERATE_TYPES", "router"]
 
 router = APIRouter(prefix="/notebooks/{notebook_id}/artifacts", tags=["artifacts"])
 
-#: States the poll route treats as "still running": the task stays in the
-#: pending registry and the projected view is returned as a 200.
+#: The states that end a generation, derived from :attr:`GenerationState.is_terminal`
+#: rather than restated here — the enum is the single authority for the partition.
 #:
-#: This is the complement of the terminal set (COMPLETED / FAILED / REMOVED) and
-#: the NOT_FOUND special case, and it mirrors the client-side poll loop, which
-#: only stops on ``is_complete`` / ``is_failed``. UNKNOWN, SUGGESTED and
-#: PENDING_REVIEW belong here for the same reason they keep that loop running:
-#: none of them says generation finished, so evicting the task from the registry
-#: would make a later benign NOT_FOUND poll 404 instead of projecting (#2127).
-_STILL_RUNNING_STATES = frozenset(
-    {
-        GenerationState.PENDING,
-        GenerationState.IN_PROGRESS,
-        GenerationState.UNKNOWN,
-        GenerationState.SUGGESTED,
-        GenerationState.PENDING_REVIEW,
-    }
-)
+#: Membership is a ``frozenset`` of ``str``-enum members, so a plain-string
+#: ``status`` compares correctly against it (``GenerationState`` hashes as its
+#: value); the route therefore stays tolerant of a hand-built ``GenerationStatus``.
+#:
+#: Deriving it matters for the *default*: a state added to ``GenerationState``
+#: without anyone revisiting this module is non-terminal, so the poll route keeps
+#: the task in the pending registry instead of evicting it. Evicting a still-running
+#: task would make its next benign NOT_FOUND poll 404 rather than project (#2127).
+_TERMINAL_STATES = frozenset(state for state in GenerationState if state.is_terminal)
 
 
 def _canonical_artifact_id(artifact_id: str) -> str:
@@ -376,13 +370,16 @@ async def poll(
     state = status.status
     projected = {"notebook_id": notebook_id, **to_jsonable(view)}
 
-    if state in _STILL_RUNNING_STATES:
-        return projected
     if state == GenerationState.NOT_FOUND:
         if pending.knows(notebook_id, task_id):
             return projected
         raise HTTPException(status_code=404, detail="Artifact task not found")
-    # Terminal states: drop from the registry, then project.
+    if state not in _TERMINAL_STATES:
+        # Still running (PENDING / IN_PROGRESS / UNKNOWN / SUGGESTED /
+        # PENDING_REVIEW, and anything added to the enum later). Keep the task
+        # in the pending registry so a later NOT_FOUND poll still projects.
+        return projected
+    # Terminal states only: drop from the registry, then project.
     pending.drop(notebook_id, task_id)
     if state == GenerationState.REMOVED:
         raise HTTPException(status_code=410, detail="Artifact was removed")
@@ -390,8 +387,7 @@ async def poll(
         raise HTTPException(
             status_code=409, detail=safe_detail(view.error) if view.error else "Generation failed"
         )
-    # COMPLETED — and, defensively, any state added to GenerationState without
-    # being classified above — surfaces the projected view rather than a 500.
+    # COMPLETED — the only remaining terminal state — surfaces the projected view.
     return projected
 
 

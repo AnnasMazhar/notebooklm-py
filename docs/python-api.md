@@ -2442,10 +2442,24 @@ working unchanged. **Prefer the `.is_*` predicates** (`status.is_complete`,
 | `PENDING_REVIEW` | `"pending_review"` | status code 6 — backend state with unconfirmed semantics ([#2127](https://github.com/teng-lin/notebooklm-py/issues/2127)) |
 | `REMOVED` | `"removed"` | `wait_for_completion` after a sustained delisting |
 
-`UNKNOWN`, `SUGGESTED` and `PENDING_REVIEW` are all treated as *still running*:
-`wait_for_completion` keeps polling and the REST poll route keeps the task in
-its pending registry, exactly as they did when 5 and 6 decoded to `"unknown"`.
-Only `COMPLETED`, `FAILED` and `REMOVED` are terminal.
+`GenerationState.is_terminal` is the single authority for "generation ended":
+it is `True` for exactly `COMPLETED`, `FAILED` and `REMOVED`. Everything else —
+including `NOT_FOUND`, `UNKNOWN`, and the `SUGGESTED` / `PENDING_REVIEW` states
+added in #2127 — means *keep waiting*, so `wait_for_completion` keeps polling
+and the REST poll route keeps the task in its pending registry. Prefer it over
+enumerating members yourself:
+
+```python
+status = await client.artifacts.poll_status(nb_id, task_id)
+if not status.status.is_terminal:
+    ...  # still running; poll again
+```
+
+`NOT_FOUND` is non-terminal but is *not* interchangeable with the others: it
+means the artifact is absent from the listing (post-create lag, or a delisting)
+rather than reporting an outcome, and `wait_for_completion` escalates a
+sustained run of it to the terminal `REMOVED`. Branch on `is_not_found` when
+that difference matters.
 
 > **Note:** because `status` is now typed `GenerationState`, constructing
 > `GenerationStatus(..., status="completed")` with a bare string literal is a

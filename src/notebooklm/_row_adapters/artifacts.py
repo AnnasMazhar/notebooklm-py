@@ -257,13 +257,16 @@ class ArtifactRow:
 
         Caveat: since #2127 modeled ``ArtifactStatus.UNKNOWN = 0``, this
         synthetic ``0`` is indistinguishable from the backend genuinely
-        reporting ``ARTIFACT_STATUS_UNKNOWN``. Both decode to ``"unknown"``,
-        so the conflation is invisible downstream — but a caller cannot tell
-        "the row was too short / the leaf was not an int" from "the backend
-        said UNKNOWN". Narrowing this to ``int | None`` (so
-        ``_status_from_code``'s existing ``none_status`` parameter decides,
-        as the CREATE_ARTIFACT path already does) is the clean fix and is
-        deliberately left out of the #2127 wire-decode correction.
+        reporting ``ARTIFACT_STATUS_UNKNOWN``. The conflation is invisible in
+        ``status_str`` (both render ``"unknown"``), but not at the enum: a
+        caller doing ``ArtifactStatus(artifact.status)`` on a truncated or
+        malformed row used to get a ``ValueError`` — a signal — and now gets
+        ``ArtifactStatus.UNKNOWN``, and ``artifact.status ==
+        ArtifactStatus.UNKNOWN`` is now ``True`` for such a row. Narrowing this
+        to ``int | None`` (so ``_status_from_code``'s existing ``none_status``
+        parameter decides, as the CREATE_ARTIFACT path already does) is the
+        clean fix and is deliberately left out of the #2127 wire-decode
+        correction.
         """
         if len(self._raw) <= self._STATUS_POS:
             return 0
