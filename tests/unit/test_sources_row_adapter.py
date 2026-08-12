@@ -27,6 +27,7 @@ from notebooklm._row_adapters.sources import (
     SourceFulltextRow,
     SourceGuideRow,
     SourceRow,
+    _warned_drive_id_slots,
 )
 from notebooklm._types.common import _datetime_from_timestamp
 from notebooklm._types.sources import (
@@ -579,3 +580,73 @@ def test_source_from_row_leaves_drive_document_id_none_for_non_drive() -> None:
 
     src = Source.from_row(_row(_meta_with(type_code=5)))
     assert src.drive_document_id is None
+
+
+class TestDriveDocumentIdDriftWarning:
+    """A present-but-drifted Drive block is reported, not silently skipped.
+
+    #2113 hid for so long precisely because the client read a slot that never
+    matched and said nothing. Structural absence stays quiet (most rows are not
+    Drive rows), but a Drive block whose id slot stopped being a usable string is
+    the signature of that bug recurring.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_warned_slots(self):
+        """Clear the warn-once set so assertions do not depend on test order.
+
+        ``_warned_drive_id_slots`` is module-level (it has to outlive a row), so
+        an earlier test decoding the same slot would otherwise consume this
+        test's single warning. Mirrors ``_warned_status_codes`` handling in
+        ``tests/unit/test_row_adapters.py::TestSourceRowStatus``.
+        """
+        _warned_drive_id_slots.clear()
+        yield
+        _warned_drive_id_slots.clear()
+
+    def test_non_string_id_in_a_populated_block_warns(self, caplog) -> None:
+        meta = _meta_with(type_code=1)
+        meta[0] = [12345, "opaque", 17]  # documentId slot is not a string
+        assert _row(meta).drive_document_id is None
+        assert "carries no usable documentId" in caplog.text
+        assert "metadata[0]" in caplog.text
+
+    def test_blank_id_in_a_populated_block_warns(self, caplog) -> None:
+        meta = _meta_with(type_code=14)
+        meta[9] = ["", 8, "application/pdf", ""]
+        assert _row(meta).drive_document_id is None
+        assert "carries no usable documentId" in caplog.text
+        assert "metadata[9]" in caplog.text
+
+    def test_warns_once_per_slot(self, caplog) -> None:
+        """A polled notebook re-decodes every row; the drift line fires once."""
+        meta = _meta_with(type_code=1)
+        meta[0] = [None, "opaque", 17]
+        for _ in range(3):
+            assert _row(meta).drive_document_id is None
+        assert caplog.text.count("carries no usable documentId") == 1
+
+        # A *different* slot is still reported.
+        other = _meta_with(type_code=14)
+        other[9] = [None, 8, "application/pdf", ""]
+        assert _row(other).drive_document_id is None
+        assert caplog.text.count("carries no usable documentId") == 2
+
+    @pytest.mark.parametrize(
+        ("block", "why"),
+        [
+            (None, "absent block — the overwhelmingly common non-Drive row"),
+            ([], "empty block carries no claim to be a Drive row"),
+            ("https://example.com/page", "the legacy bare-http string at metadata[0]"),
+        ],
+        ids=["null", "empty", "bare_http_str"],
+    )
+    def test_structural_absence_stays_silent(self, caplog, block: object, why: str) -> None:
+        meta = _meta_with(type_code=5)
+        meta[0] = block
+        assert _row(meta).drive_document_id is None
+        assert "documentId" not in caplog.text, f"must not warn for {why}"
+
+    def test_a_healthy_drive_row_never_warns(self, caplog) -> None:
+        assert _live_google_docs_row().drive_document_id == _DRIVE_FILE_ID
+        assert not caplog.records

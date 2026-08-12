@@ -90,8 +90,8 @@ _SOURCE_TYPE_COMPAT_MAP: dict[SourceType, str] = {
 # native Google Sheet AND a Drive-hosted binary file (e.g. a PDF). Live capture
 # showed Drive sources carry no URL (metadata[5]/[7] are null and metadata[0]
 # holds the Drive metadata block — see ``SourceRow.drive_document_id`` — rather
-# than a URL), so the only disambiguation signal is the MIME at
-# metadata[19] / metadata[9][2]. A native
+# than a URL), so the only disambiguation signal is the MIME at metadata[19] /
+# metadata[9][2]. A native
 # Sheet carries "application/vnd.google-apps.spreadsheet" (→ stay 14); a Drive
 # PDF carries "application/pdf" (→ 3). Only MIMEs proven by live capture are
 # mapped; anything else under 14 is left as GOOGLE_SPREADSHEET (conservative —
