@@ -90,6 +90,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`SharingAPI.set_users()` sets several users' permissions in one request.**
+  The client sends one `SHARE_NOTEBOOK` RPC for all email/permission pairs,
+  then refreshes the returned sharing status once. Notification and welcome
+  message settings apply to the whole call, not per grant; batching collapses N
+  RPC + status-refresh round trips into one, which is not the same as sending
+  fewer notification emails. The operation is an **upsert** — a live probe
+  confirmed the backend adds an absent email and replaces an existing one, in
+  both the plural and singular forms — so `add_user()` and `update_user()` are
+  now intent wrappers over it rather than distinct operations, differing only in
+  their default `notify`. Two backend preconditions the probe exposed are
+  encoded here: a batch naming one email twice returns success while silently
+  leaving that user unchanged, so duplicates now raise `ValueError` before the
+  request is issued (exact match — case variants are passed through, since
+  RFC 5321 keeps the local part case-sensitive); and a batch removal silently drops the
+  *whole* request if any target is already absent, so plural removal is
+  deliberately not offered — it needs a share-status preflight and
+  post-verification rather than a wider entry list. Both are recorded in
+  [`docs/rpc-reference.md`](docs/rpc-reference.md)
+  ([#2000](https://github.com/teng-lin/notebooklm-py/issues/2000)).
 - **Deep-research sources expose the backend's per-task source ordinal.**
   `ResearchSource.source_ordinal` and its serializers preserve an integer
   `src[8]` when the row carries one — in the captures a 1-based bijection over
