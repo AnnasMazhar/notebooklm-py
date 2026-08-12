@@ -207,6 +207,129 @@ def test_status_from_code_covers_every_mapped_code():
         assert result.value == expected
 
 
+def test_status_from_code_pins_every_backend_artifact_status_code():
+    """#2127: each backend ``ArtifactStatus`` code maps to its own state.
+
+    Codes 1/2 were transposed and 0/5/6 were unmodelled (all three collapsed
+    into ``UNKNOWN``). Pin the whole table so a future transposition or a
+    silently-dropped member fails here.
+    """
+    assert {
+        code: _status_from_code(code) for code in (member.value for member in ArtifactStatus)
+    } == {
+        0: GenerationState.UNKNOWN,
+        1: GenerationState.PENDING,
+        2: GenerationState.IN_PROGRESS,
+        3: GenerationState.COMPLETED,
+        4: GenerationState.FAILED,
+        5: GenerationState.SUGGESTED,
+        6: GenerationState.PENDING_REVIEW,
+    }
+
+
+def test_is_terminal_partitions_the_enum_exactly():
+    """``is_terminal`` is the single authority for "generation ended".
+
+    Pinned as an exact partition so a member added later has to be classified
+    deliberately here rather than silently inheriting a default. Everything
+    non-terminal means "keep waiting" — including ``NOT_FOUND``, which is a
+    transport-level absence rather than an outcome.
+    """
+    terminal = {state for state in GenerationState if state.is_terminal}
+    assert terminal == {
+        GenerationState.COMPLETED,
+        GenerationState.FAILED,
+        GenerationState.REMOVED,
+    }
+    assert {state for state in GenerationState if not state.is_terminal} == {
+        GenerationState.PENDING,
+        GenerationState.IN_PROGRESS,
+        GenerationState.NOT_FOUND,
+        GenerationState.UNKNOWN,
+        GenerationState.SUGGESTED,
+        GenerationState.PENDING_REVIEW,
+    }
+
+
+def test_is_terminal_equals_the_is_complete_or_is_failed_predicate_pair():
+    """The enum partition matches the predicate pair ``_run_poll_loop`` stops on.
+
+    Scope note: this compares two derivations, it does not drive the loop —
+    ``_run_poll_loop`` itself returns on ``status.is_complete or
+    status.is_failed`` (``REMOVED`` it synthesizes locally, so ``poll_status``
+    can never hand it back). Pinning the pair is what keeps the enum's partition
+    from drifting away from the condition the loop actually evaluates.
+    """
+    for state in GenerationState:
+        if state is GenerationState.REMOVED:
+            continue  # never emitted by poll_status; wait_for_completion makes it
+        status = GenerationStatus(task_id="t", status=state)
+        assert state.is_terminal == (status.is_complete or status.is_failed), state
+
+
+def test_generation_status_is_terminal_matches_the_enum_for_every_state():
+    """The dataclass predicate agrees with the enum for all nine states."""
+    for state in GenerationState:
+        assert GenerationStatus(task_id="t", status=state).is_terminal == state.is_terminal, state
+
+
+def test_generation_status_is_terminal_works_on_a_plain_string_status():
+    """``GenerationStatus.status`` is documented raw-string-permissive.
+
+    ``is_terminal`` is the only predicate on this dataclass that resolves by
+    *hashing* (``in`` against a frozenset) rather than by ``==`` alone, so the
+    plain-string path needs its own pin — every sibling predicate would keep
+    working even if this one silently stopped.
+    """
+    assert GenerationStatus(task_id="t", status="completed").is_terminal is True
+    assert GenerationStatus(task_id="t", status="failed").is_terminal is True
+    assert GenerationStatus(task_id="t", status="removed").is_terminal is True
+    assert GenerationStatus(task_id="t", status="pending").is_terminal is False
+    assert GenerationStatus(task_id="t", status="in_progress").is_terminal is False
+    # An unmodelled string is not terminal either — it must not crash the branch.
+    assert GenerationStatus(task_id="t", status="some_future_status").is_terminal is False
+
+
+def test_generation_state_hashes_as_its_value_not_its_member_name():
+    """The mechanism the plain-string path above rests on, pinned explicitly.
+
+    ``str`` precedes ``Enum`` in ``GenerationState``'s MRO, so ``str.__hash__``
+    wins over ``Enum.__hash__`` (which would hash the *member name*, e.g.
+    ``"COMPLETED"``, and would silently break frozenset lookups by value).
+    Reordering the bases would keep every ``==``-based predicate working and
+    break only the ``in``-based one, so pin the cause, not just the symptom.
+    """
+    assert GenerationState.__mro__[1] is str
+    assert hash(GenerationState.COMPLETED) == hash("completed")
+    assert hash(GenerationState.COMPLETED) != hash("COMPLETED")
+    assert "completed" in frozenset({GenerationState.COMPLETED})
+
+
+def test_generation_outcome_terminality_agrees_with_the_enum():
+    """``_app/generate_retry`` classifies terminality independently — keep it in step.
+
+    It duck-types over ``is_complete`` / ``is_failed`` / ``is_removed`` so it can
+    accept non-``GenerationStatus`` payloads, which means it cannot call
+    ``is_terminal``. This pins that its three-way split still partitions the
+    enum the same way, so the two cannot drift apart silently.
+    """
+    from notebooklm._app.generate_retry import generation_outcome_from_status
+
+    for state in GenerationState:
+        outcome = generation_outcome_from_status(
+            GenerationStatus(task_id="t", status=state), "audio"
+        )
+        assert (outcome.status != "pending") == state.is_terminal, state
+
+
+def test_rare_backend_states_are_distinguishable_from_unknown():
+    """SUGGESTED / PENDING_REVIEW must not collapse into ``UNKNOWN`` (#2127)."""
+    for code in (ArtifactStatus.SUGGESTED, ArtifactStatus.PENDING_REVIEW):
+        assert _status_from_code(code) is not GenerationState.UNKNOWN
+    # ...while a code the backend enum does not define still fails closed.
+    assert _status_from_code(7) is GenerationState.UNKNOWN
+
+
 def test_status_from_code_none_defaults_to_pending():
     assert _status_from_code(None) is GenerationState.PENDING
 
@@ -345,6 +468,31 @@ async def test_poll_status_never_reads_the_non_error_slots():
     assert status.error is None
     assert 3 not in row.read_indices
     assert 5 not in row.read_indices
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        (ArtifactStatus.PENDING, GenerationState.PENDING),
+        (ArtifactStatus.PROCESSING, GenerationState.IN_PROGRESS),
+        (ArtifactStatus.SUGGESTED, GenerationState.SUGGESTED),
+        (ArtifactStatus.PENDING_REVIEW, GenerationState.PENDING_REVIEW),
+    ],
+)
+async def test_poll_status_non_terminal_codes_keep_the_loop_waiting(
+    code: int, expected: GenerationState
+):
+    """#2127: the transitional + rare codes surface distinctly and stay non-terminal.
+
+    ``_run_poll_loop`` only stops on ``is_complete``/``is_failed``, so a state
+    that is neither keeps polling — the same behaviour codes 5/6 already had
+    when they decoded as ``"unknown"``.
+    """
+    status = await _poll_with_status_code(code)
+    assert status.status is expected
+    assert not status.is_complete
+    assert not status.is_failed
 
 
 @pytest.mark.asyncio

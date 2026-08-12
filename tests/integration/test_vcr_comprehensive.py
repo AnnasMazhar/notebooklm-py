@@ -613,12 +613,17 @@ class TestArtifactsGenerateAPI:
     @pytest.mark.asyncio
     @notebooklm_vcr.use_cassette("artifacts_retry_failed.yaml")
     async def test_retry_failed(self):
-        """Retry a failed artifact in place — the same id comes back in_progress."""
+        """Retry a failed artifact in place — the same id comes back re-queued.
+
+        The recorded row carries status code 1 (``ARTIFACT_STATUS_INITIALIZED``),
+        which decodes to ``"pending"`` since #2127 corrected the transposed
+        1/2 codes.
+        """
         artifact_id = "11111111-2222-3333-4444-555555555555"
         async with vcr_client() as client:
             result = await client.artifacts.retry_failed(MUTABLE_NOTEBOOK_ID, artifact_id)
         assert result.task_id == artifact_id
-        assert result.status == "in_progress"
+        assert result.status == "pending"
 
 
 # =============================================================================

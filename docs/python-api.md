@@ -1209,7 +1209,7 @@ print(f"Keywords: {guide.keywords}")
 | `rename(notebook_id, artifact_id, new_title, *, return_object=True)` | `str, str, str` | `Artifact \| None` | Rename artifact (re-fetched; raises `ArtifactNotFoundError` if missing). `return_object=False` skips the re-fetch and returns `None`. |
 | `poll_status(notebook_id, task_id)` | `str, str` | `GenerationStatus` | Check generation status |
 | `wait_for_completion(notebook_id, task_id, ...)` | `str, str, ...` | `GenerationStatus` | Wait for generation. Pass `on_status_change(status)` for sync or async progress callbacks. |
-| `retry_failed(notebook_id, artifact_id)` | `str, str` | `GenerationStatus` | Retry a failed Studio artifact in place (the UI "Retry"). Same `artifact_id` preserved; accepted → `status="in_progress"`; a synchronous refusal (rate limit / quota / not-retryable) **raises** `RateLimitError`/`RPCError`. See below. |
+| `retry_failed(notebook_id, artifact_id)` | `str, str` | `GenerationStatus` | Retry a failed Studio artifact in place (the UI "Retry"). Same `artifact_id` preserved; accepted → `status="pending"` (re-queued; advances to `in_progress` on a later poll); a synchronous refusal (rate limit / quota / not-retryable) **raises** `RateLimitError`/`RPCError`. See below. |
 
 #### Type-Specific List Methods
 
@@ -1256,7 +1256,9 @@ not deleted first; the same `artifact_id` is preserved and returned as the task
 id, so `poll_status()` / `wait_for_completion()` keep working against it.
 
 It follows the ADR-0019 "async kickoff" contract: an accepted retry returns
-`GenerationStatus(status="in_progress")`, while a **synchronous refusal**
+`GenerationStatus(status="pending")` — the response row carries wire code 1
+(`ARTIFACT_STATUS_INITIALIZED`), i.e. re-queued but not yet picked up, advancing
+to `in_progress` on a later poll — while a **synchronous refusal**
 (`USER_DISPLAYABLE_ERROR` — rate limit, quota, or a non-retryable artifact)
 **raises** the underlying `RateLimitError` / `RPCError` rather than returning a
 `status="failed"` handle. (As a brand-new method it is born on the right side
@@ -1267,7 +1269,7 @@ callers decide whether to re-invoke.
 
 ```python
 status = await client.artifacts.retry_failed(nb_id, failed_artifact_id)
-# status.task_id == failed_artifact_id, status.status == "in_progress"
+# status.task_id == failed_artifact_id, status.status == "pending"
 final = await client.artifacts.wait_for_completion(nb_id, status.task_id)
 
 # Auto-retry on a rate-limited refusal with the public helper. Because
@@ -2263,7 +2265,7 @@ class Artifact:
     id: str
     title: str
     _artifact_type: int             # Internal type code; field order matters. Access via .kind.
-    status: int                     # 1=processing, 2=pending, 3=completed, 4=failed
+    status: int                     # See the ArtifactStatus table below. Access via .status_str / .is_* .
     created_at: Optional[datetime]
     url: Optional[str]
     _variant: int | None = None     # Internal variant for type-4 artifacts (1=flashcards, 2=quiz, 4=interactive mind map).
@@ -2275,7 +2277,23 @@ class Artifact:
 
     @property
     def is_completed(self) -> bool:
-        """Check if artifact generation is complete."""
+        """Check if artifact generation is complete (status code 3)."""
+
+    @property
+    def is_pending(self) -> bool:
+        """Queued: the row exists but the worker has not started (status code 1)."""
+
+    @property
+    def is_processing(self) -> bool:
+        """Actively generating (status code 2)."""
+
+    @property
+    def is_failed(self) -> bool:
+        """Generation failed (status code 4)."""
+
+    @property
+    def status_str(self) -> str:
+        """Human-readable status; see the table below."""
 
     @property
     def is_quiz(self) -> bool:
@@ -2294,6 +2312,30 @@ class Artifact:
 ```
 
 **Note on `_artifact_type` / `_variant`:** these are private (leading-underscore) fields with `repr=False` and are part of the dataclass for `from_api_response()` round-tripping. Always consume them via the public `.kind`, `.is_quiz`, `.is_flashcards`, and `.report_subtype` accessors.
+
+**Status codes** (`Artifact.status`, also available as the `ArtifactStatus` enum from `notebooklm.types`):
+
+| Code | `ArtifactStatus` | `status_str` | Meaning |
+|---|---|---|---|
+| 0 | `UNKNOWN` | `"unknown"` | Status unset or unrecognized |
+| 1 | `PENDING` | `"pending"` | Queued — the row exists, the worker has not started |
+| 2 | `PROCESSING` | `"in_progress"` | Actively generating |
+| 3 | `COMPLETED` | `"completed"` | Ready for use/download |
+| 4 | `FAILED` | `"failed"` | Generation failed |
+| 5 | `SUGGESTED` | `"suggested"` | A suggestion row, not a real artifact; filtered out of listings server-side |
+| 6 | `PENDING_REVIEW` | `"pending_review"` | Backend state whose semantics are unconfirmed; modeled so it stays distinguishable from `"unknown"` |
+
+**Corrected in [#2127](https://github.com/teng-lin/notebooklm-py/issues/2127):**
+codes 1 and 2 were transposed relative to the backend — the library read 1 as
+`"in_progress"` and 2 as `"pending"`. `Artifact.is_pending` therefore returned
+`True` for an artifact that was mid-generation, and `is_processing` returned
+`False` for it. No member name or existing status string was renamed; what moved
+is the wire code behind each, and codes 0/5/6 gained members where they had
+previously all decoded to `"unknown"` (so `"suggested"` and `"pending_review"`
+are new strings an exhaustive match must now handle). Callers that hard-coded
+the integers (`artifact.status == 1` to mean "generating") must flip them;
+callers using `.is_pending` / `.is_processing` / `.status_str` get the correct
+answer with no change.
 
 > **Removed in v0.5.0:** `Artifact.artifact_type` and `Artifact.variant`
 > were replaced by `Artifact.kind` plus `.is_quiz` / `.is_flashcards`.
@@ -2329,7 +2371,7 @@ Returned by `poll_status`, `wait_for_completion`, and most artifact generation m
 @dataclass
 class GenerationStatus:
     task_id: str                          # Same value as Artifact.id once complete
-    status: GenerationState               # str-Enum: "pending" | "in_progress" | "completed" | "failed" | "not_found" | "removed" | "unknown"
+    status: GenerationState               # str-Enum; see the member table below for all nine values
     url: str | None = None                # Populated for media artifacts when status == "completed"
     error: str | None = None
     error_code: str | None = None         # e.g. "USER_DISPLAYABLE_ERROR" for rate limits
@@ -2400,8 +2442,30 @@ working unchanged. **Prefer the `.is_*` predicates** (`status.is_complete`,
 | `COMPLETED` | `"completed"` | poll / generation parsers |
 | `FAILED` | `"failed"` | poll / generation parsers; synthesized rate-limit retry events |
 | `NOT_FOUND` | `"not_found"` | `poll_status` when the artifact is absent from the list |
-| `UNKNOWN` | `"unknown"` | unrecognized status codes (future-proofing) |
+| `UNKNOWN` | `"unknown"` | status code 0, plus any code outside the backend enum (future-proofing) |
+| `SUGGESTED` | `"suggested"` | status code 5 — a suggestion row; listings filter these out server-side |
+| `PENDING_REVIEW` | `"pending_review"` | status code 6 — backend state with unconfirmed semantics ([#2127](https://github.com/teng-lin/notebooklm-py/issues/2127)) |
 | `REMOVED` | `"removed"` | `wait_for_completion` after a sustained delisting |
+
+`GenerationState.is_terminal` is the single authority for "generation ended":
+it is `True` for exactly `COMPLETED`, `FAILED` and `REMOVED`. Everything else —
+including `NOT_FOUND`, `UNKNOWN`, and the `SUGGESTED` / `PENDING_REVIEW` states
+added in #2127 — means *keep waiting*, so `wait_for_completion` keeps polling
+and the REST poll route keeps the task in its pending registry. Prefer it over
+enumerating members yourself — and since `GenerationStatus.is_terminal`
+delegates to it, branch on the status object:
+
+```python
+status = await client.artifacts.poll_status(nb_id, task_id)
+if not status.is_terminal:
+    ...  # still running; poll again
+```
+
+`NOT_FOUND` is non-terminal but is *not* interchangeable with the others: it
+means the artifact is absent from the listing (post-create lag, or a delisting)
+rather than reporting an outcome, and `wait_for_completion` escalates a
+sustained run of it to the terminal `REMOVED`. Branch on `is_not_found` when
+that difference matters.
 
 > **Note:** because `status` is now typed `GenerationState`, constructing
 > `GenerationStatus(..., status="completed")` with a bare string literal is a

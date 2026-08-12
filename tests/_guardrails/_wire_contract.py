@@ -511,10 +511,13 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
     "ArtifactStatus": (
         "ArtifactStatus",
         {
+            0: "ARTIFACT_STATUS_UNKNOWN",
             1: "ARTIFACT_STATUS_INITIALIZED",
             2: "ARTIFACT_STATUS_PROCESSING",
             3: "ARTIFACT_STATUS_READY",
             4: "ARTIFACT_STATUS_FAILED",
+            5: "ARTIFACT_STATUS_SUGGESTED",
+            6: "ARTIFACT_PENDING_REVIEW",
         },
     ),
     # rpc/types.py::QuizQuantity. Shared by quiz AND flashcards; the two backend
@@ -570,11 +573,6 @@ ENUM_GAPS: dict[str, tuple[tuple[int, str, str], ...]] = {
     "SourceStatus": (
         (0, "SOURCE_STATUS_UNSPECIFIED", "#2124 — fails closed as UNKNOWN"),
         (4, "SOURCE_STATUS_PENDING_DELETION", "#2124 — fails closed as UNKNOWN"),
-    ),
-    "ArtifactStatus": (
-        (0, "ARTIFACT_STATUS_UNKNOWN", "#2127"),
-        (5, "ARTIFACT_STATUS_SUGGESTED", "#2127"),
-        (6, "ARTIFACT_PENDING_REVIEW", "#2127 — state discovered only in the object store"),
     ),
     "SourceType": (
         (

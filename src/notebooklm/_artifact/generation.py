@@ -379,7 +379,10 @@ class ArtifactGenerationService:
         first. The same ``artifact_id`` is preserved and returned as the task
         id, so existing ``poll_status`` / ``wait_for_completion`` flows keep
         working — an accepted retry comes back as
-        ``GenerationStatus(status="in_progress")``.
+        ``GenerationStatus(status="pending")``: the response row carries wire
+        code 1 (``ARTIFACT_STATUS_INITIALIZED``), i.e. re-queued but not yet
+        picked up, advancing to ``"in_progress"`` on a later poll. Before #2127
+        that code was mislabelled ``"in_progress"``.
 
         Follows the ADR-0019 "async kickoff" contract: a synchronous server
         refusal (``USER_DISPLAYABLE_ERROR`` — rate limit, quota, or a

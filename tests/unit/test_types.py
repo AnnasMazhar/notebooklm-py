@@ -1729,33 +1729,64 @@ class TestArtifact:
     def test_is_completed_property(self):
         """Test is_completed property."""
         completed = Artifact.from_api_response(["id", "title", 1, None, 3])
-        processing = Artifact.from_api_response(["id", "title", 1, None, 1])
+        processing = Artifact.from_api_response(["id", "title", 1, None, 2])
 
         assert completed.is_completed is True
         assert processing.is_completed is False
 
     def test_is_processing_property(self):
-        """Test is_processing property."""
-        processing = Artifact.from_api_response(["id", "title", 1, None, 1])
+        """is_processing is code 2 (ARTIFACT_STATUS_PROCESSING) — #2127."""
+        processing = Artifact.from_api_response(["id", "title", 1, None, 2])
+        pending = Artifact.from_api_response(["id", "title", 1, None, 1])
         completed = Artifact.from_api_response(["id", "title", 1, None, 3])
 
         assert processing.is_processing is True
+        assert pending.is_processing is False
         assert completed.is_processing is False
 
     def test_is_pending_property(self):
-        """Test is_pending property for status=2 (transitional state)."""
-        pending = Artifact.from_api_response(["id", "title", 1, None, 2])
-        processing = Artifact.from_api_response(["id", "title", 1, None, 1])
+        """is_pending is code 1 (ARTIFACT_STATUS_INITIALIZED) — #2127."""
+        pending = Artifact.from_api_response(["id", "title", 1, None, 1])
+        processing = Artifact.from_api_response(["id", "title", 1, None, 2])
         completed = Artifact.from_api_response(["id", "title", 1, None, 3])
 
         assert pending.is_pending is True
         assert processing.is_pending is False
         assert completed.is_pending is False
 
+    def test_predicate_table_for_every_status_code(self):
+        """Every code's full ``is_*`` answer set, pinned as a table (#2127).
+
+        A bare "the two are mutually exclusive" check would survive the very
+        transposition this issue fixed — swapping 1 and 2 keeps them exclusive.
+        Pinning the whole tuple per code makes the table transposition-sensitive
+        instead: before the fix, code 1 answered ``is_processing`` and code 2
+        answered ``is_pending``.
+        """
+        # code -> (is_pending, is_processing, is_completed, is_failed)
+        expected = {
+            0: (False, False, False, False),  # UNKNOWN
+            1: (True, False, False, False),  # INITIALIZED -> queued
+            2: (False, True, False, False),  # PROCESSING -> generating
+            3: (False, False, True, False),  # READY
+            4: (False, False, False, True),  # FAILED
+            5: (False, False, False, False),  # SUGGESTED
+            6: (False, False, False, False),  # PENDING_REVIEW
+        }
+        for code, answers in expected.items():
+            artifact = Artifact.from_api_response(["id", "title", 1, None, code])
+            actual = (
+                artifact.is_pending,
+                artifact.is_processing,
+                artifact.is_completed,
+                artifact.is_failed,
+            )
+            assert actual == answers, f"code {code}"
+
     def test_is_failed_property(self):
         """Test is_failed property for status=4 (generation failed)."""
         failed = Artifact.from_api_response(["id", "title", 1, None, 4])
-        processing = Artifact.from_api_response(["id", "title", 1, None, 1])
+        processing = Artifact.from_api_response(["id", "title", 1, None, 2])
         completed = Artifact.from_api_response(["id", "title", 1, None, 3])
 
         assert failed.is_failed is True
@@ -1763,18 +1794,20 @@ class TestArtifact:
         assert completed.is_failed is False
 
     def test_status_str_property(self):
-        """Test status_str property returns correct human-readable strings."""
-        processing = Artifact.from_api_response(["id", "title", 1, None, 1])
-        pending = Artifact.from_api_response(["id", "title", 1, None, 2])
-        completed = Artifact.from_api_response(["id", "title", 1, None, 3])
-        failed = Artifact.from_api_response(["id", "title", 1, None, 4])
-        unknown = Artifact.from_api_response(["id", "title", 1, None, 99])
-
-        assert processing.status_str == "in_progress"
-        assert pending.status_str == "pending"
-        assert completed.status_str == "completed"
-        assert failed.status_str == "failed"
-        assert unknown.status_str == "unknown"
+        """status_str covers every backend ArtifactStatus code (#2127)."""
+        expected = {
+            0: "unknown",
+            1: "pending",
+            2: "in_progress",
+            3: "completed",
+            4: "failed",
+            5: "suggested",
+            6: "pending_review",
+            99: "unknown",  # unrecognized codes fail closed
+        }
+        for code, status_str in expected.items():
+            artifact = Artifact.from_api_response(["id", "title", 1, None, code])
+            assert artifact.status_str == status_str, f"code {code}"
 
     def test_report_subtype_briefing_doc(self):
         """Test report_subtype for briefing doc."""

@@ -622,7 +622,12 @@ class FakeClient:
         self.sources_store: dict[str, dict[str, Source]] = {}
         self.notes_store: dict[str, dict[str, Note]] = {}
         self.artifacts_store: dict[str, dict[str, Artifact]] = {}
-        self.poll_states: dict[tuple[str, str], GenerationState] = {}
+        # ``Any``, not ``GenerationState``: the poll route reads predicates off
+        # the status object, and ``GenerationStatus.status`` is documented
+        # raw-string-permissive. Typing this loosely lets a test hand the route
+        # a plain ``str`` — the same guarantee ``retry_status`` below already
+        # gives the retry route.
+        self.poll_states: dict[tuple[str, str], Any] = {}
         self.public_shares: dict[str, bool] = {}
         self.share_view_levels: dict[str, ShareViewLevel] = {}
         self.shared_users: dict[str, dict[str, SharedUser]] = {}

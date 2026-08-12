@@ -110,6 +110,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gain `role` (the raw code) plus `role_label`, mirroring how sources already
   ship `status` plus `status_label`.
   ([#2125](https://github.com/teng-lin/notebooklm-py/issues/2125))
+
+- **`ArtifactStatus` codes 1 and 2 are no longer transposed, and codes 0/5/6 are
+  now modeled**
+  ([#2127](https://github.com/teng-lin/notebooklm-py/issues/2127)). The client
+  read wire code 1 as `PROCESSING` and code 2 as `PENDING`, the inverse of the
+  backend enum. Two independent live traces of a generating artifact showed
+  `2 → 3`, so code 2 is what an artifact reports *while generating*; every
+  `CREATE_ARTIFACT` / `RETRY_ARTIFACT` row recorded on the **web** transport
+  starts at code 1 (`ARTIFACT_STATUS_INITIALIZED` — "row created, worker not
+  started"), a window short enough that live sampling regularly misses it and
+  catches code 2 on the very first poll instead.
+  Consequently `Artifact.is_pending` returned `True` for an artifact that was
+  mid-generation while `Artifact.is_processing` returned `False` for it, and any
+  caller distinguishing "queued" from "running" — progress UIs, timeout
+  heuristics, retry logic — read the two states backwards. Codes 0
+  (`ARTIFACT_STATUS_UNKNOWN`), 5 (`ARTIFACT_STATUS_SUGGESTED`, the state
+  `LIST_ARTIFACTS` already filters on server-side) and 6
+  (`ARTIFACT_PENDING_REVIEW`) were unmodeled and all collapsed into `"unknown"`;
+  they are now distinct members, with `GenerationState.SUGGESTED` /
+  `GenerationState.PENDING_REVIEW` added so a caller can detect them. Code 6's
+  semantics are unconfirmed (it appears in the backend enum dump but was
+  observed in none of 42 live artifacts, 301 recorded rows, or a fresh
+  generation) — it is modeled for detectability only.
+
+  **⚠ BREAKING for callers that compare `Artifact.status` / `ArtifactStatus`
+  members to raw integers, or that catch one artifact timeout exception but not
+  its sibling.** `notebooklm.types.ArtifactStatus` is a public name and its
+  member integers changed. This is filed under *Fixed* because the old integers
+  were simply wrong about the wire, but the migration below is required.
+
+  **User-visible changes.** No existing `ArtifactStatus` member name, and no
+  existing `status_str` / `GenerationState` value, was renamed or removed —
+  `PENDING` still means "queued" and `PROCESSING` still means "generating".
+  What changed is which wire code produces which string, plus two *additions*
+  to the vocabulary (`SUGGESTED` / `"suggested"` and `PENDING_REVIEW` /
+  `"pending_review"`, for codes 5 and 6, which previously had no members and
+  decoded to `"unknown"`). So an exhaustive `if`/`elif` or `match` over the
+  status strings needs a new arm, while every existing arm keeps its meaning:
+  - wire code 1 now renders `"pending"` (was `"in_progress"`), and code 2 now
+    renders `"in_progress"` (was `"pending"`). This affects `Artifact.status_str`,
+    `GenerationStatus.status`, the CLI's `artifact poll` / `--json` output, the
+    MCP status payloads, and `GET /v1/notebooks/{id}/artifacts/{task_id}`;
+  - the two artifact timeout exceptions swap with the codes, in **both**
+    directions: a task that times out while the backend reports code 2 now
+    raises `ArtifactInProgressTimeoutError` (was `ArtifactPendingTimeoutError`),
+    and — the more common case, since it is the state every `CREATE_ARTIFACT` /
+    `RETRY_ARTIFACT` row starts in — a task stuck at code 1 now raises
+    `ArtifactPendingTimeoutError` (was `ArtifactInProgressTimeoutError`). Both
+    are separately catchable and both are reachable via the
+    `ArtifactTimeoutError` / `WaitTimeoutError` umbrellas, so `except
+    ArtifactInProgressTimeoutError` callers should add the sibling. The
+    `stalled_phase` attribute and the CLI's `--json` error envelope follow;
+  - codes 5 and 6 now render `"suggested"` / `"pending_review"` instead of
+    `"unknown"`. All three remain *still-running* for the poll loop and the
+    REST poll route (`GenerationState.UNKNOWN` is now classified there
+    explicitly rather than falling through the terminal branch), exactly as
+    `"unknown"` behaved for the client loop before;
+  - because code 0 is now a modeled member, `ArtifactStatus(artifact.status)`
+    on a **truncated or malformed** artifact row no longer raises `ValueError`
+    — the row adapter synthesizes `0` for a short row or a non-int status leaf,
+    which now resolves to `ArtifactStatus.UNKNOWN` instead. Code reading that
+    `ValueError` as a decode-failure signal needs another check.
+
+  New: `GenerationState.is_terminal` is now the single authority for
+  "generation ended" (`COMPLETED` / `FAILED` / `REMOVED`); everything else,
+  including the two new states, means keep waiting. Prefer it over enumerating
+  members. A state added to the enum later is non-terminal by default, so a
+  waiter can no longer silently abandon a running task.
+
+  Callers that hard-coded the raw integers (`artifact.status == 1` to mean
+  "generating") must flip them; callers using `.is_pending` / `.is_processing` /
+  `.status_str` / `GenerationState` now get the correct answer with no change.
+
 - **Flashcard generation no longer swaps `quantity` and `difficulty`.** The
   flashcards payload builder emitted the option pair as
   `[difficulty, quantity]` while the backend's `FlashcardsGenerationOptions` —
