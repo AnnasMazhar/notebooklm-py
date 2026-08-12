@@ -224,6 +224,12 @@ def _reconcile_import_probe(
     current_urls_norm = {_normalize_import_verification_url(src.url) for src in current if src.url}
     committed_urls_norm = requested_urls_norm & new_urls_norm
 
+    # Every URL landing is treated as the whole batch verified — including any
+    # no-URL (report) entries — on the assumption reports commit first
+    # server-side (see ``drop_no_url_entries`` below), so a URL landing implies
+    # the report did too. Pre-existing assumption, unchanged by #2187; noted
+    # here since this path now also resolves FAILED_PRECONDITION, not just
+    # RPCTimeoutError (claude review).
     if baseline_ids is not None and requested_urls_norm.issubset(new_urls_norm):
         entries: list[dict[str, str]] = []
         remaining_no_url = requested_no_url_count
