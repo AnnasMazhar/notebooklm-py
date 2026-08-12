@@ -66,14 +66,8 @@ class TestPositionContract:
     def test_type_position_is_2(self) -> None:
         assert ArtifactRow._TYPE_POS == 2
 
-    def test_error_text_position_is_3(self) -> None:
-        assert ArtifactRow._ERROR_TEXT_POS == 3
-
     def test_status_position_is_4(self) -> None:
         assert ArtifactRow._STATUS_POS == 4
-
-    def test_error_payload_position_is_5(self) -> None:
-        assert ArtifactRow._ERROR_PAYLOAD_POS == 5
 
     def test_audio_metadata_position_is_6(self) -> None:
         assert ArtifactRow._AUDIO_METADATA_POS == 6
@@ -107,9 +101,7 @@ class TestPositionContract:
             ArtifactRow._ID_POS,
             ArtifactRow._TITLE_POS,
             ArtifactRow._TYPE_POS,
-            ArtifactRow._ERROR_TEXT_POS,
             ArtifactRow._STATUS_POS,
-            ArtifactRow._ERROR_PAYLOAD_POS,
             ArtifactRow._AUDIO_METADATA_POS,
             ArtifactRow._REPORT_MARKDOWN_POS,
             ArtifactRow._VIDEO_METADATA_POS,
@@ -118,7 +110,10 @@ class TestPositionContract:
             ArtifactRow._TIMESTAMP_POS,
             ArtifactRow._SLIDE_DECK_METADATA_POS,
             ArtifactRow._DATA_TABLE_PAYLOAD_POS,
-        ) == (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 15, 16, 18)
+        ) == (0, 1, 2, 4, 6, 7, 8, 9, 14, 15, 16, 18)
+        # 3 and 5 are absent on purpose: they are `sources` and
+        # `isPubliclyReadable`, not the error slots the adapter used to claim
+        # (#2134). Nothing reads them, so nothing pins them.
 
 
 # ---------------------------------------------------------------------------
@@ -391,19 +386,6 @@ class TestArtifactPayloadAccessors:
 
         assert ArtifactRow(raw).data_table_raw_payload is payload
 
-    def test_failed_error_text_prefers_plain_error_over_nested_payload(self) -> None:
-        raw = _full_row(status=ArtifactStatus.FAILED)
-        raw[ArtifactRow._ERROR_TEXT_POS] = " Primary "
-        raw[ArtifactRow._ERROR_PAYLOAD_POS] = ["Secondary"]
-
-        assert ArtifactRow(raw).failed_error_text == "Primary"
-
-    def test_failed_error_text_falls_back_to_nested_payload(self) -> None:
-        raw = _full_row(status=ArtifactStatus.FAILED)
-        raw[ArtifactRow._ERROR_PAYLOAD_POS] = [["Nested quota limit"]]
-
-        assert ArtifactRow(raw).failed_error_text == "Nested quota limit"
-
     def test_artifact_url_dispatches_by_type(self) -> None:
         raw = _full_row(type_code=ArtifactTypeCode.AUDIO)
         raw[ArtifactRow._AUDIO_METADATA_POS] = [
@@ -436,7 +418,6 @@ class TestArtifactPayloadAccessors:
         assert row.slide_deck_pptx_url is None
         assert row.report_markdown is None
         assert row.data_table_raw_payload is None
-        assert row.failed_error_text is None
         assert row.artifact_url(ArtifactTypeCode.AUDIO.value, suppress_drift=True) is None
 
 

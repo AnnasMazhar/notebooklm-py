@@ -15,6 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `artifact_status_to_str` helpers.
   ([#2125](https://github.com/teng-lin/notebooklm-py/issues/2125))
 
+### Changed
+
+- **Failed artifact polling no longer derives `GenerationStatus.error` from
+  nonexistent artifact-row fields.** `poll_status()` treated row index 3 as
+  "failure text" and index 5 as a "nested error payload"; those slots are
+  `Artifact.sources` and `Artifact.isPubliclyReadable`, so the read could only
+  ever produce a wrong answer. For schema-conformant rows the observed output is
+  unchanged — #2134 reports `error=None` for 3/3 real failed artifacts — but a
+  nonconforming row carrying a string in either slot no longer populates the
+  public field. `wait_for_completion()` still sets its own client-authored
+  message for `REMOVED`, and `generate_*(retry=...)` still synthesizes
+  `error=str(exc)` for retry callbacks; neither reads the wire for it. Capturing
+  a genuine provider failure reason (delivered on the `CreateArtifact` RPC
+  status, not persisted on the artifact) is not implemented.
+  ([#2134](https://github.com/teng-lin/notebooklm-py/issues/2134))
+
 ### Fixed
 
 - **`Notebook.is_owner` no longer inverts on shared notebooks, and the notebook's
