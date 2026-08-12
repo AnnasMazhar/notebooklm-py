@@ -169,6 +169,7 @@ class TestNotebookList:
             "is_owner",
             "role",
             "created_at",
+            "last_viewed_at",
             "modified_at",
         ]
         assert data["notebooks"][0]["id"] == "nb_1"

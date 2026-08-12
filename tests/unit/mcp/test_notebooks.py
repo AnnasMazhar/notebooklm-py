@@ -49,7 +49,7 @@ class FakeNotebookFull:
     """A create-result-shaped notebook mirroring :class:`notebooklm.types.Notebook`.
 
     Carries the full field set so ``to_jsonable`` emits the flat shape (including
-    ``created_at`` / ``modified_at``) the create tool surfaces. The timestamp
+    ``created_at`` / ``last_viewed_at``) the create tool surfaces. The timestamp
     backfill itself lives in the transport-neutral core (``execute_notebook_create``,
     #1705) and is unit-tested there; this fake just lets the MCP test assert the
     tool flattens and surfaces those fields end-to-end.
@@ -62,6 +62,7 @@ class FakeNotebookFull:
     is_owner: bool = True
     modified_at: datetime | None = None
     role: SharePermission | None = None
+    last_viewed_at: datetime | None = None
 
 
 @dataclass
@@ -227,6 +228,7 @@ async def test_notebook_describe_include_metadata_adds_block(mcp_call, mock_clie
             "is_owner": False,
             "modified_at": None,
             "role": SharePermission.EDITOR.value,
+            "last_viewed_at": None,
             "role_label": "editor",
         },
         "sources": [{"kind": "pdf", "title": "Doc", "url": None}],
