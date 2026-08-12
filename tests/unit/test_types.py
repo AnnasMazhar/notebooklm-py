@@ -1694,7 +1694,7 @@ class TestArtifact:
     def test_is_completed_property(self):
         """Test is_completed property."""
         completed = Artifact.from_api_response(["id", "title", 1, None, 3])
-        processing = Artifact.from_api_response(["id", "title", 1, None, 1])
+        processing = Artifact.from_api_response(["id", "title", 1, None, 2])
 
         assert completed.is_completed is True
         assert processing.is_completed is False
@@ -1734,7 +1734,7 @@ class TestArtifact:
     def test_is_failed_property(self):
         """Test is_failed property for status=4 (generation failed)."""
         failed = Artifact.from_api_response(["id", "title", 1, None, 4])
-        processing = Artifact.from_api_response(["id", "title", 1, None, 1])
+        processing = Artifact.from_api_response(["id", "title", 1, None, 2])
         completed = Artifact.from_api_response(["id", "title", 1, None, 3])
 
         assert failed.is_failed is True

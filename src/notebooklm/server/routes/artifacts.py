@@ -65,19 +65,6 @@ __all__ = ["DOWNLOAD_SPECS", "GENERATE_TYPES", "router"]
 
 router = APIRouter(prefix="/notebooks/{notebook_id}/artifacts", tags=["artifacts"])
 
-#: The states that end a generation, derived from :attr:`GenerationState.is_terminal`
-#: rather than restated here — the enum is the single authority for the partition.
-#:
-#: Membership is a ``frozenset`` of ``str``-enum members, so a plain-string
-#: ``status`` compares correctly against it (``GenerationState`` hashes as its
-#: value); the route therefore stays tolerant of a hand-built ``GenerationStatus``.
-#:
-#: Deriving it matters for the *default*: a state added to ``GenerationState``
-#: without anyone revisiting this module is non-terminal, so the poll route keeps
-#: the task in the pending registry instead of evicting it. Evicting a still-running
-#: task would make its next benign NOT_FOUND poll 404 rather than project (#2127).
-_TERMINAL_STATES = frozenset(state for state in GenerationState if state.is_terminal)
-
 
 def _canonical_artifact_id(artifact_id: str) -> str:
     """Lowercase a full-UUID artifact id before the kind-aware core call.
@@ -374,10 +361,12 @@ async def poll(
         if pending.knows(notebook_id, task_id):
             return projected
         raise HTTPException(status_code=404, detail="Artifact task not found")
-    if state not in _TERMINAL_STATES:
+    if not status.is_terminal:
         # Still running (PENDING / IN_PROGRESS / UNKNOWN / SUGGESTED /
-        # PENDING_REVIEW, and anything added to the enum later). Keep the task
-        # in the pending registry so a later NOT_FOUND poll still projects.
+        # PENDING_REVIEW, and anything added to GenerationState later — the
+        # partition lives on that enum, so non-terminal is the default here).
+        # Keep the task in the pending registry so a later NOT_FOUND poll still
+        # projects instead of 404ing (#2127).
         return projected
     # Terminal states only: drop from the registry, then project.
     pending.drop(notebook_id, task_id)

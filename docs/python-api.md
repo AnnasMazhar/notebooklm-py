@@ -2449,9 +2449,11 @@ added in #2127 — means *keep waiting*, so `wait_for_completion` keeps polling
 and the REST poll route keeps the task in its pending registry. Prefer it over
 enumerating members yourself:
 
+`GenerationStatus.is_terminal` delegates to it, so branch on the status object:
+
 ```python
 status = await client.artifacts.poll_status(nb_id, task_id)
-if not status.status.is_terminal:
+if not status.is_terminal:
     ...  # still running; poll again
 ```
 

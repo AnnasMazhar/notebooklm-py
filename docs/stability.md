@@ -131,6 +131,8 @@ SourceType, ArtifactType, SourceStatus
 ShareAccess, SharePermission, ShareViewLevel
 ChatGoal, ChatResponseLength, ChatMode
 DriveMimeType, ExportType
+GenerationState                            # incl. the .is_terminal predicate
+ArtifactStatus, artifact_status_to_str     # notebooklm.types.<X> only — NOT top-level (see below)
 
 # Auth
 AuthTokens                # also re-exported as notebooklm.auth.AuthTokens
@@ -160,6 +162,22 @@ notebooklm.auth.OPTIONAL_COOKIE_DOMAINS_BY_LABEL
 # Storage-writer failure - imported from notebooklm.auth
 notebooklm.auth.LockUnavailableError  # canonical home: notebooklm.exceptions; also an OSError via TimeoutError (ADR-0029)
 ```
+
+> **`ArtifactStatus` / `artifact_status_to_str` import path.** Unlike every other
+> enum listed above, these two are **not** re-exported at top level — import them
+> as `from notebooklm.types import ArtifactStatus`, never `from notebooklm import
+> ArtifactStatus`. Their canonical module `notebooklm.rpc` is marked internal
+> below; the `notebooklm.types` spelling is the blessed public one (see
+> [deprecations.md](deprecations.md)).
+>
+> **Wire-value correction in the Unreleased line
+> ([#2127](https://github.com/teng-lin/notebooklm-py/issues/2127)).** `ArtifactStatus`
+> was added to this list *after* its member integers were corrected: codes 1 and
+> 2 had been transposed relative to the backend, so the old values were simply
+> wrong about the wire rather than a contract worth preserving. The stability
+> promise applies from that correction forward. Note the general caveat that
+> applies to every wire-derived value here — see
+> [What Happens When Google Breaks Things](#what-happens-when-google-breaks-things).
 
 Every `notebooklm.auth.<name>` above is **exactly** the `__all__` of the
 `notebooklm.auth` module: `test_auth_all_matches_documented_public_surface`

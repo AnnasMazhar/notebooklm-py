@@ -8,7 +8,7 @@ import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Final
 
 from .._row_adapters.artifacts import ArtifactRow
 from .._row_adapters.notes import NoteRow
@@ -448,12 +448,18 @@ class GenerationState(str, Enum):
         """Whether generation reached an end state and will not change again.
 
         The single authority for the terminal/still-running partition, which
-        several consumers need and which was previously restated at each of
-        them. Anything *not* terminal means "keep waiting": that is why the
-        rare states added in #2127 (``SUGGESTED``, ``PENDING_REVIEW``) and the
+        the REST poll route consults (via :attr:`GenerationStatus.is_terminal`)
+        and which callers can use instead of enumerating members themselves.
+        Anything *not* terminal means "keep waiting": that is why the rare
+        states added in #2127 (``SUGGESTED``, ``PENDING_REVIEW``) and the
         long-standing ``UNKNOWN`` all answer ``False`` — none of them says
         generation finished, so treating them as terminal would abandon a task
         that is still running.
+
+        The client-side poll loop keeps its own ``is_complete or is_failed``
+        stop condition rather than calling this: ``REMOVED`` is terminal but is
+        *synthesized by that loop*, so it can never arrive from ``poll_status``.
+        ``tests/unit/test_generation_state.py`` pins the two in agreement.
 
         ``NOT_FOUND`` is deliberately non-terminal too, but it is *not*
         interchangeable with the others: it is a transport-level absence (the
@@ -482,6 +488,16 @@ class GenerationState(str, Enum):
         # of a GenerationStatus dataclass renders identically to the old
         # plain-string field.
         return repr(self.value)
+
+
+#: The terminal members, derived from :attr:`GenerationState.is_terminal` so the
+#: partition is defined once. A ``frozenset`` of ``str``-enum members, which
+#: ``str`` precedes ``Enum`` in the MRO for — so a plain-string status hashes and
+#: compares into it correctly, keeping ``GenerationStatus.is_terminal`` usable on
+#: raw-string-built instances like its sibling predicates.
+_TERMINAL_GENERATION_STATES: Final[frozenset[GenerationState]] = frozenset(
+    state for state in GenerationState if state.is_terminal
+)
 
 
 def _status_from_code(
@@ -581,6 +597,22 @@ class GenerationStatus:
         callers that need to react differently can branch on this property.
         """
         return self.status == "removed"
+
+    @property
+    def is_terminal(self) -> bool:
+        """Whether generation ended — ``completed``, ``failed``, or ``removed``.
+
+        The one predicate to branch on for "should I keep polling?". Everything
+        else means keep waiting, including ``not_found`` (a transport-level
+        absence, not an outcome) and the rare ``suggested`` / ``pending_review``
+        states added in #2127.
+
+        Delegates to :attr:`GenerationState.is_terminal`, so a state added to
+        that enum later is non-terminal here too — the safe default. Like its
+        sibling predicates this compares by value, so it works on an instance
+        built with a plain ``str`` status.
+        """
+        return self.status in _TERMINAL_GENERATION_STATES
 
     @property
     def is_rate_limited(self) -> bool:

@@ -391,7 +391,7 @@ class TestWaitForCompletion:
         api, mock_core = mock_artifacts_api
         # Return completed on second poll via LIST_ARTIFACTS format
         mock_core.rpc_executor.rpc_call.side_effect = [
-            # First poll - in_progress
+            # First poll - still queued (code 1 = INITIALIZED -> "pending")
             [
                 [
                     [
@@ -399,7 +399,7 @@ class TestWaitForCompletion:
                         "Title",
                         2,  # REPORT type (no URL check needed)
                         None,
-                        1,  # PROCESSING status
+                        1,  # PENDING status
                     ]
                 ]
             ],
