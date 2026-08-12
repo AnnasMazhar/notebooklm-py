@@ -31,6 +31,7 @@ The reference data lives in ``docs/mobile/schema.proto`` and
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -276,18 +277,41 @@ _PARALLEL_BACKEND_ENUMS: tuple[tuple[str, str], ...] = (
 )
 
 
+def _semantic_members(members: dict[int, str]) -> dict[int, str]:
+    """Strip an enum's shared name prefix, leaving the semantic member names.
+
+    ``QUESTION_QUANTITY_FEWER`` and ``CARD_QUANTITY_FEWER`` both reduce to
+    ``FEWER``, so two differently-named backend enums become comparable
+    value-for-value. The prefix is derived rather than hardcoded, and trimmed
+    back to a token boundary so a partial word is never cut.
+    """
+    prefix = os.path.commonprefix(list(members.values()))
+    prefix = prefix[: prefix.rfind("_") + 1]
+    return {value: name[len(prefix) :] for value, name in members.items()}
+
+
 @pytest.mark.parametrize(("quiz_enum", "flashcards_enum"), _PARALLEL_BACKEND_ENUMS)
 def test_quiz_and_flashcards_backend_enums_agree(quiz_enum: str, flashcards_enum: str) -> None:
-    """The quiz and flashcards option enums carry identical numeric values."""
+    """The quiz and flashcards option enums agree member-for-member.
+
+    Comparing only the numeric key sets would be too weak: if the flashcards
+    enum swapped FEWER and MORE while keeping ``{0, 1, 2, 3}``, the shared
+    ``QuizQuantity`` would encode flashcards backwards and a key-set assertion
+    would still pass — the exact divergence this guard exists to catch. So the
+    comparison is on ``{value: semantic_name}``.
+    """
     enums = load_enums()
     quiz, flashcards = enums.get(quiz_enum), enums.get(flashcards_enum)
     assert quiz, f"{quiz_enum} missing from docs/mobile/enums.txt"
     assert flashcards, f"{flashcards_enum} missing from docs/mobile/enums.txt"
 
-    assert sorted(quiz) == sorted(flashcards), (
-        f"{quiz_enum} and {flashcards_enum} no longer declare the same values "
-        f"({sorted(quiz)} vs {sorted(flashcards)}). The shared client enum can no "
-        "longer serve both -- split it, and bind each side separately."
+    quiz_semantic = _semantic_members(quiz)
+    flashcards_semantic = _semantic_members(flashcards)
+
+    assert quiz_semantic == flashcards_semantic, (
+        f"{quiz_enum} and {flashcards_enum} no longer agree member-for-member "
+        f"({quiz_semantic} vs {flashcards_semantic}). The shared client enum can "
+        "no longer serve both -- split it, and bind each side separately."
     )
 
 

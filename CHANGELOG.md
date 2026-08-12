@@ -52,7 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gain `role` (the raw code) plus `role_label`, mirroring how sources already
   ship `status` plus `status_label`.
   ([#2125](https://github.com/teng-lin/notebooklm-py/issues/2125))
-
 - **Flashcard generation no longer swaps `quantity` and `difficulty`.** The
   flashcards payload builder emitted the option pair as
   `[difficulty, quantity]` while the backend's `FlashcardsGenerationOptions` —
