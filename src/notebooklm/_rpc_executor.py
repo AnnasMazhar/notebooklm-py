@@ -334,7 +334,9 @@ class RpcExecutor:
                     elapsed,
                     exc.original,
                 )
-                self.raise_rpc_error_from_request_error(exc.original, method)
+                self.raise_rpc_error_from_request_error(
+                    exc.original, method, read_timeout=read_timeout
+                )
 
             raise TypeError(
                 f"Unexpected TransportServerError.original type: {type(exc.original)}"
@@ -391,6 +393,7 @@ class RpcExecutor:
                     exc,
                     disable_internal_retries=disable_internal_retries,
                     operation_variant=operation_variant,
+                    read_timeout=read_timeout,
                     _refresh_budget=_refresh_budget,
                     _retry_deadline=_retry_deadline,
                 )
@@ -516,8 +519,17 @@ class RpcExecutor:
         self,
         exc: httpx.RequestError,
         method: RPCMethod,
+        *,
+        read_timeout: float | None = None,
     ) -> NoReturn:
-        """Map a non-status transport failure onto NetworkError/RPCTimeoutError."""
+        """Map a non-status transport failure onto NetworkError/RPCTimeoutError.
+
+        ``read_timeout`` (default ``None``) reports the actual per-call read
+        budget in ``RPCTimeoutError.timeout_seconds`` when the caller overrode
+        it (e.g. IMPORT_RESEARCH's batch-scaled budget, #2187) — otherwise a
+        timeout at a widened budget would misreport the unwidened client
+        default.
+        """
         if isinstance(exc, httpx.ConnectTimeout):
             raise NetworkError(
                 f"Connection timed out calling {method.name}: {exc}",
@@ -529,7 +541,9 @@ class RpcExecutor:
             raise RPCTimeoutError(
                 f"Request timed out calling {method.name}",
                 method_id=method.value,
-                timeout_seconds=self._timeout_provider(),
+                timeout_seconds=read_timeout
+                if read_timeout is not None
+                else self._timeout_provider(),
                 original_error=exc,
             ) from exc
 
@@ -556,6 +570,7 @@ class RpcExecutor:
         *,
         disable_internal_retries: bool = False,
         operation_variant: str | None = None,
+        read_timeout: float | None = None,
         _refresh_budget: RefreshBudget,
         _retry_deadline: RuntimeDeadline | None = None,
     ) -> Any | None:
@@ -592,6 +607,12 @@ class RpcExecutor:
         recursion keeps the same anchored deadline. ``None`` reproduces the
         historical unclamped sleep and unconditional retry (e.g. when
         ``timeout_provider`` yields a ``None`` / non-finite timeout).
+
+        ``read_timeout`` is threaded into the retry :meth:`rpc_call` too
+        (#2187 codex review): without this, a call widened via ``read_timeout``
+        (e.g. IMPORT_RESEARCH) would silently fall back to the client-wide
+        default on its post-refresh retry leg, undermining the wider budget
+        it was explicitly given.
         """
         await refresh_and_count(
             refresh=self._auth_refresh.await_refresh,
@@ -623,6 +644,7 @@ class RpcExecutor:
             _is_retry=True,
             disable_internal_retries=disable_internal_retries,
             operation_variant=operation_variant,
+            read_timeout=read_timeout,
             _refresh_budget=_refresh_budget,
             _retry_deadline=_retry_deadline,
         )
