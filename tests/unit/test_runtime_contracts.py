@@ -44,6 +44,7 @@ class _RpcCallerImpl:
         *,
         disable_internal_retries: bool = False,
         operation_variant: str | None = None,
+        read_timeout: float | None = None,
     ) -> Any:
         return None
 

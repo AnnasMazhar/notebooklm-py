@@ -2321,11 +2321,12 @@ params = [
     source_array,   # 4: Array of sources to import
 ]
 
-# Called with source_path:
+# Called with source_path and a batch-scaled read_timeout (see the note below):
 await rpc_call(
     RPCMethod.IMPORT_RESEARCH,
     params,
     source_path=f"/notebook/{notebook_id}",
+    read_timeout=_import_research_read_timeout(len(source_array)),
 )
 
 # Response: Imported notebook sources with IDs
