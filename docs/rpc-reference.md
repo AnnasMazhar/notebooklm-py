@@ -96,6 +96,7 @@ Internal integer codes returned by `GET_NOTEBOOK` / `LIST_SOURCES` and consumed 
 | 3 | `PDF` | PDF upload |
 | 4 | `PASTED_TEXT` | Inline pasted text |
 | 5 | `WEB_PAGE` | Web URL source |
+| 6 | `POWERPOINT` | PowerPoint upload (`.pptx`) |
 | 8 | `MARKDOWN` | Markdown file |
 | 9 | `YOUTUBE` | YouTube URL |
 | 10 | `MEDIA` | Audio / video upload |

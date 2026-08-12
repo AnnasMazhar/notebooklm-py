@@ -37,6 +37,7 @@ class SourceType(str, Enum):
     YOUTUBE = "youtube"
     MARKDOWN = "markdown"
     DOCX = "docx"
+    POWERPOINT = "powerpoint"
     CSV = "csv"
     EPUB = "epub"
     IMAGE = "image"
@@ -54,6 +55,7 @@ _SOURCE_TYPE_CODE_MAP: dict[int, SourceType] = {
     3: SourceType.PDF,
     4: SourceType.PASTED_TEXT,
     5: SourceType.WEB_PAGE,
+    6: SourceType.POWERPOINT,
     8: SourceType.MARKDOWN,
     9: SourceType.YOUTUBE,
     10: SourceType.MEDIA,
@@ -75,6 +77,7 @@ _SOURCE_TYPE_COMPAT_MAP: dict[SourceType, str] = {
     SourceType.YOUTUBE: "youtube",
     SourceType.MARKDOWN: "text_file",
     SourceType.DOCX: "text_file",
+    SourceType.POWERPOINT: "text_file",
     SourceType.CSV: "text",
     SourceType.EPUB: "text_file",
     SourceType.IMAGE: "text",

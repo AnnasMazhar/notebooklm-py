@@ -41,6 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **PowerPoint sources now decode as their own type.** A source row with backend
+  content type `6` returns the new `SourceType.POWERPOINT` (`kind="powerpoint"`,
+  legacy compatibility label `text_file`) instead of `UNKNOWN`, and no longer emits
+  the misleading "Consider updating notebooklm-py" `UnknownTypeWarning` — no released
+  version mapped the code. The CLI's source-type display gains a matching label.
+  Refs [#2137](https://github.com/teng-lin/notebooklm-py/issues/2137).
 - **Deep-research imports no longer crash on a known backend retry rejection.**
   `IMPORT_RESEARCH` gets a batch-size-scaled read timeout (60-240s, scaled by
   requested source count) instead of the shared 30s default, since the server

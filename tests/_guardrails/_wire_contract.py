@@ -548,6 +548,7 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
             3: "SOURCE_CONTENT_TYPE_PDF",
             4: "SOURCE_CONTENT_TYPE_TEXT",
             5: "SOURCE_CONTENT_TYPE_URL",
+            6: "SOURCE_CONTENT_TYPE_POWERPOINT",
             8: "SOURCE_CONTENT_TYPE_MARKDOWN",
             9: "SOURCE_CONTENT_TYPE_YOUTUBE_VIDEO",
             10: "SOURCE_CONTENT_TYPE_AUDIO",
@@ -573,12 +574,6 @@ ENUM_GAPS: dict[str, tuple[tuple[int, str, str], ...]] = {
         (6, "ARTIFACT_PENDING_REVIEW", "#2127 — state discovered only in the object store"),
     ),
     "SourceType": (
-        (
-            6,
-            "SOURCE_CONTENT_TYPE_POWERPOINT",
-            "LIVE BUG: a valid .pptx uploads, reaches READY, decodes to code 6, and "
-            "falls through to SourceType.UNKNOWN with the spurious upgrade warning",
-        ),
         (
             7,
             "SOURCE_CONTENT_TYPE_GOOGLE_SHEET",
