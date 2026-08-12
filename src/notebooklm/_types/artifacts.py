@@ -447,19 +447,25 @@ class GenerationState(str, Enum):
     def is_terminal(self) -> bool:
         """Whether generation reached an end state and will not change again.
 
-        The single authority for the terminal/still-running partition, which
-        the REST poll route consults (via :attr:`GenerationStatus.is_terminal`)
-        and which callers can use instead of enumerating members themselves.
+        The reference definition of the terminal/still-running partition. The
+        REST poll route consults it via :attr:`GenerationStatus.is_terminal`,
+        and callers can use it instead of enumerating members themselves.
         Anything *not* terminal means "keep waiting": that is why the rare
         states added in #2127 (``SUGGESTED``, ``PENDING_REVIEW``) and the
         long-standing ``UNKNOWN`` all answer ``False`` — none of them says
         generation finished, so treating them as terminal would abandon a task
         that is still running.
 
-        The client-side poll loop keeps its own ``is_complete or is_failed``
-        stop condition rather than calling this: ``REMOVED`` is terminal but is
-        *synthesized by that loop*, so it can never arrive from ``poll_status``.
-        ``tests/unit/test_generation_state.py`` pins the two in agreement.
+        Two other sites classify terminality independently, both deliberately
+        and both pinned in agreement with this property by
+        ``tests/unit/test_generation_state.py``:
+
+        * the client-side poll loop stops on ``is_complete or is_failed``,
+          because ``REMOVED`` is terminal but is *synthesized by that loop* and
+          so can never arrive from ``poll_status``;
+        * ``_app.generate_retry.generation_outcome_from_status`` duck-types over
+          the ``is_*`` predicates so it can accept non-``GenerationStatus``
+          payloads, which rules out calling this property at all.
 
         ``NOT_FOUND`` is deliberately non-terminal too, but it is *not*
         interchangeable with the others: it is a transport-level absence (the
@@ -491,10 +497,16 @@ class GenerationState(str, Enum):
 
 
 #: The terminal members, derived from :attr:`GenerationState.is_terminal` so the
-#: partition is defined once. A ``frozenset`` of ``str``-enum members, which
-#: ``str`` precedes ``Enum`` in the MRO for — so a plain-string status hashes and
-#: compares into it correctly, keeping ``GenerationStatus.is_terminal`` usable on
-#: raw-string-built instances like its sibling predicates.
+#: partition is defined once.
+#:
+#: Lookup into this set is by *hash*, unlike every other ``is_*`` predicate on
+#: :class:`GenerationStatus` (which compare with ``==``). It still accepts a
+#: plain ``str`` status because ``str`` precedes ``Enum`` in ``GenerationState``'s
+#: MRO, so ``str.__hash__`` wins over ``Enum.__hash__`` — the latter hashes the
+#: member *name* (``"COMPLETED"``) and would break lookups by value. Reordering
+#: the bases would leave every ``==``-based predicate working and break only this
+#: one, so the mechanism is pinned directly in
+#: ``tests/unit/test_generation_state.py``, not just described here.
 _TERMINAL_GENERATION_STATES: Final[frozenset[GenerationState]] = frozenset(
     state for state in GenerationState if state.is_terminal
 )

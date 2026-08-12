@@ -73,7 +73,7 @@ NotebookLMClient.rpc_call()
 
 # Types
 Notebook, Source, Artifact, Note, Label, MindMap, Collection
-GenerationState, GenerationStatus, AskResult
+GenerationState, GenerationStatus, AskResult   # incl. the .is_terminal predicate on both
 NotebookDescription, ConversationTurn
 ShareStatus, SharedUser, SourceFulltext, SourceGuide
 NotebookMetadata, SourceSummary
@@ -131,7 +131,6 @@ SourceType, ArtifactType, SourceStatus
 ShareAccess, SharePermission, ShareViewLevel
 ChatGoal, ChatResponseLength, ChatMode
 DriveMimeType, ExportType
-GenerationState                            # incl. the .is_terminal predicate
 ArtifactStatus, artifact_status_to_str     # notebooklm.types.<X> only — NOT top-level (see below)
 
 # Auth
@@ -178,6 +177,30 @@ notebooklm.auth.LockUnavailableError  # canonical home: notebooklm.exceptions; a
 > promise applies from that correction forward. Note the general caveat that
 > applies to every wire-derived value here — see
 > [What Happens When Google Breaks Things](#what-happens-when-google-breaks-things).
+>
+> **What these two promise, precisely.** The guarantee is *"these codes keep
+> these meanings"*, **not** *"this enum covers every code the backend emits"*.
+> Three consequences worth writing down, because they are the ways a caller can
+> be surprised without the promise being broken:
+>
+> 1. **The status-string set is open.** `artifact_status_to_str` went from five
+>    strings to seven in #2127 and will widen again whenever the backend gains a
+>    state. Treat an unrecognized return value as "unknown" — do **not** write an
+>    exhaustive `if`/`elif` or `match` over it. The same applies to
+>    `GenerationState`: it is stable in the sense that existing members keep
+>    their values, not in the sense that the member list is frozen.
+> 2. **The enum is fail-closed; the function is fail-open.** `ArtifactStatus(7)`
+>    raises `ValueError`, while `artifact_status_to_str(7)` returns `"unknown"`.
+>    That asymmetry is deliberate — the raising constructor is what surfaces
+>    backend drift instead of silently swallowing it — but it means
+>    `ArtifactStatus(...)` is the brittle way to parse a raw wire code. Prefer
+>    `artifact_status_to_str`, or the `Artifact.status_str` / `.is_*` accessors,
+>    for anything decoding live responses.
+> 3. **`is_terminal` tracks the wire.** A state added later is non-terminal by
+>    default, which is the safe direction. But if the backend ever ships a
+>    genuinely terminal state, classifying it correctly will *flip* what
+>    `is_terminal` returns for that state — the same kind of wire-tracking
+>    correction as the #2127 value fix above, and not a break of this promise.
 
 Every `notebooklm.auth.<name>` above is **exactly** the `__all__` of the
 `notebooklm.auth` module: `test_auth_all_matches_documented_public_surface`

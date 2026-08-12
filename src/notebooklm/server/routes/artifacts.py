@@ -367,6 +367,12 @@ async def poll(
         # partition lives on that enum, so non-terminal is the default here).
         # Keep the task in the pending registry so a later NOT_FOUND poll still
         # projects instead of 404ing (#2127).
+        #
+        # ORDERING: this block must stay *below* the NOT_FOUND check. NOT_FOUND
+        # is also non-terminal, so hoisting this above it would swallow that
+        # case and make the registry-miss 404 unreachable. The route needs a
+        # three-way split (terminal / absent / running) but the type supplies a
+        # binary one; the third case is recovered by statement order alone.
         return projected
     # Terminal states only: drop from the registry, then project.
     pending.drop(notebook_id, task_id)
