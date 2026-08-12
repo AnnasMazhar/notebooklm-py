@@ -268,6 +268,35 @@ class TestWaitForCompletion:
             await api.wait_for_completion("nb_123", "task_123", timeout=1.5)
 
     @pytest.mark.asyncio
+    async def test_timeout_on_wire_code_1_is_classified_pending(self, mock_artifacts_api):
+        """Wire code 1 (INITIALIZED) stalls are a *pending* timeout, not in-progress.
+
+        The companion of ``test_timeout_raises_error`` (wire code 2). Together
+        they pin that the timeout classification follows the corrected codes:
+        before #2127 the two exception types were selected off each other's
+        wire code.
+        """
+        api, mock_core = mock_artifacts_api
+        mock_core.rpc_executor.rpc_call.return_value = [[["task_123", "Title", 2, None, 1]]]
+        loop = asyncio.get_running_loop()
+        time_values = iter([0, 0.1, 0.2, 0.5, 1.0, 2.0])
+
+        def mock_time():
+            try:
+                return next(time_values)
+            except StopIteration:
+                return 10.0  # Exceed timeout
+
+        with (
+            patch.object(loop, "time", mock_time),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+            pytest.raises(ArtifactPendingTimeoutError) as exc_info,
+        ):
+            await api.wait_for_completion("nb_123", "task_123", timeout=1.5)
+        assert exc_info.value.last_status == "pending"
+        assert exc_info.value.stalled_phase == "pending"
+
+    @pytest.mark.asyncio
     async def test_pending_timeout_raises_structured_artifact_timeout(self, mock_artifacts_api):
         """A queued task timeout remains catchable as TimeoutError and exposes history."""
         api, _ = mock_artifacts_api

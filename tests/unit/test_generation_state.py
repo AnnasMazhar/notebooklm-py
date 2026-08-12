@@ -321,6 +321,31 @@ async def test_poll_status_never_returns_removed(code: int):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        (ArtifactStatus.PENDING, GenerationState.PENDING),
+        (ArtifactStatus.PROCESSING, GenerationState.IN_PROGRESS),
+        (ArtifactStatus.SUGGESTED, GenerationState.SUGGESTED),
+        (ArtifactStatus.PENDING_REVIEW, GenerationState.PENDING_REVIEW),
+    ],
+)
+async def test_poll_status_non_terminal_codes_keep_the_loop_waiting(
+    code: int, expected: GenerationState
+):
+    """#2127: the transitional + rare codes surface distinctly and stay non-terminal.
+
+    ``_run_poll_loop`` only stops on ``is_complete``/``is_failed``, so a state
+    that is neither keeps polling — the same behaviour codes 5/6 already had
+    when they decoded as ``"unknown"``.
+    """
+    status = await _poll_with_status_code(code)
+    assert status.status is expected
+    assert not status.is_complete
+    assert not status.is_failed
+
+
+@pytest.mark.asyncio
 async def test_poll_status_completed_code_maps_to_completed():
     status = await _poll_with_status_code(ArtifactStatus.COMPLETED)
     assert status.status is GenerationState.COMPLETED
