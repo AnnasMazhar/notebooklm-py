@@ -515,6 +515,7 @@ async def test_public_malformed_projection_preserves_ordinary_context(
     rendered = "".join(traceback.format_exception(type(error), error, error.__traceback__))
     assert "private shape" not in rendered
     assert "_MasterTokenRecordError" not in rendered
+    assert "_BootstrapError" not in rendered
 
 
 @pytest.mark.asyncio
