@@ -28,6 +28,7 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import json
+import re
 import warnings
 from pathlib import Path
 from typing import Any, cast
@@ -36,6 +37,8 @@ import pytest
 
 from notebooklm._app.serialize import to_jsonable
 from notebooklm._artifact.payloads import (
+    DEFAULT_QUIZ_DIFFICULTY,
+    DEFAULT_QUIZ_QUANTITY,
     build_audio_artifact_params,
     build_cinematic_video_artifact_params,
     build_data_table_artifact_params,
@@ -65,6 +68,7 @@ from notebooklm.exceptions import (
     RateLimitError,
     RPCError,
     UnknownRPCMethodError,
+    ValidationError,
 )
 from notebooklm.rpc.decoder import (
     collect_rpc_ids,
@@ -873,6 +877,77 @@ def test_quiz_quantity_more_is_distinct_on_the_wire() -> None:
 
     assert quiz[2][9][1][7] == [3, 1]
     assert flashcards[2][9][1][6] == [3, 1]
+
+
+def test_omitted_quiz_options_are_sent_as_explicit_client_defaults() -> None:
+    """``None`` means "this client's default", and that default goes on the wire.
+
+    The alternative — omitting the option message so the backend picks — is
+    accepted by the server (live-probed: generation completes normally), but
+    what it then chose is unobservable: the stored options echo back as
+    ``null``. #2196 resolves that trade in favour of a value we can name, echo
+    and assert, matching every sibling builder in ``payloads.py`` and the web
+    UI, which always sends an explicit pair.
+
+    Asserted against the named constants rather than the literals so the
+    documented default and the transmitted default cannot drift apart. (This
+    particular pair cannot detect a transposition — ``STANDARD`` and ``MEDIUM``
+    are both 2 — which is why the ordering is pinned by the asymmetric fixtures
+    above instead.)
+    """
+    quiz = build_quiz_artifact_params(
+        "nb_payload", ["src_alpha"], instructions=None, quantity=None, difficulty=None
+    )
+    flashcards = build_flashcards_artifact_params(
+        "nb_payload", ["src_alpha"], instructions=None, quantity=None, difficulty=None
+    )
+
+    for pair in (quiz[2][9][1][7], flashcards[2][9][1][6]):
+        assert isinstance(pair, list), "the option message must be sent, not omitted"
+        assert pair[0] == DEFAULT_QUIZ_QUANTITY.value
+        assert pair[1] == DEFAULT_QUIZ_DIFFICULTY.value
+
+    assert DEFAULT_QUIZ_QUANTITY is QuizQuantity.STANDARD
+    assert DEFAULT_QUIZ_DIFFICULTY is QuizDifficulty.MEDIUM
+
+
+@pytest.mark.parametrize(
+    "builder",
+    [build_quiz_artifact_params, build_flashcards_artifact_params],
+    ids=["quiz", "flashcards"],
+)
+@pytest.mark.parametrize(
+    ("kwargs", "expected_message"),
+    [
+        ({"quantity": 2}, "quantity must be a QuizQuantity member or None"),
+        ({"difficulty": 2}, "difficulty must be a QuizDifficulty member or None"),
+        ({"quantity": "standard"}, "quantity must be a QuizQuantity member or None"),
+        # The cross-enum case is the interesting one: QuizDifficulty.HARD and
+        # QuizQuantity.MORE are both 3, so this used to encode silently as MORE.
+        ({"quantity": QuizDifficulty.HARD}, "quantity must be a QuizQuantity member or None"),
+        ({"difficulty": QuizQuantity.FEWER}, "difficulty must be a QuizDifficulty member or None"),
+    ],
+    ids=[
+        "int-quantity",
+        "int-difficulty",
+        "str-quantity",
+        "swapped-quantity",
+        "swapped-difficulty",
+    ],
+)
+def test_non_enum_quiz_options_raise_a_typed_error(
+    builder: Any, kwargs: dict[str, Any], expected_message: str
+) -> None:
+    """Bad option input fails as ``ValidationError``, not ``AttributeError``.
+
+    Before #2196 a bare ``int`` reached ``.value`` and produced
+    ``AttributeError: 'int' object has no attribute 'value'`` — an internal
+    error shape leaking through a public keyword argument.
+    """
+    call_kwargs: dict[str, Any] = {"instructions": None, "quantity": None, "difficulty": None}
+    call_kwargs.update(kwargs)
+    with pytest.raises(ValidationError, match=re.escape(expected_message)):
+        builder("nb_payload", ["src_alpha"], **call_kwargs)
 
 
 def test_video_style_values_match_live_web_ui() -> None:

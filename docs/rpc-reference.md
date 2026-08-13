@@ -1636,6 +1636,34 @@ params = [
 # Codes 1 and 2 were transposed in this client before #2127.
 ```
 
+**Quiz/flashcards options are echoed back (#2195).** The server stores the
+generation options and returns them on every listing, inside the same type-4
+options block that carries the variant and the free-text prompt:
+
+```python
+row[9][1][0]   # variant: 1=flashcards, 2=quiz, 4=interactive mind map
+row[9][1][2]   # free-text prompt
+row[9][1][6]   # flashcards [quantity, difficulty] — null on a quiz row
+row[9][1][7]   # quiz       [quantity, difficulty] — null on a flashcards row
+```
+
+Positions follow `AppArtifactGenerationOptions` in `docs/mobile/schema.proto`
+(`flashcardsGenerationOptions` = tag 7, `quizGenerationOptions` = tag 8), and
+each pair is `[quantity, difficulty]` — the same order both builders send. Read
+them through `ArtifactRow.quiz_options` / `ArtifactRow.flashcards_options`, which
+return a named `QuizOptionPair` rather than a positional tuple.
+
+This is the **only** client-side check on the option pair that does not depend
+on a fixture we wrote ourselves, which is why #2116 (a transposed flashcards
+pair) and #2117 (`MORE` aliased to `STANDARD`) both shipped unnoticed. Live
+observations worth knowing:
+
+* an omitted option message echoes back as `null`, and a `[0, 0]`
+  (proto3 `*_UNSPECIFIED`) pair echoes back as `[]` — both are accepted and
+  generate normally, but what the server then chose is not observable; and
+* the VCR tier cannot pin any of this: the `freq` matcher compares request
+  bodies shape-only, so `[1,3]`, `[3,1]` and `[null,null]` are identical to it.
+
 **Python API Note:** `artifacts.list()` also fetches mind maps from GET_NOTES_AND_MIND_MAPS and includes them as Artifact objects (type=5). This provides a unified list of all AI-generated content. Mind maps with status=2 (deleted) are filtered out — note that this is the *note* row's own status field, unrelated to the `ArtifactStatus` table above.
 
 ---

@@ -445,3 +445,34 @@ def test_google_docs_document_id_shares_the_drive_tag() -> None:
     assert _discover_constants()[("sources", "SourceRow", "_DRIVE_DOCUMENT_ID_POS")] == (
         docs_tag - 1
     )
+
+
+def test_flashcards_option_pair_shares_the_quiz_tags() -> None:
+    """``ArtifactRow._OPTION_*_POS`` index BOTH option messages (#2195).
+
+    ``QuizGenerationOptions`` and ``FlashcardsGenerationOptions`` are distinct
+    messages that happen to declare the same two fields at the same tags, so
+    :attr:`ArtifactRow.quiz_options` and :attr:`ArtifactRow.flashcards_options`
+    share one pair of constants. MAPPINGS can only assert them against the quiz
+    copy; this pins the other half.
+
+    The sibling check ``test_quiz_and_flashcards_backend_enums_agree`` covers
+    the enum *values*; this covers the field *positions*. Both are needed: Google
+    renumbering only the flashcards message would silently transpose every
+    flashcards read-back while the quiz side stayed green — the same
+    single-sided drift as #2116, just on the decode end.
+    """
+    schema = load_proto_schema()
+    for quiz_field, flashcards_field, const in (
+        ("questionQuantity", "cardQuantity", "_OPTION_QUANTITY_POS"),
+        ("quizDifficulty", "flashcardsDifficulty", "_OPTION_DIFFICULTY_POS"),
+    ):
+        quiz_tag = schema.field_tag("QuizGenerationOptions", quiz_field, WIRE)
+        flashcards_tag = schema.field_tag("FlashcardsGenerationOptions", flashcards_field, WIRE)
+        assert quiz_tag == flashcards_tag, (
+            f"QuizGenerationOptions.{quiz_field} and FlashcardsGenerationOptions."
+            f"{flashcards_field} no longer share a tag ({quiz_tag} vs "
+            f"{flashcards_tag}). ArtifactRow.{const} can no longer index both "
+            "messages — split it into two constants and register each in MAPPINGS."
+        )
+        assert _discover_constants()[("artifacts", "ArtifactRow", const)] == quiz_tag - 1

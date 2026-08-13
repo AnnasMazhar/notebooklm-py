@@ -232,6 +232,70 @@ MAPPINGS: tuple[Mapping, ...] = (
     ),
     Mapping("artifacts", "ArtifactRow", "_INFOGRAPHIC_METADATA_POS", "Artifact", "infographic"),
     Mapping("artifacts", "ArtifactRow", "_SLIDE_DECK_METADATA_POS", "Artifact", "slides"),
+    # ---- Inside the AppArtifact options block (#2195) ----------------------
+    Mapping(
+        "artifacts",
+        "ArtifactRow",
+        "_GENERATION_OPTIONS_POS",
+        "AppArtifact",
+        "generationOptions",
+        note="the data[9][1] descent shared by variant, generation_prompt and the option pairs",
+    ),
+    Mapping(
+        "artifacts",
+        "ArtifactRow",
+        "_APP_TYPE_POS",
+        "AppArtifactGenerationOptions",
+        "appType",
+        note=(
+            "ArtifactRow.variant. AppType: 1=FLASHCARDS, 2=QUIZ, 4=MINDMAP "
+            "(docs/mobile/enums.txt), matching the variant codes the payload "
+            "builders send."
+        ),
+    ),
+    Mapping(
+        "artifacts",
+        "ArtifactRow",
+        "_FLASHCARDS_OPTIONS_POS",
+        "AppArtifactGenerationOptions",
+        "flashcardsGenerationOptions",
+        note=(
+            "#2195 — live-verified: a FEWER(1)+HARD(3) flashcards request echoes "
+            "back data[9][1][6] == [1, 3] while data[9][1][7] stays null."
+        ),
+    ),
+    Mapping(
+        "artifacts",
+        "ArtifactRow",
+        "_QUIZ_OPTIONS_POS",
+        "AppArtifactGenerationOptions",
+        "quizGenerationOptions",
+        note=(
+            "#2195 — the quiz sibling, live-verified the same way: a "
+            "FEWER(1)+HARD(3) quiz request echoes back data[9][1][7] == [1, 3]."
+        ),
+    ),
+    Mapping(
+        "artifacts",
+        "ArtifactRow",
+        "_OPTION_QUANTITY_POS",
+        "QuizGenerationOptions",
+        "questionQuantity",
+        note=(
+            "one constant indexes BOTH option messages: FlashcardsGenerationOptions "
+            "declares cardQuantity at the same tag 1. Asserted here against the quiz "
+            "copy; the flashcards copy is checked by "
+            "test_flashcards_option_pair_shares_the_quiz_tags."
+        ),
+    ),
+    Mapping(
+        "artifacts",
+        "ArtifactRow",
+        "_OPTION_DIFFICULTY_POS",
+        "QuizGenerationOptions",
+        "quizDifficulty",
+        note="likewise shared with FlashcardsGenerationOptions.flashcardsDifficulty (tag 2).",
+    ),
     # ---- Answer row: AnswerResponse / TailwindDoc -------------------------
     # ---- Citation + TailwindDoc tree (#2120, #2128) ------------------------
     # Every one of these was UNMAPPED or absent before #2120. Recovering the

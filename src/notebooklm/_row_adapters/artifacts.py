@@ -13,10 +13,57 @@ from ..rpc import ArtifactStatus, ArtifactTypeCode, RPCMethod, safe_index
 __all__ = [
     "MIND_MAP_LEAF_ABSENT",
     "ArtifactRow",
+    "QuizOptionPair",
     "ReportSuggestionRow",
     "unwrap_artifact_rows",
     "unwrap_mind_map_generation_leaf",
 ]
+
+
+@dataclass(frozen=True)
+class QuizOptionPair:
+    """The quantity/difficulty pair a quiz or flashcards artifact was generated with.
+
+    The backend stores this pair inside the artifact and echoes it back on
+    ``LIST_ARTIFACTS``, which makes it the one place the *sent* options can be
+    verified against the *stored* options. Nothing read it before #2195, so the
+    only thing standing between a wrong pair and the user was a hand-written
+    fixture — which is exactly how #2116 (a transposed pair) survived.
+
+    Both ``QuizGenerationOptions`` and ``FlashcardsGenerationOptions`` declare
+    the same two fields in the same order, so one type covers both families —
+    mirroring the shared :class:`~notebooklm.rpc.QuizQuantity` /
+    :class:`~notebooklm.rpc.QuizDifficulty` enums.
+
+    The fields are **named, not positional**, on purpose: a bare
+    ``tuple[int, int]`` read-back would reintroduce on the decode side the very
+    ambiguity that produced the transposition on the encode side.
+
+    Values are raw ``int`` codes rather than enum members (matching
+    :attr:`ArtifactRow.type_code` / :attr:`ArtifactRow.status`) so a value
+    Google adds before this client models it decodes as itself instead of
+    raising. ``QuizQuantity`` / ``QuizDifficulty`` are ``int`` enums, so
+    ``pair.quantity == QuizQuantity.FEWER`` compares as expected.
+
+    Either field is ``None`` when the stored options message leaves it unset —
+    live-observed: a request carrying the proto3 default pair ``[0, 0]`` echoes
+    back as an empty list, since default-valued fields are dropped from the
+    JSON encoding. ``None`` *also* covers a leaf that is present but not an
+    integer code; the two are not distinguishable here, and
+    :meth:`ArtifactRow._option_code` records why that narrow conflation is
+    accepted while malformed *containers* raise instead.
+
+    Because the fields are plain ``int``, they compare equal across the two
+    option enums — ``QuizOptionPair(quantity=3, ...).quantity ==
+    QuizDifficulty.HARD`` is ``True``, since ``QuizQuantity.MORE`` and
+    ``QuizDifficulty.HARD`` are both ``3``. Compare against the enum matching
+    the field you are reading. The encode side rejects that mix-up outright
+    (:func:`~notebooklm._artifact.payloads._quiz_option_code`); the decode side
+    cannot, because it has only the wire integer to go on.
+    """
+
+    quantity: int | None
+    difficulty: int | None
 
 
 def unwrap_artifact_rows(result: list[Any], *, method_id: str, source: str) -> list[Any]:
@@ -122,7 +169,9 @@ class ArtifactRow:
     8      video metadata; nested media variants
     9      options block; ``[9][1][0]`` is the variant code (used to
            distinguish among QUIZ, FLASHCARDS, and the interactive mind map
-           (variant 4) when type == 4); ``[9][1][2]`` is the generation prompt
+           (variant 4) when type == 4); ``[9][1][2]`` is the generation prompt;
+           ``[9][1][6]`` and ``[9][1][7]`` are the stored flashcards / quiz
+           ``[quantity, difficulty]`` pairs
     14     infographic metadata; ``[14][0][0]`` is the generation prompt
     15     timestamp block; ``[15][0]`` is the creation timestamp
            (seconds since epoch)
@@ -184,11 +233,24 @@ class ArtifactRow:
     # and the interactive mind map, which share one options block. Verified live
     # across every studio artifact type; note-backed mind maps (synthetic type
     # 5) are absent here and therefore have no prompt.
+    # ---- Inside the type-4 options block (``data[9]``) ---------------------
+    # ``AppArtifact.generationOptions`` and the four leaves this adapter reads
+    # from it. The whole family is quantity-then-difficulty: both
+    # ``QuizGenerationOptions`` and ``FlashcardsGenerationOptions`` number
+    # quantity 1 and difficulty 2, so one pair of constants indexes both (the
+    # shared numbering is asserted in test_wire_contract.py).
+    _GENERATION_OPTIONS_POS: ClassVar[int] = 1
+    _APP_TYPE_POS: ClassVar[int] = 0
+    _FLASHCARDS_OPTIONS_POS: ClassVar[int] = 6
+    _QUIZ_OPTIONS_POS: ClassVar[int] = 7
+    _OPTION_QUANTITY_POS: ClassVar[int] = 0
+    _OPTION_DIFFICULTY_POS: ClassVar[int] = 1
+
     _PROMPT_LOCATION: ClassVar[dict[int, tuple[int, ...]]] = {
         ArtifactTypeCode.AUDIO.value: (_AUDIO_METADATA_POS, 1, 0),
         ArtifactTypeCode.REPORT.value: (_REPORT_MARKDOWN_POS, 1, 5),
         ArtifactTypeCode.VIDEO.value: (_VIDEO_METADATA_POS, 2, 2),
-        ArtifactTypeCode.QUIZ.value: (_OPTIONS_POS, 1, 2),
+        ArtifactTypeCode.QUIZ.value: (_OPTIONS_POS, _GENERATION_OPTIONS_POS, 2),
         ArtifactTypeCode.INFOGRAPHIC.value: (_INFOGRAPHIC_METADATA_POS, 0, 0),
         ArtifactTypeCode.SLIDE_DECK.value: (_SLIDE_DECK_METADATA_POS, 0, 0),
         ArtifactTypeCode.DATA_TABLE.value: (_DATA_TABLE_PAYLOAD_POS, 1, 0),
@@ -301,12 +363,118 @@ class ArtifactRow:
             return None
         value = safe_index(
             options_block,
-            1,
-            0,
+            self._GENERATION_OPTIONS_POS,
+            self._APP_TYPE_POS,
             method_id=self.method_id,
             source="ArtifactRow.variant",
         )
         return value if isinstance(value, int) else None
+
+    @property
+    def flashcards_options(self) -> QuizOptionPair | None:
+        """Stored flashcards ``[quantity, difficulty]`` pair at ``data[9][1][6]``.
+
+        Returns ``None`` for every row that does not carry the flashcards
+        options message — a short row, ``data[9]`` absent or ``null``, or a
+        non-flashcards artifact (the slot is ``null`` on a quiz or mind-map
+        row).
+
+        Raises :class:`UnknownRPCMethodError` when a container that IS present
+        no longer has the expected shape, matching :attr:`variant`'s policy: a
+        reshaped payload is drift, and reporting it as "no options" would hide
+        exactly what this accessor exists to surface.
+
+        See :attr:`quiz_options` for why this is worth reading at all.
+        """
+        return self._option_pair(self._FLASHCARDS_OPTIONS_POS, "ArtifactRow.flashcards_options")
+
+    @property
+    def quiz_options(self) -> QuizOptionPair | None:
+        """Stored quiz ``[quantity, difficulty]`` pair at ``data[9][1][7]``.
+
+        This is the backend's own echo of the options the artifact was created
+        with, so it is the only client-side read that can check a
+        :func:`~notebooklm._artifact.payloads.build_quiz_artifact_params`
+        payload against reality rather than against a fixture (#2195). It is
+        deliberately a *decode* of what the server stored, never a
+        reconstruction of what we sent.
+
+        Returns ``None`` — and raises on drift — under the same conditions as
+        :attr:`flashcards_options`.
+        """
+        return self._option_pair(self._QUIZ_OPTIONS_POS, "ArtifactRow.quiz_options")
+
+    def _option_pair(self, position: int, source: str) -> QuizOptionPair | None:
+        """Decode one ``[quantity, difficulty]`` leaf out of the options block."""
+        if len(self._raw) <= self._OPTIONS_POS:
+            return None
+        options_block = self._raw[self._OPTIONS_POS]
+        if not isinstance(options_block, list):
+            # Same legacy soft-degrade as ``variant`` for ``data[9] = None``.
+            return None
+        generation_options = safe_index(
+            options_block,
+            self._GENERATION_OPTIONS_POS,
+            method_id=self.method_id,
+            source=source,
+        )
+        # ``None`` is a genuine absence (a row with no generation options at
+        # all); any OTHER non-list here is a message that changed shape, which
+        # is drift and must not be reported as "no options" — that would make a
+        # reshaped payload indistinguishable from an unset one, in the accessor
+        # whose entire job is saying what the server stored.
+        if generation_options is None:
+            return None
+        if not isinstance(generation_options, list):
+            raise UnknownRPCMethodError(
+                "expected a list at the generation-options position, got "
+                f"{type(generation_options).__name__}",
+                method_id=self.method_id,
+                path=(self._OPTIONS_POS, self._GENERATION_OPTIONS_POS),
+                source=source,
+                data_at_failure=repr(generation_options)[:200],
+            )
+        # The two option slots ARE optional trailing positions inside that
+        # message (a mind-map row carries neither, and each family's row leaves
+        # the sibling's slot null), so a short block or a null slot is absence.
+        if len(generation_options) <= position:
+            return None
+        pair = generation_options[position]
+        if pair is None:
+            return None
+        if not isinstance(pair, list):
+            raise UnknownRPCMethodError(
+                f"expected a list at the option-pair position, got {type(pair).__name__}",
+                method_id=self.method_id,
+                path=(self._OPTIONS_POS, self._GENERATION_OPTIONS_POS, position),
+                source=source,
+                data_at_failure=repr(pair)[:200],
+            )
+        return QuizOptionPair(
+            quantity=self._option_code(pair, self._OPTION_QUANTITY_POS),
+            difficulty=self._option_code(pair, self._OPTION_DIFFICULTY_POS),
+        )
+
+    @staticmethod
+    def _option_code(pair: list[Any], position: int) -> int | None:
+        """Read one option code, or ``None`` when the leaf is absent/unusable.
+
+        ``None`` covers two cases the caller cannot tell apart, which is a
+        deliberate narrowing of the strictness applied to the *containers*
+        above: the field was genuinely unset (proto3 drops default-valued
+        fields, so an ``[0, 0]`` pair arrives as ``[]``), or the leaf is not an
+        integer code. The container shapes are the ones that signal a reshaped
+        payload; a single odd scalar is not worth raising from a read-back
+        accessor, so it degrades and the pair simply reports the field as unset.
+
+        ``bool`` is excluded explicitly: ``isinstance(True, int)`` is ``True``
+        in Python, and this row genuinely carries a bool two slots further
+        along, so an unguarded read would happily decode ``difficulty=True``.
+        """
+        if len(pair) <= position:
+            return None
+        value = pair[position]
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
 
     @property
     def created_at_raw(self) -> int | float | None:
