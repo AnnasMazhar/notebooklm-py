@@ -285,9 +285,13 @@ async def import_research_sources(
     Drives the timeout-tolerant ``client.research.import_sources_with_verification``
     (which pre-filters requested sources whose URL already exists in the
     notebook unless ``allow_duplicate`` is true) and lifts its ``already_present``
-    side channel into a typed result, so every adapter (the MCP tool today, a
-    REST route tomorrow) surfaces the same idempotency contract without
-    re-implementing URL dedup. The first three arguments are passed positionally
+    side channel into a typed result, so every adapter that wants the idempotency
+    contract gets it without re-implementing URL dedup: the MCP ``research_import``
+    tool and the CLI ``research import`` / ``research wait --import-all``. The REST
+    import route landed but deliberately does NOT come through here — it stays on
+    the one-shot ``client.research.import_sources`` so a synchronous web request
+    cannot block on a multi-minute reconcile loop, and so returns no
+    ``already_present`` split. The first three arguments are passed positionally
     to match the underlying method's call shape.
 
     ``max_elapsed`` bounds the underlying **retry** loop (the IMPORT_RESEARCH RPC
