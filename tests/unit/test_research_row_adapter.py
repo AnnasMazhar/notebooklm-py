@@ -46,6 +46,15 @@ _CAPTURED_POLLS: list = json.loads(
 _IN_FLIGHT_ROW: list = _CAPTURED_POLLS[1][0][0]
 _SETTLED_ROW: list = _CAPTURED_POLLS[2][0][0]
 
+#: A second live capture (#2122): one poll carrying BOTH a settled deep task and
+#: a settled fast one, so the two discovery modes are pinned against real
+#: ``task_info`` rows from the same payload rather than a hand-built list.
+_DEEP_POLL: list = json.loads(
+    (Path(__file__).parent / "fixtures" / "research_poll_deep_task.json").read_text()
+)["poll"]
+_DEEP_TASK_INFO: list = next(task[1] for task in _DEEP_POLL[0] if task[1][2] == 5)
+_FAST_TASK_INFO: list = next(task[1] for task in _DEEP_POLL[0] if task[1][2] == 1)
+
 # ---------------------------------------------------------------------------
 # 1. Position-contract pins (the canaries)
 # ---------------------------------------------------------------------------
@@ -509,10 +518,17 @@ class TestResearchTaskInfoRowDiscoveryMode:
         )
 
     def test_deep_run_code_reports_deep_research(self) -> None:
-        # 5 is what the deep cassette rows carry and what ``start(mode="deep")``
-        # sends; the same enum on both sides of the wire.
+        """Against a REAL deep ``task_info`` — 5 is what ``start(mode="deep")``
+        sends and what the poll echoes back, the same enum on both sides."""
+        assert ResearchTaskInfoRow.discovery_mode(_DEEP_TASK_INFO) is DiscoveryMode.DEEP_RESEARCH
+
+    def test_one_payload_distinguishes_a_deep_task_from_a_fast_one(self) -> None:
+        """Both modes arrive in the SAME poll, so this is the discrimination the
+        field exists for: a caller can tell which run is which without having
+        remembered what it started."""
+        assert ResearchTaskInfoRow.discovery_mode(_DEEP_TASK_INFO) is DiscoveryMode.DEEP_RESEARCH
         assert (
-            ResearchTaskInfoRow.discovery_mode([None, ["q", 1], 5]) is DiscoveryMode.DEEP_RESEARCH
+            ResearchTaskInfoRow.discovery_mode(_FAST_TASK_INFO) is DiscoveryMode.DEFAULT_LLM_SEARCH
         )
 
     @pytest.mark.parametrize(
@@ -569,3 +585,16 @@ class TestResearchResultRowHint:
     )
     def test_absent_or_unusable_hint_is_empty_string(self, row: list) -> None:
         assert ResearchResultRow(row).hint == ""
+
+    def test_a_real_deep_run_mixes_hinted_and_unhinted_rows(self) -> None:
+        """Absence is routine on a deep run, not an edge case.
+
+        The live deep capture carried 89 sources, 28 of them with no hint
+        (including the report row). The trimmed fixture keeps rows of both
+        kinds, so this pins that the decode does not invent a hint for a row
+        the backend left bare.
+        """
+        rows = [ResearchResultRow(src) for src in _DEEP_TASK_INFO[3][0]]
+        hints = [row.hint for row in rows]
+        assert any(h for h in hints), "fixture should keep at least one hinted row"
+        assert any(not h for h in hints), "fixture should keep at least one bare row"
