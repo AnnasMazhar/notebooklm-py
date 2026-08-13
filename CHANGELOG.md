@@ -336,6 +336,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing had been uploaded. Messages are also front-loaded with the action,
   because MCP and REST truncate at 300 characters and were cutting it off.
 
+  **New on the surfaces you read.** Classification alone did not reach them, and
+  each was still printing the opposite advice:
+
+  - **CLI** — `handle_errors` dispatches on exception *type*, and a probe
+    re-raises its transport/auth failure unchanged, so a marked `RateLimitError`
+    was rendered as `Error: Rate limited. Retry after 30s.` with
+    `"code": "RATE_LIMITED"` and `"retry_after": 30`. For an unconfirmed create
+    the code is now **`UNCONFIRMED_WRITE`**, the message is replaced rather than
+    annotated (the branch's own text *is* the retry instruction), `retry_after`
+    is dropped, and a "check before retrying" note is added. Scripts keying on
+    `RATE_LIMITED` no longer back off and retry a write that may already exist.
+  - **MCP and REST** — both JSON payloads now carry **`"unconfirmed": true`**
+    and an overriding `hint`. Without it these arrived as an opaque message
+    (often a bare connection error) plus `retriable: false`, with nothing
+    indicating a source may already exist.
+
+  The wording is deliberately *"no further attempt was made"*, not "it was not
+  retried": on the two-attempt path a first probe may have returned "no match"
+  and let one retry through before a second probe failed, so an operator
+  reconciling on the stronger claim would look for one row and stop.
+
   **This is a deliberate trade, not a free win.** A decode blip on a create that
   never landed now surfaces as a hard failure the caller must retry by hand,
   where before it recovered silently. It is accepted because the outcomes are
