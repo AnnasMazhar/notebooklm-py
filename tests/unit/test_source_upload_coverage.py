@@ -595,6 +595,46 @@ class TestRegisterFileSourceBranches:
         assert logger.info.called
 
     @pytest.mark.asyncio
+    async def test_missing_id_probe_decode_failure_is_unconfirmed(self) -> None:
+        """The probe's *other* call site also refuses to guess (#2220).
+
+        ``_create`` calls ``_probe()`` directly when the register RPC returns
+        200 but carries no trustworthy SOURCE_ID — there, the probe is the only
+        way to learn the id at all. A decode failure there used to fall through
+        to "probe found no unambiguous new source", which reads as *"nothing was
+        created"*; in fact the register RPC succeeded and a row may well exist.
+        Only ONE register may be issued, and the error must be marked
+        unconfirmed so adapters do not advertise a retry.
+        """
+        pipeline = _make_pipeline()
+        rpc_calls = {"n": 0}
+        list_calls = {"n": 0}
+
+        async def _list(_nb: str) -> list[Source]:
+            list_calls["n"] += 1
+            if list_calls["n"] == 1:
+                return []  # baseline ok
+            raise RPCError("probe decode failed")
+
+        async def _rpc_call(*_a: Any, **_k: Any) -> Any:
+            rpc_calls["n"] += 1
+            return [[[1, 2, 3]]]  # 200, but no usable id
+
+        with pytest.raises(SourceAddError, match="Cannot confirm file source") as exc_info:
+            await pipeline.register_file_source(
+                "nb_1",
+                "report.pdf",
+                list_sources=_list,
+                logger=MagicMock(),
+                rpc_call=_rpc_call,
+            )
+
+        assert rpc_calls["n"] == 1, "the register must not be re-issued"
+        assert getattr(exc_info.value, "unconfirmed", False) is True
+        # The wording must not claim the registration failed — it returned 200.
+        assert "may or may not have committed" in str(exc_info.value)
+
+    @pytest.mark.asyncio
     async def test_missing_id_probe_transport_failure_wrapped(self) -> None:
         """A probe transport failure after a successful create wraps to SourceAddError (around 876-889).
         The create RPC succeeds (no usable id), then the probe list() raises a

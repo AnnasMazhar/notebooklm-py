@@ -5,6 +5,7 @@ import reprlib
 from typing import Any
 
 from ._idempotency import idempotent_create
+from ._idempotency import mark_unconfirmed as _unconfirmed
 from ._notebook_metadata import (
     NotebookMetadataService,
     NotebookSourceLister,
@@ -607,13 +608,19 @@ class NotebooksAPI:
                     type(exc).__name__,
                     exc_info=True,
                 )
-                raise RPCError(
-                    f"Cannot confirm notebook with title {title!r}: the create failed at "
-                    f"the transport level and the idempotency probe then failed too "
-                    f"({type(exc).__name__}), so it is unknown whether the notebook was "
-                    "created. It was NOT retried, because retrying on an unanswered probe "
-                    "is how duplicates happen. Check your notebook list before retrying.",
-                    method_id=RPCMethod.CREATE_NOTEBOOK.value,
+                raise _unconfirmed(
+                    RPCError(
+                        # Action first — the MCP/REST surfaces truncate messages at
+                        # 300 characters, which cut the closing instruction off.
+                        "UNRESOLVED — do not blindly retry; check your notebook list "
+                        f"first. Cannot confirm notebook with title {title!r}: the "
+                        "create failed at the transport level and may or may not have "
+                        "committed, and the idempotency probe that would settle it "
+                        f"failed too ({type(exc).__name__}). It was NOT retried, "
+                        "because retrying on an unanswered probe is how duplicates "
+                        "happen.",
+                        method_id=RPCMethod.CREATE_NOTEBOOK.value,
+                    )
                 ) from exc
             matches = [nb for nb in current if nb.id not in baseline_ids and nb.title == title]
             if len(matches) == 1:

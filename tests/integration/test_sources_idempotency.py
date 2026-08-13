@@ -545,7 +545,7 @@ async def test_add_url_probe_decode_failure_aborts_instead_of_retrying(auth_toke
     client = _make_client_with_transport(transport, auth_tokens)
     with caplog.at_level(logging.WARNING, logger="notebooklm._sources"):
         try:
-            with pytest.raises(SourceAddError) as exc_info:
+            with pytest.raises(SourceAddError, match="Cannot confirm URL source") as exc_info:
                 await client.sources.add_url(notebook_id, _PROBE_URL)
         finally:
             await client._collaborators.kernel.get_http_client().aclose()
@@ -553,6 +553,7 @@ async def test_add_url_probe_decode_failure_aborts_instead_of_retrying(auth_toke
     # The load-bearing assertion: the create fired ONCE. Restore the probe's
     # ``return None`` and this becomes 2 — the duplicate this PR prevents.
     assert counts["add"] == 1
+    assert "add_url: probe list() failed" in caplog.text
     assert "will not be retried" in caplog.text
     # Both halves of the story survive to the caller: the decode failure that
     # blinded the probe, and the 502 that made it run.
@@ -1453,13 +1454,15 @@ async def test_add_drive_probe_decode_failure_aborts_instead_of_retrying(
     client = _make_client_with_transport(transport, auth_tokens)
     with caplog.at_level(logging.WARNING, logger="notebooklm._sources"):
         try:
-            with pytest.raises(SourceAddError) as exc_info:
+            with pytest.raises(SourceAddError, match="Cannot confirm Drive source") as exc_info:
                 await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, "My Drive Doc")
         finally:
             await client._collaborators.kernel.get_http_client().aclose()
 
     # One create, not two — see the add_url twin.
     assert counts["add"] == 1
+    # Prefixed, so an add_url log could not satisfy this assertion.
+    assert "add_drive: probe list() failed" in caplog.text
     assert "will not be retried" in caplog.text
     assert isinstance(exc_info.value.cause, RPCError)
     assert isinstance(exc_info.value.__context__.__context__, ServerError)

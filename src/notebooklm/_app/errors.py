@@ -55,6 +55,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 
+# Via the public ``notebooklm.types`` facade, not ``notebooklm.rpc.*`` — the
+# _app boundary lint (tests/_guardrails/test_app_boundary.py) requires RPC
+# enums to be consumed through their public re-export.
 from ..exceptions import (
     ArtifactTimeoutError,
     AuthError,
@@ -72,10 +75,6 @@ from ..exceptions import (
     ValidationError,
     WaitTimeoutError,
 )
-
-# Via the public ``notebooklm.types`` facade, not ``notebooklm.rpc.*`` — the
-# _app boundary lint (tests/_guardrails/test_app_boundary.py) requires RPC
-# enums to be consumed through their public re-export.
 from ..types import GrpcStatusCode, normalize_grpc_status, normalize_rpc_code
 from .source_mutations import SourceMutationError
 
@@ -133,8 +132,11 @@ class ErrorCategory(Enum):
     #: re-raises every infra signal (auth/rate-limit/server/network) UNWRAPPED,
     #: and a post-registration upload failure (``_source/upload.py``) does too
     #: (with ``source_id``/``stage`` attributes attached rather than a wrapper
-    #: type), so a ``SourceAddError`` is guaranteed to be a per-item input
-    #: failure.
+    #: type), so a ``SourceAddError`` reaching THIS category is a per-item input
+    #: failure. The guarantee is no longer carried by the type alone: an
+    #: UNCONFIRMED create (#2220) is also a ``SourceAddError`` but is diverted to
+    #: :attr:`RPC` before this branch, precisely because it is neither a rejected
+    #: input nor safe to isolate-and-continue.
     SOURCE_ADD = "source_add"
     #: A library error that fits none of the above (catch-all under
     #: ``NotebookLMError``).
@@ -365,6 +367,27 @@ def _category_for(exc: BaseException) -> ErrorCategory:
     # add aborts for retry/backoff instead of masking a rate-limit/5xx as a per-item
     # error. Must precede the LIBRARY catch-all to keep its distinct 4xx category.
     if isinstance(exc, SourceAddError):
+        # An UNCONFIRMED create is neither of the two shapes below and must be
+        # tested first (#2220). Its idempotency probe could not determine whether
+        # the create committed, so the write may be live. Both other answers are
+        # actively wrong for it:
+        #
+        #   * SOURCE_ADD says "bad input, fix it and retry" (REST 422) and is
+        #     NON-fatal, so a batch add isolates the item and keeps going — one
+        #     unconfirmed write per remaining item, and a hint that invites the
+        #     manual re-add that duplicates.
+        #   * SERVER is reachable via the transient-cause branch below whenever
+        #     the probe's own failure happens to carry a 5xx / gRPC-14 rpc_code,
+        #     and it is *retriable* with the hint "retry after a short delay" —
+        #     advertising a retry for the one error whose message says the create
+        #     must not be retried, non-deterministically depending on whether the
+        #     decoder attached a code.
+        #
+        # RPC is the honest fit: fatal in a batch (stop, do not fire more
+        # unconfirmed writes), NOT retriable, no remediation hint that would
+        # contradict the message, and REST 502 rather than "your input was bad".
+        if getattr(exc, "unconfirmed", False):
+            return ErrorCategory.RPC
         cause = getattr(exc, "cause", None)
         if isinstance(cause, RPCError) and _is_transient_rpc_code(_normalized_rpc_code(cause)):
             return ErrorCategory.SERVER

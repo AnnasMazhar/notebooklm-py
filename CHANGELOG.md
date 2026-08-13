@@ -318,9 +318,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matching resource exists, and raises when it cannot: `SourceAddError` on the
   three source paths, `RPCError` on `notebooks.create` — in both cases the type
   that path's existing "cannot disambiguate" branch already raises, so no
-  caller's `except` clause changes meaning. The transport failure that triggered
-  the probe is retained as `__context__` and the decode failure as `cause` /
-  `__cause__`, so both halves stay in the traceback.
+  caller's `except` clause changes meaning. The decode failure is retained as
+  `cause` / `__cause__` and the transport failure that triggered the probe
+  further up the `__context__` chain, so both halves stay in the traceback.
+
+  The error also carries an **`unconfirmed`** marker attribute — read it with
+  `getattr(exc, "unconfirmed", False)`. It is the supported way to tell "the
+  write may have committed" from "the write was rejected", and it is load-bearing
+  rather than decorative: without it, `_app.errors` classified these as
+  `SOURCE_ADD` ("invalid input, fix and retry", REST 422, and **non-fatal** in a
+  batch add, so a drifted backend turned one unconfirmed write into one per
+  item) — or, when the probe's own failure happened to carry a 5xx/gRPC-14
+  `rpc_code`, as the *retriable* `SERVER` with the hint "retry after a short
+  delay", advertising exactly the retry the message forbids. They now classify as
+  `RPC`: fatal in a batch, not retriable, no contradicting hint. The MCP
+  browser-upload route no longer reports "Your file uploaded" for one either —
+  nothing had been uploaded. Messages are also front-loaded with the action,
+  because MCP and REST truncate at 300 characters and were cutting it off.
 
   **This is a deliberate trade, not a free win.** A decode blip on a create that
   never landed now surfaces as a hard failure the caller must retry by hand,

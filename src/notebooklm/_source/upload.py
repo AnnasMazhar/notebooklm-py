@@ -15,7 +15,12 @@ import httpx
 
 from .._auth.account import authuser_query, format_authuser_value
 from .._callbacks import maybe_await_callback
-from .._idempotency import _coerce_create_result, _IdempotentCreateResult, idempotent_create
+from .._idempotency import (
+    _coerce_create_result,
+    _IdempotentCreateResult,
+    idempotent_create,
+)
+from .._idempotency import mark_unconfirmed as _unconfirmed
 from .._loop_bound import LoopBoundPrimitive
 from .._runtime.config import (
     DEFAULT_MAX_CONCURRENT_UPLOADS,
@@ -596,17 +601,25 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                     type(exc).__name__,
                     exc_info=True,
                 )
-                raise SourceAddError(
-                    filename,
-                    cause=exc,
-                    message=(
-                        f"Cannot confirm file source {filename!r}: the registration could "
-                        f"not be completed and the idempotency probe then failed too "
-                        f"({type(exc).__name__}), so it is unknown whether the source was "
-                        "registered. It was NOT retried, because retrying on an unanswered "
-                        "probe is how duplicates happen. Check the notebook source list "
-                        "before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        filename,
+                        cause=exc,
+                        message=(
+                            # Action first — see the note on ``add_url``'s copy.
+                            # "may or may not have committed" rather than "did not
+                            # complete": this branch is also reached from ``_create``
+                            # below, where the register RPC returned 200 and only the
+                            # SOURCE_ID was untrustworthy.
+                            "UNRESOLVED — do not blindly retry; check the notebook "
+                            "source list first. Cannot confirm file source "
+                            f"{filename!r}: the registration may or may not have "
+                            "committed, and the idempotency probe that would settle "
+                            f"it failed too ({type(exc).__name__}). It was NOT "
+                            "retried, because retrying on an unanswered probe is how "
+                            "duplicates happen."
+                        ),
+                    )
                 ) from exc
             matches = [source for source in sources if source.title == filename]
             if baseline_ids is not None:

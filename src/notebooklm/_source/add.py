@@ -9,7 +9,14 @@ from dataclasses import replace
 from typing import Any
 from urllib.parse import parse_qs
 
-from .._idempotency import _CreateResultKind, _IdempotentCreateResult, idempotent_create
+from .._idempotency import (
+    _CreateResultKind,
+    _IdempotentCreateResult,
+    idempotent_create,
+)
+from .._idempotency import (
+    mark_unconfirmed as _unconfirmed,
+)
 from .._runtime.contracts import RpcCaller
 from ..exceptions import (
     AuthError,
@@ -343,17 +350,24 @@ class SourceAddService:
                     type(exc).__name__,
                     exc_info=True,
                 )
-                raise SourceAddError(
-                    url,
-                    cause=exc,
-                    message=(
-                        f"Cannot confirm URL source {url!r}: the create failed at the "
-                        f"transport level and the idempotency probe then failed too "
-                        f"({type(exc).__name__}), so it is unknown whether the source was "
-                        "created. It was NOT retried, because retrying on an unanswered "
-                        "probe is how duplicates happen. Check the notebook source list "
-                        "before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        url,
+                        cause=exc,
+                        message=(
+                            # Front-loaded on purpose: the MCP and REST surfaces
+                            # truncate messages at 300 characters, which cut the
+                            # closing instruction mid-word on a realistic URL.
+                            # The action comes first; the narrative can be lost.
+                            "UNRESOLVED — do not blindly retry; check the notebook "
+                            f"source list first. Cannot confirm URL source {url!r}: "
+                            "the create failed at the transport level and may or may "
+                            "not have committed, and the idempotency probe that would "
+                            f"settle it failed too ({type(exc).__name__}). It was NOT "
+                            "retried, because retrying on an unanswered probe is how "
+                            "duplicates happen."
+                        ),
+                    )
                 ) from exc
             matches = [source for source in sources if source.url == url]
             if baseline_ids is not None:
@@ -673,17 +687,21 @@ class SourceAddService:
                     type(exc).__name__,
                     exc_info=True,
                 )
-                raise SourceAddError(
-                    title,
-                    cause=exc,
-                    message=(
-                        f"Cannot confirm Drive source {file_id!r}: the create failed at the "
-                        f"transport level and the idempotency probe then failed too "
-                        f"({type(exc).__name__}), so it is unknown whether the source was "
-                        "created. It was NOT retried, because retrying on an unanswered "
-                        "probe is how duplicates happen. Check the notebook source list "
-                        "before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        title,
+                        cause=exc,
+                        message=(
+                            # Action first — see the note on ``add_url``'s copy.
+                            "UNRESOLVED — do not blindly retry; check the notebook "
+                            "source list first. Cannot confirm Drive source "
+                            f"{file_id!r}: the create failed at the transport level "
+                            "and may or may not have committed, and the idempotency "
+                            f"probe that would settle it failed too "
+                            f"({type(exc).__name__}). It was NOT retried, because "
+                            "retrying on an unanswered probe is how duplicates happen."
+                        ),
+                    )
                 ) from exc
             matches = [source for source in sources if source.drive_document_id == file_id]
             if baseline_ids is not None:

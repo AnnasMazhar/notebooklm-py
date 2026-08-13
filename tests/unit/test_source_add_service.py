@@ -326,7 +326,9 @@ async def test_add_url_probe_decode_failure_propagates_without_retrying(
     """
     add_url_source = AsyncMock(side_effect=NetworkError("temporary network failure"))
     probe_error = RPCError("probe decode failed")
-    list_sources = AsyncMock(side_effect=[[], probe_error, [], []])
+    # Exactly two entries: baseline, then the probe that fails. A third list
+    # call would mean the retry loop continued — StopIteration, not a pass.
+    list_sources = AsyncMock(side_effect=[[], probe_error])
 
     with (
         caplog.at_level(logging.WARNING, logger=logger.name),
@@ -350,7 +352,7 @@ async def test_add_url_probe_decode_failure_propagates_without_retrying(
     assert add_url_source.await_count == 1
     assert exc_info.value.cause is probe_error
     assert exc_info.value.__cause__ is probe_error
-    assert isinstance(exc_info.value.__context__, RPCError)
+    assert exc_info.value.__context__ is probe_error
     # The transport error that made the probe run at all is still reachable.
     assert isinstance(probe_error.__context__, NetworkError)
 

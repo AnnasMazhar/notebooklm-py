@@ -1008,7 +1008,8 @@ async def test_register_file_source_probe_decode_failure_aborts_instead_of_retry
     rpc = RecordingRpc(NetworkError("commit lost"))
     probe_error = RPCError("probe decode failed")
     # Baseline succeeds; the probe that follows the transport failure does not.
-    list_sources = AsyncMock(side_effect=[[], probe_error, [], []])
+    # Exactly two: baseline, then the failing probe (see the add_url twin).
+    list_sources = AsyncMock(side_effect=[[], probe_error])
 
     with (
         caplog.at_level(logging.WARNING, logger=logger.name),

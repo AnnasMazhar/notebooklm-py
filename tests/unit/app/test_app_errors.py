@@ -258,6 +258,52 @@ def test_source_add_error_with_transient_cause_stays_fatal() -> None:
         assert batch_item_is_fatal(e) is True, f"code {code} must abort the batch"
 
 
+def test_unconfirmed_source_add_error_is_fatal_and_not_retriable() -> None:
+    """An UNCONFIRMED create must not be isolated as a per-item input error (#2220).
+
+    The probe could not determine whether the create committed, so the write may
+    be live. Two classifications are actively harmful here, and the plain
+    ``SourceAddError`` shape lands on both depending on the cause:
+
+    * ``SOURCE_ADD`` is documented "non-fatal per-item", so a batch add isolates
+      the item and continues — turning one unconfirmed write into one per
+      remaining item against a drifted backend — and its hint says "fix the
+      input and retry" (REST 422), inviting the manual re-add that duplicates.
+    * ``SERVER`` is *retriable* with the hint "retry after a short delay", which
+      the marker must override even though the probe's own failure can carry a
+      transient ``rpc_code`` that would otherwise select it.
+
+    The second case is the one that would regress silently: without the marker
+    it depends on whether the decoder happened to attach a code.
+    """
+    from notebooklm._app.source_batch import batch_item_is_fatal
+    from notebooklm._idempotency import mark_unconfirmed
+
+    for cause in (
+        # The realistic drift shape: the strict list decoder raises bare.
+        exc.RPCError("Could not list sources for nb: API response structure changed"),
+        # ...and the shape that would otherwise be classified SERVER/retriable.
+        exc.RPCError("transient", rpc_code=14),
+    ):
+        e = mark_unconfirmed(exc.SourceAddError("http://x", cause=cause))
+        result = classify(e)
+        assert result.category is ErrorCategory.RPC
+        assert result.category is not ErrorCategory.SOURCE_ADD
+        assert result.retriable is False, "must never advertise a retry"
+        assert batch_item_is_fatal(e) is True, "must abort the batch, not isolate"
+    # No hint may contradict the message's "do not blindly retry".
+    assert CATEGORY_HINTS[ErrorCategory.RPC] is None
+
+
+def test_unmarked_source_add_error_is_still_a_per_item_input_failure() -> None:
+    """The marker is the only thing that diverts; ordinary adds are unaffected."""
+    from notebooklm._app.source_batch import batch_item_is_fatal
+
+    e = exc.SourceAddError("http://x", cause=exc.RPCError("bad url", rpc_code=3))
+    assert classify(e).category is ErrorCategory.SOURCE_ADD
+    assert batch_item_is_fatal(e) is False
+
+
 @pytest.mark.parametrize(
     ("cause", "category", "retriable"),
     [
