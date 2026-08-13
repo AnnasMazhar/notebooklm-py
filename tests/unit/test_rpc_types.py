@@ -13,11 +13,13 @@ from notebooklm.rpc.types import (
     QUERY_URL,
     ArtifactStatus,
     ArtifactTypeCode,
+    DriveSourceStatus,
     GrpcStatusCode,
     RPCMethod,
     SharePermission,
     SourceStatus,
     artifact_status_to_str,
+    drive_source_status_to_str,
     get_batchexecute_url,
     get_query_url,
     normalize_grpc_status,
@@ -285,6 +287,38 @@ class TestSharePermissionToStr:
         assert share_permission_to_str(5) == "unknown"
         assert share_permission_to_str(99) == "unknown"
         assert share_permission_to_str(-1) == "unknown"
+
+
+class TestDriveSourceStatusToStr:
+    """Tests for the drive_source_status_to_str helper function (#2111)."""
+
+    def test_every_member_has_a_label(self):
+        """No member falls through to the "unknown" default by accident."""
+        assert {member: drive_source_status_to_str(member) for member in DriveSourceStatus} == {
+            DriveSourceStatus.UNKNOWN: "unknown",
+            DriveSourceStatus.INACCESSIBLE: "inaccessible",
+            DriveSourceStatus.SYNCING: "syncing",
+            DriveSourceStatus.ACTIVE: "active",
+            DriveSourceStatus.DELETED: "deleted",
+            DriveSourceStatus.GEN_AI_ACCESS_DENIED: "gen_ai_access_denied",
+        }
+
+    def test_accepts_raw_wire_codes(self):
+        """The backend UserDriveSourceStatus integers map without an enum wrap."""
+        assert drive_source_status_to_str(1) == "inaccessible"
+        assert drive_source_status_to_str(2) == "syncing"
+        assert drive_source_status_to_str(3) == "active"
+        assert drive_source_status_to_str(4) == "deleted"
+        assert drive_source_status_to_str(5) == "gen_ai_access_denied"
+
+    def test_unknown_codes_degrade(self):
+        """Unrecognized codes return 'unknown' (future-proofing)."""
+        # 0 is the backend UNSPECIFIED, deliberately unmodelled: the decoder
+        # normalizes it to None before a label is ever asked for.
+        assert drive_source_status_to_str(0) == "unknown"
+        assert drive_source_status_to_str(6) == "unknown"
+        assert drive_source_status_to_str(99) == "unknown"
+        assert drive_source_status_to_str(-2) == "unknown"
 
 
 class TestGrpcStatusCode:

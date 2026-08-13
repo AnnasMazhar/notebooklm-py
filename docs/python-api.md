@@ -2245,6 +2245,7 @@ class Source:
     created_at: Optional[datetime]
     status: SourceStatus                 # UNKNOWN when the wire status is missing or unmapped
     drive_document_id: Optional[str]     # Drive file id for Drive-backed sources; None otherwise
+    drive_status: Optional[DriveSourceStatus]  # Drive-side health; None when the row makes no claim
 
     @property
     def kind(self) -> SourceType:
@@ -2261,10 +2262,63 @@ class Source:
     @property
     def is_error(self) -> bool:
         """status == SourceStatus.ERROR"""
+
+    @property
+    def is_drive_degraded(self) -> bool:
+        """drive_status is one of INACCESSIBLE / SYNCING / DELETED / GEN_AI_ACCESS_DENIED"""
 ```
 
 > **Removed in v0.5.0:** `Source.source_type` was replaced by `Source.kind`.
 > See [stability.md → Removed in v0.5.0](stability.md#removed-in-v050).
+
+**Drive-backed sources: `is_ready` is not the whole story.**
+
+`status` (and therefore `is_ready` / `wait_until_ready`) reports **NotebookLM's
+own ingestion pipeline**. For a source backed by a Google Drive file, ingestion
+completes once and stays complete — even after the file is deleted, unshared, or
+starts re-syncing. Drive-side health is a separate wire field
+(`SourceSettings.userDriveSourceStatus`) surfaced as `drive_status`:
+
+```python
+from notebooklm import DriveSourceStatus
+
+for src in await client.sources.list(nb_id):
+    if src.is_drive_degraded:
+        print(f"{src.title}: Drive says {src.drive_status.name} — answers may be stale")
+
+    # Or branch on the member directly when you need the specific state:
+    if src.drive_status is DriveSourceStatus.DELETED:
+        await client.sources.delete(nb_id, src.id)
+```
+
+`drive_status` is `None` for every non-Drive source (and for a Drive source the
+backend made no claim about — proto3 omits the zero-valued default), so absence
+is not proof that a source is not Drive-backed; `drive_document_id` answers that
+question. A code this client does not model decodes to `DriveSourceStatus.UNKNOWN`
+(distinct from `None`) and logs one warning.
+
+`is_drive_degraded` reports only an **explicit** backend degradation signal. A
+`False` therefore means "nothing degraded was reported" — for a non-Drive source,
+for `ACTIVE`, and for an unreadable `UNKNOWN` code alike — not "the Drive file is
+confirmed present and readable". Note also that `SYNCING` is transient and
+self-healing; exclude it if you are driving an alert.
+
+The MCP and REST source views carry the same two signals as
+`drive_status_label` (a string, `null` when there is no claim) and
+`is_drive_degraded`.
+
+`is_ready` deliberately does **not** fold `drive_status` in: it is a public
+field whose meaning callers already depend on, and folding a permanently-dead
+Drive file into it would turn `wait_until_ready` into a guaranteed timeout
+instead of a signal. Check `is_drive_degraded` alongside `is_ready` when the
+freshness of a Drive-backed source matters.
+
+> **Caveat, stated plainly:** only `DriveSourceStatus.ACTIVE` has been observed
+> on the wire (4 Drive rows out of a 409-row live capture). The degraded members
+> are read off the backend enum recovered from the official Android app; nobody
+> has deliberately broken access to a real Drive file to confirm which value
+> arrives when. The slot being live, populated and previously unread is
+> confirmed; the specific degraded values are not.
 
 **Type Identification:**
 
@@ -2842,6 +2896,19 @@ class SourceStatus(Enum):
     READY = 2       # Source is ready for use
     ERROR = 3       # Source processing failed
     PREPARING = 5   # Source is being prepared/uploaded (pre-processing stage)
+
+class DriveSourceStatus(Enum):
+    """Drive-side health of a Drive-backed source — NOT ingestion status."""
+    UNKNOWN = -1              # Client sentinel: slot populated with a code we cannot map
+    INACCESSIBLE = 1          # The account can no longer read the Drive file
+    SYNCING = 2               # The Drive file is being (re-)synced (transient)
+    ACTIVE = 3                # In sync — the only value observed live
+    DELETED = 4               # The Drive file has been deleted
+    GEN_AI_ACCESS_DENIED = 5  # AI access to the file is denied (e.g. Workspace policy)
+
+# The backend's DRIVE_SOURCE_STATUS_UNSPECIFIED (0) is deliberately not modelled:
+# it means "no claim", which is what `drive_status is None` already means, so an
+# explicit 0 is normalized to None rather than giving one state two spellings.
 ```
 
 **Usage Example:**

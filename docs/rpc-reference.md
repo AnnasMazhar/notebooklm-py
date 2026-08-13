@@ -110,6 +110,38 @@ Internal integer codes returned by `GET_NOTEBOOK` / `LIST_SOURCES` and consumed 
 
 > **Code `14` is overloaded** (live-captured #1828/#1832): the backend returns `14` for a native Google Sheet *and* for a Drive-hosted PDF. Drive sources carry no URL (`metadata[5]/[7]` are null and `metadata[0]` holds the Drive metadata block, not a URL — see `SourceRow.drive_document_id`), so the two are disambiguated by the MIME at `metadata[19]` (fallback `metadata[9][2]`): `application/vnd.google-apps.spreadsheet` → `GOOGLE_SPREADSHEET`, `application/pdf` → `PDF`. See `_disambiguate_type_code` in `src/notebooklm/_types/sources.py`.
 
+### Source Settings Block (`source[3]`)
+
+`Source.settings` (`SourceSettings`) carries **two independent status codes**, and
+they answer different questions:
+
+| Index | Proto tag | Field | Decoded as |
+|-------|-----------|-------|------------|
+| 1 | 2 | `status` | `SourceStatus` — NotebookLM's own ingestion pipeline (`SourceRow.status`) |
+| 3 | 4 | `userDriveSourceStatus` | `DriveSourceStatus` — Drive-side health, Drive-backed rows only (`SourceRow.drive_status`) |
+
+Shapes observed across 409 live source rows (2026-08-07 audit): `[null, 2]` ×402,
+`[null, 2, null, 3]` ×4 (all Drive-backed, all `ACTIVE`), and
+`[null, 2, [null,null,null,[]]]` ×3.
+
+| Code | `DriveSourceStatus` | Backend member |
+|------|---------------------|----------------|
+| 0 | *(normalized to `None`)* | `DRIVE_SOURCE_STATUS_UNSPECIFIED` |
+| 1 | `INACCESSIBLE` | `DRIVE_SOURCE_STATUS_INACCESSIBLE` |
+| 2 | `SYNCING` | `DRIVE_SOURCE_STATUS_SYNCING` |
+| 3 | `ACTIVE` | `DRIVE_SOURCE_STATUS_ACTIVE` |
+| 4 | `DELETED` | `DRIVE_SOURCE_STATUS_DELETED` |
+| 5 | `GEN_AI_ACCESS_DENIED` | `DRIVE_SOURCE_STATUS_GEN_AI_ACCESS_DENIED` |
+
+> Index 3 is absent on 405/409 rows — and proto3 omits zero-valued fields, so an
+> absent slot means "no Drive claim", not "not a Drive source". The backend's
+> `0` means the same thing, so the decoder normalizes it to `None` rather than
+> modelling it (recorded in `ENUM_GAPS`). Only `ACTIVE` has
+> been observed live; the degraded members come from the backend enum recovered
+> from the official Android app (`docs/mobile/enums.txt`) and are pinned in
+> `tests/_guardrails/_wire_contract.py`. A populated-but-unmapped code decodes to
+> `DriveSourceStatus.UNKNOWN` (never `None`) and warns once (#2111).
+
 ---
 
 ## UI/Library Operation Parity

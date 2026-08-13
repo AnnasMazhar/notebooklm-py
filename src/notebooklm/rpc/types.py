@@ -640,3 +640,87 @@ def source_status_to_str(status_code: int | SourceStatus) -> str:
         Returns "unknown" for unrecognized codes (future-proofing).
     """
     return _SOURCE_STATUS_MAP.get(status_code, "unknown")
+
+
+class DriveSourceStatus(int, Enum):
+    """Drive-side health of a Drive-backed source (``UserDriveSourceStatus``).
+
+    The sibling of :class:`SourceStatus`, and a *different question*.
+    :class:`SourceStatus` reports NotebookLM's own ingestion pipeline
+    (``SourceSettings.status``, tag 2 → ``source[3][1]``), which completes —
+    and stays complete — even after the underlying Drive file is deleted or
+    unshared. Drive-side health lives only here
+    (``SourceSettings.userDriveSourceStatus``, tag 4 → ``source[3][3]``), so a
+    source can read ``READY`` while its Drive file is gone (#2111).
+
+    Only Drive-backed sources carry the slot; every other source decodes to
+    ``None`` (see :attr:`notebooklm.Source.drive_status`).
+
+    The backend's ``DRIVE_SOURCE_STATUS_UNSPECIFIED`` (0) is deliberately NOT
+    modelled here. proto3 omits zero-valued fields, so it normally arrives as
+    an absent slot, and it means exactly what an absent slot means — "no claim".
+    Modelling it would give that one state two representations (``None`` and a
+    falsy member), so :attr:`notebooklm._row_adapters.sources.SourceRow.drive_status`
+    normalizes an explicit ``0`` to ``None`` instead. Recorded in
+    ``tests/_guardrails/_wire_contract.py::ENUM_GAPS``.
+
+    Values are the backend ``UserDriveSourceStatus`` enum, recovered from the
+    official Android app (``docs/mobile/enums.txt``) and pinned by
+    ``tests/_guardrails/_wire_contract.py``.
+
+    .. warning::
+       Only :attr:`ACTIVE` has been observed on the wire (4 Drive rows in a
+       409-row live capture; see
+       ``docs/notes/web-rpc-vs-mobile-grpc-audit-2026-08-07.md`` §1.6).
+       The degraded members below are read off the backend enum, **not**
+       from an observed response — producing them requires deliberately
+       breaking access to a real Drive file. Treat their exact wire behaviour
+       as unverified.
+    """
+
+    #: Client-side sentinel — the slot carried a code this client does not
+    #: model (or a non-integer). Never sent by the backend. ``None`` means
+    #: "no Drive status on this row"; this means "present but unmappable".
+    UNKNOWN = -1
+    #: The account can no longer read the Drive file (e.g. unshared).
+    INACCESSIBLE = 1
+    #: The Drive file is being (re-)synced into the notebook.
+    SYNCING = 2
+    #: The Drive file is present and in sync. The only value observed live.
+    ACTIVE = 3
+    #: The Drive file has been deleted.
+    DELETED = 4
+    #: Gemini/AI access to the file is denied (e.g. a Workspace policy).
+    GEN_AI_ACCESS_DENIED = 5
+
+
+# Drive source status code to string mapping (uses int keys for mypy
+# compatibility), the sibling of ``_SOURCE_STATUS_MAP``.
+_DRIVE_SOURCE_STATUS_MAP: dict[int, str] = {
+    DriveSourceStatus.UNKNOWN: "unknown",
+    DriveSourceStatus.INACCESSIBLE: "inaccessible",
+    DriveSourceStatus.SYNCING: "syncing",
+    DriveSourceStatus.ACTIVE: "active",
+    DriveSourceStatus.DELETED: "deleted",
+    DriveSourceStatus.GEN_AI_ACCESS_DENIED: "gen_ai_access_denied",
+}
+
+
+def drive_source_status_to_str(status_code: int | DriveSourceStatus) -> str:
+    """Convert a Drive source status code to a human-readable string.
+
+    The single source of truth for Drive-status code to string mapping (the
+    sibling of :func:`source_status_to_str`). Use this helper instead of
+    inline conditionals so every adapter's label stays in lock-step.
+
+    Args:
+        status_code: Status code as int or :class:`DriveSourceStatus`.
+
+    Returns:
+        One of ``"inaccessible"``, ``"syncing"``, ``"active"``,
+        ``"deleted"``, ``"gen_ai_access_denied"``. Returns ``"unknown"`` for
+        the client sentinel and for unrecognized codes (future-proofing) —
+        including the backend's unmodelled ``0``, which the decoder normalizes
+        to ``None`` before it can reach this helper.
+    """
+    return _DRIVE_SOURCE_STATUS_MAP.get(status_code, "unknown")

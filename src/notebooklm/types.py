@@ -94,6 +94,7 @@ from .rpc.types import (
     ChatGoal,
     ChatResponseLength,
     DriveMimeType,
+    DriveSourceStatus,
     ExportType,
     InfographicDetail,
     InfographicOrientation,
@@ -110,6 +111,7 @@ from .rpc.types import (
     VideoFormat,
     VideoStyle,
     artifact_status_to_str,
+    drive_source_status_to_str,
     share_permission_to_str,
     source_status_to_str,
 )
@@ -245,11 +247,13 @@ __all__ = [
     "DriveMimeType",
     "ExportType",
     "SourceStatus",
+    "DriveSourceStatus",
     "ShareAccess",
     "ShareViewLevel",
     "SharePermission",
     # Helper functions
     "artifact_status_to_str",
+    "drive_source_status_to_str",
     "share_permission_to_str",
     "source_status_to_str",
 ]

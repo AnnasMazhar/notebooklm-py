@@ -95,7 +95,8 @@ def _validate_drive_mime(source_type: str, mime_type: str | None) -> None:
         )
 
 
-# ``_source_view`` (Source → dict with string ``kind`` / ``status_label`` labels)
+# ``_source_view`` (Source → dict with string ``kind`` / ``status_label`` /
+# ``drive_status_label`` labels plus the ``is_drive_degraded`` verdict)
 # now lives in the shared, transport-neutral ``_app.views`` so the REST source
 # list/get routes emit the identical enriched shape (Option B). Imported above
 # under its historical private name so the tool bodies below are unchanged.
@@ -116,8 +117,20 @@ def _json_tool_result(payload: dict[str, Any]) -> ToolResult:
 
 
 #: Fields kept in a ``source_list(detail="compact")`` roster row — a strict subset of
-#: :func:`_source_view`'s output, dropping ``url`` / the raw ``status`` int / ``_type_code``.
-_COMPACT_SOURCE_FIELDS = ("id", "title", "kind", "status_label", "created_at")
+#: :func:`_source_view`'s output, dropping ``url``, the raw ``status`` /
+#: ``drive_status`` / ``_type_code`` ints, and the ``is_drive_degraded`` verdict.
+#: The rule is "labels, not raw codes": ``drive_status_label`` is kept because the
+#: roster is the listing an agent actually pages through, and #2111 exists so a
+#: Drive source that is stale while ``status_label`` still reads ``ready`` is
+#: visible there rather than only in the full projection.
+_COMPACT_SOURCE_FIELDS = (
+    "id",
+    "title",
+    "kind",
+    "status_label",
+    "drive_status_label",
+    "created_at",
+)
 
 
 def _source_compact(source: Source) -> dict[str, Any]:
@@ -125,8 +138,9 @@ def _source_compact(source: Source) -> dict[str, Any]:
 
     A strict subset of :func:`_source_view` — keeping only
     :data:`_COMPACT_SOURCE_FIELDS` — so a discovery listing stays low-token with no
-    extra read while ``kind`` / ``status_label`` / ISO ``created_at`` stay byte-identical
-    to the full projection (same single source of truth, no re-derivation).
+    extra read while ``kind`` / ``status_label`` / ``drive_status_label`` / ISO
+    ``created_at`` stay byte-identical to the full projection (same single source
+    of truth, no re-derivation).
     """
     view = _source_view(source)
     return {k: view.get(k) for k in _COMPACT_SOURCE_FIELDS}
@@ -143,7 +157,8 @@ def _add_result_payload(
 
     Replaces ``base["source"]`` (the bare ``to_jsonable`` source dict) with the
     label-enriched :func:`_source_view` so ``source_add`` output reaches parity
-    with ``source_list`` / ``source_read`` (``kind`` + ``status_label``).
+    with ``source_list`` / ``source_read`` (``kind`` + ``status_label`` +
+    ``drive_status_label`` + ``is_drive_degraded``).
 
     Echoes the resolved canonical ``notebook_id`` (the added source itself carries
     no ``notebook_id`` field) so a caller that added by notebook *name* gets the id
@@ -200,8 +215,14 @@ def register(mcp: Any) -> None:
         """List a notebook's sources. Accepts a notebook name or ID.
 
         ``detail`` (default ``full``): ``full`` gives each source's metadata plus string
-        ``kind`` / ``status_label`` labels; ``compact`` returns only ``id`` / ``title``
-        / ``kind`` / ``status_label`` / ``created_at`` — a low-token roster.
+        ``kind`` / ``status_label`` / ``drive_status_label`` labels; ``compact`` returns
+        only ``id`` / ``title`` / ``kind`` / ``status_label`` / ``drive_status_label`` /
+        ``created_at`` — a low-token roster.
+
+        ``drive_status_label`` is a separate axis, ``null`` on non-Drive sources:
+        a Drive file that was deleted or unshared keeps reading
+        ``status_label="ready"`` (ingestion did finish) while this turns
+        ``deleted`` / ``inaccessible`` / ``syncing``, so answers may be stale.
 
         Pass ``status`` to list only sources whose ``status_label`` matches (``error`` =
         a broken import's ghost row). Pass ``label`` (name or ID) to restrict to that
@@ -238,7 +259,8 @@ def register(mcp: Any) -> None:
         * ``summary`` — a tiny AI digest for low-token triage:
           ``{notebook_id, source_id, summary, keywords}``. Cheap to fan out across
           many sources before deciding which to pull in full.
-        * ``full`` (DEFAULT) — the source metadata (incl. string ``kind``/``status_label``)
+        * ``full`` (DEFAULT) — the source metadata (incl. ``kind``/``status_label``/
+          ``drive_status_label``)
           plus the extracted ``content``, the full ``char_count``, and a
           ``truncated`` flag. ``content`` is ALWAYS bounded: omitting ``max_chars``
           caps it at the first 10,000 chars; raise ``max_chars`` and/or page with
@@ -874,6 +896,11 @@ async def _add_url_batch(
                 raise
             results.append({"input": entry, "status": "error", "error": tool_error_payload(exc)})
         else:
+            # Deliberately NOT a ``_source_view`` row: this is a per-input
+            # RESULT record for a source that was just created, so Drive health
+            # (#2111) carries no signal yet — read it back with ``source_list`` /
+            # ``source_read``, which do project it. The REST ``/sources/batch``
+            # echo mirrors this shape for the same reason.
             item: dict[str, Any] = {
                 "input": entry,
                 "status": "added",

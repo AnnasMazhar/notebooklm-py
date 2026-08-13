@@ -33,6 +33,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#2143](https://github.com/teng-lin/notebooklm-py/issues/2143))
 ### Added
 
+- **Drive-backed sources now report Drive-side health.**
+  `SourceSettings.userDriveSourceStatus` (proto tag 4 → `source[3][3]`) is
+  populated by the backend on Drive-backed sources and was read nowhere in this
+  client, so a source whose Drive file had been deleted, unshared, or was
+  mid-sync still reported `is_ready=True` with no signal anywhere in the API —
+  `status` (tag 2) describes NotebookLM's own ingestion pipeline, which
+  genuinely completes and stays complete after the Drive file goes away. The
+  slot is now decoded into the new `Source.drive_status`
+  (`DriveSourceStatus | None`), with `Source.is_drive_degraded` as the explicit
+  check; the MCP/REST source view gains both a `drive_status_label` string and
+  the `is_drive_degraded` verdict, and the `source_list(detail="compact")`
+  roster gains the label. `None` means the row made no Drive claim (every
+  non-Drive source, plus the backend's `UNSPECIFIED`, which means the same
+  thing and is normalized rather than modelled); a code this client cannot map
+  decodes to
+  `DriveSourceStatus.UNKNOWN` — deliberately distinct from `None` — and warns
+  once. Also adds the public `DriveSourceStatus` enum and
+  `notebooklm.types.drive_source_status_to_str`.
+
+  **`is_ready` is deliberately unchanged.** Folding Drive health into it would
+  flip a public predicate to `False` for sources that report ready today, and
+  would turn `wait_until_ready` into a guaranteed timeout for a Drive file that
+  can never come back — a worse failure than the silence it replaces. The two
+  axes stay separate: `is_ready` answers "has NotebookLM finished ingesting",
+  `is_drive_degraded` answers "did the backend explicitly report a degraded
+  Drive state". A `False` from it means "nothing degraded was reported" — for a
+  non-Drive source, for `ACTIVE`, and for an unreadable code alike — not "the
+  Drive file is confirmed present and readable". `is_ready`'s docstring and
+  `docs/python-api.md` now carry the caveat.
+
+  **Evidence and its limits:** the slot's population is live-confirmed — 4 of
+  409 real source rows across 25 notebooks carry it, all Drive-backed, all
+  `DRIVE_SOURCE_STATUS_ACTIVE`. `INACCESSIBLE` / `SYNCING` / `DELETED` /
+  `GEN_AI_ACCESS_DENIED` are read off the backend `UserDriveSourceStatus` enum
+  recovered from the official Android app and are **not** live-observed;
+  producing them means deliberately breaking access to a real Drive file, which
+  was not done. The decode of those values is pinned by tests and by
+  `tests/_guardrails/_wire_contract.py`; their occurrence in practice is not.
+  ([#2111](https://github.com/teng-lin/notebooklm-py/issues/2111))
+
 - **`notebooklm.types.share_permission_to_str`** — the single source of truth
   for permission/role code to string (`"owner"` / `"editor"` / `"viewer"`,
   `"unknown"` for unmapped codes), joining the existing `source_status_to_str`

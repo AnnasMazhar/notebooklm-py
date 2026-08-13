@@ -9,7 +9,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from .._url_utils import pdf_url_display_title
-from ..rpc.types import SourceStatus
+from ..rpc.types import DriveSourceStatus, SourceStatus
 from .common import (
     UnknownTypeWarning,
 )
@@ -164,6 +164,21 @@ def _extract_source_created_at(metadata: Any) -> datetime | None:
     return SourceRow.created_at_from_metadata(metadata)
 
 
+#: Drive states that mean "the notebook's copy is not a faithful view of a
+#: readable live Drive file" — what :attr:`Source.is_drive_degraded` reports.
+#: An explicit allowlist, not ``!= ACTIVE``: the client-side ``UNKNOWN``
+#: sentinel says nothing about health, and a future backend member must be
+#: classified deliberately rather than inherit "degraded" by default.
+_DEGRADED_DRIVE_STATUSES: frozenset[DriveSourceStatus] = frozenset(
+    {
+        DriveSourceStatus.INACCESSIBLE,
+        DriveSourceStatus.SYNCING,
+        DriveSourceStatus.DELETED,
+        DriveSourceStatus.GEN_AI_ACCESS_DENIED,
+    }
+)
+
+
 def _pdf_url_title_fallback(
     title: str | None, url: str | None, type_code: int | None
 ) -> str | None:
@@ -217,6 +232,14 @@ class Source:
     #: ``file_id`` it was created from — ``sources.add_drive`` matches on it to
     #: stay idempotent when a create has to be retried (#2113).
     drive_document_id: str | None = None
+    #: Drive-side health of a Drive-backed source
+    #: (``SourceSettings.userDriveSourceStatus``), or ``None`` when the row
+    #: makes no Drive-health claim — every non-Drive source, and a Drive source
+    #: whose status is the proto3 default. Orthogonal to :attr:`status`, which
+    #: reports NotebookLM's own ingestion pipeline: a source whose Drive file
+    #: was deleted or unshared keeps reporting ``READY`` because ingestion did
+    #: complete (#2111). See :attr:`is_drive_degraded`.
+    drive_status: DriveSourceStatus | None = None
 
     @property
     def kind(self) -> SourceType:
@@ -225,8 +248,57 @@ class Source:
 
     @property
     def is_ready(self) -> bool:
-        """Check if source is ready for use (status=READY)."""
+        """Check if NotebookLM finished ingesting this source (status=READY).
+
+        .. note::
+           This reports **NotebookLM's ingestion pipeline only**
+           (``SourceSettings.status``). For a Drive-backed source it does not
+           track the Drive file: ingestion completes once, and stays complete,
+           even after the file is deleted, unshared, or is mid-resync — so
+           ``is_ready`` can be ``True`` while chat is grounded on a stale
+           snapshot. Drive-side health is reported separately by
+           :attr:`drive_status` / :attr:`is_drive_degraded` (#2111); this
+           property deliberately does not fold them in, because
+           ``wait_until_ready`` would then poll forever on a Drive file that
+           can never come back.
+        """
         return self.status == SourceStatus.READY
+
+    @property
+    def is_drive_degraded(self) -> bool:
+        """Whether the backend reports a *non-healthy* Drive state for this source.
+
+        ``True`` only for the four explicitly degraded members —
+        ``INACCESSIBLE``, ``SYNCING``, ``DELETED``, ``GEN_AI_ACCESS_DENIED``.
+        Everything else is ``False``:
+
+        * ``drive_status is None`` — no Drive-health claim on the row (every
+          non-Drive source, and the proto3-default case).
+        * ``ACTIVE`` — nothing wrong reported.
+        * ``UNKNOWN`` — the slot carried a code this client does not model. A
+          state we cannot name is not evidence of degradation; callers who
+          prefer to fail closed should read :attr:`drive_status` directly and
+          decide for themselves.
+
+        ``False`` therefore means "the backend reported no degradation", NOT
+        "the Drive file is confirmed present and readable" — the three cases
+        above all report ``False`` without any such confirmation.
+
+        Note that ``SYNCING`` is transient and self-healing: it means the copy
+        is mid-update, not broken. Callers wiring this to an alert should
+        exclude it (``src.is_drive_degraded and src.drive_status is not
+        DriveSourceStatus.SYNCING`` recovers the sticky-fault set).
+
+        The degraded set is an explicit allowlist rather than
+        ``!= ACTIVE`` so a future backend member cannot silently start
+        reporting every Drive source as broken.
+
+        .. warning::
+           ``ACTIVE`` is the only value this project has observed on the wire;
+           the degraded members are read off the backend enum. See
+           :class:`~notebooklm.rpc.types.DriveSourceStatus`.
+        """
+        return self.drive_status in _DEGRADED_DRIVE_STATUSES
 
     @property
     def is_processing(self) -> bool:
@@ -276,6 +348,7 @@ class Source:
             created_at=row.created_at,
             status=row.status,
             drive_document_id=row.drive_document_id,
+            drive_status=row.drive_status,
         )
 
     @classmethod

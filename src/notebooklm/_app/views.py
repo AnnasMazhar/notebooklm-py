@@ -9,8 +9,9 @@ projection into ``_app`` rather than copy it per adapter):
 * :func:`share_status_view` — ``ShareStatus`` with string-labeled access /
   permission / view_level enums (a raw :func:`to_jsonable` pass would leak
   ``access=1`` etc.).
-* :func:`source_view` — a ``Source`` with string ``kind`` / ``status_label``
-  labels added alongside the raw ``status`` / ``_type_code`` integers.
+* :func:`source_view` — a ``Source`` with string ``kind`` / ``status_label`` /
+  ``drive_status_label`` labels and the ``is_drive_degraded`` verdict added
+  alongside the raw ``status`` / ``_type_code`` / ``drive_status`` integers.
 * :func:`notebook_view` — a ``Notebook`` with a string ``role_label`` added
   alongside the raw ``role`` integer.
 * :func:`notebook_viewed_keys` — the ``last_viewed_at`` timestamp plus its
@@ -28,7 +29,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ..types import share_permission_to_str, source_status_to_str
+from ..types import drive_source_status_to_str, share_permission_to_str, source_status_to_str
 from .serialize import to_jsonable
 
 if TYPE_CHECKING:
@@ -102,10 +103,24 @@ def source_view(source: Source) -> dict[str, Any]:
     — the repo's single source of truth for status→string — so every adapter's
     label stays in lock-step. It is one of ``unknown``/``processing``/``ready``/
     ``error``/``preparing``.
+
+    ``drive_status_label`` does the same for the Drive-side health code
+    (:attr:`~notebooklm.Source.drive_status`), and is ``None`` — not
+    ``"unknown"`` — when the row carried no Drive status at all, so an agent
+    can tell "not a Drive claim" from "a Drive code we could not read" (#2111).
+
+    ``is_drive_degraded`` carries the *verdict* over those codes. It is a
+    property, so :func:`to_jsonable` would drop it, leaving every non-Python
+    consumer to re-derive the degraded set from the label string — exactly the
+    per-adapter duplication this module exists to prevent.
     """
     view = to_jsonable(source)
     view["kind"] = source.kind.value
     view["status_label"] = source_status_to_str(source.status)
+    view["drive_status_label"] = (
+        drive_source_status_to_str(source.drive_status) if source.drive_status is not None else None
+    )
+    view["is_drive_degraded"] = source.is_drive_degraded
     return view
 
 

@@ -140,6 +140,20 @@ MAPPINGS: tuple[Mapping, ...] = (
         section=SOURCE_SETTINGS,
         note="the documented source[3][1] descent",
     ),
+    Mapping(
+        "sources",
+        "SourceRow",
+        "_DRIVE_STATUS_INNER_POS",
+        "SourceSettings",
+        "userDriveSourceStatus",
+        section=SOURCE_SETTINGS,
+        note=(
+            "#2111 — the sibling of status in the same settings block. "
+            "Live: 4/409 source rows carry settings=[null,2,null,3] (all "
+            "Drive-backed, all DRIVE_SOURCE_STATUS_ACTIVE); the other 405 "
+            "omit the slot. Read by SourceRow.drive_status."
+        ),
+    ),
     # ---- Source row: SourceMetadata ---------------------------------------
     Mapping(
         "sources", "SourceRow", "_META_TYPE_POS", "SourceMetadata", "originalSourceContentType"
@@ -531,6 +545,21 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
             5: "SOURCE_STATUS_TENTATIVE",
         },
     ),
+    # rpc/types.py::DriveSourceStatus (#2111). Only ACTIVE has been observed on
+    # the wire; the rest are bound from the recovered backend enum, which is
+    # exactly what this table is for — the binding is the evidence, not a live
+    # sighting. UNKNOWN(-1) is a client sentinel, declared in
+    # ``_CLIENT_SYNTHETIC_VALUES``.
+    "DriveSourceStatus": (
+        "UserDriveSourceStatus",
+        {
+            1: "DRIVE_SOURCE_STATUS_INACCESSIBLE",
+            2: "DRIVE_SOURCE_STATUS_SYNCING",
+            3: "DRIVE_SOURCE_STATUS_ACTIVE",
+            4: "DRIVE_SOURCE_STATUS_DELETED",
+            5: "DRIVE_SOURCE_STATUS_GEN_AI_ACCESS_DENIED",
+        },
+    ),
     "ArtifactStatus": (
         "ArtifactStatus",
         {
@@ -593,6 +622,17 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
 #: Enum members our client cannot express today. Each entry is a real backend
 #: value that maps to "unknown" (or worse) in this client.
 ENUM_GAPS: dict[str, tuple[tuple[int, str, str], ...]] = {
+    "DriveSourceStatus": (
+        (
+            0,
+            "DRIVE_SOURCE_STATUS_UNSPECIFIED",
+            "#2111 — deliberately unmodelled. It means 'no claim', which is what "
+            "an absent slot already means, so SourceRow.drive_status normalizes "
+            "an explicit 0 to None rather than giving one state two "
+            "representations. proto3 omits the zero default, so the wire almost "
+            "never carries it in the first place.",
+        ),
+    ),
     "SourceStatus": (
         (0, "SOURCE_STATUS_UNSPECIFIED", "#2124 — fails closed as UNKNOWN"),
         (4, "SOURCE_STATUS_PENDING_DELETION", "#2124 — fails closed as UNKNOWN"),
