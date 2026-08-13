@@ -751,6 +751,31 @@ def test_user_displayable_error_payload_raises_same_chat_error_message() -> None
         raise_if_rate_limited(payload)
 
 
+def test_user_displayable_error_payload_surfaces_server_message_when_present() -> None:
+    """``google.rpc.Status.message`` is surfaced ALONGSIDE the client guidance (#2188).
+
+    No captured chat rejection has ever populated index 1 — the test above pins
+    the wording users actually see. This one pins that a server-authored reason
+    is appended rather than discarded, and that appending it does not cost the
+    client's remedy.
+    """
+    payload = [
+        8,
+        "You have reached your daily chat limit",
+        [["type.googleapis.com/google.rpc.UserDisplayableError", "details"]],
+    ]
+
+    with pytest.raises(ChatError) as exc_info:
+        raise_if_rate_limited(payload)
+
+    message = str(exc_info.value)
+    assert "You have reached your daily chat limit" in message
+    # APPENDED, not substituted: nobody has ever seen this slot populated, so
+    # there is no evidence a server message would be as actionable as the
+    # remedy it would displace (#2188).
+    assert "Wait a few seconds and try again" in message
+
+
 def _wrb_envelope(inner: Any) -> str:
     """Length-prefixed single-``wrb.fr``-frame body wrapping ``inner``."""
     return _length_prefixed(json.dumps([["wrb.fr", None, json.dumps(inner)]]))
@@ -833,6 +858,41 @@ def test_oversized_request_rejection_surfaces_status_not_parse_error() -> None:
 
     with pytest.raises(ChatError, match=r"rejected by the server \(status 3\)"):
         parse_streaming_chat_response(wire)
+
+
+def test_bare_rejection_surfaces_a_server_message_when_present() -> None:
+    """A request-level rejection echoes the server's own reason (#2188).
+
+    The captured #1472 rejection is a bare ``[3]`` with no message, so the
+    generic guidance above is what users see; this pins the alternative.
+    """
+    wire = _length_prefixed(
+        json.dumps([["wrb.fr", None, None, None, None, [3, "Question exceeds 100000 characters"]]])
+    )
+
+    with pytest.raises(ChatError) as exc_info:
+        parse_streaming_chat_response(wire)
+
+    message = str(exc_info.value)
+    assert "Question exceeds 100000 characters" in message
+    assert "status 3" in message
+    # The client's guidance is kept alongside the server's words, not replaced.
+    assert "shorten it and" in message
+
+
+def test_message_without_a_status_is_still_surfaced() -> None:
+    """``[None, "text"]`` — a reason with no code. The reason still reaches the user."""
+    wire = _length_prefixed(
+        json.dumps([["wrb.fr", None, None, None, None, [None, "Try a shorter question"]]])
+    )
+
+    with pytest.raises(ChatError) as exc_info:
+        parse_streaming_chat_response(wire)
+
+    message = str(exc_info.value)
+    assert "Try a shorter question" in message
+    # No code, so no "(status …)" detail is fabricated.
+    assert "status" not in message.split("The server said:")[0].lower()
 
 
 def test_null_inner_frame_with_empty_payload_still_raises_without_status() -> None:

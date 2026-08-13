@@ -97,6 +97,7 @@ from .._types.chat import ConversationTurnKey
 from .._types.documents import StructuredDocument
 from ..exceptions import UnknownRPCMethodError
 from ..rpc import RPCMethod, safe_index
+from ..rpc.decoder import sanitize_status_message
 from .documents import build_document
 
 __all__ = [
@@ -650,15 +651,19 @@ class ErrorPayloadRow:
 
     Structure: ``[8, None, [["type.googleapis.com/.../UserDisplayableError", …]]]``
     for the rich rate-limit shape, or a bare ``[3]`` status for a request-level
-    rejection (issue #1472). Centralises the ``error_payload[0]`` status, the
+    rejection (issue #1472). Both are the same envelope — a JSON-array-encoded
+    ``google.rpc.Status`` — at different arities, which is why index 0 is the
+    code, index 1 the message, and index 2 the details. Centralises the
+    ``error_payload[0]`` status, the ``error_payload[1]`` message, the
     ``error_payload[2]`` entries, and the inner ``entry[0]`` reads so
     ``raise_if_rate_limited`` / ``_raise_chat_rejection`` stop open-coding them
-    (issue #1491).
+    (issues #1491, #2188).
     """
 
     _raw: list[Any] = field(repr=False)
 
     _STATUS_POS: ClassVar[int] = 0
+    _MESSAGE_POS: ClassVar[int] = 1
     _ENTRIES_POS: ClassVar[int] = 2
 
     @property
@@ -668,6 +673,30 @@ class ErrorPayloadRow:
         if not self._raw:
             return None
         return self._raw[self._STATUS_POS]
+
+    @property
+    def message(self) -> str | None:
+        """Server-authored ``google.rpc.Status.message`` at ``error_payload[1]``.
+
+        The envelope is a ``google.rpc.Status`` (``code`` tag 1 → index 0,
+        ``message`` tag 2 → index 1, ``details`` tag 3 → index 2), so this slot
+        is the one place the *server* can say why it rejected the request —
+        everything else this client shows for a rejection is client-authored
+        wording (#2188).
+
+        **No captured response has ever carried a populated message**: the one
+        recorded rich sample holds ``None`` here and the bare rejections are
+        length-1 arrays. The normalising rule (non-empty string only, whitespace
+        collapsed, length capped, non-string warned about) is shared with the
+        ``batchexecute`` decoder via :func:`sanitize_status_message` so the two
+        layers cannot drift in what users see; only the position is declared
+        twice, because ``rpc`` cannot import ``_row_adapters``.
+        """
+        if len(self._raw) <= self._MESSAGE_POS:
+            return None
+        return sanitize_status_message(
+            self._raw[self._MESSAGE_POS], source="ErrorPayloadRow.message"
+        )
 
     @property
     def entries(self) -> list[Any]:

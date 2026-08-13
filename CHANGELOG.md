@@ -399,6 +399,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [`docs/deprecations.md`](docs/deprecations.md)). The genuinely answer-side
   range is the new `answer_anchor_*` pair above.
   ([#2120](https://github.com/teng-lin/notebooklm-py/issues/2120))
+- **A rejected artifact generation now reports the server's reason instead of
+  "generation is unavailable".** A live probe (2026-08-13) showed
+  `CREATE_ARTIFACT` answering an Audio Overview request on a source-less
+  notebook with `[["wrb.fr","R7cb6c",null,null,null,[3],"generic"]]` — an
+  explicit `google.rpc.Status` of `INVALID_ARGUMENT`. The `allow_null=True`
+  decode returned `None` *before* consulting that status, so the client
+  discarded what the server said and substituted its own guess,
+  `ArtifactFeatureUnavailableError("Audio generation is unavailable")`. Callers
+  can now pass `raise_on_null_status=True` (as `CREATE_ARTIFACT`,
+  `RETRY_ARTIFACT` and `REVISE_SLIDE` do — all three live-verified: retry and
+  revise answer `[5]` NOT_FOUND for an unknown artifact id) to have a
+  status-tagged null raise with the server's code and label. It is opt-in per
+  call site rather than a blanket change because three *other* RPCs are
+  recorded doing the same thing on flows this client reports as successful —
+  `SHARE_NOTEBOOK` and `SHARE_ARTIFACT` answer `[3]`, `REMOVE_RECENTLY_VIEWED`
+  answers `[13]` — and only the last of those has ever been reasoned about.
+  Whether the two share rejections are benign is an open question this change
+  deliberately does not answer; a swallowed status now logs at DEBUG so they
+  are findable. A generation rejected with no status at all still raises
+  `ArtifactFeatureUnavailableError`.
+  ([#2188](https://github.com/teng-lin/notebooklm-py/issues/2188))
+- **`google.rpc.Status.message` is no longer discarded.** Index 1 of the
+  rejection envelope is the only slot in which the *server* can state a reason;
+  nothing in this client read it, on either the `batchexecute` or the streamed-chat
+  path. It is now read (defensively — a non-empty string only) and surfaced on
+  both. Only the rate-limit message *leads* with it; the decoder's bare-status
+  path and both streamed-chat sites APPEND it and keep the client-authored
+  guidance, because nobody has seen the slot populated and so there is no
+  evidence a server sentence would be as actionable as the advice it displaced. **No captured response has
+  ever populated it**, so in practice users still see the client-authored
+  wording; this changes what happens if the server ever does explain itself, and
+  it records on the wire-contract registry that the slot is unobserved rather
+  than unknown. Every other rejection sentence this client prints is
+  client-authored, including "API rate limit or quota exceeded" — see
+  `docs/rpc-reference.md`.
+  ([#2188](https://github.com/teng-lin/notebooklm-py/issues/2188))
+- **#239's quota-failure guarantee has a regression test again.** #2134 removed
+  the phantom `failed_error_text` read and, with it, the tests that were the
+  only guard on "a quota failure surfaces a helpful message" — tests that had
+  asserted against a row shape the backend has never emitted. The replacement
+  drives the **real** decoder: a recorded `UserDisplayableError` rejection and
+  the verbatim live `INVALID_ARGUMENT` body are decoded unmocked and asserted at
+  the `generate_audio` boundary, and the surviving behaviour — a late FAILED
+  artifact carries no reason, so the user gets the generic
+  `"{Type} generation failed"` fallback — is pinned to that fallback.
+  ([#2193](https://github.com/teng-lin/notebooklm-py/issues/2193))
 
 ### Changed
 

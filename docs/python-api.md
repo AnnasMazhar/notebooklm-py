@@ -973,6 +973,7 @@ class NotebookLMClient:
         *,
         disable_internal_retries: bool = False,
         read_timeout: float | None = None,
+        raise_on_null_status: bool = False,
     ) -> Any:
 ```
 
@@ -983,6 +984,13 @@ defaults. `read_timeout` (added in #2187) overrides the client-wide read
 timeout for this one call — internal callers use it for RPCs known to run
 long (e.g. `ResearchAPI.import_sources`'s batch-scaled IMPORT_RESEARCH
 timeout); `None` (the default) inherits the client's configured `timeout`.
+`raise_on_null_status` (added in #2188) pairs with `allow_null=True`: a null
+result the server tagged with a recognized non-OK `google.rpc.Status` raises
+with that status instead of decoding to `None`, so a rejection is reported
+with the server's own code rather than a client-invented reason. It is opt-in
+because several RPCs are recorded answering a status on flows this client
+treats as successful — see
+[rpc-reference.md](rpc-reference.md#rejection-frames-googlerpcstatus-at-wrbfr-index-5).
 
 **Cookie persistence override:** `cookie_saver=None` (the default) uses the
 canonical typed `ProfileStore` merge for close, refresh, and keepalive saves.

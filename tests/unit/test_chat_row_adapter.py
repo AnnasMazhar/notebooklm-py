@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import logging
 
 import pytest
 
@@ -38,6 +39,7 @@ from notebooklm._row_adapters.chat import (
 )
 from notebooklm.exceptions import UnknownRPCMethodError
 from notebooklm.rpc import RPCMethod
+from notebooklm.rpc.decoder import _MAX_STATUS_MESSAGE_CHARS
 
 #: Live ``GenerateFreeFormStreamedResponse`` capture (#2122) — the five chunks
 #: of one real answer stream, decoded from the ``wrb.fr`` frames exactly as the
@@ -112,7 +114,12 @@ class TestFramePositionContract:
         ) == (0, 2, 2, 5)
 
     def test_error_payload_positions_pinned(self) -> None:
-        assert (ErrorPayloadRow._STATUS_POS, ErrorPayloadRow._ENTRIES_POS) == (0, 2)
+        # ``google.rpc.Status``: code tag 1, message tag 2, details tag 3.
+        assert (
+            ErrorPayloadRow._STATUS_POS,
+            ErrorPayloadRow._MESSAGE_POS,
+            ErrorPayloadRow._ENTRIES_POS,
+        ) == (0, 1, 2)
 
 
 class TestConversationTurnPositionContract:
@@ -372,6 +379,39 @@ class TestErrorPayloadRow:
     @pytest.mark.parametrize("entry", [[], [123], "x", None])
     def test_non_string_entry_type_is_none(self, entry: object) -> None:
         assert ErrorPayloadRow.entry_type(entry) is None
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            # Every captured rejection: the bare status has no message slot,
+            # and the recorded rate-limit shape holds ``None`` there (#2188).
+            [3],
+            [8, None, []],
+            [],
+            [8, 42],
+            [8, ["nested"]],
+            [8, "   "],
+        ],
+    )
+    def test_message_is_none_for_every_captured_shape(self, payload: list) -> None:
+        assert ErrorPayloadRow(payload).message is None
+
+    def test_message_returns_server_text_when_present(self) -> None:
+        assert ErrorPayloadRow([8, "  Slow  down\tplease ", []]).message == "Slow down please"
+
+    def test_message_is_truncated(self) -> None:
+        """Shares the decoder's cap, so the two layers cannot diverge."""
+        message = ErrorPayloadRow([8, "x" * 5000]).message
+        assert message is not None
+        assert len(message) <= _MAX_STATUS_MESSAGE_CHARS + 1
+        assert message.endswith("…")
+
+    def test_non_string_message_slot_warns(self, caplog) -> None:
+        """An unexpected type there is drift, and must not be inaudible."""
+        with caplog.at_level(logging.WARNING, logger="notebooklm.rpc.decoder"):
+            assert ErrorPayloadRow([8, ["nested"], []]).message is None
+
+        assert any("not a string" in r.getMessage() for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
