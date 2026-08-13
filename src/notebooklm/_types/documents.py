@@ -31,6 +31,13 @@ different unit — and mixing them produces a plausible-looking wrong answer
 rather than an error. See `#2211
 <https://github.com/teng-lin/notebooklm-py/issues/2211>`_.
 
+Which leaves three renderings of the same source, each answering a different
+question: :attr:`~notebooklm.types.SourceFulltext.content` is what this client
+has always returned and stays byte-identical; :attr:`StructuredDocument.text`
+is where offsets resolve; and :meth:`StructuredDocument.render` — surfaced as
+:attr:`~notebooklm.types.SourceFulltext.rendered_content` — is the one meant to
+be read. :meth:`StructuredDocument.render` documents what separates them.
+
 The types here are transport-neutral and carry no positional knowledge; the
 ``TailwindDoc`` array positions live in
 :mod:`notebooklm._row_adapters.documents`.
@@ -165,6 +172,37 @@ def _fit(text: str, width: int) -> str:
     # Truncate in UTF-16 space. ``_utf16_slice`` sanitizes any surrogate the cut
     # split, and does so width-preservingly, so no re-padding is needed.
     return _utf16_slice(text, 0, width)
+
+
+def _clip_span(span: TextSpan, lower: int, upper: int) -> str:
+    """The part of ``span``'s text lying inside ``[lower, upper)``.
+
+    Cutting in UTF-16 space rather than by Python index is the whole point: the
+    bounds are code units, so an emoji anywhere earlier in the run would shift a
+    naive ``span.text[a:b]`` by a position per astral character.
+
+    Never wider than the positions selected. A run whose text is longer than the
+    range it declares is a wire inconsistency (:func:`_fit` normalises the same
+    shape for the layout), and letting it through untrimmed here would make a
+    window *non-monotonic*: widening the request by one unit could multiply the
+    answer, because the fully-covered run would suddenly be returned whole. It
+    is trimmed rather than padded, though — a run *shorter* than its range
+    renders as what decoded, since filler is a position-holding device and this
+    rendering holds no positions.
+
+    A run that already fits its selection is returned untouched, which keeps a
+    full-document render free of the per-run encode/decode round-trip
+    :func:`_utf16_slice` costs.
+    """
+    start = max(span.start_index, lower)
+    end = min(span.end_index, upper)
+    if end <= start:
+        return ""
+    lead = start - span.start_index
+    width = end - start
+    if lead == 0 and utf16_len(span.text) <= width:
+        return span.text
+    return _utf16_slice(span.text, lead, lead + width)
 
 
 class BlockKind(str, Enum):
@@ -492,8 +530,8 @@ class StructuredDocument:
         offsets do not account for any: a block that ends at 108 is followed by
         one that starts at 108. Adding a newline would shift every subsequent
         offset and break the layout above, which is the #2128 defect this type
-        exists to fix. Render your own separators from :attr:`blocks` when you
-        want a human-readable rendition.
+        exists to fix. Use :meth:`render` when you want a human-readable
+        rendition instead of an addressable one.
 
         Positions the document occupies but whose text this client does not
         decode — an image, a horizontal rule (see :class:`BlockKind`) — are
@@ -510,7 +548,7 @@ class StructuredDocument:
         string longer than its own coordinate space, and the whole document is
         capped at :data:`_MAX_DOCUMENT_EXTENT` units.
         """
-        limit = self._extent
+        limit = self.extent
         parts: list[str] = []
         cursor = 0
         for start, end, text in self._placed_spans():
@@ -546,8 +584,19 @@ class StructuredDocument:
         return placed
 
     @property
-    def _extent(self) -> int:
+    def extent(self) -> int:
         """The document's total width in UTF-16 units, capped for safety.
+
+        This is the upper bound of the coordinate space every offset on this
+        document lives in: a range is **in range** exactly when
+        ``0 <= start < end <= extent``. That is necessary, not sufficient — a
+        range inside the bound can still land on positions that decoded no text
+        — and it catches only a range that no longer *fits*, not one that fits
+        but no longer describes the same text. What it buys is the difference
+        between an exact resolution and a plausible-looking wrong one: a caller
+        that resolves an unchecked range gets a truncated or empty string back
+        with no signal that anything was wrong. ``0`` for a document that
+        decoded no blocks.
 
         The cap matters because :attr:`text` synthesizes filler from offsets the
         *server* chose: an ``int32``-scale ``start_index`` on a drifted row
@@ -557,6 +606,115 @@ class StructuredDocument:
         rather than materialised.
         """
         return min(max((block.end_index for block in self.blocks), default=0), _MAX_DOCUMENT_EXTENT)
+
+    def render(self, start_index: int | None = None, end_index: int | None = None) -> str:
+        """A readable flat rendering of the document, or of one range of it.
+
+        The third of this library's three renderings of a source, and the only
+        one built for *reading*:
+
+        * :attr:`notebooklm.types.SourceFulltext.content` is the legacy flat
+          rendering, frozen byte-for-byte. It joins every text **run** with
+          ``"\\n"`` — and a run is a sub-paragraph fragment, so a paragraph the
+          backend split into three runs becomes three lines. On the captured
+          source in ``tests/unit/fixtures/source_fulltext_tailwind_doc.json``
+          that turns 13 blocks into 17 lines, one of them a lone ``" "``.
+        * :attr:`text` is the offset-faithful layout. It inserts no separators
+          at all (that is what makes :meth:`slice` exact) and fills undecodable
+          positions with ``"\\ufffc"``, so blocks run together and filler shows.
+        * This method joins runs **within** a block and separates **blocks**,
+          which is what the flat rendering was reaching for and could not do
+          before the tree was parsed (#2128). It is not offset-addressable —
+          the separators it inserts are its own — so anything positional still
+          belongs on :meth:`slice`.
+
+        A block that contributes no text is omitted rather than rendered as a
+        blank line: an image or a horizontal rule has nothing to read, and
+        empty strings are dropped by the legacy rendering too.
+
+        Runs that overlap *inside* a block are trimmed against what the block
+        has already rendered, so no line is wider than the window that selected
+        it. Whole *blocks* that overlap each other each render in full, which
+        is the one place this rendering deliberately differs from :attr:`text`:
+        the layout de-duplicates because it must keep later offsets true, and
+        this has no offsets to keep — dropping one of two blocks that both
+        claim a range would hide text that decoded.
+
+        The rendering is deliberately **marker-free**: a list item renders as
+        its text, without ``list_info.glyph``, and a heading without any ``#``.
+        This is the flat rendering ``content`` should always have been, not a
+        markdown one; a decorated rendering is a future keyword argument rather
+        than a change of what this returns. Read :attr:`blocks` when you want
+        the structure.
+
+        A :attr:`BlockKind.TABLE` renders as **one line with its cell text
+        running together** — ``"Operating system"`` and ``"Android 10"``
+        adjacent, in this library's captured infobox. That is not a choice made
+        here: the parse flattens every row and cell into the table block's
+        spans (#2128), and a cell is several runs rather than one, so nothing
+        at this level can tell a cell boundary from a formatting change. It is
+        the same reading :attr:`DocumentBlock.text` and
+        ``ChatReference.cited_text`` already give. Giving tables their
+        boundaries back means teaching the *parse* to keep them, which is
+        `#2230 <https://github.com/teng-lin/notebooklm-py/issues/2230>`_.
+
+        Args:
+            start_index: Inclusive start of the range to render, in **UTF-16
+                code units** (see :func:`utf16_len`), clamped up to ``0``.
+            end_index: Exclusive end of the range, clamped down to
+                :attr:`extent`.
+
+        Returns:
+            The rendered text, or ``""`` for an empty document or a range that
+            selects nothing. A partially selected block renders only the part
+            inside the range, so a window around a citation reads as a window
+            rather than as whole surrounding blocks, and the result never
+            carries more text than the range selects.
+
+        Raises:
+            ValueError: If exactly one bound is ``None``. Passing **neither**
+                renders the whole document; passing **both** renders that
+                range. A half-specified range is refused rather than guessed
+                because the obvious guess is the dangerous one: :meth:`slice`
+                takes the same optional pair and returns ``""`` when either is
+                absent (a citation the answer did not annotate), so silently
+                reading a missing bound as "unbounded" here would turn a
+                substituted ``slice`` call into the whole document — a
+                plausible-looking wrong answer, which is the failure mode this
+                module exists to prevent.
+        """
+        if (start_index is None) != (end_index is None):
+            raise ValueError(
+                "StructuredDocument.render() takes both bounds or neither "
+                f"(got start_index={start_index!r}, end_index={end_index!r}); "
+                "use slice() if your range may be absent"
+            )
+        lower = 0 if start_index is None else max(0, start_index)
+        upper = self.extent if end_index is None else min(end_index, self.extent)
+        if upper <= lower:
+            return ""
+        lines: list[str] = []
+        # Container order is not authoritative anywhere else in this module
+        # (see :meth:`_placed_spans`), and reading order is the whole point
+        # here, so order the blocks by position rather than by arrival.
+        for block in sorted(self.blocks, key=lambda block: (block.start_index, block.end_index)):
+            if block.end_index <= lower or block.start_index >= upper:
+                continue
+            # Trim each run against what the block has already rendered, the
+            # same rule :attr:`text` applies across the document. A block's
+            # spans are ordered and clamped to it but may still *overlap* each
+            # other, and concatenating them then repeats the overlap — a line
+            # wider than the window that selected it, reading as duplicated
+            # citation text.
+            parts: list[str] = []
+            cursor = lower
+            for span in block.spans:
+                parts.append(_clip_span(span, max(lower, cursor), upper))
+                cursor = max(cursor, min(span.end_index, upper))
+            line = "".join(parts)
+            if line:
+                lines.append(line)
+        return "\n".join(lines)
 
     def annotations_for(self, object_id: str) -> tuple[DocumentAnnotation, ...]:
         """All annotations anchoring ``object_id``, in document order."""

@@ -2777,6 +2777,36 @@ the reading that stays readable.
 flat `content`, but prefer `document.slice()`: it is exact, and it needs no
 search.
 
+`resolve_chat_reference_passage()` now does that for you
+([#2211](https://github.com/teng-lin/notebooklm-py/issues/2211)). It reads the
+passage out of the citation's own range and returns it in the readable
+rendering, falling back to the `content` search only for a reference with no
+usable range or a source whose document did not decode:
+
+```python
+from notebooklm import resolve_chat_reference_passage
+
+passage = await resolve_chat_reference_passage(client, notebook_id, ref)
+```
+
+Three checks stand the range down, all of them falling back to the search
+rather than returning a passage that only looks right:
+
+- it must **fit** the document (`end <= document.extent`), which catches a
+  source re-indexed shorter;
+- it must **render something** on its own, before any context window is added,
+  so a citation covering only an image is not handed its neighbours' prose;
+- when the reference also carries `cited_text`, the two must **agree** — a
+  bounded prefix of `cited_text` has to appear in `document.slice(start, end)`.
+  This is the case `extent` cannot see: a source re-indexed *longer* leaves the
+  stale range fitting and resolving, to the wrong passage. `cited_text` is used
+  as a cross-check here, never as a locator.
+
+A reference carrying neither a range nor `cited_text` — a citation whose
+fragment decoded no blocks at all — still raises `ChatResponseParseError`
+without issuing a request. A fragment holding only an image *does* carry a
+range, so resolving it takes the fetch and then raises.
+
 **Tip:** Cache `fulltext` when processing multiple citations from the same source to avoid repeated API calls.
 
 ### ShareStatus
@@ -2928,6 +2958,10 @@ class SourceFulltext:
     def kind(self) -> SourceType:
         """Get source type as SourceType enum."""
 
+    @property
+    def rendered_content(self) -> str:
+        """Readable rendering derived from `document`: one line per block."""
+
     def find_citation_context(
         self,
         cited_text: str,
@@ -2940,7 +2974,7 @@ class SourceFulltext:
 > `SourceFulltext.kind`. See
 > [stability.md → Removed in v0.5.0](stability.md#removed-in-v050).
 
-#### `content` vs `document`
+#### `content` vs `document` vs `rendered_content`
 
 The backend returns a source's text as a `TailwindDoc` tree — headings, list
 structure, per-run styling, and a character offset on every node. `content` is
@@ -2971,11 +3005,50 @@ for block in fulltext.document.blocks:
 fulltext.document.slice(ref.start_char, ref.end_char)
 ```
 
+`rendered_content` is the third reading, and the one meant for a human
+([#2211](https://github.com/teng-lin/notebooklm-py/issues/2211)). `content`
+joins every text *run* with `"\n"`, and a run is a sub-paragraph fragment — so
+a paragraph the backend split into three runs becomes three lines. On the
+captured source in `tests/unit/fixtures/source_fulltext_tailwind_doc.json`
+that turns 13 blocks into 17 lines. Since the tree is parsed,
+`rendered_content` renders from it instead: runs joined *within* a block,
+blocks separated, blocks with nothing to read (an image, a rule) omitted. It
+costs no extra request, `content` does not move, and like `content` it is
+deliberately **not** offset-addressable — its separators are its own. It is
+also marker-free: list glyphs and heading levels stay on `blocks` rather than
+being rendered, so this is the flat rendering `content` should have been, not
+a markdown one. A **table** renders as one line with its cells running
+together, because the parse flattens rows and cells into the block's spans
+([#2230](https://github.com/teng-lin/notebooklm-py/issues/2230)).
+
+With `output_format="markdown"` the two are not the same material: `content`
+is then built from the response's HTML rendition while `document` — and so
+`rendered_content` — is still parsed from its text blocks.
+
+```python
+fulltext.content            # 17 lines: "…light energy into\n \nchemical energy."
+fulltext.rendered_content   # 13 lines: "…light energy into chemical energy."
+fulltext.document.text      # 532 units, no separators at all — the offset space
+```
+
+`document` and `rendered_content` are Python-API surfaces: the CLI `--json`,
+MCP and REST fulltext payloads stay pinned to their existing key sets. Those
+payloads do carry `char_count`, which counts Python characters of `content` —
+and `source read --offset` keeps windowing `content` in those same units, not
+in the document's.
+
 `StructuredDocument` exposes `blocks` (`DocumentBlock`: `start_index`,
 `end_index`, `spans`, `style`, `list_info`, `kind`), `annotations`
 (`DocumentAnnotation`: `object_id`, `start_index`, `end_index`), `text`,
-`slice()` and `annotations_for()`. Each `TextSpan` carries its own range plus
-`bold` / `italic` / `underline` / `url`.
+`extent`, `slice()`, `render()` and `annotations_for()`. Each `TextSpan`
+carries its own range plus `bold` / `italic` / `underline` / `url`.
+`render(start, end)` is `rendered_content` over one range — the readable
+counterpart of `slice(start, end)`, though it takes both bounds or neither and
+raises on a half-specified range, where `slice` absorbs a `None` bound and
+returns `""`. `extent` is the document's total width in UTF-16 units, i.e. the
+upper bound of the coordinate space: a range is *in range* when
+`0 <= start < end <= extent`. That is necessary and not sufficient — a range
+inside it can still cover only positions that decoded no text.
 
 `text` is laid out at the backend's own offsets, so `slice(n, m)` is exactly
 what the backend meant by `[n, m)`. Positions the document occupies but whose
@@ -3318,6 +3391,8 @@ The following public APIs are available under the top-level `notebooklm` namespa
 #### `notebooklm.utils.resolve_chat_reference_passage`
 
 Locates the surrounding paragraph/passage of source text for a specific `ChatReference` citation. Since chat streaming returns only the matching citation fragment, this helper performs a single round-trip to pull the full source text and extract the surrounding context.
+
+It reads the citation's own `start_char` / `end_char` range out of the source document and returns that window in the readable rendering, falling back to the `content` prefix search only when the range is unusable — absent, zero-width, past `document.extent`, or against a source whose document did not decode. A reference with neither a range nor `cited_text` raises `ChatResponseParseError` without issuing a request. See [`content` vs `document` vs `rendered_content`](#content-vs-document-vs-rendered_content).
 
 ```python
 async def resolve_chat_reference_passage(

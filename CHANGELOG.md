@@ -9,6 +9,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A readable rendering of a source, and citation resolution that reads
+  offsets instead of searching for text.** `SourceFulltext` gains
+  `rendered_content`, and `StructuredDocument` gains `render(start, end)` and
+  `extent`. This library renders a source three ways, and until now two of them
+  were missing the point:
+
+  | Surface | What it answers |
+  |---|---|
+  | `SourceFulltext.content` | what this client has always returned — unchanged, byte for byte |
+  | `SourceFulltext.document` | *where* text sits: the offset-faithful parse citations index |
+  | `SourceFulltext.rendered_content` | what the source *says*, laid out to be read |
+
+  `content` joins every text **run** with `"\n"`, and a run is a sub-paragraph
+  fragment — so a paragraph the backend split into three runs arrives as three
+  lines. That was a consequence of flattening a tree nobody had parsed, not a
+  rendering anyone chose: on the captured source in
+  `tests/unit/fixtures/source_fulltext_tailwind_doc.json` it turns 13 blocks
+  into 17 lines, and live on a 382-block Wikipedia source it turns those into
+  1518. `rendered_content` renders from the parsed tree instead — runs joined
+  *within* a block, blocks separated, blocks with nothing to read omitted — so
+  the same paragraph comes back whole. It is marker-free by design (list
+  glyphs and heading levels stay on `blocks`), derived, costs no extra request,
+  and leaves `content` and `char_count` exactly where they were.
+
+  **`resolve_chat_reference_passage()` now resolves by offset.** A citation
+  carries `start_char` / `end_char` into the source document, so the helper
+  reads the passage straight out of that coordinate space and returns it
+  rendered; the value-based `find_citation_context` search over `content`
+  becomes the fallback for a reference with no usable range or a source whose
+  document did not decode. That search compares `cited_text` against a string
+  that joins runs with `"\n"` while `cited_text` uses no separator at all, so
+  a key spanning a block boundary cannot match anywhere — #2210 could only
+  bound the key to keep it inside one block. Reading the range removes the
+  failure mode instead of bounding it, and picks the *cited* occurrence in a
+  source that says the same thing twice, which no search can do.
+
+  Four guards keep the rewrite honest. A reference carrying neither a range nor
+  `cited_text` still raises without issuing a request — fetching first would
+  turn a structural anchor into an RPC the helper used to avoid. The range must
+  **fit** the document (`end <= document.extent`), must **render something on
+  its own** before any context window is added — so a citation covering only an
+  image is not handed its neighbours' prose — and, when the reference also
+  carries `cited_text`, the two must **agree**: a bounded prefix of
+  `cited_text` has to appear in `document.slice(start, end)`.
+
+  That last one is the case an extent check cannot see. Checking the bound only
+  catches a source re-indexed *shorter*; re-index one longer, or move text
+  within it, and the stale range still fits and still resolves — to the wrong
+  passage, silently. The value search this replaced detected that for free by
+  failing to match, so `cited_text` is kept as a **cross-check** (never as a
+  locator): the offsets decide where the passage is, and a disagreement stands
+  them down in favour of the search.
+
+  Offsets are UTF-16 code units throughout — windows, clips and the extent
+  check all count in them, so a source containing an emoji resolves to the
+  characters the backend meant rather than to its neighbours.
+  `rendered_content` is, like `content`, deliberately **not**
+  offset-addressable: its separators are its own. The CLI `--json` / MCP /
+  REST fulltext payloads stay pinned to their existing key sets.
+
+  One known limitation, pinned by a test rather than fixed here: a **table**
+  renders as one line with its cell text running together, because the parse
+  flattens rows and cells into the block's spans and a cell is several runs.
+  Separating spans would split cells as often as it separated them, so giving
+  tables their boundaries back is a decoder change
+  ([#2230](https://github.com/teng-lin/notebooklm-py/issues/2230)).
+  ([#2211](https://github.com/teng-lin/notebooklm-py/issues/2211))
+
 - **Notebook sharing now reports the collaborator cap and the public-sharing
   policy gate.** `GET_SHARE_STATUS` returns an eight-slot response carrying six
   known response fields — five of them non-null on every row observed, the sixth
@@ -248,6 +316,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`resolve_chat_reference_passage()` returns a rendered passage on the
+  offset path.** For a source whose document decoded, the passage is now a
+  window of the readable rendering (blocks separated, runs joined) rather than
+  a window of the flat `content` (every run on its own line) — same text, laid
+  out to be read, and located exactly instead of by prefix search. A source
+  with no decodable document keeps the previous output byte for byte, since
+  the search fallback is unchanged. Callers matching on the returned string's
+  exact line breaks should switch to `document.slice(ref.start_char,
+  ref.end_char)`, which returns the range and nothing else. The
+  `ChatResponseParseError` message also changed: it now names only what was
+  actually attempted, so it distinguishes a range that no longer fits its
+  source from a citation that never carried one.
+  ([#2211](https://github.com/teng-lin/notebooklm-py/issues/2211))
 - **Passing a non-enum `quantity` / `difficulty` to `generate_quiz()` /
   `generate_flashcards()` now raises `ValidationError`**
   ([#2196](https://github.com/teng-lin/notebooklm-py/issues/2196)). Previously a
