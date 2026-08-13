@@ -460,6 +460,15 @@ async def test_public_token_read_io_projection_with_outer_exception(tmp_path, lo
     assert error.__suppress_context__ is True
     assert not isinstance(error.__cause__, _BootstrapError)
     assert lower.__context__ is None
+    # The public-chain sanitization contract, asserted directly rather than
+    # inferred from the rendered traceback (#2229 review). *Which* exception
+    # ``__context__`` holds is ambient — that is the whole point of #2224 — but
+    # it must never be the private ``_BootstrapError`` in any of them. A
+    # regression that re-chained the private error here would satisfy every
+    # other assertion above: ``__suppress_context__`` is true, so
+    # ``format_exception`` follows ``__cause__`` and omits the context entirely,
+    # leaving the rendered-output check blind to it.
+    assert not isinstance(error.__context__, _BootstrapError)
 
     # ``__context__`` is deliberately NOT asserted here (#2224). CPython
     # re-chains an exception as it propagates out of a coroutine, so the value
