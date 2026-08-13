@@ -1625,7 +1625,7 @@ if result.references:
 
 ### ResearchAPI (`client.research`)
 
-**CLI equivalent:** [Research Commands](cli-reference.md#research-commands-notebooklm-research-cmd) (`notebooklm research status`, `wait`, `cancel`) plus `notebooklm source add-research` ([Source: `add-research`](cli-reference.md#source-add-research)) for the combined start-and-import workflow.
+**CLI equivalent:** [Research Commands](cli-reference.md#research-commands-notebooklm-research-cmd) (`notebooklm research status`, `wait`, `import`, `cancel`) plus `notebooklm source add-research` ([Source: `add-research`](cli-reference.md#source-add-research)) for the combined start-and-import workflow.
 
 | Method | Parameters | Returns | Description |
 |--------|------------|---------|-------------|
@@ -1633,6 +1633,7 @@ if result.references:
 | `poll(notebook_id, task_id=None)` | `str, str \| None = None` | `ResearchTask` | Check research status. If multiple tasks are in flight and `task_id` is omitted, raises `AmbiguousResearchTaskError` |
 | `wait_for_completion(notebook_id, task_id=None, *, timeout=1800, initial_interval=5)` | `str, str \| None, float, float` | `ResearchTask` | Wait for research to complete, pinning the discovered task ID between polls. Raises `ResearchTimeoutError` (a `WaitTimeoutError`/`TimeoutError`) and `AmbiguousResearchTaskError` when unpinned polling is ambiguous. |
 | `import_sources(notebook_id, task_id, sources)` | `str, str, Sequence[dict[str, Any] \| ResearchSource]` | `list[dict]` | Import findings. Accepts plain dicts **or** the typed `ResearchSource` objects from `poll().sources`. |
+| `import_sources_with_verification(notebook_id, task_id, sources, *, max_elapsed=1800, initial_delay=5, backoff_factor=2, max_delay=60, allow_duplicate=False)` | `str, str, Sequence[ResearchSourceInput], float, float, float, float, bool` | `list[dict[str, str]]` | **Preferred for deep research.** Timeout-tolerant: `IMPORT_RESEARCH` commonly outlives one client timeout on deep payloads, so on `RPCTimeoutError` it probes `sources.list` and reconciles what actually committed instead of raising as if nothing imported, retrying the remainder with backoff until `max_elapsed`. Also **idempotent**: requested sources whose URL already exists are skipped unless `allow_duplicate=True`, and are reported on the returned list's `already_present` attribute. |
 | `cancel(notebook_id, run_id)` | `str, str` | `None` | Cancel an in-flight run. **Fire-and-forget** — returns `None`, never raises on an unknown id; confirm by polling. `run_id` is `poll().task_id` (for deep research the `report_id` from `start`, **not** the deep `start().task_id` sessionId). |
 
 > **Typed returns.** `start` / `poll` / `wait_for_completion` return the typed
@@ -1641,6 +1642,15 @@ if result.references:
 > (`status == "completed"` still holds). Use attribute access. `import_sources`
 > still accepts `list[dict]` **or** `ResearchSource` objects, so feeding
 > `result.sources` straight back in works.
+
+**Which import to call.** `import_sources` is the one-shot RPC; a client-side
+timeout on a slow (usually deep) import raises even though the server may have
+committed. `import_sources_with_verification` wraps it with reconcile-and-retry
+plus URL-level idempotency, and is what the MCP `research_import` tool and the
+CLI `research import` / `research wait --import-all` drive. The REST route
+(`POST /v1/research/{run_id}/import`) deliberately stays on the one-shot form so
+a synchronous web request cannot block on a multi-minute reconcile loop. They are
+**not** interchangeable — pick by whether your caller can afford to wait.
 
 **Method Signatures:**
 

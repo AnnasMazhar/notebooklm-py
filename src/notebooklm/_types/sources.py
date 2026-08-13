@@ -68,6 +68,83 @@ _SOURCE_TYPE_CODE_MAP: dict[int, SourceType] = {
 }
 
 
+#: Local-file extensions NotebookLM's resumable upload accepts, spelled with the
+#: leading dot and lowercased (the form :attr:`pathlib.PurePath.suffix` returns).
+#:
+#: The **input-side twin** of :data:`_SOURCE_TYPE_CODE_MAP`: that map says how the
+#: backend labels a source on the way out, this set says how a user may spell one
+#: on the way in. They are deliberately co-located so a newly supported file type
+#: cannot gain a decode entry without a spelling — PowerPoint is the case that
+#: proved the split (#2137/#2191 added ``6: SourceType.POWERPOINT`` while every
+#: consumer of this set still had PowerPoint missing from its own copy, #2202).
+#:
+#: A *mapping* to :class:`SourceType` is deliberately NOT asserted here: only some
+#: of these extensions have a live-captured decode code (pdf→3, md→8, docx→11,
+#: pptx→6, csv→16, epub→17), and inventing codes for the rest (txt/rtf/odt/tsv)
+#: would put unverified wire facts in a constant.
+_UPLOAD_FILE_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".csv",
+        ".doc",
+        ".docx",
+        ".epub",
+        ".md",
+        ".markdown",
+        ".odt",
+        ".pdf",
+        ".pptx",
+        ".rtf",
+        ".tsv",
+        ".txt",
+    }
+)
+
+#: File-shaped extensions that are NOT asserted to be upload-accepted.
+#:
+#: The escape hatch that keeps :data:`_UPLOAD_FILE_EXTENSIONS` honest. The two
+#: sets feed consumers with very different failure modes, so an extension has to
+#: earn the first one:
+#:
+#: * the path heuristic only decides whether a *non-existent* argument gets a
+#:   warning — a wrong entry costs nothing;
+#: * the Drive router (``_source.drive_import``) uses the upload set as a
+#:   **network** gate — a wrong entry turns a fast, clear client-side refusal
+#:   into a full file download followed by a murky server-side failure.
+#:
+#: ``.ppt`` sits here because the evidence covers ``.pptx`` only: a real ``.pptx``
+#: upload was live-probed to READY decoding as ``POWERPOINT`` (#2202), while
+#: legacy ``.ppt`` — a different container (OLE compound file, not OOXML) — has
+#: never been put on the wire. Renaming a ``.pptx`` to ``.ppt`` would prove
+#: nothing. Move it up once a real legacy ``.ppt`` is probed; until then a
+#: mistyped ``deck.ppt`` still earns its warning and the Drive router still
+#: refuses it up front, which is the behavior with evidence behind it.
+_FILE_SHAPED_ONLY_EXTENSIONS: frozenset[str] = frozenset({".ppt"})
+
+#: HTML-family extensions NotebookLM's upload endpoint **rejects**. Tracked next to
+#: the accepted set (rather than folded into it) because the two callers want them
+#: on opposite sides: the upload/Drive gates reject them with convert-first
+#: guidance, while the path heuristic must still recognise ``page.html`` as
+#: file-shaped so a mistyped one is flagged rather than silently pasted in as
+#: text content.
+_HTML_FILE_EXTENSIONS: frozenset[str] = frozenset({".html", ".htm", ".xhtml", ".xht"})
+
+#: Extensions that make an argument *look like a local file path*.
+#:
+#: Scope, precisely: ``source add``'s auto-detect checks ``Path(content).exists()``
+#: BEFORE consulting this set, so an existing file is uploaded on its own merits
+#: whatever its extension. This set decides what happens to a file-shaped argument
+#: that does **not** exist — whether the user gets the "looks like a path but does
+#: not exist" warning or has the string silently ingested as pasted text. A missing
+#: extension therefore costs a typo'd filename its warning, which is exactly the
+#: footgun the warning exists to catch (#2202).
+#:
+#: Derived — never hand-maintained — so a type gains its spelling here the moment
+#: it becomes uploadable.
+_PATH_SHAPED_FILE_EXTENSIONS: frozenset[str] = (
+    _UPLOAD_FILE_EXTENSIONS | _HTML_FILE_EXTENSIONS | _FILE_SHAPED_ONLY_EXTENSIONS
+)
+
+
 _SOURCE_TYPE_COMPAT_MAP: dict[SourceType, str] = {
     SourceType.GOOGLE_DOCS: "text",
     SourceType.GOOGLE_SLIDES: "text",

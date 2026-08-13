@@ -688,10 +688,14 @@ def _render_add_research_result(result: SourceAddResearchResult, *, json_output:
                 payload["poll_task_id"] = result.poll_task_id
             json_output_response(payload)
             return
+        # This is THE --no-wait success path, so it names both follow-ups: the
+        # blocking one and the standalone import (#2206). Pointing only at
+        # 'research wait' told a user who just opted out of waiting to go wait.
         console.print(
             "[green]Research started.[/green] "
-            "Run 'notebooklm research wait --import-all' to commit "
-            "sources once it completes, otherwise the NotebookLM web "
+            "Commit its sources once it completes with "
+            "'notebooklm research import' (or 'notebooklm research wait "
+            "--import-all' to block until then), otherwise the NotebookLM web "
             "UI will keep an 'Add sources?' modal open."
         )
         return

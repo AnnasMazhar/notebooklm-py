@@ -384,6 +384,10 @@ _TOP_LEVEL_EXCEPTION_EXPORTS = [
 ]
 
 _TYPES_PRIVATE_HELPER_SEAMS = [
+    # Routed through the facade for ``_app.source_add``'s path heuristic: the
+    # ``_app`` boundary lint forbids importing the private ``_types`` sibling
+    # that declares it (#2202).
+    "_PATH_SHAPED_FILE_EXTENSIONS",
     "_SOURCE_TYPE_COMPAT_MAP",
     "_datetime_from_timestamp",
     "_extract_artifact_url",
