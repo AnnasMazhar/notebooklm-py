@@ -109,15 +109,13 @@ def _display_cited_import_selection(
     capped = selected_count is not None and selected_count < selected_rows
 
     if capped:
-        prefix = (
-            "[yellow]Could not resolve cited sources; i"
-            if cited_selection.used_fallback
-            else "[dim]I"
-        )
-        suffix = "[/yellow]" if cited_selection.used_fallback else "[/dim]"
-        status_console.print(
-            f"{prefix}mporting {selected_count} of {selected_rows} selected source(s){suffix}"
-        )
+        tally = f"{selected_count} of {selected_rows} selected source(s)"
+        if cited_selection.used_fallback:
+            status_console.print(
+                f"[yellow]Could not resolve cited sources; importing {tally}.[/yellow]"
+            )
+        else:
+            status_console.print(f"[dim]Importing {tally}[/dim]")
         return
 
     if cited_selection.used_fallback:
