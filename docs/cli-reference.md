@@ -1151,7 +1151,9 @@ notebooklm research status                                         # your loop, 
 notebooklm research import                                         # imports, returns
 ```
 
-**Idempotent.** A source whose URL is already in the notebook is reported as already-present rather than duplicated, so a repeat import reads as "0 new, N already present" instead of looking like a no-op. Under `--json` that split is `imported` / `imported_sources` versus `already_present` / `already_present_sources`, and `status` is `already_imported` when nothing new landed.
+**Idempotent — with two documented limits.** A source whose URL is already in the notebook is reported as already-present rather than duplicated, so a repeat import reads as "0 new, N already present" instead of looking like a no-op. Under `--json` that split is `imported` / `imported_sources` versus `already_present` / `already_present_sources`, and `status` is `already_imported` when nothing new landed.
+
+The dedupe is by URL against a snapshot taken just before the import, so: a deep run's **report row has no URL** and is re-imported on every run, and if the snapshot call itself fails the filter is **skipped entirely** (the import still proceeds). Both are properties of `import_sources_with_verification`, shared with `research wait --import-all` and the MCP tool. If you interrupt an import, check `source list` before re-running it rather than assuming the re-run is a no-op.
 
 **Examples:**
 ```bash

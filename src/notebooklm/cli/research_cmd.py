@@ -240,9 +240,13 @@ def research_import(
     bounded by --timeout.
 
     \b
-    Idempotent: a source whose URL is already in the notebook is reported as
-    already-present instead of duplicated (--allow-duplicate re-adds it), so a
-    repeat import reads as "0 new, N already present" rather than a no-op.
+    Idempotent when the pre-import snapshot succeeds: a source whose URL is
+    already in the notebook is reported as already-present instead of duplicated
+    (--allow-duplicate re-adds it), so a repeat import reads as "0 new, N already
+    present" rather than a no-op. Two limits are worth knowing before you re-run
+    one: a deep run's report row has no URL to dedupe on and is imported every
+    time, and if the snapshot itself fails the filter is skipped entirely. After
+    interrupting an import, check 'source list' before re-running it.
 
     \b
     Examples:
@@ -297,6 +301,7 @@ def research_import(
                     max_sources=max_sources,
                     allow_duplicate=allow_duplicate,
                     timeout=timeout,
+                    json_output=json_output,
                 ),
             ):
                 outcome = await import_research_sources_core(
@@ -327,13 +332,16 @@ def _import_resume_hint(
     max_sources: int | None,
     allow_duplicate: bool,
     timeout: int,
+    json_output: bool,
 ) -> str:
     """Build a resume command that re-runs THIS import, not a different one.
 
     Re-pins the resolved notebook and run (a bare re-run would target the active
     notebook and, with several runs in flight, fail as ambiguous) and carries
     every flag that changes WHAT is imported, so following the hint cannot widen
-    the import past what the user asked for.
+    the import past what the user asked for. ``--json`` rides along too: the
+    cancellation envelope is machine-readable, so automation that executes the
+    hint it just parsed must not get human-readable output back.
     """
     parts = ["notebooklm research import", "-n", notebook_id, "--run-id", run_id]
     if cited_only:
@@ -344,6 +352,8 @@ def _import_resume_hint(
         parts.append("--allow-duplicate")
     if timeout != _DEFAULT_IMPORT_TIMEOUT:
         parts += ["--timeout", str(timeout)]
+    if json_output:
+        parts.append("--json")
     return " ".join(parts)
 
 

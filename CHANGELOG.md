@@ -36,7 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It also closes the idempotency gap the CLI's bespoke import path had: a repeat
   import now reports `0 new, N already present` (each with the *existing*
   source's `{id, title, url}`) instead of looking like a no-op, matching what the
-  MCP tool already returned. (Not REST: that route deliberately stays on the
+  MCP tool already returned. The dedupe is by URL against a pre-import snapshot,
+  so a deep run's report row (no URL) is re-imported each time and a failed
+  snapshot skips the filter — both pre-existing properties of
+  `import_sources_with_verification`, now stated in `--help` and the CLI
+  reference rather than left implicit. (Not REST: that route deliberately stays on the
   one-shot `import_sources` so a web request cannot block on a multi-minute
   reconcile loop, and returns no `already_present` split. The *importable-state
   ladder* is shared by all three adapters; the idempotent importer is shared by

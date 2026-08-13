@@ -893,11 +893,29 @@ class TestResearchImport:
             max_sources=2,
             allow_duplicate=True,
             timeout=1800,
+            json_output=False,
         )
         assert hint == (
             "notebooklm research import -n nb_resolved --run-id run_789 "
             "--cited-only --max-sources 2 --allow-duplicate"
         )
+
+    def test_import_resume_hint_preserves_json_output(self):
+        """The cancellation envelope is machine-readable; the resumed run must be too.
+
+        Automation that parses the envelope and executes its ``resume_hint``
+        would otherwise get human-readable output back and fail to parse it.
+        """
+        hint = research_module._import_resume_hint(
+            notebook_id="nb",
+            run_id="r",
+            cited_only=False,
+            max_sources=None,
+            allow_duplicate=False,
+            timeout=1800,
+            json_output=True,
+        )
+        assert hint == "notebooklm research import -n nb --run-id r --json"
 
     def test_import_resume_hint_omits_defaults_and_unset_flags(self):
         hint = research_module._import_resume_hint(
@@ -907,6 +925,7 @@ class TestResearchImport:
             max_sources=None,
             allow_duplicate=False,
             timeout=1800,
+            json_output=False,
         )
         assert hint == "notebooklm research import -n nb_resolved --run-id run_789"
 
@@ -918,6 +937,7 @@ class TestResearchImport:
             max_sources=None,
             allow_duplicate=False,
             timeout=60,
+            json_output=False,
         )
         assert hint.endswith("--timeout 60")
 
