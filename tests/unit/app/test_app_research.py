@@ -722,3 +722,18 @@ async def test_source_hint_does_reach_the_public_source_dicts() -> None:
 
     assert result.sources[0]["hint"] == "why this one"
     assert "hint" not in result.sources[1]
+
+
+async def test_unmappable_discovery_mode_reaches_the_transports_as_unknown() -> None:
+    """The adapter's UNKNOWN-vs-None distinction has to survive projection.
+
+    ``None`` means "the poll made no mode claim"; ``"unknown"`` means "the
+    backend named a mode this client cannot read" — i.e. Google added a mode
+    and the enum needs updating. If both projected to ``null`` the drift signal
+    would die at the transport boundary, one layer short of the operator.
+    """
+    client = _client(
+        poll=_task(status=ResearchStatus.COMPLETED, discovery_mode=DiscoveryMode.UNKNOWN)
+    )
+    result = await poll_and_classify(client, "nb_1")
+    assert result.discovery_mode == "unknown"

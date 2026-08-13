@@ -75,7 +75,7 @@ class TestStreamEnvelopeRowPositionContract:
 class TestAnswerRowTurnKeyPositionContract:
     def test_positions_pinned(self) -> None:
         assert (
-            AnswerRow._TURN_KEY_CONVERSATION_ID_POS,
+            AnswerRow._TURN_KEY_SESSION_ID_POS,
             AnswerRow._TURN_KEY_TURN_ID_POS,
             AnswerRow._TURN_KEY_TURN_CODE_POS,
         ) == (0, 1, 2)
@@ -680,12 +680,23 @@ class TestStreamEnvelopeRowAgainstCapture:
         flags = [StreamEnvelopeRow(chunk).is_final_response for chunk in _CAPTURED_STREAM]
         assert flags == [False, False, False, False, True]
 
-    def test_capture_final_chunk_is_not_the_only_one_carrying_the_answer(self) -> None:
-        """Guards the fixture, not the code: the fixture must still be able to
-        distinguish final-wins from longest-wins if someone reduces it."""
+    def test_capture_cannot_by_itself_discriminate_the_selection_policy(self) -> None:
+        """States a LIMIT of this fixture, so no one mistakes the capture-based
+        tests for coverage of the selection change.
+
+        Chunks 3, 4 and 5 carry the identical answer string, so longest-wins
+        and final-wins return the same text on this stream — a real property of
+        cumulative streaming, not a defect in the capture. The policy is
+        discriminated by the synthetic
+        ``test_final_marker_beats_a_longer_earlier_chunk`` in
+        ``test_streaming_chat_wire.py``; if this assertion ever fails, the
+        capture has gained that power and that test's docstring should say so.
+        """
         texts = [AnswerRow(chunk[0]).text for chunk in _CAPTURED_STREAM]
-        assert texts[-1] is not None
-        assert len(_CAPTURED_STREAM) > 1
+        final_text = texts[-1]
+        assert final_text is not None
+        longest = max((t for t in texts if t), key=len)
+        assert len(final_text) == len(longest)
 
 
 class TestStreamEnvelopeRow:
@@ -713,7 +724,7 @@ class TestAnswerRowTurnKeyAgainstCapture:
     def test_capture_decodes_the_whole_key(self) -> None:
         key = AnswerRow(_CAPTURED_STREAM[0][0]).turn_key
         assert key == ConversationTurnKey(
-            conversation_id="3afea005-7d13-41d0-9257-6a9e28597818",
+            session_id="3afea005-7d13-41d0-9257-6a9e28597818",
             turn_id="b38d4003-5be1-487d-a121-5c5958709021",
             turn_code=2187103311,
         )
@@ -722,10 +733,15 @@ class TestAnswerRowTurnKeyAgainstCapture:
         keys = {AnswerRow(chunk[0]).turn_key for chunk in _CAPTURED_STREAM}
         assert len(keys) == 1
 
-    def test_server_conversation_id_is_the_keys_conversation_id(self) -> None:
-        """The pre-existing read and the new key must not disagree about slot 0."""
+    def test_server_conversation_id_is_the_keys_session_id(self) -> None:
+        """The pre-existing read and the new key must not disagree about slot 0.
+
+        They are the SAME wire slot, which is why ``session_id`` carries no
+        claim to be a conversation id — #659 established this slot is a
+        per-stream identifier.
+        """
         row = AnswerRow(_CAPTURED_STREAM[0][0])
-        assert row.server_conversation_id == row.turn_key.conversation_id
+        assert row.server_conversation_id == row.turn_key.session_id
 
 
 class TestAnswerRowTurnKey:
@@ -742,7 +758,7 @@ class TestAnswerRowTurnKey:
         assert AnswerRow(rec).turn_key is None
 
     @pytest.mark.parametrize("bad_id", [None, 123, ""])
-    def test_key_without_a_usable_conversation_id_is_absent(self, bad_id: object) -> None:
+    def test_key_without_a_usable_session_id_is_absent(self, bad_id: object) -> None:
         """A key is addressed BY slot 0; without it the key identifies nothing,
         so it is reported absent rather than half-populated."""
         rec = _answer_record()
@@ -764,3 +780,16 @@ class TestAnswerRowTurnKey:
         rec = _answer_record()
         rec[2] = ["conv-uuid", "turn-uuid", True]
         assert AnswerRow(rec).turn_key == ConversationTurnKey("conv-uuid", "turn-uuid", None)
+
+
+class TestConversationTurnKeyConstructor:
+    def test_empty_session_id_is_refused(self) -> None:
+        """The class exists because the parts travel together; a key with no
+        session id addresses nothing, so it cannot be built."""
+        with pytest.raises(ValueError, match="non-empty session_id"):
+            ConversationTurnKey("")
+
+    def test_trailing_parts_stay_optional(self) -> None:
+        """A short wire block is decode-time absence, not a broken key."""
+        assert ConversationTurnKey("s").turn_id is None
+        assert ConversationTurnKey("s").turn_code is None

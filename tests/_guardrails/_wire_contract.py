@@ -512,21 +512,23 @@ MAPPINGS: tuple[Mapping, ...] = (
         ),
     ),
     # ---- Chat: ConversationTurnKey (inside AnswerResponse tag 3) -----------
-    # The three slots of the key at ``answer_row[2]``. NOTE the attribute names
-    # on ``notebooklm.ConversationTurnKey`` deliberately do NOT match these
-    # proto field names — see that class's docstring; live observation showed
-    # ``sessionId`` carrying the conversation id and ``conversationId``
-    # changing per turn. The MAPPINGS below record the WIRE truth.
+    # The three slots of the key at ``answer_row[2]``. Slot 0 keeps its proto
+    # name on the public type; slot 1 does NOT, because its proto name
+    # contradicts every observation. See ``ConversationTurnKey``'s docstring.
     Mapping(
         "chat",
         "AnswerRow",
-        "_TURN_KEY_CONVERSATION_ID_POS",
+        "_TURN_KEY_SESSION_ID_POS",
         "ConversationTurnKey",
         "sessionId",
         note=(
-            "#2122 — surfaced as ConversationTurnKey.conversation_id: live, this "
-            "slot held the exact id hPTbtc returns, identical across both turns "
-            "of one conversation"
+            "#2122 — surfaced as ConversationTurnKey.session_id, under its proto "
+            "name because the evidence about what it holds is mixed: a live "
+            "two-turn probe saw the hPTbtc-resolved conversation id here, while "
+            "this repo's 4 recorded chat cassettes show it differing from the "
+            "recorded hPTbtc id. It is the same slot AnswerRow."
+            "server_conversation_id reads, which #659 established is a "
+            "per-stream id. Nothing is claimed for it"
         ),
     ),
     Mapping(
@@ -536,9 +538,9 @@ MAPPINGS: tuple[Mapping, ...] = (
         "ConversationTurnKey",
         "conversationId",
         note=(
-            "#2122 — surfaced as ConversationTurnKey.turn_id: live, this slot "
-            "held a DIFFERENT uuid on each of two turns of one conversation, so "
-            "it identifies the turn, not the conversation"
+            "#2122 — surfaced as ConversationTurnKey.turn_id, NOT under its "
+            "proto name: live, this slot held a DIFFERENT uuid on each of two "
+            "turns of one conversation, so it identifies the turn"
         ),
     ),
     Mapping(

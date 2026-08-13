@@ -1338,7 +1338,7 @@ class TestAskJsonTurnKey:
         assert result.exit_code == 0, result.stderr or result.output
         data = json.loads(result.stdout)
         assert data["turn_key"] == {
-            "conversation_id": "conv-1",
+            "session_id": "conv-1",
             "turn_id": "turn-1",
             "turn_code": 2187103311,
         }

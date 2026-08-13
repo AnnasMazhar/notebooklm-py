@@ -882,27 +882,36 @@ answer; the historical longest-wins heuristic is the fallback, and logs a
 
 #### `AnswerResponse.conversationTurnKey` (`answer_row[2]`)
 
-Populated on every chunk of every ask, and the key `SubmitFeedback` / the
-per-turn delete RPC are addressed by. Surfaced as `AskResult.turn_key`.
+Populated on every chunk of every ask. `SubmitFeedbackRequest.conversationTurnKey`
+(tag 1) is the only consumer of this message in the recovered schema. Surfaced
+as `AskResult.turn_key`.
 
 | Index | Proto tag | Proto name | Public attribute | Live observation |
 |-------|-----------|------------|------------------|------------------|
-| 0 | 1 | `sessionId` | `conversation_id` | Held the exact id `hPTbtc` returns; identical across both turns of one conversation |
+| 0 | 1 | `sessionId` | `session_id` | Mixed — see below. The same slot `AnswerRow.server_conversation_id` reads |
 | 1 | 2 | `conversationId` | `turn_id` | A **different** UUID on each turn — identifies the turn, not the conversation |
 | 2 | 3 | `fieldType` | `turn_code` | `2187103311` / `3083048340` / `2502166488` — one per turn, constant across that turn's chunks |
 
-> **The proto names and the observed meanings disagree**, so the public
-> attributes are named for the observation and the wire truth is recorded here
-> and in `tests/_guardrails/_wire_contract.py`. `fieldType` is the schema
-> extractor's placeholder for a name it could not recover; the observed values
-> are plainly not type tags, so `turn_code` is carried verbatim and not
-> interpreted.
+> **Slot 0 keeps its proto name because the evidence about it is mixed.** A
+> live two-turn probe (2026-08-13) saw the `hPTbtc`-resolved conversation id
+> here, identical on both turns. This repo's own recorded cassettes show it
+> **differing** from the recorded `hPTbtc` id in 4/4 chat captures
+> (`chat_ask.yaml`: slot 0 is `cf23c9a5-…`, `hPTbtc` returns `bc0666c8-…`). It
+> is the same slot issue #659 established is a per-stream identifier — `khqZz`
+> returns 0 turns for it, and replaying it as `params[4]` produces a ghost
+> turn. So nothing is claimed for it, `ask()` still resolves its conversation
+> id through `hPTbtc`, and callers should use `AskResult.conversation_id`.
 >
-> **Slot 0 does not retire the `hPTbtc` round-trip.** Issue #659 proved this
-> field untrustworthy as a conversation id (querying `khqZz` with it returned 0
-> turns; passing it back as `params[4]` produced a ghost turn). The 2026-08-13
-> observation that it now equals the recovered id is two turns of one
-> conversation — evidence worth recording, not enough to change `ask()`.
+> **Slot 1 does NOT keep its proto name**, because `conversationId` contradicts
+> every observation: it changes per turn. `fieldType` is likewise the schema
+> extractor's placeholder for a name it could not recover, and the observed
+> values are not type tags — so `turn_code` is carried verbatim and not
+> interpreted. The wire↔attribute mapping is pinned in
+> `tests/_guardrails/_wire_contract.py`.
+>
+> **There is no per-turn delete RPC to address with this key.**
+> `DeleteChatTurnsRequest` takes `requestContext` / `chatSessionId` /
+> `deleteAllHistory` — it deletes whole histories and carries no turn key.
 
 ### RPC: RENAME_NOTEBOOK (s0tc2d) - Rename Only
 

@@ -145,7 +145,7 @@ def test_ask_serializes_the_turn_key_parts(
     resp = authed_client.post("/v1/notebooks/nb-1/chat", json={"question": "hi"})
     assert resp.status_code == 200
     assert resp.json()["turn_key"] == {
-        "conversation_id": "conv-1",
+        "session_id": "conv-1",
         "turn_id": "turn-1",
         "turn_code": 2187103311,
     }

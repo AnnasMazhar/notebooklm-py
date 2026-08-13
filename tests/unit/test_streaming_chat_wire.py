@@ -288,6 +288,9 @@ def test_build_request_passes_through_caller_conversation_id_for_follow_ups() ->
 
 
 def test_parse_response_handles_xssi_length_prefix_raw_json_and_server_conversation_id() -> None:
+    # Both chunks are marked final, so the winner here is the LAST final chunk
+    # rather than the longest — the two coincide, and the point of this test is
+    # the XSSI/length-prefix/raw-JSON mix, not the selection policy (#2122).
     first = _chunk("First answer.", conversation_id="server-conv")
     second = _chunk("Raw JSON answer.", conversation_id="server-conv-2")
     response = _length_prefixed(first) + second
@@ -1028,7 +1031,7 @@ def test_captured_stream_selects_the_final_chunk_and_carries_its_turn_key(caplog
 
     assert result.answer == "A task wraps a **coroutine** [1]."
     assert result.turn_key == ConversationTurnKey(
-        conversation_id="3afea005-7d13-41d0-9257-6a9e28597818",
+        session_id="3afea005-7d13-41d0-9257-6a9e28597818",
         turn_id="b38d4003-5be1-487d-a121-5c5958709021",
         turn_code=2187103311,
     )
@@ -1086,7 +1089,14 @@ def test_no_final_marker_falls_back_to_longest_and_warns(caplog) -> None:
 
 
 def test_final_chunk_without_text_falls_back_to_longest_and_warns(caplog) -> None:
-    """ "The final chunk carried no answer" must not return an empty answer."""
+    """ "The final chunk carried no answer" must not return an empty answer.
+
+    And it must be diagnosed as ITSELF, not as the truncated-stream case: a
+    stream that completed and said nothing in its last chunk is a different
+    operator problem from one whose final marker never arrived. This is the
+    only consumer of ``is_final_response`` on a text-less chunk, so without it
+    that propagation would be dead code the docstrings claim is live.
+    """
     with caplog.at_level(logging.DEBUG, logger="notebooklm._chat"):
         result = parse_streaming_chat_response(
             _length_prefixed(
@@ -1095,7 +1105,24 @@ def test_final_chunk_without_text_falls_back_to_longest_and_warns(caplog) -> Non
             )
         )
     assert result.answer == "The only chunk with text."
-    assert any(r.levelno == logging.WARNING for r in caplog.records)
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "carried no answer text" in warnings[0].message
+
+
+def test_the_two_fallback_causes_are_diagnosed_differently(caplog) -> None:
+    """A truncated stream and an empty final chunk must not share a message."""
+    with caplog.at_level(logging.WARNING, logger="notebooklm._chat"):
+        parse_streaming_chat_response(
+            _length_prefixed(
+                _chunk("Short", is_final=False),
+                _chunk("The longest chunk in this stream.", is_final=False),
+            )
+        )
+    truncated = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(truncated) == 1
+    assert "No chunk carried isFinalResponse" in truncated[0]
+    assert "carried no answer text" not in truncated[0]
 
 
 def test_final_unmarked_chunk_does_not_beat_a_marked_answer() -> None:
@@ -1127,14 +1154,35 @@ def test_stream_without_a_turn_key_reports_none() -> None:
 
 
 def test_turn_key_survives_a_losing_chunk() -> None:
-    """The key is the same on every chunk of a turn, so it is collected
-    independently of which chunk wins the answer."""
+    """The key is collected independently of which chunk wins the answer.
+
+    Only the LOSING chunk carries a key here, so this fails if collection is
+    ever gated on the winning chunk (or on a chunk bearing text). That is the
+    live shape: chunk 1 of every observed stream carries the full key and no
+    answer text.
+    """
     body = _length_prefixed(
         _chunk("Partial", turn_key=["conv-uuid", "turn-uuid", 42], is_final=False),
-        _chunk("Partial answer, complete.", turn_key=["conv-uuid", "turn-uuid", 42]),
+        _chunk("Partial answer, complete.", turn_key=None),
     )
     assert parse_streaming_chat_response(body).turn_key == ConversationTurnKey(
         "conv-uuid", "turn-uuid", 42
+    )
+
+
+def test_last_chunk_to_carry_a_turn_key_wins() -> None:
+    """Two DIFFERENT keys pins the collector's last-wins rule.
+
+    Not an observed shape — the key was identical on every chunk of every
+    observed turn — but the rule has to be pinned or a future first-wins edit
+    is invisible.
+    """
+    body = _length_prefixed(
+        _chunk("Partial", turn_key=["conv-uuid", "turn-EARLY", 1], is_final=False),
+        _chunk("Partial answer, complete.", turn_key=["conv-uuid", "turn-LATE", 2]),
+    )
+    assert parse_streaming_chat_response(body).turn_key == ConversationTurnKey(
+        "conv-uuid", "turn-LATE", 2
     )
 
 
@@ -1173,3 +1221,59 @@ def test_answer_document_follows_the_same_chunk_as_the_answer() -> None:
 
     assert result.answer == "A task wraps a **coroutine** [1]."
     assert result.answer_document.text == "A task wraps a coroutine."
+
+
+def _multi_item_chunk(*items: tuple[str, bool]) -> str:
+    """One stream line carrying SEVERAL ``wrb.fr`` frames.
+
+    ``items`` is ``(text, is_final)`` per frame; ``text=""`` builds the real
+    text-less shape the backend sends (a populated answer row whose text slot
+    is the empty string — chunk 1 of every observed stream), NOT an empty row.
+    Real streams put one frame per LINE, so the multi-frame line itself is
+    unobserved — which is why the parser's behaviour on it needs pinning
+    rather than assuming.
+    """
+    frames = []
+    for text, is_final in items:
+        row = [text, None, ["conv-uuid", "turn-uuid", 7], None, [[], None, None, [], 1]]
+        inner = [row, None, None, None, is_final]
+        frames.append(["wrb.fr", None, json.dumps(inner)])
+    return json.dumps(frames)
+
+
+def test_final_flag_is_read_from_the_envelope_that_carried_the_answer() -> None:
+    """A later frame's ``isFinalResponse`` must not be attributed to an earlier
+    frame's answer.
+
+    The parser returns at the first frame that yields text, so a `true` on a
+    LATER frame is never seen — and a `true` on an EARLIER, text-less frame
+    must not be borrowed by this one either. Both directions land on the
+    fallback here, which is the conservative outcome.
+    """
+    body = _length_prefixed(_multi_item_chunk(("The answer.", False), ("", True)))
+    result = parse_streaming_chat_response(body)
+    assert result.answer == "The answer."
+
+
+def test_turn_key_is_kept_from_a_chunk_that_carried_no_answer_text() -> None:
+    """An empty answer still belongs to a turn (#2122).
+
+    The key is read above the text gate, so a stream whose only chunks are
+    text-less still yields it — otherwise the turn a caller most wants to give
+    feedback on would be the one turn they could not address.
+    """
+    result = parse_streaming_chat_response(_length_prefixed(_multi_item_chunk(("", True))))
+    assert result.answer == ""
+    assert result.turn_key == ConversationTurnKey("conv-uuid", "turn-uuid", 7)
+
+
+def test_empty_answer_stream_from_the_capture_still_reports_its_turn_key() -> None:
+    """Same property against the live capture: chunk 1 has no text but does
+    carry the key, so truncating the stream to it must not lose the key."""
+    first_only = copy.deepcopy(_CAPTURED_CHUNKS[0])
+    result = parse_streaming_chat_response(
+        _length_prefixed(json.dumps([["wrb.fr", None, json.dumps(first_only)]]))
+    )
+    assert result.answer == ""
+    assert result.turn_key is not None
+    assert result.turn_key.session_id == "3afea005-7d13-41d0-9257-6a9e28597818"

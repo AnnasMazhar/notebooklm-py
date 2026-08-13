@@ -62,7 +62,12 @@ class FakeSource:
 
     def to_public_dict(self) -> dict[str, str]:
         # Mirror the real ``ResearchSource.to_public_dict``: ``report_markdown``
-        # and ``hint`` are only emitted when truthy.
+        # and ``hint`` are only emitted when truthy. NOTE this is a hand-mirror,
+        # so a test asserting a key here proves the TOOL forwards it, not that
+        # the real model emits it — that guarantee lives in
+        # ``tests/unit/app/test_app_research.py`` and
+        # ``tests/unit/test_research_task_parser.py``, both of which drive the
+        # real ``ResearchSource``.
         public = {"url": self.url, "title": self.title}
         if self.report_markdown:
             public["report_markdown"] = self.report_markdown

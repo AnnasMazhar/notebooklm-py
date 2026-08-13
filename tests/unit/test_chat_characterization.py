@@ -2535,7 +2535,7 @@ class TestAskCarriesTheConversationTurnKey:
 
         assert result.answer == "A task wraps a **coroutine** [1]."
         assert result.turn_key is not None
-        assert result.turn_key.conversation_id == "3afea005-7d13-41d0-9257-6a9e28597818"
+        assert result.turn_key.session_id == "3afea005-7d13-41d0-9257-6a9e28597818"
         assert result.turn_key.turn_id == "b38d4003-5be1-487d-a121-5c5958709021"
         assert result.turn_key.turn_code == 2187103311
 
@@ -2564,6 +2564,6 @@ class TestAskCarriesTheConversationTurnKey:
 
         assert result.answer == "An answer."
         assert result.turn_key is not None
-        assert result.turn_key.conversation_id == "server-conv"
+        assert result.turn_key.session_id == "server-conv"
         assert result.turn_key.turn_id is None
         assert result.turn_key.turn_code is None

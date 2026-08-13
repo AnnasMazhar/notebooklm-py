@@ -290,7 +290,7 @@ def test_ask_result_view_carries_the_conversation_turn_key() -> None:
     )
 
     assert view["turn_key"] == {
-        "conversation_id": "conv-1",
+        "session_id": "conv-1",
         "turn_id": "turn-1",
         "turn_code": 2187103311,
     }

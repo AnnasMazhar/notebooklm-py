@@ -316,7 +316,7 @@ class ResearchTask:
     # for a web search. Also omitted from the public dict shapes for the same
     # byte-stability reason as ``status_code``.
     source_type: int | None = None
-    # The three always-populated task-level slots #2122 recovered. Like
+    # The four always-populated task-level slots #2122 recovered. Like
     # ``status_code`` / ``source_type`` above they are deliberately absent from
     # :meth:`to_public_dict` / :meth:`_to_task_dict` so the CLI ``--json`` shape
     # stays byte-stable; the MCP ``research_status`` tool and the REST status
@@ -328,27 +328,57 @@ class ResearchTask:
     discovery_mode: DiscoveryMode | None = None
     # ``created_at`` / ``updated_at`` are ``task_data[3]`` / ``task_data[2]``
     # (that order is not a typo — see ``ResearchTaskRow._UPDATED_AT_POS``).
-    # Together they make a run's age and time-in-flight reportable.
+    # Together they make a run's age and time-in-flight reportable. NOTE both
+    # take part in ``__eq__``/``__hash__`` like every field above, so two polls
+    # of one in-flight task do NOT compare equal (``updated_at`` advances
+    # between them). Same deliberate choice the block above makes for
+    # ``status_code``/``source_type``: a task carrying different metadata is a
+    # different observation. Nothing in this client compares tasks.
     created_at: datetime | None = None
     updated_at: datetime | None = None
     # ``task_data[4]`` — the opaque account id the run belongs to. Two live
     # accounts produced two distinct, internally-constant values, which is what
     # makes it account-scoped rather than a constant.
+    #
+    # Deliberately NOT forwarded to the MCP tool or the REST route, unlike its
+    # three siblings above: it identifies the *account*, not the run, so it is
+    # of no use to an agent deciding what to do next, and account identifiers
+    # are the last thing worth copying into an agent's context by default. It
+    # stays on the Python object for diagnostics.
     account_id: str | None = None
 
     @property
     def duration(self) -> timedelta | None:
         """Time between :attr:`created_at` and :attr:`updated_at`, else ``None``.
 
-        The backend advances ``updated_at`` while a run is in flight and stops
-        once it settles, so on a terminal task this is how long the run took
-        (7.6s on the live fast run in #2122) and on an in-flight one it is how
-        long it has been running as of this poll. ``None`` when either
-        timestamp is missing.
+        The backend advances ``updated_at`` while a run is in flight, so on an
+        in-flight task this is how long it has been running as of this poll,
+        and on a settled one how long the run took (6s on the live fast run in
+        #2122, 5m43s on the live deep run). Whether ``updated_at`` stops
+        advancing once a run settles was NOT observed — only one
+        in-flight-to-settled transition was captured per run.
+
+        ``None`` when either timestamp is missing, and also when the interval
+        is **negative**. A negative duration is not a real outcome: it means
+        the two positional slots have been read the wrong way round, which is
+        this decode's most fragile claim (the issue text had them reversed and
+        only live polling settled it). Returning ``None`` keeps a future slot
+        swap from surfacing as a negative ``duration_seconds`` in the MCP tool
+        and the REST route, where an agent would act on it.
         """
         if self.created_at is None or self.updated_at is None:
             return None
-        return self.updated_at - self.created_at
+        elapsed = self.updated_at - self.created_at
+        if elapsed < timedelta(0):
+            logger.warning(
+                "research task %r reports updated_at (%s) BEFORE created_at (%s); "
+                "reporting duration=None — the POLL_RESEARCH timestamp slots may have moved",
+                self.task_id,
+                self.updated_at.isoformat(),
+                self.created_at.isoformat(),
+            )
+            return None
+        return elapsed
 
     @property
     def termination_reason(self) -> ResearchTerminationReason | None:

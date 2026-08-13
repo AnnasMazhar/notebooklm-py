@@ -25,6 +25,7 @@ from notebooklm._research_task_parser import (
 )
 from notebooklm.exceptions import UnknownRPCMethodError
 from notebooklm.rpc.types import DiscoveryMode
+from notebooklm.types import ResearchStatus
 
 
 class TestParseResultType:
@@ -769,3 +770,62 @@ class TestTaskMetadataAbsence:
             "report",
             "tasks",
         }
+
+
+class TestDurationRefusesAnInvertedInterval:
+    """A negative duration means the two timestamp slots were read the wrong
+    way round — this decode's most fragile claim. It must not reach a caller.
+    """
+
+    def _task(self, created, updated) -> ResearchTask:
+        return ResearchTask(
+            task_id="task_inverted",
+            status=ResearchStatus.COMPLETED,
+            created_at=created,
+            updated_at=updated,
+        )
+
+    def test_inverted_interval_reports_none_and_warns(self, caplog) -> None:
+        task = self._task(
+            datetime.fromtimestamp(1786619585, tz=UTC),
+            datetime.fromtimestamp(1786619578, tz=UTC),
+        )
+        with caplog.at_level(logging.WARNING, logger="notebooklm._types.research"):
+            assert task.duration is None
+        assert any("BEFORE created_at" in r.message for r in caplog.records)
+
+    def test_zero_interval_is_a_real_duration_not_an_inversion(self) -> None:
+        """A just-started run reports both slots equal — that is 0s, not drift."""
+        instant = datetime.fromtimestamp(1786619578, tz=UTC)
+        assert self._task(instant, instant).duration == timedelta(0)
+
+    def test_the_app_projection_refuses_it_too(self) -> None:
+        """``ResearchStatusResult.duration_seconds`` re-derives from the ISO
+        strings, so the guard has to hold there independently."""
+        from notebooklm._app.research import ResearchStatusResult
+
+        inverted = ResearchStatusResult(
+            kind="completed",
+            status="completed",
+            query="q",
+            sources=[],
+            summary="",
+            report="",
+            public_dict={},
+            created_at="2026-08-13T12:11:16+00:00",
+            updated_at="2026-08-13T12:11:10+00:00",
+        )
+        assert inverted.duration_seconds is None
+
+        forward = ResearchStatusResult(
+            kind="completed",
+            status="completed",
+            query="q",
+            sources=[],
+            summary="",
+            report="",
+            public_dict={},
+            created_at="2026-08-13T12:11:10+00:00",
+            updated_at="2026-08-13T12:11:16+00:00",
+        )
+        assert forward.duration_seconds == 6.0

@@ -75,26 +75,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the unmarked-text fallback and its drift diagnostics are unchanged.
 
   `AnswerResponse.conversationTurnKey` (tag 3 → `answer_row[2]`) is populated
-  on every chunk of every ask and was likewise unread — which is the reason a
-  per-turn RPC (`SubmitFeedback`, turn deletion) could not be built from a chat
-  result without a separate round trip. It is now decoded onto the new
-  `AskResult.turn_key` (`ConversationTurnKey | None`), visible through the
+  on every chunk of every ask and was likewise unread — which is the reason
+  `SubmitFeedback` (whose request takes exactly this key) could not be built
+  from a chat result without a separate round trip. It is now decoded onto the
+  new `AskResult.turn_key` (`ConversationTurnKey | None`), visible through the
   Python API, `ask --json`, the MCP `ask` tool and `POST /v1/notebooks/{id}/chat`.
 
-  **The wire field names and the observed meanings disagree, and the public
-  attributes follow the observation.** A live two-turn probe showed proto tag 1
-  (`sessionId`) holding the notebook's conversation id — the exact value
-  `AskResult.conversation_id` carries, identical on both turns — while tag 2
-  (`conversationId`) held a different UUID on each turn. So `turn_key`'s
-  attributes are `conversation_id` (tag 1), `turn_id` (tag 2) and `turn_code`
-  (tag 3, carried verbatim and not interpreted). The wire↔attribute mapping is
-  recorded in `docs/rpc-reference.md` and pinned in
+  **`turn_key.session_id` is not a conversation id.** It is the same wire slot
+  issue #659 established is a *per-stream* identifier, and the evidence about
+  what it now holds is mixed: a live two-turn probe saw the `hPTbtc`-resolved
+  conversation id there, while this repo's own recorded cassettes show it
+  differing from the recorded `hPTbtc` id in 4/4 chat captures. So it is
+  exposed under its **proto** name with nothing claimed for it, and `ask` still
+  resolves the `conversation_id` it returns through `hPTbtc`. `turn_id` (tag 2)
+  conversely does *not* take its proto name `conversationId`, which contradicts
+  every observation — it changes on each turn of one conversation. `turn_code`
+  (tag 3) is carried verbatim and not interpreted. The wire↔attribute mapping
+  is recorded in `docs/rpc-reference.md` and pinned in
   `tests/_guardrails/_wire_contract.py`.
-
-  **`ask` still resolves its `conversation_id` through `hPTbtc`.** That tag 1
-  equals the recovered id is an observation on two turns of one conversation,
-  against a field issue #659 previously proved untrustworthy; retiring a
-  round-trip on that evidence would be a behaviour change nobody asked for.
   ([#2122](https://github.com/teng-lin/notebooklm-py/issues/2122))
 
 - **Research runs now report their mode, timings and discovered-source hints.**

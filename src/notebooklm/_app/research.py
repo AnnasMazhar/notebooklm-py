@@ -36,6 +36,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal, NoReturn, Protocol
 
 from ..exceptions import ValidationError
@@ -98,8 +99,25 @@ class ResearchStatusResult:
     # projection boundary. ``None`` when the poll carried no timestamp.
     created_at: str | None = None
     updated_at: str | None = None
-    #: Seconds between the two timestamps; see ``ResearchTask.duration``.
-    duration_seconds: float | None = None
+
+    @property
+    def duration_seconds(self) -> float | None:
+        """Seconds between :attr:`created_at` and :attr:`updated_at`.
+
+        DERIVED rather than stored, mirroring ``ResearchTask.duration``: three
+        independent fields could disagree, and a hand-built or faked instance
+        (``tests/server/fakes.py`` builds these) could carry timestamps six
+        seconds apart alongside a ``duration_seconds`` of 999. ``None`` when
+        either timestamp is missing or the interval is negative — the same
+        slot-swap guard ``ResearchTask.duration`` applies, re-derived here
+        because this projection holds the ISO strings, not the datetimes.
+        """
+        if self.created_at is None or self.updated_at is None:
+            return None
+        elapsed = (
+            datetime.fromisoformat(self.updated_at) - datetime.fromisoformat(self.created_at)
+        ).total_seconds()
+        return elapsed if elapsed >= 0 else None
 
 
 def _classify_status_kind(status_val: str) -> ResearchStatusKind:
@@ -152,7 +170,6 @@ async def poll_and_classify(
         ),
         created_at=status.created_at.isoformat() if status.created_at is not None else None,
         updated_at=status.updated_at.isoformat() if status.updated_at is not None else None,
-        duration_seconds=(status.duration.total_seconds() if status.duration is not None else None),
     )
 
 

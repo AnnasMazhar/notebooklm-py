@@ -1713,12 +1713,14 @@ async def poll(notebook_id: str, task_id: str | None = None) -> ResearchTask:
       - created_at / updated_at: datetime | None
                                    — UTC-aware start and last-progress instants
                                      (task[3] / task[2]). The backend advances
-                                     updated_at while a run is in flight and stops once
-                                     it settles.
+                                     updated_at while a run is in flight; whether it
+                                     stops once the run settles was not observed.
       - duration:  timedelta | None — updated_at - created_at: how long a settled run
                                      took, or how long an in-flight one has been going
                                      as of this poll. None when either timestamp is
-                                     missing.
+                                     missing, and None (with a warning) if the interval
+                                     is negative — that means the two positional slots
+                                     have moved, not that a run went backwards.
       - account_id: str | None     — opaque account id the run belongs to (task[4]).
                                      Account-scoped (two live accounts, two distinct
                                      stable values); whether it names the run's starter
@@ -2654,12 +2656,12 @@ class ConversationTurnKey:
     """The backend's three-part identifier for one chat turn (#2122).
 
     Decoded from ``AnswerResponse.conversationTurnKey``, which the streamed-chat
-    endpoint sends on every chunk. It is the key ``SubmitFeedback`` and the
-    per-turn delete RPC are addressed by, so a caller wanting to build one no
-    longer needs a separate round trip. ``None`` on an ``AskResult`` whose
-    stream carried no usable key.
+    endpoint sends on every chunk. ``SubmitFeedbackRequest.conversationTurnKey``
+    is its one consumer in the recovered schema, so a caller wanting to build
+    that call no longer needs a separate round trip. ``None`` on an
+    ``AskResult`` whose stream carried no usable key.
     """
-    conversation_id: str             # wire slot 0 — observed == AskResult.conversation_id
+    session_id: str                  # wire slot 0 — required; NOT a conversation id
     turn_id: str | None              # wire slot 1 — changes per turn
     turn_code: int | None            # wire slot 2 — carried verbatim, not interpreted
 
@@ -2681,19 +2683,18 @@ class ChatReference:
     answer_anchor_end: int | None    # ...and end
 ```
 
-> **`ConversationTurnKey`'s wire names and observed meanings disagree, and the
-> attributes follow the observation.** The recovered mobile proto calls the
-> three parts `sessionId` / `conversationId` / `fieldType`. A live two-turn
-> probe showed tag 1 holding the notebook's conversation id — the exact value
-> `AskResult.conversation_id` carries, identical on both turns — while tag 2
-> held a *different* UUID on each turn. Hence `conversation_id` ← tag 1 and
-> `turn_id` ← tag 2 above; the wire↔attribute mapping is tabulated in
-> [rpc-reference.md](rpc-reference.md).
+> **`session_id` is not a conversation id.** It is the same wire slot issue
+> #659 established is a *per-stream* identifier (`khqZz` returns 0 turns for
+> it). The evidence is mixed — a live two-turn probe saw the `hPTbtc`-resolved
+> conversation id there, while this repo's recorded cassettes show it differing
+> from the recorded `hPTbtc` id in 4/4 chat captures — so it is exposed under
+> its proto name with nothing claimed for it. Use `AskResult.conversation_id`
+> for follow-ups; `ask()` still resolves that through `hPTbtc`.
 >
-> `turn_key.conversation_id` is **not** the field to prefer over
-> `AskResult.conversation_id`. `ask()` still resolves the id it returns through
-> `hPTbtc`: that the two are equal is an observation on two turns of one
-> conversation, against a wire field issue #659 previously proved untrustworthy.
+> `turn_id` deliberately does **not** take its proto name (`conversationId`),
+> which contradicts every observation: it changes on each turn of one
+> conversation. The full wire↔attribute mapping is tabulated in
+> [rpc-reference.md](rpc-reference.md).
 
 #### Three coordinate spaces, and which field lives in which
 

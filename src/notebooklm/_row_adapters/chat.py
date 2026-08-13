@@ -36,8 +36,8 @@ Position contracts (pinned by ``tests/unit/test_chat_row_adapter.py``):
   Index  Meaning
   =====  ============================================================
   0      answer text (str)
-  2      ``ConversationTurnKey``; ``[2][0]`` is the server conversation id,
-         ``[2][1]`` the per-turn id and ``[2][2]`` the per-turn code
+  2      ``ConversationTurnKey``; ``[2][0]`` is the session id, ``[2][1]``
+         the per-turn id and ``[2][2]`` the per-turn code
   4      ``responseDoc`` (a ``TailwindDoc``); ``[4][0]`` is its document
          body, ``[4][3]`` the citation list (``TailwindDoc.objects``) and
          ``[4][4] == 1`` the answer marker (``TailwindDoc.type``)
@@ -720,9 +720,11 @@ class AnswerRow:
     #: ``TailwindDoc.body`` inside the ``responseDoc`` at ``first[4]``.
     _DOC_BODY_POS: ClassVar[int] = 0
     # Layout INSIDE the ``ConversationTurnKey`` block at ``first[2]`` (#2122).
-    # See ``ConversationTurnKey`` in ``_types/chat.py`` for why the attribute
-    # names and the proto field names deliberately disagree.
-    _TURN_KEY_CONVERSATION_ID_POS: ClassVar[int] = 0
+    # Slot 0 keeps its proto name (``sessionId``) because this client cannot
+    # substantiate a stronger one; slot 1 does not, because its proto name
+    # (``conversationId``) contradicts every observation. See
+    # ``ConversationTurnKey`` in ``_types/chat.py``.
+    _TURN_KEY_SESSION_ID_POS: ClassVar[int] = 0
     _TURN_KEY_TURN_ID_POS: ClassVar[int] = 1
     _TURN_KEY_TURN_CODE_POS: ClassVar[int] = 2
 
@@ -776,7 +778,7 @@ class AnswerRow:
         block = self._turn_key_block
         if block is None:
             return None
-        value = block[self._TURN_KEY_CONVERSATION_ID_POS]
+        value = block[self._TURN_KEY_SESSION_ID_POS]
         return value if isinstance(value, str) else None
 
     @property
@@ -799,8 +801,8 @@ class AnswerRow:
         block = self._turn_key_block
         if block is None:
             return None
-        conversation_id = block[self._TURN_KEY_CONVERSATION_ID_POS]
-        if not isinstance(conversation_id, str) or not conversation_id:
+        session_id = block[self._TURN_KEY_SESSION_ID_POS]
+        if not isinstance(session_id, str) or not session_id:
             return None
         turn_id = (
             block[self._TURN_KEY_TURN_ID_POS] if len(block) > self._TURN_KEY_TURN_ID_POS else None
@@ -811,7 +813,7 @@ class AnswerRow:
             else None
         )
         return ConversationTurnKey(
-            conversation_id=conversation_id,
+            session_id=session_id,
             turn_id=turn_id if isinstance(turn_id, str) and turn_id else None,
             turn_code=turn_code if type(turn_code) is int else None,
         )
