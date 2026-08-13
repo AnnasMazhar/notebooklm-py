@@ -738,6 +738,45 @@ class TestReadableRendering:
         assert block.table_rows == ((TableCell(0, 3),), (TableCell(3, 6),))
         assert StructuredDocument(blocks=(block,)).render() == "abc\ndef"
 
+    def test_rows_that_interleave_degrade_to_the_stray_line_not_to_a_wrong_cell(
+        self,
+    ) -> None:
+        """The bound on the forward walk's monotonicity assumption (#2230 review).
+
+        :func:`_spans_by_cell` walks the flattened cells once, so its cursor
+        assumes they advance. Rows are ordered by position and cells within a
+        row are too, but a hand-built block can still *interleave* them — a
+        later row starting inside an earlier one — and no decoded document can
+        (row and cell bounds come from successive narrowings of the table's own
+        range).
+
+        What matters is which way it fails. A run is only ever assigned to a
+        cell that actually contains its start, so it can never be rendered in
+        the wrong column; the cursor can only make it match *fewer* cells than
+        it overlaps, and a run matching none becomes the trailing stray line.
+        Fewer columns and a visible extra line, never a value silently sitting
+        under the wrong header.
+        """
+        document = StructuredDocument(
+            blocks=(
+                DocumentBlock(
+                    0,
+                    30,
+                    (
+                        TextSpan(0, 5, "aaaaa"),
+                        TextSpan(10, 15, "bbbbb"),
+                        TextSpan(20, 30, "cccccccccc"),
+                    ),
+                    kind=BlockKind.TABLE,
+                    # The second row opens inside the first row's span.
+                    table_rows=((TableCell(0, 5), TableCell(20, 30)), (TableCell(10, 15),)),
+                ),
+            )
+        )
+        assert document.render() == "aaaaa\tcccccccccc\nbbbbb"
+        # Every run still reaches the rendering, and the layout is untouched.
+        assert document.text == "aaaaa￼￼￼￼￼bbbbb￼￼￼￼￼cccccccccc"
+
     def test_a_run_no_cell_claims_is_rendered_rather_than_dropped(self) -> None:
         """The regrouping may not lose text, however inconsistent its input.
 
