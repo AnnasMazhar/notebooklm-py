@@ -358,9 +358,10 @@ async def test_notebooks_create_raises_on_ambiguous_probe(auth_tokens) -> None:
     title = "Duplicate Title"
 
     list_rpc_count = 0
+    create_rpc_count = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal list_rpc_count
+        nonlocal list_rpc_count, create_rpc_count
         rpc_id = _rpc_id_in_request(request)
         if rpc_id == RPCMethod.LIST_NOTEBOOKS.value:
             list_rpc_count += 1
@@ -374,6 +375,7 @@ async def test_notebooks_create_raises_on_ambiguous_probe(auth_tokens) -> None:
                 text=_list_notebooks_response([("nb_a", title), ("nb_b", title)]),
             )
         if rpc_id == RPCMethod.CREATE_NOTEBOOK.value:
+            create_rpc_count += 1
             return httpx.Response(502, text="bad gateway")
         return httpx.Response(404, text="unexpected")
 
@@ -392,6 +394,12 @@ async def test_notebooks_create_raises_on_ambiguous_probe(auth_tokens) -> None:
     assert getattr(exc_info.value, "unconfirmed", False) is True
     assert classify(exc_info.value).category is ErrorCategory.RPC
     assert classify(exc_info.value).retriable is False
+    # The load-bearing half: an ambiguous probe must ABORT the retry loop, not
+    # merely be classified well after another create has already gone out.
+    # Classification alone would still pass if the loop kept going.
+    assert create_rpc_count == 1, (
+        f"expected 1 CREATE_NOTEBOOK (ambiguity aborts the loop), got {create_rpc_count}"
+    )
 
 
 # ---------------------------------------------------------------------------

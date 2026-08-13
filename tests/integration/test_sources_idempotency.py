@@ -366,6 +366,11 @@ async def test_add_url_probe_raises_when_baseline_unavailable_and_a_copy_exists(
     finally:
         await client._collaborators.kernel.get_http_client().aclose()
 
+    # The load-bearing half: an ambiguous probe must ABORT the retry loop.
+    # Classification alone would still pass if a second create had already gone
+    # out — which is the duplicate this whole path exists to prevent.
+    assert counts["add"] == 1, f"expected 1 ADD_SOURCE, got {counts['add']}"
+
 
 async def test_add_url_baseline_unavailable_without_a_match_still_retries(auth_tokens) -> None:
     """No baseline and no match is not ambiguous — it is simply "not committed".
@@ -828,6 +833,11 @@ async def test_add_drive_probe_raises_when_baseline_unavailable_and_a_copy_exist
             await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, title)
     finally:
         await client._collaborators.kernel.get_http_client().aclose()
+
+    # The load-bearing half: an ambiguous probe must ABORT the retry loop.
+    # Classification alone would still pass if a second create had already gone
+    # out — which is the duplicate this whole path exists to prevent.
+    assert counts["add"] == 1, f"expected 1 ADD_SOURCE, got {counts['add']}"
 
     # The baseline's own failure is retained as the cause, matching add_url: the
     # caller reads "baseline snapshot failed" long after that read happened, and
