@@ -278,19 +278,23 @@ def test_ask_result_view_carries_the_conversation_turn_key() -> None:
     from notebooklm._app.views import ask_result_view
     from notebooklm.types import AskResult, ConversationTurnKey
 
+    # Deliberately DISTINCT from ``conversation_id``: the two are different wire
+    # slots that happened to be equal in one live probe, so a fixture reusing
+    # one value could not detect a serializer substituting one for the other.
     view = ask_result_view(
         AskResult(
             answer="a",
-            conversation_id="conv-1",
+            conversation_id="conversation-1",
             turn_number=1,
             is_follow_up=False,
             raw_response="[[wire blob]]",
-            turn_key=ConversationTurnKey("conv-1", "turn-1", 2187103311),
+            turn_key=ConversationTurnKey("session-1", "turn-1", 2187103311),
         )
     )
 
+    assert view["conversation_id"] == "conversation-1"
     assert view["turn_key"] == {
-        "session_id": "conv-1",
+        "session_id": "session-1",
         "turn_id": "turn-1",
         "turn_code": 2187103311,
     }
