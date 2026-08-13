@@ -50,6 +50,42 @@ def _build_fulltext_response(
     return build_rpc_response(RPCMethod.GET_SOURCE, data).encode()
 
 
+def _build_document_fulltext_response(
+    *,
+    source_id: str,
+    title: str,
+    block_texts: list[str],
+    build_rpc_response,
+) -> tuple[bytes, str, tuple[int, int]]:
+    """A GET_SOURCE response whose ``result[3][0]`` is a real document ``Body``.
+
+    The sibling builder above puts bare strings there, which decodes to *no*
+    blocks — so every test using it exercises only the search fallback. This
+    one emits the shape the wire actually sends (``StructuralElement`` rows
+    with offsets), which is what makes offset resolution reachable at all.
+
+    Returns the response bytes, the ``cited_text`` a fragment spanning every
+    block would now carry, and that fragment's ``(start_char, end_char)``.
+    """
+    elements: list[object] = []
+    cursor = 0
+    for text in block_texts:
+        end = cursor + len(text)
+        elements.append([cursor, end, [[[cursor, end, [text]]]]])
+        cursor = end
+    data = [
+        [source_id, title, [None, None, None, None, 5]],
+        None,
+        None,
+        [[elements]],  # result[3][0] == Body == [content, ...]
+    ]
+    return (
+        build_rpc_response(RPCMethod.GET_SOURCE, data).encode(),
+        "".join(block_texts),
+        (0, cursor),
+    )
+
+
 class TestResolveChatReferencePassage:
     """End-to-end checks for ``resolve_chat_reference_passage``."""
 
@@ -105,6 +141,104 @@ class TestResolveChatReferencePassage:
         # And some surrounding context must come along for the ride —
         # otherwise the helper is just echoing the cited text.
         assert len(passage) > len(cited_text[:40])
+
+    @pytest.mark.asyncio
+    async def test_resolves_a_fragment_whose_first_block_is_shorter_than_the_search_key(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        build_rpc_response,
+    ) -> None:
+        """Regression: multi-block citations are unsearchable in ``content``.
+
+        ``find_citation_context`` searches ``cited_text[:40]`` inside
+        ``SourceFulltext.content``, which joins the document's text runs with
+        ``"\n"``. Since #2120 made ``cited_text`` span the whole fragment with
+        **no** separator, any fragment whose first block is shorter than 40
+        characters produces a search key that crosses a block boundary — and so
+        cannot occur in ``content`` at all. Before offset resolution this raised
+        ``ChatResponseParseError`` for a perfectly valid citation, and
+        note-saving broke on it.
+
+        The heading here is 14 characters, well under the 40-character key, so
+        the key straddles the boundary exactly as a real source's title block
+        does.
+        """
+        block_texts = [
+            "Photosynthesis",
+            "Photosynthesis converts light into chemical energy.",
+            "It runs in two stages.",
+        ]
+        response, cited_text, (start_char, end_char) = _build_document_fulltext_response(
+            source_id="src_photo",
+            title="Photosynthesis",
+            block_texts=block_texts,
+            build_rpc_response=build_rpc_response,
+        )
+        httpx_mock.add_response(content=response)
+
+        # The preconditions that make this a regression rather than a quirk:
+        # a short first block, and an unbounded key that provably cannot occur
+        # in the newline-joined rendering the search runs against.
+        assert len(block_texts[0]) < 40
+        assert cited_text[:40] not in "\n".join(block_texts)
+
+        reference = ChatReference(
+            source_id="src_photo",
+            cited_text=cited_text,
+            start_char=start_char,
+            end_char=end_char,
+        )
+
+        async with NotebookLMClient(auth_tokens) as client:
+            passage = await resolve_chat_reference_passage(
+                client,
+                notebook_id="nb_photo",
+                reference=reference,
+                context_chars=20,
+            )
+
+        # Resolves at all — before the fix this raised ChatResponseParseError,
+        # because the 40-character key straddled the first block boundary and so
+        # could not occur in the newline-joined ``content`` — and lands on the
+        # cited span rather than somewhere arbitrary.
+        assert passage
+        assert block_texts[0] in passage
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_search_when_the_document_did_not_decode(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        build_rpc_response,
+    ) -> None:
+        """Offsets are preferred, not required — the search path still works.
+
+        A source whose document does not decode (or a reference predating the
+        offsets) must still resolve, or this would trade one regression for
+        another.
+        """
+        cited_text = "Quantum entanglement permits non-classical correlations between"
+        content = "Preamble text. " + cited_text + " And a trailing clause."
+        response = _build_fulltext_response(
+            source_id="src_fallback",
+            title="Fallback",
+            content_chunks=[content],
+            build_rpc_response=build_rpc_response,
+        )
+        httpx_mock.add_response(content=response)
+
+        # Offsets present but the document is empty, so they cannot be used.
+        reference = ChatReference(
+            source_id="src_fallback", cited_text=cited_text, start_char=0, end_char=63
+        )
+
+        async with NotebookLMClient(auth_tokens) as client:
+            passage = await resolve_chat_reference_passage(
+                client, notebook_id="nb_fallback", reference=reference, context_chars=10
+            )
+
+        assert cited_text[:40] in passage
 
     @pytest.mark.asyncio
     async def test_raises_when_reference_has_no_cited_text(

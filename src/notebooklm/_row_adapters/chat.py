@@ -27,8 +27,9 @@ Position contracts (pinned by ``tests/unit/test_chat_row_adapter.py``):
   =====  ============================================================
   0      answer text (str)
   2      conversation-id block; ``[2][0]`` is the server conversation id
-  4      type/flags block; ``[4][4] == 1`` marks an answer record and
-         ``[4][3]`` is the citation list
+  4      ``responseDoc`` (a ``TailwindDoc``); ``[4][0]`` is its document
+         body, ``[4][3]`` the citation list (``TailwindDoc.objects``) and
+         ``[4][4] == 1`` the answer marker (``TailwindDoc.type``)
   =====  ============================================================
 
 * :class:`CitationRow` — one citation entry (``type_info[3][i]``):
@@ -40,26 +41,27 @@ Position contracts (pinned by ``tests/unit/test_chat_row_adapter.py``):
   1      citation detail block (:class:`CitationDetail`)
   =====  ============================================================
 
-* :class:`CitationDetail` — ``cite[1]``:
+* :class:`CitationDetail` — ``cite[1]`` (a ``Citation``):
 
   =====  ============================================================
   Index  Meaning
   =====  ============================================================
   2      relevance score (float 0.0-1.0)
-  3      answer-range block ``[[None, answer_start, answer_end]]``
-  4      source-side passages list
+  3      fragment range ``[[None, start, end]]`` — **source-side**, the
+         union of the fragment's element ranges (#2120)
+  4      ``fragment`` message; its ``elements`` list is one level below
+         at ``[4][0]``
   5      nested source-id data
   =====  ============================================================
 
-* :class:`PassageRow` — one passage record (``passage_wrapper[0]``):
+  ``Citation.objectId`` sits at ``cite_inner[6]`` and is not read: it repeats
+  the id the enclosing ``DocumentObject`` already carries at ``cite[0][0]``,
+  which :attr:`CitationRow.chunk_id` surfaces and the answer-document
+  annotation map joins on.
 
-  =====  ============================================================
-  Index  Meaning
-  =====  ============================================================
-  0      source-side start char (int)
-  1      source-side end char (int)
-  2      nested text payload
-  =====  ============================================================
+  The fragment's elements are ``StructuralElement`` rows shared with the
+  source-content path; they are decoded by
+  :mod:`notebooklm._row_adapters.documents`, not by a chat-local adapter.
 
 * :class:`ConversationTurnRow` — one ``GET_CONVERSATION_TURNS`` turn row:
 
@@ -80,8 +82,10 @@ import reprlib
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
+from .._types.documents import StructuredDocument
 from ..exceptions import UnknownRPCMethodError
 from ..rpc import RPCMethod, safe_index
+from .documents import build_document
 
 __all__ = [
     "AnswerRow",
@@ -90,9 +94,7 @@ __all__ = [
     "ChatSettingsRow",
     "ConversationTurnRow",
     "ErrorPayloadRow",
-    "PassageRow",
     "StreamFrameRow",
-    "TextLeafRow",
     "SavedChatNoteRow",
     "unwrap_chat_settings",
     "unwrap_conversation_turns",
@@ -627,32 +629,6 @@ class ErrorPayloadRow:
 
 
 @dataclass(frozen=True)
-class TextLeafRow:
-    """Typed view of one deeply-nested passage text leaf (``inner`` triple).
-
-    Centralises the ``inner[2]`` text-payload read in ``collect_texts_from_nested``
-    so the nested-walk decoder stops open-coding the position (issue #1491).
-    """
-
-    _raw: Any = field(repr=False)
-
-    _TEXT_POS: ClassVar[int] = 2
-    _MIN_LEN: ClassVar[int] = 3
-
-    @property
-    def is_well_formed(self) -> bool:
-        """Whether the leaf is a list long enough to carry the text payload."""
-        return isinstance(self._raw, list) and len(self._raw) >= self._MIN_LEN
-
-    @property
-    def text_value(self) -> Any:
-        """Raw text payload at ``inner[2]`` (str / list validated upstream)."""
-        if not self.is_well_formed:
-            return None
-        return self._raw[self._TEXT_POS]
-
-
-@dataclass(frozen=True)
 class AnswerRow:
     """Typed view of one populated streamed-chat answer record.
 
@@ -683,6 +659,8 @@ class AnswerRow:
     _ANSWER_MARKER_POS: ClassVar[int] = 4
     _CITATIONS_POS: ClassVar[int] = 3
     _ANSWER_MARKER_VALUE: ClassVar[int] = 1
+    #: ``TailwindDoc.body`` inside the ``responseDoc`` at ``first[4]``.
+    _DOC_BODY_POS: ClassVar[int] = 0
 
     @property
     def raw(self) -> list[Any]:
@@ -816,6 +794,28 @@ class AnswerRow:
         """Wrap each raw citation entry as a :class:`CitationRow`."""
         return [CitationRow(cite) for cite in self.citations]
 
+    @property
+    def document(self) -> StructuredDocument:
+        """The answer's own ``responseDoc`` body as a :class:`StructuredDocument`.
+
+        ``first[4]`` is the ``TailwindDoc`` this adapter otherwise only reads
+        the answer marker and citation list out of; its ``body`` at ``[0]``
+        carries the answer's paragraphs *and* the annotation map that anchors
+        each citation to a range of the answer (#2120). An absent or malformed
+        block yields an empty document — reshaped containers warn but never
+        raise, deliberately, because this runs on the streamed-answer hot path
+        and an answer without a decodable document is still an answer.
+
+        The document's text is **not** :attr:`text`: the answer string carries
+        markdown emphasis and inline ``[N]`` citation markers that the document
+        does not, so it is longer and its offsets differ. Annotation ranges
+        index ``document.text`` only.
+        """
+        type_block = self._type_block
+        if type_block is None or len(type_block) <= self._DOC_BODY_POS:
+            return StructuredDocument()
+        return build_document(type_block[self._DOC_BODY_POS])
+
 
 @dataclass(frozen=True)
 class CitationRow:
@@ -839,7 +839,11 @@ class CitationRow:
 
     @property
     def chunk_id(self) -> str | None:
-        """Chunk id at ``cite[0][0]``.
+        """Chunk id at ``cite[0][0]`` — the entry's ``DocumentObject.objectId``.
+
+        The answer document's annotation map anchors on this same id, which is
+        what lets an answer-side range be joined onto the citation (#2120). The
+        ``Citation`` at ``cite[1]`` repeats it at ``[6]``; this is the one read.
 
         An absent / empty / non-list chunk block legitimately means "no chunk
         id" (the citation is still kept), so it short-circuits to ``None``.
@@ -870,23 +874,36 @@ class CitationRow:
 
 @dataclass(frozen=True)
 class CitationDetail:
-    """Typed view of a citation detail block (``cite[1]``).
+    """Typed view of a citation detail block (``cite[1]``) — a ``Citation``.
 
-    Centralises the score / answer-range / passages / source-id position
-    knowledge. Consumer sites should NEVER open-code ``cite_inner[2]`` /
-    ``cite_inner[3]`` / ``cite_inner[4]`` / ``cite_inner[5]``.
+    Centralises the score / fragment-range / fragment-elements / source-id
+    position knowledge. Consumer sites should NEVER open-code ``cite_inner[2]``
+    / ``cite_inner[3]`` / ``cite_inner[4]`` / ``cite_inner[5]`` /
+    ``cite_inner[6]``.
+
+    ``cite_inner[4]`` is ``Citation.fragment``, a ``TailwindDocFragment``
+    *message* whose only field is ``elements`` at ``[0]``. Reading
+    ``cite_inner[4]`` itself therefore yields a one-element list — the fragment
+    wrapper, not the fragment's blocks. Before #2120 that one wrapper was
+    mistaken for the passage list, so the passage loop ran exactly once and
+    ``cited_text`` was truncated to the fragment's first block (37 of 556
+    characters in the issue's live capture). :attr:`fragment_elements` performs
+    the full two-level descent.
     """
 
     _raw: list[Any] = field(repr=False)
 
     _SCORE_POS: ClassVar[int] = 2
-    _ANSWER_RANGE_POS: ClassVar[int] = 3
-    _PASSAGES_POS: ClassVar[int] = 4
+    _FRAGMENT_RANGE_POS: ClassVar[int] = 3
+    _FRAGMENT_POS: ClassVar[int] = 4
     _SOURCE_ID_POS: ClassVar[int] = 5
 
-    # Inner answer-range layout: ``cite_inner[3] = [[None, start, end]]``.
-    _ANSWER_RANGE_START_POS: ClassVar[int] = 1
-    _ANSWER_RANGE_END_POS: ClassVar[int] = 2
+    # ``TailwindDocFragment.elements`` — the second level of the descent.
+    _FRAGMENT_ELEMENTS_POS: ClassVar[int] = 0
+
+    # Inner fragment-range layout: ``cite_inner[3] = [[None, start, end]]``.
+    _FRAGMENT_RANGE_START_POS: ClassVar[int] = 1
+    _FRAGMENT_RANGE_END_POS: ClassVar[int] = 2
 
     @property
     def raw_list(self) -> list[Any]:
@@ -908,85 +925,50 @@ class CitationDetail:
         return self._raw[self._SOURCE_ID_POS]
 
     @property
-    def passages(self) -> list[Any]:
-        """Source-side passages list at ``cite_inner[4]`` — ``[]`` when absent."""
-        if len(self._raw) <= self._PASSAGES_POS:
-            return []
-        value = self._raw[self._PASSAGES_POS]
-        return value if isinstance(value, list) else []
+    def fragment_elements(self) -> list[Any]:
+        """``Citation.fragment.elements`` at ``cite_inner[4][0]`` — ``[]`` when absent.
 
-    def answer_range(self) -> tuple[Any, Any]:
+        The full two-level descent: ``cite_inner[4]`` is the
+        ``TailwindDocFragment`` *message* and its ``elements`` field sits one
+        level below at ``[0]``. Each element is a ``StructuralElement``
+        (``[startIndex, endIndex, paragraph]``) sliced out of the source
+        document — decode them with
+        :func:`notebooklm._row_adapters.documents.build_blocks`.
+
+        Stopping at ``cite_inner[4]`` (the pre-#2120 behavior) yields the
+        one-element wrapper instead, which is why ``cited_text`` covered only
+        the fragment's first block.
+        """
+        if len(self._raw) <= self._FRAGMENT_POS:
+            return []
+        fragment = self._raw[self._FRAGMENT_POS]
+        if not isinstance(fragment, list) or len(fragment) <= self._FRAGMENT_ELEMENTS_POS:
+            return []
+        elements = fragment[self._FRAGMENT_ELEMENTS_POS]
+        return elements if isinstance(elements, list) else []
+
+    def fragment_range(self) -> tuple[Any, Any]:
         """Raw ``(start, end)`` from ``cite_inner[3][0]`` (``[None, start, end]``).
 
-        Returns ``(None, None)`` when the answer-range block is absent,
-        not a list, empty, its first element is not a list, or that inner
-        list is too short — all legitimate "no answer range" shapes, not drift.
-        The numeric / ordering validation lives in the caller.
+        The server's own statement of the cited fragment's **source-side**
+        character range — the union of every element range in
+        :attr:`fragment_elements`, in the same coordinate space as this
+        client's ``start_char`` / ``end_char``. It is *not* an answer-text
+        range, despite the ``answer_start_char`` / ``answer_end_char`` names
+        this client exposed it under before #2120; a live capture showed
+        ``[1130, 1695]`` on a 536-character answer.
+
+        Returns ``(None, None)`` when the range block is absent, not a list,
+        empty, its first element is not a list, or that inner list is too
+        short — all legitimate "no range" shapes, not drift. The numeric /
+        ordering validation lives in the caller.
         """
-        if len(self._raw) <= self._ANSWER_RANGE_POS:
+        if len(self._raw) <= self._FRAGMENT_RANGE_POS:
             return None, None
-        outer = self._raw[self._ANSWER_RANGE_POS]
+        outer = self._raw[self._FRAGMENT_RANGE_POS]
         if not isinstance(outer, list) or not outer:
             return None, None
         inner = outer[0]
-        if not isinstance(inner, list) or len(inner) <= self._ANSWER_RANGE_END_POS:
+        if not isinstance(inner, list) or len(inner) <= self._FRAGMENT_RANGE_END_POS:
             return None, None
-        return inner[self._ANSWER_RANGE_START_POS], inner[self._ANSWER_RANGE_END_POS]
-
-
-@dataclass(frozen=True)
-class PassageRow:
-    """Typed view of one source-side passage *wrapper* (``cite_inner[4][i]``).
-
-    The wrapped value is the outer ``passage_wrapper`` (``[passage_data, …]``);
-    the adapter unwraps the inner ``passage_data`` at ``[0]`` and centralises its
-    ``[0]`` / ``[1]`` / ``[2]`` start / end / text-payload reads. Consumer sites
-    should NEVER open-code ``passage_wrapper[0]`` or ``passage_data[0..2]``
-    (issue #1491).
-    """
-
-    _raw: Any = field(repr=False)
-
-    _PASSAGE_DATA_POS: ClassVar[int] = 0
-    _START_POS: ClassVar[int] = 0
-    _END_POS: ClassVar[int] = 1
-    _TEXT_PAYLOAD_POS: ClassVar[int] = 2
-    _MIN_LEN: ClassVar[int] = 3
-
-    @property
-    def _passage_data(self) -> list[Any] | None:
-        """Inner ``passage_data`` at ``passage_wrapper[0]`` when well-formed.
-
-        Returns ``None`` (rather than raising) for an empty wrapper or an inner
-        record too short to carry start/end/text — both legitimate "skip this
-        passage" shapes, not wire drift.
-        """
-        if not isinstance(self._raw, list) or len(self._raw) <= self._PASSAGE_DATA_POS:
-            return None
-        data = self._raw[self._PASSAGE_DATA_POS]
-        if not isinstance(data, list) or len(data) < self._MIN_LEN:
-            return None
-        return data
-
-    @property
-    def is_well_formed(self) -> bool:
-        """Whether the wrapper holds an inner record long enough for start/end/text."""
-        return self._passage_data is not None
-
-    @property
-    def start_char(self) -> Any:
-        """Raw source-side start char at ``passage_data[0]`` (int validated upstream)."""
-        data = self._passage_data
-        return None if data is None else data[self._START_POS]
-
-    @property
-    def end_char(self) -> Any:
-        """Raw source-side end char at ``passage_data[1]`` (int validated upstream)."""
-        data = self._passage_data
-        return None if data is None else data[self._END_POS]
-
-    @property
-    def text_payload(self) -> Any:
-        """Nested text payload at ``passage_data[2]`` — ``None`` when malformed."""
-        data = self._passage_data
-        return None if data is None else data[self._TEXT_PAYLOAD_POS]
+        return inner[self._FRAGMENT_RANGE_START_POS], inner[self._FRAGMENT_RANGE_END_POS]

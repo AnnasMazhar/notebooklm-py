@@ -355,17 +355,25 @@ class TestChatReferences:
                                 None,
                                 0.95,
                                 [[None]],
-                                [  # cite[1][4] - text passages
-                                    [  # passage_wrapper
-                                        [  # passage_data
-                                            100,  # start_char
-                                            250,  # end_char
-                                            [  # nested passages
-                                                [  # nested_group
-                                                    [  # inner
-                                                        50,
-                                                        120,
-                                                        "Machine learning is a branch of artificial intelligence.",
+                                [  # cite[1][4] - Citation.fragment (a message)
+                                    [  # fragment.elements
+                                        [  # StructuralElement
+                                            100,  # startIndex
+                                            250,  # endIndex
+                                            [  # Paragraph
+                                                [  # paragraph.elements
+                                                    [  # ParagraphElement
+                                                        # Span ranges nest INSIDE
+                                                        # their block's, as the
+                                                        # wire always sends them.
+                                                        100,
+                                                        250,
+                                                        # TextRun: content is wrapped,
+                                                        # never a bare string (#2120)
+                                                        [
+                                                            "Machine learning is a branch "
+                                                            "of artificial intelligence."
+                                                        ],
                                                     ]
                                                 ]
                                             ],
@@ -394,7 +402,9 @@ class TestChatReferences:
                                                     [
                                                         280,
                                                         380,
-                                                        "Algorithms learn patterns from training data.",
+                                                        [
+                                                            "Algorithms learn patterns from training data."
+                                                        ],
                                                     ]
                                                 ]
                                             ],
@@ -514,7 +524,7 @@ class TestChatReferences:
                                         [
                                             1000,  # start_char
                                             1500,  # end_char
-                                            [[[[950, 1100, "Cited passage text."]]]],
+                                            [[[[950, 1100, ["Cited passage text."]]]]],
                                         ]
                                     ]
                                 ],
@@ -1716,7 +1726,7 @@ class TestParseAskResponseEdgeCases:
                                 None,
                                 0.9,
                                 [[None]],
-                                [[[100, 200, [[[50, 150, "cited text"]]]]]],
+                                [[[100, 200, [[[100, 200, ["cited text"]]]]]]],
                                 [[[["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]]]],
                                 ["chunk-001"],
                             ],
@@ -2002,66 +2012,74 @@ class TestExtractTextPassagesEdgeCases:
         result = client.chat._extract_text_passages(cite_inner)
         assert result == (None, None, None)
 
-    def test_extract_text_passages_skips_short_passage_data(self, auth_tokens):
-        """Test _extract_text_passages skips passage_data with len < 3."""
+    def test_element_without_a_paragraph_keeps_its_range(self, auth_tokens):
+        """A range-only element contributes offsets but no text.
+
+        ``StructuralElement`` also carries table / image / code-block / rule
+        variants this client does not decode. They still occupy document
+        offsets, so dropping them would leave an unexplained gap in the
+        coordinate space; they contribute ``""`` to the cited text instead.
+        """
         client = NotebookLMClient(auth_tokens)
-        cite_inner = [None, None, None, None, [[[100, 200]]]]  # passage_data has len 2
-        result = client.chat._extract_text_passages(cite_inner)
-        assert result == (None, None, None)
+        cite_inner = [None, None, None, None, [[[100, 200]]]]
+        assert client.chat._extract_text_passages(cite_inner) == (None, 100, 200)
 
 
-class TestCollectTextsFromNested:
-    """Tests for _collect_texts_from_nested ."""
+class TestFragmentTextDegradation:
+    """Malformed paragraph internals degrade to no text, never to a raise.
 
-    def test_non_list_input_returns_immediately(self, auth_tokens):
-        """Test _collect_texts_from_nested returns immediately for non-list input ."""
+    These replace the ``_collect_texts_from_nested`` suite retired in #2120:
+    the nested-walk decoder it covered was subsumed by the shared document
+    adapters, so the same degradation classes are exercised through the
+    public entry point instead.
+    """
+
+    @pytest.mark.parametrize(
+        "paragraph",
+        [
+            "not a list",
+            None,
+            ["not_a_list_elements"],
+            [[[0, 100]]],  # ParagraphElement too short for a TextRun
+            [[[0, 100, 42]]],  # TextRun slot is not a list
+            [[[0, 100, [42]]]],  # TextRun content is not a string
+            [[[0, 100, [None]]]],
+        ],
+        ids=[
+            "non-list-paragraph",
+            "null-paragraph",
+            "non-list-elements",
+            "short-element",
+            "non-list-text-run",
+            "non-string-content",
+            "null-content",
+        ],
+    )
+    def test_unusable_paragraph_yields_no_text_but_keeps_the_range(self, auth_tokens, paragraph):
         client = NotebookLMClient(auth_tokens)
-        texts = []
-        client.chat._collect_texts_from_nested("not a list", texts)
-        assert texts == []
+        cite_inner = [None, None, None, None, [[[0, 100, paragraph]]]]
+        cited_text, start_char, end_char = client.chat._extract_text_passages(cite_inner)
+        assert cited_text is None
+        assert (start_char, end_char) == (0, 100)
 
-    def test_non_list_input_none_returns_immediately(self, auth_tokens):
-        """Test _collect_texts_from_nested returns immediately for None input."""
-        client = NotebookLMClient(auth_tokens)
-        texts = []
-        client.chat._collect_texts_from_nested(None, texts)
-        assert texts == []
+    def test_empty_text_runs_are_preserved_verbatim(self, auth_tokens):
+        """Whitespace is content, not noise.
 
-    def test_nested_group_not_list_is_skipped(self, auth_tokens):
-        """Test _collect_texts_from_nested skips nested_group that is not a list."""
+        The retired decoder stripped and dropped whitespace-only runs. It
+        cannot any more: ``cited_text`` is the fragment's exact text, and
+        dropping a run would break ``len(cited_text) == end - start``.
+        """
         client = NotebookLMClient(auth_tokens)
-        texts = []
-        # nested contains a non-list item
-        client.chat._collect_texts_from_nested(["not_a_list_group"], texts)
-        assert texts == []
-
-    def test_text_val_is_list_extracts_strings(self, auth_tokens):
-        """Test _collect_texts_from_nested extracts strings when text_val is a list ."""
-        client = NotebookLMClient(auth_tokens)
-        texts = []
-        # Structure: nested=[nested_group], nested_group=[inner], inner=[start, end, text_val]
-        nested = [[[0, 100, ["part one", "  ", "part two"]]]]
-        client.chat._collect_texts_from_nested(nested, texts)
-        assert "part one" in texts
-        assert "part two" in texts
-
-    def test_text_val_list_skips_non_strings(self, auth_tokens):
-        """Test _collect_texts_from_nested skips non-string items in text_val list."""
-        client = NotebookLMClient(auth_tokens)
-        texts = []
-        # text_val list contains a mix of string and non-string
-        nested = [[[0, 100, [42, "valid text", None]]]]
-        client.chat._collect_texts_from_nested(nested, texts)
-        assert texts == ["valid text"]
-
-    def test_inner_with_len_less_than_3_is_skipped(self, auth_tokens):
-        """Test _collect_texts_from_nested skips inner items with len < 3."""
-        client = NotebookLMClient(auth_tokens)
-        texts = []
-        # inner has only 2 elements
-        nested = [[[0, 100]]]
-        client.chat._collect_texts_from_nested(nested, texts)
-        assert texts == []
+        cite_inner = [
+            None,
+            None,
+            None,
+            None,
+            [[[0, 5, [[[0, 5, ["  "]], [2, 5, ["abc"]]]]]]],
+        ]
+        cited_text, start_char, end_char = client.chat._extract_text_passages(cite_inner)
+        assert cited_text == "  abc"
+        assert len(cited_text) == end_char - start_char
 
 
 class TestExtractUuidFromNested:
@@ -2230,77 +2248,50 @@ class TestExtractAnswerEmptyInnerData:
         assert conv_id is None
 
 
-class TestExtractTextPassagesMultiplePassages:
-    """Tests for _extract_text_passages with multiple passages ."""
+def _fragment(*elements):
+    """Wrap ``StructuralElement`` rows as a ``Citation.fragment`` message.
 
-    def test_extract_text_passages_multiple_passages_updates_end_char(self, auth_tokens):
-        """Test that end_char is updated for each valid passage ."""
+    The extra nesting is the whole of #2120: ``cite_inner[4]`` is the message,
+    and its ``elements`` list is one level below at ``[4][0]``. A fixture that
+    omits this level agrees with the pre-fix decoder and can never fail.
+    """
+    return [list(elements)]
+
+
+class TestExtractTextPassagesMultipleElements:
+    """A fragment spans every one of its blocks, not just the first (#2120)."""
+
+    def test_range_covers_first_start_to_last_end(self, auth_tokens):
         client = NotebookLMClient(auth_tokens)
-        # Two passage_wrappers: first sets start_char and end_char, second updates end_char
         cite_inner = [
             None,
             None,
             None,
             None,
-            [
-                # First passage_wrapper
-                [[100, 200, [[[50, 150, "first text"]]]]],
-                # Second passage_wrapper - end_char should be updated to 400
-                [[300, 400, [[[250, 380, "second text"]]]]],
-            ],
+            _fragment(
+                [100, 200, [[[100, 200, ["first text"]]]]],
+                [200, 400, [[[200, 400, ["second text"]]]]],
+            ),
         ]
         cited_text, start_char, end_char = client.chat._extract_text_passages(cite_inner)
-        assert start_char == 100  # from first passage
-        assert end_char == 400  # updated by second passage
+        assert (start_char, end_char) == (100, 400)
+        assert cited_text == "first textsecond text"
 
-    def test_extract_text_passages_start_char_not_reset_on_second_passage(self, auth_tokens):
-        """Test start_char is only set once from the first valid passage (arc 676->678)."""
+    def test_start_is_the_union_lower_bound(self, auth_tokens):
+        """The range is the union of every block, not just the first one's."""
         client = NotebookLMClient(auth_tokens)
         cite_inner = [
             None,
             None,
             None,
             None,
-            [
-                # First passage: sets start_char=10
-                [[10, 100, [[[5, 50, "text one"]]]]],
-                # Second passage: start_char should NOT be reset to 200
-                [[200, 300, [[[150, 250, "text two"]]]]],
-            ],
+            _fragment(
+                [10, 100, [[[10, 100, ["text one"]]]]],
+                [200, 300, [[[200, 300, ["text two"]]]]],
+            ),
         ]
         _, start_char, _ = client.chat._extract_text_passages(cite_inner)
-        assert start_char == 10  # only set from first passage
-
-
-class TestCollectTextsFromNestedEmptyTextVal:
-    """Test _collect_texts_from_nested when text_val list has no extractable strings (arc 709->703)."""
-
-    def test_text_val_list_all_empty_strings_adds_nothing(self, auth_tokens):
-        """Test that text_val list with only whitespace strings adds nothing (arc 709->703)."""
-        client = NotebookLMClient(auth_tokens)
-        texts = []
-        # text_val is a list but all items are whitespace or empty
-        nested = [[[0, 100, ["  ", "", "   "]]]]
-        client.chat._collect_texts_from_nested(nested, texts)
-        assert texts == []
-
-    def test_text_val_list_with_non_string_items_adds_nothing(self, auth_tokens):
-        """Test that text_val list with only non-string items adds nothing."""
-        client = NotebookLMClient(auth_tokens)
-        texts = []
-        # text_val is a list but all items are non-strings
-        nested = [[[0, 100, [None, 42, True]]]]
-        client.chat._collect_texts_from_nested(nested, texts)
-        assert texts == []
-
-    def test_text_val_neither_string_nor_list_does_nothing(self, auth_tokens):
-        """Test that text_val that is neither string nor list is skipped (arc 709->703)."""
-        client = NotebookLMClient(auth_tokens)
-        texts = []
-        # text_val is an integer - neither str nor list - skips both branches
-        nested = [[[0, 100, 42]]]
-        client.chat._collect_texts_from_nested(nested, texts)
-        assert texts == []
+        assert start_char == 10
 
 
 class TestParseAskResponseBranchCoverage:
@@ -2359,7 +2350,7 @@ class TestParseAskResponseBranchCoverage:
                                 None,
                                 0.9,
                                 [[None]],
-                                [[[100, 200, [[[50, 150, "cited text"]]]]]],
+                                [[[100, 200, [[[100, 200, ["cited text"]]]]]]],
                                 [[[["eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"]]]],
                                 ["chunk-001"],
                             ],
@@ -2386,28 +2377,25 @@ class TestParseAskResponseBranchCoverage:
 
 
 class TestExtractTextPassagesNonIntEndChar:
-    """Test _extract_text_passages when passage_data[1] is not an int (arc 678->682)."""
+    """An element with an unusable range is dropped whole (#2120)."""
 
-    def test_non_int_end_char_drops_paired_range(self, auth_tokens):
-        """A half-populated start/end pair is dropped to (None, None) so the
-        ChatReference paired-offset invariant accepts the result. The cited
-        text is still returned regardless.
+    def test_non_int_end_index_drops_the_element(self, auth_tokens):
+        """A block whose range cannot be trusted contributes nothing at all.
+
+        Its text is dropped along with its offsets, deliberately: keeping the
+        text would break ``len(cited_text) == end_char - start_char``, and a
+        block whose ``endIndex`` is a string has told us nothing reliable about
+        where in the source it sits.
         """
         client = NotebookLMClient(auth_tokens)
-        # passage_data[1] is a string, not int — start was set, end never was.
         cite_inner = [
             None,
             None,
             None,
             None,
-            [
-                [[100, "not_an_int", [[[50, 150, "some text"]]]]],
-            ],
+            [[[100, "not_an_int", [[[100, 150, ["some text"]]]]]]],
         ]
-        cited_text, start_char, end_char = client.chat._extract_text_passages(cite_inner)
-        assert start_char is None  # paired-drop: end was never int, start is cleared too
-        assert end_char is None
-        assert cited_text is not None  # text extraction still succeeded
+        assert client.chat._extract_text_passages(cite_inner) == (None, None, None)
 
 
 class TestChatHL:

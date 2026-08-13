@@ -2594,36 +2594,86 @@ class AskResult:
     is_follow_up: bool                 # Explicit ID => True; implicit => prior server turns exist
     references: list[ChatReference]    # Source references cited in the answer
     raw_response: str                  # First 1000 chars of raw API response
+    answer_document: StructuredDocument  # The answer's own parsed document (#2120)
 
 @dataclass
 class ChatReference:
     source_id: str                     # UUID of the source
     citation_number: int | None        # Citation number in answer (1, 2, etc.)
-    cited_text: str | None             # Actual text passage being cited
-    start_char: int | None             # Start position in source content
-    end_char: int | None               # End position in source content
-    chunk_id: str | None               # ID of the chunk / internal chunk ID (for debugging)
+    cited_text: str | None             # The cited source passage, verbatim
+    start_char: int | None             # Start offset in the SOURCE document
+    end_char: int | None               # End offset in the SOURCE document
+    chunk_id: str | None               # The citation's DocumentObject.objectId
     passage_id: str | None             # ID of the passage
-    answer_start_char: int | None      # Start character offset in the answer
-    answer_end_char: int | None        # End character offset in the answer
+    answer_start_char: int | None      # DEPRECATED alias for fragment_start_char
+    answer_end_char: int | None        # DEPRECATED alias for fragment_end_char
     score: float | None                # Citation score or relevance
+    fragment_start_char: int | None    # Server-declared source-side range, start
+    fragment_end_char: int | None      # ...and end
+    answer_anchor_start: int | None  # Range OF THE ANSWER this citation backs
+    answer_anchor_end: int | None    # ...and end
 ```
 
-**Important:** The `cited_text` field often contains only a snippet or section header, not the full quoted passage. The `start_char`/`end_char` positions reference NotebookLM's internal chunked index, which does not directly correspond to positions in the raw fulltext returned by `get_fulltext()`.
+#### Three coordinate spaces, and which field lives in which
 
-Use `SourceFulltext.find_citation_context()` to locate citations in the fulltext:
+Citations carry offsets into three different strings. Mixing them up was
+[#2120](https://github.com/teng-lin/notebooklm-py/issues/2120); the field names
+now say which is which.
+
+| Field | Resolve against | Notes |
+|-------|-----------------|-------|
+| `start_char` / `end_char` | `SourceFulltext.document.slice(...)` | The cited fragment's span in the **source** document, derived from its blocks. UTF-16 code units, like every offset here. |
+| `fragment_start_char` / `fragment_end_char` | same | The same span as the **server** declares it, rather than derived. The two have agreed on every capture so far; a divergence means the server and this client no longer read the fragment the same way. |
+| `answer_anchor_start` / `answer_anchor_end` | `AskResult.answer_document.slice(...)` | Where **in the answer** this citation applies, from the answer's annotation map. |
+
+None of them index `AskResult.answer` or `SourceFulltext.content`. `answer`
+carries markdown emphasis and the inline `[N]` markers the document does not;
+`content` is a legacy newline-joined rendering whose separators the backend
+never counted.
 
 ```python
-fulltext = await client.sources.get_fulltext(notebook_id, ref.source_id)
-matches = fulltext.find_citation_context(ref.cited_text)  # Returns list[(context, position)]
-
-if matches:
-    context, pos = matches[0]  # First match
-    if len(matches) > 1:
-        print(f"Warning: {len(matches)} matches found, using first")
-else:
-    context = None  # Not found - may occur if source was modified
+result = await client.chat.ask(notebook_id, question)
+for ref in result.references:
+    # Which part of the answer does this citation back? (None when the answer
+    # carried no anchor for it — slice() absorbs that and returns "".)
+    supported = result.answer_document.slice(
+        ref.answer_anchor_start, ref.answer_anchor_end
+    )
+    # ...and what does it quote from the source?
+    fulltext = await client.sources.get_fulltext(notebook_id, ref.source_id)
+    quoted = fulltext.document.slice(ref.start_char, ref.end_char)
+    # `quoted` and `ref.cited_text` normally agree; see the note below on when
+    # they don't.
 ```
+
+An `answer_anchor_*` pair is frequently zero-width — the backend anchors a
+citation at its `[N]` marker's insertion point rather than over a span — which
+is why it is named "anchor" rather than "range". A reference the answer did not
+annotate keeps `None` on both.
+
+> **Deprecated:** `answer_start_char` / `answer_end_char` were never answer-text
+> positions — they are the fragment's source-side range, and on one live capture
+> reported `[1130, 1695]` for that answer's *third* citation while the answer
+> itself was 536 characters. They remain aliases of `fragment_start_char` /
+> `fragment_end_char` through v1.0 and keep returning exactly what they always
+> did. Despite the shared prefix they are **not** the predecessor of
+> `answer_anchor_*`, which is a different coordinate space. See
+> [deprecations.md](deprecations.md).
+
+`cited_text` is what the fragment says, verbatim — every block's text
+concatenated. Before #2120 it stopped at the fragment's first block: 37
+characters of an available 556 in that same capture (a different citation from
+the `[1130, 1695]` one above). Its length equals `end_char - start_char` for an
+ordinary prose fragment, but comes out *short* when the fragment spans
+positions this client does not render as text, and can run a few characters
+*long* when a span's text length disagrees with its declared range. Use
+`document.slice(ref.start_char, ref.end_char)` when you need a string whose
+length is guaranteed — it pads and clips to the declared range; `cited_text` is
+the reading that stays readable.
+
+`SourceFulltext.find_citation_context()` remains for fuzzy lookup against the
+flat `content`, but prefer `document.slice()`: it is exact, and it needs no
+search.
 
 **Tip:** Cache `fulltext` when processing multiple citations from the same source to avoid repeated API calls.
 
@@ -2700,9 +2750,10 @@ class UserSettings:
 class SourceFulltext:
     source_id: str                     # UUID of the source
     title: str                         # Source title
-    content: str                       # Full indexed text content
+    content: str                       # Flat text (legacy rendering; see below)
     url: str | None                    # Original URL (if applicable)
-    char_count: int                    # Character count
+    char_count: int                    # len(content)
+    document: StructuredDocument       # Parsed document tree (#2128)
 
     @property
     def kind(self) -> SourceType:
@@ -2719,6 +2770,64 @@ class SourceFulltext:
 > **Removed in v0.5.0:** `SourceFulltext.source_type` was replaced by
 > `SourceFulltext.kind`. See
 > [stability.md → Removed in v0.5.0](stability.md#removed-in-v050).
+
+#### `content` vs `document`
+
+The backend returns a source's text as a `TailwindDoc` tree — headings, list
+structure, per-run styling, and a character offset on every node. `content` is
+the flat rendering of that tree this client has always produced: every text run
+joined with `"\n"` in traversal order. It is unchanged and will stay unchanged.
+It is also **not** the backend's coordinate space, because those joins insert
+separators the wire's offsets never accounted for, which is why a citation's
+`start_char` could never be used against it
+([#2128](https://github.com/teng-lin/notebooklm-py/issues/2128)).
+
+`document` is the same response parsed instead of flattened. It costs no extra
+request, and it is populated for both `output_format` values — that flag picks
+which flat rendering fills `content`, not what the payload contains:
+
+```python
+fulltext = await client.sources.get_fulltext(notebook_id, source_id)
+ref = (await client.chat.ask(notebook_id, question)).references[0]
+
+for block in fulltext.document.blocks:
+    if block.heading_level:
+        print("#" * block.heading_level, block.text)
+    elif block.is_list_item:
+        print(f"{'  ' * block.list_info.nesting_level}{block.list_info.glyph} {block.text}")
+    else:
+        print(block.text)
+
+# The coordinate space citations index:
+fulltext.document.slice(ref.start_char, ref.end_char)
+```
+
+`StructuredDocument` exposes `blocks` (`DocumentBlock`: `start_index`,
+`end_index`, `spans`, `style`, `list_info`, `kind`), `annotations`
+(`DocumentAnnotation`: `object_id`, `start_index`, `end_index`), `text`,
+`slice()` and `annotations_for()`. Each `TextSpan` carries its own range plus
+`bold` / `italic` / `underline` / `url`.
+
+`text` is laid out at the backend's own offsets, so `slice(n, m)` is exactly
+what the backend meant by `[n, m)`. Positions the document occupies but whose
+text this client cannot render carry `"\ufffc"` (OBJECT REPLACEMENT CHARACTER,
+the same placeholder Google's own document APIs use) rather than collapsing —
+collapsing them is what would pull every later character out of alignment. Use
+`block.text` when you want only what actually decoded.
+
+> **Use `slice()`, not `text[n:m]`.** Every offset on the wire is a **UTF-16
+> code unit** — the JavaScript convention — while Python indexes code points.
+> The two agree until the document's first astral character and then differ by
+> one position per such character, so an answer containing a single emoji makes
+> plain indexing return neighbouring text from there on. `slice()` does the
+> translation; `notebooklm.types.utf16_len()` is exported for callers doing
+> their own offset arithmetic.
+
+Tables *are* decoded — their cell text is flattened into the table block's
+spans, so an infobox does not become filler. `BlockKind` tells you what any
+remaining filler is: `IMAGE` and `HORIZONTAL_RULE` genuinely carry no text,
+while `CODE_BLOCK` and `THOUGHT` carry text on the wire that this client does
+not decode yet.
 
 **Type Identification:**
 

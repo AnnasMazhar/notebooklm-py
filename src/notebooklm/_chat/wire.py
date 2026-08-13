@@ -12,7 +12,7 @@ import logging
 import math
 import re
 import reprlib
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, NoReturn, Protocol
 from urllib.parse import quote, urlencode
 
@@ -23,9 +23,14 @@ from .._row_adapters.chat import (
     CitationDetail,
     CitationRow,
     ErrorPayloadRow,
-    PassageRow,
     StreamFrameRow,
-    TextLeafRow,
+)
+from .._row_adapters.documents import build_blocks
+from .._types.documents import (
+    DocumentAnnotation,
+    StructuredDocument,
+    _utf16_slice,
+    utf16_len,
 )
 from ..exceptions import ChatError, ChatResponseParseError, UnknownRPCMethodError
 from ..rpc._safe_index import safe_index
@@ -85,6 +90,30 @@ class StreamingChatParseResult:
     answer: str
     references: list[ChatReference]
     conversation_id: str | None
+    #: The winning answer row's own document — its paragraphs plus the
+    #: annotation map that anchored each reference's ``answer_anchor_*`` range
+    #: (#2120). Empty when no chunk carried a decodable document.
+    answer_document: StructuredDocument = field(default_factory=StructuredDocument)
+
+
+@dataclass(frozen=True)
+class _ChunkExtraction:
+    """One streamed chunk's decoded contents, internal to this module.
+
+    Replaces the 6-tuple the chunk extractor used to return: the answer
+    document added by #2120 would have made it a 7-tuple whose positions no
+    reader could keep straight. Every field defaults to its "nothing here"
+    value so the several early-return paths (undecodable JSON, non-list
+    payload, no usable answer row) each name only what they actually know.
+    """
+
+    text: str | None = None
+    is_answer: bool = False
+    references: list[ChatReference] = field(default_factory=list)
+    conversation_id: str | None = None
+    parseable: bool = False
+    suggests_drift: bool = False
+    document: StructuredDocument = field(default_factory=StructuredDocument)
 
 
 def build_streaming_chat_request(
@@ -177,29 +206,37 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
     best_marked_refs: list[ChatReference] = []
     best_unmarked_answer = ""
     best_unmarked_refs: list[ChatReference] = []
+    best_marked_document = StructuredDocument()
+    best_unmarked_document = StructuredDocument()
     saw_drift_signal = False
     server_conv_id: str | None = None
     parseable_chunk_count = 0
 
     def process_chunk(json_str: str) -> None:
         """Process a JSON chunk, updating best answer candidates and their refs."""
-        nonlocal best_marked_answer, best_marked_refs
-        nonlocal best_unmarked_answer, best_unmarked_refs, saw_drift_signal
-        nonlocal server_conv_id, parseable_chunk_count
-        text, is_answer, refs, conv_id, parseable, suggests_drift = _extract_chunk_with_parseable(
-            json_str
+        nonlocal best_marked_answer, best_marked_refs, best_marked_document
+        nonlocal best_unmarked_answer, best_unmarked_refs, best_unmarked_document
+        nonlocal saw_drift_signal, server_conv_id, parseable_chunk_count
+        chunk = _extract_chunk_with_parseable(json_str)
+        text, is_answer, refs, conv_id = (
+            chunk.text,
+            chunk.is_answer,
+            chunk.references,
+            chunk.conversation_id,
         )
-        if parseable:
+        if chunk.parseable:
             parseable_chunk_count += 1
         if text:
             if is_answer and len(text) > len(best_marked_answer):
                 best_marked_answer = text
                 best_marked_refs = refs
+                best_marked_document = chunk.document
             elif not is_answer:
-                saw_drift_signal |= suggests_drift
+                saw_drift_signal |= chunk.suggests_drift
                 if len(text) > len(best_unmarked_answer):
                     best_unmarked_answer = text
                     best_unmarked_refs = refs
+                    best_unmarked_document = chunk.document
         if conv_id:
             server_conv_id = conv_id
 
@@ -233,6 +270,7 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
     if best_marked_answer:
         longest_answer = best_marked_answer
         final_refs = best_marked_refs
+        final_document = best_marked_document
     elif best_unmarked_answer:
         if saw_drift_signal:
             logger.warning(
@@ -242,9 +280,11 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
             )
         longest_answer = best_unmarked_answer
         final_refs = best_unmarked_refs
+        final_document = best_unmarked_document
     else:
         longest_answer = ""
         final_refs = []
+        final_document = StructuredDocument()
 
     if not longest_answer:
         logger.warning(
@@ -266,7 +306,7 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
         for idx, ref in enumerate(final_refs, start=1)
     ]
 
-    return StreamingChatParseResult(longest_answer, final_refs, server_conv_id)
+    return StreamingChatParseResult(longest_answer, final_refs, server_conv_id, final_document)
 
 
 def extract_answer_and_refs_from_chunk(
@@ -279,20 +319,17 @@ def extract_answer_and_refs_from_chunk(
     parser's "zero parseable chunks" detection and is not part of this
     module's outward-facing contract.
     """
-    text, is_answer, refs, conv_id, _parseable, _suggests_drift = _extract_chunk_with_parseable(
-        json_str
-    )
-    return text, is_answer, refs, conv_id
+    chunk = _extract_chunk_with_parseable(json_str)
+    return chunk.text, chunk.is_answer, chunk.references, chunk.conversation_id
 
 
-def _extract_chunk_with_parseable(
-    json_str: str,
-) -> tuple[str | None, bool, list[ChatReference], str | None, bool, bool]:
+def _extract_chunk_with_parseable(json_str: str) -> _ChunkExtraction:
     """Extract answer/refs/conv-id from one chunk and report wire-format parseability.
 
-    The 5th element is True iff at least one ``wrb.fr`` envelope was
-    found AND its inner JSON decoded successfully — regardless of whether
-    any answer text was extracted. The 6th is the selected row's
+    :attr:`~_ChunkExtraction.parseable` is True iff at least one ``wrb.fr``
+    envelope was found AND its inner JSON decoded successfully — regardless of
+    whether any answer text was extracted.
+    :attr:`~_ChunkExtraction.suggests_drift` is the selected row's
     :attr:`~notebooklm._row_adapters.chat.AnswerRow.suggests_wire_drift` verdict:
     whether an unmarked row looks like drift rather than a deliberate empty
     answer. Together these let the streaming parser distinguish two failure
@@ -306,10 +343,10 @@ def _extract_chunk_with_parseable(
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError:
-        return None, False, refs, None, False, False
+        return _ChunkExtraction(references=refs)
 
     if not isinstance(data, list):
-        return None, False, refs, None, False, False
+        return _ChunkExtraction(references=refs)
 
     parseable = False
     for item in data:
@@ -414,14 +451,16 @@ def _extract_chunk_with_parseable(
                 if text is None:
                     continue
 
-                refs = parse_citations(first)
-                return (
-                    text,
-                    answer.is_answer,
-                    refs,
-                    answer.server_conversation_id,
-                    parseable,
-                    answer.suggests_wire_drift,
+                document = answer.document
+                refs = parse_citations(first, document)
+                return _ChunkExtraction(
+                    text=text,
+                    is_answer=answer.is_answer,
+                    references=refs,
+                    conversation_id=answer.server_conversation_id,
+                    parseable=parseable,
+                    suggests_drift=answer.suggests_wire_drift,
+                    document=document,
                 )
         # inner_json decoded but the record didn't yield usable answer data
         # — either the outer ``isinstance(inner_data, list) and len > 0``
@@ -433,7 +472,7 @@ def _extract_chunk_with_parseable(
         # heartbeats-only stream surfaces as "empty answer" rather than
         # "API drift" / ``ChatResponseParseError``.
 
-    return None, False, refs, None, parseable, False
+    return _ChunkExtraction(references=refs, parseable=parseable)
 
 
 def _raise_chat_rejection(error_payload: list) -> NoReturn:
@@ -509,7 +548,7 @@ def raise_if_rate_limited(error_payload: list) -> None:
         )
 
 
-def parse_citations(first: list) -> list[ChatReference]:
+def parse_citations(first: list, document: StructuredDocument | None = None) -> list[ChatReference]:
     """Parse citation details from a streamed-chat response structure.
 
     Absence-vs-malformed policy (#1505 continuity). Citations are *secondary*
@@ -544,6 +583,12 @@ def parse_citations(first: list) -> list[ChatReference]:
     skipped, raw ordinals equal the dense numbering this parser always
     produced. The final assignment in :func:`parse_streaming_chat_response`
     preserves non-``None`` numbers, so the ordinals survive unchanged.
+
+    ``document`` is the answer row's own parsed document, supplying the
+    annotation map that stamps each survivor's answer-side range (#2120). The
+    stream parser has already built it and passes it in rather than paying for
+    a second parse of the same tree; omit it and this function parses the
+    document itself.
 
     The pre-hardening behavior swallowed *every* citation drift at DEBUG and
     returned ``[]`` — a Google reshape degraded to "answers with no
@@ -589,7 +634,14 @@ def parse_citations(first: list) -> list[ChatReference]:
         # answer's literal [N] markers point at raw positions, so a skipped
         # row must leave a hole rather than shift survivors onto wrong markers.
         refs.append(replace(ref, citation_number=raw_idx))
-    return refs
+    # Join the answer document's annotation map onto the surviving refs, by
+    # object id rather than by position, so a skipped row cannot shift an
+    # answer range onto its neighbour (#2120). The stream parser has already
+    # built the document for its own use and passes it in; a direct caller gets
+    # it parsed here.
+    if document is None:
+        document = AnswerRow(first).document
+    return attach_answer_anchors(refs, document)
 
 
 def parse_single_citation(cite: Any) -> ChatReference | None:
@@ -610,7 +662,7 @@ def parse_single_citation(cite: Any) -> ChatReference | None:
     chunk_id = row.chunk_id
 
     cited_text, start_char, end_char = extract_text_passages(cite_inner)
-    answer_start_char, answer_end_char = extract_answer_range(cite_inner)
+    fragment_start_char, fragment_end_char = extract_fragment_range(cite_inner)
     score = extract_score(cite_inner)
 
     return ChatReference(
@@ -619,28 +671,35 @@ def parse_single_citation(cite: Any) -> ChatReference | None:
         start_char=start_char,
         end_char=end_char,
         chunk_id=chunk_id,
-        answer_start_char=answer_start_char,
-        answer_end_char=answer_end_char,
+        fragment_start_char=fragment_start_char,
+        fragment_end_char=fragment_end_char,
         score=score,
     )
 
 
-def extract_answer_range(cite_inner: list) -> tuple[int | None, int | None]:
-    """Extract the answer-text range that this citation supports.
+def extract_fragment_range(cite_inner: list) -> tuple[int | None, int | None]:
+    """Extract the cited fragment's **source-side** character range.
 
-    The server emits ``cite_inner[3] = [[None, answer_start, answer_end]]``
-    pointing at the span of the answer string the citation backs. This is
-    distinct from the source-side range in ``cite_inner[4]``.
+    The server emits ``cite_inner[3] = [[None, start, end]]``: the union of
+    every element range in the fragment at ``cite_inner[4][0]``, in the same
+    coordinate space as ``start_char`` / ``end_char``.
+
+    It is *not* an answer-text range. This client exposed it as
+    ``answer_start_char`` / ``answer_end_char`` and documented it as one until
+    #2120; a live capture on a 536-character answer returned ``[1130, 1695]``
+    for its third citation, and that value equalled the union of that
+    fragment's ten element ranges. The answer-side range comes from the answer
+    document's annotation map instead — see :func:`attach_answer_anchors`.
 
     Returns ``(None, None)`` if either position is missing, not an int,
     a bool, negative, or if ``end < start`` — the two positions are
     semantically paired and one without the other is meaningless to
     downstream consumers.
     """
-    # ``CitationDetail.answer_range`` centralises the ``cite_inner[3][0]``
+    # ``CitationDetail.fragment_range`` centralises the ``cite_inner[3][0]``
     # descent (``[None, start, end]``) and returns ``(None, None)`` for every
     # malformed shape the old inline guards rejected (issue #1491).
-    start, end = CitationDetail(cite_inner).answer_range()
+    start, end = CitationDetail(cite_inner).fragment_range()
     # bool is an int subclass in Python; reject it explicitly. Treat positions
     # as paired — one without the other (or invalid ordering) is unusable.
     if (
@@ -679,68 +738,148 @@ def extract_score(cite_inner: list) -> float | None:
 
 
 def extract_text_passages(cite_inner: list) -> tuple[str | None, int | None, int | None]:
-    """Extract cited text and character positions from citation data.
+    """Extract the cited fragment's text and its source-side character range.
 
-    ``start_char`` and ``end_char`` are treated as a semantically paired range:
-    if exactly one is present after walking all passages, both are dropped to
-    ``None`` so the downstream :class:`ChatReference` paired-offset invariant
-    never trips on a half-populated source range. The cited text (if any) is
-    still returned.
+    The fragment lives two levels down, at ``cite_inner[4][0]``:
+    ``cite_inner[4]`` is the ``TailwindDocFragment`` *message*, and its
+    ``elements`` list is one level below that. Before #2120 the descent stopped
+    at ``cite_inner[4]``, so the loop iterated the single wrapper instead of the
+    fragment's blocks and ``cited_text`` was truncated to whatever the first
+    block held — 37 of 556 characters in the live capture that motivated the
+    fix.
+
+    Both levels of that fix had to land together. Descending to
+    ``cite_inner[4][0]`` while still unwrapping each element's ``[0]`` (the
+    pre-#2120 ``PassageRow`` behaviour) makes things strictly *worse* rather
+    than better: an element's ``[0]`` is its ``startIndex`` — an ``int``, not a
+    nested record — so every element fails the well-formedness check, all are
+    skipped, and ``cited_text`` becomes ``None`` for every citation. The
+    elements are ``StructuralElement`` rows and are decoded as such, by the
+    document adapters shared with the source-content path (#2128).
+
+    ``cited_text`` is what the fragment actually says: its blocks' text
+    concatenated, with no separators, no stripping and no filler. It is
+    deliberately *not* read back through
+    :meth:`~notebooklm.types.StructuredDocument.slice`, which pads undecoded
+    positions — the right trade for "what is at these offsets", the wrong one
+    for "what did the model quote", where a run of placeholder characters is
+    worse than a shorter string.
+
+    **Its length is not a contract, and no string here is a length oracle.**
+    It equals ``end_char - start_char`` only for an all-prose, all-BMP
+    fragment, and diverges three ways otherwise: it counts Python characters
+    where the range counts UTF-16 code units (an astral character costs one);
+    it runs short when the fragment spans positions this client does not render
+    as text (see :class:`~notebooklm.types.BlockKind`); and it can run long
+    because nothing forces a span's text length to match its declared range —
+    this repo's own VCR cassettes induce exactly that by scrubbing names to a
+    fixed-width placeholder without adjusting the recorded offsets. When the
+    width matters, take it from ``end_char - start_char``; ``document.slice()``
+    returns exactly that range, but it too counts Python characters, so it is
+    ``utf16_len()`` of the slice that equals the range, never ``len()``.
+    ``None`` when the fragment decoded no blocks at all (a structural-anchor
+    citation).
+
+    ``start_char`` / ``end_char`` span the whole fragment — the union of every
+    block's range, independently derived from the same blocks the server's own
+    ``cite_inner[3]`` union covers — and are treated as a semantically paired
+    range, so a fragment with no usable blocks reports ``(None, None)`` rather
+    than a half-populated range the :class:`ChatReference` invariant would
+    reject.
     """
-    # ``CitationDetail.passages`` centralises the ``cite_inner[4]`` descent and
-    # ``PassageRow`` the per-passage ``passage_wrapper[0]`` / ``passage_data[0..2]``
-    # reads (issue #1491); absent/short shapes degrade to ``[]`` / ``None``.
-    texts: list[str] = []
-    start_char: int | None = None
-    end_char: int | None = None
+    # ``CitationDetail.fragment_elements`` centralises the two-level
+    # ``cite_inner[4][0]`` descent; ``build_blocks`` owns the per-element
+    # ``[startIndex, endIndex, paragraph]`` reads.
+    blocks = build_blocks(CitationDetail(cite_inner).fragment_elements)
+    if not blocks:
+        return None, None, None
 
-    for passage_wrapper in CitationDetail(cite_inner).passages:
-        passage = PassageRow(passage_wrapper)
-        if not passage.is_well_formed:
+    # The union of the blocks' ranges — the same quantity the server declares
+    # at ``cite_inner[3]``, computed independently so the two can be compared.
+    start_char = min(block.start_index for block in blocks)
+    end_char = max(block.end_index for block in blocks)
+    # Merge by offset, trimming what an earlier block already covered — the
+    # same rule the structured-document layout applies, rather than a fourth
+    # mechanism. Overlapping blocks would otherwise be concatenated whole,
+    # yielding a cited_text wider than the range it reports (and, downstream, a
+    # save-as-note local passage wider than its own source span). Genuine gaps
+    # stay omitted: this is the readable value, not the offset-faithful one.
+    cited_text = ""
+    cursor = start_char
+    for block in blocks:
+        if block.end_index <= cursor:
             continue
-
-        if start_char is None and isinstance(passage.start_char, int):
-            start_char = passage.start_char
-        if isinstance(passage.end_char, int):
-            end_char = passage.end_char
-
-        collect_texts_from_nested(passage.text_payload, texts)
-
-    cited_text = " ".join(texts) if texts else None
-    # Drop a half-populated range so the ChatReference invariant accepts it.
-    # Also reject an inverted range (end before start) for the same reason.
-    if (
-        (start_char is None) != (end_char is None)
-        or start_char is not None
-        and end_char is not None
-        and start_char > end_char
-    ):
-        start_char = None
-        end_char = None
-    return cited_text, start_char, end_char
+        text = block.text
+        if block.start_index < cursor:
+            text = _utf16_slice(text, cursor - block.start_index, utf16_len(text))
+        cited_text += text
+        cursor = block.end_index
+    return (cited_text or None), start_char, end_char
 
 
-def collect_texts_from_nested(nested: Any, texts: list[str]) -> None:
-    """Collect text strings from deeply nested passage structure."""
-    if not isinstance(nested, list):
-        return
+def attach_answer_anchors(
+    refs: list[ChatReference], document: StructuredDocument
+) -> list[ChatReference]:
+    """Stamp each reference with the answer range its citation supports (#2120).
 
-    for nested_group in nested:
-        if not isinstance(nested_group, list):
+    The answer's own document carries an annotation map — ``Body``'s
+    ``inlineObjectLocations`` — whose entries pair a document-object id with a
+    range of the answer. That object id is the citation's own
+    ``DocumentObject.objectId``, which this client already surfaces as
+    ``ChatReference.chunk_id``, so the join is by id rather than by position:
+    a skipped malformed citation cannot silently shift a range onto its
+    neighbour.
+
+    Ranges index ``document.text``, **not** the answer string — the answer
+    carries markdown emphasis and inline ``[N]`` markers the document does not.
+    A reference with no matching annotation keeps ``None`` on both fields.
+    When one object id carries several annotations (the backend may anchor a
+    citation in more than one place), the first in document order wins; the
+    full set stays available via
+    :meth:`~notebooklm.types.StructuredDocument.annotations_for`.
+
+    Never mutates its inputs. Returns a fresh list when there is anything to
+    stamp; an empty annotation map short-circuits and hands back the caller's
+    own list, so the common "answer without a document" path allocates nothing.
+    """
+    if not document.annotations:
+        return refs
+    # Only anchors the decoded document can actually resolve. An annotation
+    # whose range runs past the document's own extent is ordered and
+    # non-negative — so it survives ``AnnotationEntryRow`` — but resolving it
+    # yields an empty or truncated string, which reaches the caller as a
+    # citation anchored to nothing rather than as the absent anchor it is.
+    # ``None`` on both fields is the honest report (#2120).
+    extent = utf16_len(document.text)
+    by_object_id: dict[str, DocumentAnnotation] = {}
+    for entry in document.annotations:
+        if entry.end_index > extent:
+            logger.warning(
+                "Answer annotation for %s claims [%d, %d) beyond the answer "
+                "document's %d-unit extent; leaving the reference unanchored [%s]",
+                entry.object_id,
+                entry.start_index,
+                entry.end_index,
+                extent,
+                _CITATION_SOURCE,
+            )
             continue
-        for inner in nested_group:
-            # ``TextLeafRow`` centralises the ``inner[2]`` text-payload read and
-            # the ``len(inner) >= 3`` well-formedness guard (issue #1491).
-            leaf = TextLeafRow(inner)
-            if not leaf.is_well_formed:
-                continue
-            text_val = leaf.text_value
-            if isinstance(text_val, str) and text_val.strip():
-                texts.append(text_val.strip())
-            elif isinstance(text_val, list):
-                for item in text_val:
-                    if isinstance(item, str) and item.strip():
-                        texts.append(item.strip())
+        by_object_id.setdefault(entry.object_id, entry)
+
+    stamped: list[ChatReference] = []
+    for ref in refs:
+        anchor = by_object_id.get(ref.chunk_id) if ref.chunk_id else None
+        if anchor is None:
+            stamped.append(ref)
+            continue
+        stamped.append(
+            replace(
+                ref,
+                answer_anchor_start=anchor.start_index,
+                answer_anchor_end=anchor.end_index,
+            )
+        )
+    return stamped
 
 
 def extract_uuid_from_nested(data: Any, max_depth: int = 10) -> str | None:

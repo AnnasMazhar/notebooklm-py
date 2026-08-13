@@ -161,13 +161,18 @@ def notebook_viewed_keys(notebook: Notebook) -> dict[str, str | None]:
 
 
 def ask_result_view(result: AskResult) -> dict[str, Any]:
-    """Serialize an ``AskResult``, dropping the internal ``raw_response`` blob.
+    """Serialize an ``AskResult``, dropping the two context-burning blobs.
 
-    ``raw_response`` is a debug-only truncated wire dump that just burns agent
-    context; it is omitted from the wire on every adapter (the field stays on the
-    dataclass for local debugging). Callers that want a trimmed ``references``
-    projection apply it on top of this base dict.
+    ``raw_response`` is a debug-only truncated wire dump; ``answer_document``
+    (#2120) restates the answer as a block tree these agent-facing surfaces do
+    not consume and would roughly double every payload. Both are omitted from
+    the wire on every adapter — the fields stay on the dataclass for local use.
+    The answer-side citation offsets survive the trim: they ride on each
+    ``ChatReference`` as ``answer_anchor_start`` / ``answer_anchor_end``.
+    Callers that want a trimmed ``references`` projection apply it on top of
+    this base dict.
     """
     payload = to_jsonable(result)
     payload.pop("raw_response", None)
+    payload.pop("answer_document", None)
     return payload

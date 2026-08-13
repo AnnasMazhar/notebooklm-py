@@ -25,10 +25,8 @@ from notebooklm._row_adapters.chat import (
     CitationRow,
     ConversationTurnRow,
     ErrorPayloadRow,
-    PassageRow,
     SavedChatNoteRow,
     StreamFrameRow,
-    TextLeafRow,
     unwrap_chat_settings,
     unwrap_conversation_turns,
     unwrap_last_conversation_id,
@@ -51,7 +49,8 @@ class TestAnswerRowPositionContract:
             AnswerRow._ANSWER_MARKER_POS,
             AnswerRow._CITATIONS_POS,
             AnswerRow._ANSWER_MARKER_VALUE,
-        ) == (0, 2, 3, 4, 4, 3, 1)
+            AnswerRow._DOC_BODY_POS,
+        ) == (0, 2, 3, 4, 4, 3, 1, 0)
 
 
 class TestCitationPositionContract:
@@ -61,20 +60,16 @@ class TestCitationPositionContract:
     def test_citation_detail_positions_pinned(self) -> None:
         assert (
             CitationDetail._SCORE_POS,
-            CitationDetail._ANSWER_RANGE_POS,
-            CitationDetail._PASSAGES_POS,
+            CitationDetail._FRAGMENT_RANGE_POS,
+            CitationDetail._FRAGMENT_POS,
             CitationDetail._SOURCE_ID_POS,
-            CitationDetail._ANSWER_RANGE_START_POS,
-            CitationDetail._ANSWER_RANGE_END_POS,
+            CitationDetail._FRAGMENT_RANGE_START_POS,
+            CitationDetail._FRAGMENT_RANGE_END_POS,
         ) == (2, 3, 4, 5, 1, 2)
 
-    def test_passage_row_positions_pinned(self) -> None:
-        assert (
-            PassageRow._PASSAGE_DATA_POS,
-            PassageRow._START_POS,
-            PassageRow._END_POS,
-            PassageRow._TEXT_PAYLOAD_POS,
-        ) == (0, 0, 1, 2)
+    def test_fragment_elements_position_pinned(self) -> None:
+        """The second level of the #2120 descent — the one that was missing."""
+        assert CitationDetail._FRAGMENT_ELEMENTS_POS == 0
 
 
 class TestFramePositionContract:
@@ -88,9 +83,6 @@ class TestFramePositionContract:
 
     def test_error_payload_positions_pinned(self) -> None:
         assert (ErrorPayloadRow._STATUS_POS, ErrorPayloadRow._ENTRIES_POS) == (0, 2)
-
-    def test_text_leaf_positions_pinned(self) -> None:
-        assert TextLeafRow._TEXT_POS == 2
 
 
 class TestConversationTurnPositionContract:
@@ -218,69 +210,76 @@ class TestCitationRow:
 
 
 class TestCitationDetail:
-    def test_score_passages_source_id(self) -> None:
-        detail = CitationDetail([None, None, 0.75, None, [["p"]], ["src-data"]])
+    def test_score_fragment_source_id(self) -> None:
+        raw = [None, None, 0.75, None, [[["p"]]], ["src-data"]]
+        detail = CitationDetail(raw)
         assert detail.raw_score == 0.75
-        assert detail.passages == [["p"]]
+        assert detail.fragment_elements == [["p"]]
         assert detail.source_id_data == ["src-data"]
-        assert detail.raw_list == [None, None, 0.75, None, [["p"]], ["src-data"]]
+        assert detail.raw_list == raw
 
-    def test_answer_range_reads_inner_triple(self) -> None:
+    def test_fragment_range_reads_inner_triple(self) -> None:
         detail = CitationDetail([None, None, None, [[None, 5, 9]]])
-        assert detail.answer_range() == (5, 9)
+        assert detail.fragment_range() == (5, 9)
 
     @pytest.mark.parametrize(
         "raw",
         [
-            [None, None, None],  # too short for answer-range slot
+            [None, None, None],  # too short for the range slot
             [None, None, None, []],  # empty outer
             [None, None, None, ["not-a-list"]],  # inner not a list
             [None, None, None, [[None, 5]]],  # inner too short
         ],
     )
-    def test_answer_range_degrades_to_none_none(self, raw: list) -> None:
-        assert CitationDetail(raw).answer_range() == (None, None)
+    def test_fragment_range_degrades_to_none_none(self, raw: list) -> None:
+        assert CitationDetail(raw).fragment_range() == (None, None)
 
     def test_short_detail_degrades(self) -> None:
         detail = CitationDetail([None, None])
         assert detail.raw_score is None
-        assert detail.passages == []
+        assert detail.fragment_elements == []
         assert detail.source_id_data is None
 
 
 # ---------------------------------------------------------------------------
-# 4. PassageRow
+# 4. CitationDetail.fragment_elements (the #2120 two-level descent)
 # ---------------------------------------------------------------------------
 
 
-class TestPassageRow:
-    def test_unwraps_wrapper_and_reads_start_end_text(self) -> None:
-        passage = PassageRow([[10, 20, [["text"]]]])
-        assert passage.is_well_formed is True
-        assert passage.start_char == 10
-        assert passage.end_char == 20
-        assert passage.text_payload == [["text"]]
+class TestCitationDetailFragment:
+    def test_descends_through_the_fragment_message_to_its_elements(self) -> None:
+        """``cite_inner[4]`` is the message; ``[4][0]`` is the element list."""
+        detail = CitationDetail([None, None, None, None, [[[10, 20, "para"]]]])
+        assert detail.fragment_elements == [[10, 20, "para"]]
 
     @pytest.mark.parametrize(
-        "raw",
+        "fragment",
         [
-            [],  # empty wrapper
-            ["not-a-list"],  # inner not a list
-            [[10, 20]],  # inner too short (< 3)
-            "not-a-list",
-            None,
+            [],  # message present but empty
+            "not-a-list",  # message slot is not a list
+            [None],  # elements slot is null
+            ["not-a-list"],  # elements slot is not a list
         ],
+        ids=["empty-message", "non-list-message", "null-elements", "non-list-elements"],
     )
-    def test_malformed_wrapper_degrades(self, raw: object) -> None:
-        passage = PassageRow(raw)
-        assert passage.is_well_formed is False
-        assert passage.start_char is None
-        assert passage.end_char is None
-        assert passage.text_payload is None
+    def test_malformed_fragment_degrades_to_empty(self, fragment: object) -> None:
+        assert CitationDetail([None, None, None, None, fragment]).fragment_elements == []
+
+    def test_annotation_join_key_is_read_from_the_document_object(self) -> None:
+        """``Citation.objectId`` at ``cite_inner[6]`` is deliberately not read.
+
+        It repeats the id the enclosing ``DocumentObject`` already carries at
+        ``cite[0][0]``, which is the one this client surfaces as ``chunk_id``
+        and joins the answer annotation map on (#2120). Pinned so a future
+        reader does not "restore" the redundant accessor.
+        """
+        cite = [["obj-1"], [None, None, None, None, None, None, ["obj-1"]]]
+        assert CitationRow(cite).chunk_id == "obj-1"
+        assert not hasattr(CitationDetail(cite[1]), "object_id")
 
 
 # ---------------------------------------------------------------------------
-# 5. StreamFrameRow / ErrorPayloadRow / TextLeafRow
+# 5. StreamFrameRow / ErrorPayloadRow
 # ---------------------------------------------------------------------------
 
 
@@ -343,19 +342,6 @@ class TestErrorPayloadRow:
     @pytest.mark.parametrize("entry", [[], [123], "x", None])
     def test_non_string_entry_type_is_none(self, entry: object) -> None:
         assert ErrorPayloadRow.entry_type(entry) is None
-
-
-class TestTextLeafRow:
-    def test_reads_text_value(self) -> None:
-        leaf = TextLeafRow([0, 1, "hello"])
-        assert leaf.is_well_formed is True
-        assert leaf.text_value == "hello"
-
-    @pytest.mark.parametrize("raw", [[], [0, 1], "x", None])
-    def test_short_or_non_list_degrades(self, raw: object) -> None:
-        leaf = TextLeafRow(raw)
-        assert leaf.is_well_formed is False
-        assert leaf.text_value is None
 
 
 # ---------------------------------------------------------------------------

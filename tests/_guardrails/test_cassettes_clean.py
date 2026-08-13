@@ -34,7 +34,16 @@ pytestmark = pytest.mark.repo_lint
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHECKER = REPO_ROOT / "tests" / "scripts" / "check_cassettes_clean.py"
-FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures"
+#: Every directory that holds committed response fixtures. ``tests/fixtures``
+#: was the only one scanned until #2120 landed live-captured payloads in
+#: ``tests/unit/fixtures`` — a directory the CI secrets step did not cover, and
+#: whose first new fixture arrived carrying signed Google download URLs and a
+#: Drive capability token. Adding a fixture directory means adding it here.
+FIXTURE_DIRS = (
+    REPO_ROOT / "tests" / "fixtures",
+    REPO_ROOT / "tests" / "unit" / "fixtures",
+)
+FIXTURES_DIR = FIXTURE_DIRS[0]
 # Deliberately-unscrubbed fixture used as a positive control (a real-looking
 # ``SID`` cookie value beginning with ``S`` — the exact shape the legacy
 # "starts with S" heuristic missed; see the file's own header comment).
@@ -65,17 +74,25 @@ def test_all_cassettes_clean_strict_recursive() -> None:
     )
 
 
-def test_fixture_dirs_have_no_credential_shapes() -> None:
-    """No Google auth-token / API-key shapes anywhere under ``tests/fixtures``.
+@pytest.mark.parametrize("fixture_dir", FIXTURE_DIRS, ids=lambda d: d.name and str(d.parent.name))
+def test_fixture_dirs_have_no_credential_shapes(fixture_dir: Path) -> None:
+    """No Google auth-token / API-key shapes in any committed fixture directory.
 
-    Mirrors the CI ``--secrets-only --recursive tests/fixtures`` step. This
-    catches a credential shape smuggled into a non-cassette fixture (golden
-    ``.json`` / ``.html`` / ``.txt``) that the cassette-only ``.yaml`` scan
-    above would miss.
+    Mirrors the CI ``--secrets-only --recursive`` step. This catches a
+    credential shape smuggled into a non-cassette fixture (golden ``.json`` /
+    ``.html`` / ``.txt``) that the cassette-only ``.yaml`` scan above would
+    miss.
+
+    ``tests/unit/fixtures`` joined the sweep in #2120: it had never been
+    scanned, and the live-captured source payload added there arrived carrying
+    signed ``usercontent.google.com`` download URLs and a ``drive.google.com``
+    capability token in its descriptor row. Those are scrubbed now, but the
+    reason they survived review is that nothing was looking.
     """
-    result = _run_guard("--secrets-only", "--recursive", str(FIXTURES_DIR))
+    assert fixture_dir.is_dir(), f"fixture directory missing: {fixture_dir}"
+    result = _run_guard("--secrets-only", "--recursive", str(fixture_dir))
     assert result.returncode == 0, (
-        f"credential shape found under tests/fixtures:\n{result.stdout}\n{result.stderr}"
+        f"credential shape found under {fixture_dir}:\n{result.stdout}\n{result.stderr}"
     )
 
 
