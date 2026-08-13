@@ -2210,20 +2210,19 @@ effect of doing something else:
 | `notebooks.rename()` | Re-reads after the mutation to return the updated `Notebook`. |
 | `notebooks.create()` (CLI/MCP/REST path) | One best-effort re-read to backfill the timestamps `CREATE_NOTEBOOK` leaves null; skipped when both are already populated. |
 | `chat.get_settings()` | Chat config lives in the notebook payload. |
-| `sources.add_file()` | An **unconditional** pre-create baseline of existing source ids, on every call — the idempotency probe needs it to tell a source it created from one that was already there. |
-| `sources.add_url()` / `add_text()` / `add_drive()` | Only **on a retry**: their idempotency probe runs after a transport failure, not on the happy path. See the note below on `add_drive`. |
+| `sources.add_file()` / `add_drive()` | An **unconditional** pre-create baseline of existing source ids, on every call — the idempotency probe needs it to tell a source it created from one that was already there. |
+| `sources.add_url()` | Only **on a retry**: its idempotency probe runs after a transport failure, not on the happy path. (`add_text()` is `NON_IDEMPOTENT_NO_RETRY` and runs no probe at all, so it never bumps recency.) |
 | REST `POST /v1/notebooks/{id}/sources/batch` preflight | One shared existence/auth check before the per-URL loop. |
 
-> **Pending change — `sources.add_drive()`.**
-> [#2113](https://github.com/teng-lin/notebooklm-py/issues/2113) moves `add_drive`
-> from a retry-only probe to an **unconditional** pre-create baseline, the same
-> shape `add_file` already uses, because a Drive `documentId` turns out not to be
-> unique within a notebook (the repo's own cassette holds two source ids sharing
-> one `documentId`), so matching on `documentId` alone could return a
-> pre-existing copy and report success for a create that never landed. When that
-> lands, `add_drive` moves up a row: it will bump recency on **every** call rather
-> than only on a retry. The baseline is the correct fix — this table records the
-> recency cost it carries, not an objection to it.
+> **`sources.add_drive()` moved rows in
+> [#2113](https://github.com/teng-lin/notebooklm-py/issues/2113).** It used to
+> probe only on a retry; it now takes an **unconditional** pre-create baseline,
+> the same shape `add_file` already uses. A Drive `documentId` turns out not to
+> be unique within a notebook (the repo's own cassette holds two source ids
+> sharing one `documentId`), so matching on `documentId` alone could return a
+> pre-existing copy and report success for a create that never landed. The
+> baseline is the correct fix — this table records the recency cost it carries,
+> not an objection to it.
 
 Paths that issue `LIST_NOTEBOOKS` — listed for completeness, since they cost an
 RPC but, per the probe above, **do not perturb recency**: `notebooks.create()`
