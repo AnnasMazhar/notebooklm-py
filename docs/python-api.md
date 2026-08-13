@@ -2407,6 +2407,13 @@ class Source:
     status: SourceStatus                 # UNKNOWN when the wire status is missing or unmapped
     drive_document_id: Optional[str]     # Drive file id for Drive-backed sources; None otherwise
     drive_status: Optional[DriveSourceStatus]  # Drive-side health; None when the row makes no claim
+    download_url: Optional[str]          # Original uploaded file; None when unavailable
+    viewer_url: Optional[str]            # Drive viewer for the uploaded file; None when unavailable
+    content_mime: Optional[str]          # True MIME from the original-content blob descriptor
+    word_count: Optional[int]            # Inferred source word count
+    revision_id: Optional[str]           # Opaque source revision identifier
+    revision_timestamp: Optional[datetime]  # Timestamp paired with revision_id (tz-aware UTC)
+    last_modified_at: Optional[datetime] # Last source content update/refresh (tz-aware UTC)
 
     @property
     def kind(self) -> SourceType:
@@ -2431,6 +2438,18 @@ class Source:
 
 > **Removed in v0.5.0:** `Source.source_type` was replaced by `Source.kind`.
 > See [stability.md → Removed in v0.5.0](stability.md#removed-in-v050).
+
+Uploaded-file sources may carry `download_url`, `viewer_url`, and
+`content_mime`. These describe the retained original file, not the indexed text:
+`download_url` retrieves the original bytes, `viewer_url` opens the backend's
+Drive viewer, and `content_mime` is the MIME stored with that original-content
+blob. They are `None` for source kinds whose rows do not include that blob.
+
+`word_count`, `revision_id`, `revision_timestamp`, and `last_modified_at` expose
+metadata already returned by `GET_NOTEBOOK`. The slots and shapes are confirmed
+live, but the recovered mobile schema does not name them; `word_count`, the
+revision-handle interpretation, and the meaning of `last_modified_at` are
+therefore evidence-based names rather than recovered protobuf names.
 
 **Drive-backed sources: `is_ready` is not the whole story.**
 

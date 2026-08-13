@@ -932,6 +932,87 @@ UNREAD_SHARE_STATUS_SLOTS: dict[int, str] = {
 
 PINNED: tuple[Pinned, ...] = (
     Pinned(
+        "sources",
+        "SourceRow",
+        "_DOWNLOAD_URL_POS",
+        5,
+        "Source tag 6 — direct download URL for the original uploaded file",
+        "#2112: populated on 41/409 live source rows, always as a "
+        "contribution.usercontent.google.com/download URL; independently rechecked "
+        "on 27/305 rows across 12 notebooks",
+    ),
+    Pinned(
+        "sources",
+        "SourceRow",
+        "_VIEWER_URL_POS",
+        6,
+        "Source tag 7 — Drive viewer URL for the original uploaded file",
+        "#2112: populated alongside tag 6 on 41/409 live source rows, always as a "
+        "drive.google.com/viewer/upload URL; independently rechecked on 27/305 rows",
+    ),
+    Pinned(
+        "sources",
+        "SourceRow",
+        "_CONTENT_DESCRIPTOR_POS",
+        7,
+        "Source tag 8 — original-content blob descriptor",
+        "#2112: populated alongside tags 6/7 on 41/409 live rows with blobref, MIME, "
+        "and opaque token payload; independently rechecked on 27/305 rows",
+    ),
+    Pinned(
+        "sources",
+        "SourceRow",
+        "_CONTENT_DESCRIPTOR_MIME_POS",
+        2,
+        "Source tag-8 blob descriptor index 2 — true content MIME",
+        "#2112: non-null MIME (including text/markdown) on every one of the 41 rows "
+        "whose Source tag-8 descriptor was populated",
+    ),
+    Pinned(
+        "sources",
+        "SourceRow",
+        "_META_WORD_COUNT_POS",
+        1,
+        "SourceMetadata tag 2 — inferred source word/size count",
+        "#2114: populated on 409/409 sampled rows with values such as 1498, 4048, "
+        "and 116962; the word-count meaning is inferred from values and the confirmed "
+        "per-source word limit, not a recovered proto name",
+    ),
+    Pinned(
+        "sources",
+        "SourceRow",
+        "_META_REVISION_POS",
+        3,
+        "SourceMetadata tag 4 — inferred [revision id, timestamp] handle",
+        "#2114: populated on 409/409 sampled rows as [uuid, [seconds, nanos]]; the "
+        "revision meaning is inferred because the mobile schema marks the slot unused",
+    ),
+    Pinned(
+        "sources",
+        "SourceRow",
+        "_META_LAST_MODIFIED_POS",
+        14,
+        "SourceMetadata tag 15 — inferred last-modified timestamp",
+        "#2114: populated on 409/409 sampled rows as [seconds, nanos]; the temporal "
+        "meaning is inferred from live values rather than a recovered proto name",
+    ),
+    Pinned(
+        "sources",
+        "SourceRow",
+        "_REVISION_ID_POS",
+        0,
+        "SourceMetadata tag-4 revision handle index 0 — opaque revision UUID",
+        "#2114: 409/409 live revision handles used [uuid, [seconds, nanos]]",
+    ),
+    Pinned(
+        "sources",
+        "SourceRow",
+        "_REVISION_TIMESTAMP_POS",
+        1,
+        "SourceMetadata tag-4 revision handle index 1 — revision timestamp",
+        "#2114: 409/409 live revision handles used [uuid, [seconds, nanos]]",
+    ),
+    Pinned(
         "chat",
         "CitationDetail",
         "_FRAGMENT_RANGE_POS",

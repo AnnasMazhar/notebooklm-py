@@ -383,6 +383,38 @@ async def test_created_at_uses_shared_timestamp_parser() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_preserves_download_and_revision_metadata() -> None:
+    metadata: list[Any] = [None] * 15
+    metadata[1] = 4048
+    metadata[2] = [1704067200, 0]
+    metadata[3] = ["revision-id", [1704067300, 0]]
+    metadata[4] = 8
+    metadata[14] = [1704067400, 0]
+    entry = source_entry("src_enriched", metadata=metadata)
+    entry.extend(
+        [
+            None,
+            "https://contribution.usercontent.google.com/download?c=token",
+            "https://drive.google.com/viewer/upload?ds=token",
+            ["blobref", None, "text/markdown"],
+        ]
+    )
+    lister = SourceLister(RecordingRpc([["Notebook", [entry]]]))
+
+    [source] = await lister.list("nb_123")
+
+    assert source.download_url == "https://contribution.usercontent.google.com/download?c=token"
+    assert source.viewer_url == "https://drive.google.com/viewer/upload?ds=token"
+    assert source.content_mime == "text/markdown"
+    assert source.word_count == 4048
+    assert source.revision_id == "revision-id"
+    assert source.revision_timestamp is not None
+    assert int(source.revision_timestamp.timestamp()) == 1704067300
+    assert source.last_modified_at is not None
+    assert int(source.last_modified_at.timestamp()) == 1704067400
+
+
+@pytest.mark.asyncio
 async def test_get_filters_list_results() -> None:
     lister = SourceLister(
         RecordingRpc(
