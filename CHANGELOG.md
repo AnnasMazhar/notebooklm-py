@@ -224,8 +224,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`google.rpc.Status.message` is no longer discarded.** Index 1 of the
   rejection envelope is the only slot in which the *server* can state a reason;
   nothing in this client read it, on either the `batchexecute` or the streamed-chat
-  path. It is now read (defensively — a non-empty string only) and, when
-  present, leads the error message on both paths. **No captured response has
+  path. It is now read (defensively — a non-empty string only) and surfaced on
+  both. Only the rate-limit message *leads* with it; the decoder's bare-status
+  path and both streamed-chat sites APPEND it and keep the client-authored
+  guidance, because nobody has seen the slot populated and so there is no
+  evidence a server sentence would be as actionable as the advice it displaced. **No captured response has
   ever populated it**, so in practice users still see the client-authored
   wording; this changes what happens if the server ever does explain itself, and
   it records on the wire-contract registry that the slot is unobserved rather

@@ -94,8 +94,12 @@ LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY = (
 #: ``RETRY_ARTIFACT`` refused for an artifact id that does not exist.
 #:
 #: Provenance: live probe 2026-08-13, same session — ``retry_failed`` against
-#: ``"no-such-artifact-id"``. Code 5 is ``NOT_FOUND``. Nonce zeroed,
-#: width-preserved; the ``+2`` byte-count offset above holds here too.
+#: ``"no-such-artifact-id"``. Code 5 is ``NOT_FOUND``. The ``+2`` byte-count
+#: offset above holds here too (107 declared for 105 characters), enforced by
+#: ``TestLiveCapturedFraming``. The nonce is zeroed width-preservingly: this
+#: capture's was NEGATIVE (``-3683449295807497843``, 20 chars incl. the sign),
+#: so the placeholder keeps the sign and is 20 too — it is not a stray extra
+#: digit relative to the 19-char create placeholder.
 LIVE_RETRY_ARTIFACT_NOT_FOUND_BODY = (
     ")]}'\n\n"
     "107\n"
@@ -108,7 +112,10 @@ LIVE_RETRY_ARTIFACT_NOT_FOUND_BODY = (
 #: ``REVISE_SLIDE`` refused for an artifact id that does not exist.
 #:
 #: Provenance: live probe 2026-08-13, same session — ``revise_slide`` against
-#: ``"no-such-artifact-id"``. Code 5 is ``NOT_FOUND``.
+#: ``"no-such-artifact-id"``. Code 5 is ``NOT_FOUND``. The ``["di",87]`` /
+#: ``["af.httprm",86,…]`` pair genuinely disagrees by one in this capture while
+#: the other two fixtures repeat the same number — transcribed as received, and
+#: another reason not to tidy these bodies into looking uniform.
 LIVE_REVISE_SLIDE_NOT_FOUND_BODY = (
     ")]}'\n\n"
     "104\n"

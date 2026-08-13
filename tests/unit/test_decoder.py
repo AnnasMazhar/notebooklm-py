@@ -29,6 +29,8 @@ from notebooklm.rpc.types import RPCMethod
 from tests._fixtures.rpc_error_frames import (
     CREATE_ARTIFACT_METHOD_ID,
     LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY,
+    LIVE_RETRY_ARTIFACT_NOT_FOUND_BODY,
+    LIVE_REVISE_SLIDE_NOT_FOUND_BODY,
     USER_DISPLAYABLE_RATE_LIMIT_STATUS,
 )
 
@@ -1711,9 +1713,25 @@ class TestLiveCapturedFraming:
     exactly that.
     """
 
-    def test_declared_counts_exceed_the_payloads_by_two(self):
-        lines = LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY.split("\n")
-        # ")]}'", "", "104", <chunk>, "25", <trailer>, ""
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param(LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY, id="create_artifact"),
+            pytest.param(LIVE_RETRY_ARTIFACT_NOT_FOUND_BODY, id="retry_artifact"),
+            pytest.param(LIVE_REVISE_SLIDE_NOT_FOUND_BODY, id="revise_slide"),
+        ],
+    )
+    def test_declared_counts_exceed_the_payloads_by_two(self, body):
+        """All three captures show the same +2, on both chunks.
+
+        Parametrized over every live body after a reviewer hand-counted the
+        retry and revise chunks as +1 and asked for the comments to be
+        "corrected". They are +2; measuring beats counting, so the claim is now
+        enforced for each body instead of asserted for one and described for
+        the other two.
+        """
+        lines = body.split("\n")
+        # ")]}'", "", <count>, <chunk>, <count>, <trailer>, ""
         assert int(lines[2]) == len(lines[3]) + 2
         assert int(lines[4]) == len(lines[5]) + 2
 
@@ -1815,8 +1833,10 @@ class TestRaiseOnNullStatus:
     def test_recorded_swallowing_rpcs_are_declared(self):
         """The three RPCs observed doing this are on the record, not folklore.
 
-        Re-derived from tests/cassettes/ by the sweep in the #2188 PR: five
-        null-result ``wrb.fr`` frames across 397, on exactly these RPCs.
+        Re-derived from tests/cassettes/ by the sweep in the #2188 PR: 5
+        null-result frames out of 397, FOUR of which carry a batchexecute rpc
+        id — on exactly these three. (The fifth is the streamed-chat ``[3]``
+        from #1472, which has no rpc id and never reaches this decoder.)
         """
         assert set(_RPCS_OBSERVED_SWALLOWING_A_STATUS) == {
             RPCMethod.REMOVE_RECENTLY_VIEWED.value,
@@ -1881,6 +1901,37 @@ class TestRaiseOnNullStatus:
         message = str(exc_info.value)
         assert message.startswith("The server rejected this request (failed precondition).")
         assert message.endswith("This notebook has no sources yet")
+
+    def test_a_later_frames_status_is_not_hidden_by_an_earlier_one(self):
+        """Multi-frame ``rt=c``: an unclassifiable placeholder must not shadow.
+
+        The backend can emit several frames for one rpc id. Scanning only the
+        first would let a placeholder's unrecognized payload swallow the real
+        status on the frame that follows — the pre-#2188 loop avoided that by
+        continuing until a code parsed, and the refactor must keep it.
+        """
+        placeholder = json.dumps(["wrb.fr", self.RPC_ID, None, None, None, [99], "generic"])
+        real = json.dumps(["wrb.fr", self.RPC_ID, None, None, None, [3], "generic"])
+        raw = f")]}}'\n{len(placeholder)}\n{placeholder}\n{len(real)}\n{real}\n"
+
+        with pytest.raises(RPCError) as exc_info:
+            decode_response(raw, self.RPC_ID, allow_null=True, raise_on_null_status=True)
+
+        assert exc_info.value.rpc_code == 3
+
+    def test_unclassified_warning_needs_every_frame_to_be_unclassifiable(self, caplog):
+        """One nameable status among several means it is not 'unrecognized'."""
+        placeholder = json.dumps(["wrb.fr", self.RPC_ID, None, None, None, [99], "generic"])
+        real = json.dumps(["wrb.fr", self.RPC_ID, None, None, None, [3], "generic"])
+        raw = f")]}}'\n{len(placeholder)}\n{placeholder}\n{len(real)}\n{real}\n"
+
+        with (
+            caplog.at_level(logging.DEBUG, logger="notebooklm.rpc.decoder"),
+            pytest.raises(RPCError),
+        ):
+            decode_response(raw, self.RPC_ID, allow_null=True, raise_on_null_status=True)
+
+        assert not any("unrecognized index-5 payload" in r.message for r in caplog.records)
 
     def test_opt_in_does_not_change_a_populated_result(self):
         """Strictness only concerns null results."""

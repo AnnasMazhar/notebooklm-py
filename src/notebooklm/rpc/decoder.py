@@ -170,11 +170,17 @@ _MAX_STATUS_MESSAGE_CHARS = 300
 
 #: RPCs observed answering a null result with a non-OK ``google.rpc.Status`` on
 #: a flow this client currently treats as SUCCESSFUL. A sweep of all 141
-#: cassettes finds five such frames, across three RPCs:
+#: cassettes finds 397 ``wrb.fr`` frames, 5 of them null-result. FOUR of those
+#: five reach this decoder, across three RPCs:
 #:
 #:   ``REMOVE_RECENTLY_VIEWED``  ``[13]``  notebooks_remove_from_recent.yaml
 #:   ``SHARE_NOTEBOOK``          ``[3]``   cli_share_add.yaml, cli_share_remove.yaml
 #:   ``SHARE_ARTIFACT``          ``[3]``   notebooks_share.yaml
+#:
+#: The fifth is chat_ask_oversized_rejection.yaml's ``[3]`` (#1472). It carries
+#: no rpc id at all because streamed chat is not a ``batchexecute`` RPC, so it
+#: never passes through ``decode_response`` — it is handled by ``_chat/wire.py``
+#: and is not part of this list.
 #:
 #: Recorded here as a *finding*, not a blessing: only the first has ever been
 #: reasoned about (a cosmetic no-op), and whether the two share rejections are
@@ -187,10 +193,6 @@ _RPCS_OBSERVED_SWALLOWING_A_STATUS = (
     RPCMethod.SHARE_NOTEBOOK.value,
     RPCMethod.SHARE_ARTIFACT.value,
 )
-
-#: Distinguishes "the frame carried no index-5 payload" from "it carried
-#: ``None`` there" in :func:`_find_null_result_payload`.
-_MISSING_STATUS_PAYLOAD = object()
 
 #: Statuses the decoder routes through ``ClientError`` rather than the generic
 #: ``RPCError``, so ``is_auth_error`` cannot misclassify them and fire a
@@ -540,14 +542,20 @@ def _extract_status_code(error_info: Any) -> tuple[int, str] | None:
     return code, _GRPC_STATUS_MESSAGES[code]
 
 
-def _find_null_result_payload(chunks: list[Any], rpc_id: str) -> Any:
-    """Return the raw index-5 payload of a null-result frame for ``rpc_id``.
+def _null_result_payloads(chunks: list[Any], rpc_id: str) -> list[Any]:
+    """Every non-null index-5 payload on a null-result frame for ``rpc_id``.
 
-    ``_MISSING_STATUS_PAYLOAD`` when no such frame exists or it carried nothing
-    there. Shared walk behind :func:`_find_wrb_status` and
-    :func:`_is_unclassified_status` so the two agree on which frame they mean.
+    Returns ALL of them rather than the first: in ``rt=c`` streamed mode the
+    backend can emit more than one frame per rpc id (``extract_rpc_result``
+    handles the same case), so stopping at the first would let a placeholder
+    frame's unclassifiable payload hide a real status on a later frame — which
+    is what the pre-#2188 loop avoided by continuing until a code parsed.
+
+    Shared walk behind :func:`_find_wrb_status` and
+    :func:`_has_null_result_payload` so the two agree on which frames they mean.
     """
-    source = "decoder._find_null_result_payload"
+    source = "decoder._null_result_payloads"
+    payloads: list[Any] = []
     for chunk in chunks:
         if not isinstance(chunk, list) or not chunk:
             # Skip empty chunks before safe_index, which raises on shape drift
@@ -566,24 +574,25 @@ def _find_null_result_payload(chunks: list[Any], rpc_id: str) -> Any:
             error_info = safe_index(item, 5, method_id=rpc_id, source=source)
             if result_data is not None or error_info is None:
                 continue
-            return error_info
-    return _MISSING_STATUS_PAYLOAD
+            payloads.append(error_info)
+    return payloads
 
 
-def _is_unclassified_status(chunks: list[Any], rpc_id: str) -> bool:
-    """Whether the server attached an index-5 payload we could not name.
+def _has_null_result_payload(chunks: list[Any], rpc_id: str) -> bool:
+    """Whether the server attached anything at index 5 of a null-result frame.
 
     Distinguishes "no payload at all" (a genuinely empty result — nothing to
-    report) from "a payload this decoder cannot classify" (drift worth a log).
+    report) from "a payload is there". The only caller consults this AFTER
+    :func:`_find_wrb_status` has already returned ``None``, so at that point
+    "a payload is there" means "there, and this decoder could not name it" —
+    which is drift worth logging. Re-checking classifiability here would be
+    dead logic, so it is not re-checked.
     """
-    payload = _find_null_result_payload(chunks, rpc_id)
-    if payload is _MISSING_STATUS_PAYLOAD:
-        return False
-    return _extract_status_code(payload) is None
+    return bool(_null_result_payloads(chunks, rpc_id))
 
 
 def _find_wrb_status(chunks: list[Any], rpc_id: str) -> tuple[int, str, Any] | None:
-    """Locate bare status code at index 5 of a wrb.fr entry for ``rpc_id``.
+    """Locate the status code at index 5 of a null-result frame for ``rpc_id``.
 
     Used by ``decode_response`` to enrich the null-result error message when
     the server explicitly flagged the RPC with a status code.
@@ -592,14 +601,12 @@ def _find_wrb_status(chunks: list[Any], rpc_id: str) -> tuple[int, str, Any] | N
     ``google.rpc.Status`` array, so the caller can also read the server's
     ``message`` field without re-walking the chunks.
     """
-    payload = _find_null_result_payload(chunks, rpc_id)
-    if payload is _MISSING_STATUS_PAYLOAD:
-        return None
-    status = _extract_status_code(payload)
-    if status is None:
-        return None
-    code, label = status
-    return code, label, payload
+    for payload in _null_result_payloads(chunks, rpc_id):
+        status = _extract_status_code(payload)
+        if status is not None:
+            code, label = status
+            return code, label, payload
+    return None
 
 
 def _contains_user_displayable_error(obj: Any, max_depth: int = 20) -> bool:
@@ -964,7 +971,7 @@ def decode_response(
                     rpc_id,
                     status[1],
                 )
-            elif raise_on_null_status and _is_unclassified_status(chunks, rpc_id):
+            elif raise_on_null_status and _has_null_result_payload(chunks, rpc_id):
                 # The caller asked for strictness and the server DID attach
                 # something at index 5, but not a status this decoder can name —
                 # a code outside 0-16, a bool, a string, a nested ``[[3]]``. That

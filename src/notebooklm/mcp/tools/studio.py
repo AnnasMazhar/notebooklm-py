@@ -36,6 +36,7 @@ from ..._app.language import is_supported_language
 from ..._app.resolve import FULL_ID_PATTERN
 from ..._app.serialize import to_jsonable
 from ...exceptions import (
+    ArtifactFeatureUnavailableError,
     AuthError,
     DecodingError,
     NetworkError,
@@ -45,6 +46,7 @@ from ...exceptions import (
     ServerError,
     ValidationError,
 )
+from ...rpc.types import GrpcStatusCode
 from .._coerce import coerce_list
 from .._confirm import DESTRUCTIVE, READ_ONLY, needs_confirmation
 from .._context import get_client, get_file_transfer
@@ -839,7 +841,7 @@ def register(mcp: Any) -> None:
                 # None of them is ever the "artifact is not failed" story, so
                 # relabelling one would hide the real cause.
                 raise
-            except RPCError:
+            except RPCError as exc:
                 # Retry refused. The most common cause is retrying an artifact
                 # that is not FAILED (retry only re-runs a failed one). Turn the
                 # generic refusal into an actionable message naming the current
@@ -856,6 +858,21 @@ def register(mcp: Any) -> None:
                 # narrowing to the old type would have silently dropped this
                 # enrichment for exactly the refusals that now carry a reason.
                 #
+                # But only a WRONG-STATE refusal may be relabelled. The typed
+                # exclusions above do not cover every misfit: a bare ``[7]``
+                # PERMISSION_DENIED decodes to ``ClientError`` and a bare ``[14]``
+                # UNAVAILABLE to a plain ``RPCError``, and rewriting either into
+                # "artifact is not failed" would give the caller the wrong
+                # category AND the wrong recovery advice. So the state story is
+                # told only for the shapes that can plausibly mean it: a refusal
+                # with no status at all (``ArtifactFeatureUnavailableError``), or
+                # one the server tagged INVALID_ARGUMENT / FAILED_PRECONDITION.
+                # Anything else keeps its own error.
+                if not isinstance(exc, ArtifactFeatureUnavailableError) and exc.rpc_code not in (
+                    GrpcStatusCode.INVALID_ARGUMENT,
+                    GrpcStatusCode.FAILED_PRECONDITION,
+                ):
+                    raise
                 art = await client.artifacts.get_or_none(nb_id, art_id)
                 if art is not None and not art.is_failed:
                     raise ValidationError(

@@ -2854,8 +2854,10 @@ Observed codes:
 | `[8, null, [[…UserDisplayableError…]]]` | any | The rate-limit / quota shape |
 
 A sweep of all 141 cassettes found 397 `wrb.fr` frames, only 5 of them
-null-result — and all 5 carried one of the shapes above, on three RPCs
-(`SHARE_NOTEBOOK` ×2, `SHARE_ARTIFACT`, `REMOVE_RECENTLY_VIEWED`).
+null-result — and all 5 carried one of the shapes above. Four are `batchexecute`
+RPCs, across three method ids (`SHARE_NOTEBOOK` ×2, `SHARE_ARTIFACT`,
+`REMOVE_RECENTLY_VIEWED`); the fifth is the streamed-chat `[3]` from #1472,
+which carries no rpc id and is decoded by `_chat/wire.py`, not `decode_response`.
 
 **Open question.** Only `REMOVE_RECENTLY_VIEWED`'s tolerance has ever been
 reasoned about (a cosmetic no-op). Whether the two share rejections are benign

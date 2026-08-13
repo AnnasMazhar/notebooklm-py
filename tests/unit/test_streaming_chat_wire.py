@@ -736,11 +736,12 @@ def test_user_displayable_error_payload_raises_same_chat_error_message() -> None
 
 
 def test_user_displayable_error_payload_surfaces_server_message_when_present() -> None:
-    """``google.rpc.Status.message`` beats the client-authored sentence (#2188).
+    """``google.rpc.Status.message`` is surfaced ALONGSIDE the client guidance (#2188).
 
     No captured chat rejection has ever populated index 1 — the test above pins
     the wording users actually see. This one pins that a server-authored reason
-    would take precedence rather than being discarded.
+    is appended rather than discarded, and that appending it does not cost the
+    client's remedy.
     """
     payload = [
         8,
