@@ -637,6 +637,35 @@ the matrix gives the child process 30 additional seconds to report failure and
 tear down. Workspace/SSO, regional-account, and long-duration-expiry cases remain
 account-specific manual validation.
 
+#### Where a cell's code lives
+
+`scripts/live_auth_matrix.py` owns isolation, execution, and reporting only. The
+realistic recovery cells — storage reload, sibling re-mint, master-token
+fallback, REST recovery, MCP recovery, browser refresh, and the crash-safety
+writer — live in `scripts/_live_auth_scenarios/` as ordinary modules and are
+launched one per child process:
+
+```bash
+python -m scripts._live_auth_scenarios.<cell>
+```
+
+Each cell exports `async def scenario() -> ScenarioResult` plus a `main()`, and
+prints exactly one JSON object on stdout (the orchestrator parses it verbatim).
+Assertions go through `require(...)`, never `assert`, because these programs may
+run under `python -O`. Adding or renaming a cell means updating
+`SCENARIO_MODULES` in `tests/unit/test_live_auth_matrix.py`, which pins the
+module list, its profile constants, and child-process importability.
+
+To run one cell by hand against a disposable home:
+
+```bash
+PYTHONPATH="$PWD/src:$PWD" NOTEBOOKLM_HOME=/tmp/live-cell \
+  uv run python -m scripts._live_auth_scenarios.storage_reload
+```
+
+These modules are excluded from the shipped package on purpose and are
+type-checked by the `Run type checking` CI step alongside `src/notebooklm`.
+
 ### Selecting a profile for E2E tests
 
 The E2E suite picks up the active NotebookLM profile from (highest precedence first):
