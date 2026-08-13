@@ -1181,13 +1181,14 @@ async def test_add_drive_baseline_failure_makes_a_match_ambiguous(
     """
     file_id = "drive_file_1"
     existing = _drive_source("src_pre_existing", file_id)
+    rpc = SimpleNamespace(rpc_call=AsyncMock(side_effect=ServerError("commit lost")))
 
     with pytest.raises(SourceAddError, match="Cannot disambiguate Drive source") as raised:
         await service.add_drive(
             "nb_1",
             file_id,
             "Drive Doc",
-            rpc=SimpleNamespace(rpc_call=AsyncMock(side_effect=ServerError("commit lost"))),
+            rpc=rpc,
             # baseline fails, then the probe finds the unattributable match
             list_sources=AsyncMock(side_effect=[RPCError("baseline decode failed"), [existing]]),
             wait_until_ready=AsyncMock(),
@@ -1197,6 +1198,10 @@ async def test_add_drive_baseline_failure_makes_a_match_ambiguous(
     # Parity with add_url: the error names what broke the baseline, because the
     # caller reads "baseline snapshot failed" long after that read happened and
     # nothing else in the process can explain it.
+    # The load-bearing assertion: ONE create. The finite ``side_effect`` list
+    # would also fail a runaway loop, but with a StopIteration that says nothing
+    # about what went wrong; this names it.
+    assert rpc.rpc_call.await_count == 1
     assert isinstance(raised.value.cause, RPCError)
     assert "RPCError" in str(raised.value)
     # The create's outcome is unknown, so this must not be classified as a
@@ -1219,18 +1224,23 @@ async def test_add_drive_probe_raises_on_multiple_new_matches(
     file_id = "drive_file_2"
     first = _drive_source("src_a", file_id)
     second = _drive_source("src_b", file_id)
+    rpc = SimpleNamespace(rpc_call=AsyncMock(side_effect=ServerError("commit lost")))
 
     with pytest.raises(SourceAddError, match="probe found 2 new sources") as raised:
         await service.add_drive(
             "nb_1",
             file_id,
             "Drive Doc",
-            rpc=SimpleNamespace(rpc_call=AsyncMock(side_effect=ServerError("commit lost"))),
+            rpc=rpc,
             list_sources=AsyncMock(side_effect=[[], [first, second]]),
             wait_until_ready=AsyncMock(),
             logger=logger,
         )
 
+    # The load-bearing assertion: ONE create. The finite ``side_effect`` list
+    # would also fail a runaway loop, but with a StopIteration that says nothing
+    # about what went wrong; this names it.
+    assert rpc.rpc_call.await_count == 1
     assert "src_a" in str(raised.value) or "2 new sources" in str(raised.value)
     assert getattr(raised.value, "unconfirmed", False) is True
     assert classify(raised.value).category is ErrorCategory.RPC
