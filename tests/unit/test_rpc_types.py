@@ -13,12 +13,14 @@ from notebooklm.rpc.types import (
     QUERY_URL,
     ArtifactStatus,
     ArtifactTypeCode,
+    DiscoveryMode,
     DriveSourceStatus,
     GrpcStatusCode,
     RPCMethod,
     SharePermission,
     SourceStatus,
     artifact_status_to_str,
+    discovery_mode_to_str,
     drive_source_status_to_str,
     get_batchexecute_url,
     get_query_url,
@@ -319,6 +321,35 @@ class TestDriveSourceStatusToStr:
         assert drive_source_status_to_str(6) == "unknown"
         assert drive_source_status_to_str(99) == "unknown"
         assert drive_source_status_to_str(-2) == "unknown"
+
+
+class TestDiscoveryModeToStr:
+    """Tests for the discovery_mode_to_str helper function (#2122)."""
+
+    def test_every_member_has_a_label(self):
+        """No member falls through to the "unknown" default by accident."""
+        assert {member: discovery_mode_to_str(member) for member in DiscoveryMode} == {
+            DiscoveryMode.UNKNOWN: "unknown",
+            DiscoveryMode.DEFAULT_LLM_SEARCH: "default_llm_search",
+            DiscoveryMode.RAW_SEARCH: "raw_search",
+            DiscoveryMode.CURIOUS_SEARCH: "curious_search",
+            DiscoveryMode.CURIOUS_RAW_SEARCH: "curious_raw_search",
+            DiscoveryMode.DEEP_RESEARCH: "deep_research",
+            DiscoveryMode.LITE_LLM_SEARCH: "lite_llm_search",
+        }
+
+    def test_accepts_raw_wire_codes(self):
+        """The backend DiscoveryMode integers map without an enum wrap."""
+        assert discovery_mode_to_str(1) == "default_llm_search"
+        assert discovery_mode_to_str(5) == "deep_research"
+
+    def test_unknown_codes_degrade(self):
+        """Unrecognized codes return 'unknown' (future-proofing)."""
+        # 0 is the backend UNSPECIFIED, deliberately unmodelled: the decoder
+        # normalizes it to None before a label is ever asked for.
+        assert discovery_mode_to_str(0) == "unknown"
+        assert discovery_mode_to_str(7) == "unknown"
+        assert discovery_mode_to_str(-2) == "unknown"
 
 
 class TestGrpcStatusCode:

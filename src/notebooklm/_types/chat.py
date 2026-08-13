@@ -29,6 +29,73 @@ class ConversationTurn:
 
 
 @dataclass(frozen=True)
+class ConversationTurnKey:
+    """The backend's three-part identifier for one chat turn (#2122).
+
+    Decoded from ``AnswerResponse.conversationTurnKey`` (proto tag 3 →
+    ``answer_row[2]``), which the streamed-chat endpoint sends on **every**
+    chunk of every answer. ``SubmitFeedbackRequest.conversationTurnKey``
+    (tag 1) is the one consumer of this message in the recovered schema, so a
+    caller wanting to build that call no longer has to re-plumb the stream
+    parser to find the key.
+
+    The three parts always travel together — a half-populated key addresses
+    nothing — so they are modelled as one value object rather than three loose
+    optionals on :class:`AskResult`, and :attr:`session_id` is required.
+
+    .. warning::
+       :attr:`session_id` is **not** a conversation id, despite carrying one in
+       some captures. It is the same wire slot
+       ``AnswerRow.server_conversation_id`` reads, which issue #659 established
+       is a per-stream identifier: querying ``khqZz`` with it returns 0 turns,
+       and passing it back as a follow-up ``conversation_id`` produces a ghost
+       turn the server does not record.
+
+       The evidence is genuinely mixed, so this class does not pick a side. In
+       a live two-turn probe (2026-08-13) it held the value ``hPTbtc`` returned,
+       identical on both turns of one conversation. In this repo's own recorded
+       cassettes it differs from the recorded ``hPTbtc`` id in 4/4 chat
+       captures. Because it cannot be relied on to be a conversation id, it is
+       exposed under its **proto** name and nothing is claimed for it. Use
+       :attr:`AskResult.conversation_id` for follow-ups.
+
+    Attributes:
+        session_id: Wire slot 0 (proto ``sessionId``). Required — the key is
+            addressed by it. Plausibly the ``chatSessionId`` that
+            ``GenerateFreeFormStreamedRequest`` (tag 5) and
+            ``DeleteChatTurnsRequest`` (tag 2) carry, though nothing here
+            confirms that. See the warning above before treating it as a
+            conversation id.
+        turn_id: Wire slot 1 (proto ``conversationId``). Held a *different*
+            UUID on each turn of one conversation in every observation, so it
+            identifies the turn rather than the conversation — which is why it
+            is NOT named for its proto field.
+        turn_code: Wire slot 2 (proto ``fieldType``). An integer, constant
+            across every chunk of one turn and different on the next. The
+            proto's ``fieldType`` label is the schema extractor's placeholder
+            for a name it could not recover, and the observed values are not
+            type tags, so this is carried verbatim and NOT interpreted.
+    """
+
+    session_id: str
+    turn_id: str | None = None
+    turn_code: int | None = None
+
+    def __post_init__(self) -> None:
+        """Reject a key that addresses nothing.
+
+        The class docstring's reason for existing is that the parts travel
+        together; an empty :attr:`session_id` is the one shape that makes the
+        whole key unusable, so it is refused at construction rather than left
+        for a caller to discover when the RPC it built is rejected. The two
+        trailing parts stay optional: they were populated in every observation,
+        but a short block is a decode-time absence, not a broken key.
+        """
+        if not self.session_id:
+            raise ValueError("ConversationTurnKey requires a non-empty session_id")
+
+
+@dataclass(frozen=True)
 class ChatSettings:
     """A notebook's current chat configuration, read from the server (#1751).
 
@@ -359,6 +426,14 @@ class AskResult:
             ``_app.views.ask_result_view``): it restates the answer in a form
             those agent-facing surfaces do not consume, and would roughly
             double every payload.
+        turn_key: The backend's :class:`ConversationTurnKey` for this turn,
+            decoded from the streamed answer (#2122) — the key
+            ``SubmitFeedback`` is addressed by. ``None`` when the stream
+            carried no usable key, which includes every ``AskResult`` built by
+            hand or by an older code path, so callers must treat it as
+            optional. ``turn_key.session_id`` is a raw wire value and is **not**
+            a substitute for :attr:`conversation_id`; see
+            :class:`ConversationTurnKey`.
     """
 
     answer: str
@@ -368,3 +443,4 @@ class AskResult:
     references: list[ChatReference] = field(default_factory=list)
     raw_response: str = ""
     answer_document: StructuredDocument = field(default_factory=StructuredDocument, repr=False)
+    turn_key: ConversationTurnKey | None = None

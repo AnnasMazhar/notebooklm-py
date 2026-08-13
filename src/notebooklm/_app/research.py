@@ -34,11 +34,16 @@ This module is transport-neutral — no ``click`` / ``rich`` / ``cli`` /
 from __future__ import annotations
 
 import contextlib
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal, NoReturn, Protocol
 
 from ..exceptions import ValidationError
+from ..types import discovery_mode_to_str
+
+logger = logging.getLogger(__name__)
 
 # ===========================================================================
 # research status
@@ -82,6 +87,57 @@ class ResearchStatusResult:
     termination_reason: str | None = None
     reason_message: str | None = None
     hint: str | None = None
+    # Always-populated task metadata recovered by #2122, carried through from
+    # the matching ``ResearchTask`` attributes. Like ``status_code`` above they
+    # stay OFF ``public_dict`` (the byte-stable CLI ``--json`` payload) and are
+    # surfaced by the MCP tool / REST route from these fields instead.
+    #
+    # ``discovery_mode`` is the string label (``default_llm_search`` /
+    # ``deep_research`` / …) rather than the raw code: an agent branching on
+    # ``5`` is the failure mode ``_app.views`` exists to prevent. ``None`` when
+    # the poll made no mode claim.
+    discovery_mode: str | None = None
+    # ISO-8601 strings, not ``datetime`` — every consumer of this result
+    # serializes it, and ``ResearchStatusResult`` is the transport-neutral
+    # projection boundary. ``None`` when the poll carried no timestamp.
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    @property
+    def duration_seconds(self) -> float | None:
+        """Seconds between :attr:`created_at` and :attr:`updated_at`.
+
+        DERIVED rather than stored, mirroring ``ResearchTask.duration``: three
+        independent fields could disagree, and a hand-built or faked instance
+        (``tests/server/fakes.py`` builds these) could carry timestamps six
+        seconds apart alongside a ``duration_seconds`` of 999. ``None`` when
+        either timestamp is missing or the interval is negative — the same
+        slot-swap guard ``ResearchTask.duration`` applies, re-derived here
+        because this projection holds the ISO strings, not the datetimes.
+
+        It WARNS on the negative case rather than dropping it silently, and
+        that warning is not redundant with ``ResearchTask.duration``'s: this
+        projection is built from the timestamps directly, so on the MCP/REST
+        path ``ResearchTask.duration`` is never called and its warning never
+        fires. Without this one, the surface where an agent actually consumes
+        the value would be the surface with no diagnostic at all.
+        """
+        if self.created_at is None or self.updated_at is None:
+            return None
+        elapsed = (
+            datetime.fromisoformat(self.updated_at) - datetime.fromisoformat(self.created_at)
+        ).total_seconds()
+        if elapsed < 0:
+            logger.warning(
+                "research task %r reports updated_at (%s) BEFORE created_at (%s); "
+                "reporting duration_seconds=None — the POLL_RESEARCH timestamp slots "
+                "may have moved",
+                self.task_id,
+                self.updated_at,
+                self.created_at,
+            )
+            return None
+        return elapsed
 
 
 def _classify_status_kind(status_val: str) -> ResearchStatusKind:
@@ -127,6 +183,13 @@ async def poll_and_classify(
         termination_reason=reason.value if reason is not None else None,
         reason_message=status.reason_message,
         hint=status.hint,
+        discovery_mode=(
+            discovery_mode_to_str(status.discovery_mode)
+            if status.discovery_mode is not None
+            else None
+        ),
+        created_at=status.created_at.isoformat() if status.created_at is not None else None,
+        updated_at=status.updated_at.isoformat() if status.updated_at is not None else None,
     )
 
 

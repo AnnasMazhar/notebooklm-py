@@ -23,6 +23,7 @@ from .._row_adapters.chat import (
     CitationDetail,
     CitationRow,
     ErrorPayloadRow,
+    StreamEnvelopeRow,
     StreamFrameRow,
 )
 from .._row_adapters.documents import build_blocks
@@ -37,7 +38,7 @@ from ..rpc._safe_index import safe_index
 from ..rpc.decoder import strip_anti_xssi
 from ..rpc.encoder import nest_source_ids
 from ..rpc.types import RPCMethod, get_query_url
-from ..types import ChatReference
+from ..types import ChatReference, ConversationTurnKey
 
 # Deliberate: use the ``notebooklm._chat`` logger namespace (not this module's)
 # so existing log filters keep matching the chat parser diagnostics.
@@ -94,6 +95,16 @@ class StreamingChatParseResult:
     #: annotation map that anchored each reference's ``answer_anchor_*`` range
     #: (#2120). Empty when no chunk carried a decodable document.
     answer_document: StructuredDocument = field(default_factory=StructuredDocument)
+    #: The backend's key for the answered turn (#2122), decoded from
+    #: ``AnswerResponse.conversationTurnKey``. Collected **last-wins across the
+    #: chunks that carried one**, NOT taken from the chunk that won the answer:
+    #: the key was identical on every chunk of a turn in every observation, so
+    #: there is nothing to choose between them, and collecting it independently
+    #: keeps it available when no chunk wins (an empty answer still has a turn).
+    #: ``None`` when no chunk carried a usable key. Unlike
+    #: :attr:`conversation_id` above this is NOT a legacy field — it is the key
+    #: ``SubmitFeedback`` is addressed by.
+    turn_key: ConversationTurnKey | None = None
 
 
 @dataclass(frozen=True)
@@ -101,10 +112,11 @@ class _ChunkExtraction:
     """One streamed chunk's decoded contents, internal to this module.
 
     Replaces the 6-tuple the chunk extractor used to return: the answer
-    document added by #2120 would have made it a 7-tuple whose positions no
-    reader could keep straight. Every field defaults to its "nothing here"
-    value so the several early-return paths (undecodable JSON, non-list
-    payload, no usable answer row) each name only what they actually know.
+    document added by #2120, and the two slots #2122 recovered, would have made
+    it a 9-tuple whose positions no reader could keep straight. Every field
+    defaults to its "nothing here" value so the several early-return paths
+    (undecodable JSON, non-list payload, no usable answer row) each name only
+    what they actually know.
     """
 
     text: str | None = None
@@ -114,6 +126,15 @@ class _ChunkExtraction:
     parseable: bool = False
     suggests_drift: bool = False
     document: StructuredDocument = field(default_factory=StructuredDocument)
+    #: ``GenerateFreeFormStreamedResponse.isFinalResponse`` (#2122). On a
+    #: chunk that yielded an answer this is the flag from the envelope that
+    #: carried that answer; on one that yielded none it is the OR across the
+    #: frame's envelopes, so the parser can still tell "the final chunk carried
+    #: no answer" from "no final chunk arrived".
+    is_final_response: bool = False
+    #: The ``ConversationTurnKey`` seen on this chunk (#2122), or ``None``.
+    #: Read before the answer-text gate, so a text-less chunk still reports it.
+    turn_key: ConversationTurnKey | None = None
 
 
 def build_streaming_chat_request(
@@ -194,6 +215,21 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
       returned an empty response). Returns
       ``StreamingChatParseResult("", refs, conv_id)`` — empty answer is
       a valid outcome, not a parse failure.
+
+    **Answer selection (#2122).** Chunks arrive cumulatively, so which one
+    holds "the answer" has to be chosen. The backend marks the last chunk with
+    ``isFinalResponse`` (``inner_data[4]``), so a *marked answer* chunk that
+    also carries that flag wins outright. Only if no such chunk exists does the
+    historical longest-wins heuristic decide — it is an inference standing in
+    for a boolean the server already sends, and it fails silently whenever the
+    final chunk is not the longest (a truncated or corrected final chunk, a
+    stream ending on a short closing statement). The fallback logs a WARNING
+    when it fires.
+
+    The answer marker still decides what counts as an answer at all:
+    ``isFinalResponse`` says "last chunk", not "this is an answer", so it only
+    picks *between* marked answer chunks. The unmarked-text fallback and its
+    drift diagnostics are unchanged.
     """
     # Shared anti-XSSI stripper (rpc.decoder.strip_anti_xssi) is the single
     # owner of the )]}' prefix removal. For the real chat wire format the
@@ -202,43 +238,58 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
     response_text = strip_anti_xssi(response_text)
 
     lines = response_text.strip().split("\n")
+    final_marked_answer = ""
+    final_marked_refs: list[ChatReference] = []
     best_marked_answer = ""
     best_marked_refs: list[ChatReference] = []
     best_unmarked_answer = ""
     best_unmarked_refs: list[ChatReference] = []
+    final_marked_document = StructuredDocument()
     best_marked_document = StructuredDocument()
     best_unmarked_document = StructuredDocument()
     saw_drift_signal = False
     server_conv_id: str | None = None
+    turn_key: ConversationTurnKey | None = None
+    saw_final_chunk = False
     parseable_chunk_count = 0
 
     def process_chunk(json_str: str) -> None:
         """Process a JSON chunk, updating best answer candidates and their refs."""
+        nonlocal final_marked_answer, final_marked_refs, final_marked_document
         nonlocal best_marked_answer, best_marked_refs, best_marked_document
         nonlocal best_unmarked_answer, best_unmarked_refs, best_unmarked_document
-        nonlocal saw_drift_signal, server_conv_id, parseable_chunk_count
+        nonlocal saw_drift_signal, server_conv_id, turn_key, parseable_chunk_count
+        nonlocal saw_final_chunk
         chunk = _extract_chunk_with_parseable(json_str)
-        text, is_answer, refs, conv_id = (
-            chunk.text,
-            chunk.is_answer,
-            chunk.references,
-            chunk.conversation_id,
-        )
         if chunk.parseable:
             parseable_chunk_count += 1
-        if text:
-            if is_answer and len(text) > len(best_marked_answer):
-                best_marked_answer = text
-                best_marked_refs = refs
-                best_marked_document = chunk.document
-            elif not is_answer:
+        # Recorded whether or not the chunk bore text: it is what separates
+        # "the final chunk carried no answer" from "no final chunk arrived",
+        # and the fallback diagnostic below names which one happened.
+        saw_final_chunk |= chunk.is_final_response
+        if chunk.text:
+            if chunk.is_answer:
+                # Last write wins if the backend ever marks two chunks final:
+                # "final" is a position claim, so the later one is the later
+                # position. Not observed; the tie has to break somewhere.
+                if chunk.is_final_response:
+                    final_marked_answer = chunk.text
+                    final_marked_refs = chunk.references
+                    final_marked_document = chunk.document
+                if len(chunk.text) > len(best_marked_answer):
+                    best_marked_answer = chunk.text
+                    best_marked_refs = chunk.references
+                    best_marked_document = chunk.document
+            else:
                 saw_drift_signal |= chunk.suggests_drift
-                if len(text) > len(best_unmarked_answer):
-                    best_unmarked_answer = text
-                    best_unmarked_refs = refs
+                if len(chunk.text) > len(best_unmarked_answer):
+                    best_unmarked_answer = chunk.text
+                    best_unmarked_refs = chunk.references
                     best_unmarked_document = chunk.document
-        if conv_id:
-            server_conv_id = conv_id
+        if chunk.conversation_id:
+            server_conv_id = chunk.conversation_id
+        if chunk.turn_key is not None:
+            turn_key = chunk.turn_key
 
     i = 0
     while i < len(lines):
@@ -267,7 +318,41 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
             "The response was empty or the API wire format may have changed."
         )
 
-    if best_marked_answer:
+    if final_marked_answer:
+        longest_answer = final_marked_answer
+        final_refs = final_marked_refs
+        final_document = final_marked_document
+        if final_marked_answer != best_marked_answer:
+            # The heuristic would have returned a different chunk. Worth a
+            # record: this is the case #2122 says fails silently today.
+            logger.debug(
+                "isFinalResponse chunk (%d chars) differs from the longest "
+                "marked chunk (%d chars); using the server's final marker.",
+                len(final_marked_answer),
+                len(best_marked_answer),
+            )
+    elif best_marked_answer:
+        # No marked chunk carried isFinalResponse *and* text, so the answer
+        # below is an inference. The two ways to get here are diagnosed
+        # differently, which is the whole reason ``is_final_response`` is
+        # reported for text-less chunks:
+        #   * a final chunk DID arrive but carried no answer text — the stream
+        #     completed and the model said nothing in its last chunk;
+        #   * no chunk claimed finality at all — a truncated stream, or the
+        #     flag moved and this client is now guessing on every ask.
+        if saw_final_chunk:
+            logger.warning(
+                "The isFinalResponse chunk carried no answer text; falling back "
+                "to the longest marked chunk (%d chars).",
+                len(best_marked_answer),
+            )
+        else:
+            logger.warning(
+                "No chunk carried isFinalResponse; falling back to the longest "
+                "marked chunk (%d chars). The stream may have been truncated, or "
+                "the API response format may have changed.",
+                len(best_marked_answer),
+            )
         longest_answer = best_marked_answer
         final_refs = best_marked_refs
         final_document = best_marked_document
@@ -306,7 +391,9 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
         for idx, ref in enumerate(final_refs, start=1)
     ]
 
-    return StreamingChatParseResult(longest_answer, final_refs, server_conv_id, final_document)
+    return StreamingChatParseResult(
+        longest_answer, final_refs, server_conv_id, final_document, turn_key
+    )
 
 
 def extract_answer_and_refs_from_chunk(
@@ -315,9 +402,9 @@ def extract_answer_and_refs_from_chunk(
     """Extract answer text, references, and conversation ID from one response chunk.
 
     Public 4-tuple wrapper around :func:`_extract_chunk_with_parseable`.
-    The parseable-flag bit is internal-only — it exists for the streaming
-    parser's "zero parseable chunks" detection and is not part of this
-    module's outward-facing contract.
+    The remaining :class:`_ChunkExtraction` fields are internal-only — they exist
+    for the streaming parser's "zero parseable chunks" detection and answer
+    selection, and are not part of this module's outward-facing contract.
     """
     chunk = _extract_chunk_with_parseable(json_str)
     return chunk.text, chunk.is_answer, chunk.references, chunk.conversation_id
@@ -337,6 +424,11 @@ def _extract_chunk_with_parseable(json_str: str) -> _ChunkExtraction:
 
     * Zero parseable chunks → API drift or empty body (raise).
     * At least one parseable chunk but no text → real empty answer (return).
+
+    :attr:`~_ChunkExtraction.is_final_response` and
+    :attr:`~_ChunkExtraction.turn_key` are both read from ABOVE the answer-text
+    gate, so a chunk that carries no text still reports them — see their field
+    comments for the exact per-item vs across-frame semantics.
     """
     refs: list[ChatReference] = []
 
@@ -349,6 +441,8 @@ def _extract_chunk_with_parseable(json_str: str) -> _ChunkExtraction:
         return _ChunkExtraction(references=refs)
 
     parseable = False
+    saw_final_envelope = False
+    turn_key: ConversationTurnKey | None = None
     for item in data:
         if not isinstance(item, list) or len(item) < 2:
             continue
@@ -411,6 +505,15 @@ def _extract_chunk_with_parseable(json_str: str) -> _ChunkExtraction:
         # — that's exactly the case the new failure contract preserves
         # against ``ChatResponseParseError``.
         parseable = True
+        # ``isFinalResponse`` sits on the envelope, a level ABOVE the answer
+        # row, so it is read here rather than off ``AnswerRow`` (#2122). It is
+        # read PER ITEM: the answer returned below reports the flag from the
+        # envelope that carried it, not an OR across the frame, so a chunk is
+        # only "final" if the envelope holding the answer said so. The OR is
+        # kept solely for the no-answer fall-through, where the question is the
+        # weaker "did any envelope in this frame claim finality".
+        envelope_is_final = StreamEnvelopeRow(inner_data).is_final_response
+        saw_final_envelope |= envelope_is_final
 
         if isinstance(inner_data, list) and len(inner_data) > 0:
             # ``inner_data`` is a *populated* answer record (heartbeats decode
@@ -447,6 +550,14 @@ def _extract_chunk_with_parseable(json_str: str) -> _ChunkExtraction:
                 # answer leaf; an absent/empty/non-string leaf legitimately means
                 # "no answer in this chunk" (heartbeat-ish), so fall through.
                 answer = AnswerRow(first)
+                # Read the key BEFORE the text gate, for the same reason
+                # ``isFinalResponse`` is read above it: the key is a property of
+                # the TURN, not of the answer text, and the backend sends it on
+                # chunks that carry no text (chunk 1 of every observed stream).
+                # Gating it on text would drop the key for an empty answer —
+                # the turn a caller is most likely to want to give feedback on.
+                if answer.turn_key is not None:
+                    turn_key = answer.turn_key
                 text = answer.text
                 if text is None:
                     continue
@@ -461,6 +572,8 @@ def _extract_chunk_with_parseable(json_str: str) -> _ChunkExtraction:
                     parseable=parseable,
                     suggests_drift=answer.suggests_wire_drift,
                     document=document,
+                    is_final_response=envelope_is_final,
+                    turn_key=turn_key,
                 )
         # inner_json decoded but the record didn't yield usable answer data
         # — either the outer ``isinstance(inner_data, list) and len > 0``
@@ -472,7 +585,12 @@ def _extract_chunk_with_parseable(json_str: str) -> _ChunkExtraction:
         # heartbeats-only stream surfaces as "empty answer" rather than
         # "API drift" / ``ChatResponseParseError``.
 
-    return _ChunkExtraction(references=refs, parseable=parseable)
+    return _ChunkExtraction(
+        references=refs,
+        parseable=parseable,
+        is_final_response=saw_final_envelope,
+        turn_key=turn_key,
+    )
 
 
 def _raise_chat_rejection(error_payload: list) -> NoReturn:

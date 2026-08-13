@@ -16,10 +16,13 @@ adapter:
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import logging
 
 import pytest
 
+from notebooklm import ConversationTurnKey
 from notebooklm._row_adapters.chat import (
     AnswerRow,
     ChatSettingsRow,
@@ -28,6 +31,7 @@ from notebooklm._row_adapters.chat import (
     ConversationTurnRow,
     ErrorPayloadRow,
     SavedChatNoteRow,
+    StreamEnvelopeRow,
     StreamFrameRow,
     unwrap_chat_settings,
     unwrap_conversation_turns,
@@ -36,6 +40,17 @@ from notebooklm._row_adapters.chat import (
 from notebooklm.exceptions import UnknownRPCMethodError
 from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.decoder import _MAX_STATUS_MESSAGE_CHARS
+
+#: Live ``GenerateFreeFormStreamedResponse`` capture (#2122) — the five chunks
+#: of one real answer stream, decoded from the ``wrb.fr`` frames exactly as the
+#: parser sees them. Used instead of a hand-built envelope so the
+#: ``isFinalResponse`` / ``ConversationTurnKey`` reads below are pinned against
+#: a shape the backend actually sent.
+_CAPTURED_STREAM: list = json.loads(
+    (Path(__file__).parent / "fixtures" / "chat_stream_final_response.json").read_text(
+        encoding="utf-8"
+    )
+)["chunks"]
 
 # ---------------------------------------------------------------------------
 # 1. Position-contract pins (the canaries)
@@ -54,6 +69,20 @@ class TestAnswerRowPositionContract:
             AnswerRow._ANSWER_MARKER_VALUE,
             AnswerRow._DOC_BODY_POS,
         ) == (0, 2, 3, 4, 4, 3, 1, 0)
+
+
+class TestStreamEnvelopeRowPositionContract:
+    def test_positions_pinned(self) -> None:
+        assert StreamEnvelopeRow._IS_FINAL_RESPONSE_POS == 4
+
+
+class TestAnswerRowTurnKeyPositionContract:
+    def test_positions_pinned(self) -> None:
+        assert (
+            AnswerRow._TURN_KEY_SESSION_ID_POS,
+            AnswerRow._TURN_KEY_TURN_ID_POS,
+            AnswerRow._TURN_KEY_TURN_CODE_POS,
+        ) == (0, 1, 2)
 
 
 class TestCitationPositionContract:
@@ -679,3 +708,130 @@ class TestUnwrapChatSettings:
         with pytest.raises(UnknownRPCMethodError) as excinfo:
             unwrap_chat_settings(_nb_info(99), source="ChatAPI.get_settings")
         assert excinfo.value.method_id == RPCMethod.GET_NOTEBOOK.value
+
+
+# ---------------------------------------------------------------------------
+# 12. isFinalResponse + ConversationTurnKey (#2122)
+# ---------------------------------------------------------------------------
+
+
+class TestStreamEnvelopeRowAgainstCapture:
+    """``isFinalResponse`` against the live five-chunk stream capture."""
+
+    def test_capture_marks_exactly_the_last_chunk_final(self) -> None:
+        flags = [StreamEnvelopeRow(chunk).is_final_response for chunk in _CAPTURED_STREAM]
+        assert flags == [False, False, False, False, True]
+
+    def test_capture_cannot_by_itself_discriminate_the_selection_policy(self) -> None:
+        """States a LIMIT of this fixture, so no one mistakes the capture-based
+        tests for coverage of the selection change.
+
+        Chunks 3, 4 and 5 carry the identical answer string, so longest-wins
+        and final-wins return the same text on this stream — a real property of
+        cumulative streaming, not a defect in the capture. The policy is
+        discriminated by the synthetic
+        ``test_final_marker_beats_a_longer_earlier_chunk`` in
+        ``test_streaming_chat_wire.py``; if this assertion ever fails, the
+        capture has gained that power and that test's docstring should say so.
+        """
+        texts = [AnswerRow(chunk[0]).text for chunk in _CAPTURED_STREAM]
+        final_text = texts[-1]
+        assert final_text is not None
+        longest = max((t for t in texts if t), key=len)
+        assert len(final_text) == len(longest)
+
+
+class TestStreamEnvelopeRow:
+    def test_heartbeat_envelope_is_not_final(self) -> None:
+        """Real heartbeats decode to ``[]`` and must not claim to end the stream."""
+        assert StreamEnvelopeRow([]).is_final_response is False
+
+    def test_short_envelope_is_not_final(self) -> None:
+        assert StreamEnvelopeRow([["text"], None, None, None]).is_final_response is False
+
+    def test_null_slot_is_not_final(self) -> None:
+        assert StreamEnvelopeRow([["t"], None, None, None, None]).is_final_response is False
+
+    @pytest.mark.parametrize("truthy", [1, "true", [1], {"final": True}])
+    def test_truthy_non_bool_is_not_final(self, truthy: object) -> None:
+        """Only a literal wire ``true`` selects the answer — anything else must
+        leave the longest-wins fallback in charge rather than promote a chunk."""
+        assert StreamEnvelopeRow([["t"], None, None, None, truthy]).is_final_response is False
+
+    def test_non_list_envelope_is_not_final(self) -> None:
+        assert StreamEnvelopeRow("reshaped").is_final_response is False
+
+
+class TestAnswerRowTurnKeyAgainstCapture:
+    def test_capture_decodes_the_whole_key(self) -> None:
+        key = AnswerRow(_CAPTURED_STREAM[0][0]).turn_key
+        assert key == ConversationTurnKey(
+            session_id="3afea005-7d13-41d0-9257-6a9e28597818",
+            turn_id="b38d4003-5be1-487d-a121-5c5958709021",
+            turn_code=2187103311,
+        )
+
+    def test_key_is_identical_on_every_chunk_of_one_turn(self) -> None:
+        keys = {AnswerRow(chunk[0]).turn_key for chunk in _CAPTURED_STREAM}
+        assert len(keys) == 1
+
+    def test_server_conversation_id_is_the_keys_session_id(self) -> None:
+        """The pre-existing read and the new key must not disagree about slot 0.
+
+        They are the SAME wire slot, which is why ``session_id`` carries no
+        claim to be a conversation id — #659 established this slot is a
+        per-stream identifier.
+        """
+        row = AnswerRow(_CAPTURED_STREAM[0][0])
+        assert row.server_conversation_id == row.turn_key.session_id
+
+
+class TestAnswerRowTurnKey:
+    def test_absent_block_yields_no_key(self) -> None:
+        assert AnswerRow(_answer_record(conv_id=None)).turn_key is None
+
+    def test_short_row_yields_no_key(self) -> None:
+        assert AnswerRow(["only-text"]).turn_key is None
+
+    @pytest.mark.parametrize("block", [[], "reshaped", 7])
+    def test_unusable_block_yields_no_key(self, block: object) -> None:
+        rec = _answer_record()
+        rec[2] = block
+        assert AnswerRow(rec).turn_key is None
+
+    @pytest.mark.parametrize("bad_id", [None, 123, ""])
+    def test_key_without_a_usable_session_id_is_absent(self, bad_id: object) -> None:
+        """A key is addressed BY slot 0; without it the key identifies nothing,
+        so it is reported absent rather than half-populated."""
+        rec = _answer_record()
+        rec[2] = [bad_id, "turn-uuid", 7]
+        assert AnswerRow(rec).turn_key is None
+
+    def test_trailing_slots_are_optional(self) -> None:
+        rec = _answer_record()
+        rec[2] = ["conv-uuid"]
+        assert AnswerRow(rec).turn_key == ConversationTurnKey("conv-uuid", None, None)
+
+    def test_one_drifted_trailing_slot_does_not_discard_the_rest(self) -> None:
+        rec = _answer_record()
+        rec[2] = ["conv-uuid", ["nested"], 7]
+        assert AnswerRow(rec).turn_key == ConversationTurnKey("conv-uuid", None, 7)
+
+    def test_bool_turn_code_is_rejected(self) -> None:
+        """``bool`` is an ``int`` subclass; a wire ``true`` must not read as 1."""
+        rec = _answer_record()
+        rec[2] = ["conv-uuid", "turn-uuid", True]
+        assert AnswerRow(rec).turn_key == ConversationTurnKey("conv-uuid", "turn-uuid", None)
+
+
+class TestConversationTurnKeyConstructor:
+    def test_empty_session_id_is_refused(self) -> None:
+        """The class exists because the parts travel together; a key with no
+        session id addresses nothing, so it cannot be built."""
+        with pytest.raises(ValueError, match="non-empty session_id"):
+            ConversationTurnKey("")
+
+    def test_trailing_parts_stay_optional(self) -> None:
+        """A short wire block is decode-time absence, not a broken key."""
+        assert ConversationTurnKey("s").turn_id is None
+        assert ConversationTurnKey("s").turn_code is None

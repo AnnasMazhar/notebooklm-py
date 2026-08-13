@@ -10,6 +10,7 @@ import asyncio
 import logging
 import reprlib
 import weakref
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from .._conversation_cache import ConversationCache
@@ -63,10 +64,32 @@ from ..types import (
     ChatReference,
     ChatSettings,
     ConversationTurn,
+    ConversationTurnKey,
     Note,
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _PostedAsk:
+    """One completed streamed-chat POST, as :meth:`ChatAPI.ask` consumes it.
+
+    A frozen dataclass rather than a ``NamedTuple``: this shape has grown twice
+    (#2120, #2122), and a ``NamedTuple`` would have kept positional access and
+    field ORDER load-bearing at every consumption site — so inserting a member
+    anywhere but the end would silently misbind. Read the members by name.
+    """
+
+    answer: str
+    references: list[ChatReference]
+    conversation_id: str
+    raw_response: str
+    #: The answer's own structured document (#2120).
+    answer_document: StructuredDocument
+    #: The backend's key for this turn, or ``None`` when the stream carried
+    #: none. Threaded onto :attr:`AskResult.turn_key` (#2122).
+    turn_key: ConversationTurnKey | None
 
 
 class ChatAPI(LoopBoundPrimitive):
@@ -303,7 +326,7 @@ class ChatAPI(LoopBoundPrimitive):
             conversation_history: list[Any] | None,
             active_conversation_id: str | None,
             resolved_id_override: str | None = None,
-        ) -> tuple[str, list[ChatReference], str, str, StructuredDocument]:
+        ) -> _PostedAsk:
             # Capture into closure-local variables so the nested ``build_request``
             # closure carries explicit types — mypy doesn't propagate flow
             # narrowing through nested-function captures, and the wire
@@ -348,15 +371,18 @@ class ChatAPI(LoopBoundPrimitive):
                 if reqid_token is not None:
                     reset_request_id(reqid_token)
 
-            # ``_parse_ask_response_with_references`` returns a third tuple
-            # element historically called ``server_conv_id``. Live API tests
-            # (issue #659) proved that field is a per-stream/per-query id,
-            # not a real conversation_id: querying ``khqZz`` with it returns
-            # 0 turns, and passing it back as ``params[4]`` for a follow-up
-            # produces a ghost turn the server does not register. We discard
-            # it here and fetch the real id via ``hPTbtc`` below.
+            # ``StreamingChatParseResult.conversation_id`` is historically
+            # called ``server_conv_id``. Live API tests (issue #659) proved
+            # that field is a per-stream/per-query id, not a real
+            # conversation_id: querying ``khqZz`` with it returns 0 turns, and
+            # passing it back as ``params[4]`` for a follow-up produces a ghost
+            # turn the server does not register. We discard it here and fetch
+            # the real id via ``hPTbtc`` below. (It reads the same wire slot
+            # #2122 surfaces as ``turn_key.session_id`` — which is exactly why
+            # that field claims nothing; see ``ConversationTurnKey``.)
             parsed = parse_streaming_chat_response(response.text)
-            answer_text, references = parsed.answer, parsed.references
+            answer_text = parsed.answer
+            references = parsed.references
             answer_document = parsed.answer_document
 
             resolved_conversation_id = active_conversation_id
@@ -412,12 +438,13 @@ class ChatAPI(LoopBoundPrimitive):
 
             assert resolved_conversation_id is not None
 
-            return (
-                answer_text,
-                references,
-                resolved_conversation_id,
-                response.text,
-                answer_document,
+            return _PostedAsk(
+                answer=answer_text,
+                references=references,
+                conversation_id=resolved_conversation_id,
+                raw_response=response.text,
+                answer_document=answer_document,
+                turn_key=parsed.turn_key,
             )
 
         def cache_turn(
@@ -449,13 +476,6 @@ class ChatAPI(LoopBoundPrimitive):
                     posted = await perform_request(
                         conversation_history=None, active_conversation_id=None
                     )
-                    (
-                        answer_text,
-                        references,
-                        resolved_conversation_id,
-                        raw_response,
-                        answer_document,
-                    ) = posted
             # Existing conversation: release the notebook lock and serialize on the
             # conversation lock alone, so other null asks on this notebook resolve
             # in parallel yet still serialize here on that shared lock.
@@ -480,19 +500,12 @@ class ChatAPI(LoopBoundPrimitive):
                         active_conversation_id=None,
                         resolved_id_override=override,
                     )
-                    (
-                        answer_text,
-                        references,
-                        resolved_conversation_id,
-                        raw_response,
-                        answer_document,
-                    ) = posted
                     turn_number = cache_turn(
-                        resolved_conversation_id, answer_text, prior_turn_count
+                        posted.conversation_id, posted.answer, prior_turn_count
                     )
             else:
-                async with self._get_conversation_lock(resolved_conversation_id):
-                    turn_number = cache_turn(resolved_conversation_id, answer_text, 0)
+                async with self._get_conversation_lock(posted.conversation_id):
+                    turn_number = cache_turn(posted.conversation_id, posted.answer, 0)
         else:
             assert conversation_id is not None  # narrowed by is_new_conversation
             async with self._get_conversation_lock(conversation_id):
@@ -500,26 +513,21 @@ class ChatAPI(LoopBoundPrimitive):
                     self.get_conversation_turns, notebook_id, conversation_id
                 )
                 conversation_history = self._build_conversation_history(conversation_id)
-                (
-                    answer_text,
-                    references,
-                    resolved_conversation_id,
-                    raw_response,
-                    answer_document,
-                ) = await perform_request(
+                posted = await perform_request(
                     conversation_history=conversation_history,
                     active_conversation_id=conversation_id,
                 )
-                turn_number = cache_turn(resolved_conversation_id, answer_text, prior_turn_count)
+                turn_number = cache_turn(posted.conversation_id, posted.answer, prior_turn_count)
 
         return AskResult(
-            answer=answer_text,
-            conversation_id=resolved_conversation_id,
+            answer=posted.answer,
+            conversation_id=posted.conversation_id,
             turn_number=turn_number,
             is_follow_up=is_follow_up,
-            references=references,
-            raw_response=raw_response[:1000],
-            answer_document=answer_document,
+            references=posted.references,
+            raw_response=posted.raw_response[:1000],
+            answer_document=posted.answer_document,
+            turn_key=posted.turn_key,
         )
 
     async def get_conversation_turns(

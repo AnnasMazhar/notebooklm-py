@@ -724,3 +724,80 @@ def drive_source_status_to_str(status_code: int | DriveSourceStatus) -> str:
         to ``None`` before it can reach this helper.
     """
     return _DRIVE_SOURCE_STATUS_MAP.get(status_code, "unknown")
+
+
+class DiscoveryMode(int, Enum):
+    """How a research run searched for sources (backend ``DiscoveryMode``).
+
+    Echoed back by ``POLL_RESEARCH`` at ``task_info[2]`` — the same enum the
+    ``START_FAST_RESEARCH`` / ``START_DEEP_RESEARCH`` request params carry, so
+    the mode a run is executing under is confirmable from the response rather
+    than only remembered from the request (#2122).
+
+    The backend's ``DISCOVERY_MODE_UNSPECIFIED`` (0) is deliberately NOT
+    modelled, for the same reason as
+    :class:`DriveSourceStatus`: proto3 omits zero-valued fields, so it arrives
+    as an absent slot and means what an absent slot means. The decoder
+    normalizes an explicit ``0`` to ``None``. Recorded in
+    ``tests/_guardrails/_wire_contract.py::ENUM_GAPS``.
+
+    Values are the backend ``DiscoveryMode`` enum recovered from the official
+    Android app (``docs/mobile/enums.txt``) and pinned by
+    ``tests/_guardrails/_wire_contract.py``.
+
+    .. warning::
+       Only :attr:`DEFAULT_LLM_SEARCH` and :attr:`DEEP_RESEARCH` have been
+       observed: ``1`` on every fast run (live probe #2122 plus 6/6 fast
+       cassette rows) and ``5`` on every deep run (3/3 cassette rows). This
+       client only ever *sends* those two. The remaining members come from the
+       recovered enum and are decode-only forward compatibility.
+    """
+
+    #: Client-side sentinel — the slot carried a code this client does not
+    #: model (or a non-integer). Never sent by the backend. ``None`` means
+    #: "the poll made no mode claim"; this means "present but unmappable".
+    UNKNOWN = -1
+    #: The default LLM-driven search. Sent + observed for ``mode="fast"``.
+    DEFAULT_LLM_SEARCH = 1
+    #: Raw (non-LLM) search. Never sent by this client.
+    RAW_SEARCH = 2
+    #: "Curious" LLM search. Never sent by this client.
+    CURIOUS_SEARCH = 3
+    #: "Curious" raw search. Never sent by this client.
+    CURIOUS_RAW_SEARCH = 4
+    #: Multi-step deep research. Sent + observed for ``mode="deep"``.
+    DEEP_RESEARCH = 5
+    #: Lightweight LLM search. Never sent by this client.
+    LITE_LLM_SEARCH = 6
+
+
+# Discovery-mode code to string mapping (int keys for mypy compatibility),
+# the sibling of ``_DRIVE_SOURCE_STATUS_MAP``.
+_DISCOVERY_MODE_MAP: dict[int, str] = {
+    DiscoveryMode.UNKNOWN: "unknown",
+    DiscoveryMode.DEFAULT_LLM_SEARCH: "default_llm_search",
+    DiscoveryMode.RAW_SEARCH: "raw_search",
+    DiscoveryMode.CURIOUS_SEARCH: "curious_search",
+    DiscoveryMode.CURIOUS_RAW_SEARCH: "curious_raw_search",
+    DiscoveryMode.DEEP_RESEARCH: "deep_research",
+    DiscoveryMode.LITE_LLM_SEARCH: "lite_llm_search",
+}
+
+
+def discovery_mode_to_str(mode: int | DiscoveryMode) -> str:
+    """Convert a research discovery-mode code to a human-readable string.
+
+    The single source of truth for discovery-mode code to string mapping (the
+    sibling of :func:`drive_source_status_to_str`). Use this helper instead of
+    inline conditionals so every adapter's label stays in lock-step.
+
+    Args:
+        mode: Discovery mode as int or :class:`DiscoveryMode`.
+
+    Returns:
+        The lower-snake-case member name (``"default_llm_search"`` /
+        ``"deep_research"`` / …). Returns ``"unknown"`` for the client sentinel
+        and for unrecognized codes — including the backend's unmodelled ``0``,
+        which the decoder normalizes to ``None`` before it can reach here.
+    """
+    return _DISCOVERY_MODE_MAP.get(mode, "unknown")

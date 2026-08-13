@@ -60,6 +60,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeps the batch-scaled window (60 s + 3 s per requested source, capped at
   240 s) floored at the client's `timeout=`; a number replaces both; `None`
   inherits `timeout=` verbatim — the same three-way reading as `chat_timeout`.
+- **Chat answers are now selected by the server's own end-of-stream marker, and
+  carry the turn's identifier.** `GenerateFreeFormStreamedResponse.isFinalResponse`
+  (proto tag 5 → `inner_data[4]`) is `true` on exactly the last chunk of every
+  observed stream and was read nowhere; the parser instead picked the answer
+  with a **longest-wins heuristic** over the chunks. That heuristic is correct
+  for the streams observed but is an inference standing in for a boolean the
+  server already sends, and it fails **silently** whenever the final chunk is
+  not the longest — a truncated or corrected final chunk, a stream ending on a
+  short closing statement — returning a plausible mid-stream chunk as the
+  answer. A marked answer chunk that also carries `isFinalResponse` now wins
+  outright; longest-wins is demoted to a fallback that logs a `WARNING` when it
+  fires. The answer marker still decides what counts as an answer at all, so
+  the unmarked-text fallback and its drift diagnostics are unchanged.
+
+  `AnswerResponse.conversationTurnKey` (tag 3 → `answer_row[2]`) is populated
+  on every chunk of every ask and was likewise unread — which is the reason
+  `SubmitFeedback` (whose request takes exactly this key) could not be built
+  from a chat result without a separate round trip. It is now decoded onto the
+  new `AskResult.turn_key` (`ConversationTurnKey | None`), visible through the
+  Python API, `ask --json`, the MCP `ask` tool and `POST /v1/notebooks/{id}/chat`.
+
+  **`turn_key.session_id` is not a conversation id.** It is the same wire slot
+  issue #659 established is a *per-stream* identifier, and the evidence about
+  what it now holds is mixed: a live two-turn probe saw the `hPTbtc`-resolved
+  conversation id there, while this repo's own recorded cassettes show it
+  differing from the recorded `hPTbtc` id in 4/4 chat captures. So it is
+  exposed under its **proto** name with nothing claimed for it, and `ask` still
+  resolves the `conversation_id` it returns through `hPTbtc`. `turn_id` (tag 2)
+  conversely does *not* take its proto name `conversationId`, which contradicts
+  every observation — it changes on each turn of one conversation. `turn_code`
+  (tag 3) is carried verbatim and not interpreted. The wire↔attribute mapping
+  is recorded in `docs/rpc-reference.md` and pinned in
+  `tests/_guardrails/_wire_contract.py`.
+  ([#2122](https://github.com/teng-lin/notebooklm-py/issues/2122))
+
+- **Research runs now report their mode, timings and discovered-source hints.**
+  Five always-populated `POLL_RESEARCH` slots were dropped. `ResearchTask`
+  gains `discovery_mode` (`task_info[2]`, the new public `DiscoveryMode` enum —
+  the same enum the start params carry, so a poll can confirm a run is deep
+  rather than the caller having to remember), `created_at` / `updated_at`
+  (`task[3]` / `task[2]`) with a derived `duration`, and `account_id`
+  (`task[4]`). `ResearchSource` gains `hint` (`DiscoveredSource.hint`,
+  `src[2]`) — the backend's own one-line explanation of why it surfaced a
+  source. Also adds `notebooklm.types.discovery_mode_to_str`.
+
+  **The issue's create/update labels were backwards, and the wire settled it.**
+  #2122 records `createTime task[2]` / `updateTime task[3]`. Polling one live
+  run twice, 7.6s apart, showed `task[2]` advancing while `task[3]` held the
+  value both slots shared on the first poll — reproduced on two accounts, and
+  corroborated by 9/9 task rows across the repo's own cassettes. This client
+  decodes `task[3]` as created and `task[2]` as updated.
+
+  **`account_id` is account-scoped, and that took two accounts to establish.**
+  Every cassette in this repo carries the same value, which cannot distinguish
+  "account id" from "constant". Two live accounts produced two distinct values,
+  each constant across every task and poll of that account. What is *not*
+  established is whether it names the run's starter or the notebook's owner —
+  both were the same account in both probes, and the docstring says so.
+
+  The task-level fields stay off `ResearchTask.to_public_dict()` so the CLI
+  `--json` shape remains byte-stable (matching `status_code` / `source_type`);
+  the MCP `research_status` tool and `GET /v1/notebooks/{id}/research/{run_id}`
+  surface them as `discovery_mode` (a string label) / `created_at` /
+  `updated_at` / `duration_seconds`. The per-source `hint` rides the existing
+  conditional-key convention on `ResearchSource.to_public_dict()`, so it
+  reaches the CLI, MCP and REST source payloads alike.
+  ([#2122](https://github.com/teng-lin/notebooklm-py/issues/2122))
 
 - **`notebooklm research import` — importing research sources no longer requires
   a blocking wait** ([#2206](https://github.com/teng-lin/notebooklm-py/issues/2206)).

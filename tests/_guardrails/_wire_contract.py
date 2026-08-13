@@ -498,9 +498,80 @@ MAPPINGS: tuple[Mapping, ...] = (
     Mapping("notes", "NoteRow", "_CONTENT_POS", "ProjectNote", "content"),
     Mapping("notes", "NoteRow", "_INNER_CONTENT_POS", "ProjectNote", "content"),
     Mapping("notes", "NoteRow", "_INNER_TITLE_POS", "ProjectNote", "name"),
+    Mapping(
+        "chat",
+        "StreamEnvelopeRow",
+        "_IS_FINAL_RESPONSE_POS",
+        "GenerateFreeFormStreamedResponse",
+        "isFinalResponse",
+        note=(
+            "#2122 — the backend's explicit end-of-stream marker, previously "
+            "unread while the parser inferred the answer with a longest-wins "
+            "heuristic. Live: false on every chunk but the last and true on "
+            "exactly the last, across a 5-chunk and a 6-chunk stream."
+        ),
+    ),
+    # ---- Chat: ConversationTurnKey (inside AnswerResponse tag 3) -----------
+    # The three slots of the key at ``answer_row[2]``. Slot 0 keeps its proto
+    # name on the public type; slot 1 does NOT, because its proto name
+    # contradicts every observation. See ``ConversationTurnKey``'s docstring.
+    Mapping(
+        "chat",
+        "AnswerRow",
+        "_TURN_KEY_SESSION_ID_POS",
+        "ConversationTurnKey",
+        "sessionId",
+        note=(
+            "#2122 — surfaced as ConversationTurnKey.session_id, under its proto "
+            "name because the evidence about what it holds is mixed: a live "
+            "two-turn probe saw the hPTbtc-resolved conversation id here, while "
+            "this repo's 4 recorded chat cassettes show it differing from the "
+            "recorded hPTbtc id. It is the same slot AnswerRow."
+            "server_conversation_id reads, which #659 established is a "
+            "per-stream id. Nothing is claimed for it"
+        ),
+    ),
+    Mapping(
+        "chat",
+        "AnswerRow",
+        "_TURN_KEY_TURN_ID_POS",
+        "ConversationTurnKey",
+        "conversationId",
+        note=(
+            "#2122 — surfaced as ConversationTurnKey.turn_id, NOT under its "
+            "proto name: live, this slot held a DIFFERENT uuid on each of two "
+            "turns of one conversation, so it identifies the turn"
+        ),
+    ),
+    Mapping(
+        "chat",
+        "AnswerRow",
+        "_TURN_KEY_TURN_CODE_POS",
+        "ConversationTurnKey",
+        "fieldType",
+        note=(
+            "#2122 — surfaced as ConversationTurnKey.turn_code and NOT "
+            "interpreted. The extractor's `fieldType` label is a placeholder "
+            "name, and the observed values (2187103311 / 3083048340 / "
+            "2502166488 — one per turn, constant across that turn's chunks) are "
+            "not type tags. Carried verbatim so the key can be rebuilt."
+        ),
+    ),
     # ---- Research: DiscoveredSource ---------------------------------------
     Mapping("research", "ResearchResultRow", "_URL_POS", "DiscoveredSource", "sourceUrl"),
     Mapping("research", "ResearchResultRow", "_TITLE_POS", "DiscoveredSource", "title"),
+    Mapping(
+        "research",
+        "ResearchResultRow",
+        "_HINT_POS",
+        "DiscoveredSource",
+        "hint",
+        note=(
+            "#2122 — the backend's one-line 'why this source' note. Live: "
+            "populated on 10/10 fast-research rows; the deep-research report "
+            "row leaves it null"
+        ),
+    ),
     Mapping("research", "ResearchResultRow", "_RESULT_TYPE_POS", "DiscoveredSource", "corpusType"),
     # ---- Notebooks: PromptSuggestion --------------------------------------
     Mapping("notebooks", "PromptSuggestionRow", "_TITLE_POS", "PromptSuggestion", "title"),
@@ -714,6 +785,7 @@ UNMAPPED: tuple[Unmapped, ...] = (
     # research.py
     Unmapped("research", "ResearchTaskRow", "_ID_POS", _SHAPE_UNKNOWN),
     Unmapped("research", "ResearchTaskRow", "_INFO_POS", _SHAPE_UNKNOWN),
+    Unmapped("research", "ResearchTaskRow", "_TS_SECONDS_POS", _NESTED_LOCAL),
     Unmapped("research", "ResearchTaskInfoRow", "_QUERY_TEXT_POS", _SHAPE_UNKNOWN),
     Unmapped("research", "ResearchTaskInfoRow", "_QUERY_SOURCE_TYPE_POS", _SHAPE_UNKNOWN),
     Unmapped("research", "ResearchTaskInfoRow", "_SOURCES_POS", _NESTED_LOCAL),
@@ -836,6 +908,53 @@ PINNED: tuple[Pinned, ...] = (
     ),
     Pinned(
         "research",
+        "ResearchTaskRow",
+        "_UPDATED_AT_POS",
+        2,
+        "POLL_RESEARCH task row — last-update time, [seconds, nanos]",
+        "#2122 live: polled one run twice, 7.6s apart; this slot advanced with "
+        "the second poll while _CREATED_AT_POS held the first poll's value. "
+        "Reproduced on two accounts. Corroborated by the repo's cassettes: 9/9 "
+        "task rows, advanced across all 3 within-cassette repeated-row "
+        "transitions. #2122's issue text labels these two slots the other way "
+        "round; the wire does not",
+    ),
+    Pinned(
+        "research",
+        "ResearchTaskRow",
+        "_CREATED_AT_POS",
+        3,
+        "POLL_RESEARCH task row — creation time, [seconds, nanos]",
+        "#2122 live: constant across both polls of one run on two accounts, "
+        "and equal to _UPDATED_AT_POS on the first poll. Cassettes: constant "
+        "across all 4 repeated-row transitions in 9/9 rows",
+    ),
+    Pinned(
+        "research",
+        "ResearchTaskRow",
+        "_ACCOUNT_ID_POS",
+        4,
+        "POLL_RESEARCH task row — opaque account id owning the run",
+        "#2122 live: '400237754469' for one account and '838504205497' for a "
+        "second, each constant across every task and poll of that account. Two "
+        "accounts with two distinct stable values is what upgrades this from "
+        "'a constant' (all of the repo's cassettes carry the first value) to "
+        "'account-scoped'. Whether it names the run's starter or the notebook's "
+        "owner is NOT established — both were the same account in both probes",
+    ),
+    Pinned(
+        "research",
+        "ResearchTaskInfoRow",
+        "_DISCOVERY_MODE_POS",
+        2,
+        "POLL_RESEARCH task_info — DiscoveryMode the run is executing under",
+        "Two-sided: it echoes the value the START_*_RESEARCH params carry at "
+        "the same enum. Live #2122: 1 (DEFAULT_LLM_SEARCH) on every fast run, "
+        "on two accounts; cassettes: 1 on 6/6 fast rows and 5 (DEEP_RESEARCH) "
+        "on 3/3 deep rows",
+    ),
+    Pinned(
+        "research",
         "ResearchResultRow",
         "_CONTENT_BLOCK_POS",
         6,
@@ -886,6 +1005,22 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
             3: "DRIVE_SOURCE_STATUS_ACTIVE",
             4: "DRIVE_SOURCE_STATUS_DELETED",
             5: "DRIVE_SOURCE_STATUS_GEN_AI_ACCESS_DENIED",
+        },
+    ),
+    # rpc/types.py::DiscoveryMode (#2122). 1 and 5 are live-observed on both
+    # the request and the response side; the rest are bound from the recovered
+    # backend enum. UNKNOWN(-1) is a client sentinel, declared in
+    # ``_CLIENT_SYNTHETIC_VALUES``; UNSPECIFIED(0) is deliberately unmodelled
+    # and declared in ``ENUM_GAPS``.
+    "DiscoveryMode": (
+        "DiscoveryMode",
+        {
+            1: "DEFAULT_LLM_SEARCH",
+            2: "RAW_SEARCH",
+            3: "CURIOUS_SEARCH",
+            4: "CURIOUS_RAW_SEARCH",
+            5: "DEEP_RESEARCH",
+            6: "LITE_LLM_SEARCH",
         },
     ),
     "ArtifactStatus": (
@@ -959,6 +1094,17 @@ ENUM_GAPS: dict[str, tuple[tuple[int, str, str], ...]] = {
             "an explicit 0 to None rather than giving one state two "
             "representations. proto3 omits the zero default, so the wire almost "
             "never carries it in the first place.",
+        ),
+    ),
+    "DiscoveryMode": (
+        (
+            0,
+            "DISCOVERY_MODE_UNSPECIFIED",
+            "#2122 — deliberately unmodelled, for the same reason as "
+            "DRIVE_SOURCE_STATUS_UNSPECIFIED above: it means 'no claim', which "
+            "is what an absent slot already means, so "
+            "ResearchTaskInfoRow.discovery_mode normalizes an explicit 0 to "
+            "None rather than giving one state two representations.",
         ),
     ),
     "SourceStatus": (
