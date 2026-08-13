@@ -478,11 +478,11 @@ except NonIdempotentRetryError:
 
 **When the probe itself fails, the call fails ([#2220](https://github.com/teng-lin/notebooklm-py/issues/2220)).** The probe is what makes the retry safe, so it is never allowed to guess. If its own list RPC fails for a non-transport reason — realistically, wire drift making the strict decoder raise `RPCError` — the create is **not** retried, and you get `SourceAddError` (source paths) or `RPCError` (`notebooks.create`) saying the create could not be confirmed.
 
-Such an error carries an **`unconfirmed` attribute**. Test that, not the message text — it is the supported discriminator, and the same one the MCP and REST adapters use to keep these out of the "retry me" and "just this item failed" buckets:
+Such an error carries an **`unconfirmed` attribute**. Test that, not the message text and not the exception type — it is the supported discriminator, and the same one the MCP and REST adapters use to keep these out of the "retry me" and "just this item failed" buckets.
+
+**Type is the wrong discriminator here**, which is why the example below catches broadly. A probe whose list fails at the transport level re-raises that failure *unchanged*, so an unconfirmed create can reach you as `SourceAddError`, `RPCError`, `ServerError`, `NetworkError`, `RateLimitError`, or `AuthError`. Only the attribute is common to all of them.
 
 ```python
-from notebooklm import SourceAddError
-
 # Capture the ids BEFORE the add. A URL is not unique within a notebook, so a
 # post-hoc match alone cannot tell "my create landed" from "a copy was already
 # here" — adopting one blindly is the very bug #2204 fixed inside the library.
@@ -490,9 +490,9 @@ before = {s.id for s in await client.sources.list(nb_id)}
 
 try:
     source = await client.sources.add_url(nb_id, url)
-except SourceAddError as exc:
+except Exception as exc:
     if not getattr(exc, "unconfirmed", False):
-        raise  # a genuine per-source rejection: bad URL, paywalled, empty
+        raise  # a rejection, an auth failure, a plain outage — handle as usual
     # The create may or may not have landed. Only a source that is BOTH new
     # since the snapshot and matching the URL is attributable to this call.
     new = [s for s in await client.sources.list(nb_id) if s.id not in before and s.url == url]
@@ -504,7 +504,11 @@ except SourceAddError as exc:
         raise  # two new matches: a concurrent add. Resolve by hand.
 ```
 
-The attribute is absent on every other failure, so `getattr(exc, "unconfirmed", False)` is safe to call unconditionally. Both halves of the failure stay on the exception: the probe's own failure as `__cause__`, and the transport error that triggered the probe further up the `__context__` chain.
+(The reconciling `sources.list()` can itself fail — if the outage that broke the probe is still going, this whole block re-raises, which is the correct outcome: still unresolved.)
+
+The attribute is set on more than just the "probe raised" case. It marks every way a probe fails to settle whether the create landed: a match it cannot attribute because the pre-create baseline was unavailable, several new matches it cannot choose between, or a create that returned success with no trustworthy id whose recovery probe then came up empty. Those raise without anything having thrown inside the probe, so they look like ordinary rejections — but the server may hold a row either way.
+
+It is absent on every other failure, so `getattr(exc, "unconfirmed", False)` is safe to call unconditionally. Both halves of a probe failure stay on the exception: the probe's own failure as `__cause__`, and the transport error that triggered the probe further up the `__context__` chain.
 
 The alternative — retrying on an unanswered probe — is what this replaced. It recovered silently in the common case, at the cost of occasionally handing back a duplicate, or the wrong source id, with nothing to signal it. A raised error is actionable; an unreported duplicate is not.
 

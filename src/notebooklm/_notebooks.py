@@ -643,11 +643,13 @@ class NotebooksAPI:
                 # Ambiguous: more than one new notebook with this title
                 # appeared during the call. We cannot safely pick one;
                 # surface the situation so the caller can resolve it.
-                raise RPCError(
-                    f"Cannot disambiguate notebook with title {title!r}: "
-                    f"probe found {len(matches)} new notebooks with this title "
-                    "after a transport failure. Resolve manually before retrying.",
-                    method_id=RPCMethod.CREATE_NOTEBOOK.value,
+                raise _unconfirmed(
+                    RPCError(
+                        f"Cannot disambiguate notebook with title {title!r}: "
+                        f"probe found {len(matches)} new notebooks with this title "
+                        "after a transport failure. Resolve manually before retrying.",
+                        method_id=RPCMethod.CREATE_NOTEBOOK.value,
+                    )
                 )
             return None
 

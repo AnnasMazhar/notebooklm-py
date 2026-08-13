@@ -109,6 +109,21 @@ def mark_unconfirmed(exc: _E) -> _E:
     failed", and consumers must be able to tell it apart **programmatically** —
     the two mistakes it prevents are concrete:
 
+    "Could not answer" covers every way a probe fails to settle the question,
+    not just an exception while listing. All of these carry the marker:
+
+    * the probe's list raised — a decode failure (wrapped) or a transport /
+      auth failure (re-raised unchanged, marker set on the original);
+    * the probe listed fine but found a match it **cannot attribute**, because
+      the pre-create baseline was unavailable;
+    * the probe found **several** new matches and cannot choose;
+    * a create RPC returned success but with no trustworthy id, and the
+      recovery probe then failed or found nothing unambiguous.
+
+    The last three are the easy ones to miss: nothing threw, so they look like
+    ordinary rejections — but the server may hold a row either way, which is
+    exactly the state this marker names.
+
     * ``_app.errors`` classifies a :class:`SourceAddError` by inspecting its
       ``cause``, and a bare ``RPCError`` cause carrying a 5xx / gRPC-14
       ``rpc_code`` maps to :attr:`~notebooklm._app.errors.ErrorCategory.SERVER`

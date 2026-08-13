@@ -19,6 +19,8 @@ import httpx
 import pytest
 
 import notebooklm._source._upload_decode as _upload_decode_mod
+from notebooklm._app.errors import ErrorCategory, classify
+from notebooklm._app.source_batch import batch_item_is_fatal
 from notebooklm._source.upload import (
     SourceUploadPipeline,
     _build_invalid_argument_source_limit_hint,
@@ -653,7 +655,7 @@ class TestRegisterFileSourceBranches:
         async def _rpc_call(*_a: Any, **_k: Any) -> Any:
             return [[[1, 2, 3]]]  # no usable id
 
-        with pytest.raises(SourceAddError, match="did not provide a trustworthy"):
+        with pytest.raises(SourceAddError, match="did not provide a trustworthy") as exc_info:
             await pipeline.register_file_source(
                 "nb_1",
                 "report.pdf",
@@ -661,6 +663,18 @@ class TestRegisterFileSourceBranches:
                 logger=MagicMock(),
                 rpc_call=_rpc_call,
             )
+
+        # The register RPC already returned 200, so a row may exist and this
+        # probe could not check — an unconfirmed create (#2220). The marker has
+        # to survive the wrap: ``_probe`` marks the AuthError it re-raises, but
+        # this handler builds a NEW SourceAddError, and the marker lives on the
+        # object that propagates, not on its ``cause``. Asserting only the
+        # message (as this test used to) is why the gap went unnoticed.
+        assert getattr(exc_info.value, "unconfirmed", False) is True
+        classified = classify(exc_info.value)
+        assert classified.category is ErrorCategory.RPC
+        assert classified.retriable is False
+        assert batch_item_is_fatal(exc_info.value) is True
 
     @pytest.mark.asyncio
     async def test_probe_multiple_new_matches_raises_ambiguity(self) -> None:

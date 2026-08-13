@@ -639,25 +639,29 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                 # Surface this as an ambiguity rather than guessing — see
                 # the ``baseline_ids`` comment above for the failure mode
                 # this guards against.
-                raise SourceAddError(
-                    filename,
-                    message=(
-                        f"Cannot disambiguate file source with title {filename!r}: "
-                        "baseline snapshot was unavailable, so a matching title may "
-                        "predate this upload. Resolve manually before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        filename,
+                        message=(
+                            f"Cannot disambiguate file source with title {filename!r}: "
+                            "baseline snapshot was unavailable, so a matching title may "
+                            "predate this upload. Resolve manually before retrying."
+                        ),
+                    )
                 )
             if len(matches) == 1:
                 (match,) = matches  # exactly one (len==1 guard); unpack, not matches[0]
                 return match.id
             if len(matches) > 1:
-                raise SourceAddError(
-                    filename,
-                    message=(
-                        f"Cannot disambiguate file source with title {filename!r}: "
-                        f"probe found {len(matches)} new sources with this title "
-                        "after a transport failure. Resolve manually before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        filename,
+                        message=(
+                            f"Cannot disambiguate file source with title {filename!r}: "
+                            f"probe found {len(matches)} new sources with this title "
+                            "after a transport failure. Resolve manually before retrying."
+                        ),
+                    )
                 )
             return None
 
@@ -712,15 +716,17 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                 # The create RPC already returned successfully, so do not
                 # let idempotent_create treat probe failure here as a
                 # retryable create failure and re-POST the file source.
-                raise SourceAddError(
-                    filename,
-                    cause=exc,
-                    message=(
-                        f"Cannot confirm registered file source for {filename!r}: "
-                        "the register response did not provide a trustworthy "
-                        f"SOURCE_ID and the source-list probe failed ({type(exc).__name__}). "
-                        "Check the notebook source list before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        filename,
+                        cause=exc,
+                        message=(
+                            f"Cannot confirm registered file source for {filename!r}: "
+                            "the register response did not provide a trustworthy "
+                            f"SOURCE_ID and the source-list probe failed ({type(exc).__name__}). "
+                            "Check the notebook source list before retrying."
+                        ),
+                    )
                 ) from exc
             if probed_source_id is not None:
                 logger.info(
@@ -730,14 +736,16 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                 )
                 return probed_source_id
 
-            raise SourceAddError(
-                filename,
-                message=(
-                    "Failed to get SOURCE_ID: no trustworthy SOURCE_ID found in "
-                    f"{_register_response_shape_label(result)} registration response, "
-                    "and the source-list probe found no "
-                    "unambiguous new source. Check the notebook source list before retrying."
-                ),
+            raise _unconfirmed(
+                SourceAddError(
+                    filename,
+                    message=(
+                        "Failed to get SOURCE_ID: no trustworthy SOURCE_ID found in "
+                        f"{_register_response_shape_label(result)} registration response, "
+                        "and the source-list probe found no "
+                        "unambiguous new source. Check the notebook source list before retrying."
+                    ),
+                )
             )
 
         return await idempotent_create(

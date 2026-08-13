@@ -387,29 +387,33 @@ class SourceAddService:
                 # Both halves of the ambiguity are worth stating: the match may
                 # predate the add, or it may BE the add, in which case the create
                 # landed and the caller will otherwise never learn its id.
-                raise SourceAddError(
-                    url,
-                    cause=baseline_error,
-                    message=(
-                        f"Cannot disambiguate URL source {url!r}: the pre-create baseline "
-                        f"snapshot failed ({type(baseline_error).__name__}), so "
-                        f"{_describe_sources(matches)} may either predate this add or be "
-                        "the source it just created. Check the notebook source list "
-                        "before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        url,
+                        cause=baseline_error,
+                        message=(
+                            f"Cannot disambiguate URL source {url!r}: the pre-create baseline "
+                            f"snapshot failed ({type(baseline_error).__name__}), so "
+                            f"{_describe_sources(matches)} may either predate this add or be "
+                            "the source it just created. Check the notebook source list "
+                            "before retrying."
+                        ),
+                    )
                 )
             if len(matches) == 1:
                 (match,) = matches  # exactly one (len==1 guard); unpack, not matches[0]
                 return match
             if len(matches) > 1:
-                raise SourceAddError(
-                    url,
-                    message=(
-                        f"Cannot disambiguate URL source {url!r}: probe found "
-                        f"{len(matches)} new sources with this URL after a transport "
-                        f"failure ({_describe_sources(matches)}). Check the notebook "
-                        "source list before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        url,
+                        message=(
+                            f"Cannot disambiguate URL source {url!r}: probe found "
+                            f"{len(matches)} new sources with this URL after a transport "
+                            f"failure ({_describe_sources(matches)}). Check the notebook "
+                            "source list before retrying."
+                        ),
+                    )
                 )
             return None
 
@@ -727,25 +731,29 @@ class SourceAddService:
             elif matches:
                 # Without a baseline a match may predate this add — see the
                 # ``baseline_ids`` comment for the failure mode this guards.
-                raise SourceAddError(
-                    title,
-                    message=(
-                        f"Cannot disambiguate Drive source {file_id!r}: baseline snapshot "
-                        "was unavailable, so a matching source may predate this add. "
-                        "Check the notebook source list before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        title,
+                        message=(
+                            f"Cannot disambiguate Drive source {file_id!r}: baseline snapshot "
+                            "was unavailable, so a matching source may predate this add. "
+                            "Check the notebook source list before retrying."
+                        ),
+                    )
                 )
             if len(matches) == 1:
                 (match,) = matches  # exactly one (len==1 guard); unpack, not matches[0]
                 return match
             if len(matches) > 1:
-                raise SourceAddError(
-                    title,
-                    message=(
-                        f"Cannot disambiguate Drive source {file_id!r}: probe found "
-                        f"{len(matches)} new sources with this documentId after a "
-                        "transport failure. Check the notebook source list before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        title,
+                        message=(
+                            f"Cannot disambiguate Drive source {file_id!r}: probe found "
+                            f"{len(matches)} new sources with this documentId after a "
+                            "transport failure. Check the notebook source list before retrying."
+                        ),
+                    )
                 )
             return None
 

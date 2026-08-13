@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from notebooklm._app import source_add as cli_source_add
+from notebooklm._app.errors import ErrorCategory, classify
 from notebooklm._idempotency import _CreateResultKind, _IdempotentCreateResult
 from notebooklm._source.add import SourceAddService, honor_requested_title_if_fresh
 from notebooklm._sources import SourcesAPI
@@ -214,6 +215,14 @@ async def test_add_url_baseline_failure_makes_a_match_ambiguous(
     assert raised.value.cause is baseline_failure
     # The transport error that triggered the probe survives as context.
     assert raised.value.__context__ is transport_error
+    # An ambiguity IS an unconfirmed create (#2220 review): nothing threw
+    # inside the probe, so this looks like an ordinary rejection — but the
+    # server may hold a row either way, which is precisely what the marker
+    # names. Unmarked, it classifies as the non-fatal per-item SOURCE_ADD and
+    # a batch add would keep going, issuing more unresolvable writes.
+    assert getattr(raised.value, "unconfirmed", False) is True
+    assert classify(raised.value).category is ErrorCategory.RPC
+    assert classify(raised.value).retriable is False
     # The swallow is visible at the default logger level (WARNING), not DEBUG.
     assert "baseline list() failed" in caplog.text
 
@@ -248,6 +257,14 @@ async def test_add_url_probe_raises_on_multiple_new_matches(
 
     assert "src_a" in str(raised.value)
     assert "src_b" in str(raised.value)
+    # An ambiguity IS an unconfirmed create (#2220 review): nothing threw
+    # inside the probe, so this looks like an ordinary rejection — but the
+    # server may hold a row either way, which is precisely what the marker
+    # names. Unmarked, it classifies as the non-fatal per-item SOURCE_ADD and
+    # a batch add would keep going, issuing more unresolvable writes.
+    assert getattr(raised.value, "unconfirmed", False) is True
+    assert classify(raised.value).category is ErrorCategory.RPC
+    assert classify(raised.value).retriable is False
 
 
 @pytest.mark.asyncio
