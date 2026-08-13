@@ -14,6 +14,7 @@ from notebooklm.rpc.decoder import (
     RPCErrorCode,
     UnknownRPCMethodError,
     _contains_user_displayable_error,
+    _server_status_message,
     byte_count_mismatch_total,
     collect_rpc_ids,
     decode_response,
@@ -24,6 +25,7 @@ from notebooklm.rpc.decoder import (
     strip_anti_xssi,
 )
 from notebooklm.rpc.types import RPCMethod
+from tests._fixtures.rpc_error_frames import USER_DISPLAYABLE_RATE_LIMIT_STATUS
 
 
 class TestStripAntiXSSI:
@@ -431,17 +433,9 @@ class TestExtractRPCResult:
         Google's API returns this pattern for rate limiting, quota exceeded,
         and other user-facing restrictions.
         """
-        # Real-world structure from API rate limit response
-        error_info = [
-            8,
-            None,
-            [
-                [
-                    "type.googleapis.com/google.internal.labs.tailwind.orchestration.v1.UserDisplayableError",
-                    [None, None, None, None, [None, [[1]], 2]],
-                ]
-            ],
-        ]
+        # Real-world structure from an API rate limit response, shared with
+        # the #239 regression suite (tests/_fixtures/rpc_error_frames.py).
+        error_info = USER_DISPLAYABLE_RATE_LIMIT_STATUS
         chunks = [
             [
                 "wrb.fr",
@@ -882,16 +876,20 @@ class TestNullResultStatusCodeEnrichment:
         assert "empty result" in message
         assert "status code" not in message
 
-    def test_multi_element_error_info_falls_through(self):
-        """[5, null, 'x'] is not the bare form — no enrichment."""
-        with pytest.raises(RPCError) as exc_info:
+    def test_multi_element_status_is_still_read_as_a_status(self):
+        """``[5, null, 'x']`` is the same google.rpc.Status at a longer arity.
+
+        The old ``len(error_info) != 1`` gate made every non-bare status
+        invisible, which also made ``google.rpc.Status.message`` (index 1)
+        unreachable by construction — a read that could never fire is the
+        #2134 defect, so the arity gate had to go (#2188). The leading code is
+        what identifies the rejection at any length.
+        """
+        with pytest.raises(ClientError) as exc_info:
             decode_response(self._build_raw([5, None, "x"]), self.RPC_ID)
 
-        assert not isinstance(exc_info.value, ClientError)
-        assert exc_info.value.rpc_code is None
-        message = str(exc_info.value)
-        assert "empty result" in message
-        assert "status code" not in message
+        assert exc_info.value.rpc_code == 5
+        assert "not found" in str(exc_info.value).lower()
 
     def test_allow_null_suppresses_enrichment_for_client_error_codes(self):
         """allow_null=True must short-circuit even for [5] / [7].
@@ -1576,3 +1574,189 @@ class TestGetErrorMessageForCode:
             message, is_retryable = get_error_message_for_code(int(code))
             assert isinstance(message, str) and message
             assert isinstance(is_retryable, bool)
+
+
+class TestServerStatusMessage:
+    """``google.rpc.Status.message`` (index 1) — the only server-authored text.
+
+    Every other word this client prints for a rejection is client-authored. The
+    slot has **never** been observed populated, so the tests below split cleanly
+    in two: the *captured* shapes pin that nothing is invented from them, and
+    the *populated* cases pin what would happen if the server ever filled it in.
+    The populated payloads are the only synthetic fixtures here, and they are
+    synthetic by necessity — you cannot capture a field the server has not sent.
+    """
+
+    def test_recorded_rate_limit_status_yields_no_server_message(self):
+        """The one recorded rich sample carries ``None`` at index 1."""
+        assert _server_status_message(USER_DISPLAYABLE_RATE_LIMIT_STATUS) is None
+
+    def test_bare_status_array_yields_no_server_message(self):
+        """A live ``[3]`` / ``[13]`` rejection has no message slot at all."""
+        assert _server_status_message([3]) is None
+        assert _server_status_message([13]) is None
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            None,
+            [],
+            "not-a-status",
+            [3, None],
+            [3, 42],
+            [3, ["nested"]],
+            [3, ""],
+            [3, "   "],
+        ],
+    )
+    def test_non_text_slots_are_ignored(self, payload):
+        """Only a non-empty ``str`` counts — never a guess at something else."""
+        assert _server_status_message(payload) is None
+
+    def test_populated_message_is_returned(self):
+        """A server-sent string is surfaced verbatim."""
+        assert _server_status_message([8, "Daily limit reached", []]) == "Daily limit reached"
+
+    def test_whitespace_is_collapsed(self):
+        assert _server_status_message([8, "  Daily  \n limit\treached  "]) == "Daily limit reached"
+
+    def test_overlong_message_is_truncated(self):
+        """The field is server-controlled; it must not blow up an exception."""
+        result = _server_status_message([8, "x" * 5000])
+
+        assert result is not None
+        assert len(result) <= 301  # 300 chars + the ellipsis
+        assert result.endswith("…")
+
+    def test_rate_limit_error_prefers_server_text_over_the_client_sentence(self):
+        """When the server explains itself, its words lead (#2188)."""
+        chunks = [
+            [
+                "wrb.fr",
+                RPCMethod.LIST_NOTEBOOKS.value,
+                None,
+                None,
+                None,
+                [8, "Daily limit for Video Overviews reached", [["UserDisplayableError", []]]],
+            ]
+        ]
+
+        with pytest.raises(RateLimitError) as exc_info:
+            extract_rpc_result(chunks, RPCMethod.LIST_NOTEBOOKS.value)
+
+        message = str(exc_info.value)
+        assert message.startswith("Daily limit for Video Overviews reached")
+        assert "API rate limit or quota exceeded" not in message
+        # The upstream label is still appended for diagnosis.
+        assert "(Upstream: Resource exhausted.)" in message
+
+    def test_rate_limit_error_keeps_the_client_sentence_when_the_server_is_silent(self):
+        """The recorded shape still produces exactly today's wording."""
+        chunks = [
+            [
+                "wrb.fr",
+                RPCMethod.LIST_NOTEBOOKS.value,
+                None,
+                None,
+                None,
+                USER_DISPLAYABLE_RATE_LIMIT_STATUS,
+            ]
+        ]
+
+        with pytest.raises(RateLimitError) as exc_info:
+            extract_rpc_result(chunks, RPCMethod.LIST_NOTEBOOKS.value)
+
+        assert str(exc_info.value) == (
+            "API rate limit or quota exceeded. Please wait before retrying. "
+            "(Upstream: Resource exhausted.)"
+        )
+
+    def test_null_result_rejection_appends_server_text(self):
+        """The bare-status path echoes a server message when one is sent."""
+        chunk = json.dumps(
+            [
+                "wrb.fr",
+                RPCMethod.GET_NOTEBOOK.value,
+                None,
+                None,
+                None,
+                [9, "This notebook has no sources yet"],
+                "generic",
+            ]
+        )
+        raw = f")]}}'\n{len(chunk)}\n{chunk}\n"
+
+        with pytest.raises(RPCError) as exc_info:
+            decode_response(raw, RPCMethod.GET_NOTEBOOK.value)
+
+        message = str(exc_info.value)
+        assert "failed precondition" in message.lower()
+        assert "This notebook has no sources yet" in message
+
+
+class TestRaiseOnNullStatus:
+    """``allow_null`` tolerates an empty payload, not an explicit rejection."""
+
+    RPC_ID = RPCMethod.CREATE_ARTIFACT.value
+
+    def _raw(self, status):
+        chunk = json.dumps(["wrb.fr", self.RPC_ID, None, None, None, status, "generic"])
+        return f")]}}'\n{len(chunk)}\n{chunk}\n"
+
+    def test_default_still_swallows_a_status_tagged_null(self):
+        """Unchanged for every caller that did not opt in.
+
+        ``REMOVE_RECENTLY_VIEWED`` answers ``[13]`` on what the client treats as
+        a successful no-op (tests/cassettes/notebooks_remove_from_recent.yaml),
+        so blanket strictness would have broken a recorded interaction.
+        """
+        for code in (3, 5, 7, 13, 16):
+            assert decode_response(self._raw([code]), self.RPC_ID, allow_null=True) is None
+
+    def test_opt_in_raises_for_a_non_ok_status(self):
+        with pytest.raises(RPCError) as exc_info:
+            decode_response(self._raw([3]), self.RPC_ID, allow_null=True, raise_on_null_status=True)
+
+        assert exc_info.value.rpc_code == 3
+        assert "invalid argument" in str(exc_info.value).lower()
+
+    def test_opt_in_still_returns_none_without_a_status(self):
+        """No status means no reason to report — the null stays a null."""
+        assert (
+            decode_response(
+                self._raw(None), self.RPC_ID, allow_null=True, raise_on_null_status=True
+            )
+            is None
+        )
+
+    def test_opt_in_still_returns_none_for_an_ok_status(self):
+        """``[0]`` is OK — an explicitly fine empty payload, not a rejection."""
+        assert (
+            decode_response(self._raw([0]), self.RPC_ID, allow_null=True, raise_on_null_status=True)
+            is None
+        )
+
+    def test_opt_in_still_returns_none_for_an_unrecognized_status(self):
+        """Out-of-range codes stay unclassified rather than guessed at."""
+        assert (
+            decode_response(
+                self._raw([99]), self.RPC_ID, allow_null=True, raise_on_null_status=True
+            )
+            is None
+        )
+
+    def test_opt_in_routes_account_scoped_codes_through_client_error(self):
+        """NOT_FOUND / PERMISSION_DENIED keep their ``ClientError`` routing."""
+        with pytest.raises(ClientError) as exc_info:
+            decode_response(self._raw([5]), self.RPC_ID, allow_null=True, raise_on_null_status=True)
+
+        assert exc_info.value.rpc_code == 5
+
+    def test_opt_in_does_not_change_a_populated_result(self):
+        """Strictness only concerns null results."""
+        chunk = json.dumps(["wrb.fr", self.RPC_ID, '["art_1"]', None, None, [3], "generic"])
+        raw = f")]}}'\n{len(chunk)}\n{chunk}\n"
+
+        result = decode_response(raw, self.RPC_ID, allow_null=True, raise_on_null_status=True)
+
+        assert result == ["art_1"]

@@ -488,8 +488,16 @@ def _raise_chat_rejection(error_payload: list) -> NoReturn:
     error. The status is echoed so callers see the real failure. ``ErrorPayloadRow``
     centralises the ``error_payload[0]`` position (issue #1491).
     """
-    status = ErrorPayloadRow(error_payload).status_code
+    row = ErrorPayloadRow(error_payload)
+    status = row.status_code
     detail = f" (status {status!r})" if status is not None else ""
+    # ``google.rpc.Status.message`` is the only server-authored text in this
+    # envelope; the sentence below is this client's guess. Lead with the
+    # server's own words when it sent any (#2188) — the recorded ``[3]``
+    # rejection does not, so in practice the guess still stands.
+    server_reason = row.message
+    if server_reason is not None:
+        raise ChatError(f"Chat request was rejected by the server{detail}: {server_reason}")
     raise ChatError(
         f"Chat request was rejected by the server{detail}. "
         "This usually means the request was malformed or too large — most often "
@@ -535,6 +543,14 @@ def raise_if_rate_limited(error_payload: list) -> None:
         for entry in row.entries:
             entry_type = ErrorPayloadRow.entry_type(entry)
             if entry_type is not None and "UserDisplayableError" in entry_type:
+                # Prefer the server's ``google.rpc.Status.message`` over the
+                # client-authored sentence; no recorded sample carries one, so
+                # the fallback is what users see today (#2188).
+                server_reason = row.message
+                if server_reason is not None:
+                    raise ChatError(
+                        f"Chat request was rate limited or rejected by the API: {server_reason}"
+                    )
                 raise ChatError(
                     "Chat request was rate limited or rejected by the API. "
                     "Wait a few seconds and try again."

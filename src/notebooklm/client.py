@@ -578,6 +578,7 @@ class NotebookLMClient:
         *,
         disable_internal_retries: bool = False,
         read_timeout: float | None = None,
+        raise_on_null_status: bool = False,
     ) -> Any:
         """Make a raw NotebookLM RPC call.
 
@@ -596,6 +597,12 @@ class NotebookLMClient:
         timeout for this one call — useful for RPCs known to run long (e.g.
         bulk imports) without lowering the default for every other call.
 
+        ``raise_on_null_status`` (default ``False``) pairs with
+        ``allow_null=True``: it turns a null result that the server tagged with
+        a non-OK ``google.rpc.Status`` into a raised error instead of a silent
+        ``None``, so the server's own rejection is reported rather than
+        swallowed (#2188).
+
         .. versionchanged:: 0.6.0
             The deprecated keyword arguments previously documented here
             were removed (see :doc:`/deprecations`). The default-shape
@@ -607,6 +614,7 @@ class NotebookLMClient:
             allow_null=allow_null,
             disable_internal_retries=disable_internal_retries,
             read_timeout=read_timeout,
+            raise_on_null_status=raise_on_null_status,
         )
 
     @property

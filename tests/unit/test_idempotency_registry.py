@@ -573,7 +573,9 @@ def _build_rpc_executor() -> Any:
     timeout = 30.0
     refresh_retry_delay = 0.0
 
-    def _decode(raw: str, rpc_id: str, *, allow_null: bool = False) -> Any:
+    def _decode(
+        raw: str, rpc_id: str, *, allow_null: bool = False, raise_on_null_status: bool = False
+    ) -> Any:
         return []
 
     async def _sleep(_: float) -> None:

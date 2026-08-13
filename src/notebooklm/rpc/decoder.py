@@ -131,6 +131,42 @@ _GRPC_STATUS_MESSAGES: dict[int, str] = {
     GrpcStatusCode.UNAUTHENTICATED: "Unauthenticated",
 }
 
+# Index 5 of a ``wrb.fr`` frame is a JSON-array-encoded ``google.rpc.Status``
+# (the PUBLIC google/rpc/status.proto envelope, not a Tailwind message), so the
+# array positions are the proto tags minus one:
+#
+#   ===== ================== ==================================================
+#   Index Field              Evidence
+#   ===== ================== ==================================================
+#   0     ``code`` (tag 1)   Live: ``[3]`` INVALID_ARGUMENT from CREATE_ARTIFACT
+#                            on a source-less notebook and ``[5]`` NOT_FOUND for
+#                            an unknown notebook id (2026-08-13); ``[13]`` in
+#                            tests/cassettes/notebooks_remove_from_recent.yaml;
+#                            ``8`` (RESOURCE_EXHAUSTED) leading the recorded
+#                            ``UserDisplayableError`` shape.
+#   1     ``message`` (tag 2) NEVER OBSERVED POPULATED. Null in the recorded
+#                            rate-limit sample and absent from every captured
+#                            bare-status frame (the array is length 1). Read
+#                            defensively below so a server-authored reason is
+#                            surfaced *if* one ever arrives, but the
+#                            client-authored wording remains the observed
+#                            ceiling — see docs/rpc-reference.md and #2188.
+#   2     ``details``(tag 3) The ``[["type.googleapis.com/…UserDisplayableError",
+#                            …]]`` block; ``ErrorPayloadRow._ENTRIES_POS``
+#                            models the same slot for streamed chat.
+#   ===== ================== ==================================================
+#
+# ``_row_adapters/chat.py`` cannot be reused here: it imports ``notebooklm.rpc``,
+# so a decoder-side import would close an import cycle. The positions are
+# therefore declared twice, once per layer, with this table as the shared
+# rationale.
+_STATUS_MESSAGE_POS = 1
+
+#: Ceiling on how much server-authored status text is echoed into an exception
+#: message. The field is server-controlled and unbounded; a runaway payload must
+#: not become a multi-kilobyte exception string.
+_MAX_STATUS_MESSAGE_CHARS = 300
+
 #: Statuses the decoder routes through ``ClientError`` rather than the generic
 #: ``RPCError``, so ``is_auth_error`` cannot misclassify them and fire a
 #: spurious token refresh. Both also carry the account-routing hint below.
@@ -440,13 +476,22 @@ def collect_rpc_ids(chunks: list[Any]) -> list[str]:
 
 
 def _extract_status_code(error_info: Any) -> tuple[int, str] | None:
-    """Extract a bare status code from a wrb.fr error_info block.
+    """Extract the leading status code from a wrb.fr error_info block.
 
-    Returns ``(code, label)`` only for the bare single-element form ``[code]``
-    in the gRPC canonical range (0-16). Longer structures (e.g. the
-    ``[8, None, [[UserDisplayableError, ...]]]`` rate-limit shape) are handled
-    by the UserDisplayableError path and fall through here by returning
-    ``None``.
+    ``error_info`` is a ``google.rpc.Status`` array, so the code is at index 0
+    whatever the array's length: the bare ``[code]`` form issues #114 / #294
+    observed, and the longer ``[code, message, details]` form the proto allows.
+    Only the leading value is inspected, and only when it is an ``int`` in the
+    gRPC canonical range; anything else returns ``None``.
+
+    The arity restriction this used to carry (``len(error_info) != 1``) made
+    every longer status invisible — including the ``message`` slot #2188 is
+    about, which can only ever appear in a longer array. The
+    ``[8, None, [[UserDisplayableError, ...]]]`` rate-limit shape still raises
+    on the ``UserDisplayableError`` path *before* this helper is consulted; when
+    that path does not fire (e.g. the marker scan hit its depth cap), reporting
+    the leading status is strictly better than the unqualified
+    "empty result" fallback.
 
     Note: we do not claim these codes are unambiguously gRPC — REMOVE_RECENTLY_VIEWED
     returns ``[13]`` on what the client treats as a successful no-op (see
@@ -457,9 +502,9 @@ def _extract_status_code(error_info: Any) -> tuple[int, str] | None:
         error_info: Value at index 5 of a ``wrb.fr`` response item.
 
     Returns:
-        ``(code, label)`` tuple for a recognized bare status, else ``None``.
+        ``(code, label)`` tuple for a recognized status, else ``None``.
     """
-    if not isinstance(error_info, list) or len(error_info) != 1:
+    if not isinstance(error_info, list) or not error_info:
         return None
     code = error_info[0]
     # type(code) is int (not isinstance) — bool is a subclass of int, so
@@ -470,11 +515,15 @@ def _extract_status_code(error_info: Any) -> tuple[int, str] | None:
     return code, _GRPC_STATUS_MESSAGES[code]
 
 
-def _find_wrb_status(chunks: list[Any], rpc_id: str) -> tuple[int, str] | None:
+def _find_wrb_status(chunks: list[Any], rpc_id: str) -> tuple[int, str, Any] | None:
     """Locate bare status code at index 5 of a wrb.fr entry for ``rpc_id``.
 
     Used by ``decode_response`` to enrich the null-result error message when
     the server explicitly flagged the RPC with a status code.
+
+    Returns ``(code, label, payload)`` where ``payload`` is the raw
+    ``google.rpc.Status`` array, so the caller can also read the server's
+    ``message`` field without re-walking the chunks.
     """
     source = "decoder._find_wrb_status"
     for chunk in chunks:
@@ -499,7 +548,8 @@ def _find_wrb_status(chunks: list[Any], rpc_id: str) -> tuple[int, str] | None:
                 continue
             status = _extract_status_code(error_info)
             if status is not None:
-                return status
+                code, label = status
+                return code, label, error_info
     return None
 
 
@@ -540,23 +590,57 @@ def _contains_user_displayable_error(obj: Any, max_depth: int = 20) -> bool:
     return False
 
 
-def _extract_user_displayable_status(error_info: Any) -> tuple[int, str] | None:
-    """Extract the leading gRPC status from a UserDisplayableError block."""
-    if not isinstance(error_info, list) or not error_info:
+def _server_status_message(status_payload: Any) -> str | None:
+    """Return the server-authored ``google.rpc.Status.message``, or ``None``.
+
+    ``status_payload`` is the raw value at index 5 of a ``wrb.fr`` frame — a
+    JSON-array-encoded ``google.rpc.Status`` whose ``message`` field (tag 2)
+    lands at index 1 (see the position table near ``_STATUS_MESSAGE_POS``).
+
+    The read is deliberately narrow, because **no captured response has ever
+    carried a populated message** (#2188): only a non-empty ``str`` counts, and
+    anything else — a short array, ``None``, a nested structure, a number —
+    yields ``None`` so the caller keeps its existing client-authored wording.
+    That way the enrichment is inert on all traffic observed to date and cannot
+    invent a "reason" out of a slot that holds something else, which is the
+    failure mode #2134 was about.
+
+    Whitespace is collapsed and the text is capped at
+    ``_MAX_STATUS_MESSAGE_CHARS`` so a server-controlled field cannot blow up
+    an exception message.
+    """
+    if not isinstance(status_payload, list) or len(status_payload) <= _STATUS_MESSAGE_POS:
         return None
-    code = error_info[0]
-    if type(code) is not int or code not in _GRPC_STATUS_MESSAGES:
+    value = status_payload[_STATUS_MESSAGE_POS]
+    if not isinstance(value, str):
         return None
-    return code, _GRPC_STATUS_MESSAGES[code]
+    text = " ".join(value.split())
+    if not text:
+        return None
+    if len(text) > _MAX_STATUS_MESSAGE_CHARS:
+        text = text[:_MAX_STATUS_MESSAGE_CHARS].rstrip() + "…"
+    return text
 
 
 def _user_displayable_error_message(error_info: Any) -> str:
-    """Build a non-sensitive diagnostic for a user-displayable rejection."""
-    message = "API rate limit or quota exceeded. Please wait before retrying."
-    status = _extract_user_displayable_status(error_info)
+    """Build a non-sensitive diagnostic for a user-displayable rejection.
+
+    Prefers the server's own ``google.rpc.Status.message`` when one is present;
+    otherwise falls back to the client-authored sentence below. The two are
+    NOT interchangeable and the distinction matters when reading a bug report:
+    the fallback is this client's guess at what a ``UserDisplayableError``
+    means, and every recorded sample has taken that branch.
+    """
+    message = _server_status_message(error_info) or (
+        "API rate limit or quota exceeded. Please wait before retrying."
+    )
+    # Same ``google.rpc.Status`` envelope as the bare-status path, so the same
+    # leading-code extractor serves both (the two used to be byte-identical
+    # helpers under different names).
+    status = _extract_status_code(error_info)
     if status is None:
         return message
-    code, label = status
+    _code, label = status
     # Keep the stable, human-readable status label but not the raw numeric gRPC
     # code — it carries no end-user value and is volatile internal detail
     # (#1921). The numeric code stays available on the exception's ``rpc_code``.
@@ -664,7 +748,13 @@ def extract_rpc_result(chunks: list[Any], rpc_id: str) -> Any:
     return last_result
 
 
-def decode_response(raw_response: str, rpc_id: str, allow_null: bool = False) -> Any:
+def decode_response(
+    raw_response: str,
+    rpc_id: str,
+    allow_null: bool = False,
+    *,
+    raise_on_null_status: bool = False,
+) -> Any:
     """
     Complete decode pipeline: strip prefix -> parse chunks -> extract result.
 
@@ -672,6 +762,15 @@ def decode_response(raw_response: str, rpc_id: str, allow_null: bool = False) ->
         raw_response: Raw response text from batchexecute
         rpc_id: RPC method ID to extract result for
         allow_null: If True, return None instead of raising error when result is null
+        raise_on_null_status: Opt-in strictness for ``allow_null`` callers. When
+            True, a null result that the server tagged with a **non-OK**
+            ``google.rpc.Status`` at index 5 raises instead of decoding to
+            ``None``, so the caller reports the server's reason rather than
+            inventing one. Callers that legitimately tolerate a status-tagged
+            null leave it False — ``REMOVE_RECENTLY_VIEWED`` answers ``[13]``
+            (INTERNAL) on what the client treats as a successful no-op
+            (tests/cassettes/notebooks_remove_from_recent.yaml), which is why
+            this is opt-in per call site rather than a blanket change (#2188).
 
     Returns:
         Decoded result data
@@ -740,12 +839,6 @@ def decode_response(raw_response: str, rpc_id: str, allow_null: bool = False) ->
                 raw_response=response_preview,
             )
 
-        # ``rpc_id`` is present in ``found_ids`` but ``extract_rpc_result`` returned
-        # None — the requested frame carried a genuinely null payload. Honor
-        # ``allow_null`` here and return None for callers that opt in.
-        if allow_null:
-            return None
-
         # RPC ID was found but extract_rpc_result returned None.
         # This means wrb.fr had null result_data without UserDisplayableError.
         # Enrich the message if the server attached a bare status code at
@@ -759,9 +852,29 @@ def decode_response(raw_response: str, rpc_id: str, allow_null: bool = False) ->
         # for logging and debugging, but keep the human-readable message free of
         # them — only the stable gRPC status label is user-facing.
         status = _find_wrb_status(chunks, rpc_id)
+
+        # ``rpc_id`` is present in ``found_ids`` but ``extract_rpc_result``
+        # returned None — the requested frame carried a genuinely null payload.
+        # Honor ``allow_null`` and return None for callers that opt in, EXCEPT
+        # when the caller asked for strictness and the server tagged that null
+        # with a non-OK status. A status-tagged null is the server saying "no",
+        # not an empty-but-fine payload; swallowing it made ``generate_*``
+        # report "<type> generation is unavailable" for a live INVALID_ARGUMENT
+        # rejection (#2188).
+        rejected = status is not None and status[0] != GrpcStatusCode.OK
+        if allow_null and not (raise_on_null_status and rejected):
+            return None
+
         if status is not None:
-            code, label = status
+            code, label, payload = status
             message = f"The server rejected this request ({label.lower()})."
+            # Echo the server's own ``google.rpc.Status.message`` when it sent
+            # one. No captured frame ever has (#2188), so in practice this is
+            # the client-authored sentence above — the wording is only
+            # server-authored when this suffix appears.
+            server_message = _server_status_message(payload)
+            if server_message is not None:
+                message = f"{message} {server_message}"
             # Route NOT_FOUND / PERMISSION_DENIED through ClientError so
             # is_auth_error does not misclassify them as auth failures and
             # trigger a spurious token-refresh retry. The account-routing hint
