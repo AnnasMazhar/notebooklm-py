@@ -507,11 +507,14 @@ class DocumentBlock:
         kind: Which ``StructuralElement`` variant produced this block.
         table_rows: For a :attr:`BlockKind.TABLE`, the grid its :attr:`spans`
             were flattened out of — one tuple of :class:`TableCell` per row, in
-            document order. Empty for every other kind, and for a table whose
-            rows and cells all declared unusable ranges. The cells partition
-            the runs; they do not add to them, so this changes nothing about
-            :attr:`text` or :attr:`StructuredDocument.text` and is read only by
-            :meth:`StructuredDocument.render` (#2230).
+            document order. The parse populates it for no other kind, and
+            leaves it empty for a table whose rows and cells all declared
+            unusable ranges; :meth:`StructuredDocument.render` keys off the
+            cells themselves rather than off :attr:`kind`, so a hand-built
+            block carrying them renders as a grid whatever it calls itself.
+            The cells partition the runs; they do not add to them, so this
+            changes nothing about :attr:`text` or
+            :attr:`StructuredDocument.text` (#2230).
     """
 
     start_index: int
