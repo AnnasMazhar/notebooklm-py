@@ -363,9 +363,9 @@ token persistence; a missing-storage leader remains shielded to settlement
 before its bootstrap lock is released. At the extraction freeze the coordinator
 is 373 lines and the compatibility adapter is 463 lines.
 
-The current measured persistence boundary is 1,090 lines in `_auth/storage.py`, 575 in
+The current measured persistence boundary is 1,090 lines in `_auth/storage.py`, 602 in
 `_auth/profile_migration.py`, 876 in `_auth/profile_store.py`, 96 in
-`_auth/cookie_filter.py`, and 89 in `_auth/master_token_file.py` (2,726 total). `storage.py`
+`_auth/cookie_filter.py`, and 89 in `_auth/master_token_file.py` (2,753 total). `storage.py`
 remains the v0.x signature/result facade; the extracted owners do not create a second facade.
 
 `_auth/tokens.py` now owns the Phase 9 stored-auth composition: captured-inline/file sources,

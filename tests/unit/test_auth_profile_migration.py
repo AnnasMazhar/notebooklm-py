@@ -702,6 +702,38 @@ def test_a_promotion_scheduled_after_the_drain_closed_is_refused_out_loud(tmp_pa
     assert not scheduler._workers_for_tests()
 
 
+def test_the_scheduler_also_closes_when_the_drain_times_out(tmp_path, caplog):
+    """Both of ``drain``'s exits must close the registry, not just the tidy one.
+
+    A drain that gives up on a straggler is still the only exit drain there
+    will be, so a promotion scheduled after it would be started with nobody
+    left to join it -- killed mid-write at shutdown, silently.
+    """
+    release = threading.Event()
+
+    class _Stuck:
+        def promote(self, store):
+            release.wait(30)
+
+    scheduler = LegacyPromotionScheduler()
+    stuck_store = _SequencedStore(tmp_path / "stuck.json", [])
+    try:
+        assert scheduler.schedule(stuck_store, _Stuck()) is True  # type: ignore[arg-type]
+        assert scheduler.drain(0.05) is False  # times out -> the deadline return
+
+        later = _SequencedStore(tmp_path / "later.json", [])
+        with caplog.at_level("WARNING", logger="notebooklm.auth"):
+            assert scheduler.schedule(later, LegacyAccountMigrator()) is False  # type: ignore[arg-type]
+        assert any(
+            "was not started because the process is already shutting down" in r.getMessage()
+            for r in caplog.records
+        )
+        assert str(later.path) in caplog.text
+    finally:
+        release.set()
+        assert scheduler.drain(30.0) is True
+
+
 def test_reset_reopens_the_scheduler_for_the_next_test(tmp_path):
     scheduler = LegacyPromotionScheduler()
     assert scheduler.drain(30.0) is True

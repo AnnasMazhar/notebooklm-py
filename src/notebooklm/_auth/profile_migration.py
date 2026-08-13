@@ -425,6 +425,11 @@ class LegacyPromotionScheduler:
                         NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT_ENV,
                     )
             if time.monotonic() >= deadline:
+                # The timeout return closes the registry for the same reason the
+                # empty return does: this is the only exit drain, so anything
+                # scheduled after it would be killed mid-promotion unjoined.
+                with self._registry_lock:
+                    self._drain_closed = True
                 return complete
 
     def _scheduled_paths_for_tests(self) -> frozenset[str]:
