@@ -39,12 +39,15 @@ importable in the child regardless of how the parent interpreter was started.
 
 from __future__ import annotations
 
-from ._contract import ScenarioError, ScenarioResult, emit, require, run_scenario
+from ._contract import ScenarioError, ScenarioResult, require, run_scenario
 
+# ``emit`` is deliberately NOT re-exported: it is the printing half of
+# ``run_scenario`` and no cell needs it directly. A cell that ever does can
+# import it from ``._contract`` — an unused name in ``__all__`` reads like a
+# supported entry point that nothing keeps honest.
 __all__ = [
     "ScenarioError",
     "ScenarioResult",
-    "emit",
     "require",
     "run_scenario",
 ]

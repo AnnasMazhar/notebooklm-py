@@ -679,8 +679,9 @@ def test_matrix_no_longer_ships_python_programs_through_dash_c() -> None:
         for node in ast.walk(tree)
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value == "-c"
     ]
-    # The one survivor is the process-group regression test helper below, which
-    # lives in the test file, not here.
+    # Scoped to the orchestrator on purpose: this test file still uses
+    # ``python -c`` for the process-group regression helper, which is a throwaway
+    # sleep loop rather than a matrix cell.
     assert offenders == [], (
         "scripts/live_auth_matrix.py builds a `python -c` command at lines "
         f"{offenders}; live-auth cells belong in scripts/_live_auth_scenarios/ (#2180)"
@@ -696,16 +697,20 @@ def test_every_scenario_module_the_matrix_names_exists_on_disk() -> None:
 
 @pytest.mark.parametrize("module", [name for name, _extra in SCENARIO_MODULES])
 def test_scenario_modules_expose_typed_entry_points(module: str) -> None:
-    """Each cell is importable, has a ``main()``, and is annotated."""
+    """Each cell is importable, documented, and annotated.
+
+    Annotations read back as strings because every scenario module carries
+    ``from __future__ import annotations``.
+    """
     imported = _import_scenario(module)
-    main = imported.main
-    assert callable(main)
-    assert main.__doc__, f"{module}.main is undocumented"
-    assert main.__annotations__.get("return") in {"None", None.__class__, type(None)}
+    assert callable(imported.main)
+    assert imported.main.__doc__, f"{module}.main is undocumented"
+    assert imported.main.__annotations__["return"] == "None"
     if module == "crash_safe_writer":
+        # The writer is the one cell with no JSON contract: it prints nothing
+        # and is expected to be killed, so it has no ``scenario()``/``PROFILE``.
         return
-    scenario = imported.scenario
-    assert scenario.__annotations__["return"] == "ScenarioResult"
+    assert imported.scenario.__annotations__["return"] == "ScenarioResult"
     assert imported.PROFILE
 
 
@@ -981,3 +986,26 @@ def test_run_scenario_emits_nothing_when_the_scenario_fails(
     with pytest.raises(scenarios.ScenarioError):
         scenarios.run_scenario(scenario)
     assert capsys.readouterr().out == ""
+
+
+def test_scenarios_never_read_or_write_text_with_the_ambient_locale() -> None:
+    """Every text read/write in a cell must pin ``encoding=``.
+
+    ``phase_crash_safety`` reads and writes with explicit UTF-8 on both sides,
+    so a locale-dependent read inside the cell is not merely inconsistent: it
+    raises before the first write, and the parent then re-reads its own pristine
+    copy, parses it happily, and reports the cell as PASS without the canonical
+    writer ever having run.
+    """
+    offenders: list[str] = []
+    for path in sorted(SCENARIO_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"read_text", "write_text"}
+                and not any(kw.arg == "encoding" for kw in node.keywords)
+            ):
+                offenders.append(f"{path.name}:{node.lineno} {node.func.attr}()")
+    assert offenders == [], f"pass encoding='utf-8' explicitly: {offenders}"

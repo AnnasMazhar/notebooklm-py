@@ -25,7 +25,13 @@ def main(argv: list[str] | None = None) -> None:
     """Rewrite ``argv[0]`` from the storage state in ``argv[1]``, repeatedly."""
     args = sys.argv[1:] if argv is None else argv
     target = Path(args[0])
-    state = json.loads(Path(args[1]).read_text())
+    # Explicit UTF-8, matching both sides of ``phase_crash_safety``. A
+    # locale-dependent read is worse here than anywhere else in the package:
+    # under a non-UTF-8 locale it raises before the first write, the parent
+    # then kills an already-dead child and re-reads its own pristine copy,
+    # which parses fine — so the cell reports PASS having never exercised the
+    # canonical writer at all.
+    state = json.loads(Path(args[1]).read_text(encoding="utf-8"))
     for _ in range(WRITE_ITERATIONS):
         replace_from_login(target, state, include_domains=None)
 
