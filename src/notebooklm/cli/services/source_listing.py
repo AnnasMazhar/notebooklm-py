@@ -55,16 +55,35 @@ def _status_cell(src: Source) -> str:
     ``ready`` after the underlying Drive file is deleted or unshared — so for
     those rows the bare label is actively misleading (#2111). Append the Drive
     verdict there rather than adding a Drive column: a column would be blank on
-    every non-Drive row (the overwhelming majority) and would cost table width
-    on every listing, while this touches only the rows where the two axes
-    disagree. Healthy Drive rows (``active``) and non-Drive rows render exactly
-    as before.
+    every non-Drive row (the overwhelming majority) and would widen the table on
+    **every** listing, whereas this costs nothing until a row is actually
+    degraded.
+
+    Be precise about "costs nothing", because Rich sizes columns table-wide:
+    the *cell text* of healthy and non-Drive rows is unchanged, but when any row
+    is annotated the wider Status column re-flows the whole table, so other
+    rows' Title/ID can wrap or truncate. That re-flow is accepted only in the
+    degraded case — a rare, actionable state where knowing the data is stale
+    beats a roomier Title column. ``_build_spec`` pairs this with
+    ``overflow="fold"`` on Status so the longest label
+    (``gen_ai_access_denied``) wraps intact instead of ellipsizing away the very
+    information the annotation exists to carry.
+
+    The trigger is :attr:`~notebooklm.types.Source.is_drive_degraded`, so a code
+    this client cannot map (``unknown``) is deliberately NOT flagged here: that
+    predicate's contract is that an unnameable state is not evidence of
+    degradation, and the table should not cry wolf across every row on protocol
+    drift. ``source get`` and ``--json`` still report it — this is the triage
+    column, not the full axis.
 
     ``--json`` is unaffected: it carries the full Drive axis on every row via
     :func:`~notebooklm.cli.services.source_serializers.source_row_payload`.
     """
     status = source_status_to_str(src.status)
     drive_status = src.drive_status
+    # ``is_drive_degraded`` is already False when there is no Drive claim, so
+    # the None test narrows the type for the label call below rather than
+    # adding a second, independent condition.
     if drive_status is None or not src.is_drive_degraded:
         return status
     # Parentheses, not brackets: Rich would parse "[...]" as console markup.
@@ -114,6 +133,12 @@ def _build_spec(
             src.created_at.strftime("%Y-%m-%d %H:%M") if src.created_at else "-",
             _status_cell(src),
         ],
+        # Fold rather than ellipsize Status: a degraded cell can reach
+        # ``ready (drive: gen_ai_access_denied)``, and the default ellipsis
+        # would clip it to ``gen_ai_acces…`` — dropping exactly the word that
+        # makes the annotation worth showing. No effect on the common case,
+        # where every label is short enough that neither policy engages.
+        column_options={"Status": {"overflow": "fold"}},
         envelope_extras=envelope_extras,
     )
 

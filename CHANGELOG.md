@@ -203,12 +203,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `source get --json` hand-compose their row from the deliberately narrow
   `{"id", "title", "type", "url"}` summary, so both fields were invisible
   there. Both commands now emit `drive_document_id`, `drive_status` (string
-  label), `drive_status_id` (raw code) and `is_drive_degraded` on **every**
-  row — `null` / `false` on non-Drive sources, so a `jq` filter needs no
-  `// empty` guard. The CLI spelling pairs label-with-code the way its existing
-  `status` / `status_id` does; MCP/REST keep their `drive_status` (code) +
-  `drive_status_label` (string) spelling, and both resolve through the same
-  `drive_source_status_to_str` helper.
+  label) and `is_drive_degraded` on **every** row — `null` / `false` on
+  non-Drive sources, so a `jq` filter needs no `// empty` guard.
+
+  No raw Drive status code is shipped beside the label, unlike the ingestion
+  axis's `status` / `status_id`: it would carry no information (an unmappable
+  wire code is replaced by the `UNKNOWN` client sentinel before it could reach
+  output) and its code space collides adversarially with `status_id`'s — `2` /
+  `3` are `ready` / `error` for ingestion but `syncing` / `active` for Drive.
+  That matches the "labels, not raw codes" rule the MCP compact roster already
+  applies. MCP/REST keep their `drive_status` (code) + `drive_status_label`
+  (string) spelling; both resolve through `drive_source_status_to_str`.
 
   `source add` / `source add-drive` / `source add-drive-file` JSON envelopes
   are **unchanged**: the Drive keys are composed into the list/get row rather
@@ -216,11 +221,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `source get --json` now build that row from one shared serializer, so the two
   cannot drift apart again — which is how this gap opened.
 
-  Human output keeps its shape: no new table column (it would be blank on the
-  overwhelming majority of sources). `source list` appends `(drive: deleted)`
-  to the Status cell **only** where the two axes disagree, and `source get`
-  prints `Drive File ID:` / `Drive Status:` lines only for a source that
-  carries a Drive claim.
+  Human output gains no column. `source list` appends `(drive: deleted)` to the
+  Status cell only where ingestion reads `ready` and Drive says otherwise (an
+  unreadable code is not flagged — it is not evidence of degradation); the
+  Status column now folds rather than ellipsizes so the longest label survives
+  a narrow terminal. `source get` prints `Drive File ID:` / `Drive Status:`
+  lines only for a source that carries the corresponding field — the two are
+  gated independently, because the only Drive row this project has captured on
+  the wire carries a file id with no health slot at all.
   ([#2113](https://github.com/teng-lin/notebooklm-py/issues/2113),
   [#2111](https://github.com/teng-lin/notebooklm-py/issues/2111))
 

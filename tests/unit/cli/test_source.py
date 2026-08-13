@@ -177,7 +177,6 @@ class TestSourceList:
                 # sources, so a jq filter needs no `// empty` guard (#2113/#2111).
                 "drive_document_id",
                 "drive_status",
-                "drive_status_id",
                 "is_drive_degraded",
             ]
             assert data["sources"][0]["id"] == "src_1"
@@ -214,7 +213,6 @@ class TestSourceList:
         assert drive_row["status"] == "ready"
         assert drive_row["drive_document_id"] == _DRIVE_FILE_ID
         assert drive_row["drive_status"] == "deleted"
-        assert drive_row["drive_status_id"] == DriveSourceStatus.DELETED.value
         assert drive_row["is_drive_degraded"] is True
         # The Drive row carries no URL, so ``drive_document_id`` is the only
         # thing tying it back to the file it was created from.
@@ -223,8 +221,41 @@ class TestSourceList:
         # Non-Drive rows keep the keys with null values (stable row shape).
         assert web_row["drive_document_id"] is None
         assert web_row["drive_status"] is None
-        assert web_row["drive_status_id"] is None
         assert web_row["is_drive_degraded"] is False
+
+    def test_source_list_json_keeps_the_file_id_when_no_health_slot_is_sent(
+        self, runner, mock_auth
+    ):
+        """A Drive row with an id but NO health claim keeps its id (#2113).
+
+        This is the only Drive shape this project has actually captured: the
+        row in ``tests/cassettes/sources_add_drive.yaml`` carries a
+        ``documentId`` while its settings block is ``[None, 2]`` — no Drive
+        status slot at all. The two fields decode from structurally unrelated
+        slots, so gating the id on the status would blank #2113's entire reason
+        for existing on the most common real shape while every degraded-row
+        test above stayed green.
+        """
+        mock_client = create_mock_client()
+        mock_client.sources.list = AsyncMock(return_value=[_drive_source(None)])
+        mock_client.notebooks.get = AsyncMock(return_value=MagicMock(title="Test Notebook"))
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli,
+                ["source", "list", "-n", "nb_123", "--json"],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 0, result.output
+        row = json.loads(result.output)["sources"][0]
+        assert row["drive_document_id"] == _DRIVE_FILE_ID
+        # No claim on the health axis — and "no claim" is not "unknown".
+        assert row["drive_status"] is None
+        assert row["is_drive_degraded"] is False
 
     def test_source_list_table_flags_only_the_degraded_drive_row(self, runner, mock_auth):
         """The Status cell gains a Drive note ONLY where the two axes disagree.
@@ -234,8 +265,8 @@ class TestSourceList:
         healthy Drive row and a web row render exactly as they did before.
         """
 
-        # Short ids/titles so the Status cell cannot wrap at the default
-        # 80-column width and split the annotation across lines.
+        # Short ids/titles so the Status cell cannot wrap and split the
+        # annotation across lines on a narrow console.
         def _short(sid, drive_status):
             return Source(
                 id=sid,
@@ -273,6 +304,49 @@ class TestSourceList:
             line for line in result.output.splitlines() if "Title" in line and "Status" in line
         )
         assert "Drive" not in header  # no new column
+
+    def test_source_list_table_never_ellipsizes_the_drive_label(
+        self, runner, mock_auth, narrow_console
+    ):
+        """The longest Drive label survives a narrow terminal intact.
+
+        `ready (drive: gen_ai_access_denied)` is the widest annotation this can
+        produce. Under the Status column's default `overflow="ellipsis"` an
+        80-column table clips it to `gen_ai_acces…`, dropping the one word the
+        annotation exists to carry — so the spec pins `overflow="fold"`. The
+        other table tests run at the autouse 400-column width and cannot see
+        this.
+        """
+        mock_client = create_mock_client()
+        mock_client.sources.list = AsyncMock(
+            return_value=[
+                _drive_source(DriveSourceStatus.GEN_AI_ACCESS_DENIED),
+                _web_source(),
+            ]
+        )
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli, ["source", "list", "-n", "nb_123"], obj=inject_client(mock_client)
+            )
+
+        assert result.exit_code == 0, result.output
+        # The cell folds over several visual lines, and the other columns sit
+        # between the fragments — so rebuild the Status column (the last cell
+        # of each body row) rather than squashing the whole table.
+        status_column = "".join(
+            line.split("│")[-2].strip()
+            for line in result.output.splitlines()
+            if line.count("│") >= 2
+        )
+        assert "ready (drive: gen_ai_access_denied)".replace(" ", "") in status_column.replace(
+            " ", ""
+        )
+        # Nothing in the folded cell was ellipsized away.
+        assert "…" not in status_column
 
     @pytest.mark.parametrize("output_mode", ["text", "json"])
     def test_source_list_limit_caps_rows(self, runner, mock_auth, output_mode):
@@ -738,7 +812,39 @@ class TestSourceGet:
         assert f"Drive File ID: {_DRIVE_FILE_ID}" in output
         assert f"Drive Status: {expected_label}" in output
         # Only the degraded row earns the "may be stale" caveat.
-        assert ("answers may be stale" in output) is expect_stale_warning
+        # Status-neutral wording: a degraded Drive file can sit on a source
+        # that is still processing, so this must not claim ingestion finished.
+        assert ("may be stale" in output) is expect_stale_warning
+        assert "ingestion finished" not in output
+
+    def test_source_get_text_shows_the_file_id_when_no_health_slot_is_sent(self, runner, mock_auth):
+        """The captured Drive row — id present, health slot absent — still shows its id.
+
+        The two lines are gated independently; this pins that. Hoisting the
+        Drive-status guard above the file-id line would blank #2113 on the only
+        Drive shape this project has ever captured, and every degraded-row test
+        would stay green.
+        """
+        drive = _drive_source(None)
+        mock_client = create_mock_client()
+        mock_client.sources.list = AsyncMock(return_value=[drive])
+        mock_client.sources.get_or_none = AsyncMock(return_value=drive)
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli,
+                ["source", "get", _DRIVE_SOURCE_ID, "-n", "nb_123"],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 0, result.output
+        output = " ".join(result.output.split())
+        assert f"Drive File ID: {_DRIVE_FILE_ID}" in output
+        # No health claim -> no status line at all (not "unknown", not blank).
+        assert "Drive Status" not in output
 
     def test_source_get_text_omits_drive_lines_for_a_non_drive_source(self, runner, mock_auth):
         """A web source's text output is unchanged — no empty Drive lines."""
@@ -2956,7 +3062,6 @@ class TestSourceJsonOutput:
         assert source["status"] == "ready"
         assert source["drive_document_id"] == _DRIVE_FILE_ID
         assert source["drive_status"] == "inaccessible"
-        assert source["drive_status_id"] == DriveSourceStatus.INACCESSIBLE.value
         assert source["is_drive_degraded"] is True
 
     def test_source_get_json_drive_axis_is_null_for_a_non_drive_source(self, runner, mock_auth):
@@ -2977,7 +3082,6 @@ class TestSourceJsonOutput:
         source = json.loads(result.output)["source"]
         assert source["drive_document_id"] is None
         assert source["drive_status"] is None
-        assert source["drive_status_id"] is None
         assert source["is_drive_degraded"] is False
 
     def test_source_get_json_row_shape_matches_source_list(self, runner, mock_auth):

@@ -132,17 +132,28 @@ def _print_drive_lines(src: Source) -> None:
     tie the row back to its Drive file (#2113). The Drive status line exists
     because ``Type``/``Created`` say nothing about a file that was deleted or
     unshared after ingestion completed (#2111).
+
+    The two lines are gated **independently**, and that is load-bearing rather
+    than defensive: the id and the status decode from structurally unrelated
+    wire slots, and the only Drive row this project has captured
+    (``tests/cassettes/sources_add_drive.yaml``) carries an id with **no**
+    health slot at all. Gating the id on the status would blank #2113's whole
+    reason for existing on the most common real shape.
     """
-    if src.drive_document_id:
+    if src.drive_document_id is not None:
         console.print(f"[bold]Drive File ID:[/bold] {src.drive_document_id}")
     if src.drive_status is None:
         return
     drive_label = drive_source_status_to_str(src.drive_status)
     if src.is_drive_degraded:
+        # Deliberately says nothing about ingestion: the two axes are
+        # independent, so a degraded Drive file can sit on a source that is
+        # still processing or that errored outright. Asserting "ingestion
+        # finished" here would be confidently wrong on those rows.
         console.print(
             f"[bold]Drive Status:[/bold] [yellow]{drive_label}[/yellow] "
-            "(ingestion finished, but the Drive file is no longer healthy — "
-            "answers may be stale)"
+            "(Drive-side health, separate from Status above — answers grounded "
+            "on this source may be stale)"
         )
     else:
         console.print(f"[bold]Drive Status:[/bold] {drive_label}")
