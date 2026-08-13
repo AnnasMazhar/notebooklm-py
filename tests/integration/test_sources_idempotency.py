@@ -1190,7 +1190,7 @@ async def test_register_file_source_baseline_unavailable_raises_on_ambiguity(
                 "upload_file_streaming",
                 AsyncMock(return_value=None),
             ),
-            pytest.raises(NotebookLMError, match="baseline snapshot was unavailable"),
+            pytest.raises(NotebookLMError, match="pre-create baseline snapshot failed"),
         ):
             await client.sources.add_file(notebook_id, test_file)
     finally:

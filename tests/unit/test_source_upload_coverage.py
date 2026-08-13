@@ -527,7 +527,7 @@ class TestRegisterFileSourceBranches:
         async def _rpc_call(*_a: Any, **_k: Any) -> Any:
             raise NetworkError("transport down")
 
-        with pytest.raises(SourceAddError, match="baseline snapshot was unavailable") as exc_info:
+        with pytest.raises(SourceAddError, match="pre-create baseline snapshot failed") as exc_info:
             await pipeline.register_file_source(
                 "nb_1",
                 "report.pdf",
@@ -542,6 +542,11 @@ class TestRegisterFileSourceBranches:
         assert getattr(exc_info.value, "unconfirmed", False) is True
         assert classify(exc_info.value).category is ErrorCategory.RPC
         assert classify(exc_info.value).retriable is False
+        # Parity with add_url/add_drive: the baseline's own failure is retained
+        # as the cause and named in the message, because the caller reads
+        # "baseline snapshot failed" long after that read happened.
+        assert isinstance(exc_info.value.cause, RuntimeError)
+        assert "RuntimeError" in str(exc_info.value)
         # WARNING, not DEBUG (#2220): the ``notebooklm`` logger defaults to
         # WARNING, so the old DEBUG record never reached a handler and the
         # degraded baseline was invisible.

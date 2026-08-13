@@ -476,7 +476,7 @@ except NonIdempotentRetryError:
 
 `client.sources.add_file(...)` and `client.sources.add_drive(...)` are now also covered by the probe-then-create wrapper: the create RPC runs with `disable_internal_retries=True` and, on transport failure, the wrapper probes the server-side source list (via `idempotent_create`) before deciding whether to retry — so transient failures no longer produce duplicate sources. See `_source/add.py` (`SourceAddService.add_drive`) and `_source/upload.py` (`SourceUploadPipeline.register_file_source`) for the implementation.
 
-**When the probe itself fails, the call fails ([#2220](https://github.com/teng-lin/notebooklm-py/issues/2220)).** The probe is what makes the retry safe, so it is never allowed to guess. If its own list RPC fails for a non-transport reason — realistically, wire drift making the strict decoder raise `RPCError` — the create is **not** retried, and you get `SourceAddError` (source paths) or `RPCError` (`notebooks.create`) saying the create could not be confirmed.
+**When the probe itself fails, the call fails ([#2220](https://github.com/teng-lin/notebooklm-py/issues/2220)).** The probe is what makes the retry safe, so it is never allowed to guess. If its own list RPC fails for a non-transport reason — realistically, wire drift making the strict decoder raise `RPCError` — no **further** attempt is made, and you get `SourceAddError` (source paths) or `RPCError` (`notebooks.create`) saying the create could not be confirmed. Note "further": the wrapper allows two attempts, so if an *earlier* probe returned a clean "no match" one retry may already have gone out before this one failed — reconcile for more than one row.
 
 Such an error carries an **`unconfirmed` attribute**. Test that, not the message text and not the exception type — it is the supported discriminator, and the same one the MCP and REST adapters use to keep these out of the "retry me" and "just this item failed" buckets.
 
@@ -511,7 +511,16 @@ Two caveats on that reconciliation, both inherent to a list-based probe rather t
 
 The attribute is set on more than just the "probe raised" case. It marks every way a probe fails to settle whether the create landed: a match it cannot attribute because the pre-create baseline was unavailable, several new matches it cannot choose between, or a create that returned success with no trustworthy id whose recovery probe then came up empty. Those raise without anything having thrown inside the probe, so they look like ordinary rejections — but the server may hold a row either way.
 
-It is absent on every other failure, so `getattr(exc, "unconfirmed", False)` is safe to call unconditionally. Both halves of a probe failure stay on the exception: the probe's own failure as `__cause__`, and the transport error that triggered the probe further up the `__context__` chain.
+It is absent on every other failure, so `getattr(exc, "unconfirmed", False)` is safe to call unconditionally.
+
+Both halves of the failure are always reachable, but **the chain has two shapes** — worth knowing before diagnostic code goes looking in a fixed place:
+
+| probe failed with | the exception you catch | the create's transport failure |
+|---|---|---|
+| a non-transport error (e.g. a decode `RPCError`) | a wrapper naming the source, with the probe's failure as `__cause__` | at `__context__.__context__` |
+| a transport/auth error (`ServerError`, `NetworkError`, `RateLimitError`, `AuthError`) | **that same error, re-raised unchanged and marked** | at `__context__` |
+
+In the second shape there is no wrapper, so `__cause__` is whatever the transport layer already set (often absent). Walk the `__context__` chain rather than assuming a fixed depth.
 
 The alternative — retrying on an unanswered probe — is what this replaced. It recovered silently in the common case, at the cost of occasionally handing back a duplicate, or the wrong source id, with nothing to signal it. A raised error is actionable; an unreported duplicate is not.
 

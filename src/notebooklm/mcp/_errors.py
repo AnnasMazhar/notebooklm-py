@@ -147,12 +147,20 @@ def to_tool_error(exc: BaseException) -> ToolError:
     branch on the leading ``CODE:`` token and the ``retriable`` flag; the full
     payload (including ``hint``) is available via :func:`tool_error_payload` for
     structured consumers.
+
+    ``unconfirmed=true`` is flattened into that same parenthesis (#2220). Only
+    the *batch* result shapes carry the payload dict to the wire; a single tool
+    call is serialized through this ``ToolError`` message alone, so a marker
+    left in the dict would never reach the client for the ordinary
+    notebook/source create — exactly the caller most at risk of retrying a write
+    that may already exist.
     """
     payload = tool_error_payload(exc)
     suffix = f" hint: {payload['hint']}" if "hint" in payload else ""
+    unconfirmed = " unconfirmed=true" if payload.get("unconfirmed") else ""
     return ToolError(
         f"{payload['code']}: {payload['message']} "
-        f"(retriable={str(payload['retriable']).lower()}){suffix}"
+        f"(retriable={str(payload['retriable']).lower()}{unconfirmed}){suffix}"
     )
 
 

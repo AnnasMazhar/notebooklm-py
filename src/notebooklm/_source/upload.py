@@ -551,11 +551,17 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         # stream to the wrong source.
         baseline_ids: set[str] | None
         baseline_source_count: int | None
+        # Retained so the ambiguity raise below can name what went wrong, the
+        # same way ``add_url`` and ``add_drive`` do: the caller reads "baseline
+        # snapshot was unavailable" long after this line ran, and without the
+        # cause nothing left in the process can explain it.
+        baseline_error: Exception | None = None
         try:
             baseline_sources = await list_sources(notebook_id)
             baseline_ids = {source.id for source in baseline_sources}
             baseline_source_count = len(baseline_sources)
         except Exception as exc:
+            baseline_error = exc
             # WARNING, not DEBUG (#2220 parity with ``add_url`` / ``add_drive``,
             # #2204): the ``notebooklm`` logger defaults to WARNING, so a DEBUG
             # record here is discarded before any handler sees it and the call
@@ -643,10 +649,13 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                 raise _unconfirmed(
                     SourceAddError(
                         filename,
+                        cause=baseline_error,
                         message=(
-                            f"Cannot disambiguate file source with title {filename!r}: "
-                            "baseline snapshot was unavailable, so a matching title may "
-                            "predate this upload. Resolve manually before retrying."
+                            f"Cannot disambiguate file source with title {filename!r}: the "
+                            f"pre-create baseline snapshot failed "
+                            f"({type(baseline_error).__name__}), so a matching title may "
+                            "either predate this upload or be the source it just "
+                            "registered. Resolve manually before retrying."
                         ),
                     )
                 )

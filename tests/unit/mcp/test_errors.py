@@ -482,3 +482,20 @@ def test_ordinary_errors_carry_no_unconfirmed_field() -> None:
     from notebooklm.mcp._errors import tool_error_payload
 
     assert "unconfirmed" not in tool_error_payload(exc.NetworkError("connection reset"))
+
+
+def test_unconfirmed_marker_reaches_a_single_tool_error_message() -> None:
+    """A single MCP call is serialized through ``ToolError``'s message only (#2220).
+
+    Only the batch shapes carry the payload dict to the wire, so a marker left
+    in the dict would never reach the client for an ordinary notebook/source
+    create — precisely the caller most at risk of retrying a write that may
+    already exist. It has to ride in the flattened message.
+    """
+    from notebooklm._idempotency import mark_unconfirmed
+    from notebooklm.mcp._errors import to_tool_error
+
+    marked = str(to_tool_error(mark_unconfirmed(exc.NetworkError("connection reset"))))
+    assert "unconfirmed=true" in marked
+    # Opt-in: an ordinary failure's message is unchanged.
+    assert "unconfirmed" not in str(to_tool_error(exc.NetworkError("connection reset")))
