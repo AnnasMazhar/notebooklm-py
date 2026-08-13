@@ -419,6 +419,8 @@ Pass `wait=True` to have `add_file()` do this for you.
 **Reconciling what a failed add left behind.** A row registered by an add that then failed is deliberately *not* deleted — it is the evidence, and it still counts against the notebook's source quota. It sits at `SourceStatus.PREPARING`, not `ERROR`, so filtering for error status will not find it:
 
 ```python
+from notebooklm import SourceStatus
+
 stuck = [s for s in await client.sources.list(nb_id) if s.status is SourceStatus.PREPARING]
 ```
 

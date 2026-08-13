@@ -480,12 +480,10 @@ async def test_wait_all_until_ready_timeout_reports_each_sources_own_last_status
     status — the per-index ``last_status`` dict, so a scalar can't leak one source's
     status into another's result (binding correction).
 
-    Since #2138 that status also decides the *type*: the source last seen
-    PROCESSING times out, while the one last seen ERROR — tolerated as a
-    transient audio error right up to the deadline — resolves as a processing
-    failure instead. Which makes this test the sharper version of what it
-    already checked: a leaked status would now produce the wrong exception
-    class, not merely the wrong attribute.
+    Both here resolve as timeouts: only ONE snapshot was taken, and a single
+    ERROR observation is not sustained evidence that a tolerated transient error
+    is terminal (see the companion test below, which polls long enough to earn
+    the conversion).
     """
     processing = Source(id="s0", status=SourceStatus.PROCESSING)
     transient_err = Source(id="s1", status=SourceStatus.ERROR, _type_code=10)  # audio, stays
@@ -518,12 +516,12 @@ async def test_wait_all_until_ready_timeout_reports_each_sources_own_last_status
     assert isinstance(results[0], SourceTimeoutError)
     assert results[0].source_id == "s0"
     assert results[0].last_status == SourceStatus.PROCESSING
-    # s1 was last seen in ERROR, so the deadline resolves it as the terminal
-    # processing failure it turned out to be — NOT as a timeout, and NOT with
-    # s0's PROCESSING leaking across (#2138).
-    assert isinstance(results[1], SourceProcessingError)
+    # s1 was last seen in ERROR — but on a SINGLE observation, which is not
+    # sustained evidence that a tolerated transient error is terminal, so it
+    # stays a timeout. What must not happen is s0's PROCESSING leaking across.
+    assert isinstance(results[1], SourceTimeoutError)
     assert results[1].source_id == "s1"
-    assert results[1].status == SourceStatus.ERROR
+    assert results[1].last_status == SourceStatus.ERROR
 
 
 @pytest.mark.asyncio
@@ -769,3 +767,106 @@ async def test_sources_api_wait_for_sources_uses_late_bound_wait_until_ready() -
     assert api.wait_until_ready.await_count == 2
     for call in api.wait_until_ready.await_args_list:
         assert call.kwargs["timeout"] == 42.0
+
+
+@pytest.mark.asyncio
+async def test_wait_until_ready_single_error_look_is_a_timeout_not_a_verdict(
+    poller: SourcePoller,
+    logger: logging.Logger,
+) -> None:
+    """A short budget must not turn one ERROR glimpse into a terminal verdict (#2138).
+
+    The mirror image of the bug this fixed. A deadline is caller-chosen: with
+    ``timeout`` short enough for a single look, a source that is legitimately
+    mid-transcription — the exact case ``_TRANSIENT_ERROR_TYPES`` exists for —
+    reports ERROR once and the poll expires. It may still reach READY seconds
+    later, so calling it a processing failure would be a fabricated claim.
+
+    Sustained ERROR is the evidence; one observation is not it.
+    """
+    failed = Source(id="src_audio", status=SourceStatus.ERROR, _type_code=10)
+    clock = {"t": 0.0}
+
+    async def sleep(seconds: float) -> None:
+        clock["t"] += seconds
+
+    with pytest.raises(SourceTimeoutError) as exc_info:
+        await poller.wait_until_ready(
+            "nb_1",
+            "src_audio",
+            timeout=1.0,
+            initial_interval=1.0,  # one look, then the budget is gone
+            get_source=AsyncMock(return_value=failed),
+            sleep=sleep,
+            monotonic=lambda: clock["t"],
+            logger=logger,
+        )
+
+    assert exc_info.value.last_status == SourceStatus.ERROR
+    assert not isinstance(exc_info.value, SourceProcessingError)
+
+
+@pytest.mark.asyncio
+async def test_wait_until_ready_error_only_on_the_final_tick_is_a_timeout(
+    poller: SourcePoller,
+    logger: logging.Logger,
+) -> None:
+    """The streak resets on any non-ERROR look, so a late flip is not sustained.
+
+    A source that polled PROCESSING and only reported ERROR on the last tick has
+    shown one error, not a persistent one — indistinguishable from the transient
+    blip the tolerance exists for.
+    """
+    processing = Source(id="src_audio", status=SourceStatus.PROCESSING, _type_code=10)
+    failed = Source(id="src_audio", status=SourceStatus.ERROR, _type_code=10)
+    clock = {"t": 0.0}
+
+    async def sleep(seconds: float) -> None:
+        clock["t"] += seconds
+
+    with pytest.raises(SourceTimeoutError):
+        await poller.wait_until_ready(
+            "nb_1",
+            "src_audio",
+            timeout=1.0,
+            initial_interval=0.5,
+            get_source=AsyncMock(side_effect=[processing, failed]),
+            sleep=sleep,
+            monotonic=lambda: clock["t"],
+            logger=logger,
+        )
+
+
+@pytest.mark.asyncio
+async def test_wait_all_until_ready_converts_a_sustained_error(
+    poller: SourcePoller,
+    logger: logging.Logger,
+) -> None:
+    """The batch waiter earns the conversion the same way, per source.
+
+    Two snapshots both reporting ERROR for ``s1`` is sustained evidence; ``s0``
+    stays PROCESSING throughout and must still time out, proving the per-index
+    streak does not leak between sources.
+    """
+    processing = Source(id="s0", status=SourceStatus.PROCESSING)
+    failed = Source(id="s1", status=SourceStatus.ERROR, _type_code=10)
+    list_sources = _sequenced_list_sources([[processing, failed], [processing, failed]])
+    clock = {"t": 0.0}
+
+    async def sleep(seconds: float) -> None:
+        clock["t"] += seconds
+
+    results = await poller.wait_all_until_ready(
+        "nb_1",
+        ["s0", "s1"],
+        timeout=1.0,
+        initial_interval=0.5,
+        list_sources=list_sources,
+        sleep=sleep,
+        monotonic=lambda: clock["t"],
+        logger=logger,
+    )
+
+    assert isinstance(results[0], SourceTimeoutError)
+    assert isinstance(results[1], SourceProcessingError)
+    assert results[1].status == SourceStatus.ERROR

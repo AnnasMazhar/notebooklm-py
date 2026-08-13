@@ -415,15 +415,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   supported audio container; `.mp3` and `.m4a` are), which is exactly the shape
   that hits it.
 
-  Tolerating a transient error is a hypothesis, and the deadline is what
-  disproves it: if the last observed status was ERROR and the poll then ran out
-  of time, the source did not fail to answer — it answered ERROR, repeatedly,
-  until we gave up. `wait_until_ready`, `wait_until_registered`, and
-  `wait_all_until_ready` now resolve that case as `SourceProcessingError`
+  Tolerating a transient error is a hypothesis, and *sustained* ERROR right up
+  to the deadline is what disproves it: the source did not fail to answer — it
+  answered ERROR, over and over, until we gave up. `wait_until_ready`,
+  `wait_until_registered`, and `wait_all_until_ready` now resolve that case as
+  `SourceProcessingError`
   instead, naming the elapsed budget so *"ERROR throughout a 120s poll"* and
   *"ERROR on the last tick of a 2s poll"* stay distinguishable. A source still
   legitimately `PROCESSING` at the deadline is unchanged — still a timeout, so
-  slow sources are not relabelled as broken. Both types are `SourceError` and
+  slow sources are not relabelled as broken — and neither is a source seen in
+  ERROR only *once*. The conversion requires two consecutive ERROR observations
+  ending at the deadline, because a `timeout` is caller-chosen: a short one can
+  buy a single look at a source that is legitimately mid-transcription, and
+  calling that terminal would be a fabricated verdict, the mirror image of the
+  bug being fixed. The streak resets on any non-ERROR look, so a source that
+  polled PROCESSING and flipped to ERROR on the final tick still times out.
+  Both types are `SourceError` and
   every consumer already handles them side by side (`_app`'s wait outcomes, the
   MCP `source_wait` buckets, `notebooklm source wait`'s exit codes), so the
   `.wav` case moves from the "timed out, retry" bucket to "failed".

@@ -185,7 +185,7 @@ All `source` subcommands also accept `-n/--notebook ID` (resolves via flag > `NO
 
 `source list --status <state>` restricts the listing to one ingestion status — `ready`, `processing`, `error`, `preparing`, or `unknown`. The choices are derived from `SourceStatus`, so they cannot drift from the labels the Status column renders, and the filter is applied inside the fetch, so `count` in `--json` always matches the rows shown. It composes with `--label`.
 
-##### Finding orphaned sources (`--status preparing`)
+#### Finding orphaned sources (`--status preparing`)
 
 A file add that fails *after* its source row is registered leaves that row in place deliberately — it is the evidence of what happened, and it still counts against the notebook's source quota. The row sits at `preparing`, **not** `error`, so the status a caller reaches for first finds nothing ([#2138](https://github.com/teng-lin/notebooklm-py/issues/2138)):
 
