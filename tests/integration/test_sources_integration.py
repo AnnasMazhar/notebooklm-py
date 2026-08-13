@@ -53,6 +53,12 @@ class TestAddSource:
         httpx_mock: HTTPXMock,
         build_rpc_response,
     ):
+        # add_url snapshots the notebook's source ids before the create so its
+        # idempotency probe can tell a fresh add from a pre-existing source with
+        # the same URL (#2204), so the first request is a GET_NOTEBOOK.
+        httpx_mock.add_response(
+            content=build_rpc_response(RPCMethod.GET_NOTEBOOK, [["Notebook", []]]).encode()
+        )
         response = build_rpc_response(
             RPCMethod.ADD_SOURCE,
             [
@@ -74,6 +80,9 @@ class TestAddSource:
         assert isinstance(source, Source)
         assert source.id == "source_id"
         assert source.url == "https://example.com"
+        urls = [str(request.url) for request in httpx_mock.get_requests()]
+        assert any(RPCMethod.GET_NOTEBOOK in url for url in urls)
+        assert any(RPCMethod.ADD_SOURCE in url for url in urls)
 
     @pytest.mark.asyncio
     async def test_add_source_text(
@@ -1713,6 +1722,10 @@ class TestAddUrlErrorPaths:
         build_rpc_response,
     ):
         """Test add_url() with wait=True calls wait_until_ready (lines 335-336)."""
+        # First request is add_url's pre-create baseline snapshot (#2204).
+        httpx_mock.add_response(
+            content=build_rpc_response(RPCMethod.GET_NOTEBOOK, [["Notebook", []]]).encode()
+        )
         source_data = [[[["src_wait_url"], "Example", [None, 11], [None, 2]]]]
         ready_source = Source(id="src_wait_url", title="Example")
         response = build_rpc_response(RPCMethod.ADD_SOURCE, source_data)
@@ -1738,6 +1751,10 @@ class TestAddUrlErrorPaths:
         build_rpc_response,
     ):
         """Test add_url() warns when URL looks like YouTube but has no video ID (line 320)."""
+        # First request is add_url's pre-create baseline snapshot (#2204).
+        httpx_mock.add_response(
+            content=build_rpc_response(RPCMethod.GET_NOTEBOOK, [["Notebook", []]]).encode()
+        )
         response = build_rpc_response(
             RPCMethod.ADD_SOURCE,
             [[[["src_channel"], "YouTube Channel", [None, 11], [None, 2]]]],
@@ -2684,6 +2701,10 @@ class TestAddYoutubeSourceDirect:
         build_rpc_response,
     ):
         """Test add_url() with YouTube URL calls _add_youtube_source internally (lines 870-876)."""
+        # First request is add_url's pre-create baseline snapshot (#2204).
+        httpx_mock.add_response(
+            content=build_rpc_response(RPCMethod.GET_NOTEBOOK, [["Notebook", []]]).encode()
+        )
         response = build_rpc_response(
             RPCMethod.ADD_SOURCE,
             [

@@ -628,6 +628,43 @@ def legacy_vcr_follow_up_probe(monkeypatch):
 
 
 @pytest.fixture
+def legacy_vcr_add_url_baseline(monkeypatch):
+    """Supply the pre-create source baseline omitted from legacy add_url cassettes.
+
+    ``sources.add_url`` snapshots the notebook's source ids before issuing the
+    create so its idempotency probe can tell a source it created from one that
+    was already there (#2204). Cassettes recorded before that change hold no
+    such ``GET_NOTEBOOK``, so replay would consume a later poll's response and
+    desynchronise the rest of the journey.
+
+    Keep those recordings immutable and answer only the missing read, with the
+    value the live call would have returned: in every such cassette the add is
+    the notebook's *first* source, so the pre-create list is empty. Every later
+    list — the probe's included — still replays from the cassette. Dedicated
+    tests in ``tests/integration/test_sources_idempotency.py`` drive the probe
+    against explicit request sequences, so nothing here is the only coverage of
+    it. Mirrors :func:`legacy_vcr_follow_up_probe`.
+    """
+    from notebooklm._source.add import SourceAddService
+
+    original_add_url = SourceAddService.add_url
+
+    async def _add_url(self, notebook_id, url, *, list_sources, **kwargs):
+        calls = 0
+
+        async def _list_sources(nb_id: str):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return []
+            return await list_sources(nb_id)
+
+        return await original_add_url(self, notebook_id, url, list_sources=_list_sources, **kwargs)
+
+    monkeypatch.setattr(SourceAddService, "add_url", _add_url)
+
+
+@pytest.fixture
 def auth_tokens():
     """Canonical mock ``AuthTokens`` for unit tests.
 

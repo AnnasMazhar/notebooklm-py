@@ -388,6 +388,9 @@ class SourcesAPI:
 
         Automatically detects YouTube URLs and uses the appropriate method.
 
+        Fires one ``GET_NOTEBOOK`` before the create for the retry probe (#2204);
+        that read bumps Recent position (#2126). See the service method's docs.
+
         Args:
             notebook_id: The notebook ID.
             url: The URL to add.
@@ -417,7 +420,10 @@ class SourcesAPI:
             logger=logger,
             return_result=True,
         )
-        return await honor_requested_title_if_fresh(self.rename, notebook_id, result, title, logger)
+        # Baseline-filtered probe ⇒ even a PROBED result is ours to rename (#2204).
+        return await honor_requested_title_if_fresh(
+            self.rename, notebook_id, result, title, logger, probe_proves_freshness=True
+        )
 
     async def add_text(
         self,

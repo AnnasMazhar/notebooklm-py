@@ -16,7 +16,10 @@ sources when the server already committed the write before returning the
    retryable transport error (5xx / 429 / network) runs a probe before
    the second attempt. The probe is variant-specific:
 
-     - ``add_url`` probes by ``source.url == url``
+     - ``add_url`` probes by ``source.url == url``, filtered against a
+       baseline of source ids captured before the create. A URL is not unique
+       within a notebook, so an unfiltered match could return a pre-existing
+       source and report a create that never landed (#2204).
      - ``add_drive`` probes by ``source.drive_document_id == file_id`` — the
        Drive ``documentId`` the backend echoes back in the source metadata.
        It previously probed a ``/d/<file_id>`` marker inside ``source.url``,
@@ -204,10 +207,14 @@ async def test_add_url_probe_short_circuits_when_first_response_lost(auth_tokens
     create successfully, but the response was lost (e.g. proxy timeout
     returned 503 to the caller). The probe finds the new source already
     landed and returns it; only ONE ADD_SOURCE actually fires.
+
+    A neighbouring source that was already in the notebook proves the probe
+    filters on the baseline rather than merely picking the first row.
     """
     notebook_id = "nb_test"
     url = "https://example.com/article"
     src_id = "src_lost_response"
+    pre_existing = ("src_pre_existing", "Older Copy", url)
 
     add_count = 0
     get_count = 0
@@ -222,9 +229,14 @@ async def test_add_url_probe_short_circuits_when_first_response_lost(auth_tokens
             return httpx.Response(503, text="service unavailable")
         if rpc_id == RPCMethod.GET_NOTEBOOK.value:
             get_count += 1
+            # Any list before the first create attempt is the baseline
+            # snapshot; anything after it is a probe.
+            rows = [pre_existing]
+            if add_count > 0:
+                rows = [pre_existing, (src_id, "Article", url)]
             return httpx.Response(
                 200,
-                text=_get_notebook_with_sources_response(notebook_id, [(src_id, "Article", url)]),
+                text=_get_notebook_with_sources_response(notebook_id, rows),
             )
         return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
 
@@ -235,12 +247,357 @@ async def test_add_url_probe_short_circuits_when_first_response_lost(auth_tokens
     finally:
         await client._collaborators.kernel.get_http_client().aclose()
 
-    assert source.id == src_id
+    assert source.id == src_id, "the probe adopted the pre-existing same-URL source"
     assert source.url == url
     # Exactly ONE ADD_SOURCE (no naive re-POST after the 503)
     assert add_count == 1, f"expected 1 ADD_SOURCE, got {add_count}"
-    # Exactly ONE GET_NOTEBOOK (the probe)
-    assert get_count == 1, f"expected 1 GET_NOTEBOOK probe, got {get_count}"
+    # TWO GET_NOTEBOOKs: the pre-create baseline plus the probe.
+    assert get_count == 2, f"expected baseline + probe GET_NOTEBOOK, got {get_count}"
+
+
+#: The URL under test, and a same-URL source that is already in the notebook
+#: before the add. Live-verified on #2204: two ``add_url`` calls with
+#: ``https://example.com/`` produced two distinct source ids
+#: (``9bed3c8a-…`` and ``0d2c15a1-…``), so a URL is NOT unique per notebook.
+_PROBE_URL = "https://example.com/article"
+
+
+def _url_probe_handler(
+    *,
+    baseline_rows: list,
+    post_create_rows: list,
+    counts: dict[str, int],
+    baseline_status: int = 200,
+):
+    """Build a mock handler modelling the real ``add_url`` call sequence (#2204).
+
+    ``add_url`` lists once *before* the create to snapshot a baseline, then the
+    create 502s, then the probe lists again. Returning different notebook
+    contents for the two GET_NOTEBOOK calls is what lets a test distinguish
+    "the create landed" from "a same-URL source was already there".
+
+    Mirrors :func:`_drive_probe_handler`.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        rpc_id = _rpc_id_in_request(request)
+        if rpc_id == RPCMethod.ADD_SOURCE.value:
+            counts["add"] += 1
+            return httpx.Response(502, text="bad gateway")
+        if rpc_id == RPCMethod.GET_NOTEBOOK.value:
+            counts["get"] += 1
+            # Keyed off the create rather than a call index so an internally
+            # retried baseline still counts as one.
+            if counts["add"] == 0:
+                if baseline_status != 200:
+                    return httpx.Response(baseline_status, text="baseline unavailable")
+                return httpx.Response(200, text=_get_notebook_response(baseline_rows))
+            return httpx.Response(200, text=_get_notebook_response(post_create_rows))
+        return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
+
+    return handler
+
+
+async def test_add_url_probe_ignores_a_pre_existing_copy_of_the_same_url(
+    auth_tokens,
+) -> None:
+    """A URL already in the notebook must not be adopted as "my create" (#2204).
+
+    A URL is NOT unique within a notebook — the backend lets the same URL be
+    added twice and ``SourceLister.list`` dedupes by source id, not by URL.
+    Without the baseline filter the probe returns the pre-existing copy and
+    reports success even though the create never landed, so the caller walks
+    away holding a source id that belongs to an earlier add.
+    """
+    notebook_id = "nb_test"
+    # Present before the add, and still the only match afterwards: the create
+    # genuinely did not land.
+    pre_existing = _url_source_row("src_pre_existing", "Older Copy", _PROBE_URL)
+
+    counts = {"add": 0, "get": 0}
+    transport = httpx.MockTransport(
+        _url_probe_handler(
+            baseline_rows=[pre_existing],
+            post_create_rows=[pre_existing],
+            counts=counts,
+        )
+    )
+    client = _make_client_with_transport(transport, auth_tokens)
+    try:
+        with pytest.raises(ServerError):
+            await client.sources.add_url(notebook_id, _PROBE_URL)
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    # The probe found no *new* match, so idempotent_create retried, exhausted
+    # its two attempts, and re-raised the transport error rather than handing
+    # back a source the caller did not create.
+    assert counts["add"] == 2
+
+
+async def test_add_url_probe_raises_when_baseline_unavailable_and_a_copy_exists(
+    auth_tokens,
+) -> None:
+    """No baseline + a matching URL = ambiguity, surfaced rather than guessed.
+
+    Mirrors ``add_drive`` / ``register_file_source``: when the pre-create
+    snapshot could not be taken, a match may or may not predate the add, and
+    silently picking one is the failure mode the baseline exists to prevent.
+    """
+    notebook_id = "nb_test"
+    existing = _url_source_row("src_ambiguous", "Some Copy", _PROBE_URL)
+
+    counts = {"add": 0, "get": 0}
+    transport = httpx.MockTransport(
+        _url_probe_handler(
+            baseline_rows=[],
+            post_create_rows=[existing],
+            counts=counts,
+            baseline_status=500,  # baseline snapshot unavailable
+        )
+    )
+    # No executor-level retries: the baseline 500 should fail fast here, the
+    # point of the test being what the *probe* does afterwards.
+    client = _make_client_with_transport(transport, auth_tokens, server_error_max_retries=0)
+    try:
+        with pytest.raises(SourceAddError, match="baseline snapshot was unavailable"):
+            await client.sources.add_url(notebook_id, _PROBE_URL)
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+
+async def test_add_url_baseline_unavailable_without_a_match_still_retries(auth_tokens) -> None:
+    """No baseline and no match is not ambiguous — it is simply "not committed".
+
+    The ambiguity raise must fire only when there is something to be ambiguous
+    about; otherwise a notebook that legitimately has no copy of the URL would
+    turn a recoverable transport blip into a hard error.
+    """
+    notebook_id = "nb_test"
+    counts = {"add": 0, "get": 0}
+
+    transport = httpx.MockTransport(
+        _url_probe_handler(
+            baseline_rows=[],
+            post_create_rows=[_url_source_row("src_other", "Another Page", "https://other.test/")],
+            counts=counts,
+            baseline_status=500,  # baseline snapshot unavailable
+        )
+    )
+    client = _make_client_with_transport(transport, auth_tokens, server_error_max_retries=0)
+    try:
+        with pytest.raises(ServerError):
+            await client.sources.add_url(notebook_id, _PROBE_URL)
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    # ServerError (the real failure), not SourceAddError — and the retry ran.
+    assert counts["add"] == 2
+
+
+async def test_add_url_probe_raises_when_multiple_new_matches_appear(auth_tokens) -> None:
+    """Two *new* sources with the requested URL is ambiguity, not a match."""
+    notebook_id = "nb_test"
+    counts = {"add": 0, "get": 0}
+
+    transport = httpx.MockTransport(
+        _url_probe_handler(
+            baseline_rows=[],
+            post_create_rows=[
+                _url_source_row("src_new_a", "Article", _PROBE_URL),
+                _url_source_row("src_new_b", "Article", _PROBE_URL),
+            ],
+            counts=counts,
+        )
+    )
+    client = _make_client_with_transport(transport, auth_tokens)
+    try:
+        with pytest.raises(SourceAddError, match="probe found 2 new sources"):
+            await client.sources.add_url(notebook_id, _PROBE_URL)
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+
+@pytest.mark.parametrize(
+    "rows_factory",
+    [
+        # A different URL entirely.
+        pytest.param(
+            lambda url: [_url_source_row("src_other", "Another Page", "https://other.test/")],
+            id="different_url",
+        ),
+        # A prefix of the requested URL: the probe is exact equality, not a
+        # substring/startswith test, so this must not match.
+        pytest.param(
+            lambda url: [_url_source_row("src_prefix", "Prefix", url[: len(url) - 4])],
+            id="prefix_of_requested_url",
+        ),
+        # The requested URL with an extra path segment appended.
+        pytest.param(
+            lambda url: [_url_source_row("src_suffix", "Suffix", url + "/comments")],
+            id="requested_url_is_a_prefix",
+        ),
+        # A row carrying no URL at all (e.g. a Drive or file source) decodes
+        # ``url`` as ``None`` and can never match.
+        pytest.param(
+            lambda url: [_url_source_row("src_no_url", "A File", None)],
+            id="row_without_a_url",
+        ),
+    ],
+)
+async def test_add_url_probe_does_not_match_unrelated_sources(auth_tokens, rows_factory) -> None:
+    """The probe matches the requested URL exactly — nothing else.
+
+    In each case the probe must return ``None`` so ``idempotent_create``
+    retries the create rather than handing back the wrong source — so both
+    attempts fire and the transport error is re-raised.
+    """
+    notebook_id = "nb_test"
+    counts = {"add": 0, "get": 0}
+
+    transport = httpx.MockTransport(
+        _url_probe_handler(
+            # Baseline is EMPTY on purpose: these rows must be rejected by the
+            # *match predicate*, not merely filtered out for pre-dating the add.
+            baseline_rows=[],
+            post_create_rows=rows_factory(_PROBE_URL),
+            counts=counts,
+        )
+    )
+    client = _make_client_with_transport(transport, auth_tokens)
+    try:
+        with pytest.raises(ServerError):
+            await client.sources.add_url(notebook_id, _PROBE_URL)
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    # Both create attempts fired: the probe never spuriously matched.
+    assert counts["add"] == 2
+
+
+async def test_add_url_probe_matches_on_the_second_attempt(auth_tokens) -> None:
+    """The baseline captured before attempt 1 is still correct at probe 2.
+
+    Sequence: create fails, probe finds nothing, create fails again, and only
+    then does the committed source surface (source lists lag). The single
+    pre-create baseline must still identify it as new — and must still exclude
+    the same-URL source that was there all along.
+    """
+    notebook_id = "nb_test"
+    src_id = "src_late"
+    pre_existing = _url_source_row("src_pre_existing", "Older Copy", _PROBE_URL)
+    committed = _url_source_row(src_id, "Article", _PROBE_URL)
+    counts = {"add": 0, "get": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        rpc_id = _rpc_id_in_request(request)
+        if rpc_id == RPCMethod.ADD_SOURCE.value:
+            counts["add"] += 1
+            return httpx.Response(502, text="bad gateway")
+        if rpc_id == RPCMethod.GET_NOTEBOOK.value:
+            counts["get"] += 1
+            # baseline (get 1) and probe 1 (get 2) see only the older copy;
+            # probe 2 finally sees the committed source.
+            rows = [pre_existing, committed] if counts["get"] >= 3 else [pre_existing]
+            return httpx.Response(200, text=_get_notebook_response(rows))
+        return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
+
+    transport = httpx.MockTransport(handler)
+    client = _make_client_with_transport(transport, auth_tokens)
+    try:
+        source = await client.sources.add_url(notebook_id, _PROBE_URL)
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    assert source.id == src_id
+    assert counts["add"] == 2, "both attempts should have fired before the probe matched"
+
+
+async def test_add_url_probe_decode_failure_warns_and_does_not_match(auth_tokens, caplog) -> None:
+    """A non-transport probe failure is loud, and still lets the retry proceed.
+
+    A drifted GET_NOTEBOOK makes the strict decoder raise ``RPCError``. That is
+    NOT a transport signal, so it must not propagate as one — but it also cannot
+    pass unremarked at DEBUG, because it is indistinguishable from "the create
+    did not land" and this variant has no internal retries to fall back on
+    (#2204).
+    """
+    notebook_id = "nb_test"
+    counts = {"add": 0, "get": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        rpc_id = _rpc_id_in_request(request)
+        if rpc_id == RPCMethod.ADD_SOURCE.value:
+            counts["add"] += 1
+            return httpx.Response(502, text="bad gateway")
+        if rpc_id == RPCMethod.GET_NOTEBOOK.value:
+            counts["get"] += 1
+            if counts["add"] == 0:
+                return httpx.Response(200, text=_get_notebook_response([]))
+            # Structurally undecodable notebook envelope -> RPCError, not 5xx.
+            return httpx.Response(200, text=_wrb_response(RPCMethod.GET_NOTEBOOK.value, "nonsense"))
+        return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
+
+    transport = httpx.MockTransport(handler)
+    client = _make_client_with_transport(transport, auth_tokens)
+    with caplog.at_level(logging.WARNING, logger="notebooklm._sources"):
+        try:
+            with pytest.raises(ServerError):
+                await client.sources.add_url(notebook_id, _PROBE_URL)
+        finally:
+            await client._collaborators.kernel.get_http_client().aclose()
+
+    # Treated as "no match", so both attempts fire and the transport error wins.
+    assert counts["add"] == 2
+    assert "may create a duplicate source" in caplog.text
+
+
+async def test_add_url_recovered_create_still_honors_the_requested_title(auth_tokens) -> None:
+    """A probed-but-fresh URL add must still get the caller's title (#2204).
+
+    Web-page and YouTube imports re-derive the display title server-side, so
+    ``add_url`` issues a best-effort rename afterwards. That rename used to be
+    skipped for a ``PROBED`` result, because a probe match could predate the
+    call — but the probe now filters against a pre-create baseline, so its match
+    is provably ours.
+    """
+    notebook_id = "nb_test"
+    requested_title = "The Title I Asked For"
+    upstream_title = "Whatever The Page Called Itself"
+    src_id = "src_recovered"
+
+    committed = _url_source_row(src_id, upstream_title, _PROBE_URL)
+    counts = {"add": 0, "get": 0}
+    renames: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        rpc_id = _rpc_id_in_request(request)
+        if rpc_id == RPCMethod.ADD_SOURCE.value:
+            counts["add"] += 1
+            return httpx.Response(502, text="bad gateway")
+        if rpc_id == RPCMethod.GET_NOTEBOOK.value:
+            counts["get"] += 1
+            rows = [] if counts["add"] == 0 else [committed]
+            return httpx.Response(200, text=_get_notebook_response(rows))
+        if rpc_id == RPCMethod.UPDATE_SOURCE.value:
+            renames.append((src_id, requested_title))
+            return httpx.Response(
+                200,
+                text=_wrb_response(RPCMethod.UPDATE_SOURCE.value, [[src_id], requested_title]),
+            )
+        return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
+
+    transport = httpx.MockTransport(handler)
+    client = _make_client_with_transport(transport, auth_tokens)
+    try:
+        source = await client.sources.add_url(notebook_id, _PROBE_URL, title=requested_title)
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    assert source.id == src_id
+    assert renames == [(src_id, requested_title)], "the recovery path skipped the rename"
+    assert source.title == requested_title
+    assert counts["add"] == 1
 
 
 # ---------------------------------------------------------------------------

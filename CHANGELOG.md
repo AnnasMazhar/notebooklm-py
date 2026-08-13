@@ -183,6 +183,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`sources.add_url` no longer reports success for a create that never
+  landed.** Its idempotency probe matched `source.url == url` against the whole
+  notebook with no baseline filter, so after a transport failure it could adopt
+  a source that was already there and hand the caller that id. A URL is not
+  unique within a notebook — the backend accepts the same URL twice and
+  `SourceLister.list` dedupes by source id, not by URL — and a live probe on
+  this account reproduced the worst shape of it: an `add_url` whose create
+  **did** commit (as `df618843-…`) returned the pre-existing `0d2c15a1-…`
+  instead, leaving the caller holding the wrong source id *and* an unreported
+  duplicate. With `wait=True` the mask is total, since the adopted source is
+  already `READY`. Probe matches are now filtered against a snapshot of source
+  ids taken before the create — the same shape `add_file` has always had and
+  `add_drive` adopted in [#2113](https://github.com/teng-lin/notebooklm-py/issues/2113)
+  — and an unavailable snapshot or an ambiguous multi-match raises
+  `SourceAddError` rather than guessing. A probed-but-fresh result now also
+  honors a requested `title`, which the pre-fix code skipped because a probe
+  match could not be proven to be the caller's own. The probe's non-transport
+  failure branch moved from `DEBUG` to `WARNING`: with internal retries
+  disabled on this variant it is the last net against a duplicate.
+  ([#2204](https://github.com/teng-lin/notebooklm-py/issues/2204))
+
+  **Behaviour change:** `add_url` previously listed sources only inside its
+  retry probe (i.e. only after a transport failure); it now takes that snapshot
+  on *every* call. That is one extra `GET_NOTEBOOK` per `add_url`, and because
+  the backend writes `lastViewedTime` when answering one
+  ([#2126](https://github.com/teng-lin/notebooklm-py/issues/2126)), every
+  `add_url` now bumps the notebook's position in the web UI's *Recent* list.
+  `ADD_SOURCE` alone does not — the same live probe held `last_viewed_at`
+  pinned across an `add_url` — so on this, the highest-traffic add path, the
+  bump is genuinely new rather than already paid. It is accepted because no
+  cheaper probe exists (source ids are published only inside the
+  `GET_NOTEBOOK` payload, and `LIST_NOTEBOOKS`, which does not bump, does not
+  carry them) and because capturing the baseline lazily on the retry path is
+  not merely cheaper but wrong: the probe runs *after* the create, so a list
+  taken there already contains the just-created source. The bump does not
+  compound across a bulk import, and `wait=True` callers and the REST batch
+  preflight were paying it already.
+
 - **`docs/rpc-reference.md` no longer misstates the research path.** Four
   corrections, each against a captured payload: `START_FAST_RESEARCH` returns a
   one-element response (only deep carries `report_id`); the `1` / `5` start
