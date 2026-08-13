@@ -513,6 +513,12 @@ class TestSourcesAPI:
         build_rpc_response,
     ):
         """Test adding a Google Drive source."""
+        # add_drive snapshots the notebook's source ids before the create so its
+        # idempotency probe can tell a fresh add from a pre-existing copy of the
+        # same Drive file (#2113), so the first request is a GET_NOTEBOOK.
+        httpx_mock.add_response(
+            content=build_rpc_response(RPCMethod.GET_NOTEBOOK, [["Notebook", []]]).encode()
+        )
         response = build_rpc_response(
             RPCMethod.ADD_SOURCE,
             [[[["drive_001"], "My Doc", [None, 0], [None, 2]]]],
@@ -528,8 +534,9 @@ class TestSourcesAPI:
             )
 
         assert source is not None
-        request = httpx_mock.get_request()
-        assert RPCMethod.ADD_SOURCE in str(request.url)
+        urls = [str(request.url) for request in httpx_mock.get_requests()]
+        assert any(RPCMethod.GET_NOTEBOOK in url for url in urls)
+        assert any(RPCMethod.ADD_SOURCE in url for url in urls)
 
     @pytest.mark.asyncio
     async def test_refresh_source(
@@ -1869,6 +1876,10 @@ class TestAddDriveWait:
         build_rpc_response,
     ):
         """Test add_drive() with wait=True calls wait_until_ready (line 526)."""
+        # First request is add_drive's pre-create baseline snapshot (#2113).
+        httpx_mock.add_response(
+            content=build_rpc_response(RPCMethod.GET_NOTEBOOK, [["Notebook", []]]).encode()
+        )
         response = build_rpc_response(
             RPCMethod.ADD_SOURCE,
             [[[["drive_src_wait"], "My Drive Doc", [None, 0], [None, 2]]]],

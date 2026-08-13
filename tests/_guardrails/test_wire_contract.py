@@ -46,6 +46,7 @@ from tests._guardrails._wire_contract import (
     MODULE_LEVEL,
     PINNED,
     UNMAPPED,
+    WIRE,
     Mapping,
     Pinned,
 )
@@ -377,4 +378,29 @@ def test_live_pinned_constants_unchanged(pin: Pinned) -> None:
         f"Established by: {pin.evidence}\n"
         "The proto cannot check this slot, so re-confirm against live data before "
         "changing the pin."
+    )
+
+
+def test_google_docs_document_id_shares_the_drive_tag() -> None:
+    """``SourceRow._DRIVE_DOCUMENT_ID_POS`` indexes BOTH Drive metadata blocks.
+
+    ``SourceRow.drive_document_id`` (#2113) reads one constant against two
+    different nested messages — ``GoogleDocsSourceMetadata`` at ``metadata[0]``
+    and ``GoogleDriveSourceMetadata`` at ``metadata[9]``. MAPPINGS can only
+    assert it against one of them, so this pins the other half of that claim:
+    if Google ever moves ``GoogleDocsSourceMetadata.documentId`` off tag 1, the
+    shared constant silently starts reading the wrong slot for Docs/Slides rows
+    and the add_drive idempotency probe stops matching them.
+    """
+    schema = load_proto_schema()
+    docs_tag = schema.field_tag("GoogleDocsSourceMetadata", "documentId", WIRE)
+    drive_tag = schema.field_tag("GoogleDriveSourceMetadata", "documentId", WIRE)
+    assert docs_tag == drive_tag, (
+        "GoogleDocsSourceMetadata.documentId and GoogleDriveSourceMetadata."
+        f"documentId no longer share a tag ({docs_tag} vs {drive_tag}). "
+        "SourceRow._DRIVE_DOCUMENT_ID_POS can no longer index both blocks — "
+        "split it back into two constants and register each in MAPPINGS."
+    )
+    assert _discover_constants()[("sources", "SourceRow", "_DRIVE_DOCUMENT_ID_POS")] == (
+        docs_tag - 1
     )

@@ -27,6 +27,7 @@ from notebooklm._row_adapters.sources import (
     SourceFulltextRow,
     SourceGuideRow,
     SourceRow,
+    _warned_drive_id_slots,
 )
 from notebooklm._types.common import _datetime_from_timestamp
 from notebooklm._types.sources import (
@@ -427,3 +428,235 @@ def test_non_14_type_code_with_pdf_mime_is_untouched() -> None:
     src = Source.from_row(_row(_meta_with(type_code=5, mime="application/pdf")))
     assert src._type_code == 5
     assert src.kind == SourceType.WEB_PAGE
+
+
+# --- #2113: SourceRow.drive_document_id (the add_drive idempotency key) ------
+
+#: A Drive file id as it appears on the wire (44-char Base64URL), taken from the
+#: live ADD_SOURCE capture in ``tests/cassettes/sources_add_drive.yaml``.
+_DRIVE_FILE_ID = "1oAk_INJHbIPsIh49jgNqj3FESSGHZrzxFY7t05Lvvl0"
+
+
+def _live_google_docs_row(document_id: str = _DRIVE_FILE_ID) -> SourceRow:
+    """The live-captured Google-native Drive row (``metadata[0]`` block).
+
+    Copied verbatim (ids aside) from the ADD_SOURCE response in
+    ``tests/cassettes/sources_add_drive.yaml`` — note that NO url slot is
+    populated, which is the whole reason #2113 existed.
+    """
+    return SourceRow.from_entry(
+        [
+            ["ef72c03c-b429-41cb-ae79-8529d35d6d5b"],
+            "Rubisco Research: Status and Future",
+            [
+                [document_id, "SCRUBBED_AONS", 17],
+                3737,
+                [1769198541, 320332000],
+                ["a25483bc-01fc-4e64-9deb-d2c2cf001887", [1769198540, 885478000]],
+                1,
+                None,
+                1,
+                None,
+                7610,
+            ],
+            [None, 2],
+        ]
+    )
+
+
+def test_drive_document_id_from_google_docs_metadata() -> None:
+    """``metadata[0][0]`` is the Drive documentId on a Google-native row."""
+    row = _live_google_docs_row()
+    assert row.drive_document_id == _DRIVE_FILE_ID
+    # The row that motivated #2113: an identity-bearing id but no URL at all.
+    assert row.url is None
+
+
+def test_drive_document_id_from_drive_descriptor() -> None:
+    """``metadata[9][0]`` is the Drive documentId on a Drive-hosted binary row."""
+    meta = _meta_with(type_code=14, mime="application/pdf", descriptor_mime="application/pdf")
+    meta[9] = [_DRIVE_FILE_ID, 8, "application/pdf", ""]
+    row = _row(meta)
+    assert row.drive_document_id == _DRIVE_FILE_ID
+    assert row.url is None
+
+
+def test_drive_document_id_prefers_google_docs_block_when_both_present() -> None:
+    """Both blocks populated: the ``metadata[0]`` block wins (documented order)."""
+    meta = _meta_with(type_code=1)
+    meta[0] = ["docs-id", "opaque", 17]
+    meta[9] = ["descriptor-id", 8, "application/pdf", ""]
+    assert _row(meta).drive_document_id == "docs-id"
+
+
+def test_drive_document_id_falls_back_when_google_docs_block_absent() -> None:
+    """An empty ``metadata[0]`` block does not shadow the descriptor."""
+    meta = _meta_with(type_code=14)
+    meta[0] = []
+    meta[9] = ["descriptor-id", 8, "application/pdf", ""]
+    assert _row(meta).drive_document_id == "descriptor-id"
+
+
+def test_drive_document_id_is_none_for_web_page_row() -> None:
+    """A live-shaped web-page row (``metadata[0]`` null, URL at ``[7]``) yields None.
+
+    Shape from the GET_NOTEBOOK capture in
+    ``tests/cassettes/sources_check_freshness_drive.yaml``.
+    """
+    row = SourceRow.from_entry(
+        [
+            ["e9e0faae-89b3-4e38-9528-90cd47d8d356"],
+            "Google - Wikipedia",
+            [
+                None,
+                28940,
+                [1769104954, 651598000],
+                ["1274153a-22ea-4acd-bb3d-886c695bff05", [1769104954, 395827000]],
+                5,
+                None,
+                1,
+                ["https://en.wikipedia.org/wiki/Google"],
+            ],
+            [None, 2],
+        ]
+    )
+    assert row.drive_document_id is None
+    assert row.url == "https://en.wikipedia.org/wiki/Google"
+
+
+def test_drive_document_id_is_none_without_metadata() -> None:
+    """A row with no metadata sub-list has no Drive id."""
+    assert SourceRow.from_entry([["src-id"], "Title"]).drive_document_id is None
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        # The legacy bare-http string honored by ``url_allow_bare_http``: a str
+        # must never be indexed character-wise into a one-char "id".
+        "https://example.com/page",
+        None,
+        [],  # present but empty
+        [None],  # documentId slot explicitly null
+        [""],  # documentId slot blank
+        ["   "],  # documentId slot whitespace-only (unmatchable, so drift)
+        [42],  # non-string
+        {"documentId": "x"},  # non-list container
+    ],
+    ids=[
+        "bare_http_str",
+        "null",
+        "empty",
+        "null_id",
+        "blank_id",
+        "whitespace_id",
+        "non_string",
+        "non_list",
+    ],
+)
+def test_drive_document_id_rejects_malformed_google_docs_block(block: object) -> None:
+    meta = _meta_with(type_code=1)
+    meta[0] = block
+    assert _row(meta).drive_document_id is None
+
+
+@pytest.mark.parametrize(
+    "block",
+    [None, [], [None], [""], ["   "], [42], "not-a-list"],
+    ids=["null", "empty", "null_id", "blank_id", "whitespace_id", "non_string", "non_list"],
+)
+def test_drive_document_id_rejects_malformed_drive_descriptor(block: object) -> None:
+    meta = _meta_with(type_code=14)
+    meta[9] = block
+    assert _row(meta).drive_document_id is None
+
+
+def test_drive_document_id_survives_short_metadata() -> None:
+    """A metadata list too short to reach ``[9]`` still reads ``[0]``."""
+    assert _row([[_DRIVE_FILE_ID, "opaque", 17], None]).drive_document_id == _DRIVE_FILE_ID
+
+
+def test_source_from_row_carries_drive_document_id() -> None:
+    """``Source`` surfaces the id — this is what the add_drive probe matches on."""
+    from notebooklm._types.sources import Source
+
+    src = Source.from_row(_live_google_docs_row())
+    assert src.drive_document_id == _DRIVE_FILE_ID
+    assert src.url is None
+
+
+def test_source_from_row_leaves_drive_document_id_none_for_non_drive() -> None:
+    from notebooklm._types.sources import Source
+
+    src = Source.from_row(_row(_meta_with(type_code=5)))
+    assert src.drive_document_id is None
+
+
+class TestDriveDocumentIdDriftWarning:
+    """A present-but-drifted Drive block is reported, not silently skipped.
+
+    #2113 hid for so long precisely because the client read a slot that never
+    matched and said nothing. Structural absence stays quiet (most rows are not
+    Drive rows), but a Drive block whose id slot stopped being a usable string is
+    the signature of that bug recurring.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_warned_slots(self):
+        """Clear the warn-once set so assertions do not depend on test order.
+
+        ``_warned_drive_id_slots`` is module-level (it has to outlive a row), so
+        an earlier test decoding the same slot would otherwise consume this
+        test's single warning. Mirrors ``_warned_status_codes`` handling in
+        ``tests/unit/test_row_adapters.py::TestSourceRowStatus``.
+        """
+        _warned_drive_id_slots.clear()
+        yield
+        _warned_drive_id_slots.clear()
+
+    def test_non_string_id_in_a_populated_block_warns(self, caplog) -> None:
+        meta = _meta_with(type_code=1)
+        meta[0] = [12345, "opaque", 17]  # documentId slot is not a string
+        assert _row(meta).drive_document_id is None
+        assert "carries no usable documentId" in caplog.text
+        assert "metadata[0]" in caplog.text
+
+    def test_blank_id_in_a_populated_block_warns(self, caplog) -> None:
+        meta = _meta_with(type_code=14)
+        meta[9] = ["", 8, "application/pdf", ""]
+        assert _row(meta).drive_document_id is None
+        assert "carries no usable documentId" in caplog.text
+        assert "metadata[9]" in caplog.text
+
+    def test_warns_once_per_slot(self, caplog) -> None:
+        """A polled notebook re-decodes every row; the drift line fires once."""
+        meta = _meta_with(type_code=1)
+        meta[0] = [None, "opaque", 17]
+        for _ in range(3):
+            assert _row(meta).drive_document_id is None
+        assert caplog.text.count("carries no usable documentId") == 1
+
+        # A *different* slot is still reported.
+        other = _meta_with(type_code=14)
+        other[9] = [None, 8, "application/pdf", ""]
+        assert _row(other).drive_document_id is None
+        assert caplog.text.count("carries no usable documentId") == 2
+
+    @pytest.mark.parametrize(
+        ("block", "why"),
+        [
+            (None, "absent block — the overwhelmingly common non-Drive row"),
+            ([], "block too short to hold the id slot at all"),
+            ("https://example.com/page", "the legacy bare-http string at metadata[0]"),
+        ],
+        ids=["null", "empty", "bare_http_str"],
+    )
+    def test_structural_absence_stays_silent(self, caplog, block: object, why: str) -> None:
+        meta = _meta_with(type_code=5)
+        meta[0] = block
+        assert _row(meta).drive_document_id is None
+        assert "documentId" not in caplog.text, f"must not warn for {why}"
+
+    def test_a_healthy_drive_row_never_warns(self, caplog) -> None:
+        assert _live_google_docs_row().drive_document_id == _DRIVE_FILE_ID
+        assert not caplog.records

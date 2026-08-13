@@ -18,6 +18,7 @@ from ..exceptions import (
     RateLimitError,
     ServerError,
     SourceAddError,
+    ValidationError,
 )
 from ..rpc import RPCError, RPCMethod
 from ..types import Source
@@ -84,10 +85,22 @@ async def honor_requested_title_if_fresh(
     result: Source | _IdempotentCreateResult[Source],
     requested_title: str | None,
     logger: logging.Logger,
+    *,
+    probe_proves_freshness: bool = False,
 ) -> Source:
-    """Apply a requested title only to a source created by this call."""
+    """Apply a requested title only to a source created by this call.
+
+    A ``PROBED`` result is normally skipped because the probe may have matched a
+    source that predates this call, and renaming someone else's source would be
+    a surprise. Set ``probe_proves_freshness`` when the caller's probe already
+    guarantees the match is new — ``add_drive`` filters probe matches against a
+    baseline captured before the create, so its ``PROBED`` value is provably a
+    source this call created and must still honor the requested title (#2113).
+    Without this, a Drive add that commits but loses its response silently keeps
+    the Drive-derived name instead of the caller's ``title``.
+    """
     if isinstance(result, _IdempotentCreateResult):
-        if result.kind is _CreateResultKind.PROBED:
+        if result.kind is _CreateResultKind.PROBED and not probe_proves_freshness:
             return result.value
         source = result.value
     else:
@@ -266,8 +279,55 @@ class SourceAddService:
         pattern as ``add_url``: a 5xx / network failure
         between server-side commit and client-side response could
         otherwise duplicate the source on a naive retry. The probe matches
-        by ``file_id`` substring against ``source.url`` (Drive URLs embed
-        the file_id, e.g. ``https://docs.google.com/document/d/<id>/edit``).
+        on :attr:`~notebooklm.types.Source.drive_document_id`, the Drive
+        ``documentId`` the backend echoes back in the source metadata.
+        Drive-backed sources carry **no** URL (their URL slots are empty),
+        so a URL-based probe could never match one — it silently duplicated
+        the source on every retry until #2113.
+
+        A ``documentId`` is **not** unique within a notebook: the backend
+        happily holds the same Drive file twice. The probe therefore filters
+        matches against a baseline of source ids captured before the first
+        create attempt, exactly like
+        :meth:`~notebooklm._source.upload.SourceUploader.register_file_source`
+        does for filenames, so a pre-existing copy is never handed back as if
+        it were the one just created. This costs one extra source list per
+        call; it is the price of telling "my create landed" apart from "a copy
+        was already there".
+
+        .. note::
+           **This is a behaviour change.** ``add_drive`` now captures a baseline
+           on *every* call; previously it listed sources only inside ``_probe``,
+           which ``idempotent_create`` runs only after a transport failure. It
+           now matches the shape ``register_file_source`` has always had (an
+           unconditional pre-create baseline), so the cost is an extension of an
+           existing pattern rather than a wholly new one — but for the Drive path
+           it is new, moving from retry-only to every call.
+
+           The concrete cost: that list is a ``GET_NOTEBOOK``, and the backend
+           **writes** ``lastViewedTime`` when answering one (#2126), so every
+           ``add_drive`` now promotes the notebook to the top of the user's
+           *Recent* list in the web UI. No cheaper probe exists — source ids are
+           published only inside the ``GET_NOTEBOOK`` payload, and
+           ``LIST_NOTEBOOKS`` (which does not bump) does not carry them. The bump
+           is accepted: silently returning a pre-existing source and reporting a
+           create that never happened is far worse than a reordered Recent list.
+
+           Sibling paths, so the next reader need not re-derive it: ``add_text``
+           is ``NON_IDEMPOTENT_NO_RETRY`` and has no probe, so it has no such
+           exposure. ``add_url`` *does* share the un-baselined shape this fix
+           replaced — a notebook can hold two sources with the same URL — and is
+           tracked separately in #2204; it is deliberately not changed here.
+
+        .. warning::
+           The baseline establishes *when* a matching source appeared, not
+           *who* created it. If two callers add the same Drive file to one
+           notebook concurrently and one create fails before committing, the
+           failed caller's probe can attribute the other caller's source to
+           itself. A list-based probe cannot close that gap — the wire carries
+           no client-supplied idempotency key — so serialize concurrent adds of
+           the same file into a notebook if you need that guarantee. The same
+           limitation applies to ``register_file_source``'s filename probe.
 
         .. note::
            The ``title`` is sent on the wire but **ignored** for native Drive
@@ -277,6 +337,13 @@ class SourceAddService:
            :meth:`~notebooklm._sources.SourcesAPI.rename` after the add if you
            need a specific title.
         """
+        if not file_id or not file_id.strip():
+            # Fail before the write rather than POSTing a blank Drive id. A
+            # blank id is also unmatchable by the probe below (a row's
+            # ``drive_document_id`` is never ``""``), so without this guard a
+            # transport failure would retry the blank add and could leave two
+            # garbage sources behind.
+            raise ValidationError("Drive file_id cannot be empty or whitespace-only")
         logger.debug("Adding Drive source to notebook %s: %s", notebook_id, title)
         source_data = [
             [file_id, mime_type, 1, title],
@@ -336,17 +403,40 @@ class SourceAddService:
                 )
             return Source.from_api_response(result, method_id=RPCMethod.ADD_SOURCE.value)
 
-        # Drive URLs canonically embed the file_id as a path segment, e.g.
-        # ``https://docs.google.com/document/d/<file_id>/edit``. Match the
-        # ``/d/<file_id>`` slug with a trailing segment boundary (either a
-        # ``/`` or end-of-string) so neither an interior substring nor a
-        # prefix-collision (e.g. ``/d/abc`` matching ``/d/abcdef/edit``)
-        # produces a false-positive. Real-world Drive IDs are 33–44-char
-        # Base64URL strings making prefix collisions astronomically unlikely
-        # in practice, but the boundary check costs nothing.
-        drive_url_marker = f"/d/{file_id}/"
-        drive_url_tail = f"/d/{file_id}"
+        # Capture baseline source ids before the first create attempt so the
+        # probe can tell "this Drive add landed" from "the same Drive file was
+        # already in the notebook". A ``documentId`` is NOT unique within a
+        # notebook — live capture (``tests/cassettes/sources_check_freshness_
+        # drive.yaml``) holds two source ids sharing one documentId — so an
+        # unfiltered match could hand back a pre-existing copy as if it were the
+        # one just created, silently masking a failed create. ``None`` is the
+        # "baseline unavailable" sentinel; the probe then refuses to guess.
+        # Mirrors ``register_file_source`` in ``_source/upload.py``.
+        #
+        # NEW on every call (it used to list only inside _probe, i.e. only after
+        # a transport failure). This list is a GET_NOTEBOOK, which the backend
+        # answers by WRITING lastViewedTime (#2126) — so every add_drive now
+        # reshuffles the user's Recent ordering. Unavoidable (source ids live
+        # only in that payload; LIST_NOTEBOOKS does not bump but does not carry
+        # them) and accepted; see the ``.. note::`` on this method.
+        baseline_ids: set[str] | None
+        try:
+            baseline_ids = {source.id for source in await list_sources(notebook_id)}
+        except Exception:
+            logger.debug(
+                "add_drive: baseline list() failed; baseline unavailable",
+                exc_info=True,
+            )
+            baseline_ids = None
 
+        # A Drive-backed source echoes the requested ``file_id`` back as the
+        # ``documentId`` in its metadata (``SourceRow.drive_document_id``);
+        # it carries no URL at all, which is why the previous ``/d/<file_id>``
+        # URL-segment probe could never match and let every retry duplicate the
+        # source (#2113). Exact equality — not a substring test — so neither an
+        # interior substring nor a prefix collision (``abc`` vs ``abcdef``) can
+        # produce a false positive, and non-Drive rows (``drive_document_id is
+        # None``) can never match a requested file_id.
         async def _probe() -> Source | None:
             try:
                 sources = await list_sources(notebook_id)
@@ -355,16 +445,44 @@ class SourceAddService:
                 # — see the rationale in ``add_url._probe``.
                 raise
             except Exception:
-                logger.debug(
-                    "add_drive: probe list() failed with non-transport error; treating as no match",
+                # WARNING, not DEBUG: a decode failure here (e.g. the strict
+                # ``RPCError`` GET_NOTEBOOK raises on a drifted response) is
+                # indistinguishable from "the create did not land", so
+                # idempotent_create re-issues the add — and this variant runs
+                # with ``disable_internal_retries=True``, leaving no other net
+                # against the duplicate this probe exists to prevent.
+                logger.warning(
+                    "add_drive: probe list() failed with a non-transport error; treating as "
+                    "no match, so a retry may create a duplicate Drive source",
                     exc_info=True,
                 )
                 return None
-            for source in sources:
-                if source.url and (
-                    drive_url_marker in source.url or source.url.endswith(drive_url_tail)
-                ):
-                    return source
+            matches = [source for source in sources if source.drive_document_id == file_id]
+            if baseline_ids is not None:
+                matches = [source for source in matches if source.id not in baseline_ids]
+            elif matches:
+                # Without a baseline a match may predate this add — see the
+                # ``baseline_ids`` comment for the failure mode this guards.
+                raise SourceAddError(
+                    title,
+                    message=(
+                        f"Cannot disambiguate Drive source {file_id!r}: baseline snapshot "
+                        "was unavailable, so a matching source may predate this add. "
+                        "Check the notebook source list before retrying."
+                    ),
+                )
+            if len(matches) == 1:
+                (match,) = matches  # exactly one (len==1 guard); unpack, not matches[0]
+                return match
+            if len(matches) > 1:
+                raise SourceAddError(
+                    title,
+                    message=(
+                        f"Cannot disambiguate Drive source {file_id!r}: probe found "
+                        f"{len(matches)} new sources with this documentId after a "
+                        "transport failure. Check the notebook source list before retrying."
+                    ),
+                )
             return None
 
         result = await idempotent_create(

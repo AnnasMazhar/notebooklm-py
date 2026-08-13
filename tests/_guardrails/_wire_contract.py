@@ -147,13 +147,15 @@ MAPPINGS: tuple[Mapping, ...] = (
     Mapping(
         "sources",
         "SourceRow",
-        "_META_BARE_URL_POS",
+        "_META_GOOGLE_DOCS_POS",
         "SourceMetadata",
         "googleDocsMetadata",
         note=(
-            "MISLEADING NAME: index 0 is googleDocsMetadata, not a bare URL. The "
-            "url_allow_bare_http branch that reads it as a str is dead — real "
-            "metadata[0] is null 3076/3116 and a list 40/3116, never a str."
+            "renamed from _META_BARE_URL_POS in #2113 — index 0 is "
+            "googleDocsMetadata, not a bare URL. The url_allow_bare_http branch "
+            "that reads it as a str is dead: real metadata[0] is null 3076/3116 "
+            "and a list 40/3116, never a str. The list case is the Drive "
+            "documentId block read by SourceRow.drive_document_id."
         ),
     ),
     Mapping("sources", "SourceRow", "_META_URL_POS", "SourceMetadata", "webpageMetadata"),
@@ -163,6 +165,28 @@ MAPPINGS: tuple[Mapping, ...] = (
         "_META_DRIVE_DESCRIPTOR_POS",
         "SourceMetadata",
         "googleDriveSourceMetadata",
+    ),
+    # ---- Source row: the Drive documentId slot (#2113) ---------------------
+    Mapping(
+        "sources",
+        "SourceRow",
+        "_DRIVE_DOCUMENT_ID_POS",
+        "GoogleDriveSourceMetadata",
+        "documentId",
+        note=(
+            "one constant indexes BOTH Drive blocks: GoogleDocsSourceMetadata "
+            "(metadata[0]) and GoogleDriveSourceMetadata (metadata[9]) each "
+            "declare documentId as tag 1, so both read index 0. Asserted here "
+            "against the Drive copy; the Docs copy is checked by "
+            "test_google_docs_document_id_shares_the_drive_tag."
+        ),
+    ),
+    Mapping(
+        "sources",
+        "SourceRow",
+        "_DRIVE_DESCRIPTOR_MIME_POS",
+        "GoogleDriveSourceMetadata",
+        "mimeType",
     ),
     # ---- Artifact row: Artifact -------------------------------------------
     Mapping("artifacts", "ArtifactRow", "_ID_POS", "Artifact", "artifactId"),
@@ -273,12 +297,11 @@ _ENVELOPE = (
 
 UNMAPPED: tuple[Unmapped, ...] = (
     # sources.py
-    # NOTE: _META_BARE_URL_POS is now a real mapping (see MAPPINGS) — index 0 is
-    # SourceMetadata.googleDocsMetadata, not a bare URL.
+    # NOTE: _META_GOOGLE_DOCS_POS (index 0) is a real mapping (see MAPPINGS) —
+    # it is SourceMetadata.googleDocsMetadata, not a bare URL.
     Unmapped("sources", "SourceRow", "_META_TIMESTAMP_POS", _UNRECOVERED),
     Unmapped("sources", "SourceRow", "_META_YOUTUBE_POS", _UNRECOVERED),
     Unmapped("sources", "SourceRow", "_META_MIME_POS", _UNRECOVERED),
-    Unmapped("sources", "SourceRow", "_DRIVE_DESCRIPTOR_MIME_POS", _NESTED_LOCAL),
     Unmapped(
         "sources",
         "SourceRow",
