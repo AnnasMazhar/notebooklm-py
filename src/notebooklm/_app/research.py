@@ -278,6 +278,7 @@ async def import_research_sources(
     sources: Sequence[Any],
     *,
     allow_duplicate: bool = False,
+    max_elapsed: float | None = None,
 ) -> ResearchImportOutcome:
     """Import a completed run's sources idempotently, reporting skips.
 
@@ -288,12 +289,19 @@ async def import_research_sources(
     REST route tomorrow) surfaces the same idempotency contract without
     re-implementing URL dedup. The first three arguments are passed positionally
     to match the underlying method's call shape.
+
+    ``max_elapsed`` bounds the underlying **retry** loop (the IMPORT_RESEARCH RPC
+    commonly runs past the client timeout on deep payloads, so it is retried with
+    reconciliation). Forwarded only when given, so an adapter that does not expose
+    a knob keeps the library default rather than having one imposed here.
     """
+    bound = {} if max_elapsed is None else {"max_elapsed": max_elapsed}
     imported = await client.research.import_sources_with_verification(
         notebook_id,
         task_id,
         sources,
         allow_duplicate=allow_duplicate,
+        **bound,
     )
     already_present = list(getattr(imported, "already_present", []) or [])
     return ResearchImportOutcome(

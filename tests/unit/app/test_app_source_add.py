@@ -157,7 +157,7 @@ class TestLooksLikePath:
     @pytest.mark.parametrize(
         "content",
         [
-            "The deck.pptx covered three topics",  # a sentence that happens to end .pptx-ish
+            "The deck.pptx covered three topics",  # extension mid-sentence
             "e.g",
             "version 2.0",
             "Q3.results",
@@ -175,6 +175,25 @@ class TestLooksLikePath:
         exist" warning onto text a user deliberately pasted.
         """
         assert looks_like_path(content) is False
+
+    @pytest.mark.parametrize("content", ["I read deck.pptx", "see slides.ppt", "read page.xhtml"])
+    def test_prose_ending_in_a_filename_is_a_known_false_positive(self, content: str) -> None:
+        """KNOWN LIMITATION, pinned rather than wished away.
+
+        ``Path("I read deck.pptx").suffix`` is ``".pptx"``, so prose whose LAST
+        token looks like a filename trips the heuristic. This is pre-existing for
+        every extension in the set (``"I read notes.pdf"`` behaves identically on
+        ``main``); #2202 widens the set, so it inherits the behaviour for
+        PowerPoint and XHTML too.
+
+        Deliberately tolerated: the only consequence is a spurious "looks like a
+        path but does not exist" warning on text that is still added correctly as
+        a text source. Tightening it (e.g. rejecting suffixes containing spaces)
+        would be a behaviour change beyond this fix's scope — this test exists so
+        that change is a conscious one, and so nobody reads the negative cases
+        above as proving more than they do.
+        """
+        assert looks_like_path(content) is True
 
 
 # ===========================================================================

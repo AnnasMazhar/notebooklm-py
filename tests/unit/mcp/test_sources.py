@@ -2902,6 +2902,83 @@ async def test_source_add_wait_timeout_does_not_flag_a_title_miss(mcp_call, mock
     assert sc["timed_out"] != []
 
 
+async def test_source_add_wait_youtube_title_miss_is_flagged(mcp_call, mock_client) -> None:
+    """YouTube is the other type the immediate tail gates on, so the waited tail must too.
+
+    Pins the "same gating as the immediate tail" claim on the half that url
+    coverage alone leaves free — narrowing the gate to ``("url",)`` must fail here.
+    """
+    mock_client.sources.add_url = AsyncMock(return_value=FakeSource(id=SRC_ID, title="Upstream"))
+    mock_client.sources.wait_until_ready = AsyncMock(
+        return_value=FakeSource(id=SRC_ID, title="Upstream")
+    )
+    mock_client.sources.get_fulltext = AsyncMock(
+        return_value=FakeFulltext(content="x" * 500, char_count=500)
+    )
+    result = await mcp_call(
+        "source_add",
+        {
+            "notebook": NB_ID,
+            "wait": True,
+            "source_type": "youtube",
+            "url": "https://www.youtube.com/watch?v=abc123",
+            "title": "My Title",
+        },
+    )
+    sc = result.structured_content
+    assert sc["title_override_applied"] is False
+    assert "My Title" in sc["warning"]
+
+
+async def test_source_add_wait_padded_title_that_landed_is_not_a_miss(
+    mcp_call, mock_client
+) -> None:
+    """The strip is one-sided on purpose: request is stripped, observed is verbatim.
+
+    The client renames to the STRIPPED form, so a backend title of ``"My Title"``
+    for a requested ``"  My Title  "`` is a success, not a miss. Comparing the
+    unstripped request would emit a spurious warning on a rename that worked.
+    """
+    mock_client.sources.add_url = AsyncMock(return_value=FakeSource(id=SRC_ID, title="My Title"))
+    mock_client.sources.wait_until_ready = AsyncMock(
+        return_value=FakeSource(id=SRC_ID, title="My Title")
+    )
+    mock_client.sources.get_fulltext = AsyncMock(
+        return_value=FakeFulltext(content="x" * 500, char_count=500)
+    )
+    result = await mcp_call(
+        "source_add",
+        {
+            "notebook": NB_ID,
+            "wait": True,
+            "source_type": "url",
+            "url": "https://example.com/a",
+            "title": "  My Title  ",
+        },
+    )
+    sc = result.structured_content
+    assert set(sc) == _AGGREGATE_KEYS | {"source_id"}
+
+
+async def test_source_add_padded_title_that_landed_is_not_a_miss_without_wait(
+    mcp_call, mock_client
+) -> None:
+    """Same one-sided strip on the immediate tail — the predicate is shared now."""
+    mock_client.sources.add_url = AsyncMock(return_value=FakeSource(id=SRC_ID, title="My Title"))
+    result = await mcp_call(
+        "source_add",
+        {
+            "notebook": NB_ID,
+            "source_type": "url",
+            "url": "https://example.com/a",
+            "title": "  My Title  ",
+        },
+    )
+    sc = result.structured_content
+    assert "title_override_applied" not in sc
+    assert "warning" not in sc
+
+
 async def test_source_add_wait_blank_title_is_not_a_miss(mcp_call, mock_client) -> None:
     """A whitespace-only ``title`` requests nothing, so it can't be missed."""
     mock_client.sources.add_url = AsyncMock(return_value=FakeSource(id=SRC_ID, title="Upstream"))

@@ -751,7 +751,7 @@ class TestResearchImport:
         assert data["sources_found"] == 2
         assert data["sources_selected"] == 1
         sent = mock_client.research.import_sources_with_verification.await_args.args[2]
-        assert [getattr(s, "url", None) or s["url"] for s in sent] == ["http://example.com/1"]
+        assert [s["url"] for s in sent] == ["http://example.com/1"]
 
     def test_import_forwards_allow_duplicate(self, runner, mock_auth, mock_fetch_tokens):
         mock_client = create_mock_client()
@@ -772,31 +772,4 @@ class TestResearchImport:
                 "allow_duplicate"
             ]
             is True
-        )
-
-    def test_import_does_not_use_the_cli_retry_wrapper(self, runner, mock_auth, mock_fetch_tokens):
-        """``research import`` drives the shared _app pair, not ``import_with_retry``.
-
-        The retry wrapper carries the ``max_elapsed`` budget that makes
-        ``research wait --import-all`` a blocking operation; this command must
-        not inherit it.
-        """
-        mock_client = create_mock_client()
-        mock_client.research.poll = AsyncMock(return_value=_completed_poll())
-        mock_client.research.import_sources_with_verification = AsyncMock(
-            return_value=_ImportedList([{"id": "s1"}])
-        )
-
-        with patch.object(
-            research_import_module, "import_with_retry", new=AsyncMock()
-        ) as spy_retry:
-            result = runner.invoke(
-                cli, ["research", "import", "-n", "nb_123"], obj=inject_client(mock_client)
-            )
-
-        assert result.exit_code == 0
-        spy_retry.assert_not_awaited()
-        assert (
-            "max_elapsed"
-            not in mock_client.research.import_sources_with_verification.await_args.kwargs
         )

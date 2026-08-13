@@ -30,14 +30,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ```bash
   notebooklm source add-research "AI safety" --mode deep --no-wait
   notebooklm research status      # your loop, your interval
-  notebooklm research import      # imports, returns; never blocks
+  notebooklm research import      # imports, returns; never waits for the run
   ```
 
   It also closes the idempotency gap the CLI's bespoke import path had: a repeat
   import now reports `0 new, N already present` (each with the *existing*
   source's `{id, title, url}`) instead of looking like a no-op, matching what
   MCP and REST already returned. Options: `--run-id` (default: the notebook's
-  current run), `--cited-only`, `--max-sources`, `--allow-duplicate`, `--json`.
+  current run), `--cited-only`, `--max-sources`, `--allow-duplicate`, `--timeout`,
+  `--json`. The import RPC itself is retried with reconciliation (it commonly
+  outlives one client timeout on deep payloads); `--timeout` bounds that, using
+  the same vocabulary as `research wait --timeout`.
   No new core logic — it drives the same `_app` importable-state ladder and
   idempotent importer the other two adapters drive, so the guard cannot fork a
   third time.
@@ -184,9 +187,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the path heuristic, the Drive download-and-upload router, and the upload
   HTML-reject gate now all derive from **one** declaration that sits beside the
   source type-code map, and a guardrail pins the derivation. Two real drifts fell
-  out of consolidating: `.ppt`/`.pptx` are now accepted by the **Drive
-  download-and-upload router** (which had refused them outright), and
+  out of consolidating: `.pptx` is now accepted by the **Drive
+  download-and-upload router** (which had refused it outright), and
   `.xhtml`/`.xht` now earn the same missing-file warning.
+
+  `.ppt` is deliberately *not* claimed uploadable. The two sets have asymmetric
+  failure modes — a wrong entry in the path heuristic costs a spurious warning,
+  a wrong entry in the Drive router turns a fast client-side refusal into a full
+  download plus a murky server-side failure — so an extension has to earn the
+  upload set. The live evidence covers `.pptx` (OOXML) only; legacy `.ppt` is a
+  different container and was never put on the wire, and renaming a `.pptx`
+  would prove nothing. It therefore sits in a third, explicitly-labelled
+  "file-shaped, not upload-verified" set: a mistyped `deck.ppt` still gets its
+  warning, and the Drive router still refuses it up front.
 
 - **MCP `source_add` went silent about a title miss whenever you passed
   `wait=true`** ([#1989](https://github.com/teng-lin/notebooklm-py/issues/1989)).

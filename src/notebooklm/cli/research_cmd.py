@@ -3,7 +3,7 @@
 Commands:
     status      Check research status (single check)
     wait        Wait for research to complete (blocking)
-    import      Import a completed run's sources (never blocks)
+    import      Import a completed run's sources (no wait for the run)
     cancel      Cancel an in-flight research run (fire-and-forget)
 
 The ``wait`` command is a thin Click handler over
@@ -14,7 +14,7 @@ pinning is handled by ``ResearchAPI.wait_for_completion``. ``status`` and
 ``cancel`` are thin handlers over the same neutral core
 (:func:`notebooklm._app.research.poll_and_classify` /
 :func:`~notebooklm._app.research.cancel_research`). ``import`` is the
-non-blocking counterpart to ``wait --import-all`` (#2206): it drives the
+never-waits-for-the-run counterpart to ``wait --import-all`` (#2206): it drives the
 same neutral pair the MCP ``research_import`` tool and the REST import
 route drive (:func:`~notebooklm._app.research.classify_importable_research`
 + :func:`~notebooklm._app.research.import_research_sources`), so the
@@ -80,7 +80,7 @@ def research():
     Commands:
       status    Check research status (non-blocking)
       wait      Wait for research to complete (blocking)
-      import    Import a completed run's sources (non-blocking)
+      import    Import a completed run's sources (no wait for the run)
       cancel    Cancel an in-flight research run (fire-and-forget)
 
     \b
@@ -184,6 +184,17 @@ def _print_failure_reason(reason_message: str | None, hint: str | None) -> None:
 )
 @click.option("--cited-only", is_flag=True, help="Import only report-cited sources")
 @click.option(
+    "--timeout",
+    default=1800,
+    type=int,
+    help=(
+        "Seconds budget for the import retry loop (default: 1800). The command "
+        "never waits for the RUN to finish, but IMPORT_RESEARCH itself commonly "
+        "outlives a single client timeout on deep payloads and is retried with "
+        "reconciliation; this bounds that. Matches 'research wait --timeout'."
+    ),
+)
+@click.option(
     "--max-sources",
     # ``IntRange(min=1)`` rejects 0/negative at parse time, mirroring the MCP
     # tool's "omit it to import all" bound (a 0 cap would silently import
@@ -200,13 +211,26 @@ def _print_failure_reason(reason_message: str | None, hint: str | None) -> None:
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @with_client
 def research_import(
-    ctx, notebook_id, run_id, cited_only, max_sources, allow_duplicate, json_output, client_auth
+    ctx,
+    notebook_id,
+    run_id,
+    cited_only,
+    timeout,
+    max_sources,
+    allow_duplicate,
+    json_output,
+    client_auth,
 ):
     """Import a completed research run's sources.
 
-    The non-blocking counterpart to 'research wait --import-all': it imports a
-    run that is ALREADY complete and fails fast when it is not, instead of
-    waiting. Drive your own polling cadence with 'research status'.
+    The counterpart to 'research wait --import-all' that never waits for the RUN:
+    it imports one that is ALREADY complete and fails fast when it is not. Drive
+    your own polling cadence with 'research status'.
+
+    \b
+    The import RPC itself is not instant — IMPORT_RESEARCH commonly outlives a
+    single client timeout on deep payloads and is retried with reconciliation,
+    bounded by --timeout.
 
     \b
     Idempotent: a source whose URL is already in the notebook is reported as
@@ -248,13 +272,22 @@ def research_import(
             # cited sources first, then cap.
             if max_sources is not None:
                 selected = selected[:max_sources]
-            outcome = await import_research_sources_core(
-                client,
-                nb_id_resolved,
-                resolved_run_id,
-                selected,
-                allow_duplicate=allow_duplicate,
-            )
+            # The import is the one slow step here, so it gets the spinner (and
+            # with it the canonical "Cancelled. Resume with: ..." SIGINT
+            # envelope) the way ``research wait`` wraps its poll loop.
+            async with status_with_elapsed(
+                f"Importing {len(selected)} sources...",
+                json_output=json_output,
+                resume_hint="notebooklm research import",
+            ):
+                outcome = await import_research_sources_core(
+                    client,
+                    nb_id_resolved,
+                    resolved_run_id,
+                    selected,
+                    allow_duplicate=allow_duplicate,
+                    max_elapsed=timeout,
+                )
             _render_import_result(
                 outcome,
                 run_id=resolved_run_id,

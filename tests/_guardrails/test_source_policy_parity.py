@@ -151,12 +151,43 @@ def test_both_adapters_share_the_same_fatal_classifier() -> None:
 # next supported file type cannot land in only one of them.
 
 
-def test_path_shaped_set_is_the_upload_set_plus_html() -> None:
-    """The CLI heuristic is exactly "uploadable OR HTML-family" — a derivation, not a copy."""
+def test_path_shaped_set_is_the_union_of_the_three_declarations() -> None:
+    """The path heuristic is exactly "uploadable OR HTML OR file-shaped-only" — derived, not copied."""
     from notebooklm._app.source_add import _PATH_SHAPED_EXTENSIONS
-    from notebooklm._types.sources import _HTML_FILE_EXTENSIONS, _UPLOAD_FILE_EXTENSIONS
+    from notebooklm._types.sources import (
+        _FILE_SHAPED_ONLY_EXTENSIONS,
+        _HTML_FILE_EXTENSIONS,
+        _UPLOAD_FILE_EXTENSIONS,
+    )
 
-    assert _PATH_SHAPED_EXTENSIONS == _UPLOAD_FILE_EXTENSIONS | _HTML_FILE_EXTENSIONS
+    assert _PATH_SHAPED_EXTENSIONS == (
+        _UPLOAD_FILE_EXTENSIONS | _HTML_FILE_EXTENSIONS | _FILE_SHAPED_ONLY_EXTENSIONS
+    )
+
+
+def test_file_shaped_only_extensions_never_reach_the_drive_network_gate() -> None:
+    """The honesty gate: an unverified extension is file-shaped but NOT upload-routed.
+
+    The two sets have asymmetric failure modes — a wrong entry in the path
+    heuristic costs a spurious warning, a wrong entry in the Drive router turns a
+    fast client-side refusal into a full download plus a murky server-side
+    failure. So an extension without wire evidence (``.ppt``) must stay out of
+    the upload set, and out of everything derived from it.
+    """
+    from notebooklm._source.drive_import import _UPLOAD_SUPPORTED_EXTS
+    from notebooklm._types.sources import (
+        _FILE_SHAPED_ONLY_EXTENSIONS,
+        _PATH_SHAPED_FILE_EXTENSIONS,
+        _UPLOAD_FILE_EXTENSIONS,
+    )
+
+    assert _FILE_SHAPED_ONLY_EXTENSIONS
+    # Recognised as a filename...
+    assert _FILE_SHAPED_ONLY_EXTENSIONS <= _PATH_SHAPED_FILE_EXTENSIONS
+    # ...but never claimed as uploadable, on either spelling.
+    assert not (_FILE_SHAPED_ONLY_EXTENSIONS & _UPLOAD_FILE_EXTENSIONS)
+    bare = {ext.lstrip(".") for ext in _FILE_SHAPED_ONLY_EXTENSIONS}
+    assert not (bare & _UPLOAD_SUPPORTED_EXTS)
 
 
 def test_drive_router_extensions_are_the_same_declaration_dot_stripped() -> None:
@@ -176,27 +207,74 @@ def test_upload_html_reject_gate_binds_the_same_html_set() -> None:
     assert _HTML_UPLOAD_SUFFIXES is _HTML_FILE_EXTENSIONS
 
 
-def test_upload_and_html_extension_sets_are_disjoint_and_dotted() -> None:
-    """An extension can be uploadable or HTML-rejected, never both, and always dotted.
+def test_extension_sets_are_pairwise_disjoint_and_dotted() -> None:
+    """Each extension lands in exactly one of the three sets, and is always dotted.
 
     ``looks_like_path`` compares against ``Path(...).suffix``, which is dotted and
     lowercase-compared — an undotted entry would silently never match.
     """
-    from notebooklm._types.sources import _HTML_FILE_EXTENSIONS, _UPLOAD_FILE_EXTENSIONS
+    from notebooklm._types.sources import (
+        _FILE_SHAPED_ONLY_EXTENSIONS,
+        _HTML_FILE_EXTENSIONS,
+        _UPLOAD_FILE_EXTENSIONS,
+    )
 
-    assert not (_UPLOAD_FILE_EXTENSIONS & _HTML_FILE_EXTENSIONS)
-    for ext in _UPLOAD_FILE_EXTENSIONS | _HTML_FILE_EXTENSIONS:
+    sets = (_UPLOAD_FILE_EXTENSIONS, _HTML_FILE_EXTENSIONS, _FILE_SHAPED_ONLY_EXTENSIONS)
+    assert len(
+        _UPLOAD_FILE_EXTENSIONS | _HTML_FILE_EXTENSIONS | _FILE_SHAPED_ONLY_EXTENSIONS
+    ) == sum(len(one) for one in sets)
+    for ext in _UPLOAD_FILE_EXTENSIONS | _HTML_FILE_EXTENSIONS | _FILE_SHAPED_ONLY_EXTENSIONS:
         assert ext.startswith("."), f"{ext!r} must be spelled with a leading dot"
         assert ext == ext.lower(), f"{ext!r} must be lowercase"
 
 
-def test_powerpoint_is_spelled_on_both_the_decode_and_input_sides() -> None:
-    """#2137/#2191 gave PowerPoint a decode code; #2202 gives it its input spellings."""
+def test_accepted_extension_sets_are_pinned_by_content() -> None:
+    """Pin the ACTUAL members, not just the derivation.
+
+    The three parity gates above prove nobody re-forked the lists, but they
+    compare the declaration to itself — deleting ``.pdf`` would break the Drive
+    route and every one of them would still pass. This is the content half:
+    changing what the client claims NotebookLM accepts has to be deliberate, and
+    (for anything added) backed by a probe.
+    """
     from notebooklm._types.sources import (
+        _FILE_SHAPED_ONLY_EXTENSIONS,
+        _HTML_FILE_EXTENSIONS,
+        _UPLOAD_FILE_EXTENSIONS,
+    )
+
+    assert {
+        ".csv",
+        ".doc",
+        ".docx",
+        ".epub",
+        ".markdown",
+        ".md",
+        ".odt",
+        ".pdf",
+        ".pptx",
+        ".rtf",
+        ".tsv",
+        ".txt",
+    } == _UPLOAD_FILE_EXTENSIONS
+    assert {".htm", ".html", ".xht", ".xhtml"} == _HTML_FILE_EXTENSIONS
+    assert {".ppt"} == _FILE_SHAPED_ONLY_EXTENSIONS
+
+
+def test_powerpoint_is_spelled_on_both_the_decode_and_input_sides() -> None:
+    """#2137/#2191 gave PowerPoint a decode code; #2202 gives it its input spellings.
+
+    Split by evidence: ``.pptx`` was live-probed onto the wire, ``.ppt`` was not.
+    """
+    from notebooklm._types.sources import (
+        _FILE_SHAPED_ONLY_EXTENSIONS,
+        _PATH_SHAPED_FILE_EXTENSIONS,
         _SOURCE_TYPE_CODE_MAP,
         _UPLOAD_FILE_EXTENSIONS,
         SourceType,
     )
 
     assert SourceType.POWERPOINT in _SOURCE_TYPE_CODE_MAP.values()
-    assert {".ppt", ".pptx"} <= _UPLOAD_FILE_EXTENSIONS
+    assert ".pptx" in _UPLOAD_FILE_EXTENSIONS
+    assert ".ppt" in _FILE_SHAPED_ONLY_EXTENSIONS
+    assert {".ppt", ".pptx"} <= _PATH_SHAPED_FILE_EXTENSIONS

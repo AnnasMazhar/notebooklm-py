@@ -1625,7 +1625,7 @@ if result.references:
 
 ### ResearchAPI (`client.research`)
 
-**CLI equivalent:** [Research Commands](cli-reference.md#research-commands-notebooklm-research-cmd) (`notebooklm research status`, `wait`, `cancel`) plus `notebooklm source add-research` ([Source: `add-research`](cli-reference.md#source-add-research)) for the combined start-and-import workflow.
+**CLI equivalent:** [Research Commands](cli-reference.md#research-commands-notebooklm-research-cmd) (`notebooklm research status`, `wait`, `import`, `cancel`) plus `notebooklm source add-research` ([Source: `add-research`](cli-reference.md#source-add-research)) for the combined start-and-import workflow.
 
 | Method | Parameters | Returns | Description |
 |--------|------------|---------|-------------|

@@ -260,7 +260,7 @@ Collections are account-level, so — unlike `label` — the `collection` comman
 |---------|-----------|---------|---------|
 | `status` | - | `-n/--notebook`, `--json` | `research status` |
 | `wait` | - | `-n/--notebook`, `--timeout`, `--interval`, `--import-all`, `--cited-only`, `--json` | `research wait --import-all --cited-only` |
-| `import` | - | `-n/--notebook`, `--run-id`, `--cited-only`, `--max-sources`, `--allow-duplicate`, `--json` | `research import` |
+| `import` | - | `-n/--notebook`, `--run-id`, `--cited-only`, `--timeout`, `--max-sources`, `--allow-duplicate`, `--json` | `research import` |
 | `cancel` | `RUN_ID` | `-n/--notebook`, `--json` | `research cancel <run_id>` |
 
 ### Generate Commands (`notebooklm generate <type>`)
@@ -946,11 +946,13 @@ text. Pass --type text to suppress this warning, or check the path for typos.
 ```
 
 An argument looks like a file when it contains a slash, or when its extension is
-one the upload accepts — `.pdf` `.txt` `.md` `.markdown` `.doc` `.docx` `.ppt`
-`.pptx` `.rtf` `.odt` `.csv` `.tsv` `.epub` — or is HTML-family (`.html` `.htm`
-`.xhtml` `.xht`, which the upload endpoint rejects). That list is derived from
-the single upload-support declaration the Drive download-and-upload router also
-reads, so a newly supported file type earns its warning at the same time it
+one the upload accepts — `.pdf` `.txt` `.md` `.markdown` `.doc` `.docx` `.pptx`
+`.rtf` `.odt` `.csv` `.tsv` `.epub` — or is HTML-family (`.html` `.htm` `.xhtml`
+`.xht`, which the upload endpoint rejects with convert-first guidance), or is
+`.ppt` (file-shaped, but legacy PowerPoint has never been proven uploadable, so
+it earns the warning without being routed to the uploader). That list is derived
+from the single upload-support declaration the Drive download-and-upload router
+also reads, so a newly supported file type earns its warning at the same time it
 becomes uploadable, rather than drifting behind it (#2202).
 
 Pass `--type text` to opt out of detection entirely, or `--type file` to require
@@ -1133,12 +1135,13 @@ notebooklm research import [OPTIONS]
 **Options:**
 - `-n, --notebook ID` - Notebook ID (uses current if not set)
 - `--run-id ID` - Run to import (default: the notebook's current run, as `research status` reports it)
-- `--cited-only` - Import only report-cited sources (all of them, if no citation resolves)
+- `--cited-only` - Import only report-cited sources (all of them, if no citation resolves — `cited_only_fallback` says which happened)
+- `--timeout SECONDS` - Seconds budget for the import retry loop (default: 1800)
 - `--max-sources N` - Import at most N sources (applied *after* `--cited-only` narrows)
 - `--allow-duplicate` - Re-add sources whose URL is already in the notebook
 - `--json` - Output as JSON
 
-**Fails fast, never waits.** This is the non-blocking counterpart to `research wait --import-all`: if the run is still in progress (or failed, or found nothing), the command exits 1 with an explanation instead of polling. That makes the fully composable flow expressible for the first time — you own the cadence:
+**Never waits for the run.** This is the counterpart to `research wait --import-all`: if the run is still in progress (or failed, or found nothing), the command exits 1 with an explanation instead of polling. The import RPC itself is not instant — `IMPORT_RESEARCH` commonly outlives a single client timeout on deep payloads and is retried with reconciliation, bounded by `--timeout` (default 1800s, same vocabulary as `research wait --timeout`). That makes the fully composable flow expressible for the first time — you own the cadence:
 
 ```bash
 notebooklm source add-research "AI safety" --mode deep --no-wait   # returns immediately
@@ -1712,7 +1715,7 @@ notebooklm source add-drive 1AbcD...XyZ "Whitepaper" --mime-type pdf --json
 
 ### Source: `add-drive-file`
 
-Add an upload-only Google Drive file (`epub`/`docx`/`doc`/`txt`/`md`/`markdown`/`ppt`/`pptx`/`rtf`/`odt`/`csv`/`tsv`/`pdf`) by id or share URL. NotebookLM's native Drive import (`source add-drive`) only ingests Google-native Docs/Slides/Sheets + PDF by reference; for every other Drive-hosted file type, this command downloads the file server-side (using your session) and uploads it through the resumable-upload path — a Drive PDF can go either way.
+Add an upload-only Google Drive file (`epub`/`docx`/`pptx`/`txt`/`md`/`csv`/`pdf`/…) by id or share URL. NotebookLM's native Drive import (`source add-drive`) only ingests Google-native Docs/Slides/Sheets + PDF by reference; for every other Drive-hosted file type, this command downloads the file server-side (using your session) and uploads it through the resumable-upload path — a Drive PDF can go either way.
 
 ```bash
 notebooklm source add-drive-file [OPTIONS] DOCUMENT_ID

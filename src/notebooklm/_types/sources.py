@@ -92,13 +92,33 @@ _UPLOAD_FILE_EXTENSIONS: frozenset[str] = frozenset(
         ".markdown",
         ".odt",
         ".pdf",
-        ".ppt",
         ".pptx",
         ".rtf",
         ".tsv",
         ".txt",
     }
 )
+
+#: File-shaped extensions that are NOT asserted to be upload-accepted.
+#:
+#: The escape hatch that keeps :data:`_UPLOAD_FILE_EXTENSIONS` honest. The two
+#: sets feed consumers with very different failure modes, so an extension has to
+#: earn the first one:
+#:
+#: * the path heuristic only decides whether a *non-existent* argument gets a
+#:   warning — a wrong entry costs nothing;
+#: * the Drive router (``_source.drive_import``) uses the upload set as a
+#:   **network** gate — a wrong entry turns a fast, clear client-side refusal
+#:   into a full file download followed by a murky server-side failure.
+#:
+#: ``.ppt`` sits here because the evidence covers ``.pptx`` only: a real ``.pptx``
+#: upload was live-probed to READY decoding as ``POWERPOINT`` (#2202), while
+#: legacy ``.ppt`` — a different container (OLE compound file, not OOXML) — has
+#: never been put on the wire. Renaming a ``.pptx`` to ``.ppt`` would prove
+#: nothing. Move it up once a real legacy ``.ppt`` is probed; until then a
+#: mistyped ``deck.ppt`` still earns its warning and the Drive router still
+#: refuses it up front, which is the behavior with evidence behind it.
+_FILE_SHAPED_ONLY_EXTENSIONS: frozenset[str] = frozenset({".ppt"})
 
 #: HTML-family extensions NotebookLM's upload endpoint **rejects**. Tracked next to
 #: the accepted set (rather than folded into it) because the two callers want them
@@ -120,7 +140,9 @@ _HTML_FILE_EXTENSIONS: frozenset[str] = frozenset({".html", ".htm", ".xhtml", ".
 #:
 #: Derived — never hand-maintained — so a type gains its spelling here the moment
 #: it becomes uploadable.
-_PATH_SHAPED_FILE_EXTENSIONS: frozenset[str] = _UPLOAD_FILE_EXTENSIONS | _HTML_FILE_EXTENSIONS
+_PATH_SHAPED_FILE_EXTENSIONS: frozenset[str] = (
+    _UPLOAD_FILE_EXTENSIONS | _HTML_FILE_EXTENSIONS | _FILE_SHAPED_ONLY_EXTENSIONS
+)
 
 
 _SOURCE_TYPE_COMPAT_MAP: dict[SourceType, str] = {

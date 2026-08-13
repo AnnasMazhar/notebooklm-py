@@ -8895,6 +8895,24 @@
           }
         },
         {
+          "default": 1800,
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Seconds budget for the import retry loop (default: 1800). The command never waits for the RUN to finish, but IMPORT_RESEARCH itself commonly outlives a single client timeout on deep payloads and is retried with reconciliation; this bounds that. Matches 'research wait --timeout'.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "timeout",
+          "opts": [
+            "--timeout"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "name": "integer"
+          }
+        },
+        {
           "default": null,
           "envvar": null,
           "has_custom_shell_complete": false,

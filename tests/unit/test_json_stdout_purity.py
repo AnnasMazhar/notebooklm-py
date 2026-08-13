@@ -389,6 +389,15 @@ def _customize_research_wait(client: MagicMock) -> None:
     )
 
 
+class _ImportedResearchSourcesStub(list):
+    """Mirrors ``notebooklm._research_import._ImportedResearchSources``: a ``list``
+    of newly-imported entries carrying the ``already_present`` side channel."""
+
+    def __init__(self, items, already_present=()):
+        super().__init__(items)
+        self.already_present = list(already_present)
+
+
 def _customize_research_import(client: MagicMock) -> None:
     # `research import --json` polls once (resolving the bare "current run"
     # from that same poll), then imports. A completed run with one source is
@@ -404,8 +413,14 @@ def _customize_research_import(client: MagicMock) -> None:
             }
         )
     )
+    # A bare list is a shape the real client never returns — it hands back an
+    # ``_ImportedResearchSources`` (a list subclass carrying ``already_present``),
+    # so mirror that or the sweep never exercises the side channel.
     client.research.import_sources_with_verification = AsyncMock(
-        return_value=[{"id": "src_1", "title": "A", "url": "https://example.com/a"}]
+        return_value=_ImportedResearchSourcesStub(
+            [{"id": "src_1", "title": "A", "url": "https://example.com/a"}],
+            already_present=[{"id": "src_0", "title": "B", "url": "https://example.com/b"}],
+        )
     )
 
 
