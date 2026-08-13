@@ -497,15 +497,19 @@ except Exception as exc:
     # since the snapshot and matching the URL is attributable to this call.
     new = [s for s in await client.sources.list(nb_id) if s.id not in before and s.url == url]
     if len(new) == 1:
-        source = new[0]                                    # attributable to this call
+        source = new[0]                       # attributable to this call
     elif not new:
-        source = await client.sources.add_url(nb_id, url)  # it did not land; safe to re-issue
+        # NOT proof the create failed — the source list lags the write, so a
+        # committed source can be missing here and appear moments later. Re-read
+        # before concluding anything; see the caveat below.
+        raise
     else:
         raise  # several new matches — cannot attribute. Resolve by hand.
 ```
 
-Two caveats on that reconciliation, both inherent to a list-based probe rather than to this example:
+Three caveats on that reconciliation, all inherent to a list-based probe rather than to this example:
 
+- **An empty result is not proof the create failed.** Source-list visibility lags the write: the library's own `test_add_url_probe_matches_on_the_second_attempt` models a committed source that is absent from the first post-create `GET_NOTEBOOK` and appears only on the next one. Re-issuing on a single empty read is how a duplicate gets made — poll the list a few times before deciding, and if it stays empty, prefer surfacing the situation over an automatic re-add.
 - **A single new match is *attributable*, not *proven*.** A snapshot establishes *when* a source appeared, not *who* created it. If another client adds the same URL after your snapshot while your own create never lands, you will see exactly one new match and adopt their source — the two-match branch never fires. `add_url`'s own docstring carries the same warning: the wire has no client-supplied idempotency key, so serialize concurrent adds of the same URL into one notebook if you need that guarantee, or treat the single-match case as unresolved too.
 - **The reconciling `sources.list()` can itself fail.** If the outage that broke the probe is still going, this whole block raises, which is the correct outcome — still unresolved.
 
@@ -513,11 +517,11 @@ The attribute is set on more than just the "probe raised" case. It marks every w
 
 It is absent on every other failure, so `getattr(exc, "unconfirmed", False)` is safe to call unconditionally.
 
-Both halves of the failure are always reachable, but **the chain has two shapes** — worth knowing before diagnostic code goes looking in a fixed place:
+**The exception chain has three shapes** — worth knowing before diagnostic code goes looking in a fixed place:
 
-| probe failed with | the exception you catch | the create's transport failure |
+| how it arose | the exception you catch | the create's transport failure |
 |---|---|---|
-| a non-transport error (e.g. a decode `RPCError`) | a wrapper naming the source, with the probe's failure as `__cause__` | at `__context__.__context__` |
+| probe failed with a non-transport error (e.g. a decode `RPCError`) | a wrapper naming the source, with the probe's failure as `__cause__` | at `__context__.__context__` |
 | a transport/auth error (`ServerError`, `NetworkError`, `RateLimitError`, `AuthError`) | **that same error, re-raised unchanged and marked** | at `__context__` |
 
 In the second shape there is no wrapper, so `__cause__` is whatever the transport layer already set (often absent). Walk the `__context__` chain rather than assuming a fixed depth.
