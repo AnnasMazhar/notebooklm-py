@@ -773,3 +773,210 @@ class TestResearchImport:
             ]
             is True
         )
+
+    def test_import_bounds_the_import_retry_loop_with_timeout(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """--timeout reaches ``max_elapsed``, so the import retry loop is bounded.
+
+        The command never waits for the RUN, but IMPORT_RESEARCH is retried with
+        reconciliation and would otherwise inherit the library's 1800s default
+        with no way to shorten it.
+        """
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=_completed_poll())
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1"}])
+        )
+
+        result = runner.invoke(
+            cli,
+            ["research", "import", "-n", "nb_123", "--timeout", "42"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0
+        kwargs = mock_client.research.import_sources_with_verification.await_args.kwargs
+        assert kwargs["max_elapsed"] == 42
+
+    def test_import_timeout_defaults_to_the_research_wait_budget(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=_completed_poll())
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1"}])
+        )
+
+        result = runner.invoke(
+            cli, ["research", "import", "-n", "nb_123"], obj=inject_client(mock_client)
+        )
+
+        assert result.exit_code == 0
+        kwargs = mock_client.research.import_sources_with_verification.await_args.kwargs
+        assert kwargs["max_elapsed"] == 1800
+
+    def test_import_reports_the_capped_count_not_the_uncapped_selection(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """Text mode must not announce more cited sources than it imports.
+
+        The cited display used to render the pre-cap selection, so three
+        citations with --max-sources 1 printed "Importing 3 cited source(s)" and
+        imported one.
+        """
+        sources = [{"title": f"S{i}", "url": f"http://example.com/{i}"} for i in range(1, 4)]
+        report = " ".join(f"http://example.com/{i}" for i in range(1, 4))
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(
+            return_value=_completed_poll(sources=sources, report=report)
+        )
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1"}])
+        )
+
+        result = runner.invoke(
+            cli,
+            ["research", "import", "-n", "nb_123", "--cited-only", "--max-sources", "1"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0
+        assert "1 of 3" in result.output
+        assert "Importing 3 cited" not in result.output
+        sent = mock_client.research.import_sources_with_verification.await_args.args[2]
+        assert len(sent) == 1
+
+    def test_import_narrows_to_cited_sources_before_applying_the_cap(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """Order matters: cap-first would import the UNCITED source (#2206).
+
+        The report cites only the second source, so `--cited-only --max-sources 1`
+        must import that one. Applying the cap first would truncate to the first
+        source and then "narrow" a set that no longer contains a cited entry.
+        """
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(
+            return_value=_completed_poll(report="only http://example.com/2 is cited")
+        )
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s2"}])
+        )
+
+        result = runner.invoke(
+            cli,
+            ["research", "import", "-n", "nb_123", "--cited-only", "--max-sources", "1", "--json"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0
+        sent = mock_client.research.import_sources_with_verification.await_args.args[2]
+        assert [s["url"] for s in sent] == ["http://example.com/2"]
+
+    def test_import_flags_the_cited_only_fallback(self, runner, mock_auth, mock_fetch_tokens):
+        """When no citation resolves, --cited-only silently imports EVERYTHING.
+
+        ``cited_only_fallback`` is the caller's only signal that they did not get
+        the narrowing they asked for, so it has to be true here.
+        """
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(
+            return_value=_completed_poll(report="a report citing nothing at all")
+        )
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1"}, {"id": "s2"}])
+        )
+
+        result = runner.invoke(
+            cli,
+            ["research", "import", "-n", "nb_123", "--cited-only", "--json"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["cited_only_fallback"] is True
+        assert data["sources_selected"] == 2
+
+    def test_import_text_mode_reports_the_cited_selection(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """The text-mode cited display runs (it is suppressed only under --json)."""
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(
+            return_value=_completed_poll(report="see http://example.com/1 for details")
+        )
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1"}])
+        )
+
+        result = runner.invoke(
+            cli,
+            ["research", "import", "-n", "nb_123", "--cited-only"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0
+        assert "cited" in result.output.lower()
+
+    def test_import_text_mode_cited_display_is_suppressed_under_json(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """Stdout purity: the cited chatter must never land in the JSON document."""
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(
+            return_value=_completed_poll(report="see http://example.com/1 for details")
+        )
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1"}])
+        )
+
+        result = runner.invoke(
+            cli,
+            ["research", "import", "-n", "nb_123", "--cited-only", "--json"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0
+        json.loads(result.output)  # parses => nothing extra was printed
+
+    def test_import_partial_overlap_is_reported_as_imported(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """Some new + some already present is an IMPORT, not an "already_imported"."""
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=_completed_poll())
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1"}], already_present=[{"id": "s2"}])
+        )
+
+        result = runner.invoke(
+            cli, ["research", "import", "-n", "nb_123", "--json"], obj=inject_client(mock_client)
+        )
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["status"] == "imported"
+        assert data["imported"] == 1
+        assert data["already_present"] == 1
+
+    def test_import_of_nothing_new_and_nothing_present_is_not_already_imported(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """0 new / 0 present (reachable on a report-only import) is not a repeat."""
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=_completed_poll())
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([])
+        )
+
+        result = runner.invoke(
+            cli, ["research", "import", "-n", "nb_123", "--json"], obj=inject_client(mock_client)
+        )
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["status"] == "imported"
+        assert data["imported"] == 0
+        assert data["already_present"] == 0

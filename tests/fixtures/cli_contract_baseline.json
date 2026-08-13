@@ -8862,7 +8862,7 @@
           "default": null,
           "envvar": null,
           "has_custom_shell_complete": false,
-          "help": "Run to import (default: the notebook's current run)",
+          "help": "Run to import. Omit it and the notebook's single research run is used; with more than one run this errors rather than guessing, so pass the id ('research status' shows it).",
           "is_flag": false,
           "kind": "option",
           "multiple": false,

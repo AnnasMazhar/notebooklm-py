@@ -1134,7 +1134,9 @@ notebooklm research import [OPTIONS]
 
 **Options:**
 - `-n, --notebook ID` - Notebook ID (uses current if not set)
-- `--run-id ID` - Run to import (default: the notebook's current run, as `research status` reports it)
+- `--run-id ID` - Run to import. Omit it and the notebook's single research run is used; when a
+  notebook has **more than one** run this errors rather than guessing which you meant, so pass
+  the id (`research status` shows it)
 - `--cited-only` - Import only report-cited sources (all of them, if no citation resolves — `cited_only_fallback` says which happened)
 - `--timeout SECONDS` - Seconds budget for the import retry loop (default: 1800)
 - `--max-sources N` - Import at most N sources (applied *after* `--cited-only` narrows)

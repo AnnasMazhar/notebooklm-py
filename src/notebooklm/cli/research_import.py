@@ -83,20 +83,40 @@ def _display_cited_import_selection(
     cited_selection: CitedSourceSelection | None,
     *,
     output_console: Any | None = None,
+    selected_count: int | None = None,
 ) -> None:
+    """Report what cited-only selection chose, honestly under a later cap.
+
+    ``selected_count`` is the number actually being imported, for callers that
+    narrow the selection further after this ran (``research import --max-sources``).
+    Without it the natural counts are already final (``research wait --import-all``
+    has no cap), so it stays optional and that caller is unchanged. When it is
+    smaller, both branches say "N of M" — otherwise a run with ten citations and
+    ``--max-sources 2`` announced "Importing 10 cited source(s)" and imported two,
+    and the fallback branch claimed "importing all sources" while capping.
+    """
     if cited_selection is None:
         return
 
     status_console = console if output_console is None else output_console
+    natural = (
+        len(cited_selection.sources)
+        if cited_selection.used_fallback
+        else cited_selection.matched_url_source_count
+    )
+    capped = selected_count is not None and selected_count < natural
+
     if cited_selection.used_fallback:
-        status_console.print(
-            "[yellow]Could not resolve cited sources; importing all sources.[/yellow]"
+        tail = (
+            f"importing {selected_count} of {natural} sources."
+            if capped
+            else "importing all sources."
         )
+        status_console.print(f"[yellow]Could not resolve cited sources; {tail}[/yellow]")
         return
 
-    status_console.print(
-        f"[dim]Importing {cited_selection.matched_url_source_count} cited source(s)[/dim]"
-    )
+    body = f"{selected_count} of {natural}" if capped else f"{natural}"
+    status_console.print(f"[dim]Importing {body} cited source(s)[/dim]")
 
 
 async def import_research_sources(

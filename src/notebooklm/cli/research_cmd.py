@@ -180,7 +180,11 @@ def _print_failure_reason(reason_message: str | None, hint: str | None) -> None:
 @click.option(
     "--run-id",
     default=None,
-    help="Run to import (default: the notebook's current run)",
+    help=(
+        "Run to import. Omit it and the notebook's single research run is used; "
+        "with more than one run this errors rather than guessing, so pass the "
+        "id ('research status' shows it)."
+    ),
 )
 @click.option("--cited-only", is_flag=True, help="Import only report-cited sources")
 @click.option(
@@ -266,12 +270,13 @@ def research_import(
             selected, cited_selection = _select_research_sources_for_import(
                 sources, report, cited_only
             )
-            if cited_selection is not None and not json_output:
-                _display_cited_import_selection(cited_selection)
             # Selection then bounding, matching the MCP tool's order: narrow to
-            # cited sources first, then cap.
+            # cited sources first, then cap. The cap is applied BEFORE the
+            # selection is reported so the count printed is the count imported.
             if max_sources is not None:
                 selected = selected[:max_sources]
+            if cited_selection is not None and not json_output:
+                _display_cited_import_selection(cited_selection, selected_count=len(selected))
             # The import is the one slow step here, so it gets the spinner (and
             # with it the canonical "Cancelled. Resume with: ..." SIGINT
             # envelope) the way ``research wait`` wraps its poll loop.
