@@ -45,6 +45,7 @@ from ._types.documents import (
     ListInfo,
     ListStyle,
     StructuredDocument,
+    TableCell,
     TextSpan,
     utf16_len,
 )
@@ -218,6 +219,7 @@ __all__ = [
     "ListInfo",
     "ListStyle",
     "StructuredDocument",
+    "TableCell",
     "TextSpan",
     "utf16_len",
     "AskResult",

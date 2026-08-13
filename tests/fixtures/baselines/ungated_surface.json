@@ -127,6 +127,7 @@
     "ListInfo",
     "ListStyle",
     "StructuredDocument",
+    "TableCell",
     "TextSpan",
     "utf16_len",
     "configure_logging"
