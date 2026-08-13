@@ -3104,9 +3104,12 @@ costs no extra request, `content` does not move, and like `content` it is
 deliberately **not** offset-addressable — its separators are its own. It is
 also marker-free: list glyphs and heading levels stay on `blocks` rather than
 being rendered, so this is the flat rendering `content` should have been, not
-a markdown one. A **table** renders as one line with its cells running
-together, because the parse flattens rows and cells into the block's spans
-([#2230](https://github.com/teng-lin/notebooklm-py/issues/2230)).
+a markdown one. A **table** is the one block that is not one line: it renders
+one line per row with its cells tab-separated, read from the cell offsets the
+parse carries on `DocumentBlock.table_rows`
+([#2230](https://github.com/teng-lin/notebooklm-py/issues/2230)). Those are
+offsets only — `document.text`, `DocumentBlock.text` and `cited_text` are
+byte-for-byte what they were, and the tab lives in the rendering alone.
 
 With `output_format="markdown"` the two are not the same material: `content`
 is then built from the response's HTML rendition while `document` — and so
@@ -3125,7 +3128,9 @@ and `source read --offset` keeps windowing `content` in those same units, not
 in the document's.
 
 `StructuredDocument` exposes `blocks` (`DocumentBlock`: `start_index`,
-`end_index`, `spans`, `style`, `list_info`, `kind`), `annotations`
+`end_index`, `spans`, `style`, `list_info`, `kind`, `table_rows` — a tuple of
+rows of `TableCell` ranges, non-empty only for a `BlockKind.TABLE`),
+`annotations`
 (`DocumentAnnotation`: `object_id`, `start_index`, `end_index`), `text`,
 `extent`, `slice()`, `render()` and `annotations_for()`. Each `TextSpan`
 carries its own range plus `bold` / `italic` / `underline` / `url`.

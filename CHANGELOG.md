@@ -74,7 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flattens rows and cells into the block's spans and a cell is several runs.
   Separating spans would split cells as often as it separated them, so giving
   tables their boundaries back is a decoder change
-  ([#2230](https://github.com/teng-lin/notebooklm-py/issues/2230)).
+  ([#2230](https://github.com/teng-lin/notebooklm-py/issues/2230), fixed below).
   ([#2211](https://github.com/teng-lin/notebooklm-py/issues/2211))
 
 - **`notebooklm source list --status <state>`** filters the listing to one
@@ -401,6 +401,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wrong — so that pair is unaffected by this.
 
 ### Fixed
+
+- **A table in the readable rendering no longer runs its cells together.**
+  `StructuredDocument.render()` — and through it
+  `SourceFulltext.rendered_content` and the passage
+  `resolve_chat_reference_passage()` returns — rendered a table as one line
+  with its cell values adjacent: `"Operating systemAndroid 10+, iOS 17+
+  [a]Included withGemini…"` on this repo's own captured infobox. A table now
+  renders as **one line per row, cells tab-separated**.
+
+  The boundary was being *computed and discarded*. The parse walks rows, then
+  cells, then the blocks inside each cell, and flattens every run it finds into
+  one span sequence — which is what the offset-faithful layout needs, and which
+  loses the one thing a reader needs. Nothing downstream could recover it: a
+  single cell is several runs (`"Android 10"`, `"+, "`, `"iOS 17"`, `"+ "`,
+  `"[a]"` are one cell on that capture), so separating *runs* would have split
+  cells as often as it separated them. `DocumentBlock` now carries the cell
+  ranges the walk already computed, as the new `table_rows` (a tuple of rows of
+  `TableCell`), and only `render()` reads them.
+
+  **No offset moves.** The boundaries are carried as *offsets, never as
+  characters*: `StructuredDocument.text` — the coordinate space every citation
+  offset indexes — is byte-identical, and so are `DocumentBlock.text`,
+  `ChatReference.cited_text`, `slice()`, `extent`, and the legacy
+  `SourceFulltext.content`. The tab exists in the readable rendering alone,
+  alongside the newline that rendering already inserted between blocks, and
+  that rendering was never offset-addressable. Both invariants are pinned by
+  tests against the captured fixture.
+  ([#2230](https://github.com/teng-lin/notebooklm-py/issues/2230))
 
 - **A file whose processing fails after a clean upload no longer reports a
   timeout.** When bytes transfer fine and NotebookLM's server-side processing

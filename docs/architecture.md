@@ -972,7 +972,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `exceptions.py` | Public exception hierarchy plus safe diagnostic preview/redaction helpers |
 | `paths.py`, `migration.py` | Profile-aware path resolution and locked migration from the legacy flat layout |
 | `_types/`, `types.py` | Dataclass implementation package and public type/re-export facade |
-| `_types/documents.py` | `StructuredDocument` / `DocumentBlock` / `TextSpan` / `DocumentAnnotation` / `BlockKind` / `BlockStyle` / `ListStyle` / `ListInfo` — the transport-neutral parsed-document types behind `SourceFulltext.document` and `AskResult.answer_document`, carrying the character offsets citations anchor to (#2128, #2120). `StructuredDocument.render()` derives the readable flat rendering (`SourceFulltext.rendered_content`) from the same tree, and is what `utils.resolve_chat_reference_passage` returns once it has resolved a citation by offset (#2211) |
+| `_types/documents.py` | `StructuredDocument` / `DocumentBlock` / `TextSpan` / `TableCell` / `DocumentAnnotation` / `BlockKind` / `BlockStyle` / `ListStyle` / `ListInfo` — the transport-neutral parsed-document types behind `SourceFulltext.document` and `AskResult.answer_document`, carrying the character offsets citations anchor to (#2128, #2120). `StructuredDocument.render()` derives the readable flat rendering (`SourceFulltext.rendered_content`) from the same tree, and is what `utils.resolve_chat_reference_passage` returns once it has resolved a citation by offset (#2211); `DocumentBlock.table_rows` carries the table cell ranges that rendering separates on, as offsets, so the coordinate space is untouched (#2230) |
 | `_types/labels.py` | `Label` pure-value type (source-label topic grouping; `source_ids` only, no artifact members) re-exported by `types.py` |
 | `_types/collections.py` | `Collection` pure-value type (account-level notebook grouping; `notebook_ids`, no notebook parent) re-exported by `types.py`; decodes positionally (its own strict descent, not `LabelRow` — populated members are bare notebook-id strings, not `LabelRow`'s wrapped-singleton source ids) |
 | `_row_adapters/artifacts.py` | `ArtifactRow` typed view over raw positional artifact RPC rows, plus `ReportSuggestionRow` over `GET_SUGGESTED_REPORTS` rows |
@@ -1276,7 +1276,7 @@ src/notebooklm/
 │   ├── artifacts.py
 │   ├── chat.py
 │   ├── common.py
-│   ├── documents.py             # StructuredDocument / DocumentBlock / TextSpan / DocumentAnnotation / BlockKind / BlockStyle / ListStyle / ListInfo — parsed-document types behind SourceFulltext.document and AskResult.answer_document, carrying the offsets citations anchor to (#2128, #2120)
+│   ├── documents.py             # StructuredDocument / DocumentBlock / TextSpan / TableCell / DocumentAnnotation / BlockKind / BlockStyle / ListStyle / ListInfo — parsed-document types behind SourceFulltext.document and AskResult.answer_document, carrying the offsets citations anchor to (#2128, #2120)
 │   ├── labels.py                # Label pure-value type (source membership; no kind/artifact_ids)
 │   ├── collections.py           # Collection pure-value type (account-level notebook grouping; notebook_ids)
 │   ├── mind_maps.py             # MindMap + MindMapKind pure-value types (#1256)
