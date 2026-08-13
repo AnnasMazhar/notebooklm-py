@@ -136,16 +136,38 @@ async def poll_importable_research(
     """Poll a research run and return its ``(importable sources, report)``, or raise.
 
     The single shared importable-state guard for the "import a completed run's
-    found sources" flow — driven by BOTH the MCP ``research_import`` tool and the
-    REST ``POST .../research/{run_id}/import`` route so the ladder cannot drift
-    between the two adapters.
+    found sources" flow — driven by the MCP ``research_import`` tool, the REST
+    ``POST .../research/{run_id}/import`` route, and (through the pure
+    :func:`classify_importable_research` half) the CLI ``research import``
+    command, so the ladder cannot drift between adapters.
 
     Polls FOR THE REQUESTED ``run_id`` (via :func:`poll_and_classify`, which
     forwards it to ``client.research.poll`` as the task discriminator) so the
     returned sources belong to that run — never the notebook's current (possibly
-    different) research run's sources. Every non-importable state raises the
-    public :class:`~notebooklm.exceptions.ValidationError` (each adapter maps it
-    to its own surface + status), so an unfinished / failed / empty run is never
+    different) research run's sources; then hands the snapshot to
+    :func:`classify_importable_research`, which owns every accept/refuse rule.
+
+    The ``run`` noun is surface-neutral (the MCP tool documents it as the
+    ``task_id``); the message names no adapter-specific route or tool so the one
+    string reads cleanly on both surfaces.
+    """
+    status = await poll_and_classify(client, notebook_id, run_id)
+    return classify_importable_research(status, run_id, notebook_id=notebook_id)
+
+
+def classify_importable_research(
+    status: ResearchStatusResult, run_id: str, *, notebook_id: str
+) -> tuple[list[dict[str, Any]], str]:
+    """Return a polled run's ``(importable sources, report)``, or raise.
+
+    The pure half of :func:`poll_importable_research`: every accept/refuse rule
+    lives here so an adapter that has *already* polled (the CLI ``research
+    import`` command, which resolves a bare "current run" from the same poll it
+    classifies) reuses the ladder instead of re-deriving a third copy of it.
+
+    Every non-importable state raises the public
+    :class:`~notebooklm.exceptions.ValidationError` (each adapter maps it to its
+    own surface + status), so an unfinished / failed / empty run is never
     imported as a partial success:
 
     * ``not_found`` — the pinned run is not among the polled runs (nothing to
@@ -163,12 +185,7 @@ async def poll_importable_research(
     caller doing cited-only selection (:func:`~notebooklm.research.select_cited_sources`)
     can match citations against it without a second poll; :func:`poll_sources_for_import`
     delegates here and drops the report for callers that import everything.
-
-    The ``run`` noun is surface-neutral (the MCP tool documents it as the
-    ``task_id``); the message names no adapter-specific route or tool so the one
-    string reads cleanly on both surfaces.
     """
-    status = await poll_and_classify(client, notebook_id, run_id)
     if status.status == "not_found":
         raise ValidationError(
             f"Research run {run_id!r} is not among notebook {notebook_id}'s research "
@@ -543,6 +560,7 @@ __all__ = [
     "ResearchWaitPlan",
     "ResearchWaitResult",
     "cancel_research",
+    "classify_importable_research",
     "execute_research_wait",
     "import_research_sources",
     "poll_and_classify",

@@ -531,3 +531,272 @@ class TestResearchCommandsExist:
         result = runner.invoke(cli, ["research", "cancel", "--help"])
         assert result.exit_code == 0
         assert "Cancel an in-flight research run" in result.output
+
+    def test_research_import_command_exists(self, runner):
+        result = runner.invoke(cli, ["research", "import", "--help"])
+        assert result.exit_code == 0
+        assert "Import a completed research run's sources" in result.output
+
+
+# =============================================================================
+# RESEARCH IMPORT TESTS (#2206)
+# =============================================================================
+
+
+class _ImportedList(list):
+    """A ``list`` carrying the ``already_present`` side channel, as the client does."""
+
+    def __init__(self, items, already_present=()):
+        super().__init__(items)
+        self.already_present = list(already_present)
+
+
+def _completed_poll(*, task_id="run_789", sources=None, report=""):
+    return research_task(
+        {
+            "task_id": task_id,
+            "status": "completed",
+            "query": "AI research",
+            "sources": sources
+            if sources is not None
+            else [
+                {"title": "Source 1", "url": "http://example.com/1"},
+                {"title": "Source 2", "url": "http://example.com/2"},
+            ],
+            "report": report,
+        }
+    )
+
+
+class TestResearchImport:
+    def test_import_defaults_to_the_notebooks_current_run(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """No --run-id: the run is taken from the poll, which is also the only poll."""
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=_completed_poll())
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1", "title": "Source 1"}])
+        )
+
+        result = runner.invoke(
+            cli, ["research", "import", "-n", "nb_123"], obj=inject_client(mock_client)
+        )
+
+        assert result.exit_code == 0
+        assert "Imported 1 sources" in result.output
+        # ONE poll — the resolve and the importable-state check share it.
+        assert mock_client.research.poll.await_count == 1
+        # The resolved run id is what the import is pinned to.
+        assert mock_client.research.import_sources_with_verification.await_args.args[1] == "run_789"
+
+    def test_import_pins_an_explicit_run_id(self, runner, mock_auth, mock_fetch_tokens):
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=_completed_poll(task_id="other"))
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1"}])
+        )
+
+        result = runner.invoke(
+            cli,
+            ["research", "import", "-n", "nb_123", "--run-id", "run_explicit"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0
+        # The poll is filtered by the requested id, and the import uses it too —
+        # never the notebook's current run.
+        assert mock_client.research.poll.await_args.args[1] == "run_explicit"
+        assert (
+            mock_client.research.import_sources_with_verification.await_args.args[1]
+            == "run_explicit"
+        )
+
+    def test_import_never_waits_on_an_in_progress_run(self, runner, mock_auth, mock_fetch_tokens):
+        """The whole point of the command: refuse, don't block."""
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(
+            return_value=research_task({"task_id": "run_789", "status": "in_progress"})
+        )
+        mock_client.research.import_sources_with_verification = AsyncMock()
+
+        result = runner.invoke(
+            cli, ["research", "import", "-n", "nb_123"], obj=inject_client(mock_client)
+        )
+
+        assert result.exit_code == 1
+        assert "not complete" in result.output
+        # Polled exactly once and imported nothing — no retry loop, no wait.
+        assert mock_client.research.poll.await_count == 1
+        mock_client.research.import_sources_with_verification.assert_not_awaited()
+
+    def test_import_refuses_when_no_research_run_exists(self, runner, mock_auth, mock_fetch_tokens):
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=research_task({"status": "no_research"}))
+        mock_client.research.import_sources_with_verification = AsyncMock()
+
+        result = runner.invoke(
+            cli, ["research", "import", "-n", "nb_123", "--json"], obj=inject_client(mock_client)
+        )
+
+        assert result.exit_code == 1
+        data = json.loads(result.output)
+        assert data["code"] == "VALIDATION_ERROR"
+        assert "No research run found" in data["message"]
+        mock_client.research.import_sources_with_verification.assert_not_awaited()
+
+    def test_import_refuses_a_completed_run_with_no_sources(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=_completed_poll(sources=[]))
+        mock_client.research.import_sources_with_verification = AsyncMock()
+
+        result = runner.invoke(
+            cli, ["research", "import", "-n", "nb_123"], obj=inject_client(mock_client)
+        )
+
+        assert result.exit_code == 1
+        assert "no sources to import" in result.output
+        mock_client.research.import_sources_with_verification.assert_not_awaited()
+
+    def test_import_reports_the_idempotency_split(self, runner, mock_auth, mock_fetch_tokens):
+        """A repeat import reads as "0 new, N already present", not a silent no-op (#2206)."""
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=_completed_poll())
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList(
+                [],
+                already_present=[
+                    {"id": "s1", "title": "Source 1", "url": "http://example.com/1"},
+                    {"id": "s2", "title": "Source 2", "url": "http://example.com/2"},
+                ],
+            )
+        )
+
+        result = runner.invoke(
+            cli, ["research", "import", "-n", "nb_123", "--json"], obj=inject_client(mock_client)
+        )
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["status"] == "already_imported"
+        assert data["imported"] == 0
+        assert data["already_present"] == 2
+        assert [row["id"] for row in data["already_present_sources"]] == ["s1", "s2"]
+        assert data["run_id"] == "run_789"
+        assert data["sources_found"] == 2
+        assert data["sources_selected"] == 2
+
+    def test_import_text_mode_mentions_the_skipped_sources(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=_completed_poll())
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([], already_present=[{"id": "s1"}])
+        )
+
+        result = runner.invoke(
+            cli, ["research", "import", "-n", "nb_123"], obj=inject_client(mock_client)
+        )
+
+        assert result.exit_code == 0
+        assert "Imported 0 sources" in result.output
+        assert "1 already present" in result.output
+
+    def test_import_max_sources_caps_what_is_imported(self, runner, mock_auth, mock_fetch_tokens):
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=_completed_poll())
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1"}])
+        )
+
+        result = runner.invoke(
+            cli,
+            ["research", "import", "-n", "nb_123", "--max-sources", "1", "--json"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["sources_found"] == 2
+        assert data["sources_selected"] == 1
+        # The cap reaches the client, not just the report.
+        assert len(mock_client.research.import_sources_with_verification.await_args.args[2]) == 1
+
+    def test_import_rejects_a_zero_max_sources_at_parse_time(self, runner):
+        result = runner.invoke(cli, ["research", "import", "-n", "nb_123", "--max-sources", "0"])
+        assert result.exit_code == 2
+
+    def test_import_cited_only_narrows_the_selection(self, runner, mock_auth, mock_fetch_tokens):
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(
+            return_value=_completed_poll(report="see http://example.com/1 for details")
+        )
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1"}])
+        )
+
+        result = runner.invoke(
+            cli,
+            ["research", "import", "-n", "nb_123", "--cited-only", "--json"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["cited_only"] is True
+        assert data["cited_only_fallback"] is False
+        assert data["sources_found"] == 2
+        assert data["sources_selected"] == 1
+        sent = mock_client.research.import_sources_with_verification.await_args.args[2]
+        assert [getattr(s, "url", None) or s["url"] for s in sent] == ["http://example.com/1"]
+
+    def test_import_forwards_allow_duplicate(self, runner, mock_auth, mock_fetch_tokens):
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=_completed_poll())
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1"}])
+        )
+
+        result = runner.invoke(
+            cli,
+            ["research", "import", "-n", "nb_123", "--allow-duplicate"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0
+        assert (
+            mock_client.research.import_sources_with_verification.await_args.kwargs[
+                "allow_duplicate"
+            ]
+            is True
+        )
+
+    def test_import_does_not_use_the_cli_retry_wrapper(self, runner, mock_auth, mock_fetch_tokens):
+        """``research import`` drives the shared _app pair, not ``import_with_retry``.
+
+        The retry wrapper carries the ``max_elapsed`` budget that makes
+        ``research wait --import-all`` a blocking operation; this command must
+        not inherit it.
+        """
+        mock_client = create_mock_client()
+        mock_client.research.poll = AsyncMock(return_value=_completed_poll())
+        mock_client.research.import_sources_with_verification = AsyncMock(
+            return_value=_ImportedList([{"id": "s1"}])
+        )
+
+        with patch.object(
+            research_import_module, "import_with_retry", new=AsyncMock()
+        ) as spy_retry:
+            result = runner.invoke(
+                cli, ["research", "import", "-n", "nb_123"], obj=inject_client(mock_client)
+            )
+
+        assert result.exit_code == 0
+        spy_retry.assert_not_awaited()
+        assert (
+            "max_elapsed"
+            not in mock_client.research.import_sources_with_verification.await_args.kwargs
+        )

@@ -146,6 +146,27 @@ def _source_compact(source: Source) -> dict[str, Any]:
     return {k: view.get(k) for k in _COMPACT_SOURCE_FIELDS}
 
 
+def _title_override_miss(final_title: str | None, requested_title: str | None) -> str | None:
+    """Return the requested title when a post-add rename did NOT stick, else ``None``.
+
+    The single title-miss predicate for both ``source_add`` tails — the immediate
+    ``wait=False`` projection (:func:`_add_result_payload`) and the ``wait=True``
+    ready check (:func:`_wait_after_add`, #1989). Kept in one place because the
+    two apply it to titles read at different moments (the add response vs the
+    final GET_NOTEBOOK read) and a forked comparison would drift.
+
+    A miss is only claimed when a non-blank title was actually requested; the
+    requested side is stripped (the client renames to the stripped form) while
+    the observed side is compared verbatim.
+    """
+    if not requested_title:
+        return None
+    requested = requested_title.strip()
+    if not requested or final_title == requested:
+        return None
+    return requested
+
+
 def _add_result_payload(
     source: Any,
     base: dict[str, Any],
@@ -188,7 +209,7 @@ def _add_result_payload(
             "(status_label='error'). It persists as an incomplete row — delete it "
             "with source_delete, or list failures via source_list(status='error')."
         )
-    elif requested_title and (requested := requested_title.strip()) and source.title != requested:
+    elif (requested := _title_override_miss(source.title, requested_title)) is not None:
         # Best-effort rename didn't stick — tell the caller instead of silently
         # returning the upstream title (the original #1960 footgun).
         base["title_override_applied"] = False
@@ -703,6 +724,7 @@ def register(mcp: Any) -> None:
                         source_type="drive",
                         timeout=timeout,
                         interval=interval,
+                        requested_title=title,
                     )
                 return _add_result_payload(
                     drive_result.source,
@@ -723,7 +745,15 @@ def register(mcp: Any) -> None:
             )
             if wait:
                 return await _wait_after_add(
-                    client, nb_id, src, source_type=source_type, timeout=timeout, interval=interval
+                    client,
+                    nb_id,
+                    src,
+                    source_type=source_type,
+                    timeout=timeout,
+                    interval=interval,
+                    # Same gating as the immediate tail below, so the two paths
+                    # cannot disagree about which types can miss (#1989).
+                    requested_title=title if source_type in ("url", "youtube") else None,
                 )
             # url/youtube re-derive the title server-side; surface a rename miss
             # (#1960). ``text`` honors ``title`` directly so it never mismatches.
@@ -972,6 +1002,7 @@ async def _wait_after_add(
     source_type: str,
     timeout: float,
     interval: float,
+    requested_title: str | None = None,
 ) -> ToolResult:
     """Block on a freshly-added source and return the ``source_wait`` aggregate.
 
@@ -984,6 +1015,14 @@ async def _wait_after_add(
     decodes to the ambiguous code 14 → GOOGLE_SPREADSHEET; carry the already-stamped
     code from ``src`` onto the ready outcome so the waited label matches ``source_add``
     without ``wait`` (#1828).
+
+    ``requested_title`` closes the ``wait=True`` half of the #1960 title contract
+    (#1989): the immediate tail flags a rename miss but this one used to return the
+    aggregate with no title signal at all, so the SAME add reported the miss with
+    ``wait=False`` and stayed silent with ``wait=True``. The check runs only on a
+    READY outcome — a timed-out or failed source has no final title to judge — and
+    against the GET_NOTEBOOK title, which is the backend's own final answer rather
+    than the locally-patched one the immediate tail sees.
     """
     outcome = await wait_core.execute_source_wait(
         client,
@@ -995,6 +1034,16 @@ async def _wait_after_add(
         outcome.source._type_code = src._type_code
     result = await _aggregate_wait_outcomes(client, notebook_id, [outcome])
     result["source_id"] = src.id
+    if isinstance(outcome, wait_core.SourceWaitReady):
+        requested = _title_override_miss(outcome.source.title, requested_title)
+        if requested is not None:
+            result["title_override_applied"] = False
+            # Top-level, alongside ``source_id`` — the per-source ``warning`` slot
+            # inside ``ready[]`` belongs to the thin-content annotator.
+            result["warning"] = (
+                f"Requested title {requested!r} was not applied; the source is ready "
+                f"with title {outcome.source.title!r}. Retry with source_rename."
+            )
     return _json_tool_result(result)
 
 

@@ -3,6 +3,7 @@
 Commands:
     status      Check research status (single check)
     wait        Wait for research to complete (blocking)
+    import      Import a completed run's sources (never blocks)
     cancel      Cancel an in-flight research run (fire-and-forget)
 
 The ``wait`` command is a thin Click handler over
@@ -12,8 +13,14 @@ the transport-neutral :mod:`notebooklm._app.research` core. Task-id
 pinning is handled by ``ResearchAPI.wait_for_completion``. ``status`` and
 ``cancel`` are thin handlers over the same neutral core
 (:func:`notebooklm._app.research.poll_and_classify` /
-:func:`~notebooklm._app.research.cancel_research`). This module owns
-input validation, spinner I/O, rendering, and exit codes.
+:func:`~notebooklm._app.research.cancel_research`). ``import`` is the
+non-blocking counterpart to ``wait --import-all`` (#2206): it drives the
+same neutral pair the MCP ``research_import`` tool and the REST import
+route drive (:func:`~notebooklm._app.research.classify_importable_research`
++ :func:`~notebooklm._app.research.import_research_sources`), so the
+importable-state ladder and the idempotency contract cannot fork a third
+time. This module owns input validation, spinner I/O, rendering, and exit
+codes.
 """
 
 from typing import Any
@@ -21,10 +28,15 @@ from typing import Any
 import click
 
 from .._app.research import (
+    ResearchImportOutcome,
     ResearchStatusResult,
     cancel_research,
+    classify_importable_research,
     poll_and_classify,
     validate_research_wait_flags,
+)
+from .._app.research import (
+    import_research_sources as import_research_sources_core,
 )
 from ..exceptions import ValidationError
 from .auth_runtime import resolve_client_factory, with_client
@@ -36,6 +48,10 @@ from .rendering import (
     display_report,
     display_research_sources,
     json_output_response,
+)
+from .research_import import (
+    _display_cited_import_selection,
+    _select_research_sources_for_import,
 )
 from .resolve import (
     require_notebook,
@@ -64,6 +80,7 @@ def research():
     Commands:
       status    Check research status (non-blocking)
       wait      Wait for research to complete (blocking)
+      import    Import a completed run's sources (non-blocking)
       cancel    Cancel an in-flight research run (fire-and-forget)
 
     \b
@@ -75,6 +92,12 @@ def research():
       notebooklm source add-research "AI" --mode deep --no-wait
       notebooklm research status
       notebooklm research wait --import-all
+
+    \b
+    Or own the polling cadence yourself, never blocking:
+      notebooklm source add-research "AI" --mode deep --no-wait
+      notebooklm research status        # your loop, your interval
+      notebooklm research import
     """
     pass
 
@@ -127,7 +150,9 @@ def _render_status_result(result: ResearchStatusResult) -> None:
 
         display_report(result.report)
 
-        console.print("\n[dim]Use 'research wait --import-all' to import sources[/dim]")
+        # The run is already completed here, so point at the command that
+        # imports without waiting rather than at the blocking one (#2206).
+        console.print("\n[dim]Use 'research import' to import sources[/dim]")
     else:
         console.print(f"[yellow]Status: {result.status}[/yellow]")
         # A terminal run that found nothing is not a broken run — say which it
@@ -148,6 +173,144 @@ def _print_failure_reason(reason_message: str | None, hint: str | None) -> None:
         console.print(reason_message)
     if hint:
         console.print(f"[dim]{hint}[/dim]")
+
+
+@research.command("import")
+@notebook_option
+@click.option(
+    "--run-id",
+    default=None,
+    help="Run to import (default: the notebook's current run)",
+)
+@click.option("--cited-only", is_flag=True, help="Import only report-cited sources")
+@click.option(
+    "--max-sources",
+    # ``IntRange(min=1)`` rejects 0/negative at parse time, mirroring the MCP
+    # tool's "omit it to import all" bound (a 0 cap would silently import
+    # nothing and report success).
+    type=click.IntRange(min=1),
+    default=None,
+    help="Import at most N sources (default: all)",
+)
+@click.option(
+    "--allow-duplicate",
+    is_flag=True,
+    help="Re-add sources whose URL is already in the notebook",
+)
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+@with_client
+def research_import(
+    ctx, notebook_id, run_id, cited_only, max_sources, allow_duplicate, json_output, client_auth
+):
+    """Import a completed research run's sources.
+
+    The non-blocking counterpart to 'research wait --import-all': it imports a
+    run that is ALREADY complete and fails fast when it is not, instead of
+    waiting. Drive your own polling cadence with 'research status'.
+
+    \b
+    Idempotent: a source whose URL is already in the notebook is reported as
+    already-present instead of duplicated (--allow-duplicate re-adds it), so a
+    repeat import reads as "0 new, N already present" rather than a no-op.
+
+    \b
+    Examples:
+      notebooklm research import
+      notebooklm research import --run-id <run_id> --cited-only
+      notebooklm research import --max-sources 10 --json
+    """
+    nb_id = require_notebook(notebook_id)
+
+    async def _run():
+        async with resolve_client_factory(ctx)(client_auth) as client:
+            nb_id_resolved = await resolve_notebook_id(client, nb_id, json_output=json_output)
+            # ONE poll does both jobs: it resolves a bare "current run" (no
+            # --run-id) AND feeds the shared importable-state ladder, so the
+            # fail-fast path spends the same single RPC either way.
+            status = await poll_and_classify(client, nb_id_resolved, run_id)
+            resolved_run_id = run_id or status.task_id
+            if not resolved_run_id:
+                raise ValidationError(
+                    "No research run found for this notebook; start one with "
+                    "'source add-research', or pass --run-id."
+                )
+            # Every refuse rule (not_found / failed / not-complete / empty) lives
+            # in the neutral classifier the MCP tool and REST route also drive.
+            sources, report = classify_importable_research(
+                status, resolved_run_id, notebook_id=nb_id_resolved
+            )
+            selected, cited_selection = _select_research_sources_for_import(
+                sources, report, cited_only
+            )
+            if cited_selection is not None and not json_output:
+                _display_cited_import_selection(cited_selection)
+            # Selection then bounding, matching the MCP tool's order: narrow to
+            # cited sources first, then cap.
+            if max_sources is not None:
+                selected = selected[:max_sources]
+            outcome = await import_research_sources_core(
+                client,
+                nb_id_resolved,
+                resolved_run_id,
+                selected,
+                allow_duplicate=allow_duplicate,
+            )
+            _render_import_result(
+                outcome,
+                run_id=resolved_run_id,
+                sources_found=len(sources),
+                sources_selected=len(selected),
+                cited_selection=cited_selection,
+                json_output=json_output,
+            )
+
+    return _run()
+
+
+def _render_import_result(
+    outcome: ResearchImportOutcome,
+    *,
+    run_id: str,
+    sources_found: int,
+    sources_selected: int,
+    cited_selection: Any,
+    json_output: bool,
+) -> None:
+    """Render a ``research import`` outcome (exit 0 — an idempotent skip is success).
+
+    Keeps the CLI's own ``--json`` vocabulary rather than mirroring the MCP
+    tool's: ``imported`` is a COUNT here (as in ``research wait --json``) with the
+    rows under ``imported_sources``, and the idempotency split the CLI could not
+    report before (#2206) rides alongside as ``already_present`` /
+    ``already_present_sources``.
+    """
+    if json_output:
+        payload: dict[str, Any] = {
+            "status": (
+                "already_imported"
+                if not outcome.newly_imported and outcome.already_present
+                else "imported"
+            ),
+            "run_id": run_id,
+            "sources_found": sources_found,
+            "sources_selected": sources_selected,
+            "imported": outcome.newly_imported_count,
+            "imported_sources": outcome.newly_imported,
+            "already_present": outcome.already_present_count,
+            "already_present_sources": outcome.already_present,
+        }
+        if cited_selection is not None:
+            payload["cited_only"] = True
+            payload["cited_only_fallback"] = cited_selection.used_fallback
+        json_output_response(payload)
+        return
+
+    console.print(f"[green]Imported {outcome.newly_imported_count} sources[/green]")
+    if outcome.already_present:
+        console.print(
+            f"[dim]{outcome.already_present_count} already present "
+            f"(skipped; use --allow-duplicate to re-add)[/dim]"
+        )
 
 
 @research.command("cancel")

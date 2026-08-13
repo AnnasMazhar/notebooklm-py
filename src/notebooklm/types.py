@@ -167,6 +167,14 @@ GrpcStatusCode = _GrpcStatusCode
 normalize_grpc_status = _normalize_grpc_status
 normalize_rpc_code = _normalize_rpc_code
 
+# The local-file extension policy, routed through this facade for the ``_app``
+# layer for the same reason as the gRPC table above: the boundary lint
+# (``tests/_guardrails/test_app_boundary.py``) forbids ``_app`` from importing
+# private siblings such as ``notebooklm._types``, and the transport-neutral
+# ``source add`` path heuristic needs the derived set. Internal plumbing, so
+# intentionally absent from ``__all__``.
+_PATH_SHAPED_FILE_EXTENSIONS = _source_types._PATH_SHAPED_FILE_EXTENSIONS
+
 # Guards the ``ResearchSourceInput`` import from being removed as unused:
 # ``typing.get_type_hints(CitedSourceSelection)`` needs it in this facade's
 # globals after ``CitedSourceSelection.__module__`` is rewritten below.

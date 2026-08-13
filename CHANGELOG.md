@@ -16,6 +16,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   240 s) floored at the client's `timeout=`; a number replaces both; `None`
   inherits `timeout=` verbatim — the same three-way reading as `chat_timeout`.
 
+- **`notebooklm research import` — importing research sources no longer requires
+  a blocking wait** ([#2206](https://github.com/teng-lin/notebooklm-py/issues/2206)).
+  The MCP tool (`research_import`) and the REST route
+  (`POST /v1/research/{run_id}/import`) had exposed the standalone import for a
+  while; the CLI's only door was `research wait --import-all`, and `--no-wait`
+  with `--import-all` was rejected outright — so the one route out of blocking
+  pointed at another waiting command. The new command imports an
+  **already-completed** run and **fails fast** (exit 1, with the reason) when the
+  run is still in flight, which is the whole point of it: a caller who wants to
+  own their polling cadence can now express the flow end to end.
+
+  ```bash
+  notebooklm source add-research "AI safety" --mode deep --no-wait
+  notebooklm research status      # your loop, your interval
+  notebooklm research import      # imports, returns; never blocks
+  ```
+
+  It also closes the idempotency gap the CLI's bespoke import path had: a repeat
+  import now reports `0 new, N already present` (each with the *existing*
+  source's `{id, title, url}`) instead of looking like a no-op, matching what
+  MCP and REST already returned. Options: `--run-id` (default: the notebook's
+  current run), `--cited-only`, `--max-sources`, `--allow-duplicate`, `--json`.
+  No new core logic — it drives the same `_app` importable-state ladder and
+  idempotent importer the other two adapters drive, so the guard cannot fork a
+  third time.
+
 - **Citations can now be aligned to both the answer and the source.** The two
   halves of that mapping were each missing a piece, and neither was usable
   without the other.
@@ -135,6 +161,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than sending an attempt too short to observe its own result. The clamp
   bounds what an attempt is given, not the wall-clock duration of one already in
   flight — the read slot is an inactivity limit, not a request deadline.
+
+- **A mistyped `.pptx` / `.ppt` filename was ingested as pasted text with no
+  warning** ([#2202](https://github.com/teng-lin/notebooklm-py/issues/2202)).
+  `source add` warns when an argument looks like a file but does not exist —
+  otherwise `source add dekc.pptx` silently creates a source whose entire content
+  is the string `dekc.pptx`. That check ran against a hand-maintained extension
+  list which PowerPoint never joined, even after it became a first-class decoded
+  type in [#2137](https://github.com/teng-lin/notebooklm-py/issues/2137) /
+  [#2191](https://github.com/teng-lin/notebooklm-py/issues/2191), so a typo'd
+  deck was one of the cases that got no warning.
+
+  *Correcting the issue report:* #2202 states that a bare `deck.pptx` was not
+  uploaded at all. It was — auto-detection checks `Path(content).exists()`
+  **before** the extension list, so an existing file has always been uploaded
+  whatever its name (live-verified on `main`: a bare `deck.pptx` reached READY
+  and decoded as `powerpoint`). The extension list only governs the
+  does-not-exist warning. The consolidation below stands; the user-visible
+  symptom was the smaller one.
+
+  Adding two extensions would only have deferred the drift, so the list is gone:
+  the path heuristic, the Drive download-and-upload router, and the upload
+  HTML-reject gate now all derive from **one** declaration that sits beside the
+  source type-code map, and a guardrail pins the derivation. Two real drifts fell
+  out of consolidating: `.ppt`/`.pptx` are now accepted by the **Drive
+  download-and-upload router** (which had refused them outright), and
+  `.xhtml`/`.xht` now earn the same missing-file warning.
+
+- **MCP `source_add` went silent about a title miss whenever you passed
+  `wait=true`** ([#1989](https://github.com/teng-lin/notebooklm-py/issues/1989)).
+  An explicit `title` for a url/youtube/drive add is honored by a best-effort
+  post-add rename, and the immediate response flags a rename that did not stick
+  with `title_override_applied: false` plus a warning. The `wait=true` tail
+  returned the `source_wait` aggregate and dropped the signal entirely — the
+  same add reported the miss or not depending only on whether you waited. It now
+  carries the same pair, checked against the **final** title from the
+  post-processing re-read (so a title the backend reverts after the add is
+  caught too, not just a rename RPC that failed). Only READY outcomes are
+  judged; a timed-out or failed source has no final title to judge. Both tails
+  now share one predicate rather than two copies.
 
 - **`SourceFulltext.find_citation_context()` could not locate a multi-block
   citation.** Its search key is a prefix of `cited_text`, and once `cited_text`

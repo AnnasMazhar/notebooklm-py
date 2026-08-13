@@ -135,6 +135,47 @@ class TestLooksLikePath:
     def test_non_path_content(self, content: str) -> None:
         assert looks_like_path(content) is False
 
+    @pytest.mark.parametrize("content", ["deck.pptx", "deck.ppt", "DECK.PPTX", "slides.PpT"])
+    def test_powerpoint_filename_is_path_shaped(self, content: str) -> None:
+        """A PowerPoint filename reads as file-shaped (#2202).
+
+        What this buys is the missing-file warning, not the upload branch — see
+        ``test_missing_powerpoint_filename_warns_instead_of_silently_pasting``
+        for the behaviour that actually changed.
+        """
+        assert looks_like_path(content) is True
+
+    @pytest.mark.parametrize("content", ["page.xhtml", "page.xht"])
+    def test_bare_xhtml_filename_is_path_shaped(self, content: str) -> None:
+        """The upload endpoint rejects XHTML, but the argument is still a filename.
+
+        Reading it as a path is what routes the user to the convert-first error
+        instead of silently pasting the filename in as text content.
+        """
+        assert looks_like_path(content) is True
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            "The deck.pptx covered three topics",  # a sentence that happens to end .pptx-ish
+            "e.g",
+            "version 2.0",
+            "Q3.results",
+            "deck.pptxx",
+            "deck.keynote",
+            "deck.",
+            ".pptx",
+        ],
+    )
+    def test_extension_like_but_not_a_filename_is_not_path_shaped(self, content: str) -> None:
+        """Prose / non-upload suffixes must NOT be treated as a local file.
+
+        The widened set (#2202) must not widen into "anything with a dot": a
+        false positive here slaps a spurious "looks like a path but does not
+        exist" warning onto text a user deliberately pasted.
+        """
+        assert looks_like_path(content) is False
+
 
 # ===========================================================================
 # validate_upload_path — symlink + regular-file checks
@@ -181,6 +222,49 @@ def _validate_path_stub(content: str, follow_symlinks: bool) -> Path:
 
 
 class TestBuildSourceAddPlan:
+    def test_missing_powerpoint_filename_warns_instead_of_silently_pasting(self) -> None:
+        """#2202's real user-visible fix: the typo'd deck now gets a warning.
+
+        Without ``.pptx`` in the path-shaped set this returned zero warnings, so
+        ``source add dekc.pptx`` created a source whose entire content was the
+        string ``dekc.pptx`` and said nothing about it.
+        """
+        plan = build_source_add_plan(
+            content="dekc.pptx",
+            source_type=None,
+            title=None,
+            mime_type=None,
+            follow_symlinks=False,
+            validate_path=_validate_path_stub,
+            looks_path_shaped=looks_like_path,
+        )
+        # Still a text source — the warning is the change, not the routing.
+        assert plan.detected_type == "text"
+        assert len(plan.warnings) == 1
+        assert "looks like a path but does not exist" in plan.warnings[0]
+
+    def test_an_existing_file_uploads_regardless_of_extension(self, tmp_path: Path) -> None:
+        """The extension set is NOT the upload gate — existence is, and it is checked first.
+
+        Pins the fact that corrects #2202's premise: an unlisted extension (and
+        even none at all) still takes the file branch when the path exists, so
+        widening the set cannot change which real files are uploadable.
+        """
+        for name in ("deck.pptx", "deck.keynote", "notes"):
+            path = tmp_path / name
+            path.write_text("x")
+            plan = build_source_add_plan(
+                content=str(path),
+                source_type=None,
+                title=None,
+                mime_type=None,
+                follow_symlinks=False,
+                validate_path=lambda content, _follow: Path(content),
+                looks_path_shaped=looks_like_path,
+            )
+            assert plan.detected_type == "file", name
+            assert plan.warnings == ()
+
     def test_autodetect_url(self) -> None:
         plan = build_source_add_plan(
             content="https://example.com/a",
