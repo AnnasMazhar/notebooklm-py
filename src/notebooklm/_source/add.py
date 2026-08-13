@@ -34,6 +34,16 @@ ValidateVideoId = Callable[[str], bool]
 YoutubeDetector = Callable[[str], bool]
 
 
+def _describe_sources(sources: list[Source]) -> str:
+    """Render matched sources as ``id (title)`` for an ambiguity message.
+
+    The ambiguity raises tell the caller to go check the notebook's source
+    list; naming the exact rows saves them diffing a list by eye against a URL
+    that, by definition, appears in it more than once.
+    """
+    return ", ".join(f"{source.id} ({source.title!r})" for source in sources)
+
+
 async def honor_requested_title(
     rename: RenameSource,
     notebook_id: str,
@@ -95,10 +105,13 @@ async def honor_requested_title_if_fresh(
     a surprise. Set ``probe_proves_freshness`` when the caller's probe already
     guarantees the match is new — ``add_drive`` (#2113) and ``add_url`` (#2204)
     both filter probe matches against a baseline captured before the create, so
-    their ``PROBED`` value is provably a source this call created and must still
-    honor the requested title. Without this, an add that commits but loses its
-    response silently keeps the backend-derived name instead of the caller's
-    ``title``.
+    their ``PROBED`` value is attributable to this call and must still honor the
+    requested title. Without this, an add that commits but loses its response
+    silently keeps the backend-derived name instead of the caller's ``title``.
+
+    "Attributable", not "proven": a baseline establishes *when* a source
+    appeared, not *who* created it — see the concurrency ``.. warning::`` on
+    :meth:`SourceAddService.add_url`.
     """
     if isinstance(result, _IdempotentCreateResult):
         if result.kind is _CreateResultKind.PROBED and not probe_proves_freshness:
@@ -165,29 +178,42 @@ class SourceAddService:
            accepted because the alternative is what the same probe run
            demonstrated: a create that *did* land as ``df618843-…`` returned
            the pre-existing ``0d2c15a1-…`` instead, so the caller held the
-           wrong source id **and** an unreported duplicate. No cheaper probe
-           exists — source ids are published only inside the ``GET_NOTEBOOK``
-           payload, and ``LIST_NOTEBOOKS`` (which does not bump) does not
-           carry them — and a lazily captured baseline is not merely cheaper
-           but wrong: the probe runs *after* the create, so a list taken
-           there already contains the just-created source.
+           wrong source id **and** an unreported duplicate.
 
-           The bump is idempotent (bulk adds do not compound it) and is
-           already paid by any ``wait=True`` caller, whose
-           ``wait_until_ready`` polls ``GET_NOTEBOOK``, and by the REST batch
-           preflight. ``add_text`` is ``NON_IDEMPOTENT_NO_RETRY``, runs no
-           probe, and is unaffected.
+           No cheaper *id-based* probe exists: source ids are published only
+           inside the ``GET_NOTEBOOK`` payload, and ``LIST_NOTEBOOKS`` (which
+           does not bump) does not carry them. Two non-id alternatives were
+           weighed and rejected. A lazily captured baseline is not merely
+           cheaper but wrong — the probe runs *after* the create, so a list
+           taken there already contains the just-created source. Filtering by
+           :attr:`~notebooklm.types.Source.created_at` would need no pre-create
+           read at all, but it compares a second-resolution *server* timestamp
+           against a client clock of unknown skew, and it fails precisely in
+           the bulk-import case this path serves, where the pre-existing copy
+           was added seconds earlier.
+
+           The bump itself is idempotent, so a bulk import reorders *Recent*
+           once rather than once per URL, and any ``wait=True`` caller already
+           pays it via ``wait_until_ready``'s polling. The request count is the
+           part that does compound: a sequential bulk add — the REST
+           ``sources/batch`` route, whose one shared preflight covers none of
+           the per-item baselines — goes from N+1 to 2N+1 requests, worth
+           budgeting against the backend's bulk rate limits. ``add_text`` is
+           ``NON_IDEMPOTENT_NO_RETRY``, runs no probe, and is unaffected.
 
         .. warning::
            The baseline establishes *when* a matching source appeared, not
            *who* created it. If two callers add the same URL to one notebook
            concurrently and one create fails before committing, the failed
            caller's probe can attribute the other caller's source to itself
-           (or see two new matches and raise). A list-based probe cannot close
-           that gap — the wire carries no client-supplied idempotency key — so
-           serialize concurrent adds of the same URL into a notebook if you
-           need that guarantee. The same limitation applies to ``add_drive``
-           and ``register_file_source``.
+           (or see two new matches and raise). Because the recovered result is
+           treated as fresh, a requested ``title`` would then be applied to the
+           other caller's source — a visible mutation, not merely a
+           misattributed id. A list-based probe cannot close that gap — the
+           wire carries no client-supplied idempotency key — so serialize
+           concurrent adds of the same URL into a notebook if you need that
+           guarantee. The same limitation applies to ``add_drive`` and
+           ``register_file_source``.
         """
         logger.debug("Adding URL source to notebook %s: %s", notebook_id, url[:80])
         video_id = extract_youtube_video_id(url)
@@ -228,7 +254,7 @@ class SourceAddService:
         # distinct source ids — so an unfiltered match could hand back a
         # pre-existing copy as if it were the one just created, masking a
         # failed create. ``None`` is the "baseline unavailable" sentinel; the
-        # probe then refuses to guess. Mirrors ``add_drive`` above and
+        # probe then refuses to guess. Mirrors ``add_drive`` below and
         # ``register_file_source`` in ``_source/upload.py``.
         #
         # NEW on every call (it used to list only inside _probe, i.e. only
@@ -238,11 +264,27 @@ class SourceAddService:
         # live only in that payload; LIST_NOTEBOOKS does not bump but does not
         # carry them) and accepted; see the ``.. note::`` on this method.
         baseline_ids: set[str] | None
+        # Retained so the ambiguity raise below can name what went wrong: the
+        # caller sees "baseline unavailable" long after this line ran, and
+        # without the cause there is nothing in the process that can explain it.
+        baseline_error: Exception | None = None
         try:
             baseline_ids = {source.id for source in await list_sources(notebook_id)}
-        except Exception:
-            logger.debug(
-                "add_url: baseline list() failed; baseline unavailable",
+        except Exception as exc:
+            # WARNING, not DEBUG: the default logger level is WARNING
+            # (``_logging.py``), so a DEBUG record here is discarded before any
+            # handler sees it and this call would silently run with the #2204
+            # protection disabled. Louder than the probe's own swallow is
+            # justified — a failed probe costs one extra create attempt, while a
+            # failed baseline disables the probe for the whole call AND turns a
+            # recoverable transport error into a hard ambiguity error below.
+            baseline_error = exc
+            logger.warning(
+                "add_url: baseline list() failed (%s); the idempotency probe can no "
+                "longer tell a source this call created from one that was already "
+                "there, so a transport failure will surface as an ambiguity error "
+                "instead of recovering",
+                type(exc).__name__,
                 exc_info=True,
             )
             baseline_ids = None
@@ -275,12 +317,18 @@ class SourceAddService:
             elif matches:
                 # Without a baseline a match may predate this add — see the
                 # ``baseline_ids`` comment for the failure mode this guards.
+                # Both halves of the ambiguity are worth stating: the match may
+                # predate the add, or it may BE the add, in which case the create
+                # landed and the caller will otherwise never learn its id.
                 raise SourceAddError(
                     url,
+                    cause=baseline_error,
                     message=(
-                        f"Cannot disambiguate URL source {url!r}: baseline snapshot was "
-                        "unavailable, so a matching source may predate this add. "
-                        "Check the notebook source list before retrying."
+                        f"Cannot disambiguate URL source {url!r}: the pre-create baseline "
+                        f"snapshot failed ({type(baseline_error).__name__}), so "
+                        f"{_describe_sources(matches)} may either predate this add or be "
+                        "the source it just created. Check the notebook source list "
+                        "before retrying."
                     ),
                 )
             if len(matches) == 1:
@@ -292,7 +340,8 @@ class SourceAddService:
                     message=(
                         f"Cannot disambiguate URL source {url!r}: probe found "
                         f"{len(matches)} new sources with this URL after a transport "
-                        "failure. Check the notebook source list before retrying."
+                        f"failure ({_describe_sources(matches)}). Check the notebook "
+                        "source list before retrying."
                     ),
                 )
             return None
@@ -539,9 +588,17 @@ class SourceAddService:
         baseline_ids: set[str] | None
         try:
             baseline_ids = {source.id for source in await list_sources(notebook_id)}
-        except Exception:
-            logger.debug(
-                "add_drive: baseline list() failed; baseline unavailable",
+        except Exception as exc:
+            # WARNING, not DEBUG, for the reason spelled out on ``add_url``'s
+            # copy of this block (#2204): the default logger level is WARNING,
+            # so a DEBUG record here is dropped before any handler sees it and
+            # the call silently runs with its idempotency probe disabled.
+            logger.warning(
+                "add_drive: baseline list() failed (%s); the idempotency probe can no "
+                "longer tell a source this call created from one that was already "
+                "there, so a transport failure will surface as an ambiguity error "
+                "instead of recovering",
+                type(exc).__name__,
                 exc_info=True,
             )
             baseline_ids = None

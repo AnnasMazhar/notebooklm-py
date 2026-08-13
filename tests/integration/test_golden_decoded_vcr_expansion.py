@@ -313,7 +313,7 @@ class TestSourceMutationsGoldenDecoded:
     @pytest.mark.vcr
     @pytest.mark.asyncio
     @notebooklm_vcr.use_cassette("sources_add_url.yaml")
-    async def test_add_url_decoded_golden(self):
+    async def test_add_url_decoded_golden(self, legacy_vcr_add_url_baseline):
         """``sources.add_url`` decodes the server-extracted page title.
 
         The title is the strongest pin here: the test passes only the URL, so

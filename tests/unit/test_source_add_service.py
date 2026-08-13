@@ -161,26 +161,43 @@ async def test_add_url_probe_ignores_a_source_present_before_the_create(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "baseline_failure",
+    [
+        # A drifted GET_NOTEBOOK: the strict decoder raises, not the transport.
+        pytest.param(RPCError("baseline decode failed"), id="decode_failure"),
+        # A transport failure. The probe deliberately re-RAISES this class; the
+        # baseline capture deliberately swallows it, so pin that asymmetry.
+        pytest.param(ServerError("baseline 503"), id="transport_failure"),
+    ],
+)
 async def test_add_url_baseline_failure_makes_a_match_ambiguous(
     service: SourceAddService,
     logger: logging.Logger,
+    caplog: pytest.LogCaptureFixture,
+    baseline_failure: Exception,
 ) -> None:
     """No baseline + a match = ``SourceAddError``, not a guess (#2204).
 
     The baseline list is best-effort; when it fails, a probe match may or may
     not predate this add, and adopting it is exactly the failure mode the
-    baseline exists to prevent.
+    baseline exists to prevent. The error must carry enough to act on: what
+    broke the baseline (as ``cause``), and which source is ambiguous.
     """
-    existing = Source(id="src_ambiguous", url="https://example.com")
-    # First call = the baseline (fails, non-transport); second = the probe.
-    list_sources = AsyncMock(side_effect=[RPCError("baseline decode failed"), [existing]])
+    existing = Source(id="src_ambiguous", title="Some Copy", url="https://example.com")
+    # First call = the baseline (fails); second = the probe.
+    list_sources = AsyncMock(side_effect=[baseline_failure, [existing]])
+    transport_error = NetworkError("temporary network failure")
 
-    with pytest.raises(SourceAddError, match="baseline snapshot was unavailable"):
+    with (
+        caplog.at_level(logging.WARNING, logger=logger.name),
+        pytest.raises(SourceAddError) as raised,
+    ):
         await service.add_url(
             "nb_1",
             existing.url,
             add_youtube_source=AsyncMock(),
-            add_url_source=AsyncMock(side_effect=NetworkError("temporary network failure")),
+            add_url_source=AsyncMock(side_effect=transport_error),
             list_sources=list_sources,
             wait_until_ready=AsyncMock(),
             extract_youtube_video_id=MagicMock(return_value=None),
@@ -188,19 +205,34 @@ async def test_add_url_baseline_failure_makes_a_match_ambiguous(
             logger=logger,
         )
 
+    # The message names the ambiguous source, so the caller told to "check the
+    # notebook source list" knows which row to look at.
+    assert "src_ambiguous" in str(raised.value)
+    # ``cause`` carries what broke the baseline — otherwise nothing in the
+    # process can explain why the snapshot was unavailable.
+    assert raised.value.cause is baseline_failure
+    # The transport error that triggered the probe survives as context.
+    assert raised.value.__context__ is transport_error
+    # The swallow is visible at the default logger level (WARNING), not DEBUG.
+    assert "baseline list() failed" in caplog.text
+
 
 @pytest.mark.asyncio
 async def test_add_url_probe_raises_on_multiple_new_matches(
     service: SourceAddService,
     logger: logging.Logger,
 ) -> None:
-    """Two *new* same-URL sources after the failure is ambiguity, not a match."""
+    """Two *new* same-URL sources after the failure is ambiguity, not a match.
+
+    The message must name both, since the caller is being told to go and
+    disambiguate a URL that by definition appears in the list more than once.
+    """
     url = "https://example.com"
     list_sources = AsyncMock(
         side_effect=[[], [Source(id="src_a", url=url), Source(id="src_b", url=url)]]
     )
 
-    with pytest.raises(SourceAddError, match="probe found 2 new sources"):
+    with pytest.raises(SourceAddError, match="probe found 2 new sources") as raised:
         await service.add_url(
             "nb_1",
             url,
@@ -212,6 +244,9 @@ async def test_add_url_probe_raises_on_multiple_new_matches(
             is_youtube_url=MagicMock(return_value=False),
             logger=logger,
         )
+
+    assert "src_a" in str(raised.value)
+    assert "src_b" in str(raised.value)
 
 
 @pytest.mark.asyncio

@@ -360,7 +360,7 @@ async def test_add_url_probe_raises_when_baseline_unavailable_and_a_copy_exists(
     # point of the test being what the *probe* does afterwards.
     client = _make_client_with_transport(transport, auth_tokens, server_error_max_retries=0)
     try:
-        with pytest.raises(SourceAddError, match="baseline snapshot was unavailable"):
+        with pytest.raises(SourceAddError, match="pre-create baseline snapshot failed"):
             await client.sources.add_url(notebook_id, _PROBE_URL)
     finally:
         await client._collaborators.kernel.get_http_client().aclose()

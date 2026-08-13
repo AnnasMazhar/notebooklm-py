@@ -218,8 +218,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   carry them) and because capturing the baseline lazily on the retry path is
   not merely cheaper but wrong: the probe runs *after* the create, so a list
   taken there already contains the just-created source. The bump does not
-  compound across a bulk import, and `wait=True` callers and the REST batch
-  preflight were paying it already.
+  compound across a bulk import, and `wait=True` callers were paying it already
+  via `wait_until_ready`'s polling. The *request count* does compound, though: a
+  sequential bulk add — the REST `POST /v1/notebooks/{id}/sources/batch` route,
+  whose one shared preflight covers none of the per-item baselines — goes from
+  N+1 to 2N+1 requests, which is worth budgeting against the backend's bulk rate
+  limits.
+
+- **A failed idempotency baseline is no longer invisible.** `add_url` and
+  `add_drive` swallow a failure to snapshot source ids before the create and
+  carry on with the probe disabled. That swallow logged at `DEBUG`, and the
+  `notebooklm` logger defaults to `WARNING`, so the record was discarded before
+  any handler saw it — the call ran without the protection and said nothing.
+  (Found by review, and not hypothetical: five of the repo's own VCR tests were
+  replaying a cassette that predates the baseline read and silently exercising
+  the disabled path.) Both now log at `WARNING` and name the failure type, and
+  `add_url`'s resulting ambiguity error carries the underlying exception as its
+  `cause` and names the source ids it could not disambiguate, so a caller told
+  to "check the notebook source list" knows which rows to look at.
+  ([#2204](https://github.com/teng-lin/notebooklm-py/issues/2204))
 
 - **`docs/rpc-reference.md` no longer misstates the research path.** Four
   corrections, each against a captured payload: `START_FAST_RESEARCH` returns a

@@ -196,7 +196,7 @@ class TestSourcesAPI:
     @pytest.mark.vcr
     @pytest.mark.asyncio
     @notebooklm_vcr.use_cassette("sources_add_url.yaml")
-    async def test_add_url(self):
+    async def test_add_url(self, legacy_vcr_add_url_baseline):
         """Add a URL source."""
         async with vcr_client() as client:
             source = await client.sources.add_url(
