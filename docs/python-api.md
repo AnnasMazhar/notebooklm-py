@@ -486,12 +486,15 @@ from notebooklm import SourceAddError
 try:
     source = await client.sources.add_url(nb_id, url)
 except SourceAddError as exc:
-    if getattr(exc, "unconfirmed", False):
-        # The create may or may not have landed. Reconcile before re-adding,
-        # or you risk the duplicate the probe existed to prevent.
-        existing = [s for s in await client.sources.list(nb_id) if s.url == url]
-        ...
-    raise
+    if not getattr(exc, "unconfirmed", False):
+        raise  # a genuine per-source rejection: bad URL, paywalled, empty
+    # The create may or may not have landed. Reconcile before re-adding, or
+    # you risk the duplicate the probe existed to prevent.
+    matches = [s for s in await client.sources.list(nb_id) if s.url == url]
+    if matches:
+        source = matches[0]   # it did land; adopt it instead of re-adding
+    else:
+        source = await client.sources.add_url(nb_id, url)  # safe to re-issue
 ```
 
 The attribute is absent on every other failure, so `getattr(exc, "unconfirmed", False)` is safe to call unconditionally. Both halves of the failure stay on the exception: the probe's own failure as `__cause__`, and the transport error that triggered the probe further up the `__context__` chain.
