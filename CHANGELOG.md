@@ -383,6 +383,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An idempotency probe that cannot answer no longer retries the create.**
+  All four `PROBE_THEN_CREATE` paths — `notebooks.create`, `sources.add_url`,
+  `sources.add_drive`, and `register_file_source` — ran their probe's `list()`
+  inside a `try`, propagated transport failures, and swallowed everything else
+  with a log and a `return None`. But `None` means "no match", which
+  `idempotent_create` reads as *evidence the create did not land* and acts on by
+  re-issuing it. A drifted `GET_NOTEBOOK` / `LIST_NOTEBOOKS` makes the strict
+  decoder raise `RPCError`, which is indistinguishable from "not committed" — so
+  the create was repeated on no evidence, and these variants run with
+  `disable_internal_retries=True` precisely because a blind re-POST can
+  duplicate. The probe failing is the moment its protection matters most.
+
+  A probe now returns `None` only when it has affirmatively established that no
+  matching resource exists, and raises when it cannot: `SourceAddError` on the
+  three source paths, `RPCError` on `notebooks.create` — in both cases the type
+  that path's existing "cannot disambiguate" branch already raises, so no
+  caller's `except` clause changes meaning. The decode failure is retained as
+  `cause` / `__cause__` and the transport failure that triggered the probe
+  further up the `__context__` chain, so both halves stay in the traceback.
+
+  The error also carries an **`unconfirmed`** marker attribute — read it with
+  `getattr(exc, "unconfirmed", False)`. It is the supported way to tell "the
+  write may have committed" from "the write was rejected", and it is load-bearing
+  rather than decorative: without it, `_app.errors` classified these as
+  `SOURCE_ADD` ("invalid input, fix and retry", REST 422, and **non-fatal** in a
+  batch add, so a drifted backend turned one unconfirmed write into one per
+  item) — or, when the probe's own failure happened to carry a 5xx/gRPC-14
+  `rpc_code`, as the *retriable* `SERVER` with the hint "retry after a short
+  delay", advertising exactly the retry the message forbids. They now classify as
+  `RPC`: fatal in a batch, not retriable, no contradicting hint. The MCP
+  browser-upload route no longer reports "Your file uploaded" for one either —
+  nothing had been uploaded. Messages are also front-loaded with the action,
+  because MCP and REST truncate at 300 characters and were cutting it off.
+
+  **New on the surfaces you read.** Classification alone did not reach them, and
+  each was still printing the opposite advice:
+
+  - **CLI** — `handle_errors` dispatches on exception *type*, and a probe
+    re-raises its transport/auth failure unchanged, so a marked `RateLimitError`
+    was rendered as `Error: Rate limited. Retry after 30s.` with
+    `"code": "RATE_LIMITED"` and `"retry_after": 30`. For an unconfirmed create
+    the code is now **`UNCONFIRMED_WRITE`**, the message is replaced rather than
+    annotated (the branch's own text *is* the retry instruction), `retry_after`
+    is dropped, and a "check before retrying" note is added. Scripts keying on
+    `RATE_LIMITED` no longer back off and retry a write that may already exist.
+  - **MCP and REST** — both JSON payloads now carry **`"unconfirmed": true`**
+    and an overriding `hint`. Without it these arrived as an opaque message
+    (often a bare connection error) plus `retriable: false`, with nothing
+    indicating a source may already exist.
+
+  The wording is deliberately *"no further attempt was made"*, not "it was not
+  retried": on the two-attempt path a first probe may have returned "no match"
+  and let one retry through before a second probe failed, so an operator
+  reconciling on the stronger claim would look for one row and stop.
+
+  **This is a deliberate trade, not a free win.** A decode blip on a create that
+  never landed now surfaces as a hard failure the caller must retry by hand,
+  where before it recovered silently. It is accepted because the outcomes are
+  not symmetric in *detectability*: a caller told "unresolved, go look" can act,
+  while a caller handed a silent duplicate — or, on `add_url`, the wrong source
+  id — has nothing to act on and no reason to look. Swallowing also converted a
+  `PROBE_THEN_CREATE` operation into an at-least-once one at the moment its
+  guarantee was load-bearing, and this codebase makes at-least-once an explicit
+  opt-in (`AT_LEAST_ONCE_ACCEPTED`, which emits a rate-limited WARN so the
+  trade-off stays visible). The rule and its rationale are now in ADR-0005.
+  ([#2220](https://github.com/teng-lin/notebooklm-py/issues/2220))
+
+  The *pre-create baseline* read deliberately still degrades rather than
+  failing — it runs before anything is written, so proceeding is safe and
+  refusing would break adds that would otherwise succeed. What changed there is
+  only the log level: `register_file_source` and `notebooks.create` swallowed at
+  `DEBUG`, and the `notebooklm` logger defaults to `WARNING`, so the record was
+  discarded before any handler saw it and the call ran with a degraded probe in
+  silence. Both now log at `WARNING` and name the failure type, matching what
+  `add_url` / `add_drive` got in
+  [#2204](https://github.com/teng-lin/notebooklm-py/issues/2204).
+
 - **A configured `timeout=` was silently overridden for chat and
   IMPORT_RESEARCH.** ([#2205](https://github.com/teng-lin/notebooklm-py/issues/2205))
   Both RPCs carry a longer-than-default built-in read window — 180 s for chat,

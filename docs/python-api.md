@@ -476,6 +476,59 @@ except NonIdempotentRetryError:
 
 `client.sources.add_file(...)` and `client.sources.add_drive(...)` are now also covered by the probe-then-create wrapper: the create RPC runs with `disable_internal_retries=True` and, on transport failure, the wrapper probes the server-side source list (via `idempotent_create`) before deciding whether to retry — so transient failures no longer produce duplicate sources. See `_source/add.py` (`SourceAddService.add_drive`) and `_source/upload.py` (`SourceUploadPipeline.register_file_source`) for the implementation.
 
+**When the probe itself fails, the call fails ([#2220](https://github.com/teng-lin/notebooklm-py/issues/2220)).** The probe is what makes the retry safe, so it is never allowed to guess. If its own list RPC fails for a non-transport reason — realistically, wire drift making the strict decoder raise `RPCError` — no **further** attempt is made, and you get `SourceAddError` (source paths) or `RPCError` (`notebooks.create`) saying the create could not be confirmed. Note "further": the wrapper allows two attempts, so if an *earlier* probe returned a clean "no match" one retry may already have gone out before this one failed — reconcile for more than one row.
+
+Such an error carries an **`unconfirmed` attribute**. Test that, not the message text and not the exception type — it is the supported discriminator, and the same one the MCP and REST adapters use to keep these out of the "retry me" and "just this item failed" buckets.
+
+**Type is the wrong discriminator here**, which is why the example below catches broadly. A probe whose list fails at the transport level re-raises that failure *unchanged*, so an unconfirmed create can reach you as `SourceAddError`, `RPCError`, `ServerError`, `NetworkError`, `RateLimitError`, or `AuthError`. Only the attribute is common to all of them.
+
+```python
+# Capture the ids BEFORE the add. A URL is not unique within a notebook, so a
+# post-hoc match alone cannot tell "my create landed" from "a copy was already
+# here" — adopting one blindly is the very bug #2204 fixed inside the library.
+before = {s.id for s in await client.sources.list(nb_id)}
+
+try:
+    source = await client.sources.add_url(nb_id, url)
+except Exception as exc:
+    if not getattr(exc, "unconfirmed", False):
+        raise  # a rejection, an auth failure, a plain outage — handle as usual
+    # The create may or may not have landed. Only a source that is BOTH new
+    # since the snapshot and matching the URL is attributable to this call.
+    new = [s for s in await client.sources.list(nb_id) if s.id not in before and s.url == url]
+    if len(new) == 1:
+        source = new[0]                       # attributable to this call
+    elif not new:
+        # NOT proof the create failed — the source list lags the write, so a
+        # committed source can be missing here and appear moments later. Re-read
+        # before concluding anything; see the caveat below.
+        raise
+    else:
+        raise  # several new matches — cannot attribute. Resolve by hand.
+```
+
+Three caveats on that reconciliation, all inherent to a list-based probe rather than to this example:
+
+- **An empty result is not proof the create failed.** Source-list visibility lags the write: the library's own `test_add_url_probe_matches_on_the_second_attempt` models a committed source that is absent from the first post-create `GET_NOTEBOOK` and appears only on the next one. Re-issuing on a single empty read is how a duplicate gets made — poll the list a few times before deciding, and if it stays empty, prefer surfacing the situation over an automatic re-add.
+- **A single new match is *attributable*, not *proven*.** A snapshot establishes *when* a source appeared, not *who* created it. If another client adds the same URL after your snapshot while your own create never lands, you will see exactly one new match and adopt their source — the two-match branch never fires. `add_url`'s own docstring carries the same warning: the wire has no client-supplied idempotency key, so serialize concurrent adds of the same URL into one notebook if you need that guarantee, or treat the single-match case as unresolved too.
+- **The reconciling `sources.list()` can itself fail.** If the outage that broke the probe is still going, this whole block raises, which is the correct outcome — still unresolved.
+
+The attribute is set on more than just the "probe raised" case. It marks every way a probe fails to settle whether the create landed: a match it cannot attribute because the pre-create baseline was unavailable, several new matches it cannot choose between, or a create that returned success with no trustworthy id whose recovery probe then came up empty. Those raise without anything having thrown inside the probe, so they look like ordinary rejections — but the server may hold a row either way.
+
+It is absent on every other failure, so `getattr(exc, "unconfirmed", False)` is safe to call unconditionally.
+
+**The exception chain has three shapes** — worth knowing before diagnostic code goes looking in a fixed place:
+
+| how it arose | the exception you catch | the create's transport failure |
+|---|---|---|
+| probe failed with a non-transport error (e.g. a decode `RPCError`) | a wrapper naming the source, with the probe's failure as `__cause__` | at `__context__.__context__` |
+| probe failed with a transport/auth error (`ServerError`, `NetworkError`, `RateLimitError`, `AuthError`) | **that same error, re-raised unchanged and marked** | at `__context__` |
+| `add_file` only: the register RPC returned **200** but carried no trustworthy `SOURCE_ID`, so the recovery probe ran directly | a wrapper naming the file | **none — no create failure exists**; a probe error, if any, is at `__cause__` |
+
+The third shape breaks a fixed-depth assumption outright: `_create` calls the probe itself rather than being driven by the retry wrapper, so no transport failure exists anywhere in the chain, and a no-match or ambiguity yields a marked `SourceAddError` with no `__cause__` at all. In the second shape there is no wrapper either, so `__cause__` is whatever the transport layer already set (often absent). Walk the `__context__` chain rather than assuming a depth, and treat both `__cause__` and `__context__` as optional.
+
+The alternative — retrying on an unanswered probe — is what this replaced. It recovered silently in the common case, at the cost of occasionally handing back a duplicate, or the wrong source id, with nothing to signal it. A raised error is actionable; an unreported duplicate is not.
+
 **Partial file uploads.** File registration creates the source row before the
 resumable HTTP upload starts. If session setup or the combined upload/finalize
 request then fails, the source row is **retained** — the client never deletes it

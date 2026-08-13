@@ -140,3 +140,25 @@ async def test_private_service_preserves_probe_provenance_through_wait() -> None
     assert isinstance(result, _IdempotentCreateResult)
     assert result.kind is _CreateResultKind.PROBED
     assert result.value is ready
+
+
+@pytest.mark.asyncio
+async def test_idempotent_create_aborts_when_the_probe_raises() -> None:
+    """A probe that raises stops the loop — no further create attempt (#2220).
+
+    Pinned at the wrapper's own level, not only through the four in-tree probes:
+    this is the seam a fifth ``PROBE_THEN_CREATE`` path would rely on, and the
+    contract it depends on is that ``None`` is the *only* way to authorize
+    another create.
+    """
+    create = AsyncMock(side_effect=NetworkError("lost response"))
+    probe_error = RuntimeError("probe cannot answer")
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await idempotent_create(create, AsyncMock(side_effect=probe_error), max_attempts=3)
+
+    assert exc_info.value is probe_error
+    # One attempt, despite max_attempts=3: the probe never said "no match".
+    assert create.await_count == 1
+    # The transport failure that made the probe run is still reachable.
+    assert isinstance(probe_error.__context__, NetworkError)

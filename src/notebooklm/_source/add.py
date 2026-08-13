@@ -9,7 +9,14 @@ from dataclasses import replace
 from typing import Any
 from urllib.parse import parse_qs
 
-from .._idempotency import _CreateResultKind, _IdempotentCreateResult, idempotent_create
+from .._idempotency import (
+    _CreateResultKind,
+    _IdempotentCreateResult,
+    idempotent_create,
+)
+from .._idempotency import (
+    mark_unconfirmed as _unconfirmed,
+)
 from .._runtime.contracts import RpcCaller
 from ..exceptions import (
     AuthError,
@@ -162,6 +169,32 @@ class SourceAddService:
         :class:`~notebooklm.exceptions.SourceAddError` rather than guessing.
 
         .. note::
+           **A probe that cannot answer aborts the add (#2220).** If the
+           probe's own ``list()`` fails for a non-transport reason — a drifted
+           ``GET_NOTEBOOK`` making the strict decoder raise ``RPCError`` is the
+           realistic case — this raises :class:`~notebooklm.exceptions.SourceAddError`
+           instead of reporting "no match" and letting the create be re-issued.
+
+           The probe returns ``None`` only when it has affirmatively
+           established that no matching source exists; ``None`` is read by
+           ``idempotent_create`` as evidence the create did not land, and acted
+           on by repeating it. A broken probe is not that evidence. Retrying
+           anyway would silently turn a ``PROBE_THEN_CREATE`` operation into an
+           at-least-once one at the exact moment its guarantee matters — and
+           this codebase makes at-least-once an explicit, named opt-in
+           (:attr:`~notebooklm._idempotency.IdempotencyPolicy.AT_LEAST_ONCE_ACCEPTED`).
+
+           The cost is real and was weighed: a decode blip on a create that
+           never landed now surfaces as a hard failure the caller must retry by
+           hand, where before it recovered silently. That is accepted because
+           the two outcomes are not symmetric in *detectability*. A caller who
+           is told "unresolved, go look" can act; a caller handed a silent
+           duplicate — or the wrong source id — has nothing to act on and no
+           reason to look. The baseline read, by contrast, still degrades
+           rather than failing: it runs before anything is written, so
+           proceeding is safe there.
+
+        .. note::
            **This is a behaviour change (#2204).** ``add_url`` used to list
            sources only inside ``_probe``, which ``idempotent_create`` runs
            only after a transport failure; it now takes that snapshot on
@@ -292,25 +325,60 @@ class SourceAddService:
         async def _probe() -> Source | None:
             try:
                 sources = await list_sources(notebook_id)
-            except (AuthError, RateLimitError, ServerError, NetworkError):
+            except (AuthError, RateLimitError, ServerError, NetworkError) as exc:
                 # Transport- and auth-level probe failures must propagate.
                 # Silently returning None here lets ``idempotent_create``
                 # re-issue the create on top of a broken probe, which is
                 # exactly the duplicate-source bug we are guarding against.
+                # Mark it UNCONFIRMED before it goes (#2220 review): the create
+                # may already have committed and this probe could not say, which
+                # is the same predicament as the decode branch below. Without the
+                # marker a ServerError/RateLimitError here classifies as the
+                # *retriable* SERVER/RATE_LIMITED with the hint "retry after a
+                # short delay" — and the caller retries the ADD, not the probe.
+                # The underlying type is left intact, so "re-authenticate" /
+                # "connectivity" remain readable in the message.
+                _unconfirmed(exc)
                 raise
-            except Exception:
-                # WARNING, not DEBUG: a decode failure here (e.g. the strict
-                # ``RPCError`` GET_NOTEBOOK raises on a drifted response) is
-                # indistinguishable from "the create did not land", so
-                # idempotent_create re-issues the add — and this variant runs
-                # with ``disable_internal_retries=True``, leaving no other net
-                # against the duplicate this probe exists to prevent (#2204).
+            except Exception as exc:
+                # Propagate, do not retry (#2220). A decode failure here (e.g.
+                # the strict ``RPCError`` GET_NOTEBOOK raises on a drifted
+                # response) leaves the probe unable to answer, and its answer is
+                # the only thing that makes the retry safe: this variant runs
+                # with ``disable_internal_retries=True`` precisely because a
+                # blind re-POST of ``ADD_SOURCE`` can duplicate. Returning
+                # ``None`` here would claim "the create did not land" on no
+                # evidence and re-issue it — silently downgrading a
+                # ``PROBE_THEN_CREATE`` operation to at-least-once, which this
+                # codebase's own taxonomy (``AT_LEAST_ONCE_ACCEPTED``) requires
+                # the *caller* to opt into. Raising hands the caller the one
+                # thing they can act on: this add is unresolved, go look.
                 logger.warning(
-                    "add_url: probe list() failed with a non-transport error; treating as "
-                    "no match, so a retry may create a duplicate source",
+                    "add_url: probe list() failed with a non-transport error (%s); the "
+                    "create cannot be confirmed, so it will not be retried",
+                    type(exc).__name__,
                     exc_info=True,
                 )
-                return None
+                raise _unconfirmed(
+                    SourceAddError(
+                        url,
+                        cause=exc,
+                        message=(
+                            # Front-loaded on purpose: the MCP and REST surfaces
+                            # truncate messages at 300 characters, which cut the
+                            # closing instruction mid-word on a realistic URL.
+                            # The action comes first; the narrative can be lost.
+                            "UNRESOLVED — do not blindly retry; check the notebook "
+                            f"source list first. Cannot confirm URL source {url!r}: "
+                            "the create failed at the transport level and may or may "
+                            "not have committed, and the idempotency probe that would "
+                            f"settle it failed too ({type(exc).__name__}). No FURTHER attempt "
+                            "was made, because retrying on an unanswered probe is how "
+                            "duplicates happen — but an earlier attempt in this call "
+                            "may also have committed."
+                        ),
+                    )
+                ) from exc
             matches = [source for source in sources if source.url == url]
             if baseline_ids is not None:
                 matches = [source for source in matches if source.id not in baseline_ids]
@@ -320,29 +388,33 @@ class SourceAddService:
                 # Both halves of the ambiguity are worth stating: the match may
                 # predate the add, or it may BE the add, in which case the create
                 # landed and the caller will otherwise never learn its id.
-                raise SourceAddError(
-                    url,
-                    cause=baseline_error,
-                    message=(
-                        f"Cannot disambiguate URL source {url!r}: the pre-create baseline "
-                        f"snapshot failed ({type(baseline_error).__name__}), so "
-                        f"{_describe_sources(matches)} may either predate this add or be "
-                        "the source it just created. Check the notebook source list "
-                        "before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        url,
+                        cause=baseline_error,
+                        message=(
+                            f"Cannot disambiguate URL source {url!r}: the pre-create baseline "
+                            f"snapshot failed ({type(baseline_error).__name__}), so "
+                            f"{_describe_sources(matches)} may either predate this add or be "
+                            "the source it just created. Check the notebook source list "
+                            "before retrying."
+                        ),
+                    )
                 )
             if len(matches) == 1:
                 (match,) = matches  # exactly one (len==1 guard); unpack, not matches[0]
                 return match
             if len(matches) > 1:
-                raise SourceAddError(
-                    url,
-                    message=(
-                        f"Cannot disambiguate URL source {url!r}: probe found "
-                        f"{len(matches)} new sources with this URL after a transport "
-                        f"failure ({_describe_sources(matches)}). Check the notebook "
-                        "source list before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        url,
+                        message=(
+                            f"Cannot disambiguate URL source {url!r}: probe found "
+                            f"{len(matches)} new sources with this URL after a transport "
+                            f"failure ({_describe_sources(matches)}). Check the notebook "
+                            "source list before retrying."
+                        ),
+                    )
                 )
             return None
 
@@ -586,9 +658,15 @@ class SourceAddService:
         # only in that payload; LIST_NOTEBOOKS does not bump but does not carry
         # them) and accepted; see the ``.. note::`` on this method.
         baseline_ids: set[str] | None
+        # Retained so the ambiguity raise below can name what went wrong, exactly
+        # as ``add_url`` does: the caller sees "baseline snapshot failed" long
+        # after this line ran, and without the cause there is nothing left in the
+        # process that can explain it.
+        baseline_error: Exception | None = None
         try:
             baseline_ids = {source.id for source in await list_sources(notebook_id)}
         except Exception as exc:
+            baseline_error = exc
             # WARNING, not DEBUG, for the reason spelled out on ``add_url``'s
             # copy of this block (#2204): the default logger level is WARNING,
             # so a DEBUG record here is dropped before any handler sees it and
@@ -614,48 +692,78 @@ class SourceAddService:
         async def _probe() -> Source | None:
             try:
                 sources = await list_sources(notebook_id)
-            except (AuthError, RateLimitError, ServerError, NetworkError):
+            except (AuthError, RateLimitError, ServerError, NetworkError) as exc:
                 # Transport- and auth-level probe failures must propagate
                 # — see the rationale in ``add_url._probe``.
+                # Mark it UNCONFIRMED before it goes (#2220 review): the create
+                # may already have committed and this probe could not say, which
+                # is the same predicament as the decode branch below. Without the
+                # marker a ServerError/RateLimitError here classifies as the
+                # *retriable* SERVER/RATE_LIMITED with the hint "retry after a
+                # short delay" — and the caller retries the ADD, not the probe.
+                # The underlying type is left intact, so "re-authenticate" /
+                # "connectivity" remain readable in the message.
+                _unconfirmed(exc)
                 raise
-            except Exception:
-                # WARNING, not DEBUG: a decode failure here (e.g. the strict
-                # ``RPCError`` GET_NOTEBOOK raises on a drifted response) is
-                # indistinguishable from "the create did not land", so
-                # idempotent_create re-issues the add — and this variant runs
-                # with ``disable_internal_retries=True``, leaving no other net
-                # against the duplicate this probe exists to prevent.
+            except Exception as exc:
+                # Propagate, do not retry (#2220) — see the full rationale on
+                # ``add_url._probe``. An unanswered probe is not evidence that
+                # the create did not land, and this variant has no internal
+                # retries left as a net against the duplicate.
                 logger.warning(
-                    "add_drive: probe list() failed with a non-transport error; treating as "
-                    "no match, so a retry may create a duplicate Drive source",
+                    "add_drive: probe list() failed with a non-transport error (%s); the "
+                    "create cannot be confirmed, so it will not be retried",
+                    type(exc).__name__,
                     exc_info=True,
                 )
-                return None
+                raise _unconfirmed(
+                    SourceAddError(
+                        title,
+                        cause=exc,
+                        message=(
+                            # Action first — see the note on ``add_url``'s copy.
+                            "UNRESOLVED — do not blindly retry; check the notebook "
+                            "source list first. Cannot confirm Drive source "
+                            f"{file_id!r}: the create failed at the transport level "
+                            "and may or may not have committed, and the idempotency "
+                            f"probe that would settle it failed too "
+                            f"({type(exc).__name__}). No FURTHER attempt was made, because "
+                            "retrying on an unanswered probe is how duplicates happen — "
+                            "but an earlier attempt in this call may also have committed."
+                        ),
+                    )
+                ) from exc
             matches = [source for source in sources if source.drive_document_id == file_id]
             if baseline_ids is not None:
                 matches = [source for source in matches if source.id not in baseline_ids]
             elif matches:
                 # Without a baseline a match may predate this add — see the
                 # ``baseline_ids`` comment for the failure mode this guards.
-                raise SourceAddError(
-                    title,
-                    message=(
-                        f"Cannot disambiguate Drive source {file_id!r}: baseline snapshot "
-                        "was unavailable, so a matching source may predate this add. "
-                        "Check the notebook source list before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        title,
+                        cause=baseline_error,
+                        message=(
+                            f"Cannot disambiguate Drive source {file_id!r}: the pre-create "
+                            f"baseline snapshot failed ({type(baseline_error).__name__}), so "
+                            "a matching source may either predate this add or be the one it "
+                            "just created. Check the notebook source list before retrying."
+                        ),
+                    )
                 )
             if len(matches) == 1:
                 (match,) = matches  # exactly one (len==1 guard); unpack, not matches[0]
                 return match
             if len(matches) > 1:
-                raise SourceAddError(
-                    title,
-                    message=(
-                        f"Cannot disambiguate Drive source {file_id!r}: probe found "
-                        f"{len(matches)} new sources with this documentId after a "
-                        "transport failure. Check the notebook source list before retrying."
-                    ),
+                raise _unconfirmed(
+                    SourceAddError(
+                        title,
+                        message=(
+                            f"Cannot disambiguate Drive source {file_id!r}: probe found "
+                            f"{len(matches)} new sources with this documentId after a "
+                            "transport failure. Check the notebook source list before retrying."
+                        ),
+                    )
                 )
             return None
 

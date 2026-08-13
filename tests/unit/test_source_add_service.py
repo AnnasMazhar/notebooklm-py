@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from notebooklm._app import source_add as cli_source_add
+from notebooklm._app.errors import ErrorCategory, classify
 from notebooklm._idempotency import _CreateResultKind, _IdempotentCreateResult
 from notebooklm._source.add import SourceAddService, honor_requested_title_if_fresh
 from notebooklm._sources import SourcesAPI
@@ -214,6 +215,14 @@ async def test_add_url_baseline_failure_makes_a_match_ambiguous(
     assert raised.value.cause is baseline_failure
     # The transport error that triggered the probe survives as context.
     assert raised.value.__context__ is transport_error
+    # An ambiguity IS an unconfirmed create (#2220 review): nothing threw
+    # inside the probe, so this looks like an ordinary rejection — but the
+    # server may hold a row either way, which is precisely what the marker
+    # names. Unmarked, it classifies as the non-fatal per-item SOURCE_ADD and
+    # a batch add would keep going, issuing more unresolvable writes.
+    assert getattr(raised.value, "unconfirmed", False) is True
+    assert classify(raised.value).category is ErrorCategory.RPC
+    assert classify(raised.value).retriable is False
     # The swallow is visible at the default logger level (WARNING), not DEBUG.
     assert "baseline list() failed" in caplog.text
 
@@ -248,6 +257,14 @@ async def test_add_url_probe_raises_on_multiple_new_matches(
 
     assert "src_a" in str(raised.value)
     assert "src_b" in str(raised.value)
+    # An ambiguity IS an unconfirmed create (#2220 review): nothing threw
+    # inside the probe, so this looks like an ordinary rejection — but the
+    # server may hold a row either way, which is precisely what the marker
+    # names. Unmarked, it classifies as the non-fatal per-item SOURCE_ADD and
+    # a batch add would keep going, issuing more unresolvable writes.
+    assert getattr(raised.value, "unconfirmed", False) is True
+    assert classify(raised.value).category is ErrorCategory.RPC
+    assert classify(raised.value).retriable is False
 
 
 @pytest.mark.asyncio
@@ -307,21 +324,33 @@ async def test_probed_result_without_proven_freshness_skips_the_rename() -> None
 
 
 @pytest.mark.asyncio
-async def test_add_url_probe_decode_failure_warns(
+async def test_add_url_probe_decode_failure_propagates_without_retrying(
     service: SourceAddService,
     logger: logging.Logger,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A non-transport probe failure logs at WARNING, not DEBUG (#2204).
+    """A probe that cannot answer aborts the add instead of retrying (#2220).
 
-    It is indistinguishable from "the create did not land", so the add is
-    re-issued with no internal retries left as a net — the operator needs to
-    see it.
+    A decode failure leaves the probe unable to say whether the create landed.
+    Returning "no match" there would re-issue ``ADD_SOURCE`` on no evidence,
+    and this variant runs with ``disable_internal_retries=True`` precisely
+    because a blind re-POST can duplicate. So the create must NOT fire twice.
+
+    The raised error has to stay diagnosable end to end: the decode failure as
+    ``cause``/``__cause__``, and the transport failure that triggered the probe
+    as ``__context__`` (``idempotent_create`` awaits the probe inside its
+    handler for that error).
     """
     add_url_source = AsyncMock(side_effect=NetworkError("temporary network failure"))
-    list_sources = AsyncMock(side_effect=[[], RPCError("probe decode failed"), [], []])
+    probe_error = RPCError("probe decode failed")
+    # Exactly two entries: baseline, then the probe that fails. A third list
+    # call would mean the retry loop continued — StopIteration, not a pass.
+    list_sources = AsyncMock(side_effect=[[], probe_error])
 
-    with caplog.at_level(logging.WARNING, logger=logger.name), pytest.raises(NetworkError):
+    with (
+        caplog.at_level(logging.WARNING, logger=logger.name),
+        pytest.raises(SourceAddError) as exc_info,
+    ):
         await service.add_url(
             "nb_1",
             "https://example.com",
@@ -334,8 +363,15 @@ async def test_add_url_probe_decode_failure_warns(
             logger=logger,
         )
 
-    assert "may create a duplicate source" in caplog.text
-    assert add_url_source.await_count == 2
+    assert "will not be retried" in caplog.text
+    # The load-bearing assertion: one create, not two. Flip the probe back to
+    # ``return None`` and this is what fails.
+    assert add_url_source.await_count == 1
+    assert exc_info.value.cause is probe_error
+    assert exc_info.value.__cause__ is probe_error
+    assert exc_info.value.__context__ is probe_error
+    # The transport error that made the probe run at all is still reachable.
+    assert isinstance(probe_error.__context__, NetworkError)
 
 
 @pytest.mark.asyncio
@@ -1099,3 +1135,112 @@ class TestBuildSourceAddPlanUrlRouting:
             looks_path_shaped=self._make_looks_path(),
         )
         assert plan.detected_type == "youtube"
+
+
+def _drive_source(source_id: str, file_id: str, title: str = "Drive Doc") -> Source:
+    """A Drive-backed row, built from the captured wire shape.
+
+    Copied from the live ``GET_NOTEBOOK`` capture in
+    ``tests/cassettes/sources_check_freshness_drive.yaml`` (the same shape
+    ``tests/integration/test_sources_idempotency.py::_google_docs_source_row``
+    uses): the Drive block sits at ``metadata[0]`` and **no** URL slot is
+    populated — which is exactly why the pre-#2113 URL-based probe could never
+    match one. Decoding a real row rather than setting the property keeps this
+    honest: if the ``documentId`` slot ever moves, these tests notice.
+    """
+    metadata: list = [
+        [file_id, "SCRUBBED_AONS", 12],
+        911,
+        [1769105469, 316769000],
+        ["d4325602-2399-44c2-b45b-9df8f433189f", [1769105982, 178269000]],
+        1,  # SourceType.GOOGLE_DOCS
+        None,
+        1,
+    ]
+    source = Source.from_api_response(
+        [[source_id], title, metadata, [None, 2]],
+        method_id=RPCMethod.GET_NOTEBOOK.value,
+    )
+    # Guard the fixture itself: a silently non-matching row would make the
+    # probe return None and the test would fail for the wrong reason.
+    assert source.drive_document_id == file_id, "fixture no longer decodes as a Drive row"
+    return source
+
+
+@pytest.mark.asyncio
+async def test_add_drive_baseline_failure_makes_a_match_ambiguous(
+    service: SourceAddService,
+    logger: logging.Logger,
+) -> None:
+    """The Drive twin of ``test_add_url_baseline_failure_makes_a_match_ambiguous``.
+
+    This branch had **no** test at all before #2220's round-4 review — neither
+    for the #2113 ambiguity behaviour nor for the marker. A ``documentId`` is
+    not unique within a notebook, so without a baseline a match may predate the
+    add; adopting it would report a create that never landed.
+    """
+    file_id = "drive_file_1"
+    existing = _drive_source("src_pre_existing", file_id)
+    rpc = SimpleNamespace(rpc_call=AsyncMock(side_effect=ServerError("commit lost")))
+
+    with pytest.raises(SourceAddError, match="Cannot disambiguate Drive source") as raised:
+        await service.add_drive(
+            "nb_1",
+            file_id,
+            "Drive Doc",
+            rpc=rpc,
+            # baseline fails, then the probe finds the unattributable match
+            list_sources=AsyncMock(side_effect=[RPCError("baseline decode failed"), [existing]]),
+            wait_until_ready=AsyncMock(),
+            logger=logger,
+        )
+
+    # Parity with add_url: the error names what broke the baseline, because the
+    # caller reads "baseline snapshot failed" long after that read happened and
+    # nothing else in the process can explain it.
+    # The load-bearing assertion: ONE create. The finite ``side_effect`` list
+    # would also fail a runaway loop, but with a StopIteration that says nothing
+    # about what went wrong; this names it.
+    assert rpc.rpc_call.await_count == 1
+    assert isinstance(raised.value.cause, RPCError)
+    assert "RPCError" in str(raised.value)
+    # The create's outcome is unknown, so this must not be classified as a
+    # per-item input rejection a batch add can isolate and continue past.
+    assert getattr(raised.value, "unconfirmed", False) is True
+    assert classify(raised.value).category is ErrorCategory.RPC
+    assert classify(raised.value).retriable is False
+
+
+@pytest.mark.asyncio
+async def test_add_drive_probe_raises_on_multiple_new_matches(
+    service: SourceAddService,
+    logger: logging.Logger,
+) -> None:
+    """Two new rows sharing a ``documentId`` cannot be told apart — raise, don't pick.
+
+    The repo's own cassette holds two source ids sharing one ``documentId``
+    (#2113), so this is a real shape, not a hypothetical.
+    """
+    file_id = "drive_file_2"
+    first = _drive_source("src_a", file_id)
+    second = _drive_source("src_b", file_id)
+    rpc = SimpleNamespace(rpc_call=AsyncMock(side_effect=ServerError("commit lost")))
+
+    with pytest.raises(SourceAddError, match="probe found 2 new sources") as raised:
+        await service.add_drive(
+            "nb_1",
+            file_id,
+            "Drive Doc",
+            rpc=rpc,
+            list_sources=AsyncMock(side_effect=[[], [first, second]]),
+            wait_until_ready=AsyncMock(),
+            logger=logger,
+        )
+
+    # The load-bearing assertion: ONE create. The finite ``side_effect`` list
+    # would also fail a runaway loop, but with a StopIteration that says nothing
+    # about what went wrong; this names it.
+    assert rpc.rpc_call.await_count == 1
+    assert "src_a" in str(raised.value) or "2 new sources" in str(raised.value)
+    assert getattr(raised.value, "unconfirmed", False) is True
+    assert classify(raised.value).category is ErrorCategory.RPC

@@ -65,7 +65,7 @@ from notebooklm.exceptions import (
     SourceAddError,
     ValidationError,
 )
-from notebooklm.rpc import RPCMethod
+from notebooklm.rpc import RPCError, RPCMethod
 from tests._fixtures.kernel_test_helpers import install_http_client_for_test
 
 # Mock-transport idempotency tests; no HTTP, no cassette. Opt out of the
@@ -366,6 +366,11 @@ async def test_add_url_probe_raises_when_baseline_unavailable_and_a_copy_exists(
     finally:
         await client._collaborators.kernel.get_http_client().aclose()
 
+    # The load-bearing half: an ambiguous probe must ABORT the retry loop.
+    # Classification alone would still pass if a second create had already gone
+    # out — which is the duplicate this whole path exists to prevent.
+    assert counts["add"] == 1, f"expected 1 ADD_SOURCE, got {counts['add']}"
+
 
 async def test_add_url_baseline_unavailable_without_a_match_still_retries(auth_tokens) -> None:
     """No baseline and no match is not ambiguous — it is simply "not committed".
@@ -514,14 +519,16 @@ async def test_add_url_probe_matches_on_the_second_attempt(auth_tokens) -> None:
     assert counts["add"] == 2, "both attempts should have fired before the probe matched"
 
 
-async def test_add_url_probe_decode_failure_warns_and_does_not_match(auth_tokens, caplog) -> None:
-    """A non-transport probe failure is loud, and still lets the retry proceed.
+async def test_add_url_probe_decode_failure_aborts_instead_of_retrying(auth_tokens, caplog) -> None:
+    """A probe that cannot answer aborts the add instead of retrying (#2220).
 
     A drifted GET_NOTEBOOK makes the strict decoder raise ``RPCError``. That is
-    NOT a transport signal, so it must not propagate as one — but it also cannot
-    pass unremarked at DEBUG, because it is indistinguishable from "the create
-    did not land" and this variant has no internal retries to fall back on
-    (#2204).
+    not a transport signal, so it is not re-raised as one — but it does mean the
+    probe cannot say whether the create landed, and "no match" is a claim it
+    cannot support. Since this variant runs with no internal retries, re-issuing
+    ``ADD_SOURCE`` here is how the duplicate the probe exists to prevent gets
+    created. Exercised through the real client stack so the strict decoder, not
+    a stubbed exception, produces the failure.
     """
     notebook_id = "nb_test"
     counts = {"add": 0, "get": 0}
@@ -543,14 +550,21 @@ async def test_add_url_probe_decode_failure_warns_and_does_not_match(auth_tokens
     client = _make_client_with_transport(transport, auth_tokens)
     with caplog.at_level(logging.WARNING, logger="notebooklm._sources"):
         try:
-            with pytest.raises(ServerError):
+            with pytest.raises(SourceAddError, match="Cannot confirm URL source") as exc_info:
                 await client.sources.add_url(notebook_id, _PROBE_URL)
         finally:
             await client._collaborators.kernel.get_http_client().aclose()
 
-    # Treated as "no match", so both attempts fire and the transport error wins.
-    assert counts["add"] == 2
-    assert "may create a duplicate source" in caplog.text
+    # The load-bearing assertion: the create fired ONCE. Restore the probe's
+    # ``return None`` and this becomes 2 — the duplicate this PR prevents.
+    assert counts["add"] == 1
+    assert "add_url: probe list() failed" in caplog.text
+    assert "will not be retried" in caplog.text
+    # Both halves of the story survive to the caller: the decode failure that
+    # blinded the probe, and the 502 that made it run.
+    assert isinstance(exc_info.value.cause, RPCError)
+    assert isinstance(exc_info.value.__context__, RPCError)
+    assert isinstance(exc_info.value.__context__.__context__, ServerError)
 
 
 async def test_add_url_recovered_create_still_honors_the_requested_title(auth_tokens) -> None:
@@ -815,10 +829,20 @@ async def test_add_drive_probe_raises_when_baseline_unavailable_and_a_copy_exist
     # point of the test being what the *probe* does afterwards.
     client = _make_client_with_transport(transport, auth_tokens, server_error_max_retries=0)
     try:
-        with pytest.raises(SourceAddError, match="baseline snapshot was unavailable"):
+        with pytest.raises(SourceAddError, match="pre-create baseline snapshot failed") as exc_info:
             await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, title)
     finally:
         await client._collaborators.kernel.get_http_client().aclose()
+
+    # The load-bearing half: an ambiguous probe must ABORT the retry loop.
+    # Classification alone would still pass if a second create had already gone
+    # out — which is the duplicate this whole path exists to prevent.
+    assert counts["add"] == 1, f"expected 1 ADD_SOURCE, got {counts['add']}"
+
+    # The baseline's own failure is retained as the cause, matching add_url: the
+    # caller reads "baseline snapshot failed" long after that read happened, and
+    # nothing else in the process can explain it.
+    assert isinstance(exc_info.value.cause, ServerError)
 
 
 async def test_add_drive_probe_raises_when_multiple_new_matches_appear(auth_tokens) -> None:
@@ -1166,7 +1190,7 @@ async def test_register_file_source_baseline_unavailable_raises_on_ambiguity(
                 "upload_file_streaming",
                 AsyncMock(return_value=None),
             ),
-            pytest.raises(NotebookLMError, match="baseline snapshot was unavailable"),
+            pytest.raises(NotebookLMError, match="pre-create baseline snapshot failed"),
         ):
             await client.sources.add_file(notebook_id, test_file)
     finally:
@@ -1416,13 +1440,14 @@ async def test_add_drive_probe_transport_error_propagates(auth_tokens) -> None:
     assert counts["add"] == 1
 
 
-async def test_add_drive_probe_decode_failure_warns_and_does_not_match(auth_tokens, caplog) -> None:
-    """A non-transport probe failure is loud, and still lets the retry proceed.
+async def test_add_drive_probe_decode_failure_aborts_instead_of_retrying(
+    auth_tokens, caplog
+) -> None:
+    """A probe that cannot answer aborts the add instead of retrying (#2220).
 
-    A drifted GET_NOTEBOOK makes the strict decoder raise ``RPCError``. That is
-    NOT a transport signal, so it must not propagate as one — but it also cannot
-    pass unremarked, because it is indistinguishable from "the create did not
-    land" and this variant has no internal retries to fall back on.
+    The Drive twin of ``test_add_url_probe_decode_failure_aborts_instead_of_retrying``;
+    both paths are one pattern and #2220's whole argument is that they move
+    together, so the Drive path is pinned separately rather than assumed.
     """
     notebook_id = "nb_test"
     counts = {"add": 0, "get": 0}
@@ -1444,14 +1469,18 @@ async def test_add_drive_probe_decode_failure_warns_and_does_not_match(auth_toke
     client = _make_client_with_transport(transport, auth_tokens)
     with caplog.at_level(logging.WARNING, logger="notebooklm._sources"):
         try:
-            with pytest.raises(ServerError):
+            with pytest.raises(SourceAddError, match="Cannot confirm Drive source") as exc_info:
                 await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, "My Drive Doc")
         finally:
             await client._collaborators.kernel.get_http_client().aclose()
 
-    # Treated as "no match", so both attempts fire and the transport error wins.
-    assert counts["add"] == 2
-    assert "may create a duplicate Drive source" in caplog.text
+    # One create, not two — see the add_url twin.
+    assert counts["add"] == 1
+    # Prefixed, so an add_url log could not satisfy this assertion.
+    assert "add_drive: probe list() failed" in caplog.text
+    assert "will not be retried" in caplog.text
+    assert isinstance(exc_info.value.cause, RPCError)
+    assert isinstance(exc_info.value.__context__.__context__, ServerError)
 
 
 async def test_add_drive_probe_matches_on_the_second_attempt(auth_tokens) -> None:
