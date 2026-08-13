@@ -209,11 +209,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   discarded what the server said and substituted its own guess,
   `ArtifactFeatureUnavailableError("Audio generation is unavailable")`. Callers
   can now pass `raise_on_null_status=True` (as `CREATE_ARTIFACT`,
-  `RETRY_ARTIFACT` and `REVISE_SLIDE` do) to have a status-tagged null raise
-  with the server's code and label. It is opt-in per call site rather than a
-  blanket change because `REMOVE_RECENTLY_VIEWED` answers `[13]` (INTERNAL) on
-  a call the client treats as a successful no-op. A generation rejected with no
-  status at all still raises `ArtifactFeatureUnavailableError`.
+  `RETRY_ARTIFACT` and `REVISE_SLIDE` do — all three live-verified: retry and
+  revise answer `[5]` NOT_FOUND for an unknown artifact id) to have a
+  status-tagged null raise with the server's code and label. It is opt-in per
+  call site rather than a blanket change because three *other* RPCs are
+  recorded doing the same thing on flows this client reports as successful —
+  `SHARE_NOTEBOOK` and `SHARE_ARTIFACT` answer `[3]`, `REMOVE_RECENTLY_VIEWED`
+  answers `[13]` — and only the last of those has ever been reasoned about.
+  Whether the two share rejections are benign is an open question this change
+  deliberately does not answer; a swallowed status now logs at DEBUG so they
+  are findable. A generation rejected with no status at all still raises
+  `ArtifactFeatureUnavailableError`.
   ([#2188](https://github.com/teng-lin/notebooklm-py/issues/2188))
 - **`google.rpc.Status.message` is no longer discarded.** Index 1 of the
   rejection envelope is the only slot in which the *server* can state a reason;

@@ -19,6 +19,9 @@ __all__ = [
     "CREATE_ARTIFACT_METHOD_ID",
     "INVALID_ARGUMENT_STATUS",
     "LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY",
+    "LIVE_RETRY_ARTIFACT_NOT_FOUND_BODY",
+    "LIVE_REVISE_SLIDE_NOT_FOUND_BODY",
+    "MIND_MAP_HAS_NO_OBSERVED_REJECTION",
     "USER_DISPLAYABLE_RATE_LIMIT_STATUS",
     "raw_batchexecute_body",
     "user_displayable_rejection_chunks",
@@ -61,13 +64,24 @@ USER_DISPLAYABLE_RATE_LIMIT_STATUS: list[Any] = [
 INVALID_ARGUMENT_STATUS: list[Any] = [3]
 
 #: The complete raw HTTP body of that live rejection, verbatim except for the
-#: ``af.httprm`` nonce (replaced with zeroes).
+#: ``af.httprm`` nonce (replaced with the same number of zeroes).
 #:
 #: Provenance: live probe 2026-08-13, ``NOTEBOOKLM_PROFILE=peopleconf``,
 #: ``generate_audio`` on a freshly created source-less notebook. Kept as raw
 #: text — anti-XSSI prefix, byte-count framing and trailing frames included —
 #: so tests can drive the *whole* decode pipeline rather than a hand-assembled
 #: chunk list.
+#:
+#: **Do not "correct" the byte counts.** They read ``104`` and ``25`` for chunks
+#: of 102 and 23 characters — a consistent +2 — and that is what the server
+#: sent: two independent captures (2026-08-13, different notebooks and
+#: nonces) declare exactly the same pair, and the scrub is width-preserving so
+#: it cannot have shifted them. Note the blank line after the anti-XSSI prefix,
+#: which :func:`raw_batchexecute_body` does not reproduce; this body is the
+#: only fixture in the suite that carries real server framing, and decoding it
+#: increments ``byte_count_mismatch_total`` (pinned by
+#: ``tests/unit/test_decoder.py::TestLiveCapturedFraming``). The decoder is
+#: deliberately tolerant of that — see ``parse_chunked_response``'s Note: block.
 LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY = (
     ")]}'\n\n"
     "104\n"
@@ -76,6 +90,42 @@ LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY = (
     "25\n"
     '[["e",4,null,null,140]]\n'
 )
+
+#: ``RETRY_ARTIFACT`` refused for an artifact id that does not exist.
+#:
+#: Provenance: live probe 2026-08-13, same session — ``retry_failed`` against
+#: ``"no-such-artifact-id"``. Code 5 is ``NOT_FOUND``. Nonce zeroed,
+#: width-preserved; the ``+2`` byte-count offset above holds here too.
+LIVE_RETRY_ARTIFACT_NOT_FOUND_BODY = (
+    ")]}'\n\n"
+    "107\n"
+    '[["wrb.fr","Rytqqe",null,null,null,[5],"generic"],["di",113],'
+    '["af.httprm",113,"-0000000000000000000",11]]\n'
+    "25\n"
+    '[["e",4,null,null,143]]\n'
+)
+
+#: ``REVISE_SLIDE`` refused for an artifact id that does not exist.
+#:
+#: Provenance: live probe 2026-08-13, same session — ``revise_slide`` against
+#: ``"no-such-artifact-id"``. Code 5 is ``NOT_FOUND``.
+LIVE_REVISE_SLIDE_NOT_FOUND_BODY = (
+    ")]}'\n\n"
+    "104\n"
+    '[["wrb.fr","KmcKPe",null,null,null,[5],"generic"],["di",87],'
+    '["af.httprm",86,"0000000000000000000",11]]\n'
+    "25\n"
+    '[["e",4,null,null,140]]\n'
+)
+
+#: Live evidence that the mind-map path has NO observed rejection shape.
+#:
+#: ``GENERATE_MIND_MAP`` on the same source-less notebook was **not refused** —
+#: the backend generated a generic mind map and returned it. So unlike the three
+#: artifact RPCs above, that call site has no captured status-tagged null, and
+#: opting it into ``raise_on_null_status`` would be inference rather than
+#: evidence. Recorded here so the next reader does not re-derive it (#2188).
+MIND_MAP_HAS_NO_OBSERVED_REJECTION = True
 
 
 def raw_batchexecute_body(frames: list[Any]) -> str:

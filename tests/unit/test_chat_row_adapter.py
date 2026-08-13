@@ -16,6 +16,8 @@ adapter:
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from notebooklm._row_adapters.chat import (
@@ -33,6 +35,7 @@ from notebooklm._row_adapters.chat import (
 )
 from notebooklm.exceptions import UnknownRPCMethodError
 from notebooklm.rpc import RPCMethod
+from notebooklm.rpc.decoder import _MAX_STATUS_MESSAGE_CHARS
 
 # ---------------------------------------------------------------------------
 # 1. Position-contract pins (the canaries)
@@ -368,10 +371,18 @@ class TestErrorPayloadRow:
         assert ErrorPayloadRow([8, "  Slow  down\tplease ", []]).message == "Slow down please"
 
     def test_message_is_truncated(self) -> None:
+        """Shares the decoder's cap, so the two layers cannot diverge."""
         message = ErrorPayloadRow([8, "x" * 5000]).message
         assert message is not None
-        assert len(message) <= ErrorPayloadRow._MAX_MESSAGE_CHARS + 1
+        assert len(message) <= _MAX_STATUS_MESSAGE_CHARS + 1
         assert message.endswith("…")
+
+    def test_non_string_message_slot_warns(self, caplog) -> None:
+        """An unexpected type there is drift, and must not be inaudible."""
+        with caplog.at_level(logging.WARNING, logger="notebooklm.rpc.decoder"):
+            assert ErrorPayloadRow([8, ["nested"], []]).message is None
+
+        assert any("not a string" in r.getMessage() for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

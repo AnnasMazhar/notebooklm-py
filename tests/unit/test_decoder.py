@@ -7,6 +7,7 @@ import pytest
 
 from notebooklm.exceptions import DecodingError
 from notebooklm.rpc.decoder import (
+    _RPCS_OBSERVED_SWALLOWING_A_STATUS,
     AuthError,
     ClientError,
     RateLimitError,
@@ -25,7 +26,11 @@ from notebooklm.rpc.decoder import (
     strip_anti_xssi,
 )
 from notebooklm.rpc.types import RPCMethod
-from tests._fixtures.rpc_error_frames import USER_DISPLAYABLE_RATE_LIMIT_STATUS
+from tests._fixtures.rpc_error_frames import (
+    CREATE_ARTIFACT_METHOD_ID,
+    LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY,
+    USER_DISPLAYABLE_RATE_LIMIT_STATUS,
+)
 
 
 class TestStripAntiXSSI:
@@ -1694,6 +1699,40 @@ class TestServerStatusMessage:
         assert "This notebook has no sources yet" in message
 
 
+class TestLiveCapturedFraming:
+    """The one fixture carrying real server framing, pinned as captured.
+
+    ``LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY`` declares byte counts two
+    higher than its chunks are long. That is not a typo: two independent live
+    captures (2026-08-13, different notebooks and nonces) declare the same
+    pair, and the nonce scrub is width-preserving. This test exists so nobody
+    "corrects" the fixture into agreement with ``raw_batchexecute_body`` and
+    quietly turns a real capture into a synthetic one — a reviewer proposed
+    exactly that.
+    """
+
+    def test_declared_counts_exceed_the_payloads_by_two(self):
+        lines = LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY.split("\n")
+        # ")]}'", "", "104", <chunk>, "25", <trailer>, ""
+        assert int(lines[2]) == len(lines[3]) + 2
+        assert int(lines[4]) == len(lines[5]) + 2
+
+    def test_decoding_it_records_a_byte_count_mismatch(self):
+        """The decoder tolerates the mismatch but counts it as a drift signal."""
+        reset_byte_count_mismatch_total()
+        try:
+            with pytest.raises(RPCError):
+                decode_response(
+                    LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY,
+                    CREATE_ARTIFACT_METHOD_ID,
+                    allow_null=True,
+                    raise_on_null_status=True,
+                )
+            assert byte_count_mismatch_total() == 2
+        finally:
+            reset_byte_count_mismatch_total()
+
+
 class TestRaiseOnNullStatus:
     """``allow_null`` tolerates an empty payload, not an explicit rejection."""
 
@@ -1752,16 +1791,69 @@ class TestRaiseOnNullStatus:
 
         assert exc_info.value.rpc_code == 5
 
-    def test_swallowed_rejection_is_logged(self, caplog):
-        """A swallow without opt-in leaves a trace instead of vanishing."""
+    def test_swallowed_rejection_leaves_a_debug_trace(self, caplog):
+        """A swallow leaves a trace instead of vanishing — but only at DEBUG.
+
+        WARNING was considered and rejected: three RPCs are RECORDED swallowing
+        a status-tagged null on flows this client reports as successful
+        (SHARE_NOTEBOOK / SHARE_ARTIFACT ``[3]``, REMOVE_RECENTLY_VIEWED
+        ``[13]``), so warning would fire on ordinary ``share add`` traffic and
+        assert a benign-vs-broken judgement the evidence does not support.
+        """
         with caplog.at_level(logging.DEBUG, logger="notebooklm.rpc.decoder"):
             assert decode_response(self._raw([13]), self.RPC_ID, allow_null=True) is None
 
-        assert any(
-            "swallowed because the call site did not pass raise_on_null_status" in r.message
-            and "Internal" in r.getMessage()
+        matching = [
+            r
             for r in caplog.records
-        )
+            if "swallowed because the call site did not pass raise_on_null_status" in r.message
+        ]
+        assert matching, "the swallow left no trace"
+        assert all(r.levelno == logging.DEBUG for r in matching)
+        assert "Internal" in matching[0].getMessage()
+
+    def test_recorded_swallowing_rpcs_are_declared(self):
+        """The three RPCs observed doing this are on the record, not folklore.
+
+        Re-derived from tests/cassettes/ by the sweep in the #2188 PR: five
+        null-result ``wrb.fr`` frames across 397, on exactly these RPCs.
+        """
+        assert set(_RPCS_OBSERVED_SWALLOWING_A_STATUS) == {
+            RPCMethod.REMOVE_RECENTLY_VIEWED.value,
+            RPCMethod.SHARE_NOTEBOOK.value,
+            RPCMethod.SHARE_ARTIFACT.value,
+        }
+
+    def test_unclassifiable_status_under_opt_in_warns(self, caplog):
+        """A rejection in a shape we cannot name must not be the quietest branch.
+
+        ``[99]`` is outside the gRPC range, so ``rejected`` is False and the
+        caller falls back to inventing its own reason — the exact #2188 defect.
+        The opt-in says the caller wanted the server's word, so say so.
+        """
+        with caplog.at_level(logging.DEBUG, logger="notebooklm.rpc.decoder"):
+            assert (
+                decode_response(
+                    self._raw([99]), self.RPC_ID, allow_null=True, raise_on_null_status=True
+                )
+                is None
+            )
+
+        matching = [r for r in caplog.records if "unrecognized index-5 payload" in r.message]
+        assert matching, "an unclassifiable rejection payload left no trace"
+        assert matching[0].levelno == logging.WARNING
+
+    def test_a_reasonless_null_under_opt_in_stays_quiet(self, caplog):
+        """No payload at all is a genuinely empty result, not drift."""
+        with caplog.at_level(logging.DEBUG, logger="notebooklm.rpc.decoder"):
+            assert (
+                decode_response(
+                    self._raw(None), self.RPC_ID, allow_null=True, raise_on_null_status=True
+                )
+                is None
+            )
+
+        assert not any("unrecognized index-5 payload" in r.message for r in caplog.records)
 
     @pytest.mark.parametrize("status", [None, [0]])
     def test_a_benign_null_logs_nothing(self, caplog, status):
@@ -1770,6 +1862,25 @@ class TestRaiseOnNullStatus:
             assert decode_response(self._raw(status), self.RPC_ID, allow_null=True) is None
 
         assert not any("swallowed because" in r.message for r in caplog.records)
+
+    def test_opt_in_appends_a_server_message_when_one_is_sent(self):
+        """The #2188 headline path composes label + server text.
+
+        Synthetic by necessity — no captured rejection has ever populated the
+        message slot — so the captured-shape case above is the one that pins
+        what users see today.
+        """
+        with pytest.raises(RPCError) as exc_info:
+            decode_response(
+                self._raw([9, "This notebook has no sources yet"]),
+                self.RPC_ID,
+                allow_null=True,
+                raise_on_null_status=True,
+            )
+
+        message = str(exc_info.value)
+        assert message.startswith("The server rejected this request (failed precondition).")
+        assert message.endswith("This notebook has no sources yet")
 
     def test_opt_in_does_not_change_a_populated_result(self):
         """Strictness only concerns null results."""

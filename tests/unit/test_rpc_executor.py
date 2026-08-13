@@ -297,7 +297,14 @@ async def test_execute_threads_override_source_allow_null_and_retry_flag(monkeyp
     def decode(
         raw: str, rpc_id: str, *, allow_null: bool = False, raise_on_null_status: bool = False
     ) -> dict[str, Any]:
-        decode_calls.append({"raw": raw, "rpc_id": rpc_id, "allow_null": allow_null})
+        decode_calls.append(
+            {
+                "raw": raw,
+                "rpc_id": rpc_id,
+                "allow_null": allow_null,
+                "raise_on_null_status": raise_on_null_status,
+            }
+        )
         return {"ok": True}
 
     result = await _executor(owner, decode_response=decode)._execute_once(
@@ -307,6 +314,7 @@ async def test_execute_threads_override_source_allow_null_and_retry_flag(monkeyp
         True,
         False,
         disable_internal_retries=True,
+        raise_on_null_status=True,
     )
 
     assert result == {"ok": True}
@@ -320,7 +328,19 @@ async def test_execute_threads_override_source_allow_null_and_retry_flag(monkeyp
     body = httpx.QueryParams(owner.perform_calls[0]["body"])
     assert body["at"] == "CSRF_SNAPSHOT"
     assert '"OverrideRpc"' in body["f.req"]
-    assert decode_calls == [{"raw": "raw", "rpc_id": "OverrideRpc", "allow_null": True}]
+    # ``raise_on_null_status`` is asserted here because this is the ONLY link
+    # between "the call site asked for strictness" and "the decoder received
+    # it" — the end-to-end tests replace ``rpc_call``, which sits above the
+    # executor. Dropping the kwarg at the decode call left the whole suite
+    # green before this assertion existed (#2188).
+    assert decode_calls == [
+        {
+            "raw": "raw",
+            "rpc_id": "OverrideRpc",
+            "allow_null": True,
+            "raise_on_null_status": True,
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -858,6 +878,12 @@ async def test_constructor_injected_sleep_drives_executor(monkeypatch) -> None:
         assert _is_retry is True
         assert disable_internal_retries is True
         assert operation_variant is None
+        # The post-refresh retry must inherit the per-call options, not silently
+        # fall back to the module defaults. This repo has already shipped that
+        # exact bug once — ``read_timeout`` was dropped here in the #2187 PR and
+        # only caught in review — so both are pinned (#2188).
+        assert read_timeout == 45.0
+        assert raise_on_null_status is True
         return {"ok": True}
 
     # ADR-0014 Rule 5 (Wave 4): executor calls ``self._auth_refresh.await_refresh()``
@@ -874,6 +900,8 @@ async def test_constructor_injected_sleep_drives_executor(monkeypatch) -> None:
         True,
         RPCError("auth"),
         disable_internal_retries=True,
+        read_timeout=45.0,
+        raise_on_null_status=True,
         _refresh_budget=RefreshBudget(),
     )
 

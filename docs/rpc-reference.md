@@ -2847,12 +2847,25 @@ Observed codes:
 |---------|-----|-------|
 | `[3]` INVALID_ARGUMENT | `CREATE_ARTIFACT` (`R7cb6c`) | Live 2026-08-13: audio overview on a source-less notebook |
 | `[3]` INVALID_ARGUMENT | streamed chat | `tests/cassettes/chat_ask_oversized_rejection.yaml` (#1472) |
-| `[5]` NOT_FOUND | `CREATE_ARTIFACT`, `GET_NOTEBOOK` | Live 2026-08-13 (unknown notebook id); #114 / #294 |
+| `[3]` INVALID_ARGUMENT | `SHARE_NOTEBOOK` (`QDyure`) | `tests/cassettes/cli_share_add.yaml`, `cli_share_remove.yaml` — swallowed; the flow reports success |
+| `[3]` INVALID_ARGUMENT | `SHARE_ARTIFACT` (`RGP97b`) | `tests/cassettes/notebooks_share.yaml` — swallowed; the flow reports success |
+| `[5]` NOT_FOUND | `CREATE_ARTIFACT`, `RETRY_ARTIFACT`, `REVISE_SLIDE`, `GET_NOTEBOOK` | Live 2026-08-13 (unknown notebook / artifact id); #114 / #294 |
 | `[13]` INTERNAL | `REMOVE_RECENTLY_VIEWED` (`fejl7e`) | `tests/cassettes/notebooks_remove_from_recent.yaml` — treated as a **successful** no-op |
 | `[8, null, [[…UserDisplayableError…]]]` | any | The rate-limit / quota shape |
 
 A sweep of all 141 cassettes found 397 `wrb.fr` frames, only 5 of them
-null-result — and all 5 carried one of the shapes above.
+null-result — and all 5 carried one of the shapes above, on three RPCs
+(`SHARE_NOTEBOOK` ×2, `SHARE_ARTIFACT`, `REMOVE_RECENTLY_VIEWED`).
+
+**Open question.** Only `REMOVE_RECENTLY_VIEWED`'s tolerance has ever been
+reasoned about (a cosmetic no-op). Whether the two share rejections are benign
+or a refusal being reported as a successful share is unresolved and is *not*
+answered here.
+
+Byte-count framing note: the live `CREATE_ARTIFACT` rejection bodies declare
+chunk lengths two higher than the chunks actually are (`104` for 102 chars,
+`25` for 23), consistently across independent captures. `parse_chunked_response`
+is deliberately tolerant of that and counts it via `byte_count_mismatch_total`.
 
 ### The reason gap
 
@@ -2876,9 +2889,11 @@ also swallow a null the server had *tagged with a rejection*, which is how
 `generate_audio` came to report "Audio generation is unavailable" for a live
 INVALID_ARGUMENT. Callers that want the server's status instead pass
 `raise_on_null_status=True` (`CREATE_ARTIFACT`, `RETRY_ARTIFACT`,
-`REVISE_SLIDE` do). It is opt-in rather than blanket because
-`REMOVE_RECENTLY_VIEWED` answers `[13]` on a call the client treats as
-successful.
+`REVISE_SLIDE` do — all three live-verified above). It is opt-in rather than
+blanket because three *other* RPCs are recorded answering a status on flows
+this client reports as successful (the table above); flipping them all at once
+would change behaviour nobody has evidence about. A swallowed status now logs
+at DEBUG, so the remaining cases are findable.
 
 ### Artifact failures have no reason at all
 

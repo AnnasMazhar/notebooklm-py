@@ -753,7 +753,10 @@ def test_user_displayable_error_payload_surfaces_server_message_when_present() -
 
     message = str(exc_info.value)
     assert "You have reached your daily chat limit" in message
-    assert "Wait a few seconds and try again" not in message
+    # APPENDED, not substituted: nobody has ever seen this slot populated, so
+    # there is no evidence a server message would be as actionable as the
+    # remedy it would displace (#2188).
+    assert "Wait a few seconds and try again" in message
 
 
 def _wrb_envelope(inner: Any) -> str:
@@ -856,7 +859,23 @@ def test_bare_rejection_surfaces_a_server_message_when_present() -> None:
     message = str(exc_info.value)
     assert "Question exceeds 100000 characters" in message
     assert "status 3" in message
-    assert "shorten it and" not in message
+    # The client's guidance is kept alongside the server's words, not replaced.
+    assert "shorten it and" in message
+
+
+def test_message_without_a_status_is_still_surfaced() -> None:
+    """``[None, "text"]`` — a reason with no code. The reason still reaches the user."""
+    wire = _length_prefixed(
+        json.dumps([["wrb.fr", None, None, None, None, [None, "Try a shorter question"]]])
+    )
+
+    with pytest.raises(ChatError) as exc_info:
+        parse_streaming_chat_response(wire)
+
+    message = str(exc_info.value)
+    assert "Try a shorter question" in message
+    # No code, so no "(status …)" detail is fabricated.
+    assert "status" not in message.split("The server said:")[0].lower()
 
 
 def test_null_inner_frame_with_empty_payload_still_raises_without_status() -> None:

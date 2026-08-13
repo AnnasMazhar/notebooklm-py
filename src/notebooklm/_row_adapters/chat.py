@@ -85,6 +85,7 @@ from typing import Any, ClassVar
 from .._types.documents import StructuredDocument
 from ..exceptions import UnknownRPCMethodError
 from ..rpc import RPCMethod, safe_index
+from ..rpc.decoder import sanitize_status_message
 from .documents import build_document
 
 __all__ = [
@@ -607,10 +608,6 @@ class ErrorPayloadRow:
     _MESSAGE_POS: ClassVar[int] = 1
     _ENTRIES_POS: ClassVar[int] = 2
 
-    #: Ceiling on echoed server text — the field is server-controlled and
-    #: unbounded, and it lands in a user-facing exception message.
-    _MAX_MESSAGE_CHARS: ClassVar[int] = 300
-
     @property
     def status_code(self) -> Any:
         """Leading status/code at ``error_payload[0]`` (e.g. ``3`` for a bare
@@ -631,22 +628,17 @@ class ErrorPayloadRow:
 
         **No captured response has ever carried a populated message**: the one
         recorded rich sample holds ``None`` here and the bare rejections are
-        length-1 arrays. Only a non-empty ``str`` is accepted, so the read stays
-        inert on all traffic observed to date instead of inventing a reason out
-        of whatever else may occupy the slot (the #2134 failure mode).
-        Whitespace is collapsed and the text capped at ``_MAX_MESSAGE_CHARS``.
+        length-1 arrays. The normalising rule (non-empty string only, whitespace
+        collapsed, length capped, non-string warned about) is shared with the
+        ``batchexecute`` decoder via :func:`sanitize_status_message` so the two
+        layers cannot drift in what users see; only the position is declared
+        twice, because ``rpc`` cannot import ``_row_adapters``.
         """
         if len(self._raw) <= self._MESSAGE_POS:
             return None
-        value = self._raw[self._MESSAGE_POS]
-        if not isinstance(value, str):
-            return None
-        text = " ".join(value.split())
-        if not text:
-            return None
-        if len(text) > self._MAX_MESSAGE_CHARS:
-            text = text[: self._MAX_MESSAGE_CHARS].rstrip() + "…"
-        return text
+        return sanitize_status_message(
+            self._raw[self._MESSAGE_POS], source="ErrorPayloadRow.message"
+        )
 
     @property
     def entries(self) -> list[Any]:

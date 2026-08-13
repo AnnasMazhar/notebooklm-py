@@ -21,7 +21,7 @@ from ..exceptions import (
     UnknownRPCMethodError,
 )
 from ._safe_index import safe_index
-from .types import GrpcStatusCode
+from .types import GrpcStatusCode, RPCMethod
 
 # Re-export for backward compatibility (imports from notebooklm.rpc.decoder still work)
 __all__ = [
@@ -156,16 +156,41 @@ _GRPC_STATUS_MESSAGES: dict[int, str] = {
 #                            models the same slot for streamed chat.
 #   ===== ================== ==================================================
 #
-# ``_row_adapters/chat.py`` cannot be reused here: it imports ``notebooklm.rpc``,
-# so a decoder-side import would close an import cycle. The positions are
-# therefore declared twice, once per layer, with this table as the shared
-# rationale.
+# ``_row_adapters/chat.py`` models the same envelope for streamed chat. Its
+# POSITIONS are declared separately because it imports ``notebooklm.rpc``, so a
+# decoder-side import of it would close a cycle — this table is the shared
+# rationale for both. The normalising rule is NOT duplicated: both layers call
+# :func:`sanitize_status_message` below, so they cannot drift in what users see.
 _STATUS_MESSAGE_POS = 1
 
 #: Ceiling on how much server-authored status text is echoed into an exception
 #: message. The field is server-controlled and unbounded; a runaway payload must
 #: not become a multi-kilobyte exception string.
 _MAX_STATUS_MESSAGE_CHARS = 300
+
+#: RPCs observed answering a null result with a non-OK ``google.rpc.Status`` on
+#: a flow this client currently treats as SUCCESSFUL. A sweep of all 141
+#: cassettes finds five such frames, across three RPCs:
+#:
+#:   ``REMOVE_RECENTLY_VIEWED``  ``[13]``  notebooks_remove_from_recent.yaml
+#:   ``SHARE_NOTEBOOK``          ``[3]``   cli_share_add.yaml, cli_share_remove.yaml
+#:   ``SHARE_ARTIFACT``          ``[3]``   notebooks_share.yaml
+#:
+#: Recorded here as a *finding*, not a blessing: only the first has ever been
+#: reasoned about (a cosmetic no-op), and whether the two share rejections are
+#: benign or a silently-dropped refusal is an open question this change does not
+#: answer. That unresolved-ness is exactly why the swallow below logs at DEBUG
+#: rather than WARNING — warning would fire on ordinary ``share add`` traffic and
+#: assert a judgement the evidence does not support (#2188).
+_RPCS_OBSERVED_SWALLOWING_A_STATUS = (
+    RPCMethod.REMOVE_RECENTLY_VIEWED.value,
+    RPCMethod.SHARE_NOTEBOOK.value,
+    RPCMethod.SHARE_ARTIFACT.value,
+)
+
+#: Distinguishes "the frame carried no index-5 payload" from "it carried
+#: ``None`` there" in :func:`_find_null_result_payload`.
+_MISSING_STATUS_PAYLOAD = object()
 
 #: Statuses the decoder routes through ``ClientError`` rather than the generic
 #: ``RPCError``, so ``is_auth_error`` cannot misclassify them and fire a
@@ -515,23 +540,18 @@ def _extract_status_code(error_info: Any) -> tuple[int, str] | None:
     return code, _GRPC_STATUS_MESSAGES[code]
 
 
-def _find_wrb_status(chunks: list[Any], rpc_id: str) -> tuple[int, str, Any] | None:
-    """Locate bare status code at index 5 of a wrb.fr entry for ``rpc_id``.
+def _find_null_result_payload(chunks: list[Any], rpc_id: str) -> Any:
+    """Return the raw index-5 payload of a null-result frame for ``rpc_id``.
 
-    Used by ``decode_response`` to enrich the null-result error message when
-    the server explicitly flagged the RPC with a status code.
-
-    Returns ``(code, label, payload)`` where ``payload`` is the raw
-    ``google.rpc.Status`` array, so the caller can also read the server's
-    ``message`` field without re-walking the chunks.
+    ``_MISSING_STATUS_PAYLOAD`` when no such frame exists or it carried nothing
+    there. Shared walk behind :func:`_find_wrb_status` and
+    :func:`_is_unclassified_status` so the two agree on which frame they mean.
     """
-    source = "decoder._find_wrb_status"
+    source = "decoder._find_null_result_payload"
     for chunk in chunks:
-        if not isinstance(chunk, list):
-            continue
-        # Skip empty chunks before safe_index, which raises on shape drift
-        # under strict decoding on an out-of-bounds descent.
-        if not chunk:
+        if not isinstance(chunk, list) or not chunk:
+            # Skip empty chunks before safe_index, which raises on shape drift
+            # under strict decoding on an out-of-bounds descent.
             continue
         first = safe_index(chunk, 0, method_id=rpc_id, source=source)
         items = chunk if isinstance(first, list) else [chunk]
@@ -546,11 +566,40 @@ def _find_wrb_status(chunks: list[Any], rpc_id: str) -> tuple[int, str, Any] | N
             error_info = safe_index(item, 5, method_id=rpc_id, source=source)
             if result_data is not None or error_info is None:
                 continue
-            status = _extract_status_code(error_info)
-            if status is not None:
-                code, label = status
-                return code, label, error_info
-    return None
+            return error_info
+    return _MISSING_STATUS_PAYLOAD
+
+
+def _is_unclassified_status(chunks: list[Any], rpc_id: str) -> bool:
+    """Whether the server attached an index-5 payload we could not name.
+
+    Distinguishes "no payload at all" (a genuinely empty result — nothing to
+    report) from "a payload this decoder cannot classify" (drift worth a log).
+    """
+    payload = _find_null_result_payload(chunks, rpc_id)
+    if payload is _MISSING_STATUS_PAYLOAD:
+        return False
+    return _extract_status_code(payload) is None
+
+
+def _find_wrb_status(chunks: list[Any], rpc_id: str) -> tuple[int, str, Any] | None:
+    """Locate bare status code at index 5 of a wrb.fr entry for ``rpc_id``.
+
+    Used by ``decode_response`` to enrich the null-result error message when
+    the server explicitly flagged the RPC with a status code.
+
+    Returns ``(code, label, payload)`` where ``payload`` is the raw
+    ``google.rpc.Status`` array, so the caller can also read the server's
+    ``message`` field without re-walking the chunks.
+    """
+    payload = _find_null_result_payload(chunks, rpc_id)
+    if payload is _MISSING_STATUS_PAYLOAD:
+        return None
+    status = _extract_status_code(payload)
+    if status is None:
+        return None
+    code, label = status
+    return code, label, payload
 
 
 def _contains_user_displayable_error(obj: Any, max_depth: int = 20) -> bool:
@@ -590,29 +639,42 @@ def _contains_user_displayable_error(obj: Any, max_depth: int = 20) -> bool:
     return False
 
 
-def _server_status_message(status_payload: Any) -> str | None:
-    """Return the server-authored ``google.rpc.Status.message``, or ``None``.
+def sanitize_status_message(value: Any, *, source: str) -> str | None:
+    """Normalize a raw ``google.rpc.Status.message`` slot into display text.
 
-    ``status_payload`` is the raw value at index 5 of a ``wrb.fr`` frame — a
-    JSON-array-encoded ``google.rpc.Status`` whose ``message`` field (tag 2)
-    lands at index 1 (see the position table near ``_STATUS_MESSAGE_POS``).
+    Shared by the two layers that read the slot — this decoder for
+    ``batchexecute`` frames and ``_row_adapters.chat.ErrorPayloadRow`` for the
+    streamed-chat envelope. Only the *positions* are declared per layer (the
+    ``rpc`` → ``_row_adapters`` import direction forbids sharing those); the
+    sanitising rule is here so the two cannot drift in what users see.
 
-    The read is deliberately narrow, because **no captured response has ever
-    carried a populated message** (#2188): only a non-empty ``str`` counts, and
-    anything else — a short array, ``None``, a nested structure, a number —
-    yields ``None`` so the caller keeps its existing client-authored wording.
-    That way the enrichment is inert on all traffic observed to date and cannot
-    invent a "reason" out of a slot that holds something else, which is the
-    failure mode #2134 was about.
+    The rule is deliberately narrow, because **no captured response has ever
+    carried a populated message** (#2188): only a non-empty ``str`` counts, so
+    the enrichment is inert on all traffic observed to date and cannot invent a
+    "reason" out of a slot holding something else — the failure mode #2134 was
+    about.
 
-    Whitespace is collapsed and the text is capped at
+    A non-string, non-null value is the interesting case: it would mean the
+    envelope is not the ``google.rpc.Status`` this client believes it is. That
+    cannot raise — this runs while *reporting* an error, and replacing a real
+    server rejection with a decoder crash is a worse outcome than the
+    client-authored fallback — but per ADR-0011's spirit it must not be
+    inaudible either, or the only evidence of the drift would be that the
+    message silently failed to change. So it warns and degrades.
+
+    Whitespace is collapsed and the text capped at
     ``_MAX_STATUS_MESSAGE_CHARS`` so a server-controlled field cannot blow up
     an exception message.
     """
-    if not isinstance(status_payload, list) or len(status_payload) <= _STATUS_MESSAGE_POS:
+    if value is None:
         return None
-    value = status_payload[_STATUS_MESSAGE_POS]
     if not isinstance(value, str):
+        logger.warning(
+            "google.rpc.Status.message slot held %s, not a string (%s); "
+            "ignoring it and keeping the client-authored wording",
+            type(value).__name__,
+            source,
+        )
         return None
     text = " ".join(value.split())
     if not text:
@@ -622,8 +684,29 @@ def _server_status_message(status_payload: Any) -> str | None:
     return text
 
 
+def _server_status_message(status_payload: Any) -> str | None:
+    """Return the server-authored ``google.rpc.Status.message``, or ``None``.
+
+    ``status_payload`` is the raw value at index 5 of a ``wrb.fr`` frame — a
+    JSON-array-encoded ``google.rpc.Status`` whose ``message`` field (tag 2)
+    lands at index 1 (see the position table near ``_STATUS_MESSAGE_POS``).
+    """
+    if not isinstance(status_payload, list) or len(status_payload) <= _STATUS_MESSAGE_POS:
+        return None
+    return sanitize_status_message(
+        status_payload[_STATUS_MESSAGE_POS], source="decoder.wrb.fr[5][1]"
+    )
+
+
 def _user_displayable_error_message(error_info: Any) -> str:
-    """Build a non-sensitive diagnostic for a user-displayable rejection.
+    """Build a diagnostic for a user-displayable rejection.
+
+    The client-authored parts stay free of volatile internal detail — no
+    obfuscated method id, no raw numeric gRPC code (#1921). The server's own
+    ``message``, when present, is echoed as-is (whitespace-collapsed and capped)
+    because it is by definition the text Google chose to *display* to this user;
+    that part is outside this client's control, so "non-sensitive" is a
+    guarantee only over the wording this client writes.
 
     Prefers the server's own ``google.rpc.Status.message`` when one is present;
     otherwise falls back to the client-authored sentence below. The two are
@@ -635,8 +718,10 @@ def _user_displayable_error_message(error_info: Any) -> str:
         "API rate limit or quota exceeded. Please wait before retrying."
     )
     # Same ``google.rpc.Status`` envelope as the bare-status path, so the same
-    # leading-code extractor serves both (the two used to be byte-identical
-    # helpers under different names).
+    # leading-code extractor serves both. Before #2188 these were two helpers
+    # differing only in their arity guard (``len(error_info) != 1`` here versus
+    # ``not error_info`` there); dropping the arity gate collapsed the
+    # difference, so the duplicate was removed rather than kept in sync.
     status = _extract_status_code(error_info)
     if status is None:
         return message
@@ -763,14 +848,15 @@ def decode_response(
         rpc_id: RPC method ID to extract result for
         allow_null: If True, return None instead of raising error when result is null
         raise_on_null_status: Opt-in strictness for ``allow_null`` callers. When
-            True, a null result that the server tagged with a **non-OK**
-            ``google.rpc.Status`` at index 5 raises instead of decoding to
-            ``None``, so the caller reports the server's reason rather than
-            inventing one. Callers that legitimately tolerate a status-tagged
-            null leave it False — ``REMOVE_RECENTLY_VIEWED`` answers ``[13]``
-            (INTERNAL) on what the client treats as a successful no-op
-            (tests/cassettes/notebooks_remove_from_recent.yaml), which is why
-            this is opt-in per call site rather than a blanket change (#2188).
+            True, a null result the server tagged with a **recognized** non-OK
+            ``google.rpc.Status`` at index 5 (a code this decoder can name — see
+            ``_GRPC_STATUS_MESSAGES``; an unrecognized one still decodes to
+            ``None``, loudly) raises instead of decoding to ``None``, so the
+            caller reports the server's reason rather than inventing one.
+            Callers that tolerate a status-tagged null leave it False. This is
+            opt-in per call site rather than a blanket change because three RPCs
+            are RECORDED doing exactly that on flows the client reports as
+            successful — see ``_RPCS_OBSERVED_SWALLOWING_A_STATUS`` (#2188).
 
     Returns:
         Decoded result data
@@ -864,18 +950,33 @@ def decode_response(
         rejected = status is not None and status[0] != GrpcStatusCode.OK
         if allow_null and not (raise_on_null_status and rejected):
             if rejected and status is not None:
-                # Still swallowed, but no longer without trace. DEBUG rather
-                # than WARNING because at least one caller's tolerance is
-                # deliberate and evidence-backed (REMOVE_RECENTLY_VIEWED's
-                # ``[13]``), so a warning would be noise on a healthy call. The
-                # other ``allow_null=True`` call sites have not been evaluated
-                # against live rejections; this line is what makes such a
-                # swallow findable when one of them misbehaves (#2188).
+                # Still swallowed, but no longer without trace. DEBUG, not
+                # WARNING: three RPCs are recorded doing this on flows the
+                # client reports as successful (see
+                # ``_RPCS_OBSERVED_SWALLOWING_A_STATUS``), so warning would fire
+                # on ordinary ``share add`` traffic while asserting a
+                # benign-vs-broken judgement nobody has made yet. The trace is
+                # what makes such a swallow findable; deciding which of them are
+                # real failures needs its own evidence (#2188).
                 logger.debug(
                     "Null result for %s carried status %s; swallowed because the "
                     "call site did not pass raise_on_null_status",
                     rpc_id,
                     status[1],
+                )
+            elif raise_on_null_status and _is_unclassified_status(chunks, rpc_id):
+                # The caller asked for strictness and the server DID attach
+                # something at index 5, but not a status this decoder can name —
+                # a code outside 0-16, a bool, a string, a nested ``[[3]]``. That
+                # is a rejection in a shape we do not recognise, so it lands back
+                # on the very defect #2188 fixed (the caller invents its own
+                # reason) and must not be the quietest branch here.
+                logger.warning(
+                    "Null result for %s carried an unrecognized index-5 payload; "
+                    "treating it as a benign null. If %s is being reported as "
+                    "unavailable, this is the drift to look at",
+                    rpc_id,
+                    rpc_id,
                 )
             return None
 

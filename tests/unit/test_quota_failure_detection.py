@@ -48,6 +48,8 @@ from notebooklm.types import GenerationStatus
 from tests._fixtures.rpc_error_frames import (
     CREATE_ARTIFACT_METHOD_ID,
     LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY,
+    LIVE_RETRY_ARTIFACT_NOT_FOUND_BODY,
+    LIVE_REVISE_SLIDE_NOT_FOUND_BODY,
     raw_batchexecute_body,
     user_displayable_rejection_chunks,
 )
@@ -648,6 +650,45 @@ class TestRejectionAtGenerationTime:
         assert not isinstance(exc_info.value, ArtifactFeatureUnavailableError)
         assert exc_info.value.rpc_code == 3
         assert "invalid argument" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("body", "call"),
+        [
+            pytest.param(
+                LIVE_RETRY_ARTIFACT_NOT_FOUND_BODY,
+                lambda api: api.retry_failed("nb1", "no-such-artifact-id"),
+                id="retry_artifact",
+            ),
+            pytest.param(
+                LIVE_REVISE_SLIDE_NOT_FOUND_BODY,
+                lambda api: api.revise_slide("nb1", "no-such-artifact-id", 0, "tweak it"),
+                id="revise_slide",
+            ),
+        ],
+    )
+    async def test_retry_and_revise_also_report_the_server_status(self, body, call):
+        """The other two opt-in call sites are evidence-backed too (#2188).
+
+        Live probe 2026-08-13: both answer ``[5]`` NOT_FOUND for an unknown
+        artifact id. Before the opt-in each reported "… generation is
+        unavailable", which says nothing about the id being wrong.
+        """
+        api = self._api_answering_with(
+            lambda method_id, **kwargs: decode_response(
+                body,
+                method_id,
+                allow_null=kwargs.get("allow_null", False),
+                raise_on_null_status=kwargs.get("raise_on_null_status", False),
+            )
+        )
+
+        with pytest.raises(RPCError) as exc_info:
+            await call(api)
+
+        assert not isinstance(exc_info.value, ArtifactFeatureUnavailableError)
+        assert exc_info.value.rpc_code == 5
+        assert "not found" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
     async def test_null_result_without_a_status_still_reports_feature_unavailable(self):
