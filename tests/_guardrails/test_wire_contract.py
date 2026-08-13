@@ -77,6 +77,9 @@ _CLIENT_SYNTHETIC_VALUES: dict[str, dict[int, str]] = {
     # Same shape for the Drive-side sibling: returned when source[3][3] is
     # populated with a code (or type) we do not model. See DriveSourceStatus.
     "DriveSourceStatus": {-1: "UNKNOWN"},
+    # And again for the research search mode: returned when task_info[2] is
+    # populated with a code (or type) we do not model. See DiscoveryMode.
+    "DiscoveryMode": {-1: "UNKNOWN"},
 }
 
 _SRC = Path(__file__).resolve().parents[2] / "src" / "notebooklm"

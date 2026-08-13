@@ -29,6 +29,59 @@ class ConversationTurn:
 
 
 @dataclass(frozen=True)
+class ConversationTurnKey:
+    """The backend's three-part identifier for one chat turn (#2122).
+
+    Decoded from ``AnswerResponse.conversationTurnKey`` (proto tag 3 →
+    ``answer_row[2]``), which the streamed-chat endpoint sends on **every**
+    chunk of every answer. It is the key ``SubmitFeedback`` and the per-turn
+    delete RPC are addressed by, so a caller that wants to build one no longer
+    has to re-plumb the stream parser to find it.
+
+    The three parts always travel together — a half-populated key addresses
+    nothing — so they are modelled as one value object rather than three loose
+    optionals on :class:`AskResult`.
+
+    .. warning::
+       **The wire field names and the observed meanings disagree**, and this
+       class is named for what was observed. The recovered mobile proto calls
+       the three fields ``sessionId`` / ``conversationId`` / ``fieldType``;
+       a live two-turn probe (2026-08-13) showed:
+
+       * tag 1 held the notebook's conversation id — the exact value
+         ``AskResult.conversation_id`` carries — identical on both turns;
+       * tag 2 held a *different* UUID on each turn;
+       * tag 3 held a large unsigned-looking integer, different on each turn.
+
+       So the attributes below use the observed meanings
+       (:attr:`conversation_id` ← tag 1, :attr:`turn_id` ← tag 2), and the
+       wire↔attribute mapping is recorded in ``docs/rpc-reference.md`` and
+       pinned in ``tests/_guardrails/_wire_contract.py``.
+
+    Attributes:
+        conversation_id: Wire slot 0 (proto ``sessionId``). Observed equal to
+            the conversation id this client resolves via ``hPTbtc`` and
+            reports as :attr:`AskResult.conversation_id`. That equality is an
+            **observation on two turns of one conversation**, not a contract —
+            :meth:`ChatAPI.ask` deliberately still resolves the id it returns
+            through ``hPTbtc`` (see #659), so this field is the raw wire value
+            and nothing more.
+        turn_id: Wire slot 1 (proto ``conversationId``). Changed between the
+            two turns of one conversation, so it identifies the turn rather
+            than the conversation.
+        turn_code: Wire slot 2 (proto ``fieldType``). An integer, constant
+            across every chunk of one turn and different on the next. The
+            proto's ``fieldType`` label is not a description this client can
+            substantiate (the observed values are not type tags), so it is
+            carried verbatim and NOT interpreted.
+    """
+
+    conversation_id: str
+    turn_id: str | None = None
+    turn_code: int | None = None
+
+
+@dataclass(frozen=True)
 class ChatSettings:
     """A notebook's current chat configuration, read from the server (#1751).
 
@@ -359,6 +412,14 @@ class AskResult:
             ``_app.views.ask_result_view``): it restates the answer in a form
             those agent-facing surfaces do not consume, and would roughly
             double every payload.
+        turn_key: The backend's :class:`ConversationTurnKey` for this turn,
+            decoded from the streamed answer (#2122) — the identifier a
+            per-turn RPC (feedback, turn deletion) is addressed by. ``None``
+            when the stream carried no usable key, which includes every
+            ``AskResult`` built by hand or by an older code path, so callers
+            must treat it as optional. Note ``turn_key.conversation_id`` is the
+            raw wire value and is **not** the field to prefer over
+            :attr:`conversation_id` — see :class:`ConversationTurnKey`.
     """
 
     answer: str
@@ -368,3 +429,4 @@ class AskResult:
     references: list[ChatReference] = field(default_factory=list)
     raw_response: str = ""
     answer_document: StructuredDocument = field(default_factory=StructuredDocument, repr=False)
+    turn_key: ConversationTurnKey | None = None

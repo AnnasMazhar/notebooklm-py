@@ -10,6 +10,9 @@ faithfully reproduce. An earlier rename moved this file from
 marker; see ``pyproject.toml`` markers list for the rationale.
 """
 
+import json
+import re
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -2486,3 +2489,81 @@ class TestChatHL:
             r for r in httpx_mock.get_requests() if "GenerateFreeFormStreamed" in str(r.url)
         )
         assert "hl=en" in str(chat_request.url)
+
+
+class TestAskCarriesTheConversationTurnKey:
+    """``ChatAPI.ask`` must thread the decoded turn key onto ``AskResult`` (#2122).
+
+    Driven by the live five-chunk capture rather than a synthetic chunk: the
+    whole point of the key is that it comes off a real backend response, and
+    this is the only test that covers the ``ask`` → ``AskResult.turn_key``
+    hand-off (the CLI / MCP / REST tests build ``AskResult`` directly).
+    """
+
+    @staticmethod
+    def _captured_stream_body() -> bytes:
+        chunks = json.loads(
+            (Path(__file__).parent / "fixtures" / "chat_stream_final_response.json").read_text()
+        )["chunks"]
+        parts = [")]}'"]
+        for chunk in chunks:
+            frame = json.dumps([["wrb.fr", None, json.dumps(chunk)]])
+            parts.append(f"\n{len(frame)}\n{frame}")
+        parts.append("\n")
+        return "".join(parts).encode()
+
+    @pytest.mark.asyncio
+    async def test_turn_key_reaches_the_ask_result(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        mock_get_conversation_id,
+    ):
+        httpx_mock.add_response(
+            url=re.compile(r".*GenerateFreeFormStreamed.*"),
+            content=self._captured_stream_body(),
+            method="POST",
+        )
+        mock_get_conversation_id(conv_id="3afea005-7d13-41d0-9257-6a9e28597818")
+
+        async with NotebookLMClient(auth_tokens) as client:
+            result = await client.chat.ask(
+                notebook_id="test_nb",
+                question="What does a task wrap?",
+                source_ids=["src_001"],
+            )
+
+        assert result.answer == "A task wraps a **coroutine** [1]."
+        assert result.turn_key is not None
+        assert result.turn_key.conversation_id == "3afea005-7d13-41d0-9257-6a9e28597818"
+        assert result.turn_key.turn_id == "b38d4003-5be1-487d-a121-5c5958709021"
+        assert result.turn_key.turn_code == 2187103311
+
+    @pytest.mark.asyncio
+    async def test_turn_key_is_none_when_the_stream_carries_no_key(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        mock_get_conversation_id,
+    ):
+        """``ask`` still needs a conversation id at ``first[2][0]`` (#659), so
+        this covers a key too short to identify a turn, not a missing block."""
+        inner = json.dumps([["An answer.", None, ["server-conv"], None, [[], None, None, [], 1]]])
+        frame = json.dumps([["wrb.fr", None, inner]])
+        httpx_mock.add_response(
+            url=re.compile(r".*GenerateFreeFormStreamed.*"),
+            content=f")]}}'\n{len(frame)}\n{frame}\n".encode(),
+            method="POST",
+        )
+        mock_get_conversation_id()
+
+        async with NotebookLMClient(auth_tokens) as client:
+            result = await client.chat.ask(
+                notebook_id="test_nb", question="Q", source_ids=["src_001"]
+            )
+
+        assert result.answer == "An answer."
+        assert result.turn_key is not None
+        assert result.turn_key.conversation_id == "server-conv"
+        assert result.turn_key.turn_id is None
+        assert result.turn_key.turn_code is None

@@ -864,6 +864,46 @@ Chat queries use a **separate streaming endpoint**, not batchexecute:
 POST /_/LabsTailwindUi/data/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GenerateFreeFormStreamed
 ```
 
+#### Streamed response envelope (`GenerateFreeFormStreamedResponse`)
+
+Each `wrb.fr` frame's inner JSON decodes to this envelope. Chunks arrive
+**cumulatively** — every chunk carries the answer text so far.
+
+| Index | Proto tag | Field | Decoded as |
+|-------|-----------|-------|------------|
+| 0 | 1 | `answer` (`AnswerResponse`) | `AnswerRow` |
+| 4 | 5 | `isFinalResponse` | `StreamEnvelopeRow.is_final_response` |
+
+`isFinalResponse` is `true` on **exactly the last chunk** — `false` on every
+other one, across a 5-chunk and a 6-chunk live stream (#2122) and on all 9 asks
+of the 2026-08-07 audit. `parse_streaming_chat_response` uses it to select the
+answer; the historical longest-wins heuristic is the fallback, and logs a
+`WARNING` when it fires. Heartbeat frames decode to `[]` and answer `false`.
+
+#### `AnswerResponse.conversationTurnKey` (`answer_row[2]`)
+
+Populated on every chunk of every ask, and the key `SubmitFeedback` / the
+per-turn delete RPC are addressed by. Surfaced as `AskResult.turn_key`.
+
+| Index | Proto tag | Proto name | Public attribute | Live observation |
+|-------|-----------|------------|------------------|------------------|
+| 0 | 1 | `sessionId` | `conversation_id` | Held the exact id `hPTbtc` returns; identical across both turns of one conversation |
+| 1 | 2 | `conversationId` | `turn_id` | A **different** UUID on each turn — identifies the turn, not the conversation |
+| 2 | 3 | `fieldType` | `turn_code` | `2187103311` / `3083048340` / `2502166488` — one per turn, constant across that turn's chunks |
+
+> **The proto names and the observed meanings disagree**, so the public
+> attributes are named for the observation and the wire truth is recorded here
+> and in `tests/_guardrails/_wire_contract.py`. `fieldType` is the schema
+> extractor's placeholder for a name it could not recover; the observed values
+> are plainly not type tags, so `turn_code` is carried verbatim and not
+> interpreted.
+>
+> **Slot 0 does not retire the `hPTbtc` round-trip.** Issue #659 proved this
+> field untrustworthy as a conversation id (querying `khqZz` with it returned 0
+> turns; passing it back as `params[4]` produced a ghost turn). The 2026-08-13
+> observation that it now equals the recovered id is two turns of one
+> conversation — evidence worth recording, not enough to change `ask()`.
+
 ### RPC: RENAME_NOTEBOOK (s0tc2d) - Rename Only
 
 **Source:** `_notebooks.py::rename()`
@@ -2280,14 +2320,12 @@ await rpc_call(
 #     [
 #         task_id,              # [0]: str — the poll/import/cancel handle
 #         task_info,            # [1]: see below
-#         updated_like,         # [2]: [seconds, nanos], 9/9 rows — advanced across
-#                               #      all 3 within-cassette repeated-row transitions
-#         created_like,         # [3]: [seconds, nanos], 9/9 rows — constant across
-#                               #      all 4 repeated-row transitions
-#         stable_id,            # [4]: str in 6/9 rows, always '400237754469' — one
-#                               #      capture environment, so "not task-scoped" is
-#                               #      supported (3 cassettes, both modes) but the
-#                               #      ownership reading is NOT. Unread.
+#         updated_at,           # [2]: [seconds, nanos] — LAST-UPDATE time. Read as
+#                               #      ResearchTask.updated_at (#2122).
+#         created_at,           # [3]: [seconds, nanos] — CREATION time. Read as
+#                               #      ResearchTask.created_at (#2122).
+#         account_id,           # [4]: str — the account the run belongs to. Read as
+#                               #      ResearchTask.account_id (#2122).
 #     ],
 #     ...
 # ]
@@ -2299,7 +2337,8 @@ await rpc_call(
 #     discovery_mode,           # [2]: DiscoveryMode — 1 = DEFAULT_LLM_SEARCH (6/6
 #                               #      fast rows), 5 = DEEP_RESEARCH (3/3 deep rows).
 #                               #      The same enum the start params carry, so mode
-#                               #      is two-sided confirmable. Unread today.
+#                               #      is two-sided confirmable. Read as
+#                               #      ResearchTask.discovery_mode (#2122).
 #     sources_and_summary,      # [3]: [[sources], summary_text] — None until results
 #     status_code,              # [4]: see the status-code table below
 #     deep_run_block,           # [5]: DEEP ONLY (3/3 deep rows, 0/6 fast):
@@ -2321,6 +2360,9 @@ await rpc_call(
 #
 # A deep row is the SAME row type carrying three more populated slots, so a
 # reader that stops at [3] silently drops them (46 source rows captured):
+#   [2]  DiscoveredSource.hint — the backend's one-line "why this source" note.
+#        Live #2122: populated on 10/10 fast rows; the deep report row is null.
+#        Read as ResearchSource.hint
 #   [4]  unpopulated in every captured row
 #   [5]  favicon URL — 25/46 rows, every value a `t*.gstatic.com/faviconV2?…`
 #        `type=FAVICON` URL; unread
@@ -2350,6 +2392,32 @@ await rpc_call(
 # - For deep research, sources parsed from poll() carry `research_task_id`, which is
 #   later used by IMPORT_RESEARCH.
 ```
+
+#### Task-level metadata (`task[2]` / `[3]` / `[4]`, `task_info[2]`) — #2122
+
+These four always-populated slots were decoded in #2122. The two timestamps are
+`[seconds, nanos]` pairs; only the seconds are decoded, matching every other
+timestamp read in this client.
+
+| Slot | Meaning | Surfaced as |
+|------|---------|-------------|
+| `task[2]` | last-update time | `ResearchTask.updated_at` |
+| `task[3]` | creation time | `ResearchTask.created_at` |
+| `task[4]` | owning account id (opaque string) | `ResearchTask.account_id` |
+| `task_info[2]` | `DiscoveryMode` the run executes under | `ResearchTask.discovery_mode` |
+
+> **`task[2]` is update and `task[3]` is create** — the reverse of the labels in
+> issue #2122. Established the only way that distinguishes them: polling one
+> live run twice, 7.6s apart, `[2]` advanced while `[3]` held the value both
+> slots shared on the first poll. Reproduced on a second account, and
+> corroborated by 9/9 cassette task rows (`[2]` advanced across all 3
+> within-cassette repeated-row transitions; `[3]` was constant across all 4).
+>
+> **`task[4]` is account-scoped**, which the cassettes alone could not show —
+> all of them carry the same `400237754469`. A second live account produced
+> `838504205497`, each value constant across every task and poll of its account.
+> Whether it names the run's *starter* or the notebook's *owner* is **not**
+> established: both were the same account in both probes.
 
 #### Task status codes (`task_info[4]`)
 

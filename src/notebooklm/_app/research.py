@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, NoReturn, Protocol
 
 from ..exceptions import ValidationError
+from ..types import discovery_mode_to_str
 
 # ===========================================================================
 # research status
@@ -82,6 +83,23 @@ class ResearchStatusResult:
     termination_reason: str | None = None
     reason_message: str | None = None
     hint: str | None = None
+    # Always-populated task metadata recovered by #2122, carried through from
+    # the matching ``ResearchTask`` attributes. Like ``status_code`` above they
+    # stay OFF ``public_dict`` (the byte-stable CLI ``--json`` payload) and are
+    # surfaced by the MCP tool / REST route from these fields instead.
+    #
+    # ``discovery_mode`` is the string label (``default_llm_search`` /
+    # ``deep_research`` / …) rather than the raw code: an agent branching on
+    # ``5`` is the failure mode ``_app.views`` exists to prevent. ``None`` when
+    # the poll made no mode claim.
+    discovery_mode: str | None = None
+    # ISO-8601 strings, not ``datetime`` — every consumer of this result
+    # serializes it, and ``ResearchStatusResult`` is the transport-neutral
+    # projection boundary. ``None`` when the poll carried no timestamp.
+    created_at: str | None = None
+    updated_at: str | None = None
+    #: Seconds between the two timestamps; see ``ResearchTask.duration``.
+    duration_seconds: float | None = None
 
 
 def _classify_status_kind(status_val: str) -> ResearchStatusKind:
@@ -127,6 +145,14 @@ async def poll_and_classify(
         termination_reason=reason.value if reason is not None else None,
         reason_message=status.reason_message,
         hint=status.hint,
+        discovery_mode=(
+            discovery_mode_to_str(status.discovery_mode)
+            if status.discovery_mode is not None
+            else None
+        ),
+        created_at=status.created_at.isoformat() if status.created_at is not None else None,
+        updated_at=status.updated_at.isoformat() if status.updated_at is not None else None,
+        duration_seconds=(status.duration.total_seconds() if status.duration is not None else None),
     )
 
 

@@ -20,13 +20,24 @@ silently degrading to an empty/wrong answer.
 
 Position contracts (pinned by ``tests/unit/test_chat_row_adapter.py``):
 
+* :class:`StreamEnvelopeRow` — one decoded ``wrb.fr`` inner payload
+  (``inner_data``, a ``GenerateFreeFormStreamedResponse``):
+
+  =====  ============================================================
+  Index  Meaning
+  =====  ============================================================
+  0      the answer record consumed by :class:`AnswerRow`
+  4      ``isFinalResponse`` (bool) — ``True`` on exactly the last chunk
+  =====  ============================================================
+
 * :class:`AnswerRow` — one populated answer record (``inner_data[0]``):
 
   =====  ============================================================
   Index  Meaning
   =====  ============================================================
   0      answer text (str)
-  2      conversation-id block; ``[2][0]`` is the server conversation id
+  2      ``ConversationTurnKey``; ``[2][0]`` is the server conversation id,
+         ``[2][1]`` the per-turn id and ``[2][2]`` the per-turn code
   4      ``responseDoc`` (a ``TailwindDoc``); ``[4][0]`` is its document
          body, ``[4][3]`` the citation list (``TailwindDoc.objects``) and
          ``[4][4] == 1`` the answer marker (``TailwindDoc.type``)
@@ -82,6 +93,7 @@ import reprlib
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
+from .._types.chat import ConversationTurnKey
 from .._types.documents import StructuredDocument
 from ..exceptions import UnknownRPCMethodError
 from ..rpc import RPCMethod, safe_index
@@ -94,6 +106,7 @@ __all__ = [
     "ChatSettingsRow",
     "ConversationTurnRow",
     "ErrorPayloadRow",
+    "StreamEnvelopeRow",
     "StreamFrameRow",
     "SavedChatNoteRow",
     "unwrap_chat_settings",
@@ -587,6 +600,51 @@ class StreamFrameRow:
 
 
 @dataclass(frozen=True)
+class StreamEnvelopeRow:
+    """Typed view of one decoded streamed-chat inner payload (``inner_data``).
+
+    The ``wrb.fr`` frame's inner JSON decodes to a
+    ``GenerateFreeFormStreamedResponse``: the answer record at index 0 (wrapped
+    by :class:`AnswerRow`) and ``isFinalResponse`` at index 4. Heartbeat frames
+    decode to ``[]`` and answer the ``is_final_response`` question with
+    ``False``.
+
+    This adapter owns only the ``isFinalResponse`` read; the ``inner_data[0]``
+    answer-row descent stays in ``_chat/wire.py``, which raises its own typed
+    drift error for a non-list answer row (a contract this positional view has
+    no business restating).
+    """
+
+    _raw: Any = field(repr=False)
+
+    # ---- Position constants (the canary contract) ------------------------
+    # If this changes,
+    # ``tests/unit/test_chat_row_adapter.py::TestStreamEnvelopeRowPositionContract``
+    # MUST be updated in the same commit — that failure is the wire-shape
+    # change signal.
+    #
+    # ``GenerateFreeFormStreamedResponse.isFinalResponse`` (tag 5). Live
+    # (#2122, two probes): ``False`` on every chunk but the last and ``True``
+    # on exactly the last, across a 5-chunk and a 6-chunk stream.
+    _IS_FINAL_RESPONSE_POS: ClassVar[int] = 4
+
+    @property
+    def is_final_response(self) -> bool:
+        """Whether the backend marked this chunk as the final one.
+
+        Deliberately narrow: ``True`` only for a literal wire ``true``. A short
+        payload (heartbeat ``[]``), a ``null`` slot, and a truthy non-bool all
+        answer ``False`` — this predicate is used to *select* the answer, so
+        anything other than the server explicitly saying "final" must leave the
+        existing longest-wins fallback in charge rather than promote an
+        arbitrary chunk.
+        """
+        if not isinstance(self._raw, list) or len(self._raw) <= self._IS_FINAL_RESPONSE_POS:
+            return False
+        return self._raw[self._IS_FINAL_RESPONSE_POS] is True
+
+
+@dataclass(frozen=True)
 class ErrorPayloadRow:
     """Typed view of a streamed-chat error payload (``item[5]``).
 
@@ -661,6 +719,12 @@ class AnswerRow:
     _ANSWER_MARKER_VALUE: ClassVar[int] = 1
     #: ``TailwindDoc.body`` inside the ``responseDoc`` at ``first[4]``.
     _DOC_BODY_POS: ClassVar[int] = 0
+    # Layout INSIDE the ``ConversationTurnKey`` block at ``first[2]`` (#2122).
+    # See ``ConversationTurnKey`` in ``_types/chat.py`` for why the attribute
+    # names and the proto field names deliberately disagree.
+    _TURN_KEY_CONVERSATION_ID_POS: ClassVar[int] = 0
+    _TURN_KEY_TURN_ID_POS: ClassVar[int] = 1
+    _TURN_KEY_TURN_CODE_POS: ClassVar[int] = 2
 
     @property
     def raw(self) -> list[Any]:
@@ -687,6 +751,21 @@ class AnswerRow:
         return value if isinstance(value, str) and value else None
 
     @property
+    def _turn_key_block(self) -> list[Any] | None:
+        """The ``ConversationTurnKey`` block at ``first[2]`` (a list) or ``None``.
+
+        An absent / empty / non-list block legitimately means "no turn key on
+        this record" (not drift), so both readers below short-circuit on it
+        without invoking ``safe_index``.
+        """
+        if len(self._raw) <= self._CONV_BLOCK_POS:
+            return None
+        block = self._raw[self._CONV_BLOCK_POS]
+        if not isinstance(block, list) or not block:
+            return None
+        return block
+
+    @property
     def server_conversation_id(self) -> str | None:
         """Server conversation id at ``first[2][0]``.
 
@@ -694,13 +773,48 @@ class AnswerRow:
         conversation id present" (not drift) so it short-circuits to ``None``
         before invoking ``safe_index``.
         """
-        if len(self._raw) <= self._CONV_BLOCK_POS:
+        block = self._turn_key_block
+        if block is None:
             return None
-        conv_block = self._raw[self._CONV_BLOCK_POS]
-        if not isinstance(conv_block, list) or not conv_block:
-            return None
-        value = conv_block[0]
+        value = block[self._TURN_KEY_CONVERSATION_ID_POS]
         return value if isinstance(value, str) else None
+
+    @property
+    def turn_key(self) -> ConversationTurnKey | None:
+        """The whole ``ConversationTurnKey`` at ``first[2]`` — ``None`` when absent.
+
+        Live-populated on every chunk of every ask (9/9 asks in the 2026-08-07
+        audit, plus both probes for #2122). ``None`` when the block is absent,
+        empty, not a list, or carries no usable id at slot 0 — the key is
+        addressed *by* that id, so a key without one identifies nothing and is
+        reported as absent rather than as a half-populated object.
+
+        The two trailing slots are optional in the type (a short block yields
+        ``None`` for them) but were populated in every observation; each is
+        type-checked independently so one drifted slot does not discard the
+        rest of the key. ``turn_code`` uses ``type(...) is int`` because
+        ``bool`` is an ``int`` subclass and a wire ``true`` must not decode to
+        the code ``1``.
+        """
+        block = self._turn_key_block
+        if block is None:
+            return None
+        conversation_id = block[self._TURN_KEY_CONVERSATION_ID_POS]
+        if not isinstance(conversation_id, str) or not conversation_id:
+            return None
+        turn_id = (
+            block[self._TURN_KEY_TURN_ID_POS] if len(block) > self._TURN_KEY_TURN_ID_POS else None
+        )
+        turn_code = (
+            block[self._TURN_KEY_TURN_CODE_POS]
+            if len(block) > self._TURN_KEY_TURN_CODE_POS
+            else None
+        )
+        return ConversationTurnKey(
+            conversation_id=conversation_id,
+            turn_id=turn_id if isinstance(turn_id, str) and turn_id else None,
+            turn_code=turn_code if type(turn_code) is int else None,
+        )
 
     @property
     def _type_block(self) -> list[Any] | None:

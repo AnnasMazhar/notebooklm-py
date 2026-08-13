@@ -266,3 +266,43 @@ def test_dataclass_class_itself_is_not_treated_as_instance() -> None:
 
     assert isinstance(result, str)
     assert "Inner" in result
+
+
+def test_ask_result_view_carries_the_conversation_turn_key() -> None:
+    """The turn key rides the shared MCP/REST view (#2122).
+
+    It is a nested frozen dataclass, so this also pins that ``to_jsonable``
+    flattens it rather than str()-ing it into an unusable blob — a caller has
+    to be able to read the three parts back out to build a per-turn RPC.
+    """
+    from notebooklm._app.views import ask_result_view
+    from notebooklm.types import AskResult, ConversationTurnKey
+
+    view = ask_result_view(
+        AskResult(
+            answer="a",
+            conversation_id="conv-1",
+            turn_number=1,
+            is_follow_up=False,
+            raw_response="[[wire blob]]",
+            turn_key=ConversationTurnKey("conv-1", "turn-1", 2187103311),
+        )
+    )
+
+    assert view["turn_key"] == {
+        "conversation_id": "conv-1",
+        "turn_id": "turn-1",
+        "turn_code": 2187103311,
+    }
+    # Still stripped: the key is not an excuse to leak the debug blob.
+    assert "raw_response" not in view
+
+
+def test_ask_result_view_turn_key_is_none_when_the_stream_carried_none() -> None:
+    from notebooklm._app.views import ask_result_view
+    from notebooklm.types import AskResult
+
+    view = ask_result_view(
+        AskResult(answer="a", conversation_id="conv-1", turn_number=1, is_follow_up=False)
+    )
+    assert view["turn_key"] is None

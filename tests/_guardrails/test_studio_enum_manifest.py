@@ -133,6 +133,19 @@ _RPC_ENUM_SNAPSHOT: dict[str, dict[str, int]] = {
         "DELETED": 4,
         "GEN_AI_ACCESS_DENIED": 5,
     },
+    # #2122 — POLL_RESEARCH task_info[2] / the START_*_RESEARCH mode param.
+    # UNKNOWN(-1) is a client sentinel; 1-6 are the backend DiscoveryMode
+    # values (bound in tests/_guardrails/_wire_contract.py::ENUM_BINDINGS).
+    # UNSPECIFIED(0) is deliberately unmodelled (ENUM_GAPS).
+    "DiscoveryMode": {
+        "UNKNOWN": -1,
+        "DEFAULT_LLM_SEARCH": 1,
+        "RAW_SEARCH": 2,
+        "CURIOUS_SEARCH": 3,
+        "CURIOUS_RAW_SEARCH": 4,
+        "DEEP_RESEARCH": 5,
+        "LITE_LLM_SEARCH": 6,
+    },
     "VideoFormat": {"EXPLAINER": 1, "BRIEF": 2, "CINEMATIC": 3, "SHORT": 4},
     "VideoStyle": {
         "AUTO_SELECT": 1,

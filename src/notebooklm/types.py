@@ -25,6 +25,7 @@ from ._types.chat import (
     ChatReference,
     ChatSettings,
     ConversationTurn,
+    ConversationTurnKey,
 )
 from ._types.collections import Collection
 from ._types.common import (
@@ -104,6 +105,7 @@ from .rpc.types import (
     AudioLength,
     ChatGoal,
     ChatResponseLength,
+    DiscoveryMode,
     DriveMimeType,
     DriveSourceStatus,
     ExportType,
@@ -122,6 +124,7 @@ from .rpc.types import (
     VideoFormat,
     VideoStyle,
     artifact_status_to_str,
+    discovery_mode_to_str,
     drive_source_status_to_str,
     share_permission_to_str,
     source_status_to_str,
@@ -205,6 +208,7 @@ __all__ = [
     "Label",
     "Collection",
     "ConversationTurn",
+    "ConversationTurnKey",
     "ChatReference",
     "BlockKind",
     "BlockStyle",
@@ -276,11 +280,13 @@ __all__ = [
     "ExportType",
     "SourceStatus",
     "DriveSourceStatus",
+    "DiscoveryMode",
     "ShareAccess",
     "ShareViewLevel",
     "SharePermission",
     # Helper functions
     "artifact_status_to_str",
+    "discovery_mode_to_str",
     "drive_source_status_to_str",
     "share_permission_to_str",
     "source_status_to_str",
@@ -309,6 +315,7 @@ for _public_moved_type in (
     ChatSettings,
     Collection,
     ConversationTurn,
+    ConversationTurnKey,
     GenerationState,
     GenerationStatus,
     Label,

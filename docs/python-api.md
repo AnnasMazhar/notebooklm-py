@@ -1704,6 +1704,25 @@ async def poll(notebook_id: str, task_id: str | None = None) -> ResearchTask:
                                      Drive / web (both False when the tag is absent or
                                      unrecognised, in which case the wording and hint
                                      stay source-agnostic)
+      - discovery_mode: DiscoveryMode | None
+                                   — the mode the run is EXECUTING under (task_info[2]),
+                                     echoed back from the start params: DEFAULT_LLM_SEARCH
+                                     for a fast run, DEEP_RESEARCH for a deep one. None
+                                     when the poll made no claim; UNKNOWN (distinct from
+                                     None) when it named a mode this client cannot map.
+      - created_at / updated_at: datetime | None
+                                   — UTC-aware start and last-progress instants
+                                     (task[3] / task[2]). The backend advances
+                                     updated_at while a run is in flight and stops once
+                                     it settles.
+      - duration:  timedelta | None — updated_at - created_at: how long a settled run
+                                     took, or how long an in-flight one has been going
+                                     as of this poll. None when either timestamp is
+                                     missing.
+      - account_id: str | None     — opaque account id the run belongs to (task[4]).
+                                     Account-scoped (two live accounts, two distinct
+                                     stable values); whether it names the run's starter
+                                     or the notebook's owner is NOT established.
 
     Backend status codes are documented in docs/rpc-reference.md (POLL_RESEARCH).
 
@@ -1717,6 +1736,11 @@ async def poll(notebook_id: str, task_id: str | None = None) -> ResearchTask:
                             NOT verified to resolve the report's citation markers:
                             research_deep_poll_long.yaml carries 24 ordinals and
                             its report has no `[cite: N]` markers at all.
+      - hint:               str — the backend's own one-line "why this source" note
+                            (`DiscoveredSource.hint`, `src[2]`), e.g. "Practical
+                            walkthrough for managing I/O-bound tasks within a single
+                            execution thread." Empty string when the row carried none
+                            (the deep-research report row does not carry one).
     """
 
 async def wait_for_completion(
@@ -2623,6 +2647,21 @@ class AskResult:
     references: list[ChatReference]    # Source references cited in the answer
     raw_response: str                  # First 1000 chars of raw API response
     answer_document: StructuredDocument  # The answer's own parsed document (#2120)
+    turn_key: ConversationTurnKey | None  # Backend key for THIS turn (#2122)
+
+@dataclass(frozen=True)
+class ConversationTurnKey:
+    """The backend's three-part identifier for one chat turn (#2122).
+
+    Decoded from ``AnswerResponse.conversationTurnKey``, which the streamed-chat
+    endpoint sends on every chunk. It is the key ``SubmitFeedback`` and the
+    per-turn delete RPC are addressed by, so a caller wanting to build one no
+    longer needs a separate round trip. ``None`` on an ``AskResult`` whose
+    stream carried no usable key.
+    """
+    conversation_id: str             # wire slot 0 — observed == AskResult.conversation_id
+    turn_id: str | None              # wire slot 1 — changes per turn
+    turn_code: int | None            # wire slot 2 — carried verbatim, not interpreted
 
 @dataclass
 class ChatReference:
@@ -2641,6 +2680,20 @@ class ChatReference:
     answer_anchor_start: int | None  # Range OF THE ANSWER this citation backs
     answer_anchor_end: int | None    # ...and end
 ```
+
+> **`ConversationTurnKey`'s wire names and observed meanings disagree, and the
+> attributes follow the observation.** The recovered mobile proto calls the
+> three parts `sessionId` / `conversationId` / `fieldType`. A live two-turn
+> probe showed tag 1 holding the notebook's conversation id — the exact value
+> `AskResult.conversation_id` carries, identical on both turns — while tag 2
+> held a *different* UUID on each turn. Hence `conversation_id` ← tag 1 and
+> `turn_id` ← tag 2 above; the wire↔attribute mapping is tabulated in
+> [rpc-reference.md](rpc-reference.md).
+>
+> `turn_key.conversation_id` is **not** the field to prefer over
+> `AskResult.conversation_id`. `ask()` still resolves the id it returns through
+> `hPTbtc`: that the two are equal is an observation on two turns of one
+> conversation, against a wire field issue #659 previously proved untrustworthy.
 
 #### Three coordinate spaces, and which field lives in which
 
@@ -3113,6 +3166,24 @@ class DriveSourceStatus(Enum):
 # The backend's DRIVE_SOURCE_STATUS_UNSPECIFIED (0) is deliberately not modelled:
 # it means "no claim", which is what `drive_status is None` already means, so an
 # explicit 0 is normalized to None rather than giving one state two spellings.
+
+
+class DiscoveryMode(Enum):
+    """How a research run searched for sources — `ResearchTask.discovery_mode`."""
+
+    UNKNOWN = -1             # Client sentinel: slot populated with a code we cannot map
+    DEFAULT_LLM_SEARCH = 1   # Sent + observed for mode="fast"
+    RAW_SEARCH = 2           # Never sent by this client
+    CURIOUS_SEARCH = 3       # Never sent by this client
+    CURIOUS_RAW_SEARCH = 4   # Never sent by this client
+    DEEP_RESEARCH = 5        # Sent + observed for mode="deep"
+    LITE_LLM_SEARCH = 6      # Never sent by this client
+
+
+# Same UNSPECIFIED(0) treatment as DriveSourceStatus above. Only 1 and 5 have been
+# observed — they are the two this client sends, and the poll echoes them back, so
+# the mode a run is executing under is confirmable rather than merely remembered.
+# `notebooklm.types.discovery_mode_to_str` maps a member to its lower-snake label.
 ```
 
 **Usage Example:**
