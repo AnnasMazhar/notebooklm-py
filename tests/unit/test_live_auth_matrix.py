@@ -1070,3 +1070,11 @@ def test_scenarios_restore_owner_only_mode_when_replacing_a_profile_file() -> No
                 if not any(line < node.lineno for line in chmod_lines):
                     offenders.append(f"{path.name}:{node.lineno}")
     assert offenders == [], f"chmod(0o600) the temp file before os.replace: {offenders}"
+
+
+def test_crash_safe_writer_names_its_argv_contract(tmp_path: Path) -> None:
+    """A wrong invocation must not look like the SIGKILL the parent sends."""
+    writer = _import_scenario("crash_safe_writer")
+    scenarios = importlib.import_module("scripts._live_auth_scenarios")
+    with pytest.raises(scenarios.ScenarioError, match="needs <target> <source>"):
+        writer.main([str(tmp_path / "target.json")])

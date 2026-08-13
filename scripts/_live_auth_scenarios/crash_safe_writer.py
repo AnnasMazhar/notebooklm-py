@@ -17,6 +17,8 @@ from pathlib import Path
 
 from notebooklm._auth.storage import replace_from_login
 
+from ._contract import require
+
 #: Number of back-to-back canonical writes attempted before exiting normally.
 WRITE_ITERATIONS = 10000
 
@@ -24,6 +26,10 @@ WRITE_ITERATIONS = 10000
 def main(argv: list[str] | None = None) -> None:
     """Rewrite ``argv[0]`` from the storage state in ``argv[1]``, repeatedly."""
     args = sys.argv[1:] if argv is None else argv
+    # Name the argv contract. This cell is the only one taking arguments, and
+    # it is *expected* to die by SIGKILL, so a bare IndexError from a wrong
+    # invocation would be easy to mistake for the kill the parent just sent.
+    require(len(args) >= 2, "crash_safe_writer needs <target> <source>")
     target = Path(args[0])
     # Explicit UTF-8, matching both sides of ``phase_crash_safety``. A
     # locale-dependent read is worse here than anywhere else in the package:
