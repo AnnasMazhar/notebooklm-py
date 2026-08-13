@@ -263,7 +263,7 @@ def register(mcp: Any) -> None:
             nb_id = await resolve_notebook(client, notebook)
             if label is None:
                 snapshot = await listing_core.fetch_source_snapshot(client, nb_id)
-                sources = snapshot.sources
+                sources = list(snapshot.sources)
                 counts = snapshot.counts
             else:
                 sources = await listing_core.fetch_sources(

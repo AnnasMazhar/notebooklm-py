@@ -38,7 +38,7 @@ LabelResolver = Callable[..., Awaitable[str]]
 class SourceListSnapshot:
     """Source rows plus exact counts when the client supports inventories."""
 
-    sources: list[Source]
+    sources: tuple[Source, ...]
     counts: SourceCounts | None
 
 
@@ -46,9 +46,9 @@ async def fetch_source_snapshot(client: NotebookLMClient, notebook_id: str) -> S
     """Fetch one exact inventory, with compatibility for structural test clients."""
     if getattr(client.sources, "supports_source_inventory", False) is True:
         inventory = await client.sources.inventory(notebook_id)
-        return SourceListSnapshot(sources=list(inventory.sources), counts=inventory.counts)
+        return SourceListSnapshot(sources=inventory.sources, counts=inventory.counts)
     return SourceListSnapshot(
-        sources=await client.sources.list(notebook_id),
+        sources=tuple(await client.sources.list(notebook_id)),
         counts=None,
     )
 

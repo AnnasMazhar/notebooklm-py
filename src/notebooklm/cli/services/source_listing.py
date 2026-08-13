@@ -140,7 +140,7 @@ def _build_spec(
     async def fetch(client: NotebookLMClient, notebook_id: str) -> list[Source]:
         if label_filter is None:
             snapshot = await fetch_source_snapshot(client, notebook_id)
-            sources = snapshot.sources
+            sources = list(snapshot.sources)
             if snapshot.counts is not None:
                 inventory_cache["source_counts"] = snapshot.counts.to_dict()
         else:

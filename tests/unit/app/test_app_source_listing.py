@@ -87,9 +87,23 @@ async def test_snapshot_returns_rows_and_counts_from_one_inventory() -> None:
 
     snapshot = await fetch_source_snapshot(client, "nb_1")
 
-    assert [source.id for source in snapshot.sources] == ["s1"]
+    assert tuple(source.id for source in snapshot.sources) == ("s1",)
+    assert isinstance(snapshot.sources, tuple)
     assert snapshot.counts is counts
     assert client.sources.calls == ["nb_1"]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_compatibility_path_also_freezes_source_rows() -> None:
+    client = _client()
+    client.sources.supports_source_inventory = False
+    client.sources.list = AsyncMock(return_value=[Source(id="s1", title="One")])
+
+    snapshot = await fetch_source_snapshot(client, "nb_1")
+
+    assert tuple(source.id for source in snapshot.sources) == ("s1",)
+    assert isinstance(snapshot.sources, tuple)
+    assert snapshot.counts is None
 
 
 @pytest.mark.asyncio
