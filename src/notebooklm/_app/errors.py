@@ -290,6 +290,25 @@ def _category_for(exc: BaseException) -> ErrorCategory:
     first matching ``isinstance`` wins, so subclass branches MUST precede their
     bases.
     """
+    # --- UNCONFIRMED create: outcome unknown, dominates the type (#2220) ------
+    # An idempotency probe could not determine whether a create committed, so a
+    # write may be live. This is tested FIRST because the marker rides on the
+    # *underlying* exception type on the probe's transport branch — a
+    # ServerError / RateLimitError / NetworkError re-raised by the probe — and
+    # those otherwise classify as *retriable*, with a hint that says "retry
+    # after a short delay". The caller then retries the CREATE, not the probe,
+    # which is the duplicate this whole change exists to prevent.
+    #
+    # RPC is the honest landing spot: fatal in a batch add (stop, rather than
+    # issuing one more unconfirmed write per remaining item), not retriable, and
+    # no remediation hint to contradict the message. What is given up is the
+    # type-specific advice ("re-authenticate", "transient connectivity") in a
+    # doubly-exceptional case; the exception's own message still carries it, and
+    # "you may have written something and cannot tell" is the fact that must
+    # drive the caller's next move.
+    if getattr(exc, "unconfirmed", False):
+        return ErrorCategory.RPC
+
     # --- Class-sensitive specifics (must precede their bases) -----------------
     # Artifact timeout before the generic WaitTimeoutError umbrella.
     if isinstance(exc, ArtifactTimeoutError):
@@ -386,8 +405,10 @@ def _category_for(exc: BaseException) -> ErrorCategory:
         # RPC is the honest fit: fatal in a batch (stop, do not fire more
         # unconfirmed writes), NOT retriable, no remediation hint that would
         # contradict the message, and REST 502 rather than "your input was bad".
-        if getattr(exc, "unconfirmed", False):
-            return ErrorCategory.RPC
+        #
+        # (The marker itself is handled at the top of this function, which also
+        # covers the probe's transport branch. This comment stays here because
+        # the SourceAddError-specific stakes are what motivated it.)
         cause = getattr(exc, "cause", None)
         if isinstance(cause, RPCError) and _is_transient_rpc_code(_normalized_rpc_code(cause)):
             return ErrorCategory.SERVER

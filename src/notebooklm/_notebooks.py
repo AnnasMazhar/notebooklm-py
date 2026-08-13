@@ -585,7 +585,7 @@ class NotebooksAPI:
             # be re-issued on no evidence.
             try:
                 current = await self.list()
-            except (AuthError, RateLimitError, ServerError, NetworkError):
+            except (AuthError, RateLimitError, ServerError, NetworkError) as exc:
                 # Transport- and auth-level probe failures must propagate.
                 # Silently returning None here lets ``idempotent_create``
                 # re-issue the create on top of a broken probe, which is
@@ -594,6 +594,15 @@ class NotebooksAPI:
                     "create: probe list() failed with transport/auth error; "
                     "propagating so the caller can avoid a duplicate-resource retry"
                 )
+                # Mark it UNCONFIRMED before it goes (#2220 review): the create
+                # may already have committed and this probe could not say, which
+                # is the same predicament as the decode branch below. Without the
+                # marker a ServerError/RateLimitError here classifies as the
+                # *retriable* SERVER/RATE_LIMITED with the hint "retry after a
+                # short delay" — and the caller retries the ADD, not the probe.
+                # The underlying type is left intact, so "re-authenticate" /
+                # "connectivity" remain readable in the message.
+                _unconfirmed(exc)
                 raise
             except Exception as exc:
                 # Propagate, do not retry (#2220). ``notebooks.create`` is the

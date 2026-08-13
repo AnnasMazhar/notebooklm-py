@@ -295,6 +295,51 @@ def test_unconfirmed_source_add_error_is_fatal_and_not_retriable() -> None:
     assert CATEGORY_HINTS[ErrorCategory.RPC] is None
 
 
+@pytest.mark.parametrize(
+    "transport_exc",
+    [
+        exc.ServerError("probe 503"),
+        exc.RateLimitError("probe 429"),
+        exc.NetworkError("probe connection reset"),
+        exc.AuthError("probe auth expired"),
+    ],
+    ids=["server", "rate_limited", "network", "auth"],
+)
+def test_unconfirmed_marker_overrides_a_retriable_transport_category(transport_exc) -> None:
+    """The probe's *transport* branch is unconfirmable too (#2220 review).
+
+    The probes re-raise transport failures unchanged rather than wrapping them,
+    so the marker rides on a ``ServerError`` / ``RateLimitError`` /
+    ``NetworkError`` / ``AuthError``. Three of those are retriable with the hint
+    "retry after a short delay" — and a caller acting on that retries the ADD,
+    not the probe, producing exactly the duplicate this change prevents. The
+    create's outcome being unknown has to dominate the transport type.
+
+    Without the marker these classify as SERVER / RATE_LIMITED / NETWORK / AUTH,
+    so this is the assertion that would fail if the ``_unconfirmed(exc)`` call
+    were dropped from any probe's transport branch.
+    """
+    from notebooklm._app.source_batch import batch_item_is_fatal
+    from notebooklm._idempotency import mark_unconfirmed
+
+    plain = classify(transport_exc)
+    marked = classify(mark_unconfirmed(transport_exc))
+
+    assert marked.category is ErrorCategory.RPC
+    assert marked.retriable is False
+    assert batch_item_is_fatal(transport_exc) is True
+    # The unmarked classification is genuinely different — otherwise this test
+    # would pass for reasons unrelated to the marker.
+    assert plain.category is not ErrorCategory.RPC
+
+
+def test_unmarked_transport_errors_keep_their_own_category() -> None:
+    """The marker is opt-in; ordinary transport failures are untouched."""
+    assert classify(exc.ServerError("5xx")).category is ErrorCategory.SERVER
+    assert classify(exc.ServerError("5xx")).retriable is True
+    assert classify(exc.AuthError("expired")).category is ErrorCategory.AUTH
+
+
 def test_unmarked_source_add_error_is_still_a_per_item_input_failure() -> None:
     """The marker is the only thing that diverts; ordinary adds are unaffected."""
     from notebooklm._app.source_batch import batch_item_is_fatal

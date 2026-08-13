@@ -483,18 +483,25 @@ Such an error carries an **`unconfirmed` attribute**. Test that, not the message
 ```python
 from notebooklm import SourceAddError
 
+# Capture the ids BEFORE the add. A URL is not unique within a notebook, so a
+# post-hoc match alone cannot tell "my create landed" from "a copy was already
+# here" — adopting one blindly is the very bug #2204 fixed inside the library.
+before = {s.id for s in await client.sources.list(nb_id)}
+
 try:
     source = await client.sources.add_url(nb_id, url)
 except SourceAddError as exc:
     if not getattr(exc, "unconfirmed", False):
         raise  # a genuine per-source rejection: bad URL, paywalled, empty
-    # The create may or may not have landed. Reconcile before re-adding, or
-    # you risk the duplicate the probe existed to prevent.
-    matches = [s for s in await client.sources.list(nb_id) if s.url == url]
-    if matches:
-        source = matches[0]   # it did land; adopt it instead of re-adding
+    # The create may or may not have landed. Only a source that is BOTH new
+    # since the snapshot and matching the URL is attributable to this call.
+    new = [s for s in await client.sources.list(nb_id) if s.id not in before and s.url == url]
+    if len(new) == 1:
+        source = new[0]                                    # it did land
+    elif not new:
+        source = await client.sources.add_url(nb_id, url)  # it did not; safe to re-issue
     else:
-        source = await client.sources.add_url(nb_id, url)  # safe to re-issue
+        raise  # two new matches: a concurrent add. Resolve by hand.
 ```
 
 The attribute is absent on every other failure, so `getattr(exc, "unconfirmed", False)` is safe to call unconditionally. Both halves of the failure stay on the exception: the probe's own failure as `__cause__`, and the transport error that triggered the probe further up the `__context__` chain.

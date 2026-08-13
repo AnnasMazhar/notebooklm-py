@@ -580,10 +580,19 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         async def _probe() -> str | None:
             try:
                 sources = await list_sources(notebook_id)
-            except (AuthError, RateLimitError, ServerError, NetworkError):
+            except (AuthError, RateLimitError, ServerError, NetworkError) as exc:
                 # Transport- and auth-level probe failures must propagate
                 # — otherwise idempotent_create would retry the
                 # register on top of a broken probe.
+                # Mark it UNCONFIRMED before it goes (#2220 review): the create
+                # may already have committed and this probe could not say, which
+                # is the same predicament as the decode branch below. Without the
+                # marker a ServerError/RateLimitError here classifies as the
+                # *retriable* SERVER/RATE_LIMITED with the hint "retry after a
+                # short delay" — and the caller retries the ADD, not the probe.
+                # The underlying type is left intact, so "re-authenticate" /
+                # "connectivity" remain readable in the message.
+                _unconfirmed(exc)
                 raise
             except Exception as exc:
                 # Propagate, do not retry (#2220) — see the full rationale on
