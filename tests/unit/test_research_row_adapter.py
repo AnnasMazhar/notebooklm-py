@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -462,8 +462,8 @@ class TestResearchTaskRowTimestampsAgainstCapture:
 
     def test_decoded_instants_are_utc_aware_and_match_the_wire_seconds(self) -> None:
         row = ResearchTaskRow(_SETTLED_ROW)
-        assert row.created_at == datetime.fromtimestamp(_SETTLED_ROW[3][0], tz=UTC)
-        assert row.updated_at == datetime.fromtimestamp(_SETTLED_ROW[2][0], tz=UTC)
+        assert row.created_at == datetime.fromtimestamp(_SETTLED_ROW[3][0], tz=timezone.utc)
+        assert row.updated_at == datetime.fromtimestamp(_SETTLED_ROW[2][0], tz=timezone.utc)
         assert row.updated_at.tzinfo is not None
 
 
@@ -489,7 +489,7 @@ class TestResearchTaskRowTimestamps:
 
     def test_nanos_are_dropped_not_read_as_seconds(self) -> None:
         row = ResearchTaskRow(["id", ["info"], [1786619585, 195655000], [1786619578, 139902000]])
-        assert row.updated_at == datetime.fromtimestamp(1786619585, tz=UTC)
+        assert row.updated_at == datetime.fromtimestamp(1786619585, tz=timezone.utc)
 
 
 class TestResearchTaskRowAccountId:

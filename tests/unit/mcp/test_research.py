@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
@@ -1328,8 +1328,8 @@ async def test_research_status_surfaces_run_metadata(mcp_call, mock_client) -> N
             status=FakeResearchStatus.IN_PROGRESS,
             status_code=1,
             discovery_mode=DiscoveryMode.DEEP_RESEARCH,
-            created_at=datetime(2026, 8, 13, 11, 12, 58, tzinfo=UTC),
-            updated_at=datetime(2026, 8, 13, 11, 13, 5, tzinfo=UTC),
+            created_at=datetime(2026, 8, 13, 11, 12, 58, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 8, 13, 11, 13, 5, tzinfo=timezone.utc),
         )
     )
     content = (await mcp_call("research_status", {"notebook": NB_ID})).structured_content

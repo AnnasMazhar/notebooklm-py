@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -701,8 +701,8 @@ class TestTaskMetadataFromCapture:
         task = self._task(2)
         assert task.discovery_mode is DiscoveryMode.DEFAULT_LLM_SEARCH
         assert task.account_id == "400237754469"
-        assert task.created_at == datetime.fromtimestamp(1786619578, tz=UTC)
-        assert task.updated_at == datetime.fromtimestamp(1786619585, tz=UTC)
+        assert task.created_at == datetime.fromtimestamp(1786619578, tz=timezone.utc)
+        assert task.updated_at == datetime.fromtimestamp(1786619585, tz=timezone.utc)
         assert task.status == "completed"
 
     def test_duration_is_the_backend_measured_run_time(self) -> None:
@@ -789,8 +789,8 @@ class TestDurationRefusesAnInvertedInterval:
 
     def test_inverted_interval_reports_none_and_warns(self, caplog) -> None:
         task = self._task(
-            datetime.fromtimestamp(1786619585, tz=UTC),
-            datetime.fromtimestamp(1786619578, tz=UTC),
+            datetime.fromtimestamp(1786619585, tz=timezone.utc),
+            datetime.fromtimestamp(1786619578, tz=timezone.utc),
         )
         with caplog.at_level(logging.WARNING, logger="notebooklm._types.research"):
             assert task.duration is None
@@ -798,7 +798,7 @@ class TestDurationRefusesAnInvertedInterval:
 
     def test_zero_interval_is_a_real_duration_not_an_inversion(self) -> None:
         """A just-started run reports both slots equal — that is 0s, not drift."""
-        instant = datetime.fromtimestamp(1786619578, tz=UTC)
+        instant = datetime.fromtimestamp(1786619578, tz=timezone.utc)
         assert self._task(instant, instant).duration == timedelta(0)
 
     def test_the_app_projection_refuses_it_too(self, caplog) -> None:

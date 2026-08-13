@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -652,8 +652,8 @@ async def test_import_research_sources_plain_list_return_has_empty_already_prese
 # Run metadata carried onto the shared MCP/REST view (#2122)
 # ===========================================================================
 
-_CREATED = datetime(2026, 8, 13, 11, 12, 58, tzinfo=UTC)
-_UPDATED = datetime(2026, 8, 13, 11, 13, 5, tzinfo=UTC)
+_CREATED = datetime(2026, 8, 13, 11, 12, 58, tzinfo=timezone.utc)
+_UPDATED = datetime(2026, 8, 13, 11, 13, 5, tzinfo=timezone.utc)
 
 
 async def test_poll_projects_run_metadata_for_the_transports() -> None:
