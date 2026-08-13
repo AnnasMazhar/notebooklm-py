@@ -47,6 +47,7 @@ from ..types import (
     ReportFormat,
     SlideDeckFormat,
     SlideDeckLength,
+    SourceFilter,
     VideoFormat,
     VideoStyle,
 )
@@ -276,6 +277,7 @@ class GenerationPlan:
     params: Mapping[str, Any] = field(default_factory=dict)
     warnings: tuple[str, ...] = ()
     stderr_warnings: tuple[str, ...] = ()
+    source_filter: SourceFilter | None = None
 
 
 @dataclass(frozen=True)

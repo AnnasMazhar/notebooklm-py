@@ -7,7 +7,7 @@ import io
 from fastapi.testclient import TestClient
 
 from notebooklm._types.notebooks import Notebook
-from notebooklm._types.sources import Source
+from notebooklm._types.sources import Source, SourceCounts, SourceInventory
 from notebooklm.rpc.types import DriveSourceStatus, SourceStatus
 from notebooklm.server._pagination import MAX_LIMIT
 from notebooklm.server.routes.sources import (
@@ -312,6 +312,35 @@ def test_list_and_delete(authed_client: TestClient, fake_client: FakeClient) -> 
     assert deleted.status_code == 204
     # Idempotent re-delete.
     assert authed_client.delete("/v1/notebooks/nb-1/sources/src-7").status_code == 204
+
+
+def test_list_includes_exact_inventory_counts(
+    authed_client: TestClient, fake_client: FakeClient
+) -> None:
+    from unittest.mock import AsyncMock
+
+    counts = SourceCounts(
+        records_total=3,
+        id_bearing_records=2,
+        unique_sources=1,
+        idless_records=1,
+        duplicate_id_records=1,
+        by_status={"ready": 1},
+        by_type={"unknown": 1},
+    )
+    fake_client.sources.supports_source_inventory = True
+    fake_client.sources.inventory = AsyncMock(
+        return_value=SourceInventory(
+            sources=(Source(id="src-7", title="S", status=SourceStatus.READY),),
+            raw_source_ids=("src-7", "src-7"),
+            counts=counts,
+        )
+    )
+
+    listed = authed_client.get("/v1/notebooks/nb-1/sources")
+
+    assert listed.status_code == 200
+    assert listed.json()["source_counts"] == counts.to_dict()
 
 
 def test_get_source_carries_kind_and_status_label(

@@ -1050,9 +1050,11 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
     "SourceStatus": (
         "SourceStatus",
         {
+            0: "SOURCE_STATUS_UNSPECIFIED",
             1: "SOURCE_STATUS_PENDING",
             2: "SOURCE_STATUS_COMPLETE",
             3: "SOURCE_STATUS_ERROR",
+            4: "SOURCE_STATUS_PENDING_DELETION",
             5: "SOURCE_STATUS_TENTATIVE",
         },
     ),
@@ -1170,10 +1172,6 @@ ENUM_GAPS: dict[str, tuple[tuple[int, str, str], ...]] = {
             "ResearchTaskInfoRow.discovery_mode normalizes an explicit 0 to "
             "None rather than giving one state two representations.",
         ),
-    ),
-    "SourceStatus": (
-        (0, "SOURCE_STATUS_UNSPECIFIED", "#2124 — fails closed as UNKNOWN"),
-        (4, "SOURCE_STATUS_PENDING_DELETION", "#2124 — fails closed as UNKNOWN"),
     ),
     "SourceType": (
         (

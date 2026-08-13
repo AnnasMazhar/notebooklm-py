@@ -30,7 +30,7 @@ from notebooklm._types.research import (
     SourceGuide,
 )
 from notebooklm._types.sharing import SharedUser, ShareStatus
-from notebooklm._types.sources import Source, SourceFulltext
+from notebooklm._types.sources import Source, SourceFilter, SourceFulltext
 from notebooklm.exceptions import (
     ArtifactNotFoundError,
     NotebookNotFoundError,
@@ -103,16 +103,33 @@ class FakeNotebooks:
         notebook_id: str,
         *,
         source_ids: list[str] | None = None,
+        source_filter: SourceFilter | None = None,
         mode: int = 4,
         query: str | None = None,
     ) -> list[PromptSuggestion]:
         self._s.last_suggest = {
             "notebook_id": notebook_id,
             "source_ids": source_ids,
+            "source_filter": source_filter,
             "mode": mode,
             "query": query,
         }
         return list(self._s.suggest_rows)
+
+    async def get_source_ids(
+        self, notebook_id: str, *, source_filter: SourceFilter | None = None
+    ) -> list[str]:
+        sources = list(self._s.sources_store.get(notebook_id, {}).values())
+        if source_filter is not None:
+            statuses = set(source_filter.statuses)
+            source_types = set(source_filter.types)
+            sources = [
+                source
+                for source in sources
+                if (not statuses or source.status in statuses)
+                and (not source_types or source.kind in source_types)
+            ]
+        return [source.id for source in sources]
 
 
 class FakeSources:
@@ -292,11 +309,21 @@ class FakeChat:
         self._s = state
 
     async def ask(
-        self, notebook_id: str, question: str, *, conversation_id: str | None = None
+        self,
+        notebook_id: str,
+        question: str,
+        *,
+        conversation_id: str | None = None,
+        source_ids: list[str] | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> AskResult:
         if self._s.chat_error is not None:
             raise self._s.chat_error
         self._s.last_ask = {"notebook_id": notebook_id, "conversation_id": conversation_id}
+        if source_ids is not None:
+            self._s.last_ask["source_ids"] = source_ids
+        if source_filter is not None:
+            self._s.last_ask["source_filter"] = source_filter
         return AskResult(
             answer=f"answer to: {question}",
             conversation_id=conversation_id or "conv-1",

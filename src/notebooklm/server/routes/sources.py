@@ -34,6 +34,7 @@ from pydantic import BaseModel
 
 from ..._app import source_add as add_core
 from ..._app import source_content as content_core
+from ..._app import source_listing as listing_core
 from ..._app import source_mutations as mut_core
 from ..._app import source_wait as wait_core
 from ..._app.source_batch import MAX_BATCH_URLS, batch_item_is_fatal
@@ -227,11 +228,14 @@ async def list_sources(
     to the full collection under ``sources`` (unchanged); supply ``?limit=`` to
     slice and add a ``meta`` block, ``?offset=`` to page forward.
     """
-    sources = await client.sources.list(notebook_id)
-    data = [source_view(s) for s in sources]
-    return paginate_envelope(
+    snapshot = await listing_core.fetch_source_snapshot(client, notebook_id)
+    data = [source_view(s) for s in snapshot.sources]
+    result = paginate_envelope(
         data, key="sources", limit=limit, offset=offset, notebook_id=notebook_id
     )
+    if snapshot.counts is not None:
+        result["source_counts"] = snapshot.counts.to_dict()
+    return result
 
 
 @router.get("/{source_id}")

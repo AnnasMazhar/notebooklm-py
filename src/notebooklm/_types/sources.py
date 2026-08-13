@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from .._url_utils import pdf_url_display_title
-from ..rpc.types import DriveSourceStatus, SourceStatus
+from ..rpc.types import DriveSourceStatus, SourceStatus, source_status_to_str
 from .common import (
     UnknownTypeWarning,
 )
@@ -44,6 +45,171 @@ class SourceType(str, Enum):
     IMAGE = "image"
     MEDIA = "media"
     UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class SourceCounts:
+    """Exact counts from one raw notebook source roster.
+
+    ``records_total`` counts every backend row, including id-less phantom rows
+    and duplicate IDs. The status and type histograms count unique, ID-bearing
+    sources using the same first-row-wins rule as :meth:`SourcesAPI.list`.
+
+    ``by_status["ready"]`` is the confirmed ingestion-ready bucket. The
+    :attr:`ready` convenience property returns ``None`` when any row's status
+    is unknown, because compact notebook-list rows may omit status entirely.
+    This accounting is deliberately separate from legacy
+    :attr:`Notebook.sources_count`, whose long-standing contract remains the
+    raw number of embedded rows. These counters make no claim about quota usage
+    because NotebookLM does not expose an authoritative used-capacity value.
+    """
+
+    records_total: int = 0
+    id_bearing_records: int = 0
+    unique_sources: int = 0
+    idless_records: int = 0
+    duplicate_id_records: int = 0
+    by_status: Mapping[str, int] = field(default_factory=dict)
+    by_type: Mapping[str, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Copy mappings and enforce the inventory accounting invariants."""
+        status_counts = dict(self.by_status)
+        type_counts = dict(self.by_type)
+        values = (
+            self.records_total,
+            self.id_bearing_records,
+            self.unique_sources,
+            self.idless_records,
+            self.duplicate_id_records,
+            *status_counts.values(),
+            *type_counts.values(),
+        )
+        if any(value < 0 for value in values):
+            raise ValueError("source counts must be non-negative")
+        if self.records_total != self.id_bearing_records + self.idless_records:
+            raise ValueError("records_total must equal id_bearing_records + idless_records")
+        if self.id_bearing_records != self.unique_sources + self.duplicate_id_records:
+            raise ValueError("id_bearing_records must equal unique_sources + duplicate_id_records")
+        if sum(status_counts.values()) != self.unique_sources:
+            raise ValueError("status counts must sum to unique_sources")
+        if sum(type_counts.values()) != self.unique_sources:
+            raise ValueError("type counts must sum to unique_sources")
+        object.__setattr__(self, "by_status", status_counts)
+        object.__setattr__(self, "by_type", type_counts)
+
+    @property
+    def ready(self) -> int | None:
+        """Processed count, or ``None`` when any source status is unknown."""
+        if self.by_status.get("unknown", 0):
+            return None
+        return self.by_status.get("ready", 0)
+
+    @property
+    def selectable_total(self) -> int:
+        """Number of unique sources that have an ID and can be selected."""
+        return self.unique_sources
+
+    def to_dict(self) -> dict[str, object]:
+        """Return the stable JSON representation used by adapters."""
+        return {
+            "records_total": self.records_total,
+            "id_bearing_records": self.id_bearing_records,
+            "unique_sources": self.unique_sources,
+            "idless_records": self.idless_records,
+            "duplicate_id_records": self.duplicate_id_records,
+            "by_status": dict(self.by_status),
+            "by_type": dict(self.by_type),
+        }
+
+
+@dataclass(frozen=True)
+class SourceFilter:
+    """Opt-in source selection criteria for chat and Studio generation.
+
+    Multiple statuses are ORed, multiple types are ORed, and the two axes are
+    ANDed. An empty filter is rejected so it can never silently mean "all".
+    """
+
+    statuses: tuple[SourceStatus, ...] = ()
+    types: tuple[SourceType, ...] = ()
+
+    def __post_init__(self) -> None:
+        statuses = tuple(dict.fromkeys(self.statuses))
+        source_types = tuple(dict.fromkeys(self.types))
+        if not statuses and not source_types:
+            raise ValueError("SourceFilter requires at least one status or type")
+        if any(not isinstance(status, SourceStatus) for status in statuses):
+            raise ValueError("SourceFilter.statuses must contain SourceStatus values")
+        if any(not isinstance(source_type, SourceType) for source_type in source_types):
+            raise ValueError("SourceFilter.types must contain SourceType values")
+        object.__setattr__(self, "statuses", statuses)
+        object.__setattr__(self, "types", source_types)
+
+    @classmethod
+    def from_values(
+        cls,
+        *,
+        statuses: Iterable[SourceStatus | str] = (),
+        types: Iterable[SourceType | str] = (),
+    ) -> SourceFilter:
+        """Build a filter from enum values or their public string labels."""
+        status_by_label = {source_status_to_str(status): status for status in SourceStatus}
+        normalized_statuses: list[SourceStatus] = []
+        for value in statuses:
+            if isinstance(value, SourceStatus):
+                normalized_statuses.append(value)
+            elif value in status_by_label:
+                normalized_statuses.append(status_by_label[value])
+            else:
+                choices = ", ".join(status_by_label)
+                raise ValueError(f"unknown source status {value!r}; expected one of: {choices}")
+
+        normalized_types: list[SourceType] = []
+        for value in types:
+            try:
+                normalized_types.append(
+                    value if isinstance(value, SourceType) else SourceType(value)
+                )
+            except (TypeError, ValueError) as exc:
+                choices = ", ".join(source_type.value for source_type in SourceType)
+                raise ValueError(
+                    f"unknown source type {value!r}; expected one of: {choices}"
+                ) from exc
+        return cls(statuses=tuple(normalized_statuses), types=tuple(normalized_types))
+
+
+@dataclass(frozen=True)
+class SourceInventory:
+    """Sources and exact accounting parsed from one raw notebook roster.
+
+    ``sources`` is the unique first-occurrence roster used by source listing.
+    ``raw_source_ids`` preserves every addressable row in wire order, including
+    duplicates, so unfiltered "all" selection remains backward compatible.
+    """
+
+    sources: tuple[Source, ...]
+    raw_source_ids: tuple[str, ...]
+    counts: SourceCounts
+
+    def select_filter(self, source_filter: SourceFilter) -> list[Source]:
+        """Select with OR inside each filter axis and AND between axes."""
+        statuses = set(source_filter.statuses)
+        source_types = set(source_filter.types)
+        return [
+            source
+            for source in self.sources
+            if (not statuses or source.status in statuses)
+            and (not source_types or source.kind in source_types)
+        ]
+
+    def select_filter_ids(self, source_filter: SourceFilter) -> list[str]:
+        """Return first-occurrence IDs matching ``source_filter``."""
+        return [source.id for source in self.select_filter(source_filter)]
+
+    def select_ids(self) -> list[str]:
+        """Return every ID-bearing wire row, preserving order and duplicates."""
+        return list(self.raw_source_ids)
 
 
 _warned_source_types: set[int] = set()
@@ -395,7 +561,7 @@ class Source:
         This is the **single** construction site for a :class:`Source`
         from a parsed source row. Both :meth:`from_api_response` (the
         public classmethod used by ``ADD_SOURCE`` / rename paths) and
-        :meth:`notebooklm._source.listing.SourceLister._parse_source`
+        :func:`notebooklm._source.inventory.build_source_inventory`
         (the ``GET_NOTEBOOK`` list/get/poll path) funnel through here so
         every code path produces identical :class:`Source` instances —
         including the decoded :attr:`status`.
@@ -447,7 +613,7 @@ class Source:
         shape into a :class:`SourceRow` and defers to :meth:`from_row` —
         the single construction site shared with the
         ``GET_NOTEBOOK`` list/get/poll path
-        (:meth:`notebooklm._source.listing.SourceLister._parse_source`) —
+        (:func:`notebooklm._source.inventory.build_source_inventory`) —
         so all paths produce identical :class:`Source` instances,
         including the decoded :attr:`status`. ``status`` earlier silently
         fell back to the ``SourceStatus.READY`` default here while the

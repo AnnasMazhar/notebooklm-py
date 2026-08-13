@@ -24,7 +24,10 @@ from ..._app import notebooks as core
 from ..._app.notebooks import SUGGEST_SURFACE_MAP, SuggestSurface
 from ..._app.serialize import to_jsonable
 from ..._app.views import notebook_view
+from ..._source.filter_labels import SourceStatusLabel, SourceTypeLabel
 from ...client import NotebookLMClient
+from ...exceptions import ValidationError
+from ...types import SourceFilter
 from .._context import get_client
 from .._pagination import MAX_LIMIT, paginate_envelope
 from ._passthrough import passthrough_notebook_id
@@ -96,6 +99,8 @@ async def suggested_prompts(
     client: ClientDep,
     surface: Annotated[SuggestSurface, Query()] = "ask",
     source_ids: Annotated[list[str] | None, Query()] = None,
+    source_status: Annotated[list[SourceStatusLabel] | None, Query()] = None,
+    source_type: Annotated[list[SourceTypeLabel] | None, Query()] = None,
     query: Annotated[str | None, Query()] = None,
 ) -> dict[str, Any]:
     """Get AI-suggested, ready-to-send prompts for a studio surface.
@@ -106,12 +111,25 @@ async def suggested_prompts(
     sources; omit for all. ``query`` optionally steers the suggestions. Mirrors
     the MCP ``suggest_prompts`` tool.
     """
-    rows = await client.notebooks.suggest_prompts(
-        notebook_id,
-        source_ids=list(source_ids) if source_ids else None,
-        mode=SUGGEST_SURFACE_MAP[surface],
-        query=query,
-    )
+    if source_ids and (source_status or source_type):
+        raise ValidationError("source_ids and source filters are mutually exclusive")
+    source_filter = None
+    if source_status or source_type:
+        try:
+            source_filter = SourceFilter.from_values(
+                statuses=source_status or (),
+                types=source_type or (),
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+    kwargs: dict[str, Any] = {
+        "source_ids": list(source_ids) if source_ids else None,
+        "mode": SUGGEST_SURFACE_MAP[surface],
+        "query": query,
+    }
+    if source_filter is not None:
+        kwargs["source_filter"] = source_filter
+    rows = await client.notebooks.suggest_prompts(notebook_id, **kwargs)
     return {
         "notebook_id": notebook_id,
         "suggestions": [{"title": s.title, "prompt": s.prompt} for s in rows],

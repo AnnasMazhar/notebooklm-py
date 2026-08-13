@@ -115,18 +115,16 @@ def register(mcp: Any) -> None:
                     raise
                 output = to_jsonable(result)
                 metadata_block = to_jsonable(meta_result.metadata)
-                # Re-project the exposed ``sources_count`` to the enumerated
-                # (id-bearing, deduped) source count so the metadata block is
-                # internally consistent (#1919). The raw ``Notebook.sources_count``
-                # is an unfiltered ``len(nb_info[1])`` row count that includes
-                # id-less placeholder / ghost rows the ``sources`` list drops, so
-                # the two can disagree wildly (168 vs 50) inside one response and
-                # mislead an agent on quota / completeness. Scoped to this
-                # projection: the shared ``Notebook.sources_count`` semantics stay
-                # untouched elsewhere (e.g. ``notebook_list`` list rows).
-                # ``NotebookMetadata.notebook`` is a non-optional ``Notebook``
-                # dataclass, so ``to_jsonable`` always emits it as a dict here.
+                if meta_result.metadata.source_counts is None:
+                    # Preserve the pre-inventory metadata schema for custom or
+                    # structural clients that cannot provide exact raw counts.
+                    # ``null`` would falsely look like a new asserted field and
+                    # would break existing consumers of this opt-in block.
+                    metadata_block.pop("source_counts", None)
                 metadata_block["notebook"] = _notebook_view(meta_result.metadata.notebook)
+                # Preserve the long-standing MCP metadata projection from
+                # #1919. The additive ``source_counts`` object exposes raw and
+                # processed accounting without changing this legacy scalar.
                 metadata_block["notebook"]["sources_count"] = len(meta_result.metadata.sources)
                 output["metadata"] = metadata_block
                 return output

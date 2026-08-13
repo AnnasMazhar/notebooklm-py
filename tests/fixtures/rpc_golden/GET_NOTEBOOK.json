@@ -78,6 +78,41 @@
     "is_owner": true,
     "modified_at": "2024-01-02T00:00:00+00:00",
     "role": 1,
-    "last_viewed_at": "2024-01-02T00:00:00+00:00"
+    "last_viewed_at": "2024-01-02T00:00:00+00:00",
+    "source_counts": {
+      "records_total": 1,
+      "id_bearing_records": 1,
+      "unique_sources": 1,
+      "idless_records": 0,
+      "duplicate_id_records": 0,
+      "by_status": {
+        "unknown": 1,
+        "unspecified": 0,
+        "processing": 0,
+        "ready": 0,
+        "error": 0,
+        "pending_deletion": 0,
+        "preparing": 0
+      },
+      "by_type": {
+        "google_docs": 0,
+        "google_slides": 0,
+        "google_spreadsheet": 0,
+        "pdf": 0,
+        "pasted_text": 0,
+        "web_page": 0,
+        "google_drive_audio": 0,
+        "google_drive_video": 0,
+        "youtube": 0,
+        "markdown": 0,
+        "docx": 0,
+        "powerpoint": 0,
+        "csv": 0,
+        "epub": 0,
+        "image": 0,
+        "media": 0,
+        "unknown": 1
+      }
+    }
   }
 }

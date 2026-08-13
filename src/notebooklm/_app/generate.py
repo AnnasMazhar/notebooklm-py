@@ -185,6 +185,14 @@ async def execute_generation(
     if plan.kind == "revise-slide":
         # revise-slide never resolves source IDs.
         sources: Any = None
+    elif plan.source_filter is not None:
+        if plan.source_ids:
+            raise GenerationPlanValidationError(
+                "--source and --source-status/--source-type are mutually exclusive"
+            )
+        sources = await client.notebooks.get_source_ids(
+            nb_id_resolved, source_filter=plan.source_filter
+        )
     else:
         sources = await source_resolver(
             client, nb_id_resolved, plan.source_ids, json_output=plan.json_output

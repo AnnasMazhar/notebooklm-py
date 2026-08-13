@@ -13,9 +13,10 @@ from notebooklm.exceptions import (
     MindMapNotFoundError,
     NotFoundError,
     UnknownRPCMethodError,
+    ValidationError,
 )
 from notebooklm.rpc.types import RPCMethod
-from notebooklm.types import Artifact, MindMapKind, MindMapResult
+from notebooklm.types import Artifact, MindMapKind, MindMapResult, SourceFilter, SourceStatus
 
 
 def _interactive_artifact(artifact_id: str, title: str = "INT") -> Artifact:
@@ -243,6 +244,34 @@ async def test_generate_interactive_creates_polls_and_fetches_tree():
     assert mm.id == "new_int"
     # Converged surface: interactive generate returns the tree, like note-backed.
     assert mm.tree == {"name": "I", "children": []}
+
+
+@pytest.mark.asyncio
+async def test_generate_interactive_resolves_source_filter():
+    api, rpc, _, _, notebooks = _make_api(interactive=[_interactive_artifact("new_int")])
+    rpc.configure_mock(rpc_call=AsyncMock(return_value=[["new_int", "T", 4]]))
+    source_filter = SourceFilter(statuses=(SourceStatus.READY,))
+
+    await api.generate("nb", kind=MindMapKind.INTERACTIVE, source_filter=source_filter, wait=False)
+
+    notebooks.get_source_ids.assert_awaited_once_with("nb", source_filter=source_filter)
+
+
+@pytest.mark.asyncio
+async def test_generate_rejects_ids_with_source_filter():
+    api, rpc, _, artifacts, notebooks = _make_api()
+
+    with pytest.raises(ValidationError, match="mutually exclusive"):
+        await api.generate(
+            "nb",
+            ["explicit"],
+            kind=MindMapKind.INTERACTIVE,
+            source_filter=SourceFilter(statuses=(SourceStatus.READY,)),
+        )
+
+    notebooks.get_source_ids.assert_not_awaited()
+    artifacts.generate_mind_map.assert_not_awaited()
+    rpc.rpc_call.assert_not_awaited()
 
 
 @pytest.mark.asyncio

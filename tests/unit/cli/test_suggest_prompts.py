@@ -17,7 +17,7 @@ from click.testing import CliRunner
 import notebooklm.auth as auth_module
 from notebooklm.cli import helpers as helpers_module
 from notebooklm.notebooklm_cli import cli
-from notebooklm.types import PromptSuggestion
+from notebooklm.types import PromptSuggestion, SourceStatus, SourceType
 
 from .conftest import create_mock_client, inject_client
 
@@ -102,6 +102,55 @@ def test_source_ids_forwarded(runner, mock_auth):
     assert result.exit_code == 0, result.output
     call = mock_client.notebooks.suggest_prompts.call_args
     assert call.kwargs["source_ids"] == ["src_001", "src_002"]
+
+
+def test_status_and_type_filter_resolves_source_ids(runner, mock_auth):
+    mock_client = create_mock_client()
+    mock_client.notebooks.get_source_ids = AsyncMock(return_value=["ready_pdf"])
+    mock_client.notebooks.suggest_prompts = AsyncMock(return_value=SUGGESTIONS)
+
+    result = _invoke(
+        runner,
+        mock_client,
+        [
+            "suggest-prompts",
+            "-n",
+            "nb_123",
+            "--source-status",
+            "ready",
+            "--source-type",
+            "pdf",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    source_filter = mock_client.notebooks.get_source_ids.await_args.kwargs["source_filter"]
+    assert source_filter.statuses == (SourceStatus.READY,)
+    assert source_filter.types == (SourceType.PDF,)
+    assert mock_client.notebooks.suggest_prompts.await_args.kwargs["source_ids"] == ["ready_pdf"]
+
+
+def test_source_ids_conflict_with_filter(runner, mock_auth):
+    mock_client = create_mock_client()
+    mock_client.notebooks.suggest_prompts = AsyncMock(return_value=SUGGESTIONS)
+
+    result = _invoke(
+        runner,
+        mock_client,
+        [
+            "suggest-prompts",
+            "-n",
+            "nb_123",
+            "-s",
+            "src_001",
+            "--source-status",
+            "ready",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "mutually exclusive" in result.output
+    mock_client.notebooks.suggest_prompts.assert_not_awaited()
 
 
 def test_json_envelope_shape(runner, mock_auth):

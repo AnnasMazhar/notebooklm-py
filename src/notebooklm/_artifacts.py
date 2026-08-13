@@ -55,6 +55,7 @@ from .types import (
     ArtifactType,
     GenerationStatus,
     ReportSuggestion,
+    SourceFilter,
 )
 
 logger = logging.getLogger(__name__)
@@ -258,6 +259,7 @@ class ArtifactsAPI:
         instructions: str | None = None,
         audio_format: AudioFormat | None = None,
         audio_length: AudioLength | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate an Audio Overview (podcast)."""
         return await self._generation.generate_audio(
@@ -267,6 +269,7 @@ class ArtifactsAPI:
             instructions=instructions,
             audio_format=audio_format,
             audio_length=audio_length,
+            source_filter=source_filter,
         )
 
     async def generate_video(
@@ -278,6 +281,7 @@ class ArtifactsAPI:
         video_format: VideoFormat | None = None,
         video_style: VideoStyle | None = None,
         style_prompt: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a Video Overview."""
         return await self._generation.generate_video(
@@ -288,6 +292,7 @@ class ArtifactsAPI:
             video_format=video_format,
             video_style=video_style,
             style_prompt=style_prompt,
+            source_filter=source_filter,
         )
 
     async def generate_cinematic_video(
@@ -296,6 +301,7 @@ class ArtifactsAPI:
         source_ids: builtins.list[str] | None = None,
         language: str | None = "en",
         instructions: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a Cinematic Video Overview."""
         return await self._generation.generate_cinematic_video(
@@ -303,6 +309,7 @@ class ArtifactsAPI:
             source_ids=source_ids,
             language=language,
             instructions=instructions,
+            source_filter=source_filter,
         )
 
     async def generate_report(
@@ -313,6 +320,7 @@ class ArtifactsAPI:
         language: str | None = "en",
         custom_prompt: str | None = None,
         extra_instructions: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a report artifact."""
         report_format = _artifact_validation.coerce_report_format(report_format)
@@ -323,6 +331,7 @@ class ArtifactsAPI:
             language=language,
             custom_prompt=custom_prompt,
             extra_instructions=extra_instructions,
+            source_filter=source_filter,
         )
 
     async def generate_study_guide(
@@ -331,6 +340,7 @@ class ArtifactsAPI:
         source_ids: builtins.list[str] | None = None,
         language: str | None = "en",
         extra_instructions: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a study guide report."""
         return await self._generation.generate_study_guide(
@@ -338,6 +348,7 @@ class ArtifactsAPI:
             source_ids=source_ids,
             language=language,
             extra_instructions=extra_instructions,
+            source_filter=source_filter,
         )
 
     async def generate_quiz(
@@ -347,6 +358,7 @@ class ArtifactsAPI:
         instructions: str | None = None,
         quantity: QuizQuantity | None = None,
         difficulty: QuizDifficulty | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a quiz."""
         return await self._generation.generate_quiz(
@@ -355,6 +367,7 @@ class ArtifactsAPI:
             instructions=instructions,
             quantity=quantity,
             difficulty=difficulty,
+            source_filter=source_filter,
         )
 
     async def generate_flashcards(
@@ -364,6 +377,7 @@ class ArtifactsAPI:
         instructions: str | None = None,
         quantity: QuizQuantity | None = None,
         difficulty: QuizDifficulty | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate flashcards."""
         return await self._generation.generate_flashcards(
@@ -372,6 +386,7 @@ class ArtifactsAPI:
             instructions=instructions,
             quantity=quantity,
             difficulty=difficulty,
+            source_filter=source_filter,
         )
 
     async def generate_infographic(
@@ -383,6 +398,7 @@ class ArtifactsAPI:
         orientation: InfographicOrientation | None = None,
         detail_level: InfographicDetail | None = None,
         style: InfographicStyle | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate an infographic."""
         return await self._generation.generate_infographic(
@@ -393,6 +409,7 @@ class ArtifactsAPI:
             orientation=orientation,
             detail_level=detail_level,
             style=style,
+            source_filter=source_filter,
         )
 
     async def generate_slide_deck(
@@ -403,6 +420,7 @@ class ArtifactsAPI:
         instructions: str | None = None,
         slide_format: SlideDeckFormat | None = None,
         slide_length: SlideDeckLength | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a slide deck."""
         return await self._generation.generate_slide_deck(
@@ -412,6 +430,7 @@ class ArtifactsAPI:
             instructions=instructions,
             slide_format=slide_format,
             slide_length=slide_length,
+            source_filter=source_filter,
         )
 
     async def revise_slide(
@@ -449,6 +468,7 @@ class ArtifactsAPI:
         source_ids: builtins.list[str] | None = None,
         language: str | None = "en",
         instructions: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a data table."""
         return await self._generation.generate_data_table(
@@ -456,6 +476,7 @@ class ArtifactsAPI:
             source_ids=source_ids,
             language=language,
             instructions=instructions,
+            source_filter=source_filter,
         )
 
     async def generate_mind_map(
@@ -464,6 +485,7 @@ class ArtifactsAPI:
         source_ids: builtins.list[str] | None = None,
         language: str | None = "en",
         instructions: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> MindMapResult:
         """Generate a note-backed mind map and persist it as a note.
 
@@ -476,6 +498,7 @@ class ArtifactsAPI:
             source_ids=source_ids,
             language=language,
             instructions=instructions,
+            source_filter=source_filter,
         )
 
     # =========================================================================

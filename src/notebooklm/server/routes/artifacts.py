@@ -67,6 +67,7 @@ from ._passthrough import (
     passthrough_notebook_id,
     passthrough_source_ids,
 )
+from ._source_filter import SourceFilterBody
 
 __all__ = ["DOWNLOAD_SPECS", "GENERATE_TYPES", "router"]
 
@@ -221,6 +222,7 @@ class ArtifactGenerate(BaseModel):
 
     type: str
     source_ids: list[str] | None = None
+    source_filter: SourceFilterBody | None = None
     instructions: str = ""
     language: str | None = None
     report_format: str | None = None
@@ -320,6 +322,16 @@ async def generate(
     # Treat empty / whitespace-only instructions as absent so the default request
     # shape stays byte-identical (no blank prompt slot reaches the server).
     instructions = body.instructions if (body.instructions and body.instructions.strip()) else None
+    if body.source_ids is not None and body.source_filter is not None:
+        raise ValidationError("source_ids and source_filter are mutually exclusive")
+    resolved_source_ids: list[str] | None
+    if body.source_filter is not None:
+        resolved_source_ids = await client.notebooks.get_source_ids(
+            notebook_id,
+            source_filter=body.source_filter.to_source_filter(),
+        )
+    else:
+        resolved_source_ids = body.source_ids
     raw_args: dict[str, Any] = dict(_KIND_DEFAULTS[body.type])
     raw_args.update(
         {
@@ -329,7 +341,7 @@ async def generate(
             # ``description``); forward BOTH so mind-map instructions actually reach
             # the client — the extra key is ignored by the other builders.
             "instructions": instructions,
-            "source_ids": tuple(body.source_ids or ()),
+            "source_ids": tuple(resolved_source_ids or ()),
             "language": body.language,
             "wait": False,
             "json_output": True,

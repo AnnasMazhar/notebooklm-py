@@ -1039,6 +1039,72 @@
           }
         },
         {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_type",
+          "opts": [
+            "--source-type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_status",
+          "opts": [
+            "--source-status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
+            ],
+            "name": "choice"
+          }
+        },
+        {
           "default": false,
           "envvar": null,
           "has_custom_shell_complete": false,
@@ -4372,6 +4438,72 @@
         {
           "default": "Sentinel.UNSET",
           "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_type",
+          "opts": [
+            "--source-type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_status",
+          "opts": [
+            "--source-status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
           "has_custom_shell_complete": true,
           "help": "Limit to specific source IDs",
           "is_flag": false,
@@ -4633,6 +4765,72 @@
         {
           "default": "Sentinel.UNSET",
           "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_type",
+          "opts": [
+            "--source-type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_status",
+          "opts": [
+            "--source-status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
           "has_custom_shell_complete": true,
           "help": "Limit to specific source IDs",
           "is_flag": false,
@@ -4815,6 +5013,72 @@
           "secondary_opts": [],
           "type": {
             "name": "text"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_type",
+          "opts": [
+            "--source-type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_status",
+          "opts": [
+            "--source-status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
+            ],
+            "name": "choice"
           }
         },
         {
@@ -5030,6 +5294,72 @@
               "easy",
               "medium",
               "hard"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_type",
+          "opts": [
+            "--source-type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_status",
+          "opts": [
+            "--source-status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
             ],
             "name": "choice"
           }
@@ -5304,6 +5634,72 @@
         {
           "default": "Sentinel.UNSET",
           "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_type",
+          "opts": [
+            "--source-type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_status",
+          "opts": [
+            "--source-status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
           "has_custom_shell_complete": true,
           "help": "Limit to specific source IDs",
           "is_flag": false,
@@ -5441,6 +5837,72 @@
           "secondary_opts": [],
           "type": {
             "name": "text"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_type",
+          "opts": [
+            "--source-type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_status",
+          "opts": [
+            "--source-status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
+            ],
+            "name": "choice"
           }
         },
         {
@@ -5642,6 +6104,72 @@
         {
           "default": "Sentinel.UNSET",
           "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_type",
+          "opts": [
+            "--source-type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_status",
+          "opts": [
+            "--source-status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
           "has_custom_shell_complete": true,
           "help": "Limit to specific source IDs",
           "is_flag": false,
@@ -5831,6 +6359,72 @@
           "secondary_opts": [],
           "type": {
             "name": "text"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_type",
+          "opts": [
+            "--source-type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_status",
+          "opts": [
+            "--source-status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
+            ],
+            "name": "choice"
           }
         },
         {
@@ -6292,6 +6886,72 @@
         {
           "default": "Sentinel.UNSET",
           "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_type",
+          "opts": [
+            "--source-type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_status",
+          "opts": [
+            "--source-status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
           "has_custom_shell_complete": true,
           "help": "Limit to specific source IDs",
           "is_flag": false,
@@ -6548,6 +7208,72 @@
           "secondary_opts": [],
           "type": {
             "name": "text"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_type",
+          "opts": [
+            "--source-type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_status",
+          "opts": [
+            "--source-status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
+            ],
+            "name": "choice"
           }
         },
         {
@@ -11010,6 +11736,72 @@
           }
         },
         {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Only list sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "status_filters",
+          "opts": [
+            "--status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Only list sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "type_filters",
+          "opts": [
+            "--type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
           "default": null,
           "envvar": null,
           "has_custom_shell_complete": false,
@@ -11468,6 +12260,72 @@
           "secondary_opts": [],
           "type": {
             "name": "text"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources of this type (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_type",
+          "opts": [
+            "--source-type"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "google_docs",
+              "google_slides",
+              "google_spreadsheet",
+              "pdf",
+              "pasted_text",
+              "web_page",
+              "google_drive_audio",
+              "google_drive_video",
+              "youtube",
+              "markdown",
+              "docx",
+              "powerpoint",
+              "csv",
+              "epub",
+              "image",
+              "media",
+              "unknown"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": "Sentinel.UNSET",
+          "envvar": null,
+          "has_custom_shell_complete": false,
+          "help": "Select sources with this ingestion status (repeatable).",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": true,
+          "name": "source_status",
+          "opts": [
+            "--source-status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "unspecified",
+              "processing",
+              "ready",
+              "error",
+              "pending_deletion",
+              "preparing"
+            ],
+            "name": "choice"
           }
         },
         {

@@ -103,6 +103,8 @@ async def test_mcp_notebook_create_over_vcr() -> None:
         "title",
         "created_at",
         "sources_count",
+        # Exact additive inventory accounting from the GET_NOTEBOOK re-read.
+        "source_counts",
         "is_owner",
         "modified_at",
         "role",
@@ -121,6 +123,8 @@ async def test_mcp_notebook_create_over_vcr() -> None:
     )
     # The deprecated ``modified_at`` alias is still emitted, same value (#2126).
     assert structured["modified_at"] == structured["last_viewed_at"]
+    assert structured["source_counts"]["records_total"] == 0
+    assert structured["source_counts"]["unique_sources"] == 0
     # The creating account owns what it just created (#2125).
     assert structured["role"] == SharePermission.OWNER.value
     assert structured["role_label"] == "owner"

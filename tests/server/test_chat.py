@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from notebooklm.exceptions import RateLimitError
-from notebooklm.types import ConversationTurnKey
+from notebooklm.types import ConversationTurnKey, SourceStatus, SourceType
 
 from .fakes import FakeClient
 
@@ -34,6 +35,57 @@ def test_conversation_id_is_forwarded(authed_client: TestClient, fake_client: Fa
     assert resp.status_code == 200
     assert resp.json()["conversation_id"] == "conv-42"
     assert fake_client.last_ask == {"notebook_id": "nb-1", "conversation_id": "conv-42"}
+
+
+def test_source_filter_is_parsed_and_forwarded(
+    authed_client: TestClient, fake_client: FakeClient
+) -> None:
+    resp = authed_client.post(
+        "/v1/notebooks/nb-1/chat",
+        json={
+            "question": "Only PDFs",
+            "source_filter": {"statuses": ["ready"], "types": ["pdf"]},
+        },
+    )
+
+    assert resp.status_code == 200
+    source_filter = fake_client.last_ask["source_filter"]
+    assert source_filter.statuses == (SourceStatus.READY,)
+    assert source_filter.types == (SourceType.PDF,)
+
+
+def test_source_filter_conflicts_with_explicit_ids(authed_client: TestClient) -> None:
+    resp = authed_client.post(
+        "/v1/notebooks/nb-1/chat",
+        json={
+            "question": "ambiguous",
+            "source_ids": ["s-1"],
+            "source_filter": {"statuses": ["ready"]},
+        },
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["error"]["category"] == "validation"
+
+
+@pytest.mark.parametrize(
+    ("source_filter", "status_code"),
+    [
+        ({}, 400),
+        ({"statuses": ["not-a-status"]}, 422),
+        ({"statuses": "ready"}, 422),
+        ({"types": ["pdf"], "unexpected": True}, 422),
+    ],
+)
+def test_source_filter_rejects_empty_unknown_and_invalid_shapes(
+    authed_client: TestClient, source_filter: dict[str, object], status_code: int
+) -> None:
+    resp = authed_client.post(
+        "/v1/notebooks/nb-1/chat",
+        json={"question": "invalid selector", "source_filter": source_filter},
+    )
+
+    assert resp.status_code == status_code
 
 
 def test_rate_limited_ask_is_429(authed_client: TestClient, fake_client: FakeClient) -> None:

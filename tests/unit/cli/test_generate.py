@@ -16,6 +16,7 @@ from notebooklm.cli import helpers as helpers_module
 from notebooklm.cli.polling_ui import status_with_elapsed
 from notebooklm.notebooklm_cli import cli
 from notebooklm.rpc.types import ReportFormat
+from notebooklm.types import SourceStatus, SourceType
 
 from .conftest import create_mock_client, inject_client, mind_map_result
 
@@ -110,6 +111,65 @@ class TestGenerateStandardTypes:
 # GENERATE AUDIO TESTS
 # =============================================================================
 class TestGenerateAudio:
+    def test_generate_audio_status_and_type_filter(self, runner, mock_auth):
+        mock_client = create_mock_client()
+        mock_client.notebooks.get_source_ids = AsyncMock(return_value=["ready_pdf"])
+        mock_client.artifacts.generate_audio = AsyncMock(
+            return_value={"artifact_id": "audio_123", "status": "processing"}
+        )
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli,
+                [
+                    "generate",
+                    "audio",
+                    "-n",
+                    "nb_123",
+                    "--source-status",
+                    "ready",
+                    "--source-type",
+                    "pdf",
+                ],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 0, result.output
+        source_filter = mock_client.notebooks.get_source_ids.await_args.kwargs["source_filter"]
+        assert source_filter.statuses == (SourceStatus.READY,)
+        assert source_filter.types == (SourceType.PDF,)
+        assert mock_client.artifacts.generate_audio.await_args.kwargs["source_ids"] == ["ready_pdf"]
+
+    def test_generate_audio_rejects_explicit_source_with_filter(self, runner, mock_auth):
+        mock_client = create_mock_client()
+        mock_client.artifacts.generate_audio = AsyncMock()
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli,
+                [
+                    "generate",
+                    "audio",
+                    "-n",
+                    "nb_123",
+                    "-s",
+                    "src_123",
+                    "--source-type",
+                    "pdf",
+                ],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 1
+        assert "mutually exclusive" in result.output
+        mock_client.artifacts.generate_audio.assert_not_awaited()
+
     def test_generate_audio_with_format(self, runner, mock_auth):
         mock_client = create_mock_client()
         mock_client.artifacts.generate_audio = AsyncMock(

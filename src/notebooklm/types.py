@@ -72,7 +72,10 @@ from ._types.research import (
 from ._types.sharing import SharedUser, ShareStatus
 from ._types.sources import (
     Source,
+    SourceCounts,
+    SourceFilter,
     SourceFulltext,
+    SourceInventory,
     SourceType,
 )
 
@@ -199,7 +202,10 @@ __all__ = [
     "NotebookMetadata",
     "SuggestedTopic",
     "Source",
+    "SourceCounts",
+    "SourceFilter",
     "SourceFulltext",
+    "SourceInventory",
     "SourceSummary",
     "Artifact",
     "GenerationState",
@@ -338,7 +344,10 @@ for _public_moved_type in (
     SharedUser,
     ShareStatus,
     Source,
+    SourceCounts,
+    SourceFilter,
     SourceFulltext,
+    SourceInventory,
     SourceGuide,
     SourceSummary,
     SourceType,

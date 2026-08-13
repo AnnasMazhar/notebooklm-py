@@ -76,6 +76,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tables their boundaries back is a decoder change
   ([#2230](https://github.com/teng-lin/notebooklm-py/issues/2230)).
   ([#2211](https://github.com/teng-lin/notebooklm-py/issues/2211))
+- **Exact source inventory counts and status/type selection** supersede the
+  conflicted approach in #2102. `client.sources.inventory()` returns one
+  `SourceInventory` parsed from a single `GET_NOTEBOOK` response, with
+  `SourceCounts.records_total` (every backend row, including id-less phantoms
+  and duplicates), `id_bearing_records`, `unique_sources`, `idless_records`,
+  `duplicate_id_records`, and complete `by_status` / `by_type` histograms over
+  the unique first-occurrence roster. `by_status["ready"]` is the confirmed
+  processed bucket; the `ready` convenience property returns `None` when a
+  compact row omitted any status instead of fabricating an authoritative zero.
+  The legacy `Notebook.sources_count` remains the raw embedded row count;
+  it is not silently redefined as processed or quota usage. No `quota_counted`
+  or `remaining_capacity` value is claimed because the backend exposes a source
+  limit but no authoritative used-capacity counter.
+
+  `SourceFilter` adds opt-in status/type selection to chat, suggested prompts,
+  every Studio generator, and both mind-map backends. Values within an axis are
+  ORed and the status/type axes are ANDed; explicit `source_ids` and a filter are
+  mutually exclusive. Omitting both preserves the historical all-source payload,
+  including every ID-bearing error/tentative/unknown ghost row and duplicate ID
+  in wire order. Id-less phantom rows are counted but cannot be selected because
+  the protocol requires IDs. CLI `source list` adds repeatable `--status` and
+  `--type`; CLI chat/suggestions/generation add repeatable `--source-status`
+  and `--source-type`; MCP/REST chat and Studio generation accept
+  `source_filter` objects.
+  `SourceStatus` now models backend `UNSPECIFIED=0` and
+  `PENDING_DELETION=4`. Source-list JSON/MCP/REST responses include
+  `source_counts`. ([#1962](https://github.com/teng-lin/notebooklm-py/issues/1962))
 
 - **`notebooklm source list --status <state>`** filters the listing to one
   ingestion status — `ready`, `processing`, `error`, `preparing`, or `unknown`

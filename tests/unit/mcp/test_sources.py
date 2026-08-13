@@ -38,7 +38,12 @@ from notebooklm.rpc.types import (  # noqa: E402 - after importorskip guard
     DriveSourceStatus,
     SourceStatus,
 )
-from notebooklm.types import Label, Source  # noqa: E402 - after importorskip guard
+from notebooklm.types import (  # noqa: E402 - after importorskip guard
+    Label,
+    Source,
+    SourceCounts,
+    SourceInventory,
+)
 
 from .conftest import AsyncMock  # noqa: E402 - after importorskip guard
 
@@ -214,6 +219,31 @@ async def test_source_list(mcp_call, mock_client) -> None:
         "has_more": False,
     }
     mock_client.sources.list.assert_awaited_once_with(NB_ID)
+
+
+async def test_source_list_includes_exact_inventory_counts(mcp_call, mock_client) -> None:
+    counts = SourceCounts(
+        records_total=3,
+        id_bearing_records=2,
+        unique_sources=1,
+        idless_records=1,
+        duplicate_id_records=1,
+        by_status={"ready": 1},
+        by_type={"web_page": 1},
+    )
+    mock_client.sources.supports_source_inventory = True
+    mock_client.sources.inventory = AsyncMock(
+        return_value=SourceInventory(
+            sources=(Source(id=SRC_ID, title="Doc", _type_code=5),),
+            raw_source_ids=(SRC_ID, SRC_ID),
+            counts=counts,
+        )
+    )
+
+    result = await mcp_call("source_list", {"notebook": NB_ID})
+
+    assert result.structured_content["source_counts"] == counts.to_dict()
+    mock_client.sources.inventory.assert_awaited_once_with(NB_ID)
 
 
 async def test_source_list_status_filter(mcp_call, mock_client) -> None:

@@ -18,10 +18,10 @@ from ._notebook_payloads import (
     build_prompt_suggestions_params,
 )
 from ._row_adapters.notebooks import PromptSuggestionRow, unwrap_prompt_suggestions
-from ._row_adapters.sources import SourceRow
 from ._runtime.contracts import RpcCaller
 from ._settings import build_get_user_settings_params, extract_account_limits
 from ._sharing_manager import ShareManager
+from ._source.inventory import build_source_inventory
 from .exceptions import (
     AuthError,
     ClientError,
@@ -41,6 +41,7 @@ from .types import (
     NotebookDescription,
     NotebookMetadata,
     PromptSuggestion,
+    SourceFilter,
     SuggestedTopic,
 )
 
@@ -244,7 +245,12 @@ class NotebooksAPI:
             operation_variant=operation_variant,
         )
 
-    async def get_source_ids(self, notebook_id: str) -> list[str]:
+    async def get_source_ids(
+        self,
+        notebook_id: str,
+        *,
+        source_filter: SourceFilter | None = None,
+    ) -> list[str]:
         """Extract all source IDs from a notebook.
 
         Fetches notebook data and extracts source IDs for use with chat and
@@ -252,26 +258,43 @@ class NotebooksAPI:
 
         Args:
             notebook_id: The notebook ID.
+            source_filter: Optional status/type selector. A valid filter that
+                matches no ID-bearing source raises :class:`ValidationError`.
 
         Returns:
-            List of source IDs. Empty list when the notebook has no sources or
-            when get_source_ids encounters a schema/validation mismatch while
-            extracting IDs.
+            List of source IDs. With no filter, every ID-bearing wire row is
+            returned in order (including duplicates and non-ready ghost/error
+            rows), preserving the historical "all" behavior. Filter values
+            within an axis are ORed and status/type axes are ANDed. An empty
+            list is returned for a genuinely empty notebook or, for unfiltered
+            legacy calls, when local source-envelope validation cannot safely
+            extract IDs. Filtered calls fail closed with :class:`DecodingError`
+            on a malformed envelope.
 
         Note:
             RPC, auth, and network errors raised by ``get_raw()`` propagate to
-            the caller; only local source-shape validation failures are caught
-            below and converted to an empty list. Per-row id-envelope
+            the caller; local source-shape validation failures retain the
+            historical empty-list fallback only when no filter was requested.
+            Per-row id-envelope
             decoding (including the drive-backed ``[None, True, [id]]``
             shape) is delegated to
             :class:`notebooklm._row_adapters.sources.SourceRow`; this method only
             performs the envelope walk down to ``notebook[0][1]``.
         """
-        notebook_data = await self.get_raw(notebook_id)
-
+        method_id = RPCMethod.GET_NOTEBOOK.value
         source_ids: list[str] = []
-        if not notebook_data or not isinstance(notebook_data, list):
+
+        def malformed_selection(detail: str) -> list[str]:
+            if source_filter is not None:
+                raise DecodingError(
+                    f"Could not apply source_filter for {notebook_id}: {detail}",
+                    method_id=method_id,
+                )
             return source_ids
+
+        notebook_data = await self.get_raw(notebook_id)
+        if not notebook_data or not isinstance(notebook_data, list):
+            return malformed_selection("invalid notebook response envelope")
 
         # Schema-drift detection points: log WARNING at each isinstance/len
         # guard that fails on a non-empty response (real drift surfaces here,
@@ -282,8 +305,7 @@ class NotebooksAPI:
         # — the sanctioned schema-drift seam — so position knowledge stays out
         # of open-coded subscripts. The reads are all length-guarded, so
         # ``safe_index`` never actually raises here; the ``except`` below remains
-        # defense-in-depth (now genuinely unreachable, as noted).
-        method_id = RPCMethod.GET_NOTEBOOK.value
+        # defense-in-depth.
         try:
             notebook_info = safe_index(
                 notebook_data, 0, method_id=method_id, source="NotebooksAPI.get_source_ids"
@@ -297,7 +319,7 @@ class NotebooksAPI:
                     notebook_id,
                     type(notebook_info).__name__,
                 )
-                return source_ids
+                return malformed_selection("notebook row is not a list")
 
             if len(notebook_info) <= 1:
                 # The sources slot is *absent*, which is not the same thing as
@@ -311,7 +333,7 @@ class NotebooksAPI:
                     notebook_id,
                     len(notebook_info),
                 )
-                return source_ids
+                return malformed_selection("notebook row has no sources slot")
 
             sources = safe_index(
                 notebook_info, 1, method_id=method_id, source="NotebooksAPI.get_source_ids"
@@ -324,6 +346,8 @@ class NotebooksAPI:
                 # sibling walk over this slot already makes — reject the short
                 # envelope first, then accept a present ``None``
                 # (``_source/listing.py``, issue #1159).
+                if source_filter is not None:
+                    raise ValidationError("source_filter matched no selectable sources")
                 return source_ids
             if not isinstance(sources, list):
                 logger.warning(
@@ -331,26 +355,16 @@ class NotebooksAPI:
                     notebook_id,
                     len(notebook_info),
                 )
-                return source_ids
-            for source in sources:
-                if not (isinstance(source, list) and source):
-                    continue
-                # Per-row id-envelope decoding is delegated to SourceRow:
-                # ``SourceRow.id`` returns ``""`` for malformed envelopes
-                # (matching legacy ``isinstance(first, list) and first``)
-                # and stringifies non-string ids. The legacy code here
-                # additionally required ``isinstance(sid, str)``; that
-                # check was inconsistent with the sibling
-                # ``_source.listing._extract_source_id`` path (which
-                # accepts any non-None id via ``str(src_id)`` at the
-                # ``Source(id=...)`` boundary). Unifying both call sites
-                # through ``SourceRow.id`` aligns behavior — integer-ids
-                # (none observed in Google's wire today) would now be
-                # stringified rather than silently dropped.
-                row = SourceRow.from_entry(source, method_id=RPCMethod.GET_NOTEBOOK.value)
-                sid = row.id
-                if sid:
-                    source_ids.append(sid)
+                return malformed_selection("sources slot is not a list")
+            inventory = build_source_inventory(sources)
+            selected_ids = (
+                inventory.select_filter_ids(source_filter)
+                if source_filter is not None
+                else inventory.select_ids()
+            )
+            if source_filter is not None and not selected_ids:
+                raise ValidationError("source_filter matched no selectable sources")
+            source_ids.extend(selected_ids)
         except (IndexError, TypeError) as e:
             # Defense-in-depth: guards above should make this unreachable.
             logger.warning(
@@ -359,6 +373,7 @@ class NotebooksAPI:
                 e,
                 exc_info=True,
             )
+            return malformed_selection("unexpected source-envelope shape")
 
         return source_ids
 
@@ -367,6 +382,7 @@ class NotebooksAPI:
         notebook_id: str,
         *,
         source_ids: list[str] | None = None,
+        source_filter: SourceFilter | None = None,
         mode: int = _PROMPT_SUGGESTIONS_DEFAULT_MODE,
         query: str | None = None,
     ) -> list[PromptSuggestion]:
@@ -384,6 +400,8 @@ class NotebooksAPI:
             notebook_id: The notebook to suggest prompts for.
             source_ids: Source ids to scope the suggestions to. ``None``
                 (default) uses **all** of the notebook's sources.
+            source_filter: Select sources by status and/or type. Cannot be
+                combined with explicit ``source_ids``.
             mode: The required ``C0`` int "mode/surface" enum, inclusive range
                 ``1..10`` (``0`` / omitted makes the server return ``INTERNAL``).
                 It selects which studio surface/format the prompts are written for
@@ -417,8 +435,13 @@ class NotebooksAPI:
             build_prompt_suggestions_params(notebook_id, [], mode=mode)
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
+        if source_ids is not None and source_filter is not None:
+            raise ValidationError("source_ids and source_filter are mutually exclusive")
         if source_ids is None:
-            source_ids = await self.get_source_ids(notebook_id)
+            if source_filter is None:
+                source_ids = await self.get_source_ids(notebook_id)
+            else:
+                source_ids = await self.get_source_ids(notebook_id, source_filter=source_filter)
 
         params = build_prompt_suggestions_params(notebook_id, source_ids, mode=mode, query=query)
         result = await self._rpc.rpc_call(
@@ -479,7 +502,13 @@ class NotebooksAPI:
                 result, 0, method_id=RPCMethod.LIST_NOTEBOOKS.value, source="NotebooksAPI.list"
             )
             if isinstance(raw_notebooks, list):
-                return [Notebook.from_api_response(nb) for nb in raw_notebooks]
+                # LIST_NOTEBOOKS carries compact source rows that can omit
+                # status/type. Preserve its existing output shape and avoid
+                # presenting abbreviated buckets as authoritative inventory.
+                return [
+                    Notebook.from_api_response(nb, include_source_counts=False)
+                    for nb in raw_notebooks
+                ]
             if raw_notebooks is None:
                 return []
         raise DecodingError(

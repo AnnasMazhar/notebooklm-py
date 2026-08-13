@@ -37,7 +37,14 @@ from notebooklm.exceptions import (  # noqa: E402 - after importorskip guard
     RPCError,
 )
 from notebooklm.mcp.tools.studio import _KIND_OPTIONS  # noqa: E402
-from notebooklm.types import Artifact, ArtifactType, GenerationState, Note  # noqa: E402
+from notebooklm.types import (  # noqa: E402
+    Artifact,
+    ArtifactType,
+    GenerationState,
+    Note,
+    SourceStatus,
+    SourceType,
+)
 
 from .conftest import AsyncMock  # noqa: E402 - after importorskip guard
 
@@ -571,6 +578,46 @@ async def test_artifact_generate_passes_source_ids(mcp_call, mock_client) -> Non
     assert kwargs["source_ids"] == (src_a, src_b)
     # A source-scoped generation echoes the resolved canonical source_ids (#1808).
     assert result.structured_content["source_ids"] == [src_a, src_b]
+
+
+async def test_artifact_generate_source_filter_resolves_ids(mcp_call, mock_client) -> None:
+    selected_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    mock_client.notebooks.get_source_ids = AsyncMock(return_value=[selected_id])
+    mock_client.artifacts.generate_audio = AsyncMock(return_value=FakeStatus(task_id=TASK_ID))
+
+    result = await mcp_call(
+        "studio_generate",
+        {
+            "notebook": NB_ID,
+            "artifact_type": "audio",
+            "source_filter": {"statuses": ["ready"], "types": ["pdf"]},
+        },
+    )
+
+    source_filter = mock_client.notebooks.get_source_ids.await_args.kwargs["source_filter"]
+    assert source_filter.statuses == (SourceStatus.READY,)
+    assert source_filter.types == (SourceType.PDF,)
+    assert mock_client.artifacts.generate_audio.await_args.kwargs["source_ids"] == (selected_id,)
+    assert result.structured_content["source_ids"] == [selected_id]
+
+
+async def test_artifact_generate_rejects_ids_with_source_filter(mcp_call, mock_client) -> None:
+    selected_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    mock_client.artifacts.generate_audio = AsyncMock(return_value=FakeStatus(task_id=TASK_ID))
+
+    with pytest.raises(ToolError) as excinfo:
+        await mcp_call(
+            "studio_generate",
+            {
+                "notebook": NB_ID,
+                "artifact_type": "audio",
+                "source_ids": [selected_id],
+                "source_filter": {"statuses": ["ready"]},
+            },
+        )
+
+    assert "mutually exclusive" in str(excinfo.value)
+    mock_client.artifacts.generate_audio.assert_not_awaited()
 
 
 async def test_artifact_generate_resolves_source_id_prefix(mcp_call, mock_client) -> None:

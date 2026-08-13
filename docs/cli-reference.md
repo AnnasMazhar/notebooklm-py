@@ -125,6 +125,7 @@ See [Configuration](configuration.md) for full env-var precedence and CI/CD setu
 | `ask --new` | **DESTRUCTIVE.** Permanently delete the notebook's current server-side conversation (turns are not recoverable) and start fresh on the next `ask`. Prompts for confirmation with the conversation's short id; pass `--yes`/`-y` to skip the prompt. `--json` implies `--yes` so scripted callers don't hang on stdin. Closes the workaround documented in [#659](https://github.com/teng-lin/notebooklm-py/issues/659). | `notebooklm ask --new -y "start fresh"` |
 | `ask --new --yes` (alias `-y`) | Skip the `--new` destructive-delete confirmation prompt. | `notebooklm ask --new --yes "..."` |
 | `ask -s <id>` | Limit to specific source IDs (repeatable) | `notebooklm ask "Summarize" -s src1 -s src2` |
+| `ask --source-status STATUS --source-type TYPE` | Select sources by ingestion status and/or type (repeatable; exclusive with `-s`) | `notebooklm ask "Summarize PDFs" --source-status ready --source-type pdf` |
 | `ask --json` | Get answer with source references | `notebooklm ask "Explain X" --json` |
 | `ask --request-timeout N` | Per-invocation HTTP request/read timeout in seconds for chat. Defaults to the library chat timeout. `--timeout` is a back-compat alias for the same flag. | `notebooklm ask "long prompt" --request-timeout 120` |
 | `ask --save-as-note` | Save response as a note. When the answer contains `[N]` citations, the saved note preserves interactive hover-anchored citation links matching the NotebookLM web UI's "Save to note" behavior ([issue #660](https://github.com/teng-lin/notebooklm-py/issues/660)). Answers without citations fall back to a plain-text note. | `notebooklm ask "Explain X" --save-as-note` |
@@ -133,6 +134,7 @@ See [Configuration](configuration.md) for full env-var precedence and CI/CD setu
 | `suggest-prompts --mode N` | Select the suggestion surface (1-10, default 4): 1=audio deep-dive, 2=audio brief, 3=video explainer, 4=chat questions, 5=audio critique, 6=audio debate, 8=quiz, 9=flashcards, 10=video short. Out-of-range exits 1. | `notebooklm suggest-prompts --mode 8` |
 | `suggest-prompts --query TEXT` | Free-text steer for the kind of prompts to suggest | `notebooklm suggest-prompts --query "key risks"` |
 | `suggest-prompts -s <id>` | Limit to specific source IDs (repeatable; defaults to all sources) | `notebooklm suggest-prompts -s src1 -s src2` |
+| `suggest-prompts --source-status STATUS --source-type TYPE` | Select sources by status/type (repeatable; exclusive with `-s`) | `notebooklm suggest-prompts --source-status ready --source-type web_page` |
 | `suggest-prompts --json` | Machine-readable output (`{notebook_id, suggestions, count}`) | `notebooklm suggest-prompts --json` |
 | `configure --mode` | Set predefined chat mode (`default`, `learning-guide`, `concise`, `detailed`) | `notebooklm configure --mode learning-guide` |
 | `configure --persona` | Set custom persona prompt (up to 10,000 chars) | `notebooklm configure --persona "Act as a tutor"` |
@@ -155,7 +157,7 @@ Supported source types: URLs, YouTube videos, files (PDF, text, Markdown, Word, 
 
 | Command | Arguments | Options | Example |
 |---------|-----------|---------|---------|
-| `list` | - | `--json`, `--limit N`, `--no-truncate`, `--label`, `--status` | `source list --limit 20 --no-truncate` |
+| `list` | - | `--json`, `--limit N`, `--no-truncate`, `--label`, `--status STATUS`, `--type TYPE` (both repeatable) | `source list --status ready --type pdf --type web_page` |
 | `add <content>` | URL/file/text (use `-` for stdin) | `--title`, `--type`, `--timeout`, `--follow-symlinks`, `--allow-internal` (URL sources only), `--json` (file-source `--mime-type` overrides extension inference — see [detailed section](#source-add-mime-type-file-sources)) | `source add "https://..." --timeout 90` |
 | `add-drive <id> <title>` | Drive file ID, title | `--mime-type [google-doc\|google-slides\|google-sheets\|pdf]`, `--json` | `source add-drive abc123 "Doc" --mime-type google-slides` |
 | `add-drive-file <id>` | Drive file ID or share URL | `--title`, `--wait`, `--json` | `source add-drive-file abc123 --title "Notes" --wait` |
@@ -181,7 +183,7 @@ All `source` subcommands also accept `-n/--notebook ID` (resolves via flag > `NO
 
 `source stale` reports whether a URL/Drive source needs a refresh. By default it follows the standard CLI exit convention (`0` on success, `1` on error); branch on the JSON `stale`/`fresh` fields (or stdout text) for the freshness verdict. Pass `--exit-on-stale` to opt into the back-compat inverted predicate (`0` = stale, `1` = fresh) for shell idioms like `if notebooklm source stale --exit-on-stale ID; then refresh; fi`.
 
-`source list` also accepts `--label <id|name>` to list only the sources in a given label (a saved selection). The selector resolves a label id (or partial prefix) **or** an exact label name; see [Label Commands](#label-commands-notebooklm-label-cmd).
+`source list` also accepts `--label <id|name>` to list only the sources in a given label (a saved selection). Repeat `--status` or `--type` for OR matching within that axis; status and type compose with AND, and both compose with `--label`. Unfiltered JSON output includes notebook-wide `source_counts`: `records_total` includes id-less phantom and duplicate rows, while `by_status.ready` is the confirmed processed bucket (`by_status.unknown` identifies rows whose status was not reported). Label-filtered output omits this notebook-wide block because label membership cannot reconstruct exact raw counts. The label selector resolves a label id (or partial prefix) **or** an exact label name; see [Label Commands](#label-commands-notebooklm-label-cmd).
 
 `source list --status <state>` restricts the listing to one ingestion status — `ready`, `processing`, `error`, `preparing`, or `unknown`. The choices are derived from `SourceStatus`, so they cannot drift from the labels the Status column renders, and the filter is applied inside the fetch, so `count` in `--json` always matches the rows shown. It composes with `--label`.
 
@@ -283,6 +285,8 @@ Collections are account-level, so — unlike `label` — the `collection` comman
 All generate commands (except the synchronous `mind-map`) accept the same uniform polling-flag surface:
 - `-n, --notebook ID` to target a specific notebook (also resolved from `NOTEBOOKLM_NOTEBOOK` / active context)
 - `-s, --source ID` to select specific sources (repeatable)
+- `--source-status STATUS` / `--source-type TYPE` to select by status/type
+  (repeatable; OR within an axis, AND between axes; mutually exclusive with `--source`)
 - `--json` for machine-readable output (returns `task_id` and `status`)
 - `--wait / --no-wait` to block until completion (default: `--no-wait` — returns immediately with a `task_id`)
 - `--timeout SECONDS` to cap the `--wait` budget (defaults: 1200s for audio, 1800s for video, 3600s for cinematic-video, and 300s for quiz/flashcards/slide-deck/infographic/data-table/report/revise-slide). No-op without `--wait`.

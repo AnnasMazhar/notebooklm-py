@@ -29,6 +29,8 @@ from notebooklm.types import (  # noqa: E402 - after importorskip guard
     ChatResponseLength,
     ChatSettings,
     ConversationTurnKey,
+    SourceStatus,
+    SourceType,
 )
 
 from .conftest import AsyncMock  # noqa: E402 - after importorskip guard
@@ -128,6 +130,86 @@ async def test_chat_ask_source_ids_list(mcp_call, mock_client) -> None:
     assert mock_client.chat.ask.await_args.kwargs["source_ids"] == [_SRC_A, _SRC_B]
     # A source-scoped call echoes the resolved canonical source_ids (#1808).
     assert result.structured_content["source_ids"] == [_SRC_A, _SRC_B]
+
+
+async def test_chat_ask_source_filter_resolves_status_and_type(mcp_call, mock_client) -> None:
+    mock_client.notebooks.get_source_ids = AsyncMock(return_value=[_SRC_A])
+    mock_client.chat.ask = AsyncMock(
+        return_value=FakeAskResult(answer="42", conversation_id=CONV_ID)
+    )
+
+    result = await mcp_call(
+        "chat_ask",
+        {
+            "notebook": NB_ID,
+            "question": "what?",
+            "source_filter": {"statuses": ["ready"], "types": ["pdf"]},
+        },
+    )
+
+    source_filter = mock_client.notebooks.get_source_ids.await_args.kwargs["source_filter"]
+    assert source_filter.statuses == (SourceStatus.READY,)
+    assert source_filter.types == (SourceType.PDF,)
+    assert mock_client.chat.ask.await_args.kwargs["source_ids"] == [_SRC_A]
+    assert result.structured_content["source_ids"] == [_SRC_A]
+
+
+async def test_chat_ask_rejects_source_ids_with_filter(mcp_call, mock_client) -> None:
+    mock_client.chat.ask = AsyncMock()
+
+    with pytest.raises(ToolError, match="mutually exclusive"):
+        await mcp_call(
+            "chat_ask",
+            {
+                "notebook": NB_ID,
+                "question": "what?",
+                "source_ids": [_SRC_A],
+                "source_filter": {"statuses": ["ready"]},
+            },
+        )
+
+    mock_client.chat.ask.assert_not_awaited()
+
+
+async def test_source_filter_schema_is_typed_for_all_consuming_tools(mcp_list_tools) -> None:
+    """Every selector advertises the same closed status/type vocabulary."""
+    tools = {tool.name: tool for tool in await mcp_list_tools()}
+    expected_statuses = {status.name.lower() for status in SourceStatus}
+    expected_types = {source_type.value for source_type in SourceType}
+
+    for name in ("chat_ask", "suggest_prompts", "studio_generate"):
+        schema = tools[name].inputSchema
+        filter_schema = schema["properties"]["source_filter"]
+        model = next(branch for branch in filter_schema["anyOf"] if branch.get("type") == "object")
+        assert model["additionalProperties"] is False
+        assert set(model["properties"]["statuses"]["items"]["enum"]) == expected_statuses
+        assert set(model["properties"]["types"]["items"]["enum"]) == expected_types
+
+
+@pytest.mark.parametrize(
+    "bad_filter",
+    [
+        {},
+        {"statuses": ["not-a-status"]},
+        {"types": ["pdf"], "unexpected": True},
+    ],
+)
+@pytest.mark.parametrize(
+    ("tool_name", "args"),
+    [
+        ("chat_ask", {"question": "question"}),
+        ("suggest_prompts", {}),
+        ("studio_generate", {"artifact_type": "audio"}),
+    ],
+)
+async def test_source_filter_rejects_empty_unknown_and_extra_fields(
+    mcp_call, tool_name: str, args: dict[str, Any], bad_filter: dict[str, Any]
+) -> None:
+    with pytest.raises(ToolError):
+        await mcp_call(
+            tool_name,
+            {"notebook": NB_ID, **args, "source_filter": bad_filter},
+        )
 
 
 async def test_chat_ask_unscoped_omits_source_ids_echo(mcp_call, mock_client) -> None:
@@ -774,6 +856,41 @@ async def test_suggest_prompts_source_ids_and_query(mcp_call, mock_client) -> No
     await mcp_call("suggest_prompts", {"notebook": NB_ID, "query": None})
     kwargs = mock_client.notebooks.suggest_prompts.await_args.kwargs
     assert kwargs["source_ids"] is None and kwargs["query"] is None
+
+
+async def test_suggest_prompts_source_filter_resolves_ids(mcp_call, mock_client) -> None:
+    mock_client.notebooks.get_source_ids = AsyncMock(return_value=[_SRC_A])
+    mock_client.notebooks.suggest_prompts = AsyncMock(return_value=[])
+
+    result = await mcp_call(
+        "suggest_prompts",
+        {
+            "notebook": NB_ID,
+            "source_filter": {"statuses": ["ready"], "types": ["pdf"]},
+        },
+    )
+
+    source_filter = mock_client.notebooks.get_source_ids.await_args.kwargs["source_filter"]
+    assert source_filter.statuses == (SourceStatus.READY,)
+    assert source_filter.types == (SourceType.PDF,)
+    assert result.structured_content["source_ids"] == [_SRC_A]
+
+
+async def test_suggest_prompts_rejects_ids_with_source_filter(mcp_call, mock_client) -> None:
+    mock_client.notebooks.suggest_prompts = AsyncMock(return_value=[])
+
+    with pytest.raises(ToolError) as excinfo:
+        await mcp_call(
+            "suggest_prompts",
+            {
+                "notebook": NB_ID,
+                "source_ids": [_SRC_A],
+                "source_filter": {"statuses": ["ready"]},
+            },
+        )
+
+    assert "mutually exclusive" in str(excinfo.value)
+    mock_client.notebooks.suggest_prompts.assert_not_awaited()
 
 
 async def test_suggest_prompts_rejects_bad_surface(mcp_call, mock_client) -> None:

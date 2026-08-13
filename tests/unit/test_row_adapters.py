@@ -2041,12 +2041,23 @@ class TestSourceRowStatus:
         row = SourceRow.from_entry(_entry(status_code=SourceStatus.PREPARING))
         assert row.status == SourceStatus.PREPARING
 
-    @pytest.mark.parametrize("status_code", [0, 4, 999])
+    @pytest.mark.parametrize("status_code", [999])
     def test_unknown_status_falls_back_to_unknown_and_warns(self, status_code: int, caplog) -> None:
         """An unmapped integer is non-ready and observable as enum drift."""
         row = SourceRow.from_entry(_entry(status_code=status_code))
         assert row.status is SourceStatus.UNKNOWN
         assert f"Unknown source status code {status_code}" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("status_code", "expected"),
+        [(0, SourceStatus.UNSPECIFIED), (4, SourceStatus.PENDING_DELETION)],
+    )
+    def test_backend_status_members_are_preserved(
+        self, status_code: int, expected: SourceStatus, caplog
+    ) -> None:
+        row = SourceRow.from_entry(_entry(status_code=status_code))
+        assert row.status is expected
+        assert "Unknown source status code" not in caplog.text
 
     def test_unknown_status_warns_once_per_code(self, caplog) -> None:
         """A polled source re-decodes every interval; the drift line fires once."""

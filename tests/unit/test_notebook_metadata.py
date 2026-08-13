@@ -81,8 +81,30 @@ async def test_metadata_service_uses_injected_lister_and_builds_source_summaries
     ]
     assert metadata.sources[0].title == "Architecture Notes"
     assert metadata.sources[0].url == "https://example.com/notes"
+    assert metadata.source_counts is None
     get_notebook.assert_awaited_once_with("nb_123")
     source_lister.list.assert_awaited_once_with("nb_123")
+
+
+@pytest.mark.asyncio
+async def test_metadata_service_includes_exact_inventory_counts_from_default_lister() -> None:
+    rows = [
+        source_entry("src_1", title="First"),
+        source_entry("src_1", title="Duplicate"),
+        [[None, True, []], "id-less"],
+    ]
+    source_lister = create_default_source_lister(RecordingRpc([["Notebook", rows]]))
+    get_notebook = AsyncMock(return_value=Notebook(id="nb_123", title="Mixed", sources_count=3))
+    service = NotebookMetadataService(get_notebook, source_lister)
+
+    metadata = await service.get_metadata("nb_123")
+
+    assert [source.title for source in metadata.sources] == ["First"]
+    assert metadata.source_counts is not None
+    assert metadata.source_counts.records_total == 3
+    assert metadata.source_counts.idless_records == 1
+    assert metadata.source_counts.duplicate_id_records == 1
+    assert metadata.source_counts.unique_sources == 1
 
 
 @pytest.mark.asyncio

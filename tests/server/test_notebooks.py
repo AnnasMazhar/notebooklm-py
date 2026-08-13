@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from notebooklm._types.notebooks import Notebook
@@ -177,6 +178,47 @@ def test_suggested_prompts_surface_and_source_ids(
     assert fake_client.last_suggest["mode"] == 8  # quiz
     assert fake_client.last_suggest["source_ids"] == ["s1", "s2"]
     assert fake_client.last_suggest["query"] == "steer"
+
+
+def test_suggested_prompts_source_filters(
+    authed_client: TestClient, fake_client: FakeClient
+) -> None:
+    from notebooklm.types import SourceStatus, SourceType
+
+    resp = authed_client.get(
+        "/v1/notebooks/nb-1/suggested-prompts",
+        params=[("source_status", "ready"), ("source_type", "pdf")],
+    )
+
+    assert resp.status_code == 200
+    source_filter = fake_client.last_suggest["source_filter"]
+    assert source_filter.statuses == (SourceStatus.READY,)
+    assert source_filter.types == (SourceType.PDF,)
+
+
+def test_suggested_prompts_rejects_ids_with_filters(authed_client: TestClient) -> None:
+    resp = authed_client.get(
+        "/v1/notebooks/nb-1/suggested-prompts",
+        params=[("source_ids", "s-1"), ("source_status", "ready")],
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["error"]["category"] == "validation"
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"source_status": "not-a-status"},
+        {"source_type": "not-a-type"},
+    ],
+)
+def test_suggested_prompts_rejects_unknown_source_filter_labels(
+    authed_client: TestClient, params: dict[str, str]
+) -> None:
+    resp = authed_client.get("/v1/notebooks/nb-1/suggested-prompts", params=params)
+
+    assert resp.status_code == 422
 
 
 def test_suggested_prompts_bad_surface_is_422(authed_client: TestClient) -> None:

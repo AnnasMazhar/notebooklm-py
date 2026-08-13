@@ -38,6 +38,7 @@ from .._confirm import READ_ONLY
 from .._context import get_client
 from .._errors import mcp_errors
 from .._resolve import resolve_notebook, resolve_sources
+from ._source_filter import SourceFilterInput, parse_source_filter
 
 #: Reference fields kept in the default ("lite") ``chat_ask`` projection. The full
 #: ``ChatReference`` also carries chunk-level char offsets / ``chunk_id`` /
@@ -57,6 +58,7 @@ def register(mcp: Any) -> None:
         conversation_id: str | None = None,
         references: Literal["lite", "full"] = "lite",
         source_ids: list[str] | str | None = None,
+        source_filter: SourceFilterInput | None = None,
         history: int = 0,
         suggest_followups: bool = False,
     ) -> dict[str, Any]:
@@ -71,6 +73,10 @@ def register(mcp: Any) -> None:
         JSON-array string, or a comma-separated string (the comma form cannot
         carry a source title that itself contains a comma — use a JSON array or a
         real list for those).
+
+        ``source_filter`` optionally selects by ``statuses`` and/or ``types``;
+        it cannot be combined with ``source_ids``. Values within one axis are
+        ORed and the axes are ANDed.
 
         ``history`` (optional, default 0): the max number of prior Q&A pairs
         (each a ``{question, answer}``) to also return (oldest-first), from the
@@ -108,6 +114,7 @@ def register(mcp: Any) -> None:
                     "or suggest_followups=true for suggested questions."
                 )
             nb_id = await resolve_notebook(client, notebook)
+            parsed_filter = parse_source_filter(source_filter)
             # Resolve source refs ONCE up front so both the ask path and the
             # suggest path share the same ids. Tolerate ``source_ids`` sent as a
             # JSON-array string / comma string / scalar, then resolve each ref
@@ -115,17 +122,23 @@ def register(mcp: Any) -> None:
             # does. Omitted/empty stays None (=> all sources, mirroring
             # ``client.chat.ask``'s None contract).
             refs = coerce_list(source_ids)
+            if refs and parsed_filter is not None:
+                raise ValidationError("source_ids and source_filter are mutually exclusive")
             # Resolve only when a path actually consumes the ids: the ask path
             # (a question) or the suggest path (suggest_followups). A recall-only
             # turn (history>0, no question, no suggest) does not scope by source, so
             # leave refs unresolved to preserve the prior no-op — no extra
             # ``sources.list`` round-trip and no ``SourceNotFoundError`` on a stale
             # ref that the recall path would have ignored anyway.
-            resolved_source_ids = (
-                await resolve_sources(client, nb_id, refs)
-                if refs and (question or suggest_followups)
-                else None
-            )
+            consumes_sources = bool(question or suggest_followups)
+            if refs and consumes_sources:
+                resolved_source_ids = await resolve_sources(client, nb_id, refs)
+            elif parsed_filter is not None and consumes_sources:
+                resolved_source_ids = await client.notebooks.get_source_ids(
+                    nb_id, source_filter=parsed_filter
+                )
+            else:
+                resolved_source_ids = None
             # When recall and a new question both target the "most-recent"
             # conversation, resolve it ONCE so the two awaits can't land on
             # different conversations (and so recall-only can echo the id).
@@ -287,6 +300,7 @@ def register(mcp: Any) -> None:
         notebook: str,
         surface: SuggestSurface = "ask",
         source_ids: list[str] | str | None = None,
+        source_filter: SourceFilterInput | None = None,
         query: str | None = None,
     ) -> dict[str, Any]:
         """Get AI-suggested, ready-to-send prompts for a studio surface. Accepts a
@@ -315,7 +329,17 @@ def register(mcp: Any) -> None:
             # then resolve each ref (id/prefix/title). Omitted/empty stays None
             # (=> all sources, mirroring the client's None contract).
             refs = coerce_list(source_ids)
-            resolved_source_ids = await resolve_sources(client, nb_id, refs) if refs else None
+            parsed_filter = parse_source_filter(source_filter)
+            if refs and parsed_filter is not None:
+                raise ValidationError("source_ids and source_filter are mutually exclusive")
+            if refs:
+                resolved_source_ids = await resolve_sources(client, nb_id, refs)
+            elif parsed_filter is not None:
+                resolved_source_ids = await client.notebooks.get_source_ids(
+                    nb_id, source_filter=parsed_filter
+                )
+            else:
+                resolved_source_ids = None
             # ``surface`` is a Literal, so FastMCP/Pydantic rejects an out-of-enum
             # value at the schema boundary — the map lookup can't KeyError.
             # ``query`` is passed through as-is: the payload builder

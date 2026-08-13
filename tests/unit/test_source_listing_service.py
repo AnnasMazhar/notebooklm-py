@@ -10,7 +10,7 @@ from notebooklm._source.listing import SourceLister
 from notebooklm.exceptions import RPCError
 from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import SourceStatus
-from notebooklm.types import Source
+from notebooklm.types import Source, SourceFilter, SourceType
 
 
 class RecordingRpc:
@@ -351,6 +351,105 @@ async def test_list_dedups_duplicate_ids_keeping_first(
     # The FIRST occurrence wins (later duplicate dropped).
     assert sources[0].title == "First"
     assert "duplicate source id" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_inventory_counts_raw_records_and_unique_histograms() -> None:
+    """Phantoms and duplicates remain visible without inflating typed buckets."""
+    rows = [
+        source_entry("ready_pdf", metadata=[None, 11, [1, 0], None, 3]),
+        source_entry("processing_web", status=[None, SourceStatus.PROCESSING]),
+        source_entry("failed_web", status=[None, SourceStatus.ERROR]),
+        source_entry("deleting_web", status=[None, SourceStatus.PENDING_DELETION]),
+        source_entry("ready_pdf", title="duplicate", status=[None, SourceStatus.ERROR]),
+        [[None, True, []], "id-less"],
+        [],
+        "malformed",
+    ]
+    lister = SourceLister(RecordingRpc([["Notebook", rows]]))
+
+    inventory = await lister.inventory("nb_123")
+
+    assert [source.id for source in inventory.sources] == [
+        "ready_pdf",
+        "processing_web",
+        "failed_web",
+        "deleting_web",
+    ]
+    assert inventory.raw_source_ids == (
+        "ready_pdf",
+        "processing_web",
+        "failed_web",
+        "deleting_web",
+        "ready_pdf",
+    )
+    counts = inventory.counts
+    assert counts.records_total == 8
+    assert counts.id_bearing_records == 5
+    assert counts.unique_sources == 4
+    assert counts.idless_records == 3
+    assert counts.duplicate_id_records == 1
+    assert counts.ready == 1
+    assert counts.by_status["processing"] == 1
+    assert counts.by_status["error"] == 1
+    assert counts.by_status["pending_deletion"] == 1
+    assert counts.by_type["pdf"] == 1
+    assert counts.by_type["web_page"] == 3
+    assert sum(counts.by_status.values()) == counts.unique_sources
+    assert sum(counts.by_type.values()) == counts.unique_sources
+
+
+@pytest.mark.asyncio
+async def test_inventory_selection_preserves_all_and_filters_by_both_axes() -> None:
+    rows = [
+        source_entry(
+            "ready_pdf",
+            metadata=[None, 11, [1, 0], None, 3],
+            status=[None, SourceStatus.READY],
+        ),
+        source_entry(
+            "error_pdf",
+            metadata=[None, 11, [1, 0], None, 3],
+            status=[None, SourceStatus.ERROR],
+        ),
+        source_entry(
+            "error_web",
+            metadata=[None, 11, [1, 0], None, 5],
+            status=[None, SourceStatus.ERROR],
+        ),
+        source_entry(
+            "ready_image",
+            metadata=[None, 11, [1, 0], None, 13],
+            status=[None, SourceStatus.READY],
+        ),
+        source_entry(
+            "processing_web",
+            metadata=[None, 11, [1, 0], None, 5],
+            status=[None, SourceStatus.PROCESSING],
+        ),
+        source_entry("error_pdf", title="duplicate"),
+    ]
+    inventory = await SourceLister(RecordingRpc([["Notebook", rows]])).inventory("nb_123")
+
+    # Omitted selection preserves every raw ID-bearing row, including duplicates.
+    assert inventory.select_ids() == [
+        "ready_pdf",
+        "error_pdf",
+        "error_web",
+        "ready_image",
+        "processing_web",
+        "error_pdf",
+    ]
+
+    source_filter = SourceFilter(
+        statuses=(SourceStatus.READY, SourceStatus.ERROR),
+        types=(SourceType.PDF, SourceType.WEB_PAGE),
+    )
+    assert inventory.select_filter_ids(source_filter) == [
+        "ready_pdf",
+        "error_pdf",
+        "error_web",
+    ]
 
 
 @pytest.mark.asyncio

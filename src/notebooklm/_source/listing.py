@@ -7,10 +7,10 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from .._row_adapters.sources import SourceRow
 from .._runtime.contracts import RpcCaller
 from ..rpc import RPCError, RPCMethod, safe_index
 from ..types import Source
+from .inventory import SourceInventory, build_source_inventory
 from .upload_payloads import build_template_block
 
 # Keep source-list warnings on the historical logger so existing log filters
@@ -24,6 +24,10 @@ SourceListHook = Callable[[str], Awaitable[builtins.list[Source]]]
 class SourceLister:
     """List and parse notebook sources from GET_NOTEBOOK responses."""
 
+    # Explicit capability marker for structural adapters. This avoids probing
+    # dynamically generated attributes on mocks or third-party listers.
+    supports_source_inventory = True
+
     def __init__(self, rpc: RpcCaller) -> None:
         self._rpc = rpc
 
@@ -36,6 +40,11 @@ class SourceLister:
         ``NOTEBOOKLM_STRICT_DECODE=0`` opt-out into warn-and-return-``[]``
         was retired in v0.7.0; strict decoding is now the only mode.
         """
+        inventory = await self.inventory(notebook_id, strict=strict)
+        return list(inventory.sources)
+
+    async def inventory(self, notebook_id: str, *, strict: bool = False) -> SourceInventory:
+        """Return typed sources and exact counts from one GET_NOTEBOOK roster."""
         # GET_NOTEBOOK read-path tail migrated to the nested template block
         # (#1549; live-verified forward-compatible). Mirrors
         # ``_notebooks.build_get_notebook_params`` — inlined here because
@@ -50,26 +59,8 @@ class SourceLister:
 
         sources_list = self._extract_sources_list(notebook_id, notebook, strict=strict)
         if sources_list is None:
-            return []
-
-        # Dedup by resolved id, keeping the FIRST occurrence (#1919). The
-        # backend can surface the same id-bearing source in ``nb_info[1]`` more
-        # than once — research imports re-emit a URL, and ghost/probe rows can
-        # echo an existing id — which would otherwise over-count both
-        # ``source_list`` and ``metadata.sources``. A collision is a benign
-        # backend artifact, so it logs at DEBUG rather than WARNING.
-        seen_ids: set[str] = set()
-        sources: builtins.list[Source] = []
-        for src in sources_list:
-            source = self._parse_source(src)
-            if source is None:
-                continue
-            if source.id in seen_ids:
-                logger.debug("SourcesAPI.list: Skipping duplicate source id %s", source.id)
-                continue
-            seen_ids.add(source.id)
-            sources.append(source)
-        return sources
+            sources_list = []
+        return build_source_inventory(sources_list)
 
     async def get(
         self,
@@ -169,30 +160,6 @@ class SourceLister:
         # rather than silently reported as "0 sources" (issue #1159). The
         # explicit ``strict`` flag is retained for call-site clarity.
         raise RPCError(f"Could not list sources for {notebook_id}: {error_detail}")
-
-    @staticmethod
-    def _parse_source(src: Any) -> Source | None:
-        if not isinstance(src, builtins.list) or len(src) == 0:
-            return None
-
-        # GET_NOTEBOOK source-list entries arrive in the "entry" layout
-        # (``[[id], title, metadata, status_block, ...]`` after the
-        # envelope walk above) so we hand them directly to
-        # ``SourceRow.from_entry`` and let the adapter handle all
-        # positional knowledge — id-envelope variants (plain, drive-
-        # backed), metadata url precedence, status decoding, etc.
-        row = SourceRow.from_entry(src, method_id=RPCMethod.GET_NOTEBOOK.value)
-        if not row.has_id:
-            logger.warning(
-                "SourcesAPI.list: Skipping source with unexpected id shape: %s",
-                repr(src)[:500],
-            )
-            return None
-
-        # Funnel through the single ``Source`` construction site shared
-        # with ``Source.from_api_response`` so the list/get/poll path and
-        # the ADD_SOURCE/rename path produce identical Sources.
-        return Source.from_row(row)
 
 
 __all__ = ["SourceLister"]

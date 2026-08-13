@@ -23,8 +23,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ..._app.source_listing import fetch_sources
-from ...types import Source, SourceType, drive_source_status_to_str, source_status_to_str
+from ..._app.source_listing import fetch_source_snapshot, fetch_sources
+from ...types import (
+    Source,
+    SourceFilter,
+    SourceType,
+    drive_source_status_to_str,
+    source_status_to_str,
+)
 from .label_listing import resolve_label_id
 from .listing import ListRender, ListSpec, prepare_list
 from .source_serializers import source_row_payload
@@ -46,10 +52,13 @@ class SourceListPlan:
     # The filter is applied INSIDE the fetch closure so ``prepare_list``'s
     # ``count``/rows match the filtered set (no post-filter desync).
     label_filter: str | None = None
-    # When set, restrict to sources whose rendered status label matches. Applied
-    # in the same closure, for the same count/rows reason. ``preparing`` is the
-    # reconciliation query for rows a failed add left behind (#2138).
-    status_filter: str | None = None
+    # Restrict to sources whose rendered status/type labels match. Both are
+    # repeatable and are applied inside the ``fetch`` closure, so the rendered
+    # rows and the JSON count always describe the same filtered set (#2138's
+    # count/rows reason, preserved here). ``preparing`` is the reconciliation
+    # query for rows a failed add left behind (#2138).
+    status_filters: tuple[str, ...] = ()
+    type_filters: tuple[str, ...] = ()
 
 
 def _status_cell(src: Source) -> str:
@@ -101,7 +110,8 @@ def _build_spec(
     *,
     label_filter: str | None = None,
     json_output: bool = False,
-    status_filter: str | None = None,
+    status_filters: tuple[str, ...] = (),
+    type_filters: tuple[str, ...] = (),
 ) -> ListSpec[Source]:
     """Build the ``ListSpec`` for ``source list``.
 
@@ -114,19 +124,50 @@ def _build_spec(
     ``prepare_list`` runs.
     """
 
-    async def envelope_extras(client: NotebookLMClient, notebook_id: str) -> dict[str, str | None]:
+    inventory_cache: dict[str, object] = {}
+
+    async def envelope_extras(client: NotebookLMClient, notebook_id: str) -> dict[str, object]:
         nb = await client.notebooks.get(notebook_id)
-        return {"notebook_id": notebook_id, "notebook_title": nb.title if nb else None}
+        counts = inventory_cache.get("source_counts")
+        result: dict[str, object] = {
+            "notebook_id": notebook_id,
+            "notebook_title": nb.title if nb else None,
+        }
+        if counts is not None:
+            result["source_counts"] = counts
+        return result
 
     async def fetch(client: NotebookLMClient, notebook_id: str) -> list[Source]:
-        return await fetch_sources(
-            client,
-            notebook_id,
-            label_filter=label_filter,
-            label_resolver=resolve_label_id,
-            json_output=json_output,
-            status_filter=status_filter,
-        )
+        if label_filter is None:
+            snapshot = await fetch_source_snapshot(client, notebook_id)
+            sources = snapshot.sources
+            if snapshot.counts is not None:
+                inventory_cache["source_counts"] = snapshot.counts.to_dict()
+        else:
+            # Label membership is already a complete source roster. Do not add
+            # a second global GET_NOTEBOOK merely to attach counts that would
+            # not describe the filtered result.
+            sources = await fetch_sources(
+                client,
+                notebook_id,
+                label_filter=label_filter,
+                label_resolver=resolve_label_id,
+                json_output=json_output,
+            )
+        if status_filters or type_filters:
+            source_filter = SourceFilter.from_values(
+                statuses=status_filters,
+                types=type_filters,
+            )
+            status_set = set(source_filter.statuses)
+            type_set = set(source_filter.types)
+            sources = [
+                source
+                for source in sources
+                if (not status_set or source.status in status_set)
+                and (not type_set or source.kind in type_set)
+            ]
+        return sources
 
     return ListSpec(
         title="Sources in {notebook_id}",
@@ -157,7 +198,8 @@ async def execute_source_list(client: NotebookLMClient, plan: SourceListPlan) ->
         plan.source_type_display,
         label_filter=plan.label_filter,
         json_output=plan.json_output,
-        status_filter=plan.status_filter,
+        status_filters=plan.status_filters,
+        type_filters=plan.type_filters,
     )
     return await prepare_list(
         spec,

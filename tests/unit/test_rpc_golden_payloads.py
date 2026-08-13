@@ -1739,8 +1739,21 @@ class TestSourceKindAndStatusGroundTruth:
         row = SourceRow.from_entry([["ID"], "TITLE_AT_1", None, ["DECOY_AT_3_0", status_code]])
         assert row.status is expected_status
 
-    @pytest.mark.parametrize("status_code", [0, 4, 99])
-    def test_unknown_status_code_falls_back_to_unknown(self, status_code: int) -> None:
+    @pytest.mark.parametrize(
+        ("status_code", "expected_status"),
+        [
+            (0, SourceStatus.UNSPECIFIED),
+            (4, SourceStatus.PENDING_DELETION),
+        ],
+    )
+    def test_non_lifecycle_status_codes_are_preserved(
+        self, status_code: int, expected_status: SourceStatus
+    ) -> None:
+        row = SourceRow.from_entry([["ID"], "TITLE_AT_1", None, [None, status_code]])
+        assert row.status is expected_status
+
+    def test_unknown_status_code_falls_back_to_unknown(self) -> None:
+        status_code = 99
         row = SourceRow.from_entry([["ID"], "TITLE_AT_1", None, [None, status_code]])
         assert row.status is SourceStatus.UNKNOWN
 

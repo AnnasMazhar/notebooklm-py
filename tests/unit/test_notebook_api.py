@@ -22,10 +22,12 @@ from notebooklm._source.listing import SourceLister
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 from notebooklm.exceptions import (
+    DecodingError,
     NetworkError,
     NotebookLimitError,
     NotebookNotFoundError,
     RPCError,
+    ValidationError,
 )
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import (
@@ -34,6 +36,10 @@ from notebooklm.types import (
     NotebookMetadata,
     SharePermission,
     Source,
+    SourceCounts,
+    SourceFilter,
+    SourceInventory,
+    SourceStatus,
     SourceType,
 )
 
@@ -62,13 +68,93 @@ def _source_entry(
     *,
     title: str = "Source",
     metadata: list[Any] | None = None,
+    status: SourceStatus = SourceStatus.READY,
 ) -> list[Any]:
     return [
         [source_id],
         title,
         metadata or [None, 11, [1704067200, 0], None, 5],
-        [None, 2],
+        [None, status],
     ]
+
+
+@pytest.mark.asyncio
+async def test_get_source_ids_preserves_all_but_filters_unique_sources() -> None:
+    rows = [
+        _source_entry("ready_pdf", metadata=[None, 11, [1, 0], None, 3]),
+        _source_entry(
+            "error_pdf",
+            metadata=[None, 11, [1, 0], None, 3],
+            status=SourceStatus.ERROR,
+        ),
+        _source_entry(
+            "error_web",
+            metadata=[None, 11, [1, 0], None, 5],
+            status=SourceStatus.ERROR,
+        ),
+        _source_entry("error_pdf", status=SourceStatus.ERROR),
+        [[None, True, []], "id-less"],
+    ]
+    api = _make_api(rpc_call=AsyncMock(return_value=[["Notebook", rows]]))
+
+    assert await api.get_source_ids("nb_123") == [
+        "ready_pdf",
+        "error_pdf",
+        "error_web",
+        "error_pdf",
+    ]
+    source_filter = SourceFilter(
+        statuses=(SourceStatus.READY, SourceStatus.ERROR),
+        types=(SourceType.PDF,),
+    )
+    assert await api.get_source_ids("nb_123", source_filter=source_filter) == [
+        "ready_pdf",
+        "error_pdf",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_source_ids_rejects_filter_with_no_matches() -> None:
+    api = _make_api(rpc_call=AsyncMock(return_value=[["Notebook", [_source_entry("ready_web")]]]))
+
+    with pytest.raises(ValidationError, match="matched no selectable"):
+        await api.get_source_ids(
+            "nb_123",
+            source_filter=SourceFilter(types=(SourceType.PDF,)),
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty_sources", [None, []])
+async def test_get_source_ids_filter_rejects_both_empty_roster_shapes(empty_sources) -> None:
+    api = _make_api(rpc_call=AsyncMock(return_value=[["Notebook", empty_sources]]))
+
+    with pytest.raises(ValidationError, match="matched no selectable"):
+        await api.get_source_ids(
+            "nb_123",
+            source_filter=SourceFilter(statuses=(SourceStatus.READY,)),
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        [],
+        ["not-a-notebook-row"],
+        [["Notebook"]],
+        [["Notebook", "not-a-source-list"]],
+    ],
+)
+async def test_get_source_ids_filter_fails_closed_on_malformed_envelopes(payload) -> None:
+    api = _make_api(rpc_call=AsyncMock(return_value=payload))
+
+    with pytest.raises(DecodingError, match="Could not apply source_filter"):
+        await api.get_source_ids(
+            "nb_123",
+            source_filter=SourceFilter(statuses=(SourceStatus.READY,)),
+        )
 
 
 def _owned_notebooks(count: int) -> list[Notebook]:
@@ -166,7 +252,11 @@ async def test_direct_notebooks_api_get_metadata_uses_phase8_source_lister() -> 
 
     metadata = await api.get_metadata("nb_123")
 
-    assert metadata.notebook == Notebook(id="nb_123", title="Architecture", sources_count=1)
+    assert metadata.notebook.id == "nb_123"
+    assert metadata.notebook.title == "Architecture"
+    assert metadata.notebook.sources_count == 1
+    assert metadata.notebook.source_counts is not None
+    assert metadata.notebook.source_counts.ready == 1
     assert len(metadata.sources) == 1
     assert metadata.sources[0].kind == SourceType.PDF
     assert metadata.sources[0].title == "Design Paper"
@@ -206,13 +296,26 @@ async def test_client_wires_sources_api_into_notebooks_as_structural_lister() ->
     client.notebooks.get = AsyncMock(
         return_value=Notebook(id="nb_123", title="Client", sources_count=1)
     )
-    client.sources.list = AsyncMock(return_value=[Source(id="src_1", title="Paper", _type_code=3)])
+    counts = SourceCounts(
+        records_total=1,
+        id_bearing_records=1,
+        unique_sources=1,
+        by_status={"ready": 1},
+        by_type={"pdf": 1},
+    )
+    inventory = SourceInventory(
+        sources=(Source(id="src_1", title="Paper", _type_code=3),),
+        raw_source_ids=("src_1",),
+        counts=counts,
+    )
+    client.sources.inventory = AsyncMock(return_value=inventory)
 
     metadata = await client.notebooks.get_metadata("nb_123")
 
     assert metadata.notebook.title == "Client"
     assert metadata.sources[0].kind == SourceType.PDF
-    client.sources.list.assert_awaited_once_with("nb_123")
+    assert metadata.source_counts is counts
+    client.sources.inventory.assert_awaited_once_with("nb_123")
 
 
 @pytest.mark.asyncio

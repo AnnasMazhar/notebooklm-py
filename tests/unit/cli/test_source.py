@@ -16,11 +16,14 @@ from notebooklm.notebooklm_cli import cli
 from notebooklm.types import (
     DriveSourceStatus,
     Source,
+    SourceCounts,
     SourceFulltext,
+    SourceInventory,
     SourceNotFoundError,
     SourceProcessingError,
     SourceStatus,
     SourceTimeoutError,
+    SourceType,
 )
 
 from .conftest import (
@@ -96,6 +99,91 @@ def mock_auth():
 
 
 class TestSourceList:
+    def test_source_list_json_includes_exact_inventory_counts(self, runner, mock_auth):
+        mock_client = create_mock_client()
+        counts = SourceCounts(
+            records_total=3,
+            id_bearing_records=2,
+            unique_sources=1,
+            idless_records=1,
+            duplicate_id_records=1,
+            by_status={"ready": 1},
+            by_type={"pdf": 1},
+        )
+        mock_client.sources.supports_source_inventory = True
+        mock_client.sources.inventory = AsyncMock(
+            return_value=SourceInventory(
+                sources=(Source(id="src_1", title="PDF", _type_code=3),),
+                raw_source_ids=("src_1", "src_1"),
+                counts=counts,
+            )
+        )
+        mock_client.notebooks.get = AsyncMock(return_value=MagicMock(title="Notebook"))
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli,
+                ["source", "list", "-n", "nb_123", "--json"],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["source_counts"] == counts.to_dict()
+        mock_client.sources.inventory.assert_awaited_once_with("nb_123")
+
+    def test_source_list_status_and_type_filters_compose(self, runner, mock_auth):
+        mock_client = create_mock_client()
+        mock_client.sources.list = AsyncMock(
+            return_value=[
+                Source(
+                    id="ready_pdf",
+                    title="Ready PDF",
+                    _type_code=3,
+                    status=SourceStatus.READY,
+                ),
+                Source(
+                    id="error_pdf",
+                    title="Broken PDF",
+                    _type_code=3,
+                    status=SourceStatus.ERROR,
+                ),
+                Source(
+                    id="ready_web",
+                    title="Ready page",
+                    _type_code=5,
+                    status=SourceStatus.READY,
+                ),
+            ]
+        )
+        mock_client.notebooks.get = AsyncMock(return_value=MagicMock(title="Test Notebook"))
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli,
+                [
+                    "source",
+                    "list",
+                    "-n",
+                    "nb_123",
+                    "--status",
+                    "ready",
+                    "--type",
+                    SourceType.PDF.value,
+                    "--json",
+                ],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert [source["id"] for source in payload["sources"]] == ["ready_pdf"]
+
     def test_source_list_composes_cli_service_and_client_boundary(self, runner, mock_auth):
         """The CLI list path reaches the client-backed source-list service.
 

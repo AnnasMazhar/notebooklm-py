@@ -12,7 +12,7 @@ from .._deprecation import warn_deprecated
 from ..rpc import RPCMethod, safe_index
 from ..rpc.types import SharePermission, share_permission_to_str
 from .common import _datetime_from_timestamp
-from .sources import SourceType
+from .sources import SourceCounts, SourceType
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,30 @@ def _extract_notebook_sources_count(data: list[Any]) -> int:
         else None
     )
     return len(sources) if isinstance(sources, list) else 0
+
+
+def _extract_notebook_source_counts(data: list[Any]) -> SourceCounts | None:
+    """Extract exact roster accounting when the source slot is trustworthy.
+
+    A present ``None`` source slot is NotebookLM's canonical empty-notebook
+    shape, so it produces exact zero counts. A missing or malformed slot is
+    schema uncertainty and therefore returns ``None`` instead of fabricating a
+    confident zero.
+    """
+    if len(data) <= 1:
+        return None
+    sources = safe_index(data, 1, method_id=_NOTEBOOK_METHOD_ID, source="Notebook.source_counts")
+    if sources is None:
+        sources = []
+    if not isinstance(sources, list):
+        return None
+
+    # Local import avoids an import-time cycle: inventory construction needs
+    # ``Source``, which is defined in the sibling source types module exported
+    # through ``notebooklm.types``.
+    from .._source.inventory import build_source_inventory
+
+    return build_source_inventory(sources).counts
 
 
 #: Wire codes the ``userRole`` slot may legitimately carry, as plain ints —
@@ -146,6 +170,10 @@ class Notebook:
     #: internal call paths that bump;
     #: :meth:`NotebooksAPI.remove_from_recent` is the only way to undo it.
     last_viewed_at: datetime | None = None
+    #: Exact accounting for the embedded source roster. ``None`` means the
+    #: source slot was absent/malformed or came from compact ``LIST_NOTEBOOKS``;
+    #: see :attr:`sources_count` for the backward-compatible raw-row scalar.
+    source_counts: SourceCounts | None = None
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Maintain the two derived-field invariants on every assignment.
@@ -252,7 +280,12 @@ class Notebook:
             self.__dict__["last_viewed_at"] = state["modified_at"]
 
     @classmethod
-    def from_api_response(cls, data: list[Any]) -> Notebook:
+    def from_api_response(
+        cls,
+        data: list[Any],
+        *,
+        include_source_counts: bool = True,
+    ) -> Notebook:
         """Parse notebook from API response."""
         title_slot = (
             safe_index(data, 0, method_id=_NOTEBOOK_METHOD_ID, source="Notebook.title")
@@ -262,6 +295,7 @@ class Notebook:
         raw_title = title_slot if isinstance(title_slot, str) else ""
         title = raw_title.replace("thought\n", "").strip()
         sources_count = _extract_notebook_sources_count(data)
+        source_counts = _extract_notebook_source_counts(data) if include_source_counts else None
         # ``data[2]`` is the notebook id. A short row / ``None`` slot keeps
         # the historical silent ``""``-degrade — this factory parses rows out
         # of whole-list responses, so raising would abort sibling rows. A
@@ -374,6 +408,7 @@ class Notebook:
             sources_count=sources_count,
             role=role,
             last_viewed_at=last_viewed_at,
+            source_counts=source_counts,
         )
 
 
@@ -429,6 +464,7 @@ class NotebookMetadata:
 
     notebook: Notebook
     sources: list[SourceSummary] = field(default_factory=list)
+    source_counts: SourceCounts | None = None
 
     @property
     def id(self) -> str:
@@ -502,4 +538,9 @@ class NotebookMetadata:
             "is_owner": self.is_owner,
             "role": share_permission_to_str(self.role) if self.role is not None else None,
             "sources": [s.to_dict() for s in self.sources],
+            **(
+                {"source_counts": self.source_counts.to_dict()}
+                if self.source_counts is not None
+                else {}
+            ),
         }

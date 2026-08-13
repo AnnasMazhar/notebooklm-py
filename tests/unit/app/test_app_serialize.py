@@ -141,6 +141,7 @@ def test_real_notebooklm_type_round_trips() -> None:
         "modified_at": None,
         "role": 1,
         "last_viewed_at": None,
+        "source_counts": None,
     }
     json.dumps(result)
 

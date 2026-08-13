@@ -30,9 +30,11 @@ pytest.importorskip("fastmcp")
 #: Ratchet ceilings — calibrated to the current surface (Tier-1 read-merge took it
 #: to ~36.0k). Move these DOWN as the surface gets leaner; a rise means
 #: description/param bloat that must be justified, not rubber-stamped.
-SCHEMA_CHAR_BUDGET = (
-    39_370  # total serialized inputSchema + description chars (current 39_349; +21 slack)
-)
+SCHEMA_CHAR_BUDGET = 41_700
+# #1962 adds one structured SourceFilterInput to each source-consuming MCP tool.
+# The enum-constrained statuses/types arrays cost ~2.3k serialized chars across
+# the three schemas, but prevent agents from guessing labels or object shape.
+# Measured full-surface cost is 41_669; retain the existing ~20-char ratchet slack.
 # #2111 (Drive-backed source health) added `drive_status_label` to the `source_list`
 # / `source_read` roster descriptions plus the two sentences an agent needs to act on
 # it: that it is a SEPARATE axis from `status_label`, and that a deleted/unshared

@@ -227,7 +227,16 @@ def register(mcp: Any) -> None:
     async def source_list(
         ctx: Context,
         notebook: str,
-        status: Literal["unknown", "processing", "ready", "error", "preparing"] | None = None,
+        status: Literal[
+            "unknown",
+            "unspecified",
+            "processing",
+            "ready",
+            "error",
+            "pending_deletion",
+            "preparing",
+        ]
+        | None = None,
         label: str | None = None,
         detail: Literal["compact", "full"] = "full",
         limit: int = DEFAULT_LIMIT,
@@ -252,9 +261,18 @@ def register(mcp: Any) -> None:
         client = get_client(ctx)
         with mcp_errors():
             nb_id = await resolve_notebook(client, notebook)
-            sources = await listing_core.fetch_sources(
-                client, nb_id, label_filter=label, label_resolver=labels_core.resolve_label_id
-            )
+            if label is None:
+                snapshot = await listing_core.fetch_source_snapshot(client, nb_id)
+                sources = snapshot.sources
+                counts = snapshot.counts
+            else:
+                sources = await listing_core.fetch_sources(
+                    client, nb_id, label_filter=label, label_resolver=labels_core.resolve_label_id
+                )
+                # The label-members call has no raw notebook roster, so it cannot
+                # produce exact global phantom/duplicate accounting without a
+                # second GET_NOTEBOOK. Keep this one-fetch path and omit counts.
+                counts = None
             # Filter on the raw Source BEFORE serializing, so the projector (which
             # runs to_jsonable) is only paid for the sources that survive the
             # filter. Uses the same source_status_to_str label the rows emit.
@@ -262,7 +280,14 @@ def register(mcp: Any) -> None:
                 sources = [s for s in sources if source_status_to_str(s.status) == status]
             project = _source_compact if detail == "compact" else _source_view
             page, meta = paginate([project(s) for s in sources], limit, offset)
-            return {"notebook_id": nb_id, "sources": page, **meta}
+            result = {
+                "notebook_id": nb_id,
+                "sources": page,
+                **meta,
+            }
+            if counts is not None:
+                result["source_counts"] = counts.to_dict()
+            return result
 
     @mcp.tool(annotations=READ_ONLY)
     async def source_read(

@@ -1180,7 +1180,7 @@ async with NotebookLMClient.from_storage(rate_limit_max_retries=0) as client:
 | `delete(notebook_id)` | `notebook_id: str` | `None` | Delete a notebook (idempotent; returns `None` whether or not it existed) |
 | `rename(notebook_id, new_title)` | `notebook_id: str, new_title: str` | `Notebook` | Rename a notebook (re-fetched; raises `NotebookNotFoundError` if missing) |
 | `get_description(notebook_id)` | `notebook_id: str` | `NotebookDescription` | Get AI summary and topics |
-| `suggest_prompts(notebook_id, *, source_ids=None, mode=4, query=None)` | `str, list[str] \| None, int, str \| None` | `list[PromptSuggestion]` | Get AI-suggested prompts for the notebook. `source_ids=None` uses all sources; `mode` is the required `1..10` "mode/surface" int (default `4` suggests chat questions; other modes target other surfaces); `query` optionally steers the suggestions. Each `PromptSuggestion.prompt` is a ready-to-send instruction for `ask()`. |
+| `suggest_prompts(notebook_id, *, source_ids=None, source_filter=None, mode=4, query=None)` | `str, list[str] \| None, SourceFilter \| None, int, str \| None` | `list[PromptSuggestion]` | Get AI-suggested prompts for the notebook. Omit IDs/filter for all addressable sources; `source_ids` and `source_filter` are mutually exclusive. `mode` is the required `1..10` surface int; `query` optionally steers the suggestions. |
 | `get_metadata(notebook_id)` | `notebook_id: str` | `NotebookMetadata` | Get notebook metadata and sources |
 | `get_summary(notebook_id)` | `notebook_id: str` | `str` | Get raw summary text |
 | `get_share_url(notebook_id, artifact_id=None)` | `notebook_id: str, str \| None` | `str` | Get a share URL |
@@ -1231,6 +1231,9 @@ print(url)
 | Method | Parameters | Returns | Description |
 |--------|------------|---------|-------------|
 | `list(notebook_id, strict=False)` | `notebook_id: str, strict: bool = False` | `list[Source]` | List sources |
+| `inventory(notebook_id, strict=False)` | `str, bool` | `SourceInventory` | Fetch the unique source roster and exact raw-row/status/type counts in one `GET_NOTEBOOK` call. |
+| `select(notebook_id, *, statuses=None, types=None)` | `str, SourceStatus/str/list, SourceType/str/list` | `list[Source]` | Select unique sources; OR within an axis, AND across axes. Omit both for the normal unique list. |
+| `select_ids(notebook_id, *, statuses=None, types=None)` | same | `list[str]` | Resolve IDs for chat/Studio. Omit both to preserve historical raw all-source IDs, including duplicate ID-bearing ghost/error rows. |
 | `get(notebook_id, source_id)` | `str, str` | `Source` | Get source details; raises `SourceNotFoundError` on a miss |
 | `get_or_none(notebook_id, source_id)` | `str, str` | `Source \| None` | Optional lookup; returns `None` when absent |
 | `get_fulltext(notebook_id, source_id, *, output_format="text")` | `str, str, *, output_format: Literal["text", "markdown"]` | `SourceFulltext` | Get full content; `"markdown"` requires the optional `markdownify` extra |
@@ -1279,6 +1282,23 @@ registered = await client.sources.wait_until_registered(nb_id, ids[0])
 sources = await client.sources.list(nb_id)
 for src in sources:
     print(f"{src.id}: {src.title} ({src.kind})")
+
+# Count raw records accurately. `ready` is the processed count when every
+# status is known (otherwise None); `records_total` also includes id-less
+# phantom rows and duplicate rows.
+inventory = await client.sources.inventory(nb_id)
+print(inventory.counts.records_total, inventory.counts.ready)
+print(inventory.counts.by_status, inventory.counts.by_type)
+
+# Select READY PDFs for chat or any Studio generator. Explicit source_ids and
+# source_filter cannot be combined.
+from notebooklm import SourceFilter, SourceStatus, SourceType
+
+ready_pdfs = SourceFilter(
+    statuses=(SourceStatus.READY,),
+    types=(SourceType.PDF,),
+)
+answer = await client.chat.ask(nb_id, "Summarize these", source_filter=ready_pdfs)
 
 await client.sources.rename(nb_id, src.id, "Better Title")
 await client.sources.refresh(nb_id, src.id)  # Re-fetch URL content
@@ -1353,6 +1373,9 @@ print(f"Keywords: {guide.keywords}")
 | `generate_mind_map(...)` | See below | `MindMapResult` | Generate a note-backed mind map and persist it as a note; use attribute access (`result.mind_map`, `result.note_id`) |
 | `revise_slide(notebook_id, artifact_id, slide_index, prompt)` | `str, str, int, str` | `GenerationStatus` | Revise one slide in a completed slide deck |
 | `suggest_reports(notebook_id)` | `str` | `list[ReportSuggestion]` | Return suggested report formats/prompts for a notebook |
+
+Every `generate_*` method accepts an appended `source_filter: SourceFilter | None = None`.
+It is mutually exclusive with `source_ids`; omitted IDs/filter retain the existing all-source behavior.
 
 #### Retrying a Failed Artifact
 
@@ -1649,6 +1672,7 @@ async def ask(
     question: str,
     source_ids: list[str] | None = None,  # Limit to specific sources (None = all)
     conversation_id: str | None = None,   # Continue existing conversation
+    source_filter: SourceFilter | None = None,  # Status/type selector; exclusive with IDs
 ) -> AskResult:
 ```
 
@@ -2319,12 +2343,22 @@ class Notebook:
     id: str
     title: str
     created_at: Optional[datetime]   # creation time (tz-aware UTC)
-    sources_count: int
+    sources_count: int                   # legacy raw embedded-row count
     is_owner: bool                     # role is SharePermission.OWNER
     modified_at: Optional[datetime]    # DEPRECATED alias for last_viewed_at
     role: Optional[SharePermission]    # your own level: OWNER / EDITOR / VIEWER
     last_viewed_at: Optional[datetime] # when YOU last opened it (tz-aware UTC)
+    source_counts: Optional[SourceCounts] # exact raw/status/type accounting;
+                                         # None for compact list or malformed rows
 ```
+
+`sources_count` remains the raw number of embedded backend rows for backward
+compatibility. `source_counts.by_status["ready"]` is the confirmed processed
+bucket; `source_counts.ready` is `None` if any compact row omitted status.
+`source_counts.records_total` retains id-less phantom and duplicate rows.
+`notebooks.list()` intentionally leaves `source_counts=None` because its compact
+rows can omit status/type; use `notebooks.get()` or `sources.inventory()` for
+the detailed accounting.
 
 #### `last_viewed_at` is not a modification time — and `GET_NOTEBOOK` mutates it
 
@@ -3330,9 +3364,11 @@ class ArtifactType(str, Enum):
 
 class SourceStatus(Enum):
     UNKNOWN = -1     # Status is absent, malformed, or not yet mapped
+    UNSPECIFIED = 0  # Backend explicitly supplied the proto default
     PROCESSING = 1  # Source is being processed (indexing content)
     READY = 2       # Source is ready for use
     ERROR = 3       # Source processing failed
+    PENDING_DELETION = 4  # Source is queued for deletion
     PREPARING = 5   # Source is being prepared/uploaded (pre-processing stage)
 
 class DriveSourceStatus(Enum):

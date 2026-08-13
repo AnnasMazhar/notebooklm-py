@@ -17,7 +17,7 @@ from notebooklm._notebooks import NotebooksAPI, build_prompt_suggestions_params
 from notebooklm._runtime.contracts import RpcCaller
 from notebooklm.exceptions import ValidationError
 from notebooklm.rpc import RPCMethod
-from notebooklm.types import PromptSuggestion
+from notebooklm.types import PromptSuggestion, SourceFilter, SourceStatus
 
 # One live-verified response (issue #1612): a wrapped single-element envelope
 # whose inner list holds ``[title, prompt]`` rows.
@@ -149,6 +149,27 @@ class TestSuggestPrompts:
     @pytest.mark.asyncio
     async def test_explicit_source_ids_skip_resolution(self, api: NotebooksAPI) -> None:
         await api.suggest_prompts("nb_xyz", source_ids=["only"])
+        api.get_source_ids.assert_not_awaited()  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_source_filter_resolves_ids(self, api: NotebooksAPI) -> None:
+        source_filter = SourceFilter(statuses=(SourceStatus.READY,))
+
+        await api.suggest_prompts("nb_xyz", source_filter=source_filter)
+
+        api.get_source_ids.assert_awaited_once_with(  # type: ignore[attr-defined]
+            "nb_xyz", source_filter=source_filter
+        )
+
+    @pytest.mark.asyncio
+    async def test_source_filter_conflicts_with_explicit_ids(self, api: NotebooksAPI) -> None:
+        with pytest.raises(ValidationError, match="mutually exclusive"):
+            await api.suggest_prompts(
+                "nb_xyz",
+                source_ids=["only"],
+                source_filter=SourceFilter(statuses=(SourceStatus.READY,)),
+            )
+
         api.get_source_ids.assert_not_awaited()  # type: ignore[attr-defined]
 
     @pytest.mark.asyncio

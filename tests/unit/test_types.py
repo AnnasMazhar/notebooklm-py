@@ -24,7 +24,10 @@ from notebooklm.types import (
     ReportSuggestion,
     SharePermission,
     Source,
+    SourceCounts,
+    SourceFilter,
     SourceFulltext,
+    SourceStatus,
     SourceType,
     UnknownTypeWarning,
     _is_valid_artifact_url,
@@ -361,6 +364,8 @@ class TestNotebook:
         assert notebook.id == "nb_123"
         assert notebook.title == "My Notebook"
         assert notebook.sources_count == 0
+        assert notebook.source_counts is not None
+        assert notebook.source_counts.records_total == 0
         assert notebook.is_owner is True
 
     def test_from_api_response_counts_sources(self):
@@ -369,6 +374,10 @@ class TestNotebook:
         notebook = Notebook.from_api_response(data)
 
         assert notebook.sources_count == 3
+        assert notebook.source_counts is not None
+        assert notebook.source_counts.records_total == 3
+        assert notebook.source_counts.unique_sources == 3
+        assert notebook.source_counts.by_status["unknown"] == 3
 
     def test_from_api_response_none_sources_count_defaults_to_zero(self):
         """Test parsing notebook source count when source entries are absent."""
@@ -376,6 +385,15 @@ class TestNotebook:
         notebook = Notebook.from_api_response(data)
 
         assert notebook.sources_count == 0
+        assert notebook.source_counts is not None
+        assert notebook.source_counts.records_total == 0
+
+    def test_missing_or_malformed_sources_have_unknown_rich_counts(self):
+        missing = Notebook.from_api_response(["My Notebook"])
+        malformed = Notebook.from_api_response(["My Notebook", "not-a-roster", "nb_123"])
+
+        assert missing.source_counts is None
+        assert malformed.source_counts is None
 
     def test_from_api_response_with_timestamp(self):
         """Test parsing notebook with timestamp.
@@ -2479,6 +2497,82 @@ class TestSourceSummary:
         # Both should have the same keys
         assert set(dict1.keys()) == set(dict2.keys())
         assert set(dict1.keys()) == {"type", "title", "url"}
+
+
+class TestSourceCounts:
+    def test_rejects_broken_inventory_invariants(self) -> None:
+        with pytest.raises(ValueError, match="records_total"):
+            SourceCounts(records_total=1)
+
+        with pytest.raises(ValueError, match="status counts"):
+            SourceCounts(
+                records_total=1,
+                id_bearing_records=1,
+                unique_sources=1,
+                by_status={"ready": 0},
+                by_type={"pdf": 1},
+            )
+
+    def test_ready_is_explicit_not_legacy_raw_count(self) -> None:
+        counts = SourceCounts(
+            records_total=4,
+            id_bearing_records=3,
+            unique_sources=2,
+            idless_records=1,
+            duplicate_id_records=1,
+            by_status={"ready": 1, "error": 1},
+            by_type={"pdf": 2},
+        )
+
+        assert counts.ready == 1
+        assert counts.selectable_total == 2
+        assert counts.to_dict()["records_total"] == 4
+
+    def test_ready_is_unknown_when_compact_rows_omit_status(self) -> None:
+        counts = SourceCounts(
+            records_total=1,
+            id_bearing_records=1,
+            unique_sources=1,
+            by_status={"ready": 0, "unknown": 1},
+            by_type={"unknown": 1},
+        )
+
+        assert counts.ready is None
+
+    def test_supports_standard_dataclass_copy_and_pickle_operations(self) -> None:
+        import copy
+        import dataclasses
+        import pickle
+
+        counts = SourceCounts(
+            records_total=1,
+            id_bearing_records=1,
+            unique_sources=1,
+            by_status={"ready": 1},
+            by_type={"pdf": 1},
+        )
+
+        assert copy.deepcopy(counts) == counts
+        assert pickle.loads(pickle.dumps(counts)) == counts
+        assert dataclasses.asdict(counts)["by_status"] == {"ready": 1}
+
+
+class TestSourceFilter:
+    def test_requires_a_non_empty_axis(self) -> None:
+        with pytest.raises(ValueError, match="at least one"):
+            SourceFilter()
+
+    def test_from_values_normalizes_labels_and_deduplicates(self) -> None:
+        source_filter = SourceFilter.from_values(
+            statuses=["ready", "ready", "pending_deletion"],
+            types=["pdf", "pdf"],
+        )
+
+        assert source_filter.statuses == (
+            SourceStatus.READY,
+            SourceStatus.PENDING_DELETION,
+        )
+        assert source_filter.types == (SourceType.PDF,)
 
 
 class TestNotebookMetadata:

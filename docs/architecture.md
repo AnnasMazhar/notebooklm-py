@@ -1012,6 +1012,8 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_source/add.py` | Core service layer for adding text, URL, or Google Drive sources |
 | `_source/drive_import.py` | Auto-route add-from-Drive (#1884): download + upload the upload-only Drive types (epub/docx/txt/…); native import (`add_drive`) instead takes Docs/Slides/Sheets + PDF by reference; header-first cookie-authed streaming fetch behind injected seams |
 | `_source/content.py` | Core service layer for fetching source HTML/markdown content |
+| `_source/filter_labels.py` | Shared finite status/type label vocabulary for MCP and REST source-filter schemas |
+| `_source/inventory.py` | One-pass raw source-roster accounting and typed source construction (phantom/duplicate/status/type counts) |
 | `_source/markdown.py` | Source fulltext HTML-to-Markdown conversion policy, including Markdown-source and LaTeX/table handling |
 | `_source/listing.py` | Core service layer for listing notebook sources |
 | `_source/polling.py` | Poll coordination service for active source conversions |
@@ -1188,6 +1190,8 @@ src/notebooklm/
 │   ├── _upload_decode.py        # Pure URL/source-id/content-type decode + validation helpers (extracted from upload.py)
 │   ├── add.py                   # Source addition coordinator
 │   ├── content.py               # Source content fetcher
+│   ├── filter_labels.py         # Shared MCP/REST status and type selector labels
+│   ├── inventory.py             # One-pass raw roster accounting + typed source inventory
 │   ├── markdown.py               # Source fulltext HTML-to-Markdown conversion policy
 │   ├── drive_import.py          # Auto-route add-from-Drive (#1884): DriveImportService + DriveFetcher — parse id/URL, cookie-authed header-first streaming download of the upload-only Drive types (epub/docx/txt/…), confirm-token handling + 0600 temp cleanup, then hand to add_file (native Docs/Slides/Sheets → pointer error)
 │   ├── listing.py               # Source listing helper
@@ -1319,6 +1323,7 @@ src/notebooklm/
 │       ├── _fileupload.py       # file-transfer slice of the source tools: _broker_upload (signed-URL upload_required) + _decode_upload_b64/_add_bytes (in-channel base64 byte upload for source_add(source_type="file", bytes_base64=…)) + the shared _add_one plan/execute seam (split from sources.py for the ADR-0008 size budget)
 │       ├── _passthrough.py      # Shared pass-through resolvers (passthrough_notebook_id/passthrough_child_id) for the CLI-shaped _app executors
 │       ├── _preview.py          # title_for_id() — shared id→title lookup for the delete tools' needs_confirmation previews
+│       ├── _source_filter.py    # Typed status/type selector input shared by chat, suggestions, and Studio generation tools
 │       ├── _studio_items.py     # cross-type Studio plumbing: studio_items (merge notes+artifacts into one items list) + resolve_studio_item (cross-type ref → StudioResolvedItem) for studio_list/studio_rename/studio_delete (split from studio.py for the ADR-0008 size budget)
 │       ├── _studio_download.py  # download plumbing shared by studio.py + _fileroutes.py: consumes _app.download_specs directly; registry-derived DownloadType/DownloadFormat schema aliases + _resolve_artifact_id / _broker_download / transport helpers (split from studio.py for the ADR-0008 size budget)
 │       ├── _studio_payloads.py  # wire-shape projection helpers for the Studio generate/rename tools: _generation_payload (GenerationExecutionResult → response dict; mind-map → bare node tree + mind_map_id via _mind_map_tree/_mind_map_id) + _artifact_rename_payload (split from studio.py for the ADR-0008 size budget)
@@ -1429,6 +1434,7 @@ src/notebooklm/
     └── routes/                  # Per-resource FastAPI routers; handlers call _app.serialize.to_jsonable directly
         ├── __init__.py          # Aggregates the resource routers for the app factory
         ├── _passthrough.py      # Pass-through resolvers handed to the _app cores (REST works in full ids)
+        ├── _source_filter.py    # Typed status/type selector body shared by chat and artifact generation
         ├── notebooks.py         # /v1/notebooks list/get/create/rename(PATCH)/delete + GET /{id}/suggested-prompts (client.notebooks.suggest_prompts; surface→mode map pinned to MCP)
         ├── sources.py           # /v1/notebooks/{id}/sources list/get/add(url·text·file·drive·batch)/rename(PATCH)/wait/delete + poll-the-resource status
         ├── notes.py             # /v1/notebooks/{id}/notes list/get/create/update(PUT)/delete — thin adapter over client.notes

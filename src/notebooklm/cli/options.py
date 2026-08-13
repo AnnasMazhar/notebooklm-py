@@ -21,7 +21,10 @@ from collections.abc import Callable
 import click
 from click.decorators import FC
 
+from ..types import SourceFilter, SourceStatus, SourceType, source_status_to_str
 from . import completion as _completion
+
+_SOURCE_FILTER_META_KEY = "notebooklm_source_filter"
 
 
 def _complete_notebooks(ctx, param, incomplete):
@@ -247,6 +250,51 @@ def multi_source_option(f: FC) -> FC:
         help="Limit to specific source IDs",
         shell_complete=_complete_sources,
     )(f)
+
+
+def source_filter_options(f: FC) -> FC:
+    """Add repeatable status/type selectors without changing handler signatures.
+
+    The callbacks store values on the Click context with ``expose_value=False``;
+    handlers read the normalized :class:`SourceFilter` through
+    :func:`source_filter_from_context`. This keeps the nine generate callback
+    signatures stable while exposing one consistent pair of flags.
+    """
+
+    def remember(axis: str):
+        def callback(ctx: click.Context, _param: click.Parameter, value: tuple[str, ...]):
+            filters = ctx.meta.setdefault(_SOURCE_FILTER_META_KEY, {})
+            filters[axis] = value
+            return value
+
+        return callback
+
+    f = click.option(
+        "--source-status",
+        multiple=True,
+        type=click.Choice([source_status_to_str(status) for status in SourceStatus]),
+        expose_value=False,
+        callback=remember("statuses"),
+        help="Select sources with this ingestion status (repeatable).",
+    )(f)
+    return click.option(
+        "--source-type",
+        multiple=True,
+        type=click.Choice([source_type.value for source_type in SourceType]),
+        expose_value=False,
+        callback=remember("types"),
+        help="Select sources of this type (repeatable).",
+    )(f)
+
+
+def source_filter_from_context(ctx: click.Context) -> SourceFilter | None:
+    """Return the normalized opt-in selector stored by the shared options."""
+    values = ctx.meta.get(_SOURCE_FILTER_META_KEY, {})
+    statuses = values.get("statuses", ())
+    source_types = values.get("types", ())
+    if not statuses and not source_types:
+        return None
+    return SourceFilter.from_values(statuses=statuses, types=source_types)
 
 
 def language_option(f: FC) -> FC:

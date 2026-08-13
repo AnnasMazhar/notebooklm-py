@@ -16,6 +16,7 @@ import pytest
 
 from notebooklm._artifacts import ArtifactsAPI
 from notebooklm._chat import ChatAPI
+from notebooklm._sources import SourcesAPI
 from notebooklm.exceptions import ValidationError
 from notebooklm.rpc import (
     AudioFormat,
@@ -30,6 +31,83 @@ from notebooklm.rpc import (
     VideoFormat,
     VideoStyle,
 )
+from notebooklm.types import (
+    Source,
+    SourceCounts,
+    SourceFilter,
+    SourceInventory,
+    SourceStatus,
+    SourceType,
+)
+
+
+@pytest.mark.asyncio
+async def test_sources_api_selection_wrappers_preserve_defaults_and_normalize_filters() -> None:
+    sources = (
+        Source(id="ready_pdf", _type_code=3, status=SourceStatus.READY),
+        Source(id="error_web", _type_code=5, status=SourceStatus.ERROR),
+    )
+    counts = SourceCounts(
+        records_total=3,
+        id_bearing_records=3,
+        unique_sources=2,
+        duplicate_id_records=1,
+        by_status={"ready": 1, "error": 1},
+        by_type={"pdf": 1, "web_page": 1},
+    )
+    inventory = SourceInventory(
+        sources=sources,
+        raw_source_ids=("ready_pdf", "error_web", "ready_pdf"),
+        counts=counts,
+    )
+    api = object.__new__(SourcesAPI)
+    api._lister = MagicMock()
+    api._lister.inventory = AsyncMock(return_value=inventory)
+
+    assert await api.inventory("nb_123") is inventory
+    assert await api.select("nb_123") == list(sources)
+    assert await api.select_ids("nb_123") == ["ready_pdf", "error_web", "ready_pdf"]
+    assert [source.id for source in await api.select("nb_123", statuses="ready")] == ["ready_pdf"]
+    assert [
+        source.id
+        for source in await api.select("nb_123", types=[SourceType.PDF, SourceType.WEB_PAGE.value])
+    ] == ["ready_pdf", "error_web"]
+    assert await api.select_ids("nb_123", statuses=SourceStatus.PREPARING) == []
+    with pytest.raises(ValueError, match="requires at least one"):
+        await api.select("nb_123", statuses=[])
+
+
+@pytest.mark.parametrize(
+    "method_name",
+    [
+        "generate_audio",
+        "generate_video",
+        "generate_cinematic_video",
+        "generate_report",
+        "generate_study_guide",
+        "generate_quiz",
+        "generate_flashcards",
+        "generate_infographic",
+        "generate_slide_deck",
+        "generate_data_table",
+        "generate_mind_map",
+    ],
+)
+@pytest.mark.asyncio
+async def test_every_artifact_generation_facade_forwards_source_filter(method_name: str) -> None:
+    """Keep the hand-written public facade matrix in sync with the shared service."""
+    source_filter = SourceFilter(statuses=(SourceStatus.READY,))
+    expected = object()
+    generation = MagicMock()
+    method = AsyncMock(return_value=expected)
+    setattr(generation, method_name, method)
+    api = object.__new__(ArtifactsAPI)
+    api._generation = generation
+
+    result = await getattr(api, method_name)("nb_123", source_filter=source_filter)
+
+    assert result is expected
+    assert method.await_args.kwargs["source_filter"] is source_filter
 
 
 @pytest.fixture
@@ -272,6 +350,36 @@ class TestChatSourceSelection:
         mock_notebooks_api.get_source_ids.assert_called_once_with("nb_123")
 
     @pytest.mark.asyncio
+    async def test_ask_with_source_filter_resolves_matching_sources(
+        self, mock_core, mock_notebooks_api
+    ):
+        api = _chat_from_mock_core(mock_core, notebooks=mock_notebooks_api)
+        source_filter = SourceFilter(statuses=(SourceStatus.READY,), types=(SourceType.PDF,))
+        mock_notebooks_api.get_source_ids.return_value = ["ready_pdf"]
+
+        await api.ask("nb_123", "Test question?", source_filter=source_filter)
+
+        mock_notebooks_api.get_source_ids.assert_awaited_once_with(
+            "nb_123", source_filter=source_filter
+        )
+        assert "ready_pdf" in mock_core._last_chat_request["body"]
+
+    @pytest.mark.asyncio
+    async def test_ask_rejects_ids_with_source_filter(self, mock_core, mock_notebooks_api):
+        api = _chat_from_mock_core(mock_core, notebooks=mock_notebooks_api)
+
+        with pytest.raises(ValidationError, match="mutually exclusive"):
+            await api.ask(
+                "nb_123",
+                "Test question?",
+                source_ids=["explicit"],
+                source_filter=SourceFilter(statuses=(SourceStatus.READY,)),
+            )
+
+        mock_notebooks_api.get_source_ids.assert_not_awaited()
+        mock_core.session_transport.perform_authed_post.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_ask_source_encoding_format(self, mock_core):
         """Verify the correct encoding format for source IDs in ask()."""
         api = _chat_from_mock_core(mock_core)
@@ -424,6 +532,51 @@ class TestArtifactsSourceSelection:
         source_ids_triple = inner_params[3]
 
         assert source_ids_triple == [[["src_001"]], [["src_002"]]]
+
+    @pytest.mark.asyncio
+    async def test_generate_audio_with_source_filter(
+        self, mock_core, mock_mind_map_service, mock_notebooks_api
+    ):
+        api = ArtifactsAPI(
+            rpc=mock_core,
+            drain=mock_core,
+            lifecycle=mock_core,
+            notebooks=mock_notebooks_api,
+            **mock_mind_map_service,
+        )
+        source_filter = SourceFilter(types=(SourceType.PDF,))
+        mock_notebooks_api.get_source_ids.return_value = ["ready_pdf"]
+        mock_core.rpc_executor.rpc_call.return_value = [["artifact_123", "Audio", 1, None, 1]]
+
+        await api.generate_audio("nb_123", source_filter=source_filter)
+
+        mock_notebooks_api.get_source_ids.assert_awaited_once_with(
+            "nb_123", source_filter=source_filter
+        )
+        params = mock_core.rpc_executor.rpc_call.call_args.args[1]
+        assert params[2][3] == [[["ready_pdf"]]]
+
+    @pytest.mark.asyncio
+    async def test_generate_audio_rejects_ids_with_source_filter(
+        self, mock_core, mock_mind_map_service, mock_notebooks_api
+    ):
+        api = ArtifactsAPI(
+            rpc=mock_core,
+            drain=mock_core,
+            lifecycle=mock_core,
+            notebooks=mock_notebooks_api,
+            **mock_mind_map_service,
+        )
+
+        with pytest.raises(ValidationError, match="mutually exclusive"):
+            await api.generate_audio(
+                "nb_123",
+                source_ids=["explicit"],
+                source_filter=SourceFilter(statuses=(SourceStatus.READY,)),
+            )
+
+        mock_notebooks_api.get_source_ids.assert_not_awaited()
+        mock_core.rpc_executor.rpc_call.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_generate_video_source_encoding(self, mock_core, mock_mind_map_service):

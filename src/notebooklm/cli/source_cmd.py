@@ -35,7 +35,7 @@ from .._app.source_wait import (
     execute_source_wait,
 )
 from ..exceptions import ValidationError
-from ..types import SOURCE_STATUS_LABELS, Source
+from ..types import SOURCE_STATUS_LABELS, Source, SourceType
 
 # Render/validation helpers live in ``_source_render``; re-exported here so the
 # historical ``source_cmd.<helper>`` import/patch surface keeps resolving them
@@ -150,15 +150,37 @@ def source():
 )
 @click.option(
     "--status",
-    "status_filter",
+    # Repeatable (#2102/#1962). ``SOURCE_STATUS_LABELS`` is the named public
+    # constant #2138 introduced for this choice list; it is element-identical to
+    # ``[source_status_to_str(s) for s in SourceStatus]``, so deriving it again
+    # here would be a second source of truth for the same vocabulary.
+    "status_filters",
+    multiple=True,
     type=click.Choice(SOURCE_STATUS_LABELS),
-    default=None,
-    help="Only list sources with this status. Use 'preparing' to find rows a failed add left behind.",
+    help=(
+        "Only list sources with this ingestion status (repeatable). "
+        "Use 'preparing' to find rows a failed add left behind."
+    ),
+)
+@click.option(
+    "--type",
+    "type_filters",
+    multiple=True,
+    type=click.Choice([source_type.value for source_type in SourceType]),
+    help="Only list sources of this type (repeatable).",
 )
 @list_options
 @with_client
 def source_list(
-    ctx, notebook_id, json_output, label_filter, status_filter, limit, no_truncate, client_auth
+    ctx,
+    notebook_id,
+    json_output,
+    label_filter,
+    status_filters,
+    type_filters,
+    limit,
+    no_truncate,
+    client_auth,
 ):
     """List all sources in a notebook.
 
@@ -167,8 +189,9 @@ def source_list(
       --limit N         Show at most N sources (default: unlimited).
       --no-truncate     Do not truncate the Title column in the table view.
       --label <id|name> Restrict the listing to a label's sources (read-only).
-      --status <state>  Restrict to one status: ready, processing, error,
-                        preparing, or unknown.
+      --status <state>  Restrict to a status: ready, processing, error,
+                        preparing, or unknown. Repeatable.
+      --type <kind>     Restrict to a source type. Repeatable.
 
     \b
     Finding orphaned sources:
@@ -193,7 +216,8 @@ def source_list(
                 no_truncate=no_truncate,
                 source_type_display=get_source_type_display,
                 label_filter=label_filter,
-                status_filter=status_filter,
+                status_filters=status_filters,
+                type_filters=type_filters,
             )
             try:
                 render = await execute_source_list(client, plan)

@@ -39,7 +39,7 @@ from ..rpc import (
     VideoStyle,
     safe_index,
 )
-from ..types import GenerationStatus
+from ..types import GenerationStatus, SourceFilter
 from .payloads import (
     build_audio_artifact_params,
     build_cinematic_video_artifact_params,
@@ -83,6 +83,21 @@ class ArtifactGenerationService:
         self._notebooks = notebooks
         self._note_service = note_service
 
+    async def _resolve_source_ids(
+        self,
+        notebook_id: str,
+        source_ids: builtins.list[str] | None,
+        source_filter: SourceFilter | None,
+    ) -> builtins.list[str]:
+        """Resolve default/filtered selection and reject ambiguous scope."""
+        if source_ids is not None and source_filter is not None:
+            raise ValidationError("source_ids and source_filter are mutually exclusive")
+        if source_ids is not None:
+            return source_ids
+        if source_filter is None:
+            return await self._notebooks.get_source_ids(notebook_id)
+        return await self._notebooks.get_source_ids(notebook_id, source_filter=source_filter)
+
     async def generate_audio(
         self,
         notebook_id: str,
@@ -91,12 +106,12 @@ class ArtifactGenerationService:
         instructions: str | None = None,
         audio_format: AudioFormat | None = None,
         audio_length: AudioLength | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate an Audio Overview (podcast)."""
         if language is None:
             language = get_default_language()
-        if source_ids is None:
-            source_ids = await self._notebooks.get_source_ids(notebook_id)
+        source_ids = await self._resolve_source_ids(notebook_id, source_ids, source_filter)
 
         params = build_audio_artifact_params(
             notebook_id,
@@ -121,6 +136,7 @@ class ArtifactGenerationService:
         video_format: VideoFormat | None = None,
         video_style: VideoStyle | None = None,
         style_prompt: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a Video Overview."""
         if language is None:
@@ -144,8 +160,7 @@ class ArtifactGenerationService:
         if normalized_style_prompt and video_style != VideoStyle.CUSTOM:
             raise ValidationError("style_prompt requires video_style=VideoStyle.CUSTOM")
 
-        if source_ids is None:
-            source_ids = await self._notebooks.get_source_ids(notebook_id)
+        source_ids = await self._resolve_source_ids(notebook_id, source_ids, source_filter)
 
         params = build_video_artifact_params(
             notebook_id,
@@ -168,12 +183,12 @@ class ArtifactGenerationService:
         source_ids: builtins.list[str] | None = None,
         language: str | None = "en",
         instructions: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a Cinematic Video Overview."""
         if language is None:
             language = get_default_language()
-        if source_ids is None:
-            source_ids = await self._notebooks.get_source_ids(notebook_id)
+        source_ids = await self._resolve_source_ids(notebook_id, source_ids, source_filter)
 
         params = build_cinematic_video_artifact_params(
             notebook_id,
@@ -195,12 +210,12 @@ class ArtifactGenerationService:
         language: str | None = "en",
         custom_prompt: str | None = None,
         extra_instructions: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a report artifact."""
         if language is None:
             language = get_default_language()
-        if source_ids is None:
-            source_ids = await self._notebooks.get_source_ids(notebook_id)
+        source_ids = await self._resolve_source_ids(notebook_id, source_ids, source_filter)
 
         params = build_report_artifact_params(
             notebook_id,
@@ -222,6 +237,7 @@ class ArtifactGenerationService:
         source_ids: builtins.list[str] | None = None,
         language: str | None = "en",
         extra_instructions: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a study guide report."""
         if language is None:
@@ -232,6 +248,7 @@ class ArtifactGenerationService:
             source_ids=source_ids,
             language=language,
             extra_instructions=extra_instructions,
+            source_filter=source_filter,
         )
 
     async def generate_quiz(
@@ -241,10 +258,10 @@ class ArtifactGenerationService:
         instructions: str | None = None,
         quantity: QuizQuantity | None = None,
         difficulty: QuizDifficulty | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a quiz."""
-        if source_ids is None:
-            source_ids = await self._notebooks.get_source_ids(notebook_id)
+        source_ids = await self._resolve_source_ids(notebook_id, source_ids, source_filter)
 
         params = build_quiz_artifact_params(
             notebook_id,
@@ -266,10 +283,10 @@ class ArtifactGenerationService:
         instructions: str | None = None,
         quantity: QuizQuantity | None = None,
         difficulty: QuizDifficulty | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate flashcards."""
-        if source_ids is None:
-            source_ids = await self._notebooks.get_source_ids(notebook_id)
+        source_ids = await self._resolve_source_ids(notebook_id, source_ids, source_filter)
 
         params = build_flashcards_artifact_params(
             notebook_id,
@@ -293,12 +310,12 @@ class ArtifactGenerationService:
         orientation: InfographicOrientation | None = None,
         detail_level: InfographicDetail | None = None,
         style: InfographicStyle | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate an infographic."""
         if language is None:
             language = get_default_language()
-        if source_ids is None:
-            source_ids = await self._notebooks.get_source_ids(notebook_id)
+        source_ids = await self._resolve_source_ids(notebook_id, source_ids, source_filter)
 
         params = build_infographic_artifact_params(
             notebook_id,
@@ -323,12 +340,12 @@ class ArtifactGenerationService:
         instructions: str | None = None,
         slide_format: SlideDeckFormat | None = None,
         slide_length: SlideDeckLength | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a slide deck."""
         if language is None:
             language = get_default_language()
-        if source_ids is None:
-            source_ids = await self._notebooks.get_source_ids(notebook_id)
+        source_ids = await self._resolve_source_ids(notebook_id, source_ids, source_filter)
 
         params = build_slide_deck_artifact_params(
             notebook_id,
@@ -440,12 +457,12 @@ class ArtifactGenerationService:
         source_ids: builtins.list[str] | None = None,
         language: str | None = "en",
         instructions: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> GenerationStatus:
         """Generate a data table."""
         if language is None:
             language = get_default_language()
-        if source_ids is None:
-            source_ids = await self._notebooks.get_source_ids(notebook_id)
+        source_ids = await self._resolve_source_ids(notebook_id, source_ids, source_filter)
 
         params = build_data_table_artifact_params(
             notebook_id,
@@ -465,6 +482,7 @@ class ArtifactGenerationService:
         source_ids: builtins.list[str] | None = None,
         language: str | None = "en",
         instructions: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> MindMapResult:
         """Generate a note-backed mind map and persist it as a note.
 
@@ -476,8 +494,7 @@ class ArtifactGenerationService:
         """
         if language is None:
             language = get_default_language()
-        if source_ids is None:
-            source_ids = await self._notebooks.get_source_ids(notebook_id)
+        source_ids = await self._resolve_source_ids(notebook_id, source_ids, source_filter)
 
         params = build_mind_map_params(
             source_ids,

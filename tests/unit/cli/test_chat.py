@@ -18,6 +18,8 @@ from notebooklm.types import (
     ChatSettings,
     ConversationTurnKey,
     Note,
+    SourceStatus,
+    SourceType,
 )
 
 from .conftest import create_mock_client, inject_client
@@ -207,6 +209,100 @@ class TestAskSaveAsNote:
         assert "No citations in answer" in result.output
         mock_client.notes.create.assert_awaited_once()
         mock_client.chat.save_answer_as_note.assert_not_awaited()
+
+
+class TestAskSourceFilter:
+    def test_status_and_type_filter_resolves_source_ids(self, runner, mock_auth):
+        mock_client = create_mock_client()
+        mock_client.chat.ask = AsyncMock(return_value=make_ask_result())
+        mock_client.chat.get_conversation_id = AsyncMock(return_value=None)
+        mock_client.notebooks.get_source_ids = AsyncMock(return_value=["ready_pdf"])
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli,
+                [
+                    "ask",
+                    "Only this PDF",
+                    "-n",
+                    "nb_123",
+                    "--source-status",
+                    "ready",
+                    "--source-type",
+                    "pdf",
+                ],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 0, result.output
+        source_filter = mock_client.notebooks.get_source_ids.await_args.kwargs["source_filter"]
+        assert source_filter.statuses == (SourceStatus.READY,)
+        assert source_filter.types == (SourceType.PDF,)
+        assert mock_client.chat.ask.await_args.kwargs["source_ids"] == ["ready_pdf"]
+
+    def test_explicit_source_conflicts_with_filter(self, runner, mock_auth):
+        mock_client = create_mock_client()
+        mock_client.chat.ask = AsyncMock(return_value=make_ask_result())
+        mock_client.chat.get_conversation_id = AsyncMock(return_value=None)
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli,
+                [
+                    "ask",
+                    "ambiguous",
+                    "-n",
+                    "nb_123",
+                    "-s",
+                    "src_123",
+                    "--source-status",
+                    "ready",
+                ],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 1
+        assert "mutually exclusive" in result.output
+        mock_client.chat.ask.assert_not_awaited()
+
+    def test_source_filter_conflict_is_rejected_before_new_conversation_delete(
+        self, runner, mock_auth
+    ):
+        mock_client = create_mock_client()
+        mock_client.chat.get_conversation_id = AsyncMock(return_value="conv-server-abc")
+        mock_client.chat.delete_conversation = AsyncMock(return_value=True)
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli,
+                [
+                    "ask",
+                    "ambiguous",
+                    "-n",
+                    "nb_123",
+                    "--new",
+                    "-y",
+                    "-s",
+                    "src_123",
+                    "--source-status",
+                    "ready",
+                ],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 1
+        assert "mutually exclusive" in result.output
+        mock_client.chat.get_conversation_id.assert_not_awaited()
+        mock_client.chat.delete_conversation.assert_not_awaited()
 
 
 class TestHistoryCommand:

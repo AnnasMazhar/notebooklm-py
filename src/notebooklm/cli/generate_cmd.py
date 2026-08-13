@@ -11,6 +11,7 @@ remain imported at module scope and ``_output_mind_map_result`` +
 """
 
 import os
+from dataclasses import replace
 from typing import Any
 
 import click
@@ -33,6 +34,8 @@ from .options import (
     notebook_option,
     prompt_file_option,
     retry_option,
+    source_filter_from_context,
+    source_filter_options,
     wait_option,
     wait_polling_options,
 )
@@ -242,6 +245,12 @@ def _run_generate(*, kind: str, **handler_locals: Any) -> Any:
             ),
             language_resolver=resolve_language,
         )
+        source_filter = source_filter_from_context(ctx)
+        if source_filter is not None and plan.source_ids:
+            raise GenerationPlanValidationError(
+                "--source and --source-status/--source-type are mutually exclusive"
+            )
+        plan = replace(plan, source_filter=source_filter)
     except GenerationPlanValidationError as exc:
         output_error(exc.message, exc.code, raw_args["json_output"], 1)
         raise AssertionError("unreachable") from exc  # pragma: no cover
@@ -339,6 +348,7 @@ def generate():
     help="Audio length: short, default, or long",
 )
 @language_option
+@source_filter_options
 @multi_source_option
 @wait_option
 @wait_polling_options(default_timeout=1200, default_interval=2)
@@ -414,6 +424,7 @@ def generate_audio(
 )
 @click.option("--style-prompt", default=None, help="Custom visual style prompt")
 @language_option
+@source_filter_options
 @multi_source_option
 @wait_option
 @wait_polling_options(
@@ -504,6 +515,7 @@ alias_command(
     help="Slide deck length: default or short",
 )
 @language_option
+@source_filter_options
 @multi_source_option
 @wait_option
 @wait_polling_options(default_timeout=300, default_interval=2)
@@ -608,6 +620,7 @@ def generate_revise_slide(
     default="medium",
     help="Question difficulty (default: medium)",
 )
+@source_filter_options
 @multi_source_option
 @wait_option
 @wait_polling_options(default_timeout=300, default_interval=2)
@@ -659,6 +672,7 @@ def generate_quiz(
     default="medium",
     help="Flashcard difficulty (default: medium)",
 )
+@source_filter_options
 @multi_source_option
 @wait_option
 @wait_polling_options(default_timeout=300, default_interval=2)
@@ -717,6 +731,7 @@ def generate_flashcards(
     help="Visual style (default: auto)",
 )
 @language_option
+@source_filter_options
 @multi_source_option
 @wait_option
 @wait_polling_options(default_timeout=300, default_interval=2)
@@ -759,6 +774,7 @@ def generate_infographic(
 @prompt_file_option
 @notebook_option
 @language_option
+@source_filter_options
 @multi_source_option
 @wait_option
 @wait_polling_options(default_timeout=300, default_interval=2)
@@ -795,6 +811,7 @@ def generate_data_table(
 
 @generate.command("mind-map")
 @notebook_option
+@source_filter_options
 @multi_source_option
 @language_option
 @click.option(
@@ -847,6 +864,7 @@ def generate_mind_map(
     help="Report format (default: briefing-doc)",
 )
 @notebook_option
+@source_filter_options
 @multi_source_option
 @language_option
 @click.option(

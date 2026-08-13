@@ -120,8 +120,8 @@ def source_view(source: Source) -> dict[str, Any]:
 
     ``status_label`` comes from :func:`~notebooklm.rpc.types.source_status_to_str`
     — the repo's single source of truth for status→string — so every adapter's
-    label stays in lock-step. It is one of ``unknown``/``processing``/``ready``/
-    ``error``/``preparing``.
+    label stays in lock-step. It is one of ``unknown``/``unspecified``/
+    ``processing``/``ready``/``error``/``pending_deletion``/``preparing``.
 
     ``drive_status_label`` does the same for the Drive-side health code
     (:attr:`~notebooklm.Source.drive_status`), and is ``None`` — not
@@ -154,6 +154,11 @@ def notebook_view(notebook: Notebook) -> dict[str, Any]:
     ``viewer``, or ``None`` when the row did not state a role.
     """
     view = to_jsonable(notebook)
+    if getattr(notebook, "source_counts", None) is None:
+        # The rich field is additive only when the row actually carried a
+        # trustworthy source roster. Preserve existing adapter schemas for
+        # compact/malformed rows rather than emitting a new null key.
+        view.pop("source_counts", None)
     view["role_label"] = (
         share_permission_to_str(notebook.role) if notebook.role is not None else None
     )

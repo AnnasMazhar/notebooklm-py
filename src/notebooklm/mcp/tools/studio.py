@@ -59,6 +59,7 @@ from .._resolve import (
     resolve_sources,
 )
 from ._passthrough import passthrough_child_id, passthrough_notebook_id
+from ._source_filter import SourceFilterInput, parse_source_filter
 from ._studio_download import (
     _DOWNLOAD_SPECS,
     _INLINE_TEXT_TYPES,
@@ -324,6 +325,7 @@ def register(mcp: Any) -> None:
             "report",
         ],
         source_ids: list[str] | str | None = None,
+        source_filter: SourceFilterInput | None = None,
         instructions: str = "",
         language: str | None = None,
         # Finite-choice per-kind options are typed as ``Literal`` so FastMCP/Pydantic
@@ -412,6 +414,8 @@ def register(mcp: Any) -> None:
         to use every source. It accepts a real list, a JSON-array string, or a
         comma-separated string (a source title containing a comma needs the
         JSON-array or list form).
+        ``source_filter`` selects sources by ``statuses`` and/or ``types`` and
+        cannot be combined with ``source_ids``.
         ``instructions`` is free-text guidance for kinds that accept it
         (including ``mind-map``). ``language`` (optional) is a language code,
         e.g. ``en``/``ja``/``zh_Hans``.
@@ -423,6 +427,9 @@ def register(mcp: Any) -> None:
             # ``list[str]`` up front. ``None`` stays ``None`` (=> all sources, the
             # #1652 contract); ``""``/``[]`` collapse to all sources downstream.
             source_ids = coerce_list(source_ids)
+            parsed_filter = parse_source_filter(source_filter)
+            if source_ids and parsed_filter is not None:
+                raise ValidationError("source_ids and source_filter are mutually exclusive")
             # ``artifact_type`` is a Literal — FastMCP/Pydantic rejects an unknown
             # kind at the schema boundary, so no runtime membership check is needed.
             # Validate ``language`` up front: the neutral generate core's default
@@ -482,9 +489,14 @@ def register(mcp: Any) -> None:
             # forwarding raw — so an agent that passed a prefix/title (the style that
             # works elsewhere) or an empty string gets it validated/resolved, not
             # forwarded to the backend. Omitted/empty stays None (= all sources, #1652).
-            resolved_source_ids = (
-                await resolve_sources(client, nb_id, source_ids) if source_ids else None
-            )
+            if source_ids:
+                resolved_source_ids = await resolve_sources(client, nb_id, source_ids)
+            elif parsed_filter is not None:
+                resolved_source_ids = await client.notebooks.get_source_ids(
+                    nb_id, source_filter=parsed_filter
+                )
+            else:
+                resolved_source_ids = None
             raw_args: dict[str, Any] = dict(_KIND_DEFAULTS[artifact_type])
             raw_args.update(
                 {

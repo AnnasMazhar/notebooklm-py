@@ -20,9 +20,10 @@ This module is transport-neutral — no ``click`` / ``rich`` / ``cli`` /
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ..types import Source, source_status_to_str
+from ..types import Source, SourceCounts, source_status_to_str
 
 if TYPE_CHECKING:
     from ..client import NotebookLMClient
@@ -31,6 +32,25 @@ if TYPE_CHECKING:
 #: supplies its ``cli.services.label_listing.resolve_label_id``-backed
 #: implementation (which raises its own typed ``LabelResolutionError``).
 LabelResolver = Callable[..., Awaitable[str]]
+
+
+@dataclass(frozen=True)
+class SourceListSnapshot:
+    """Source rows plus exact counts when the client supports inventories."""
+
+    sources: list[Source]
+    counts: SourceCounts | None
+
+
+async def fetch_source_snapshot(client: NotebookLMClient, notebook_id: str) -> SourceListSnapshot:
+    """Fetch one exact inventory, with compatibility for structural test clients."""
+    if getattr(client.sources, "supports_source_inventory", False) is True:
+        inventory = await client.sources.inventory(notebook_id)
+        return SourceListSnapshot(sources=list(inventory.sources), counts=inventory.counts)
+    return SourceListSnapshot(
+        sources=await client.sources.list(notebook_id),
+        counts=None,
+    )
 
 
 async def fetch_sources(
@@ -81,4 +101,4 @@ async def fetch_sources(
     return sources
 
 
-__all__ = ["LabelResolver", "fetch_sources"]
+__all__ = ["LabelResolver", "SourceListSnapshot", "fetch_source_snapshot", "fetch_sources"]

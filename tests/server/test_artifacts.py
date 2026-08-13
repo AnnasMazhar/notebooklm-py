@@ -15,6 +15,7 @@ from notebooklm._types.artifacts import GenerationState
 from notebooklm.server._pending import PendingRegistry
 from notebooklm.server.routes import artifacts as artifacts_route
 from notebooklm.server.routes.artifacts import DOWNLOAD_SPECS, GENERATE_TYPES
+from notebooklm.types import Source, SourceStatus
 
 from .fakes import FakeClient, make_artifact
 
@@ -47,6 +48,65 @@ def test_generate_valid_body_still_202(authed_client: TestClient) -> None:
         json={"type": "audio", "instructions": "Keep it short", "language": "en"},
     )
     assert resp.status_code == 202
+
+
+def test_generate_source_filter_resolves_matching_ids(
+    authed_client: TestClient, fake_client: FakeClient
+) -> None:
+    fake_client.sources_store["nb-1"] = {
+        "ready-pdf": Source(
+            id="ready-pdf", title="Ready PDF", _type_code=3, status=SourceStatus.READY
+        ),
+        "error-web": Source(
+            id="error-web", title="Broken page", _type_code=5, status=SourceStatus.ERROR
+        ),
+    }
+
+    resp = authed_client.post(
+        "/v1/notebooks/nb-1/artifacts",
+        json={
+            "type": "audio",
+            "source_filter": {"statuses": ["ready"], "types": ["pdf"]},
+        },
+    )
+
+    assert resp.status_code == 202
+    assert fake_client.last_generate_kwargs is not None
+    assert fake_client.last_generate_kwargs["source_ids"] == ("ready-pdf",)
+
+
+def test_generate_rejects_ids_with_source_filter(authed_client: TestClient) -> None:
+    resp = authed_client.post(
+        "/v1/notebooks/nb-1/artifacts",
+        json={
+            "type": "audio",
+            "source_ids": ["s-1"],
+            "source_filter": {"statuses": ["ready"]},
+        },
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["error"]["category"] == "validation"
+
+
+@pytest.mark.parametrize(
+    ("source_filter", "status_code"),
+    [
+        ({}, 400),
+        ({"types": ["not-a-type"]}, 422),
+        ({"types": "pdf"}, 422),
+        ({"statuses": ["ready"], "unexpected": True}, 422),
+    ],
+)
+def test_generate_source_filter_rejects_empty_unknown_and_invalid_shapes(
+    authed_client: TestClient, source_filter: dict[str, object], status_code: int
+) -> None:
+    resp = authed_client.post(
+        "/v1/notebooks/nb-1/artifacts",
+        json={"type": "audio", "source_filter": source_filter},
+    )
+
+    assert resp.status_code == status_code
 
 
 def test_poll_known_task_not_found_is_200_pending(

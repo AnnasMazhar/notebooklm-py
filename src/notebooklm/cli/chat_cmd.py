@@ -33,7 +33,14 @@ from .auth_runtime import resolve_client_factory, with_client
 from .context import get_current_conversation, get_current_notebook, set_current_conversation
 from .error_handler import _output_error, exit_with_code
 from .input import resolve_prompt
-from .options import _complete_sources, json_option, notebook_option, prompt_file_option
+from .options import (
+    _complete_sources,
+    json_option,
+    notebook_option,
+    prompt_file_option,
+    source_filter_from_context,
+    source_filter_options,
+)
 from .rendering import (
     cli_print,
     console,
@@ -221,6 +228,7 @@ def register_chat_commands(cli):
         help="Limit to specific source IDs (can be repeated)",
         shell_complete=_complete_sources,
     )
+    @source_filter_options
     @click.option(
         "--json", "json_output", is_flag=True, help="Output as JSON (includes references)"
     )
@@ -304,6 +312,12 @@ def register_chat_commands(cli):
             raise click.UsageError(  # cli-input-validation: --new and --conversation-id are mutually exclusive
                 message
             ) from exc
+        source_filter = source_filter_from_context(ctx)
+        if source_ids and source_filter is not None:
+            # Validate before ``--new`` can delete the current conversation.
+            raise ValidationError(
+                "--source and --source-status/--source-type are mutually exclusive"
+            )
         question = resolve_prompt(question, prompt_file, "question", required=True)
         nb_id = require_notebook(notebook_id)
 
@@ -365,9 +379,14 @@ def register_chat_commands(cli):
                     if effective_conv_id:
                         resumed_from_server = True
 
-                sources = await resolve_source_ids(
-                    client, nb_id_resolved, source_ids, json_output=json_output
-                )
+                if source_filter is None:
+                    sources = await resolve_source_ids(
+                        client, nb_id_resolved, source_ids, json_output=json_output
+                    )
+                else:
+                    sources = await client.notebooks.get_source_ids(
+                        nb_id_resolved, source_filter=source_filter
+                    )
                 result = await client.chat.ask(
                     nb_id_resolved,
                     question,
@@ -464,6 +483,7 @@ def register_chat_commands(cli):
         help="Limit to specific source IDs (can be repeated). Defaults to all sources.",
         shell_complete=_complete_sources,
     )
+    @source_filter_options
     @json_option
     @with_client
     def suggest_prompts_cmd(
@@ -505,13 +525,23 @@ def register_chat_commands(cli):
                 f"mode must be in the inclusive range "
                 f"{_SUGGEST_PROMPTS_MODE_MIN}..{_SUGGEST_PROMPTS_MODE_MAX}, got {mode!r}"
             )
+        source_filter = source_filter_from_context(ctx)
+        if source_ids and source_filter is not None:
+            raise ValidationError(
+                "--source and --source-status/--source-type are mutually exclusive"
+            )
 
         async def _run():
             async with resolve_client_factory(ctx)(client_auth) as client:
                 nb_id_resolved = await resolve_notebook_id(client, nb_id, json_output=json_output)
-                sources = await resolve_source_ids(
-                    client, nb_id_resolved, source_ids, json_output=json_output
-                )
+                if source_filter is None:
+                    sources = await resolve_source_ids(
+                        client, nb_id_resolved, source_ids, json_output=json_output
+                    )
+                else:
+                    sources = await client.notebooks.get_source_ids(
+                        nb_id_resolved, source_filter=source_filter
+                    )
                 suggestions = await client.notebooks.suggest_prompts(
                     nb_id_resolved,
                     source_ids=sources,

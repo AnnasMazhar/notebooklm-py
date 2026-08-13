@@ -205,8 +205,7 @@ async def test_notebook_describe_include_metadata_adds_block(mcp_call, mock_clie
     assert content["notebook_id"] == NB_ID
     assert content["description"] == {"summary": "A summary"}
     # ... and the metadata block carries the notebook details + source list.
-    # ``sources_count`` is re-projected to the enumerated length (1), not the
-    # raw ``Notebook.sources_count`` scalar (#1919).
+    # ``sources_count`` preserves the legacy MCP projection to listed rows.
     assert content["metadata"] == {
         "notebook": {
             "id": NB_ID,
@@ -226,19 +225,46 @@ async def test_notebook_describe_include_metadata_adds_block(mcp_call, mock_clie
     mock_client.notebooks.get_metadata.assert_awaited_once_with(NB_ID)
 
 
-async def test_notebook_describe_metadata_source_count_matches_enumeration(
+async def test_notebook_describe_metadata_includes_exact_source_counts(
     mcp_call, mock_client
 ) -> None:
-    """#1919: the exposed ``metadata.notebook.sources_count`` agrees with the
-    enumerated ``sources`` length, even when the raw ``Notebook.sources_count``
-    scalar is a larger unfiltered row count (id-less placeholder / ghost rows).
-    """
+    from notebooklm.types import SourceCounts
+
+    mock_client.notebooks.get_description = AsyncMock(
+        return_value=FakeDescription(summary="A summary")
+    )
+    counts = SourceCounts(
+        records_total=3,
+        id_bearing_records=2,
+        unique_sources=1,
+        idless_records=1,
+        duplicate_id_records=1,
+        by_status={"ready": 1},
+        by_type={"pdf": 1},
+    )
+    mock_client.notebooks.get_metadata = AsyncMock(
+        return_value=NotebookMetadata(
+            notebook=Notebook(id=NB_ID, title="Research", sources_count=3),
+            sources=[SourceSummary(kind=SourceType.PDF, title="Doc", url=None)],
+            source_counts=counts,
+        )
+    )
+
+    result = await mcp_call("notebook_describe", {"notebook": NB_ID, "include_metadata": True})
+
+    assert result.structured_content["metadata"]["source_counts"] == counts.to_dict()
+
+
+async def test_notebook_describe_metadata_preserves_listed_source_count_projection(
+    mcp_call, mock_client
+) -> None:
+    """The legacy MCP scalar remains projected; named rich counts disambiguate it."""
     mock_client.notebooks.get_description = AsyncMock(
         return_value=FakeDescription(summary="A summary")
     )
     mock_client.notebooks.get_metadata = AsyncMock(
         return_value=NotebookMetadata(
-            # Raw scalar (168) intentionally disagrees with the filtered list (2).
+            # The notebook's raw scalar intentionally disagrees with the typed list.
             notebook=Notebook(id=NB_ID, title="Research", sources_count=168),
             sources=[
                 SourceSummary(kind=SourceType.PDF, title="A", url=None),

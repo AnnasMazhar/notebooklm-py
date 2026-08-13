@@ -6,11 +6,18 @@ import asyncio
 import builtins
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Protocol
+from typing import Protocol, TypeGuard
 
 from ._runtime.contracts import RpcCaller
 from ._source.listing import SourceLister as SourceListingService
-from .types import Notebook, NotebookMetadata, Source, SourceSummary
+from .types import (
+    Notebook,
+    NotebookMetadata,
+    Source,
+    SourceFilter,
+    SourceInventory,
+    SourceSummary,
+)
 
 # Preserve the historical warning channel from NotebooksAPI.get_metadata().
 logger = logging.getLogger("notebooklm._notebooks")
@@ -31,10 +38,28 @@ class NotebookSourceLister(Protocol):
         """List sources for a notebook."""
 
 
+class InventoryNotebookSourceLister(NotebookSourceLister, Protocol):
+    """Source lister that can preserve raw inventory accounting."""
+
+    supports_source_inventory: bool
+
+    async def inventory(self, notebook_id: str, *, strict: bool = False) -> SourceInventory:
+        """Return one parsed source inventory."""
+
+
+def _supports_source_inventory(
+    source_lister: NotebookSourceLister,
+) -> TypeGuard[InventoryNotebookSourceLister]:
+    """Narrow an opt-in structural lister to the inventory capability."""
+    return getattr(source_lister, "supports_source_inventory", False) is True
+
+
 class NotebookSourceIdProvider(Protocol):
     """Structural source-id dependency needed by chat and artifact generation."""
 
-    async def get_source_ids(self, notebook_id: str) -> builtins.list[str]:
+    async def get_source_ids(
+        self, notebook_id: str, *, source_filter: SourceFilter | None = None
+    ) -> builtins.list[str]:
         """Return source IDs for a notebook."""
 
 
@@ -59,10 +84,23 @@ class NotebookMetadataService:
 
     async def get_metadata(self, notebook_id: str) -> NotebookMetadata:
         """Get notebook metadata and simplified sources concurrently."""
-        notebook, sources = await asyncio.gather(
-            self._get_notebook(notebook_id),
-            self._source_lister.list(notebook_id),
-        )
+        if _supports_source_inventory(self._source_lister):
+            notebook, inventory = await asyncio.gather(
+                self._get_notebook(notebook_id),
+                self._source_lister.inventory(notebook_id),
+            )
+            sources = list(inventory.sources)
+            source_counts = inventory.counts
+        else:
+            # Compatibility for custom structural listers that predate the
+            # inventory API. Their typed roster cannot reconstruct phantom or
+            # duplicate rows, so report counts as unavailable rather than
+            # fabricating a confident-but-wrong value.
+            notebook, sources = await asyncio.gather(
+                self._get_notebook(notebook_id),
+                self._source_lister.list(notebook_id),
+            )
+            source_counts = None
 
         if notebook.sources_count > 0 and len(sources) == 0:
             logger.warning(
@@ -81,6 +119,7 @@ class NotebookMetadataService:
                 )
                 for source in sources
             ],
+            source_counts=source_counts,
         )
 
 

@@ -30,7 +30,11 @@ from .exceptions import SourceNotFoundError
 from .rpc import RPCMethod
 from .types import (
     Source,
+    SourceFilter,
     SourceFulltext,
+    SourceInventory,
+    SourceStatus,
+    SourceType,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,6 +56,10 @@ class SourcesAPI:
             new_src = await client.sources.add_url(notebook_id, "https://example.com")
             await client.sources.rename(notebook_id, new_src.id, "Better Title")
     """
+
+    # Structural adapters use this marker before calling ``inventory()`` so
+    # older custom source clients can continue to provide only ``list()``.
+    supports_source_inventory = True
 
     def __init__(
         self,
@@ -145,6 +153,56 @@ class SourcesAPI:
             List of Source objects.
         """
         return await self._lister.list(notebook_id, strict=strict)
+
+    async def inventory(self, notebook_id: str, *, strict: bool = False) -> SourceInventory:
+        """Return sources plus exact raw-record, status, and type counts.
+
+        Unlike :meth:`list`, this retains accounting for id-less phantom rows
+        and duplicate IDs. ``inventory.counts.by_status["ready"]`` is the
+        processed source count; ``Notebook.sources_count`` remains unchanged.
+        """
+        return await self._lister.inventory(notebook_id, strict=strict)
+
+    async def select(
+        self,
+        notebook_id: str,
+        *,
+        statuses: SourceStatus | str | builtins.list[SourceStatus | str] | None = None,
+        types: SourceType | str | builtins.list[SourceType | str] | None = None,
+    ) -> builtins.list[Source]:
+        """Select sources by ingestion status and/or source type.
+
+        Values within one filter are ORed; status and type filters are ANDed.
+        Omitting both returns the same unique, ID-bearing roster as :meth:`list`,
+        including error and other non-ready rows.
+        """
+        inventory = await self.inventory(notebook_id)
+        if statuses is None and types is None:
+            return list(inventory.sources)
+        status_values = (statuses,) if isinstance(statuses, (str, SourceStatus)) else statuses or ()
+        type_values = (types,) if isinstance(types, (str, SourceType)) else types or ()
+        source_filter = SourceFilter.from_values(statuses=status_values, types=type_values)
+        return inventory.select_filter(source_filter)
+
+    async def select_ids(
+        self,
+        notebook_id: str,
+        *,
+        statuses: SourceStatus | str | builtins.list[SourceStatus | str] | None = None,
+        types: SourceType | str | builtins.list[SourceType | str] | None = None,
+    ) -> builtins.list[str]:
+        """Return source IDs selected by status and/or type.
+
+        With no filters this preserves the historical all-source ID behavior,
+        including duplicate ID-bearing rows in wire order.
+        """
+        inventory = await self.inventory(notebook_id)
+        if statuses is None and types is None:
+            return inventory.select_ids()
+        status_values = (statuses,) if isinstance(statuses, (str, SourceStatus)) else statuses or ()
+        type_values = (types,) if isinstance(types, (str, SourceType)) else types or ()
+        source_filter = SourceFilter.from_values(statuses=status_values, types=type_values)
+        return inventory.select_filter_ids(source_filter)
 
     async def get(self, notebook_id: str, source_id: str) -> Source:
         """Get details of a specific source.

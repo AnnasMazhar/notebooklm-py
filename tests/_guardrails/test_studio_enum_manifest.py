@@ -116,9 +116,11 @@ _RPC_ENUM_SNAPSHOT: dict[str, dict[str, int]] = {
     "SlideDeckLength": {"DEFAULT": 1, "SHORT": 2},
     "SourceStatus": {
         "UNKNOWN": -1,
+        "UNSPECIFIED": 0,
         "PROCESSING": 1,
         "READY": 2,
         "ERROR": 3,
+        "PENDING_DELETION": 4,
         "PREPARING": 5,
     },
     # #2111 — SourceSettings.userDriveSourceStatus. UNKNOWN(-1) is a client

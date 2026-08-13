@@ -25,9 +25,10 @@ from .exceptions import (
     ArtifactFeatureUnavailableError,
     MindMapNotFoundError,
     UnknownRPCMethodError,
+    ValidationError,
 )
 from .rpc import RPCMethod, safe_index
-from .types import ArtifactType
+from .types import ArtifactType, SourceFilter
 
 if TYPE_CHECKING:
     from ._artifacts import ArtifactsAPI
@@ -302,6 +303,7 @@ class MindMapsAPI:
         language: str | None = "en",
         instructions: str | None = None,
         wait: bool = True,
+        source_filter: SourceFilter | None = None,
     ) -> MindMap:
         """Generate a mind map of the requested ``kind``.
 
@@ -327,9 +329,15 @@ class MindMapsAPI:
                 async kickoff with the sibling ``generate_*`` / ``retry_failed``
                 null-create contract (ADR-0019; issue #1359).
         """
+        if source_ids is not None and source_filter is not None:
+            raise ValidationError("source_ids and source_filter are mutually exclusive")
         if kind == MindMapKind.NOTE_BACKED:
             res = await self._artifacts.generate_mind_map(
-                notebook_id, source_ids, language, instructions
+                notebook_id,
+                source_ids,
+                language,
+                instructions,
+                source_filter=source_filter,
             )
             tree = res.mind_map if isinstance(res.mind_map, dict) else None
             title = _tree_title(tree)
@@ -343,7 +351,12 @@ class MindMapsAPI:
             )
 
         if source_ids is None:
-            source_ids = await self._notebooks.get_source_ids(notebook_id)
+            if source_filter is None:
+                source_ids = await self._notebooks.get_source_ids(notebook_id)
+            else:
+                source_ids = await self._notebooks.get_source_ids(
+                    notebook_id, source_filter=source_filter
+                )
         # CREATE_ARTIFACT is classified in ``_idempotency.py``. ``operation_variant=None``
         # is passed explicitly to match the other CREATE_ARTIFACT / GENERATE_MIND_MAP
         # call sites (the registry resolves the same entry either way; the explicit

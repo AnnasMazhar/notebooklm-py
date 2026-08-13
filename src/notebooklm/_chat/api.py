@@ -66,6 +66,7 @@ from ..types import (
     ConversationTurn,
     ConversationTurnKey,
     Note,
+    SourceFilter,
 )
 
 logger = logging.getLogger(__name__)
@@ -263,6 +264,7 @@ class ChatAPI(LoopBoundPrimitive):
         question: str,
         source_ids: list[str] | None = None,
         conversation_id: str | None = None,
+        source_filter: SourceFilter | None = None,
     ) -> AskResult:
         """Ask the notebook a question.
 
@@ -274,6 +276,8 @@ class ChatAPI(LoopBoundPrimitive):
                 Omit (or pass ``None``) to continue the user's current
                 conversation on this notebook (or create one if none
                 exists) — matching the web UI's default behavior.
+            source_filter: Select sources by status and/or type. Cannot be
+                combined with explicit ``source_ids``.
 
         Returns:
             AskResult with answer, server-recorded conversation_id, and
@@ -309,8 +313,15 @@ class ChatAPI(LoopBoundPrimitive):
             notebook_id,
             conversation_id or "new",
         )
+        if source_ids is not None and source_filter is not None:
+            raise ValidationError("source_ids and source_filter are mutually exclusive")
         if source_ids is None:
-            source_ids = await self._notebooks.get_source_ids(notebook_id)
+            if source_filter is None:
+                source_ids = await self._notebooks.get_source_ids(notebook_id)
+            else:
+                source_ids = await self._notebooks.get_source_ids(
+                    notebook_id, source_filter=source_filter
+                )
 
         is_new_conversation = conversation_id is None
         # ``is_follow_up`` records whether this ask CONTINUED an existing

@@ -61,7 +61,7 @@ def list_notebooks(decoded: Any) -> list[Notebook]:
     the ``[[row, ...]]`` wrapped envelope, and each inner row is handed to
     :meth:`Notebook.from_api_response`.
     """
-    return [Notebook.from_api_response(row) for row in decoded[0]]
+    return [Notebook.from_api_response(row, include_source_counts=False) for row in decoded[0]]
 
 
 def get_notebook(decoded: Any) -> Notebook:

@@ -21,10 +21,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from notebooklm._app.source_listing import fetch_sources
+from notebooklm._app.source_listing import fetch_source_snapshot, fetch_sources
 from notebooklm.types import (
     SOURCE_STATUS_LABELS,
     Source,
+    SourceCounts,
+    SourceInventory,
     SourceStatus,
     source_status_to_str,
 )
@@ -51,6 +53,43 @@ async def test_no_filter_lists_all_sources() -> None:
     # The resolver and the label-members join are never touched without a filter.
     resolver.assert_not_called()
     client.labels.sources.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_snapshot_returns_rows_and_counts_from_one_inventory() -> None:
+    counts = SourceCounts(
+        records_total=3,
+        id_bearing_records=2,
+        unique_sources=1,
+        idless_records=1,
+        duplicate_id_records=1,
+        by_status={"ready": 1},
+        by_type={"pdf": 1},
+    )
+    inventory = SourceInventory(
+        sources=(Source(id="s1", title="One", _type_code=3),),
+        raw_source_ids=("s1", "s1"),
+        counts=counts,
+    )
+
+    class InventorySources:
+        supports_source_inventory = True
+
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def inventory(self, notebook_id: str) -> SourceInventory:
+            self.calls.append(notebook_id)
+            return inventory
+
+    client = MagicMock()
+    client.sources = InventorySources()
+
+    snapshot = await fetch_source_snapshot(client, "nb_1")
+
+    assert [source.id for source in snapshot.sources] == ["s1"]
+    assert snapshot.counts is counts
+    assert client.sources.calls == ["nb_1"]
 
 
 @pytest.mark.asyncio

@@ -24,7 +24,9 @@ from ..._app.chat import ChatModeChoice, ResponseLengthChoice
 from ..._app.serialize import to_jsonable
 from ..._app.views import ask_result_view
 from ...client import NotebookLMClient
+from ...exceptions import ValidationError
 from .._context import get_client, limit_chat
+from ._source_filter import SourceFilterBody
 
 __all__ = ["router"]
 
@@ -38,6 +40,8 @@ class ChatAsk(BaseModel):
 
     question: str
     conversation_id: str | None = None
+    source_ids: list[str] | None = None
+    source_filter: SourceFilterBody | None = None
 
 
 class ChatConfigure(BaseModel):
@@ -65,7 +69,14 @@ async def ask(notebook_id: str, body: ChatAsk, client: ClientDep) -> dict[str, A
     Pass ``conversation_id`` to continue a specific conversation; omit it to
     continue the notebook's most-recent conversation (or start a new one).
     """
-    result = await client.chat.ask(notebook_id, body.question, conversation_id=body.conversation_id)
+    if body.source_ids is not None and body.source_filter is not None:
+        raise ValidationError("source_ids and source_filter are mutually exclusive")
+    kwargs: dict[str, Any] = {"conversation_id": body.conversation_id}
+    if body.source_ids is not None:
+        kwargs["source_ids"] = body.source_ids
+    if body.source_filter is not None:
+        kwargs["source_filter"] = body.source_filter.to_source_filter()
+    result = await client.chat.ask(notebook_id, body.question, **kwargs)
     # Shared view: drop the internal ``raw_response`` debug blob (identical on the
     # MCP chat_ask surface); the field stays on the dataclass, just not on the wire.
     return ask_result_view(result)
