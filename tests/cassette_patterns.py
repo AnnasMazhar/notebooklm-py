@@ -1206,9 +1206,16 @@ _DETECT_AUTHUSER_EMAIL_DOUBLE_ENCODED = re.compile(
 # Scoped to the two hosts actually observed carrying capabilities, so an
 # ordinary ``drive.google.com/file/d/<id>`` reference in a fixture (a public
 # document id, not a credential) does not trip the guard.
+# The parameter alternatives anchor on a real query delimiter — ``?``, ``&`` or
+# an HTML/JSON-escaped ``&amp;`` — rather than ``\b``. A word boundary is not a
+# key boundary: ``...download?redirect=-c=1`` has no ``c`` parameter at all, yet
+# ``\bc=`` matches inside the *value*, so the strict fixture hook would reject
+# valid content. Keyed delimiters make the match mean what the name says.
 _DETECT_BLOB_CAPABILITY_URL = re.compile(
-    r"https?://contribution\.usercontent\.google\.com/download\?[^\s\"'<>]*\bc="
-    r"|https?://drive\.google\.com/viewer/upload\?[^\s\"'<>]*\b(?:ck|ds|dsmi|p)="
+    r"https?://contribution\.usercontent\.google\.com/download"
+    r"[^\s\"'<>]*(?:\?|&|&amp;)c="
+    r"|https?://drive\.google\.com/viewer/upload"
+    r"[^\s\"'<>]*(?:\?|&|&amp;)(?:ck|ds|dsmi|p)="
     r"|/blobstore/[^\s\"'<>]*/blobrefs/"
 )
 
@@ -1496,6 +1503,16 @@ def is_clean(text: str) -> tuple[bool, list[str]]:
     # match of the raw URL form here is by definition a leak.
     for match in _DETECT_AVATAR_URL.finditer(text):
         leaks.append(f"Leak (avatar URL): {match.group(0)!r}")
+
+    # --- 7b. Signed blob-capability URLs ----------------------------------
+    # Must run in BOTH modes. ``find_credential_leaks`` (``--secrets-only``)
+    # reaches this detector via :data:`_CREDENTIAL_DETECTORS`, but the full
+    # cassette scan routes through this function instead — so registering it
+    # only there would leave ``check_cassettes_clean.py --strict --recursive``,
+    # the gate CI runs over ``tests/cassettes/``, blind to a capability URL in
+    # a recorded cassette. Same detector, both paths.
+    for match in _DETECT_BLOB_CAPABILITY_URL.finditer(text):
+        leaks.append(f"Leak (signed blob-capability URL): {match.group(0)!r}")
 
     # --- 8. Catch-all Google auth-token shapes -----------------------------
     # ``g.a000-...`` / ``sidts-...`` / ``ya29....`` tokens are scrubbed to
