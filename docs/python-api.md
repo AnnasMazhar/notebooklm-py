@@ -522,9 +522,10 @@ It is absent on every other failure, so `getattr(exc, "unconfirmed", False)` is 
 | how it arose | the exception you catch | the create's transport failure |
 |---|---|---|
 | probe failed with a non-transport error (e.g. a decode `RPCError`) | a wrapper naming the source, with the probe's failure as `__cause__` | at `__context__.__context__` |
-| a transport/auth error (`ServerError`, `NetworkError`, `RateLimitError`, `AuthError`) | **that same error, re-raised unchanged and marked** | at `__context__` |
+| probe failed with a transport/auth error (`ServerError`, `NetworkError`, `RateLimitError`, `AuthError`) | **that same error, re-raised unchanged and marked** | at `__context__` |
+| `add_file` only: the register RPC returned **200** but carried no trustworthy `SOURCE_ID`, so the recovery probe ran directly | a wrapper naming the file | **none — no create failure exists**; a probe error, if any, is at `__cause__` |
 
-In the second shape there is no wrapper, so `__cause__` is whatever the transport layer already set (often absent). Walk the `__context__` chain rather than assuming a fixed depth.
+The third shape breaks a fixed-depth assumption outright: `_create` calls the probe itself rather than being driven by the retry wrapper, so no transport failure exists anywhere in the chain, and a no-match or ambiguity yields a marked `SourceAddError` with no `__cause__` at all. In the second shape there is no wrapper either, so `__cause__` is whatever the transport layer already set (often absent). Walk the `__context__` chain rather than assuming a depth, and treat both `__cause__` and `__context__` as optional.
 
 The alternative — retrying on an unanswered probe — is what this replaced. It recovered silently in the common case, at the cost of occasionally handing back a duplicate, or the wrong source id, with nothing to signal it. A raised error is actionable; an unreported duplicate is not.
 
