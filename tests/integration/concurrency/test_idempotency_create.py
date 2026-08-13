@@ -353,7 +353,10 @@ async def test_notebooks_create_baseline_failure_warns_but_proceeds(auth_tokens,
     assert notebook.id == nb_id
     assert list_rpc_count == 1
     # Emitted at a level the default configuration actually passes through.
+    # The distinctive clause, not just "baseline list() failed" — that substring
+    # was in the pre-#2232 message too, so it no longer pins what the record says.
     assert "baseline list() failed" in caplog.text
+    assert "surface as an ambiguity error" in caplog.text
 
 
 async def test_notebooks_create_baseline_failure_refuses_to_adopt_a_pre_existing_notebook(

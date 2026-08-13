@@ -665,17 +665,30 @@ class NotebooksAPI:
                 # Both halves of the ambiguity are worth stating: the match may
                 # predate the create, or it may BE the create, in which case it
                 # landed and the caller will otherwise never learn its id.
+                #
+                # Deliberately NOT ``raise ... from baseline_error``. Setting
+                # ``__cause__`` (by ``from`` or by hand) makes the traceback
+                # print the cause *instead of* ``__context__`` — and here
+                # ``__context__`` is the create's transport failure, the half
+                # ``idempotent_create`` promises stays visible ("the traceback
+                # shows both halves", ``_idempotency.py``). The baseline failure
+                # is named by type in the message instead, which is all the two
+                # sibling paths without a ``cause=`` field surface either.
                 raise _unconfirmed(
                     RPCError(
-                        f"Cannot disambiguate notebook with title {title!r}: the "
-                        "pre-create baseline snapshot failed "
-                        f"({type(baseline_error).__name__}), so "
+                        # Action first — the MCP/REST surfaces truncate messages
+                        # at 300 characters, and a realistic title plus one
+                        # ``id (title)`` row runs past that, cutting the closing
+                        # instruction off. Same reasoning as the probe-failure
+                        # raise above.
+                        f"Cannot disambiguate notebook with title {title!r} — check your "
+                        "notebook list before retrying: the pre-create baseline snapshot "
+                        f"failed ({type(baseline_error).__name__}), so "
                         f"{_describe_notebooks(matches)} may either predate this create "
-                        "or be the notebook it just created. Check your notebook list "
-                        "before retrying.",
+                        "or be the notebook it just created.",
                         method_id=RPCMethod.CREATE_NOTEBOOK.value,
                     )
-                ) from baseline_error
+                )
             if len(matches) == 1:
                 # ``matches`` is a list of typed ``Notebook`` objects (NOT a raw
                 # RPC payload) — tuple unpacking reads the single match

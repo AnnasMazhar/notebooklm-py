@@ -388,11 +388,16 @@ async def test_create_baseline_failure_makes_a_match_ambiguous(
     # Not the pre-existing notebook, under any guise.
     assert "disambiguate" in str(raised.value)
     assert pre_existing.id in str(raised.value)
-    # ``__cause__`` carries what broke the baseline — otherwise nothing in the
-    # process can explain why the snapshot was unavailable.
-    assert raised.value.__cause__ is baseline_failure
-    # The transport error that triggered the probe survives as context.
+    # The message names what broke the baseline — otherwise nothing reaching the
+    # caller can explain why the snapshot was unavailable.
+    assert type(baseline_failure).__name__ in str(raised.value)
+    # The transport error that triggered the probe survives as context, and
+    # ``__cause__`` is deliberately left unset so the traceback keeps printing
+    # it — ``idempotent_create`` promises both halves stay visible.
     assert raised.value.__context__ is transport_error
+    assert raised.value.__cause__ is None
+    # The action survives the 300-char truncation the MCP/REST surfaces apply.
+    assert "check your notebook list before retrying" in str(raised.value)[:300].lower()
     # An ambiguity IS an unconfirmed create (#2220): nothing threw inside the
     # probe, so this looks like an ordinary rejection — but the server may hold
     # a notebook either way, which is precisely what the marker names.
