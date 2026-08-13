@@ -668,6 +668,55 @@ class TestReadableRendering:
         )
         assert document.render() == "\tmid"
 
+    def test_an_empty_column_holds_its_place_instead_of_shifting_the_row(self) -> None:
+        """A cell with no characters is still a column (#2230 review).
+
+        An empty cell's natural range is zero-width, and dropping it would
+        slide every value after it one column left — a three-column row of
+        ``A`` / *nothing* / ``C`` reading as ``A\\tC``, which says ``C`` is in
+        column two. The boundary is kept; only a row that is *nothing but*
+        empty columns goes, since it has no positions to hold.
+        """
+        block = DocumentBlock(
+            0,
+            2,
+            (TextSpan(0, 1, "A"), TextSpan(1, 2, "C")),
+            kind=BlockKind.TABLE,
+            table_rows=(
+                (TableCell(0, 1), TableCell(1, 1), TableCell(1, 2)),
+                (TableCell(2, 2), TableCell(2, 2)),  # nothing but empty columns
+            ),
+        )
+        assert block.table_rows == ((TableCell(0, 1), TableCell(1, 1), TableCell(1, 2)),)
+        assert StructuredDocument(blocks=(block,)).render() == "A\t\tC"
+
+    def test_a_cells_own_tab_survives_the_row_join(self) -> None:
+        """Trailing empty *cells* are dropped, not trailing separator characters.
+
+        A run keeps its own whitespace (:attr:`TextSpan.text` is the literal
+        run), so a cell can legitimately end in a tab. Stripping the joined
+        line would eat that character along with the separator, silently
+        editing the source's text — which a rendering may never do.
+
+        Both review findings meet in one row here: an empty middle column that
+        must keep its separator, and a final cell whose own tab must survive
+        the rule that removes trailing ones. Hand-built rather than taken from
+        a capture because no capture in this repo contains either shape — the
+        infobox's cells are all non-empty and none ends in a tab.
+        """
+        document = StructuredDocument(
+            blocks=(
+                DocumentBlock(
+                    0,
+                    3,
+                    (TextSpan(0, 1, "A"), TextSpan(1, 3, "C\t")),
+                    kind=BlockKind.TABLE,
+                    table_rows=((TableCell(0, 1), TableCell(1, 1), TableCell(1, 3)),),
+                ),
+            )
+        )
+        assert document.render() == "A\t\tC\t"
+
     def test_cells_are_ordered_and_clamped_like_every_other_offset_here(self) -> None:
         """``table_rows`` gets the guarantees ``spans`` gets, for the same reasons.
 
@@ -1642,6 +1691,45 @@ class TestFragmentDescent:
         assert document.slice(1610, 1626) == "Operating system"
         assert document.slice(1626, 1650) == "Android 10+, iOS 17+ [a]"
         assert document.slice(1693, 1727) == "Duration: 11 minutes and 15 second"
+
+    def test_the_parse_keeps_an_empty_cell_as_a_column(self) -> None:
+        """An empty cell is a boundary the decode must keep (#2230 review).
+
+        The capture proves the shape: its second table's declared header cells
+        are literally ``[1610, 1610]`` — a zero-width range, which is how an
+        empty cell arrives. The text walk rightly skips such a cell (there is
+        nothing to descend into), and the *boundary* walk must not, or a row of
+        ``A`` / *nothing* / ``C`` decodes as two columns and reports ``C`` in
+        column two.
+
+        The rows below are built in the capture's own positional shape —
+        ``StructuralElement = [start, end, paragraph]``, ``Table = [rows,
+        columns, tableRows]``, ``TableCell = [start, end, content]`` — because
+        no captured table has an empty interior cell to read this off.
+        """
+        elements = json.loads((FIXTURES_DIR / "citation_fragment_with_tables.json").read_text())
+        assert elements[1][4][2][0][2][0] == [1610, 1610]  # the wire's empty cell
+
+        def paragraph(start: int, end: int, text: str) -> list[Any]:
+            return [start, end, [[[start, end, [text, None]]], [None, 1]]]
+
+        table = [
+            0,
+            3,
+            None,
+            None,
+            [
+                1,
+                3,
+                [[0, 3, [[0, 1, [paragraph(0, 1, "A")]], [1, 1], [1, 3, [paragraph(1, 3, "C")]]]]],
+            ],
+        ]
+        block = build_blocks([table])[0]
+        assert block.kind is BlockKind.TABLE
+        assert block.table_rows == ((TableCell(0, 1), TableCell(1, 1), TableCell(1, 3)),)
+        assert StructuredDocument(blocks=(block,)).render() == "A\t\tC"
+        # ...and the empty column costs the coordinate space nothing.
+        assert StructuredDocument(blocks=(block,)).text == "AC￼"
 
     def test_the_legacy_flat_rendering_does_not_see_the_cells_at_all(self) -> None:
         """``SourceFulltext.content`` is byte-frozen, and stays that way (#2230).

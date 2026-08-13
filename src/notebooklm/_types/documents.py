@@ -288,13 +288,14 @@ def _render_table(block: DocumentBlock, lower: int, upper: int) -> list[str]:
     library's captured infobox), so separating *runs* would split cells as
     often as it separated them (#2230).
 
-    A cell the window selects no position of is left out of its row entirely,
-    and a row left with nothing to read is dropped — the same rule that omits a
-    block with no text, applied one level down, so a window over one cell reads
-    as that cell rather than as its column position in the grid. A cell the
-    window *does* select but which renders empty keeps its place: a trailing one
-    then drops its separator with it, while a *leading* one keeps it, so a value
-    stays in the column it was written in rather than sliding left into an empty
+    A cell the window does not reach is left out of its row entirely, and a row
+    left with nothing to read is dropped — the same rule that omits a block
+    with no text, applied one level down, so a window over one cell reads as
+    that cell rather than as its column position in the grid. A cell the window
+    *does* reach but which renders empty (including a zero-width one — a real
+    column holding no characters) keeps its place: a trailing one then drops
+    its separator with it, while a *leading* one keeps it, so a value stays in
+    the column it was written in rather than sliding left into an empty
     neighbour's.
 
     Runs the grid does not cover (see :func:`_spans_by_cell`) render as a final
@@ -306,16 +307,25 @@ def _render_table(block: DocumentBlock, lower: int, upper: int) -> list[str]:
     cursor = lower
     for row, row_spans in zip(block.table_rows, grouped, strict=True):
         cells: list[str] = []
+        filled = 0  # how many cells reach the last one that has text
         for cell, spans in zip(row, row_spans, strict=True):
             # Each cell renders inside its own range as well as inside the
             # window, so a run that overruns the cell it started in is cut at
             # the boundary rather than pulling the next cell's text along.
+            if cell.end_index < lower or cell.start_index > upper:
+                continue  # the window does not reach this cell at all
             start, end = max(lower, cell.start_index), min(upper, cell.end_index)
-            if end <= start:
-                continue  # the window selects none of this cell's positions
             text, cursor = _render_runs(spans, start, end, cursor)
             cells.append(text)
-        line = _CELL_SEPARATOR.join(cells).rstrip(_CELL_SEPARATOR)
+            if text:
+                filled = len(cells)
+        # Separators run only as far as the last cell that has text, so a
+        # trailing empty *cell* drops its separator. Note this drops empty
+        # cells rather than stripping separator *characters* off the joined
+        # line: a run may legitimately end in a tab (plain-text sources keep
+        # their whitespace in :attr:`TextSpan.text`), and stripping would eat
+        # the cell's own content along with it.
+        line = _CELL_SEPARATOR.join(cells[:filled])
         if line:
             lines.append(line)
     if strays:
@@ -559,10 +569,14 @@ class DocumentBlock:
         The same three guarantees :meth:`_normalised_spans` gives the runs, for
         the boundaries that group them — ordering by offset rather than by
         container order, refusing a cell that claims positions its block does
-        not own, and freezing what was passed in. A cell left holding no
-        positions is dropped, and a row left holding no cells with it, so a row
-        the wire declares zero-width (the captured infobox opens with one)
-        cannot render as a line of separators with nothing between them.
+        not own, and freezing what was passed in.
+
+        A **zero-width** cell is kept, because it is a column that holds no
+        characters rather than a cell that does not exist: dropping it would
+        slide every value after it one column to the left. A row of *nothing
+        but* those is dropped, though — it has no column positions to hold and
+        would render as a line of separators with nothing between them, which
+        is what the captured infobox's declared header row is.
         """
         rows: list[tuple[TableCell, ...]] = []
         for row in self.table_rows:
@@ -570,14 +584,14 @@ class DocumentBlock:
             for cell in sorted(row, key=lambda cell: (cell.start_index, cell.end_index)):
                 start = max(cell.start_index, self.start_index)
                 end = min(cell.end_index, self.end_index)
-                if end <= start:
-                    continue  # holds no positions of this block
+                if end < start:
+                    continue  # lies wholly outside the block that claims it
                 cells.append(
                     cell
                     if (start, end) == (cell.start_index, cell.end_index)
                     else replace(cell, start_index=start, end_index=end)
                 )
-            if cells:
+            if any(cell.start_index < cell.end_index for cell in cells):
                 rows.append(tuple(cells))
         rows.sort(key=_row_position)
         return tuple(rows)

@@ -187,6 +187,7 @@ from .types import (
     StructuredDocument,
     # Enums for configuration
     SuggestedTopic,
+    TableCell,
     TextSpan,
     # Warnings
     UnknownTypeWarning,
@@ -349,6 +350,7 @@ __all__ = [
     "ListInfo",
     "ListStyle",
     "StructuredDocument",
+    "TableCell",
     "TextSpan",
     "utf16_len",
 ]

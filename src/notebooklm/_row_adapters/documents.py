@@ -375,18 +375,18 @@ class TableRow:
                 continue
             cells: list[TableCell] = []
             for cell in _as_list(_at(row, self._ROW_CELLS_POS)) or []:
-                cell_bounds = _narrow(
+                cell_bounds = _clamp(
                     row_bounds, _at(cell, self._CELL_START_POS), _at(cell, self._CELL_END_POS)
                 )
-                if cell_bounds is None:
-                    continue
                 cell_start, cell_end = cell_bounds
                 cells.append(TableCell(start_index=cell_start, end_index=cell_end))
+                if cell_start == cell_end:
+                    continue  # an empty column: a boundary to keep, no text to walk
                 for block in build_blocks(
                     _at(cell, self._CELL_CONTENT_POS), depth, bounds=cell_bounds
                 ):
                     collected.extend(block.spans)
-            if cells:
+            if any(cell.start_index < cell.end_index for cell in cells):
                 rows.append(tuple(cells))
         return TableContent(spans=tuple(collected), rows=tuple(rows))
 
@@ -564,12 +564,16 @@ class DocumentBodyRow:
         return self._container(self._ANNOTATIONS_POS, "annotation_entries")
 
 
-def _narrow(bounds: tuple[int, int], raw_start: Any, raw_end: Any) -> tuple[int, int] | None:
-    """``bounds`` intersected with a declared child range, or ``None`` if empty.
+def _clamp(bounds: tuple[int, int], raw_start: Any, raw_end: Any) -> tuple[int, int]:
+    """``bounds`` intersected with a declared child range, empty result kept.
 
     A malformed child range cannot widen its parent — only narrow it — so an
     absent or unusable one leaves the parent's bounds untouched rather than
-    dropping the subtree.
+    dropping the subtree. An intersection that is *empty* comes back as a
+    zero-width range at the intersection point rather than as ``None``: for
+    text that means "nothing here" (see :func:`_narrow`), but for a **table
+    cell** it means "a column that holds no characters", which is information a
+    reader needs — a row of ``A``, ``""``, ``C`` must not read as two columns.
     """
     start, end = bounds
     child_start = _as_index(raw_start)
@@ -578,6 +582,16 @@ def _narrow(bounds: tuple[int, int], raw_start: Any, raw_end: Any) -> tuple[int,
         start = max(start, child_start)
     if child_end is not None:
         end = min(end, child_end)
+    return (start, max(start, end))
+
+
+def _narrow(bounds: tuple[int, int], raw_start: Any, raw_end: Any) -> tuple[int, int] | None:
+    """:func:`_clamp`, with an empty intersection reported as ``None``.
+
+    What every caller that is descending after *text* wants: a subtree
+    occupying no positions can carry none, so there is nothing to walk.
+    """
+    start, end = _clamp(bounds, raw_start, raw_end)
     return None if end <= start else (start, end)
 
 
