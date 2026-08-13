@@ -686,6 +686,17 @@ UNMAPPED: tuple[Unmapped, ...] = (
         "_STATUS_POS",
         "google.rpc.Status envelope, not a Tailwind message",
     ),
+    Unmapped(
+        "chat",
+        "ErrorPayloadRow",
+        "_MESSAGE_POS",
+        "google.rpc.Status.message (tag 2 -> index 1) — a PUBLIC google/rpc/status.proto "
+        "field, not a Tailwind one, so mobile/schema.proto cannot check it. Its two "
+        "siblings in the same envelope ARE live-confirmed (code at index 0: [3] / [5] "
+        "live from CREATE_ARTIFACT 2026-08-13, [13] in notebooks_remove_from_recent.yaml; "
+        "details at index 2: the recorded UserDisplayableError block). The message slot "
+        "itself has NEVER been observed populated — see #2188",
+    ),
     Unmapped("chat", "ErrorPayloadRow", "_ENTRIES_POS", "google.rpc.Status envelope"),
     Unmapped("chat", "CitationRow", "_CHUNK_BLOCK_POS", _NESTED_LOCAL),
     Unmapped("chat", "CitationRow", "_DETAIL_POS", _NESTED_LOCAL),

@@ -2856,6 +2856,92 @@ await rpc_call(
 
 ---
 
+## Rejection Frames: `google.rpc.Status` at `wrb.fr` index 5
+
+**Verified 2026-08-13** (live probe + a sweep of all 141 cassettes).
+
+When a `batchexecute` RPC is rejected, the server answers with a `wrb.fr` frame
+whose *result* slot (index 2) is `null` and whose index 5 carries a
+JSON-array-encoded [`google.rpc.Status`](https://github.com/googleapis/googleapis/blob/master/google/rpc/status.proto).
+That is a **public** Google type, not a Tailwind message, so it is absent from
+`docs/mobile/schema.proto` and its positions are the proto tags minus one:
+
+| Index | `google.rpc.Status` field | Observed |
+|-------|---------------------------|----------|
+| 0 | `code` (tag 1) | Yes — see the table below |
+| 1 | `message` (tag 2) | **Never populated.** See "The reason gap" |
+| 2 | `details` (tag 3) | Yes — the `UserDisplayableError` block |
+
+Observed codes:
+
+| Payload | RPC | Where |
+|---------|-----|-------|
+| `[3]` INVALID_ARGUMENT | `CREATE_ARTIFACT` (`R7cb6c`) | Live 2026-08-13: audio overview on a source-less notebook |
+| `[3]` INVALID_ARGUMENT | streamed chat | `tests/cassettes/chat_ask_oversized_rejection.yaml` (#1472) |
+| `[3]` INVALID_ARGUMENT | `SHARE_NOTEBOOK` (`QDyure`) | `tests/cassettes/cli_share_add.yaml`, `cli_share_remove.yaml` — swallowed; the flow reports success |
+| `[3]` INVALID_ARGUMENT | `SHARE_ARTIFACT` (`RGP97b`) | `tests/cassettes/notebooks_share.yaml` — swallowed; the flow reports success |
+| `[5]` NOT_FOUND | `CREATE_ARTIFACT`, `RETRY_ARTIFACT`, `REVISE_SLIDE`, `GET_NOTEBOOK` | Live 2026-08-13 (unknown notebook / artifact id); #114 / #294 |
+| `[13]` INTERNAL | `REMOVE_RECENTLY_VIEWED` (`fejl7e`) | `tests/cassettes/notebooks_remove_from_recent.yaml` — treated as a **successful** no-op |
+| `[8, null, [[…UserDisplayableError…]]]` | any | The rate-limit / quota shape |
+
+A sweep of all 141 cassettes found 397 `wrb.fr` frames, only 5 of them
+null-result — and all 5 carried one of the shapes above. Four are `batchexecute`
+RPCs, across three method ids (`SHARE_NOTEBOOK` ×2, `SHARE_ARTIFACT`,
+`REMOVE_RECENTLY_VIEWED`); the fifth is the streamed-chat `[3]` from #1472,
+which carries no rpc id and is decoded by `_chat/wire.py`, not `decode_response`.
+
+**Open question.** Only `REMOVE_RECENTLY_VIEWED`'s tolerance has ever been
+reasoned about (a cosmetic no-op). Whether the two share rejections are benign
+or a refusal being reported as a successful share is unresolved and is *not*
+answered here.
+
+Byte-count framing note: the live `CREATE_ARTIFACT` rejection bodies declare
+chunk lengths two higher than the chunks actually are (`104` for 102 chars,
+`25` for 23), consistently across independent captures. `parse_chunked_response`
+is deliberately tolerant of that and counts it via `byte_count_mismatch_total`.
+
+### The reason gap
+
+`google.rpc.Status.message` is the one slot in this envelope where the *server*
+could state a human-readable reason. **No captured frame has ever populated
+it**: the bare rejections are length-1 arrays, and the recorded
+`UserDisplayableError` sample holds `null` there with an int-only detail body.
+
+So every rejection sentence this client prints today is **client-authored** —
+including "API rate limit or quota exceeded. Please wait before retrying.",
+which is a client guess at what a `UserDisplayableError` means, not something
+the server said. The decoder reads the `message` slot defensively (a non-empty
+string only) and leads with it when one ever arrives, but until then the guess
+is the ceiling. Do not describe this path as "carrying the server's error text"
+(#2188).
+
+### `allow_null` and status-tagged nulls
+
+`allow_null=True` means "an empty payload is an acceptable outcome". It used to
+also swallow a null the server had *tagged with a rejection*, which is how
+`generate_audio` came to report "Audio generation is unavailable" for a live
+INVALID_ARGUMENT. Callers that want the server's status instead pass
+`raise_on_null_status=True` (`CREATE_ARTIFACT`, `RETRY_ARTIFACT`,
+`REVISE_SLIDE` do — all three live-verified above). It is opt-in rather than
+blanket because three *other* RPCs are recorded answering a status on flows
+this client reports as successful (the table above); flipping them all at once
+would change behaviour nobody has evidence about. A swallowed status now logs
+at DEBUG, so the remaining cases are findable.
+
+### Artifact failures have no reason at all
+
+`Artifact` in `docs/mobile/schema.proto` has **no error or failure field**. An
+artifact accepted at create time that later transitions to
+`ARTIFACT_STATUS_FAILED` therefore carries nothing to explain itself: no cassette
+contains a status-4 row, and a live sweep of 27 notebooks / 99 rows found index 3
+holding `sources` and index 5 holding `null` on both real FAILED artifacts. The
+existence of `RETRY_ARTIFACT` (`Rytqqe`) is consistent with the backend not
+persisting a reason — retry is offered because the resource remembers nothing.
+Downstream, `_app/generate_retry.py` falls back to a generic
+`"{Type} generation failed"`, which is the honest ceiling for that path.
+
+---
+
 ## Operation Timing Categories
 
 ### Quick Operations

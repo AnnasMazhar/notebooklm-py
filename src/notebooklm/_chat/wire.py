@@ -488,13 +488,23 @@ def _raise_chat_rejection(error_payload: list) -> NoReturn:
     error. The status is echoed so callers see the real failure. ``ErrorPayloadRow``
     centralises the ``error_payload[0]`` position (issue #1491).
     """
-    status = ErrorPayloadRow(error_payload).status_code
+    row = ErrorPayloadRow(error_payload)
+    status = row.status_code
     detail = f" (status {status!r})" if status is not None else ""
+    # ``google.rpc.Status.message`` is the only server-authored text in this
+    # envelope; the sentence below is this client's guess. Append the server's
+    # own words when it sent any (#2188) rather than replacing the guidance:
+    # the slot has never been observed populated, so nobody knows whether a
+    # server message would be as actionable as the advice it displaced — a
+    # terse "Invalid argument." would be a downgrade. The decoder's bare-status
+    # path appends for the same reason.
+    server_reason = row.message
+    suffix = f" The server said: {server_reason}" if server_reason is not None else ""
     raise ChatError(
         f"Chat request was rejected by the server{detail}. "
         "This usually means the request was malformed or too large — most often "
         "an over-long question past the server-side size limit; shorten it and "
-        "try again."
+        f"try again.{suffix}"
     )
 
 
@@ -535,9 +545,15 @@ def raise_if_rate_limited(error_payload: list) -> None:
         for entry in row.entries:
             entry_type = ErrorPayloadRow.entry_type(entry)
             if entry_type is not None and "UserDisplayableError" in entry_type:
+                # Append the server's ``google.rpc.Status.message`` when it
+                # sent one, keeping the client-authored remedy (#2188). No
+                # recorded sample carries one, so the sentence below is what
+                # users see today.
+                server_reason = row.message
+                suffix = f" The server said: {server_reason}" if server_reason else ""
                 raise ChatError(
                     "Chat request was rate limited or rejected by the API. "
-                    "Wait a few seconds and try again."
+                    f"Wait a few seconds and try again.{suffix}"
                 )
     except ChatError:
         raise

@@ -32,9 +32,13 @@ logger = logging.getLogger(__name__)
 class SaveChatNoteRpc(Protocol):
     """RPC surface needed to persist a saved-from-chat note.
 
-    Mirrors the dispatch shape :class:`RpcCaller` exposes; a concrete
-    :class:`notebooklm._rpc_executor.RpcExecutor` (or any structural
-    equivalent in tests) satisfies this protocol.
+    Mirrors the SUBSET of the :class:`RpcCaller` dispatch shape this call site
+    uses; a concrete :class:`notebooklm._rpc_executor.RpcExecutor` (or any
+    structural equivalent in tests) satisfies it. The keyword-only options
+    ``RpcCaller`` also carries — ``disable_internal_retries`` / ``read_timeout``
+    / ``raise_on_null_status`` — are deliberately absent because saving a chat
+    note passes none of them; widen this before opting the call site into any
+    of them.
     """
 
     async def rpc_call(
