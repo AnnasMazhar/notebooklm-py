@@ -12,7 +12,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from notebooklm._app import source_add as cli_source_add
-from notebooklm._source.add import SourceAddService
+from notebooklm._idempotency import _CreateResultKind, _IdempotentCreateResult
+from notebooklm._source.add import SourceAddService, honor_requested_title_if_fresh
 from notebooklm._sources import SourcesAPI
 from notebooklm.exceptions import (
     AuthError,
@@ -247,6 +248,62 @@ async def test_add_url_probe_raises_on_multiple_new_matches(
 
     assert "src_a" in str(raised.value)
     assert "src_b" in str(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_add_url_baseline_failure_does_not_break_a_successful_add(
+    service: SourceAddService,
+    logger: logging.Logger,
+) -> None:
+    """A failed baseline degrades the probe; it must not fail the add (#2204).
+
+    The baseline is best-effort by design: it exists to disambiguate a *retry*,
+    so a transient notebook read must not turn an otherwise perfectly good
+    ``add_url`` into an error. Pins the resilience half of the swallow — the
+    regression this catches is someone narrowing that ``except Exception`` to
+    mirror the probe's transport re-raise, which would fail every add whenever
+    the notebook read blips.
+    """
+    add_url_source = AsyncMock(return_value=source_response("ok", "Example"))
+
+    source = await service.add_url(
+        "nb_1",
+        "https://example.com",
+        add_youtube_source=AsyncMock(),
+        add_url_source=add_url_source,
+        list_sources=AsyncMock(side_effect=ServerError("baseline 503")),
+        wait_until_ready=AsyncMock(),
+        extract_youtube_video_id=MagicMock(return_value=None),
+        is_youtube_url=MagicMock(return_value=False),
+        logger=logger,
+    )
+
+    assert source.id == "src_ok"
+    assert add_url_source.await_count == 1, "the add must not be retried"
+
+
+@pytest.mark.asyncio
+async def test_probed_result_without_proven_freshness_skips_the_rename() -> None:
+    """The #1988 default still holds for a probe that cannot prove freshness.
+
+    Both production call sites now pass ``probe_proves_freshness=True``, so the
+    default branch would otherwise be unreachable and unpinned — and it is the
+    only thing stopping a future third caller with an un-baselined probe from
+    renaming a source it did not create.
+    """
+    probed = Source(id="not_mine", title="Someone Else's Title")
+    rename = AsyncMock()
+
+    result = await honor_requested_title_if_fresh(
+        rename,
+        "nb_1",
+        _IdempotentCreateResult(probed, _CreateResultKind.PROBED),
+        "Retitle me",
+        logging.getLogger("tests.source_add"),
+    )
+
+    assert result is probed
+    rename.assert_not_awaited()
 
 
 @pytest.mark.asyncio

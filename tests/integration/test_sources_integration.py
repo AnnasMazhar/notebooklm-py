@@ -1742,6 +1742,12 @@ class TestAddUrlErrorPaths:
 
         mock_wait.assert_called_once()
         assert result.id == "src_wait_url"
+        urls = [str(request.url) for request in httpx_mock.get_requests()]
+        assert any(RPCMethod.GET_NOTEBOOK in url for url in urls), (
+            "add_url must issue its pre-create baseline GET_NOTEBOOK (#2204); without "
+            "it the queued baseline response is consumed by ADD_SOURCE instead"
+        )
+        assert any(RPCMethod.ADD_SOURCE in url for url in urls)
 
     @pytest.mark.asyncio
     async def test_add_url_youtube_like_no_id_warning(
@@ -1769,6 +1775,12 @@ class TestAddUrlErrorPaths:
 
         assert source is not None
         mock_is_yt.assert_called_once()
+        urls = [str(request.url) for request in httpx_mock.get_requests()]
+        assert any(RPCMethod.GET_NOTEBOOK in url for url in urls), (
+            "add_url must issue its pre-create baseline GET_NOTEBOOK (#2204); without "
+            "it the queued baseline response is consumed by ADD_SOURCE instead"
+        )
+        assert any(RPCMethod.ADD_SOURCE in url for url in urls)
 
 
 class TestAddTextErrorPaths:
@@ -2736,6 +2748,12 @@ class TestAddYoutubeSourceDirect:
 
         assert source.id == "yt_src_001"
         assert source.kind == "youtube"
+        urls = [str(request.url) for request in httpx_mock.get_requests()]
+        assert any(RPCMethod.GET_NOTEBOOK in url for url in urls), (
+            "add_url must issue its pre-create baseline GET_NOTEBOOK (#2204); without "
+            "it the queued baseline response is consumed by ADD_SOURCE instead"
+        )
+        assert any(RPCMethod.ADD_SOURCE in url for url in urls)
 
 
 class TestRegisterFileSourceError:

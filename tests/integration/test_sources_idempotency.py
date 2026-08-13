@@ -255,8 +255,9 @@ async def test_add_url_probe_short_circuits_when_first_response_lost(auth_tokens
     assert get_count == 2, f"expected baseline + probe GET_NOTEBOOK, got {get_count}"
 
 
-#: The URL under test, and a same-URL source that is already in the notebook
-#: before the add. Live-verified on #2204: two ``add_url`` calls with
+#: The URL these ``add_url`` probe tests add. Each test builds its own rows with
+#: :func:`_url_source_row`, so the pre-existing same-URL source is per-test, not
+#: shared. Live-verified on #2204: two ``add_url`` calls with
 #: ``https://example.com/`` produced two distinct source ids
 #: (``9bed3c8a-…`` and ``0d2c15a1-…``), so a URL is NOT unique per notebook.
 _PROBE_URL = "https://example.com/article"
@@ -598,6 +599,53 @@ async def test_add_url_recovered_create_still_honors_the_requested_title(auth_to
     assert renames == [(src_id, requested_title)], "the recovery path skipped the rename"
     assert source.title == requested_title
     assert counts["add"] == 1
+
+
+async def test_add_url_bulk_cost_is_one_baseline_read_per_call(auth_tokens) -> None:
+    """Pin the request cost the docs claim for sequential bulk adds (#2204).
+
+    ``add_url``'s docstring and the CHANGELOG tell callers a sequential bulk add
+    goes from N+1 to 2N+1 requests, because the baseline is per-call and no
+    preflight covers it. That is a numeric claim about backend load on the
+    highest-traffic add path, so it is asserted rather than asserted-in-prose:
+    three URLs must cost exactly three ``ADD_SOURCE``s and three
+    ``GET_NOTEBOOK``s — one baseline each, no probes (every create succeeds).
+
+    It also catches the regression a reader would most fear: a second baseline
+    read sneaking into the path, which would double the cost again.
+    """
+    notebook_id = "nb_test"
+    urls = [f"https://example.com/article-{index}" for index in range(3)]
+    counts = {"add": 0, "get": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        rpc_id = _rpc_id_in_request(request)
+        if rpc_id == RPCMethod.ADD_SOURCE.value:
+            counts["add"] += 1
+            return httpx.Response(
+                200,
+                text=_wrb_response(
+                    RPCMethod.ADD_SOURCE.value,
+                    [[_url_source_row(f"src_{counts['add']}", "Article", urls[counts["add"] - 1])]],
+                ),
+            )
+        if rpc_id == RPCMethod.GET_NOTEBOOK.value:
+            counts["get"] += 1
+            return httpx.Response(200, text=_get_notebook_response([]))
+        return httpx.Response(404, text=f"unexpected rpc_id={rpc_id}")
+
+    transport = httpx.MockTransport(handler)
+    client = _make_client_with_transport(transport, auth_tokens)
+    try:
+        for url in urls:
+            await client.sources.add_url(notebook_id, url)
+    finally:
+        await client._collaborators.kernel.get_http_client().aclose()
+
+    assert counts == {"add": 3, "get": 3}, (
+        "a sequential bulk add should cost exactly one baseline GET_NOTEBOOK per "
+        f"add_url and no probes; got {counts}"
+    )
 
 
 # ---------------------------------------------------------------------------

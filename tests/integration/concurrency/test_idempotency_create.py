@@ -101,6 +101,8 @@ def _create_notebook_response(notebook_id: str, title: str) -> str:
 def _get_notebook_with_sources_response(
     notebook_id: str,
     sources: list[tuple[str, str, str]],
+    *,
+    type_code: int = 5,
 ) -> str:
     """Build a GET_NOTEBOOK response that ``SourcesAPI.list`` parses.
 
@@ -108,12 +110,18 @@ def _get_notebook_with_sources_response(
     the parsing path in ``SourcesAPI.list`` (which reads from
     ``GET_NOTEBOOK``): each src entry is roughly
     ``[[id], title, metadata_with_url_at_[7], status]``.
+
+    ``type_code`` is the source-type code at ``metadata[4]`` — 5 (web page) by
+    default, 9 for YouTube (``SourceType``). It does not steer the probe, which
+    reads only ``source.url``, but a YouTube test that hands the probe a
+    web-page row is not exercising a YouTube row.
     """
     src_rows = []
     for src_id, title, url in sources:
         # metadata: url at index [7] (matches Source.from_api_response /
         # _extract_source_url precedence, allow_bare_http=False).
         metadata: list = [None] * 8
+        metadata[4] = type_code
         metadata[7] = [url]
         # status block at src[3] — [_, READY=2]
         status_block = [None, 2]
@@ -359,7 +367,9 @@ async def test_sources_add_youtube_idempotent_on_5xx_retry(auth_tokens) -> None:
             rows = [] if add_count == 0 else [(src_id, "Video Title", url)]
             return httpx.Response(
                 200,
-                text=_get_notebook_with_sources_response(notebook_id, rows),
+                # type_code 9: a real YouTube row, not a web-page row wearing a
+                # YouTube URL — otherwise this test never sees a YouTube shape.
+                text=_get_notebook_with_sources_response(notebook_id, rows, type_code=9),
             )
         return httpx.Response(404, text="unexpected")
 
@@ -372,6 +382,7 @@ async def test_sources_add_youtube_idempotent_on_5xx_retry(auth_tokens) -> None:
 
     assert source.id == src_id
     assert source.url == url
+    assert source.kind == "youtube"
     assert add_count == 1, f"expected 1 ADD_SOURCE, got {add_count}"
     assert get_count == 2, f"expected baseline + probe GET_NOTEBOOK, got {get_count}"
 

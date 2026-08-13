@@ -196,8 +196,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already `READY`. Probe matches are now filtered against a snapshot of source
   ids taken before the create — the same shape `add_file` has always had and
   `add_drive` adopted in [#2113](https://github.com/teng-lin/notebooklm-py/issues/2113)
-  — and an unavailable snapshot or an ambiguous multi-match raises
-  `SourceAddError` rather than guessing. A probed-but-fresh result now also
+  — and a match the snapshot cannot vouch for, or an ambiguous multi-match,
+  raises `SourceAddError` rather than guessing. An unavailable snapshot on its
+  own does not: with no matching source there is nothing to be ambiguous about,
+  so the call still retries and still ends in the underlying transport error. A probed-but-fresh result now also
   honors a requested `title`, which the pre-fix code skipped because a probe
   match could not be proven to be the caller's own. The probe's non-transport
   failure branch moved from `DEBUG` to `WARNING`: with internal retries
