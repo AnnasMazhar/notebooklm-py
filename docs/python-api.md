@@ -1477,6 +1477,18 @@ status = await client.artifacts.generate_quiz(
 )
 ```
 
+**Omitting an option does not mean "let the server choose."** `quantity=None` /
+`difficulty=None` (the defaults) are resolved to `QuizQuantity.STANDARD` and
+`QuizDifficulty.MEDIUM` and sent **explicitly**, matching the web UI and every
+other `generate_*` method here. The backend does accept an omitted option
+message, but then stores nothing, so neither you nor this client can see what it
+picked — the artifact echoes the pair back only when it was sent (#2196). Pass
+the member you want if you need a specific setting.
+
+Anything other than an enum member or `None` raises `ValidationError`, including
+the *other* option enum: `quantity=QuizDifficulty.HARD` used to encode silently
+as `MORE`, because both are `3`.
+
 **Rate-limit retry for generation:**
 
 ```python

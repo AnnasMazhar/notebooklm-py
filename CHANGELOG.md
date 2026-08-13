@@ -163,7 +163,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Both surfaces are additive: new fields at the end of their dataclasses, empty
   (never `None`) when a response carries no decodable document.
 
+- **The stored quiz/flashcards option pair can now be read back off the wire**
+  ([#2195](https://github.com/teng-lin/notebooklm-py/issues/2195)).
+  `ArtifactRow.quiz_options` / `ArtifactRow.flashcards_options` decode the
+  `[quantity, difficulty]` pair the backend echoes at `data[9][1][7]` /
+  `data[9][1][6]`, returning a named `QuizOptionPair` rather than a positional
+  tuple — a bare 2-tuple would reintroduce on the decode side exactly the
+  ambiguity that produced the transposition on the encode side.
+
+  This closes the structural gap behind [#2116](https://github.com/teng-lin/notebooklm-py/issues/2116)
+  and [#2117](https://github.com/teng-lin/notebooklm-py/issues/2117): nothing in
+  the client read these options back, so the only thing between a wrong pair and
+  a user was a fixture written from the same belief as the code. The e2e
+  generation tests now assert the server's echo against what they sent, and
+  every option pair in that tier is asymmetric — `MORE` and `HARD` are both `3`,
+  so `more` + `hard` is as blind as `standard` + `medium`.
+
 ### Changed
+
+- **Passing a non-enum `quantity` / `difficulty` to `generate_quiz()` /
+  `generate_flashcards()` now raises `ValidationError`**
+  ([#2196](https://github.com/teng-lin/notebooklm-py/issues/2196)). Previously a
+  bare `int` reached `.value` and produced `AttributeError: 'int' object has no
+  attribute 'value'`. The check also rejects the *other* option enum:
+  `quantity=QuizDifficulty.HARD` used to encode silently as `MORE`, since both
+  are `3`. No working call changes — neither ints nor strings were ever accepted.
+
+  The same issue asked whether `None` should mean "let the server choose". It
+  does not, and now says so: `None` resolves to `STANDARD` / `MEDIUM` and is
+  sent **explicitly**. Omission *is* accepted by the backend (live-probed:
+  generation completes normally), but the stored options then echo back as
+  `null`, so what the server picked is invisible to the caller and to the new
+  read-back above. That trade — a value we can name, echo and assert against one
+  we cannot see — is now a documented decision with a test, not an inline `else`.
+
+- **The CLI's `--quantity` / `--difficulty` choice lists are derived from the
+  enum maps** instead of hardcoded
+  ([#2197](https://github.com/teng-lin/notebooklm-py/issues/2197)). The MCP and
+  REST copies were already pinned to `_QUIZ_QUANTITY_MAP` / `_QUIZ_DIFFICULTY_MAP`
+  by tests; the CLI had no such binding, so a new `QuizQuantity` member would
+  have become reachable via MCP and REST while staying silently absent from the
+  CLI with nothing red. Same choices, same order, no user-visible change today.
 
 - **`ChatReference.cited_text` now returns a different value for the same
   citation.** This is the point of the change rather than a side effect, and it

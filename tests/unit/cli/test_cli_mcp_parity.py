@@ -27,6 +27,7 @@ import pytest
 
 pytest.importorskip("fastmcp")
 
+import click  # noqa: E402
 from click.testing import CliRunner  # noqa: E402
 from fastmcp import Client  # noqa: E402 - after importorskip guard
 
@@ -562,3 +563,116 @@ def test_download_audio_parity(tmp_path: Any) -> None:
         ["download", "audio", out, "-n", NB], "artifacts", "download_audio", setup=setup
     )
     assert mcp == cli
+
+
+# ---------------------------------------------------------------------------
+# Option-choice parity (#2197)
+# ---------------------------------------------------------------------------
+# The MCP and REST option tuples are already pinned to the ``_app`` maps by
+# ``tests/unit/mcp/test_studio.py`` and ``tests/server/test_artifacts.py``. The
+# CLI had no such binding: its ``--quantity`` / ``--difficulty`` lists were
+# hardcoded, so a new ``QuizQuantity`` member would have become reachable via
+# MCP and REST while staying silently absent from the CLI, with nothing red.
+# That is the mirror of #2117 (a backend value missing from our enum) — a value
+# in our enum that never reaches one of our surfaces.
+
+_QUIZ_OPTION_AXES = (
+    ("quiz", "--quantity", "quantity"),
+    ("quiz", "--difficulty", "difficulty"),
+    ("flashcards", "--quantity", "quantity"),
+    ("flashcards", "--difficulty", "difficulty"),
+)
+
+
+def _cli_choices(subcommand: str, flag: str) -> tuple[str, ...]:
+    """Return the choices Click actually offers for ``generate <subcommand> <flag>``."""
+    generate = cli.commands["generate"]
+    command = generate.commands[subcommand]  # type: ignore[attr-defined]
+    for param in command.params:
+        if flag in param.opts:
+            assert isinstance(param.type, click.Choice), (
+                f"generate {subcommand} {flag} is no longer a Choice ({param.type!r})"
+            )
+            return tuple(param.type.choices)
+    raise AssertionError(f"generate {subcommand} has no {flag} option")
+
+
+@pytest.mark.parametrize(
+    ("subcommand", "flag", "axis"),
+    _QUIZ_OPTION_AXES,
+    ids=[f"{sub}{flag}" for sub, flag, _ in _QUIZ_OPTION_AXES],
+)
+def test_quiz_option_choices_match_core_and_mcp(subcommand: str, flag: str, axis: str) -> None:
+    """The CLI's quiz/flashcards option lists equal the core maps *and* the MCP set.
+
+    Both halves matter. The map assertion is what ties the user-visible CLI
+    surface to ``QuizQuantity`` / ``QuizDifficulty``; the MCP assertion is what
+    makes this test non-tautological now that the CLI derives its lists — the
+    MCP tuples are still hand-written, so this pins the two surfaces together
+    rather than comparing the map with itself.
+    """
+    from notebooklm._app import generate_plans as gp
+    from notebooklm.mcp.tools.studio import _KIND_OPTIONS
+
+    core_map = gp._QUIZ_QUANTITY_MAP if axis == "quantity" else gp._QUIZ_DIFFICULTY_MAP
+    choices = _cli_choices(subcommand, flag)
+    assert choices == tuple(core_map), (
+        f"generate {subcommand} {flag} offers {choices} but the core map declares "
+        f"{tuple(core_map)} — derive the click.Choice from the map instead of hardcoding it."
+    )
+    assert choices == _KIND_OPTIONS[subcommand][axis]
+
+
+def test_quiz_option_choices_are_derived_not_hardcoded() -> None:
+    """The ``click.Choice`` args are derived expressions, never literal lists.
+
+    The parity test above compares *values*, so re-hardcoding today's three
+    members would still pass it — the protection against a future enum member
+    going missing is the derivation itself, not the comparison. This asserts the
+    mechanism: the ``--quantity`` / ``--difficulty`` decorators on both commands
+    must pass a name (``_QUIZ_QUANTITY_MAP`` / ``_QUIZ_DIFFICULTY_MAP``) into
+    ``click.Choice``, not a list/tuple/set of string constants.
+    """
+    import ast
+    from pathlib import Path
+
+    import notebooklm.cli.generate_cmd as generate_cmd
+
+    tree = ast.parse(Path(generate_cmd.__file__).read_text(encoding="utf-8"))
+    checked: set[tuple[str, str]] = set()
+    wanted = {(f"generate_{sub}", flag) for sub, flag, _ in _QUIZ_OPTION_AXES}
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef) or node.name not in {
+            "generate_quiz",
+            "generate_flashcards",
+        }:
+            continue
+        for decorator in node.decorator_list:
+            if not isinstance(decorator, ast.Call) or not decorator.args:
+                continue
+            first = decorator.args[0]
+            if not isinstance(first, ast.Constant) or first.value not in {
+                "--quantity",
+                "--difficulty",
+            }:
+                continue
+            choice_arg = next(
+                (
+                    kw.value.args[0]
+                    for kw in decorator.keywords
+                    if kw.arg == "type" and isinstance(kw.value, ast.Call) and kw.value.args
+                ),
+                None,
+            )
+            assert choice_arg is not None, (
+                f"{node.name} {first.value}: expected type=click.Choice(...)"
+            )
+            assert not isinstance(choice_arg, (ast.List, ast.Tuple, ast.Set)), (
+                f"{node.name} {first.value} passes a literal to click.Choice. Derive it "
+                "from _QUIZ_QUANTITY_MAP / _QUIZ_DIFFICULTY_MAP (#2197) so a new enum "
+                "member cannot reach MCP and REST while staying absent from the CLI."
+            )
+            checked.add((node.name, first.value))
+
+    assert checked == wanted, f"did not inspect every option: missing {wanted - checked}"

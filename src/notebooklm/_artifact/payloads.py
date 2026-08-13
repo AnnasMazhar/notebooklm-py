@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeVar
 
+from ..exceptions import ValidationError
 from ..rpc import (
     INTERACTIVE_MIND_MAP_VARIANT,
     ArtifactTypeCode,
@@ -250,6 +251,68 @@ def build_report_artifact_params(
     ]
 
 
+#: The client-side defaults applied when a quiz/flashcards option is omitted.
+#: These are *sent explicitly*; see :func:`_quiz_option_code` for why.
+DEFAULT_QUIZ_QUANTITY = QuizQuantity.STANDARD
+DEFAULT_QUIZ_DIFFICULTY = QuizDifficulty.MEDIUM
+
+_QuizOption = TypeVar("_QuizOption", QuizQuantity, QuizDifficulty)
+
+
+def _quiz_option_code(
+    value: _QuizOption | None,
+    default: _QuizOption,
+    *,
+    parameter: str,
+) -> int:
+    """Resolve one quiz/flashcards option to the integer code sent on the wire.
+
+    ``None`` means **"use this client's default"**, not "let the server
+    choose": the default is substituted here and transmitted explicitly, so
+    every request carries a concrete quantity and difficulty. That is a
+    deliberate choice, not an oversight (#2196), and the alternative was
+    measured rather than assumed:
+
+    * Omission *is* accepted. Live probe: a ``CREATE_ARTIFACT`` with the option
+      message left ``null`` (and one with the proto3 default pair ``[0, 0]``,
+      which the backend stores as an empty message) both generate normally and
+      reach ``ARTIFACT_STATUS_READY``.
+    * But what the server picked is then **unobservable**. The stored options
+      echo back as ``null`` / ``[]``, and the generated content is not carried
+      in ``LIST_ARTIFACTS``, so a caller could not tell what they got — nor
+      could :attr:`~notebooklm._row_adapters.artifacts.ArtifactRow.quiz_options`,
+      the read-back added in #2195 precisely so this surface stops being
+      fixture-only. Passing ``None`` through would trade a value we can name,
+      echo and assert for one we cannot see at all.
+    * The web UI always sends an explicit pair, and every sibling builder in
+      this module (audio, video, infographic, slide deck) resolves ``None`` to
+      an explicit client default the same way. Diverging here would make quiz
+      and flashcards the lone exception.
+
+    A caller who genuinely wants the backend's own default should pass the
+    member they want; there is no ``UNSPECIFIED`` member on
+    :class:`~notebooklm.rpc.QuizQuantity` / :class:`~notebooklm.rpc.QuizDifficulty`
+    because a value that cannot be read back could not be tested.
+
+    Raises:
+        ValidationError: If ``value`` is neither ``None`` nor a member of the
+            expected enum. Previously a bare ``int`` reached ``.value`` and
+            produced ``AttributeError: 'int' object has no attribute 'value'``.
+            The ``isinstance`` check also rejects the *other* option enum —
+            ``quantity=QuizDifficulty.HARD`` used to encode silently as
+            ``MORE``, since both are ``3``.
+    """
+    if value is None:
+        return default.value
+    expected = type(default)
+    if not isinstance(value, expected):
+        raise ValidationError(
+            f"{parameter} must be a {expected.__name__} member or None, got "
+            f"{value!r} ({type(value).__name__})"
+        )
+    return value.value
+
+
 def build_quiz_artifact_params(
     notebook_id: str,
     source_ids: list[str],
@@ -260,8 +323,8 @@ def build_quiz_artifact_params(
 ) -> list[Any]:
     """Build ``CREATE_ARTIFACT`` params for quiz generation."""
     source_ids_triple = nest_source_ids(source_ids, 2)
-    quantity_code = quantity.value if quantity is not None else QuizQuantity.STANDARD.value
-    difficulty_code = difficulty.value if difficulty is not None else QuizDifficulty.MEDIUM.value
+    quantity_code = _quiz_option_code(quantity, DEFAULT_QUIZ_QUANTITY, parameter="quantity")
+    difficulty_code = _quiz_option_code(difficulty, DEFAULT_QUIZ_DIFFICULTY, parameter="difficulty")
 
     return [
         _artifact_client_options(),
@@ -303,8 +366,8 @@ def build_flashcards_artifact_params(
 ) -> list[Any]:
     """Build ``CREATE_ARTIFACT`` params for flashcard generation."""
     source_ids_triple = nest_source_ids(source_ids, 2)
-    quantity_code = quantity.value if quantity is not None else QuizQuantity.STANDARD.value
-    difficulty_code = difficulty.value if difficulty is not None else QuizDifficulty.MEDIUM.value
+    quantity_code = _quiz_option_code(quantity, DEFAULT_QUIZ_QUANTITY, parameter="quantity")
+    difficulty_code = _quiz_option_code(difficulty, DEFAULT_QUIZ_DIFFICULTY, parameter="difficulty")
 
     return [
         _artifact_client_options(),

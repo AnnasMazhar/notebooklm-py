@@ -32,7 +32,11 @@ import json
 
 import pytest
 
-from notebooklm._row_adapters.artifacts import ArtifactRow, ReportSuggestionRow
+from notebooklm._artifact.payloads import (
+    build_flashcards_artifact_params,
+    build_quiz_artifact_params,
+)
+from notebooklm._row_adapters.artifacts import ArtifactRow, QuizOptionPair, ReportSuggestionRow
 from notebooklm._row_adapters.notes import NoteRow
 from notebooklm._row_adapters.sources import (
     SourceRow,
@@ -45,6 +49,8 @@ from notebooklm.exceptions import DecodingError, UnknownRPCMethodError
 from notebooklm.rpc.types import (
     ArtifactStatus,
     ArtifactTypeCode,
+    QuizDifficulty,
+    QuizQuantity,
     SourceStatus,
     artifact_status_to_str,
 )
@@ -85,6 +91,27 @@ class TestPositionContract:
 
     def test_options_position_is_9(self) -> None:
         assert ArtifactRow._OPTIONS_POS == 9
+
+    def test_options_block_inner_positions(self) -> None:
+        """The leaves inside ``data[9]`` (#2195).
+
+        ``AppArtifact.generationOptions`` is tag 2, and inside it ``appType``
+        is 1, ``flashcardsGenerationOptions`` 7 and ``quizGenerationOptions``
+        8 — each ``tag - 1`` here, asserted against ``docs/mobile/schema.proto``
+        in ``tests/_guardrails/test_wire_contract.py``.
+        """
+        assert (
+            ArtifactRow._GENERATION_OPTIONS_POS,
+            ArtifactRow._APP_TYPE_POS,
+            ArtifactRow._FLASHCARDS_OPTIONS_POS,
+            ArtifactRow._QUIZ_OPTIONS_POS,
+        ) == (1, 0, 6, 7)
+
+    def test_option_pair_positions_are_quantity_then_difficulty(self) -> None:
+        """Quantity FIRST. This is the ordering #2116 got backwards on the
+        encode side; the decode side must not repeat it."""
+        assert ArtifactRow._OPTION_QUANTITY_POS == 0
+        assert ArtifactRow._OPTION_DIFFICULTY_POS == 1
 
     def test_infographic_metadata_position_is_14(self) -> None:
         assert ArtifactRow._INFOGRAPHIC_METADATA_POS == 14
@@ -259,6 +286,262 @@ class TestVariantDescent:
         raw[ArtifactRow._OPTIONS_POS] = [None, ["not_an_int"]]
         row = ArtifactRow(raw)
         assert row.variant is None
+
+
+#: Two rows captured verbatim from a live ``LIST_ARTIFACTS`` response (#2195),
+#: for a scratch notebook created and deleted in the same run. Both artifacts
+#: were requested with the SAME asymmetric pair — ``quantity=FEWER(1)``,
+#: ``difficulty=HARD(3)`` — so a transposed read decodes as ``(3, 1)`` and is
+#: detectable. A symmetric pair could not distinguish the two, which is exactly
+#: how #2116 hid (and why pairing ``MORE`` with ``HARD`` is banned here: both
+#: are ``3`` under ``int``-Enum comparison).
+#:
+#: Captured, not synthesised, on purpose: a fixture written from the code's
+#: belief about the wire can only ever confirm that belief.
+_LIVE_FLASHCARDS_ROW: list = [
+    "03124504-a1a6-4357-97b0-f2cfc4ee10fd",
+    "Photosynthesis Flashcards",
+    4,
+    [[["06bbfd9c-17bf-4372-ac86-a3dfaaf880bb"], None, 4]],
+    3,
+    None,
+    None,
+    None,
+    None,
+    ["", [1, None, None, "en", None, None, [1, 3], None, True]],
+    [1786619721, 886749000],
+    None,
+    None,
+    None,
+    None,
+    [1786619697, 143474000],
+    None,
+    [None, None, None, None, True],
+    None,
+    1,
+    None,
+    "MTc4NjYxOTcyMS04ODY3NDkwMDA=",
+]
+
+_LIVE_QUIZ_ROW: list = [
+    "8116e9aa-f6ac-4586-8bae-0d36f59ab283",
+    "Photosynthesis Quiz",
+    4,
+    [[["06bbfd9c-17bf-4372-ac86-a3dfaaf880bb"], None, 4]],
+    2,
+    None,
+    None,
+    None,
+    None,
+    ["", [2, None, None, "en", None, None, None, [1, 3], True]],
+    [1786619698, 906408000],
+    None,
+    None,
+    None,
+    None,
+    [1786619698, 709194000],
+    None,
+    [None, None, None, None, True],
+    None,
+    1,
+    None,
+    "MTc4NjYxOTY5OC05MDY0MDgwMDA=",
+]
+
+
+class TestQuizOptionEcho:
+    """``data[9][1][6]`` / ``data[9][1][7]`` — the server's echo of the stored
+    ``[quantity, difficulty]`` pair (#2195).
+
+    Before this accessor existed, nothing in the client read the option pair
+    back, so a transposed or mis-valued pair was caught only by fixtures we
+    wrote ourselves — the structural reason #2116 and #2117 survived. These
+    tests decode rows captured from the live backend; the e2e round-trip
+    (``tests/e2e/test_generation.py``) closes the loop against a fresh
+    generation.
+    """
+
+    def test_flashcards_pair_decoded_from_a_live_row(self) -> None:
+        row = ArtifactRow(_LIVE_FLASHCARDS_ROW)
+        assert row.variant == 1  # APP_TYPE_FLASHCARDS
+        assert row.flashcards_options == QuizOptionPair(quantity=1, difficulty=3)
+
+    def test_quiz_pair_decoded_from_a_live_row(self) -> None:
+        row = ArtifactRow(_LIVE_QUIZ_ROW)
+        assert row.variant == 2  # APP_TYPE_QUIZ
+        assert row.quiz_options == QuizOptionPair(quantity=1, difficulty=3)
+
+    def test_pair_compares_against_the_client_enums(self) -> None:
+        """The raw codes compare equal to the enum members callers hold.
+
+        Asserted field-by-field: an equality against a 2-tuple would be
+        satisfied by a transposed decode of a symmetric pair, and this is the
+        assertion downstream tests are most likely to copy.
+        """
+        options = ArtifactRow(_LIVE_FLASHCARDS_ROW).flashcards_options
+        assert options is not None
+        assert options.quantity == QuizQuantity.FEWER
+        assert options.difficulty == QuizDifficulty.HARD
+        assert options.quantity != QuizQuantity.MORE
+        assert options.difficulty != QuizDifficulty.EASY
+
+    def test_each_family_reads_only_its_own_slot(self) -> None:
+        """A quiz row leaves the flashcards slot null and vice versa.
+
+        This is what makes the two accessors independent: reading the wrong
+        slot would return ``None`` rather than the sibling's pair, so a
+        crossed-wires accessor cannot silently look correct.
+        """
+        assert ArtifactRow(_LIVE_FLASHCARDS_ROW).quiz_options is None
+        assert ArtifactRow(_LIVE_QUIZ_ROW).flashcards_options is None
+
+    def test_empty_options_message_reads_as_unspecified(self) -> None:
+        """A ``[0, 0]`` (proto3 default) request echoes back as ``[]``.
+
+        Live-observed: default-valued proto fields are dropped from the JSON
+        encoding, so "unspecified" arrives as an empty list rather than
+        ``[0, 0]``. It is present-but-unset, which is not the same as absent.
+        """
+        raw = json.loads(json.dumps(_LIVE_FLASHCARDS_ROW))
+        raw[ArtifactRow._OPTIONS_POS][1][6] = []
+        assert ArtifactRow(raw).flashcards_options == QuizOptionPair(quantity=None, difficulty=None)
+
+    @pytest.mark.parametrize(
+        ("description", "row"),
+        [
+            ("short row without position 9", ["id", "title", 4, None, 3]),
+            ("options block is None", _full_row(type_code=ArtifactTypeCode.QUIZ, variant=None)),
+            (
+                "generation options too short for the slots",
+                ["id", "title", 4, None, 3, None, None, None, None, ["", [1, None]]],
+            ),
+            (
+                "option slot is null (the other family's row)",
+                [
+                    "id",
+                    "title",
+                    4,
+                    None,
+                    3,
+                    None,
+                    None,
+                    None,
+                    None,
+                    ["", [1, None, None, "en", None, None, None, None]],
+                ],  # fmt: skip
+            ),
+            (
+                "option slot is not a list",
+                [
+                    "id",
+                    "title",
+                    4,
+                    None,
+                    3,
+                    None,
+                    None,
+                    None,
+                    None,
+                    ["", [1, None, None, "en", None, None, 3, None]],
+                ],  # fmt: skip
+            ),
+        ],
+    )
+    def test_absent_or_unusable_slots_return_none(self, description: str, row: list) -> None:
+        assert ArtifactRow(row).flashcards_options is None, description
+
+    def test_non_int_codes_degrade_to_none(self) -> None:
+        """Strings and bools at the option leaves are not codes.
+
+        ``True`` matters specifically: ``isinstance(True, int)`` is ``True`` in
+        Python, and the row genuinely carries a bool two slots later, so an
+        unguarded read would happily decode ``difficulty=True``.
+        """
+        raw = json.loads(json.dumps(_LIVE_FLASHCARDS_ROW))
+        raw[ArtifactRow._OPTIONS_POS][1][6] = ["fewer", True]
+        assert ArtifactRow(raw).flashcards_options == QuizOptionPair(quantity=None, difficulty=None)
+
+    def test_reshaped_options_block_raises(self) -> None:
+        """A present-but-reshaped ``data[9]`` is drift, not absence.
+
+        Matches ``variant``'s policy: once the options block is a list, the
+        descent to ``[1]`` goes through ``safe_index``, which is strict-only
+        since v0.7.0 (ADR-0011). A block missing the generation-options element
+        entirely means Google reshaped it — the exact signal the adapter exists
+        to raise rather than swallow.
+        """
+        raw = json.loads(json.dumps(_LIVE_FLASHCARDS_ROW))
+        raw[ArtifactRow._OPTIONS_POS] = [""]
+        with pytest.raises(UnknownRPCMethodError):
+            _ = ArtifactRow(raw).flashcards_options
+
+
+class TestOptionPairRoundTrip:
+    """The payload the builders SEND decodes back to the options requested.
+
+    This is the encode↔decode loop #2116 lacked. It is only meaningful because
+    the decode positions are pinned independently of the encode positions —
+    against ``docs/mobile/schema.proto`` in
+    ``tests/_guardrails/test_wire_contract.py`` and against a live capture in
+    ``TestQuizOptionEcho`` — so this cannot pass by two mistakes agreeing.
+
+    Transposing either builder fails these.
+    """
+
+    @staticmethod
+    def _echo_row(variant: int, slot: int, pair: list) -> list:
+        """Wrap a sent pair in the row shape the backend echoes it back in."""
+        row: list = ["art_id", "Title", 4, None, 3, None, None, None, None]
+        generation_options: list = [variant, None, None, "en", None, None, None, None, True]
+        generation_options[slot] = pair
+        row.append(["", generation_options])
+        return row
+
+    def test_quiz_builder_pair_round_trips(self) -> None:
+        params = build_quiz_artifact_params(
+            "nb",
+            ["src"],
+            instructions=None,
+            quantity=QuizQuantity.FEWER,
+            difficulty=QuizDifficulty.HARD,
+        )
+        sent = params[2][9][1][7]
+        row = ArtifactRow(self._echo_row(2, ArtifactRow._QUIZ_OPTIONS_POS, sent))
+        assert row.quiz_options == QuizOptionPair(
+            quantity=QuizQuantity.FEWER.value, difficulty=QuizDifficulty.HARD.value
+        )
+
+    def test_flashcards_builder_pair_round_trips(self) -> None:
+        params = build_flashcards_artifact_params(
+            "nb",
+            ["src"],
+            instructions=None,
+            quantity=QuizQuantity.FEWER,
+            difficulty=QuizDifficulty.HARD,
+        )
+        sent = params[2][9][1][6]
+        row = ArtifactRow(self._echo_row(1, ArtifactRow._FLASHCARDS_OPTIONS_POS, sent))
+        assert row.flashcards_options == QuizOptionPair(
+            quantity=QuizQuantity.FEWER.value, difficulty=QuizDifficulty.HARD.value
+        )
+
+    def test_builders_write_the_slots_the_adapter_reads(self) -> None:
+        """The encode and decode sides agree on WHICH slot each family uses.
+
+        A builder writing the sibling's slot would still round-trip above if
+        the test wrapped whatever it produced; this pins the positions.
+        """
+        quiz = build_quiz_artifact_params(
+            "nb", ["src"], instructions=None, quantity=None, difficulty=None
+        )[2][9][1]
+        flashcards = build_flashcards_artifact_params(
+            "nb", ["src"], instructions=None, quantity=None, difficulty=None
+        )[2][9][1]
+        assert isinstance(quiz[ArtifactRow._QUIZ_OPTIONS_POS], list)
+        assert isinstance(flashcards[ArtifactRow._FLASHCARDS_OPTIONS_POS], list)
+        assert len(quiz) <= ArtifactRow._FLASHCARDS_OPTIONS_POS or (
+            quiz[ArtifactRow._FLASHCARDS_OPTIONS_POS] is None
+        )
 
 
 class TestTimestampDescent:
