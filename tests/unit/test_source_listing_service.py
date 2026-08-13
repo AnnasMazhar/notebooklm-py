@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from notebooklm._source.listing import SourceLister
+from notebooklm._sources import SourcesAPI
 from notebooklm.exceptions import RPCError
 from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import SourceStatus
-from notebooklm.types import Source
+from notebooklm.types import Source, SourceType
 
 
 class RecordingRpc:
@@ -264,6 +266,111 @@ async def test_status_and_type_code_parsing() -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_filters_with_or_within_axes_and_and_across_axes() -> None:
+    lister = SourceLister(
+        RecordingRpc(
+            [
+                [
+                    "Notebook",
+                    [
+                        source_entry(
+                            "src_pdf_ready",
+                            title="PDF ready",
+                            metadata=[None, 11, [1704067200, 0], None, 3],
+                            status=[None, SourceStatus.READY],
+                        ),
+                        source_entry(
+                            "src_pdf_error",
+                            title="PDF error",
+                            metadata=[None, 11, [1704067200, 0], None, 3],
+                            status=[None, SourceStatus.ERROR],
+                        ),
+                        source_entry(
+                            "src_web_ready",
+                            title="Web ready",
+                            metadata=[None, 11, [1704067200, 0], None, 5],
+                            status=[None, SourceStatus.READY],
+                        ),
+                        source_entry(
+                            "src_youtube_processing",
+                            title="YouTube processing",
+                            metadata=[None, 11, [1704067200, 0], None, 9],
+                            status=[None, SourceStatus.PROCESSING],
+                        ),
+                    ],
+                ]
+            ]
+        )
+    )
+
+    sources = await lister.list(
+        "nb_123",
+        statuses={SourceStatus.READY, SourceStatus.ERROR},
+        types={SourceType.PDF, SourceType.WEB_PAGE},
+    )
+
+    assert [source.id for source in sources] == [
+        "src_pdf_ready",
+        "src_pdf_error",
+        "src_web_ready",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"statuses": SourceStatus.READY}, "statuses must be a collection"),
+        ({"statuses": {2}}, "statuses must contain only SourceStatus"),
+        ({"types": SourceType.PDF}, "types must be a collection"),
+        ({"types": {"pdf"}}, "types must contain only SourceType"),
+    ],
+)
+async def test_list_rejects_untyped_filters_before_rpc(
+    kwargs: dict[str, Any],
+    message: str,
+) -> None:
+    rpc = RecordingRpc([["Notebook", []]])
+    lister = SourceLister(rpc)
+
+    with pytest.raises(TypeError, match=message):
+        await lister.list("nb_123", **kwargs)
+
+    assert rpc.calls == []
+
+
+@pytest.mark.asyncio
+async def test_explicit_empty_filter_matches_no_sources() -> None:
+    lister = SourceLister(
+        RecordingRpc([["Notebook", [source_entry("src_1"), source_entry("src_2")]]])
+    )
+
+    assert await lister.list("nb_123", statuses=set()) == []
+
+
+@pytest.mark.asyncio
+async def test_sources_api_list_delegates_strict_and_filters() -> None:
+    api = SourcesAPI(MagicMock(), uploader=MagicMock())
+    expected = [Source(id="src_1", _type_code=3, status=SourceStatus.READY)]
+    api._lister.list = AsyncMock(return_value=expected)  # type: ignore[method-assign]
+
+    result = await api.list(
+        "nb_123",
+        strict=True,
+        statuses={SourceStatus.READY},
+        types={SourceType.PDF},
+    )
+
+    assert result is expected
+    api._lister.list.assert_awaited_once_with(
+        "nb_123",
+        strict=True,
+        statuses={SourceStatus.READY},
+        types={SourceType.PDF},
+    )
+
+
+@pytest.mark.asyncio
 async def test_nested_drive_source_id_is_extracted() -> None:
     lister = SourceLister(
         RecordingRpc(
@@ -322,6 +429,38 @@ async def test_malformed_source_id_shape_logs_and_skips(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bad_row",
+    [None, "not-a-row", []],
+)
+async def test_strict_list_rejects_malformed_source_rows(bad_row: Any) -> None:
+    lister = SourceLister(RecordingRpc([["Notebook", [source_entry("src_valid"), bad_row]]]))
+
+    with pytest.raises(RPCError, match="malformed source row at index 1"):
+        await lister.list("nb_123", strict=True)
+
+
+@pytest.mark.asyncio
+async def test_strict_list_rejects_source_without_usable_id() -> None:
+    lister = SourceLister(
+        RecordingRpc(
+            [
+                [
+                    "Notebook",
+                    [
+                        source_entry("src_valid"),
+                        [[None, True, []], "Broken", None, [None, 2]],
+                    ],
+                ]
+            ]
+        )
+    )
+
+    with pytest.raises(RPCError, match="source row at index 1 has no usable id"):
+        await lister.list("nb_123", strict=True)
+
+
+@pytest.mark.asyncio
 async def test_list_dedups_duplicate_ids_keeping_first(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -351,6 +490,37 @@ async def test_list_dedups_duplicate_ids_keeping_first(
     # The FIRST occurrence wins (later duplicate dropped).
     assert sources[0].title == "First"
     assert "duplicate source id" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_strict_list_rejects_conflicting_duplicate_ids() -> None:
+    lister = SourceLister(
+        RecordingRpc(
+            [
+                [
+                    "Notebook",
+                    [
+                        source_entry("src_dup", title="First"),
+                        source_entry("src_dup", title="Second"),
+                    ],
+                ]
+            ]
+        )
+    )
+
+    with pytest.raises(RPCError, match="conflicting duplicate source row at index 1"):
+        await lister.list("nb_123", strict=True)
+
+
+@pytest.mark.asyncio
+async def test_strict_list_dedups_identical_rows_for_exact_unique_count() -> None:
+    row = source_entry("src_dup", title="Same")
+    lister = SourceLister(RecordingRpc([["Notebook", [row, row]]]))
+
+    sources = await lister.list("nb_123", strict=True)
+
+    assert len(sources) == 1
+    assert sources[0].id == "src_dup"
 
 
 @pytest.mark.asyncio

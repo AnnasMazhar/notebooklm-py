@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`client.sources.list()` now owns source status/type filtering and exact
+  counts.** The existing method accepts keyword-only `statuses` and `types`
+  collections (OR within one axis, AND across axes) without an extra RPC or a
+  parallel inventory surface. `strict=True` now rejects malformed/id-less rows
+  and conflicting duplicate IDs, so `len(await client.sources.list(...,
+  strict=True))` is the exact count of unique addressable matches; the default
+  remains tolerant of row-level anomalies.
+
 - **`notebooklm research wait --timeout` now defaults to 1800 seconds, up from
   300.** Every observed deep run exceeded the old cap (374s live, 358s in the
   `research_deep_poll_long` cassette), so an unattended wait reported a timeout
