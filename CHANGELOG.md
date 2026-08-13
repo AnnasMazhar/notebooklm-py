@@ -222,8 +222,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot drift apart again — which is how this gap opened.
 
   Human output gains no column. `source list` appends `(drive: deleted)` to the
-  Status cell only where ingestion reads `ready` and Drive says otherwise (an
-  unreadable code is not flagged — it is not evidence of degradation); the
+  Status cell for any row the backend reports as degraded (`is_drive_degraded`),
+  whatever its ingestion status — an unreadable code is not flagged, since it is
+  not evidence of degradation. The
   Status column now folds rather than ellipsizes so the longest label survives
   a narrow terminal. `source get` prints `Drive File ID:` / `Drive Status:`
   lines only for a source that carries the corresponding field — the two are

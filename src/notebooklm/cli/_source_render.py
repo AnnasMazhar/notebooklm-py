@@ -150,10 +150,14 @@ def _print_drive_lines(src: Source) -> None:
         # independent, so a degraded Drive file can sit on a source that is
         # still processing or that errored outright. Asserting "ingestion
         # finished" here would be confidently wrong on those rows.
+        # No "Status above" cross-reference: this text view prints Source /
+        # Title / Type / URL / Created and no ingestion status at all, so
+        # pointing at one would send the reader looking for a line that is not
+        # there. Name the axis instead.
         console.print(
             f"[bold]Drive Status:[/bold] [yellow]{drive_label}[/yellow] "
-            "(Drive-side health, separate from Status above — answers grounded "
-            "on this source may be stale)"
+            "(Drive-side health, not NotebookLM's ingestion status — answers "
+            "grounded on this source may be stale)"
         )
     else:
         console.print(f"[bold]Drive Status:[/bold] {drive_label}")

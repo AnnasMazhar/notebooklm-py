@@ -213,7 +213,7 @@ Unlike the MCP/REST surfaces, the CLI ships **no raw Drive status code** beside 
 
 Human (non-`--json`) output reflects this without adding a column:
 
-- **`source list`** appends the Drive verdict to the Status cell — `ready (drive: deleted)` — but only for a row where the two axes disagree (`is_drive_degraded`). An unreadable code (`unknown`) is not flagged here; it is not evidence of degradation, and the table should not cry wolf on protocol drift. Note that Rich sizes columns table-wide, so a single annotated row does re-flow the whole table; that cost is only paid when something is actually wrong.
+- **`source list`** appends the Drive verdict to the Status cell — `ready (drive: deleted)` — but only for a row the backend reports as degraded (`is_drive_degraded`), whatever that row's ingestion status is. An unreadable code (`unknown`) is not flagged here; it is not evidence of degradation, and the table should not cry wolf on protocol drift. Note that Rich sizes columns table-wide, so a single annotated row does re-flow the whole table; that cost is only paid when something is actually wrong.
 - **`source get`** adds `Drive File ID:` and `Drive Status:` lines, each shown only when that field is present.
 
 > **Cross-surface naming.** MCP and REST spell this axis `drive_status` (raw code) + `drive_status_label` (string); the CLI uses `drive_status` for the **string**, matching its own long-standing `status` (label) / `status_id` (code) pairing. So `select(.drive_status == "deleted")` is right for the CLI and wrong for MCP/REST, where that key holds an integer. Both surfaces resolve the label through the same mapping helper, so the vocabulary never diverges — only the key name.

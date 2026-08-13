@@ -57,7 +57,9 @@ def _status_cell(src: Source) -> str:
     verdict there rather than adding a Drive column: a column would be blank on
     every non-Drive row (the overwhelming majority) and would widen the table on
     **every** listing, whereas this costs nothing until a row is actually
-    degraded.
+    degraded. The trigger is the degraded verdict alone — a ``processing`` or
+    ``error`` row whose Drive file is gone is annotated too, since the ingestion
+    status is not what the Drive axis reports on.
 
     Be precise about "costs nothing", because Rich sizes columns table-wide:
     the *cell text* of healthy and non-Drive rows is unchanged, but when any row

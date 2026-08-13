@@ -816,6 +816,10 @@ class TestSourceGet:
         # that is still processing, so this must not claim ingestion finished.
         assert ("may be stale" in output) is expect_stale_warning
         assert "ingestion finished" not in output
+        # And it must not point at a "Status above" line — this view prints no
+        # ingestion status at all.
+        assert "Status above" not in output
+        assert "Status:" not in output.replace("Drive Status:", "")
 
     def test_source_get_text_shows_the_file_id_when_no_health_slot_is_sent(self, runner, mock_auth):
         """The captured Drive row — id present, health slot absent — still shows its id.
