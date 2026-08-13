@@ -49,6 +49,10 @@ class FakeSource:
     def drive_status(self) -> DriveSourceStatus | None:
         return None
 
+    @property
+    def is_drive_degraded(self) -> bool:
+        return False
+
 
 @dataclass
 class FakeFulltext:
@@ -91,6 +95,7 @@ async def test_source_read_full_is_json_first(mcp_call, mock_client) -> None:
             "kind": "pasted_text",
             "status_label": "ready",
             "drive_status_label": None,
+            "is_drive_degraded": False,
         },
         "content": "hello world",
         "char_count": 11,
@@ -137,6 +142,7 @@ async def test_source_wait_is_json_first(mcp_call, mock_client) -> None:
                 "kind": "pasted_text",
                 "status_label": "ready",
                 "drive_status_label": None,
+                "is_drive_degraded": False,
             }
         ],
         "timed_out": [],
@@ -200,6 +206,7 @@ async def test_source_add_wait_is_json_first(mcp_call, mock_client) -> None:
                 "kind": "pasted_text",
                 "status_label": "ready",
                 "drive_status_label": None,
+                "is_drive_degraded": False,
             }
         ],
         "timed_out": [],

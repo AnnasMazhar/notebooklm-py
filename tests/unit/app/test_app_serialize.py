@@ -200,6 +200,10 @@ def test_source_view_labels_the_drive_status_code() -> None:
 
     assert view["drive_status"] == DriveSourceStatus.INACCESSIBLE.value
     assert view["drive_status_label"] == "inaccessible"
+    # The verdict rides along: ``is_drive_degraded`` is a property, so a bare
+    # ``to_jsonable`` pass would drop it and leave every non-Python consumer to
+    # re-derive the degraded set from the label string.
+    assert view["is_drive_degraded"] is True
     # Additive: the ingestion labels are untouched by the Drive axis.
     assert view["status_label"] == "ready"
 
@@ -216,9 +220,12 @@ def test_source_view_drive_status_label_is_none_when_absent() -> None:
     absent = source_view(Source(id="src-1"))
     assert absent["drive_status"] is None
     assert absent["drive_status_label"] is None
+    assert absent["is_drive_degraded"] is False
 
     unreadable = source_view(Source(id="src-1", drive_status=DriveSourceStatus.UNKNOWN))
     assert unreadable["drive_status_label"] == "unknown"
+    # A state we cannot name is not evidence of degradation.
+    assert unreadable["is_drive_degraded"] is False
 
 
 def test_unknown_object_falls_back_to_str() -> None:

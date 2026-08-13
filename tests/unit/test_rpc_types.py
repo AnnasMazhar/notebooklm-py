@@ -296,7 +296,6 @@ class TestDriveSourceStatusToStr:
         """No member falls through to the "unknown" default by accident."""
         assert {member: drive_source_status_to_str(member) for member in DriveSourceStatus} == {
             DriveSourceStatus.UNKNOWN: "unknown",
-            DriveSourceStatus.UNSPECIFIED: "unspecified",
             DriveSourceStatus.INACCESSIBLE: "inaccessible",
             DriveSourceStatus.SYNCING: "syncing",
             DriveSourceStatus.ACTIVE: "active",
@@ -306,7 +305,6 @@ class TestDriveSourceStatusToStr:
 
     def test_accepts_raw_wire_codes(self):
         """The backend UserDriveSourceStatus integers map without an enum wrap."""
-        assert drive_source_status_to_str(0) == "unspecified"
         assert drive_source_status_to_str(1) == "inaccessible"
         assert drive_source_status_to_str(2) == "syncing"
         assert drive_source_status_to_str(3) == "active"
@@ -315,6 +313,9 @@ class TestDriveSourceStatusToStr:
 
     def test_unknown_codes_degrade(self):
         """Unrecognized codes return 'unknown' (future-proofing)."""
+        # 0 is the backend UNSPECIFIED, deliberately unmodelled: the decoder
+        # normalizes it to None before a label is ever asked for.
+        assert drive_source_status_to_str(0) == "unknown"
         assert drive_source_status_to_str(6) == "unknown"
         assert drive_source_status_to_str(99) == "unknown"
         assert drive_source_status_to_str(-2) == "unknown"

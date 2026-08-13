@@ -656,6 +656,14 @@ class DriveSourceStatus(int, Enum):
     Only Drive-backed sources carry the slot; every other source decodes to
     ``None`` (see :attr:`notebooklm.Source.drive_status`).
 
+    The backend's ``DRIVE_SOURCE_STATUS_UNSPECIFIED`` (0) is deliberately NOT
+    modelled here. proto3 omits zero-valued fields, so it normally arrives as
+    an absent slot, and it means exactly what an absent slot means — "no claim".
+    Modelling it would give that one state two representations (``None`` and a
+    falsy member), so :attr:`notebooklm._row_adapters.sources.SourceRow.drive_status`
+    normalizes an explicit ``0`` to ``None`` instead. Recorded in
+    ``tests/_guardrails/_wire_contract.py::ENUM_GAPS``.
+
     Values are the backend ``UserDriveSourceStatus`` enum, recovered from the
     official Android app (``docs/mobile/enums.txt``) and pinned by
     ``tests/_guardrails/_wire_contract.py``.
@@ -674,9 +682,6 @@ class DriveSourceStatus(int, Enum):
     #: model (or a non-integer). Never sent by the backend. ``None`` means
     #: "no Drive status on this row"; this means "present but unmappable".
     UNKNOWN = -1
-    #: Backend default. proto3 omits zero-valued fields, so this arrives as an
-    #: absent slot (``None``) rather than an explicit ``0`` in practice.
-    UNSPECIFIED = 0
     #: The account can no longer read the Drive file (e.g. unshared).
     INACCESSIBLE = 1
     #: The Drive file is being (re-)synced into the notebook.
@@ -693,7 +698,6 @@ class DriveSourceStatus(int, Enum):
 # compatibility), the sibling of ``_SOURCE_STATUS_MAP``.
 _DRIVE_SOURCE_STATUS_MAP: dict[int, str] = {
     DriveSourceStatus.UNKNOWN: "unknown",
-    DriveSourceStatus.UNSPECIFIED: "unspecified",
     DriveSourceStatus.INACCESSIBLE: "inaccessible",
     DriveSourceStatus.SYNCING: "syncing",
     DriveSourceStatus.ACTIVE: "active",
@@ -713,9 +717,10 @@ def drive_source_status_to_str(status_code: int | DriveSourceStatus) -> str:
         status_code: Status code as int or :class:`DriveSourceStatus`.
 
     Returns:
-        One of ``"unknown"``, ``"unspecified"``, ``"inaccessible"``,
-        ``"syncing"``, ``"active"``, ``"deleted"``,
-        ``"gen_ai_access_denied"``. Returns ``"unknown"`` for unrecognized
-        codes (future-proofing).
+        One of ``"inaccessible"``, ``"syncing"``, ``"active"``,
+        ``"deleted"``, ``"gen_ai_access_denied"``. Returns ``"unknown"`` for
+        the client sentinel and for unrecognized codes (future-proofing) —
+        including the backend's unmodelled ``0``, which the decoder normalizes
+        to ``None`` before it can reach this helper.
     """
     return _DRIVE_SOURCE_STATUS_MAP.get(status_code, "unknown")

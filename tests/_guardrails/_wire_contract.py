@@ -553,7 +553,6 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
     "DriveSourceStatus": (
         "UserDriveSourceStatus",
         {
-            0: "DRIVE_SOURCE_STATUS_UNSPECIFIED",
             1: "DRIVE_SOURCE_STATUS_INACCESSIBLE",
             2: "DRIVE_SOURCE_STATUS_SYNCING",
             3: "DRIVE_SOURCE_STATUS_ACTIVE",
@@ -623,6 +622,17 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
 #: Enum members our client cannot express today. Each entry is a real backend
 #: value that maps to "unknown" (or worse) in this client.
 ENUM_GAPS: dict[str, tuple[tuple[int, str, str], ...]] = {
+    "DriveSourceStatus": (
+        (
+            0,
+            "DRIVE_SOURCE_STATUS_UNSPECIFIED",
+            "#2111 — deliberately unmodelled. It means 'no claim', which is what "
+            "an absent slot already means, so SourceRow.drive_status normalizes "
+            "an explicit 0 to None rather than giving one state two "
+            "representations. proto3 omits the zero default, so the wire almost "
+            "never carries it in the first place.",
+        ),
+    ),
     "SourceStatus": (
         (0, "SOURCE_STATUS_UNSPECIFIED", "#2124 — fails closed as UNKNOWN"),
         (4, "SOURCE_STATUS_PENDING_DELETION", "#2124 — fails closed as UNKNOWN"),

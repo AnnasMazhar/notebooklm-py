@@ -126,7 +126,7 @@ Shapes observed across 409 live source rows (2026-08-07 audit): `[null, 2]` ×40
 
 | Code | `DriveSourceStatus` | Backend member |
 |------|---------------------|----------------|
-| 0 | `UNSPECIFIED` | `DRIVE_SOURCE_STATUS_UNSPECIFIED` |
+| 0 | *(normalized to `None`)* | `DRIVE_SOURCE_STATUS_UNSPECIFIED` |
 | 1 | `INACCESSIBLE` | `DRIVE_SOURCE_STATUS_INACCESSIBLE` |
 | 2 | `SYNCING` | `DRIVE_SOURCE_STATUS_SYNCING` |
 | 3 | `ACTIVE` | `DRIVE_SOURCE_STATUS_ACTIVE` |
@@ -134,7 +134,9 @@ Shapes observed across 409 live source rows (2026-08-07 audit): `[null, 2]` ×40
 | 5 | `GEN_AI_ACCESS_DENIED` | `DRIVE_SOURCE_STATUS_GEN_AI_ACCESS_DENIED` |
 
 > Index 3 is absent on 405/409 rows — and proto3 omits zero-valued fields, so an
-> absent slot means "no Drive claim", not "not a Drive source". Only `ACTIVE` has
+> absent slot means "no Drive claim", not "not a Drive source". The backend's
+> `0` means the same thing, so the decoder normalizes it to `None` rather than
+> modelling it (recorded in `ENUM_GAPS`). Only `ACTIVE` has
 > been observed live; the degraded members come from the backend enum recovered
 > from the official Android app (`docs/mobile/enums.txt`) and are pinned in
 > `tests/_guardrails/_wire_contract.py`. A populated-but-unmapped code decodes to

@@ -122,11 +122,11 @@ _RPC_ENUM_SNAPSHOT: dict[str, dict[str, int]] = {
         "PREPARING": 5,
     },
     # #2111 — SourceSettings.userDriveSourceStatus. UNKNOWN(-1) is a client
-    # sentinel; 0-5 are the backend UserDriveSourceStatus values (bound in
-    # tests/_guardrails/_wire_contract.py::ENUM_BINDINGS).
+    # sentinel; 1-5 are the backend UserDriveSourceStatus values (bound in
+    # tests/_guardrails/_wire_contract.py::ENUM_BINDINGS). Backend 0
+    # (UNSPECIFIED) is deliberately unmodelled — see ENUM_GAPS.
     "DriveSourceStatus": {
         "UNKNOWN": -1,
-        "UNSPECIFIED": 0,
         "INACCESSIBLE": 1,
         "SYNCING": 2,
         "ACTIVE": 3,

@@ -2268,6 +2268,9 @@ class Source:
         """drive_status is one of INACCESSIBLE / SYNCING / DELETED / GEN_AI_ACCESS_DENIED"""
 ```
 
+> **Removed in v0.5.0:** `Source.source_type` was replaced by `Source.kind`.
+> See [stability.md → Removed in v0.5.0](stability.md#removed-in-v050).
+
 **Drive-backed sources: `is_ready` is not the whole story.**
 
 `status` (and therefore `is_ready` / `wait_until_ready`) reports **NotebookLM's
@@ -2294,6 +2297,16 @@ is not proof that a source is not Drive-backed; `drive_document_id` answers that
 question. A code this client does not model decodes to `DriveSourceStatus.UNKNOWN`
 (distinct from `None`) and logs one warning.
 
+`is_drive_degraded` reports only an **explicit** backend degradation signal. A
+`False` therefore means "nothing degraded was reported" — for a non-Drive source,
+for `ACTIVE`, and for an unreadable `UNKNOWN` code alike — not "the Drive file is
+confirmed present and readable". Note also that `SYNCING` is transient and
+self-healing; exclude it if you are driving an alert.
+
+The MCP and REST source views carry the same two signals as
+`drive_status_label` (a string, `null` when there is no claim) and
+`is_drive_degraded`.
+
 `is_ready` deliberately does **not** fold `drive_status` in: it is a public
 field whose meaning callers already depend on, and folding a permanently-dead
 Drive file into it would turn `wait_until_ready` into a guaranteed timeout
@@ -2306,9 +2319,6 @@ freshness of a Drive-backed source matters.
 > has deliberately broken access to a real Drive file to confirm which value
 > arrives when. The slot being live, populated and previously unread is
 > confirmed; the specific degraded values are not.
-
-> **Removed in v0.5.0:** `Source.source_type` was replaced by `Source.kind`.
-> See [stability.md → Removed in v0.5.0](stability.md#removed-in-v050).
 
 **Type Identification:**
 
@@ -2890,12 +2900,15 @@ class SourceStatus(Enum):
 class DriveSourceStatus(Enum):
     """Drive-side health of a Drive-backed source — NOT ingestion status."""
     UNKNOWN = -1              # Client sentinel: slot populated with a code we cannot map
-    UNSPECIFIED = 0           # Backend default (arrives as an absent slot in practice)
     INACCESSIBLE = 1          # The account can no longer read the Drive file
-    SYNCING = 2               # The Drive file is being (re-)synced
+    SYNCING = 2               # The Drive file is being (re-)synced (transient)
     ACTIVE = 3                # In sync — the only value observed live
     DELETED = 4               # The Drive file has been deleted
     GEN_AI_ACCESS_DENIED = 5  # AI access to the file is denied (e.g. Workspace policy)
+
+# The backend's DRIVE_SOURCE_STATUS_UNSPECIFIED (0) is deliberately not modelled:
+# it means "no claim", which is what `drive_status is None` already means, so an
+# explicit 0 is normalized to None rather than giving one state two spellings.
 ```
 
 **Usage Example:**

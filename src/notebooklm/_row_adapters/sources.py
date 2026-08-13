@@ -20,12 +20,25 @@ logger = logging.getLogger(__name__)
 #: ``_types/sources.py::_warned_source_types``.
 _warned_status_codes: set[int] = set()
 
-#: Unmapped ``userDriveSourceStatus`` codes already warned about, so a polled
-#: Drive source does not re-emit the same drift line on every decode. Sibling of
-#: :data:`_warned_status_codes`, but keyed by ``repr(value)`` rather than the
-#: value: a drifted slot can hold an unhashable payload (e.g. a list), and
-#: ``repr`` also keeps ``3`` and ``"3"`` distinct.
-_warned_drive_status_codes: set[str] = set()
+#: ``(method_id, repr(value))`` pairs already warned about by
+#: :meth:`SourceRow._warn_unmapped_drive_status`, so a polled Drive source does
+#: not re-emit the same drift line on every decode. ``repr`` rather than the
+#: value itself because a drifted slot can hold an unhashable payload (e.g. a
+#: list), and because ``repr`` keeps ``3`` and ``"3"`` distinct. Capped at
+#: :data:`_MAX_DRIFT_REPR_LEN` so a pathological payload cannot retain an
+#: unbounded string.
+_warned_drive_status_codes: set[tuple[str, str]] = set()
+
+#: Cap on the rendered drift value used as a warn-once key and logged. Long
+#: enough to identify any plausible scalar or short list verbatim.
+_MAX_DRIFT_REPR_LEN: int = 120
+
+#: Backend ``DRIVE_SOURCE_STATUS_UNSPECIFIED``. Not a
+#: :class:`~notebooklm.rpc.types.DriveSourceStatus` member on purpose — it means
+#: "no claim", which is what ``None`` already means, so
+#: :attr:`SourceRow.drive_status` normalizes it rather than giving one state two
+#: representations. See ``_wire_contract.py::ENUM_GAPS``.
+_DRIVE_STATUS_UNSPECIFIED: int = 0
 
 #: ``(method_id, block_pos)`` pairs already warned about by
 #: :meth:`SourceRow._document_id_at` — one line per drifted slot, not per row.
@@ -101,7 +114,7 @@ class SourceRow:
     1      title (str) — may be ``None`` / missing on short rows.
     2      metadata sub-list (see below).
     3      ``Source.settings`` block (``SourceSettings``). ``[3][1]`` is the
-           :class:`~notebooklm.rpc.SourceStatus` ingestion code (used by
+           :class:`~notebooklm.rpc.types.SourceStatus` ingestion code (used by
            ``GET_NOTEBOOK`` source-list rows); ``[3][3]`` is the
            :class:`~notebooklm.rpc.types.DriveSourceStatus` Drive-side code,
            populated on Drive-backed rows only (see :attr:`drive_status`).
@@ -733,6 +746,19 @@ class SourceRow:
                 url = candidate
         return url
 
+    def _settings_block(self) -> list[Any] | None:
+        """The ``Source.settings`` sub-list at ``self._raw[3]``, or ``None``.
+
+        ``None`` when the slot is absent or not a list — several valid
+        non-listing response shapes omit the block entirely, so both callers
+        (:attr:`status` and :attr:`drive_status`) fail closed on it without
+        warning.
+        """
+        if len(self._raw) <= self._STATUS_BLOCK_POS:
+            return None
+        block = self._raw[self._STATUS_BLOCK_POS]
+        return block if isinstance(block, list) else None
+
     @property
     def status(self) -> SourceStatus:
         """Processing status from ``self._raw[3][1]``.
@@ -771,33 +797,23 @@ class SourceRow:
                 )
             return SourceStatus.UNKNOWN
 
-    def _settings_block(self) -> list[Any] | None:
-        """The ``Source.settings`` sub-list at ``self._raw[3]``, or ``None``.
-
-        ``None`` when the slot is absent or not a list — several valid
-        non-listing response shapes omit the block entirely, so both readers
-        below fail closed on it without warning.
-        """
-        if len(self._raw) <= self._STATUS_BLOCK_POS:
-            return None
-        block = self._raw[self._STATUS_BLOCK_POS]
-        return block if isinstance(block, list) else None
-
     @property
     def drive_status(self) -> DriveSourceStatus | None:
         """Drive-side health from ``self._raw[3][3]`` — ``None`` when absent.
 
         ``SourceSettings.userDriveSourceStatus`` (tag 4). Only Drive-backed
         rows carry it: in a 409-row live capture, 4 rows populated it (all
-        Drive-backed, all ``ACTIVE``) and 405 left it absent (see
+        Drive-backed, all ``ACTIVE``) and the other 405 left it absent — 402
+        with ``settings=[null,2]`` and 3 with ``settings=[null,2,[...]]`` (see
         ``docs/notes/web-rpc-vs-mobile-grpc-audit-2026-08-07.md`` §1.6).
 
         Return values:
 
-        * ``None`` — the slot is absent / null / the settings block is short.
-          "This row makes no Drive-health claim." Note that proto3 omits
-          zero-valued fields, so a genuine ``UNSPECIFIED`` also arrives this
-          way; absence is therefore NOT proof that a source is not
+        * ``None`` — the slot is absent, null, an explicit ``0``
+          (``DRIVE_SOURCE_STATUS_UNSPECIFIED``, which proto3 normally omits
+          anyway), or the settings block is short. All four mean the same
+          thing — "this row makes no Drive-health claim" — so they share one
+          representation. Absence is therefore NOT proof that a source is not
           Drive-backed (``SourceRow.drive_document_id`` answers that).
         * A :class:`~notebooklm.rpc.types.DriveSourceStatus` member for a
           mapped code.
@@ -815,30 +831,41 @@ class SourceRow:
         code = settings[self._DRIVE_STATUS_INNER_POS]
         if code is None:
             return None
-        # ``UNKNOWN`` is a client-side sentinel, not a wire value, so a literal
-        # -1 on the wire is drift and must warn rather than round-trip silently.
-        if (
-            isinstance(code, int)
-            and not isinstance(code, bool)
-            and code != DriveSourceStatus.UNKNOWN
-        ):
-            try:
-                return DriveSourceStatus(code)
-            except ValueError:
-                pass
+        # ``bool`` is an ``int`` subclass, and a JSON ``true``/``false`` here is
+        # drift, not a status — so it must fall through to the warn path rather
+        # than decode as 1 / 0.
+        if isinstance(code, int) and not isinstance(code, bool):
+            # An explicit ``UNSPECIFIED`` (0) collapses into the same ``None``
+            # an absent slot yields: both say "no claim", and one state must
+            # not have two representations.
+            if code == _DRIVE_STATUS_UNSPECIFIED:
+                return None
+            # ``UNKNOWN`` is a client-side sentinel, not a wire value, so a
+            # literal -1 is drift and must warn rather than round-trip.
+            if code != DriveSourceStatus.UNKNOWN:
+                try:
+                    return DriveSourceStatus(code)
+                except ValueError:
+                    pass
         self._warn_unmapped_drive_status(code)
         return DriveSourceStatus.UNKNOWN
 
     def _warn_unmapped_drive_status(self, code: Any) -> None:
-        """Warn once per unmapped ``userDriveSourceStatus`` wire value."""
-        key = repr(code)
+        """Warn once per ``(RPC, unmapped value)`` pair.
+
+        Keyed like the sibling :data:`_warned_drive_id_slots` (which keys on
+        ``(method_id, block_pos)``) so the same drifted code arriving from a
+        second RPC is still reported once, naming that RPC.
+        """
+        rendered = repr(code)[:_MAX_DRIFT_REPR_LEN]
+        key = (self.method_id, rendered)
         if key in _warned_drive_status_codes:
             return
         _warned_drive_status_codes.add(key)
         logger.warning(
             "Unknown Drive source status %s from RPC %s; treating as UNKNOWN. "
             "Drive-side health for this source cannot be reported",
-            key,
+            rendered,
             self.method_id,
         )
 

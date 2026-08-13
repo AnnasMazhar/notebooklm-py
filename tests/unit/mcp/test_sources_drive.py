@@ -55,6 +55,10 @@ class FakeSource:
     def drive_status(self) -> DriveSourceStatus | None:
         return DriveSourceStatus.ACTIVE
 
+    @property
+    def is_drive_degraded(self) -> bool:
+        return False
+
 
 async def test_source_add_drive_file_happy_path(mcp_call, mock_client) -> None:
     mock_client.sources.add_drive_file = AsyncMock(return_value=FakeSource(id=SRC_ID, title="Book"))
@@ -72,6 +76,7 @@ async def test_source_add_drive_file_happy_path(mcp_call, mock_client) -> None:
             "kind": "epub",
             "status_label": "ready",
             "drive_status_label": "active",
+            "is_drive_degraded": False,
         },
     }
     mock_client.sources.add_drive_file.assert_awaited_once_with(

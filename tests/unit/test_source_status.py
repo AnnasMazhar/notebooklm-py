@@ -101,13 +101,12 @@ class TestDriveSourceStatusProperties:
         [
             None,
             DriveSourceStatus.ACTIVE,
-            DriveSourceStatus.UNSPECIFIED,
             DriveSourceStatus.UNKNOWN,
         ],
-        ids=["absent", "active", "unspecified", "unknown"],
+        ids=["absent", "active", "unknown"],
     )
     def test_non_degraded_members_report_healthy(self, status):
-        """Absent / ACTIVE / UNSPECIFIED / an unmodelled code are not degradation.
+        """Absent / ACTIVE / an unmodelled code are not degradation.
 
         ``UNKNOWN`` in particular: a state we cannot name is not evidence that
         anything is wrong. Callers who want to fail closed read ``drive_status``.
@@ -139,7 +138,6 @@ class TestDriveSourceStatusProperties:
         }
         assert classified == {
             DriveSourceStatus.UNKNOWN: False,
-            DriveSourceStatus.UNSPECIFIED: False,
             DriveSourceStatus.INACCESSIBLE: True,
             DriveSourceStatus.SYNCING: True,
             DriveSourceStatus.ACTIVE: False,

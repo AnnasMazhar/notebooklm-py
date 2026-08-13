@@ -212,6 +212,7 @@ async def test_mcp_source_add_url_over_vcr() -> None:
         "kind",
         "status_label",
         "drive_status_label",
+        "is_drive_degraded",
     }
     assert source["drive_document_id"] is None
     assert source["status"] == 2  # SourceStatus.READY
@@ -220,6 +221,7 @@ async def test_mcp_source_add_url_over_vcr() -> None:
     # and that reads as ``None`` rather than a fabricated "healthy".
     assert source["drive_status"] is None
     assert source["drive_status_label"] is None
+    assert source["is_drive_degraded"] is False
 
 
 @pytest.mark.asyncio

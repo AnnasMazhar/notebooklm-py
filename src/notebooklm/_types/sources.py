@@ -166,10 +166,9 @@ def _extract_source_created_at(metadata: Any) -> datetime | None:
 
 #: Drive states that mean "the notebook's copy is not a faithful view of a
 #: readable live Drive file" — what :attr:`Source.is_drive_degraded` reports.
-#: An explicit allowlist, not ``!= ACTIVE``: ``UNSPECIFIED`` and the
-#: client-side ``UNKNOWN`` sentinel say nothing about health, and a future
-#: backend member must be classified deliberately rather than inherit
-#: "degraded" by default.
+#: An explicit allowlist, not ``!= ACTIVE``: the client-side ``UNKNOWN``
+#: sentinel says nothing about health, and a future backend member must be
+#: classified deliberately rather than inherit "degraded" by default.
 _DEGRADED_DRIVE_STATUSES: frozenset[DriveSourceStatus] = frozenset(
     {
         DriveSourceStatus.INACCESSIBLE,
@@ -249,7 +248,7 @@ class Source:
 
     @property
     def is_ready(self) -> bool:
-        """Check if source is ready for use (status=READY).
+        """Check if NotebookLM finished ingesting this source (status=READY).
 
         .. note::
            This reports **NotebookLM's ingestion pipeline only**
@@ -269,17 +268,26 @@ class Source:
     def is_drive_degraded(self) -> bool:
         """Whether the backend reports a *non-healthy* Drive state for this source.
 
-        ``True`` only for the explicitly degraded members listed in
-        :data:`_DEGRADED_DRIVE_STATUSES` — ``INACCESSIBLE``, ``SYNCING``,
-        ``DELETED``, ``GEN_AI_ACCESS_DENIED``. Everything else is ``False``:
+        ``True`` only for the four explicitly degraded members —
+        ``INACCESSIBLE``, ``SYNCING``, ``DELETED``, ``GEN_AI_ACCESS_DENIED``.
+        Everything else is ``False``:
 
         * ``drive_status is None`` — no Drive-health claim on the row (every
           non-Drive source, and the proto3-default case).
-        * ``ACTIVE`` / ``UNSPECIFIED`` — nothing wrong reported.
+        * ``ACTIVE`` — nothing wrong reported.
         * ``UNKNOWN`` — the slot carried a code this client does not model. A
           state we cannot name is not evidence of degradation; callers who
           prefer to fail closed should read :attr:`drive_status` directly and
           decide for themselves.
+
+        ``False`` therefore means "the backend reported no degradation", NOT
+        "the Drive file is confirmed present and readable" — the three cases
+        above all report ``False`` without any such confirmation.
+
+        Note that ``SYNCING`` is transient and self-healing: it means the copy
+        is mid-update, not broken. Callers wiring this to an alert should
+        exclude it (``src.is_drive_degraded and src.drive_status is not
+        DriveSourceStatus.SYNCING`` recovers the sticky-fault set).
 
         The degraded set is an explicit allowlist rather than
         ``!= ACTIVE`` so a future backend member cannot silently start

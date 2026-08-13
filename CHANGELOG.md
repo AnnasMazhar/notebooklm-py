@@ -35,16 +35,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Drive-backed sources now report Drive-side health.**
   `SourceSettings.userDriveSourceStatus` (proto tag 4 → `source[3][3]`) is
-  populated by the backend on every Drive-backed source and was read nowhere in
-  this client, so a source whose Drive file had been deleted, unshared, or was
+  populated by the backend on Drive-backed sources and was read nowhere in this
+  client, so a source whose Drive file had been deleted, unshared, or was
   mid-sync still reported `is_ready=True` with no signal anywhere in the API —
   `status` (tag 2) describes NotebookLM's own ingestion pipeline, which
   genuinely completes and stays complete after the Drive file goes away. The
   slot is now decoded into the new `Source.drive_status`
   (`DriveSourceStatus | None`), with `Source.is_drive_degraded` as the explicit
-  check and a `drive_status_label` string added to the MCP/REST source view.
-  `None` means the row made no Drive claim (every non-Drive source, and the
-  proto3-default case); a populated code this client cannot map decodes to
+  check; the MCP/REST source view gains both a `drive_status_label` string and
+  the `is_drive_degraded` verdict, and the `source_list(detail="compact")`
+  roster gains the label. `None` means the row made no Drive claim (every
+  non-Drive source, plus the backend's `UNSPECIFIED`, which means the same
+  thing and is normalized rather than modelled); a code this client cannot map
+  decodes to
   `DriveSourceStatus.UNKNOWN` — deliberately distinct from `None` — and warns
   once. Also adds the public `DriveSourceStatus` enum and
   `notebooklm.types.drive_source_status_to_str`.
@@ -54,8 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   would turn `wait_until_ready` into a guaranteed timeout for a Drive file that
   can never come back — a worse failure than the silence it replaces. The two
   axes stay separate: `is_ready` answers "has NotebookLM finished ingesting",
-  `is_drive_degraded` answers "is the Drive file still there and readable".
-  `is_ready`'s docstring and `docs/python-api.md` now carry the caveat.
+  `is_drive_degraded` answers "did the backend explicitly report a degraded
+  Drive state". A `False` from it means "nothing degraded was reported" — for a
+  non-Drive source, for `ACTIVE`, and for an unreadable code alike — not "the
+  Drive file is confirmed present and readable". `is_ready`'s docstring and
+  `docs/python-api.md` now carry the caveat.
 
   **Evidence and its limits:** the slot's population is live-confirmed — 4 of
   409 real source rows across 25 notebooks carry it, all Drive-backed, all

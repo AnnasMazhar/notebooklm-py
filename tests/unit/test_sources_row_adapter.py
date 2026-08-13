@@ -35,6 +35,7 @@ from notebooklm._types.sources import (
     _extract_source_created_at,
     _extract_source_url,
 )
+from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import DriveSourceStatus, SourceStatus
 
 # ---------------------------------------------------------------------------
@@ -750,17 +751,16 @@ def test_drive_status_is_none_when_the_settings_block_is_not_a_list(settings: ob
 @pytest.mark.parametrize(
     ("code", "expected"),
     [
-        (0, DriveSourceStatus.UNSPECIFIED),
         (1, DriveSourceStatus.INACCESSIBLE),
         (2, DriveSourceStatus.SYNCING),
         (3, DriveSourceStatus.ACTIVE),
         (4, DriveSourceStatus.DELETED),
         (5, DriveSourceStatus.GEN_AI_ACCESS_DENIED),
     ],
-    ids=["unspecified", "inaccessible", "syncing", "active", "deleted", "gen_ai_access_denied"],
+    ids=["inaccessible", "syncing", "active", "deleted", "gen_ai_access_denied"],
 )
 def test_drive_status_maps_every_backend_enum_value(code: int, expected: DriveSourceStatus) -> None:
-    """Each backend ``UserDriveSourceStatus`` value decodes to its member.
+    """Each modelled backend ``UserDriveSourceStatus`` value decodes to its member.
 
     Only ``3`` (ACTIVE) has been observed on the wire; the rest are constructed
     from the recovered backend enum, so this pins the DECODE, not the wire.
@@ -771,6 +771,16 @@ def test_drive_status_maps_every_backend_enum_value(code: int, expected: DriveSo
 def test_drive_status_explicit_null_slot_is_none() -> None:
     """A settings block long enough to reach [3] but carrying ``null`` there."""
     assert _row_with_settings([None, 2, None, None]).drive_status is None
+
+
+def test_drive_status_explicit_unspecified_normalizes_to_none(caplog) -> None:
+    """Backend ``0`` means "no claim" — the same thing an absent slot means.
+
+    It is deliberately not a ``DriveSourceStatus`` member: one state must not
+    have two representations. It is a *known* value, so it must not warn either.
+    """
+    assert _row_with_settings([None, 2, None, 0]).drive_status is None
+    assert not caplog.records
 
 
 class TestDriveStatusDrift:
@@ -789,12 +799,45 @@ class TestDriveStatusDrift:
 
     @pytest.mark.parametrize(
         "code",
-        [6, 99, -2, "3", 3.0, True, [3]],
-        ids=["future_code", "far_code", "negative", "str", "float", "bool", "list"],
+        [6, 99, -2, "3", 3.0, True, False, [3]],
+        ids=["future_code", "far_code", "negative", "str", "float", "true", "false", "list"],
     )
     def test_unmapped_values_degrade_to_unknown(self, caplog, code: object) -> None:
         assert _row_with_settings([None, 2, None, code]).drive_status is (DriveSourceStatus.UNKNOWN)
         assert "Unknown Drive source status" in caplog.text
+        # The warning is only actionable if it names WHICH value drifted and
+        # which RPC produced it — a bare "something drifted" line is useless.
+        assert repr(code) in caplog.text
+        assert RPCMethod.GET_NOTEBOOK.value in caplog.text
+
+    def test_false_is_not_decoded_as_the_unspecified_normalization(self, caplog) -> None:
+        """``False == 0``, but a JSON ``false`` here is drift, not "no claim".
+
+        It must reach ``UNKNOWN`` + a warning rather than silently taking the
+        ``0 -> None`` branch.
+        """
+        assert _row_with_settings([None, 2, None, False]).drive_status is DriveSourceStatus.UNKNOWN
+        assert "Unknown Drive source status" in caplog.text
+
+    def test_the_same_value_from_a_second_rpc_is_still_reported(self, caplog) -> None:
+        """Dedup is per ``(RPC, value)``, like ``_warned_drive_id_slots``."""
+        entry = [["src-id"], "Title", _meta_with(type_code=1), [None, 2, None, 77]]
+        assert SourceRow.from_entry(entry).drive_status is DriveSourceStatus.UNKNOWN
+        assert (
+            SourceRow.from_entry(entry, method_id=RPCMethod.ADD_SOURCE.value).drive_status
+            is DriveSourceStatus.UNKNOWN
+        )
+        assert caplog.text.count("Unknown Drive source status") == 2
+        assert RPCMethod.ADD_SOURCE.value in caplog.text
+
+    def test_an_oversized_drift_payload_is_truncated(self, caplog) -> None:
+        """A pathological payload cannot retain an unbounded warn-once key."""
+        assert (
+            _row_with_settings([None, 2, None, ["x" * 5000]]).drive_status
+            is DriveSourceStatus.UNKNOWN
+        )
+        (rendered,) = {value for _method, value in _warned_drive_status_codes}
+        assert len(rendered) <= 120
 
     def test_the_client_sentinel_is_not_a_wire_value(self, caplog) -> None:
         """A literal -1 is drift, not a silent round-trip of our own sentinel."""
@@ -827,6 +870,44 @@ def test_source_from_row_carries_drive_status() -> None:
     assert src.drive_status is DriveSourceStatus.ACTIVE
     assert src.is_drive_degraded is False
     assert src.is_ready is True
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [None, "not-a-list", 3, {}],
+    ids=["null", "str", "int", "dict"],
+)
+def test_status_also_fails_closed_on_a_non_list_settings_block(settings: object) -> None:
+    """``status`` shares ``_settings_block`` with ``drive_status`` (#2111).
+
+    Without this the ``isinstance(block, list)`` guard is only pinned by the
+    Drive-side tests, and removing it would make ``status`` raise ``TypeError``
+    from ``len()`` on a scalar settings block, with nothing to catch it.
+    """
+    assert _row_with_settings(settings).status is SourceStatus.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        [[[["src-id"], "T", None, [None, 2, None, 3]]]],
+        [[["src-id"], "T", None, [None, 2, None, 3]]],
+        ["src-id", "T", None, [None, 2, None, 3]],
+    ],
+    ids=["deeply_nested", "medium_nested", "flat"],
+)
+def test_from_api_response_decodes_drive_status_on_every_wire_shape(raw: list) -> None:
+    """The ``ADD_SOURCE`` funnel (``sources.add_drive_file``'s return path).
+
+    ``Source.from_api_response`` dispatches three wire shapes; a populated Drive
+    slot must survive all three, since an add response is the one realistic
+    place a caller sees one at creation time.
+    """
+    from notebooklm._types.sources import Source
+
+    src = Source.from_api_response(raw)
+    assert src.drive_status is DriveSourceStatus.ACTIVE
+    assert src.is_drive_degraded is False
 
 
 def test_source_from_row_leaves_drive_status_none_for_non_drive_rows() -> None:

@@ -74,6 +74,10 @@ class FakeSource:
     def drive_status(self) -> DriveSourceStatus | None:
         return None
 
+    @property
+    def is_drive_degraded(self) -> bool:
+        return False
+
 
 @dataclass
 class FakeNotReadySource:
@@ -101,6 +105,10 @@ class FakeNotReadySource:
     @property
     def drive_status(self) -> DriveSourceStatus | None:
         return None
+
+    @property
+    def is_drive_degraded(self) -> bool:
+        return False
 
 
 @dataclass
@@ -130,6 +138,10 @@ class FakeFailedSource:
     @property
     def drive_status(self) -> DriveSourceStatus | None:
         return None
+
+    @property
+    def is_drive_degraded(self) -> bool:
+        return False
 
 
 @dataclass
@@ -162,6 +174,10 @@ class FakeReadyTextSource:
     def drive_status(self) -> DriveSourceStatus | None:
         return None
 
+    @property
+    def is_drive_degraded(self) -> bool:
+        return False
+
 
 @dataclass
 class FakeFulltext:
@@ -190,6 +206,7 @@ async def test_source_list(mcp_call, mock_client) -> None:
                 "kind": "web_page",
                 "status_label": "ready",
                 "drive_status_label": None,
+                "is_drive_degraded": False,
             }
         ],
         "total": 1,
@@ -217,6 +234,7 @@ async def test_source_list_status_filter(mcp_call, mock_client) -> None:
                 "kind": "web_page",
                 "status_label": "error",
                 "drive_status_label": None,
+                "is_drive_degraded": False,
             }
         ],
         "total": 1,
@@ -298,6 +316,7 @@ async def test_source_list_compact(mcp_call, mock_client) -> None:
 
     Uses a real ``Source`` so ``created_at`` (dropped by the minimal fakes)
     actually serializes: the row is exactly ``{id, title, kind, status_label,
+    drive_status_label,
     created_at}`` — no ``url`` / raw ``status`` / ``_type_code`` — for a low-token
     listing with no extra read.
     """
@@ -322,6 +341,7 @@ async def test_source_list_compact(mcp_call, mock_client) -> None:
                 "title": "Doc",
                 "kind": "pdf",
                 "status_label": "ready",
+                "drive_status_label": None,
                 "created_at": "2024-01-01T00:00:00+00:00",
             }
         ],
@@ -344,7 +364,14 @@ async def test_source_list_compact_composes_with_status_filter(mcp_call, mock_cl
     )
     rows = result.structured_content["sources"]
     assert [r["id"] for r in rows] == [SRC2_ID]
-    assert set(rows[0]) == {"id", "title", "kind", "status_label", "created_at"}
+    assert set(rows[0]) == {
+        "id",
+        "title",
+        "kind",
+        "status_label",
+        "drive_status_label",
+        "created_at",
+    }
     assert rows[0]["status_label"] == "error"
 
 
@@ -359,9 +386,52 @@ async def test_source_list_compact_null_created_at(mcp_call, mock_client) -> Non
     mock_client.sources.list = AsyncMock(return_value=[src])
     result = await mcp_call("source_list", {"notebook": NB_ID, "detail": "compact"})
     row = result.structured_content["sources"][0]
-    assert set(row) == {"id", "title", "kind", "status_label", "created_at"}
+    assert set(row) == {"id", "title", "kind", "status_label", "drive_status_label", "created_at"}
     assert row["created_at"] is None
     assert row["status_label"] == "processing"
+
+
+async def test_source_list_full_projects_drive_health_of_a_real_source(
+    mcp_call, mock_client
+) -> None:
+    """#2111 end-to-end through the REAL ``Source`` dataclass, not a hand-built fake.
+
+    Every other exact-dict assertion in this module compares against a local
+    ``FakeSource``, so it pins the shape of the *fake*. This one builds a real
+    ``Source``, so the full projection is anchored to the actual dataclass — the
+    counter-example that catches a field the fakes would silently miss.
+    """
+    from notebooklm.types import DriveSourceStatus, Source
+
+    src = Source(
+        id=SRC_ID,
+        title="Shared Doc",
+        _type_code=1,
+        status=SourceStatus.READY,
+        drive_document_id="1AbC",
+        drive_status=DriveSourceStatus.DELETED,
+    )
+    mock_client.sources.list = AsyncMock(return_value=[src])
+    result = await mcp_call("source_list", {"notebook": NB_ID})
+    row = result.structured_content["sources"][0]
+
+    assert row == {
+        "id": SRC_ID,
+        "title": "Shared Doc",
+        "url": None,
+        "created_at": None,
+        "status": SourceStatus.READY.value,
+        "drive_document_id": "1AbC",
+        "drive_status": DriveSourceStatus.DELETED.value,
+        "_type_code": 1,
+        "kind": "google_docs",
+        # Ingestion completed and stays completed — the exact situation #2111
+        # is about — so the Drive axis is the only signal that the grounding
+        # snapshot is stale.
+        "status_label": "ready",
+        "drive_status_label": "deleted",
+        "is_drive_degraded": True,
+    }
 
 
 async def test_source_list_default_is_full_unchanged(mcp_call, mock_client) -> None:
@@ -375,6 +445,7 @@ async def test_source_list_default_is_full_unchanged(mcp_call, mock_client) -> N
             "kind": "web_page",
             "status_label": "ready",
             "drive_status_label": None,
+            "is_drive_degraded": False,
         }
     ]
 
@@ -395,6 +466,7 @@ async def test_source_read(mcp_call, mock_client) -> None:
             "kind": "web_page",
             "status_label": "ready",
             "drive_status_label": None,
+            "is_drive_degraded": False,
         },
         "content": "hello world",
         "char_count": 11,
@@ -585,6 +657,7 @@ async def test_source_read_not_ready_returns_null_without_fetch(mcp_call, mock_c
         "kind": "pdf",
         "status_label": "processing",
         "drive_status_label": None,
+        "is_drive_degraded": False,
     }
     assert result.structured_content["content"] is None
     assert result.structured_content["char_count"] == 0
@@ -851,6 +924,7 @@ async def test_source_wait_single_source_ready(mcp_call, mock_client) -> None:
             "kind": "web_page",
             "status_label": "ready",
             "drive_status_label": None,
+            "is_drive_degraded": False,
         }
     ]
     assert sc["timed_out"] == sc["failed"] == sc["not_found"] == []
@@ -1506,6 +1580,7 @@ async def test_source_add_text(mcp_call, mock_client) -> None:
             "kind": "web_page",
             "status_label": "ready",
             "drive_status_label": None,
+            "is_drive_degraded": False,
         },
     }
     mock_client.sources.add_text.assert_awaited_once_with(NB_ID, "Notes", "hello world")
@@ -1525,6 +1600,7 @@ async def test_source_add_url(mcp_call, mock_client) -> None:
             "kind": "web_page",
             "status_label": "ready",
             "drive_status_label": None,
+            "is_drive_degraded": False,
         },
     }
     mock_client.sources.add_url.assert_awaited_once_with(NB_ID, "https://example.com/a")
@@ -1566,6 +1642,7 @@ async def test_source_add_drive(mcp_call, mock_client) -> None:
             "kind": "web_page",
             "status_label": "ready",
             "drive_status_label": None,
+            "is_drive_degraded": False,
         },
         "notebook_id": NB_ID,
         "file_id": "drivefile123",
@@ -1798,6 +1875,7 @@ async def test_source_add_single_metadata_not_rejected(mcp_call, mock_client) ->
             "kind": "web_page",
             "status_label": "ready",
             "drive_status_label": None,
+            "is_drive_degraded": False,
         },
     }
     # The add actually proceeded (not silently rejected). A url source ignores
@@ -1854,6 +1932,7 @@ async def test_source_add_youtube_accepts_youtube_url(mcp_call, mock_client) -> 
             "kind": "web_page",
             "status_label": "ready",
             "drive_status_label": None,
+            "is_drive_degraded": False,
         },
     }
     mock_client.sources.add_url.assert_awaited_once_with(NB_ID, yt)
@@ -2493,6 +2572,7 @@ async def test_source_add_wait_url_ready(mcp_call, mock_client) -> None:
             "kind": "web_page",
             "status_label": "ready",
             "drive_status_label": None,
+            "is_drive_degraded": False,
         }
     ]
     assert sc["timed_out"] == sc["failed"] == sc["not_found"] == []
@@ -2529,6 +2609,7 @@ async def test_source_add_wait_text_ready(mcp_call, mock_client) -> None:
             "kind": "pasted_text",
             "status_label": "ready",
             "drive_status_label": None,
+            "is_drive_degraded": False,
         }
     ]
     mock_client.sources.add_text.assert_awaited_once_with(NB_ID, "Notes", "hello world")

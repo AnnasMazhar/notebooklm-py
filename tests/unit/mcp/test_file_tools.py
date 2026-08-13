@@ -102,6 +102,10 @@ class FakeReadyPdf:
     def drive_status(self) -> DriveSourceStatus | None:
         return None
 
+    @property
+    def is_drive_degraded(self) -> bool:
+        return False
+
 
 @pytest.fixture
 def config() -> FileTransferConfig:
