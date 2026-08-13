@@ -44,6 +44,7 @@ from notebooklm import (
     RPCError,
     ServerError,
 )
+from notebooklm._app.errors import ErrorCategory, classify
 from notebooklm.rpc import RPCMethod
 from tests._fixtures.kernel_test_helpers import install_http_client_for_test
 
@@ -379,10 +380,18 @@ async def test_notebooks_create_raises_on_ambiguous_probe(auth_tokens) -> None:
     transport = httpx.MockTransport(handler)
     client = _make_client_with_transport(transport, auth_tokens)
     try:
-        with pytest.raises(RPCError, match="disambiguate"):
+        with pytest.raises(RPCError, match="disambiguate") as exc_info:
             await client.notebooks.create(title)
     finally:
         await client._collaborators.kernel.get_http_client().aclose()
+
+    # The probe listed fine but cannot attribute either notebook, so the create's
+    # outcome is unknown — an unconfirmed create (#2220), not a plain protocol
+    # error. The marker is what keeps a caller (or an adapter) from being told to
+    # retry a create that may already have landed.
+    assert getattr(exc_info.value, "unconfirmed", False) is True
+    assert classify(exc_info.value).category is ErrorCategory.RPC
+    assert classify(exc_info.value).retriable is False
 
 
 # ---------------------------------------------------------------------------

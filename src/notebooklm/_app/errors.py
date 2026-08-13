@@ -226,9 +226,10 @@ class ClassifiedError:
 #: message says nothing about a possible write. Same override shape the
 #: near-miss ``candidates`` use.
 UNCONFIRMED_HINT = (
-    "The write was NOT retried and its outcome is unknown — it may or may not "
-    "have been created. Reconcile against the notebook (or its source list) "
-    "before retrying; retrying blind can create a duplicate."
+    "The outcome of this write is unknown — it may or may not have been created, "
+    "and no further attempt was made once the check came back inconclusive. "
+    "Reconcile against the notebook (or its source list) before retrying; "
+    "retrying blind can create a duplicate."
 )
 
 

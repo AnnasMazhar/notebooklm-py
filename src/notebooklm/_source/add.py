@@ -372,9 +372,10 @@ class SourceAddService:
                             f"source list first. Cannot confirm URL source {url!r}: "
                             "the create failed at the transport level and may or may "
                             "not have committed, and the idempotency probe that would "
-                            f"settle it failed too ({type(exc).__name__}). It was NOT "
-                            "retried, because retrying on an unanswered probe is how "
-                            "duplicates happen."
+                            f"settle it failed too ({type(exc).__name__}). No FURTHER attempt "
+                            "was made, because retrying on an unanswered probe is how "
+                            "duplicates happen — but an earlier attempt in this call "
+                            "may also have committed."
                         ),
                     )
                 ) from exc
@@ -657,9 +658,15 @@ class SourceAddService:
         # only in that payload; LIST_NOTEBOOKS does not bump but does not carry
         # them) and accepted; see the ``.. note::`` on this method.
         baseline_ids: set[str] | None
+        # Retained so the ambiguity raise below can name what went wrong, exactly
+        # as ``add_url`` does: the caller sees "baseline snapshot failed" long
+        # after this line ran, and without the cause there is nothing left in the
+        # process that can explain it.
+        baseline_error: Exception | None = None
         try:
             baseline_ids = {source.id for source in await list_sources(notebook_id)}
         except Exception as exc:
+            baseline_error = exc
             # WARNING, not DEBUG, for the reason spelled out on ``add_url``'s
             # copy of this block (#2204): the default logger level is WARNING,
             # so a DEBUG record here is dropped before any handler sees it and
@@ -720,8 +727,9 @@ class SourceAddService:
                             f"{file_id!r}: the create failed at the transport level "
                             "and may or may not have committed, and the idempotency "
                             f"probe that would settle it failed too "
-                            f"({type(exc).__name__}). It was NOT retried, because "
-                            "retrying on an unanswered probe is how duplicates happen."
+                            f"({type(exc).__name__}). No FURTHER attempt was made, because "
+                            "retrying on an unanswered probe is how duplicates happen — "
+                            "but an earlier attempt in this call may also have committed."
                         ),
                     )
                 ) from exc
@@ -734,10 +742,12 @@ class SourceAddService:
                 raise _unconfirmed(
                     SourceAddError(
                         title,
+                        cause=baseline_error,
                         message=(
-                            f"Cannot disambiguate Drive source {file_id!r}: baseline snapshot "
-                            "was unavailable, so a matching source may predate this add. "
-                            "Check the notebook source list before retrying."
+                            f"Cannot disambiguate Drive source {file_id!r}: the pre-create "
+                            f"baseline snapshot failed ({type(baseline_error).__name__}), so "
+                            "a matching source may either predate this add or be the one it "
+                            "just created. Check the notebook source list before retrying."
                         ),
                     )
                 )

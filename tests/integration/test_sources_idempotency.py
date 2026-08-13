@@ -824,10 +824,15 @@ async def test_add_drive_probe_raises_when_baseline_unavailable_and_a_copy_exist
     # point of the test being what the *probe* does afterwards.
     client = _make_client_with_transport(transport, auth_tokens, server_error_max_retries=0)
     try:
-        with pytest.raises(SourceAddError, match="baseline snapshot was unavailable"):
+        with pytest.raises(SourceAddError, match="pre-create baseline snapshot failed") as exc_info:
             await client.sources.add_drive(notebook_id, _DRIVE_FILE_ID, title)
     finally:
         await client._collaborators.kernel.get_http_client().aclose()
+
+    # The baseline's own failure is retained as the cause, matching add_url: the
+    # caller reads "baseline snapshot failed" long after that read happened, and
+    # nothing else in the process can explain it.
+    assert isinstance(exc_info.value.cause, ServerError)
 
 
 async def test_add_drive_probe_raises_when_multiple_new_matches_appear(auth_tokens) -> None:

@@ -625,9 +625,10 @@ class NotebooksAPI:
                         f"first. Cannot confirm notebook with title {title!r}: the "
                         "create failed at the transport level and may or may not have "
                         "committed, and the idempotency probe that would settle it "
-                        f"failed too ({type(exc).__name__}). It was NOT retried, "
+                        f"failed too ({type(exc).__name__}). No FURTHER attempt was made, "
                         "because retrying on an unanswered probe is how duplicates "
-                        "happen.",
+                        "happen — but an earlier attempt in this call may also have "
+                        "committed.",
                         method_id=RPCMethod.CREATE_NOTEBOOK.value,
                     )
                 ) from exc

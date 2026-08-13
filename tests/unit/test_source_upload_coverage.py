@@ -527,7 +527,7 @@ class TestRegisterFileSourceBranches:
         async def _rpc_call(*_a: Any, **_k: Any) -> Any:
             raise NetworkError("transport down")
 
-        with pytest.raises(SourceAddError, match="baseline snapshot was unavailable"):
+        with pytest.raises(SourceAddError, match="baseline snapshot was unavailable") as exc_info:
             await pipeline.register_file_source(
                 "nb_1",
                 "report.pdf",
@@ -535,6 +535,13 @@ class TestRegisterFileSourceBranches:
                 logger=logger,
                 rpc_call=_rpc_call,
             )
+        # The marker is what keeps an unresolved create out of the non-fatal,
+        # per-item SOURCE_ADD bucket (#2220). Asserted here rather than only on
+        # the message, because message-only assertions are exactly why the
+        # sibling gap survived two review rounds.
+        assert getattr(exc_info.value, "unconfirmed", False) is True
+        assert classify(exc_info.value).category is ErrorCategory.RPC
+        assert classify(exc_info.value).retriable is False
         # WARNING, not DEBUG (#2220): the ``notebooklm`` logger defaults to
         # WARNING, so the old DEBUG record never reached a handler and the
         # degraded baseline was invisible.
@@ -698,7 +705,7 @@ class TestRegisterFileSourceBranches:
         async def _rpc_call(*_a: Any, **_k: Any) -> Any:
             raise NetworkError("transport down")
 
-        with pytest.raises(SourceAddError, match="probe found 2 new sources"):
+        with pytest.raises(SourceAddError, match="probe found 2 new sources") as exc_info:
             await pipeline.register_file_source(
                 "nb_1",
                 "report.pdf",
@@ -706,6 +713,13 @@ class TestRegisterFileSourceBranches:
                 logger=MagicMock(),
                 rpc_call=_rpc_call,
             )
+
+        # An ambiguity is an unconfirmed create (#2220): nothing threw, but the
+        # server may hold a row either way. The marker keeps it out of the
+        # non-fatal per-item SOURCE_ADD bucket a batch add would continue past.
+        assert getattr(exc_info.value, "unconfirmed", False) is True
+        assert classify(exc_info.value).category is ErrorCategory.RPC
+        assert classify(exc_info.value).retriable is False
 
     @pytest.mark.asyncio
     async def test_missing_id_probe_ambiguity_propagates(self) -> None:
@@ -729,7 +743,7 @@ class TestRegisterFileSourceBranches:
         async def _rpc_call(*_a: Any, **_k: Any) -> Any:
             return [[[1, 2, 3]]]  # no usable id -> triggers probe
 
-        with pytest.raises(SourceAddError, match="probe found 2 new sources"):
+        with pytest.raises(SourceAddError, match="probe found 2 new sources") as exc_info:
             await pipeline.register_file_source(
                 "nb_1",
                 "report.pdf",
@@ -737,6 +751,13 @@ class TestRegisterFileSourceBranches:
                 logger=MagicMock(),
                 rpc_call=_rpc_call,
             )
+
+        # An ambiguity is an unconfirmed create (#2220): nothing threw, but the
+        # server may hold a row either way. The marker keeps it out of the
+        # non-fatal per-item SOURCE_ADD bucket a batch add would continue past.
+        assert getattr(exc_info.value, "unconfirmed", False) is True
+        assert classify(exc_info.value).category is ErrorCategory.RPC
+        assert classify(exc_info.value).retriable is False
 
     @pytest.mark.asyncio
     async def test_rpc_error_with_invalid_argument_code_adds_limit_hint(self) -> None:

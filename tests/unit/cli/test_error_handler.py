@@ -690,6 +690,14 @@ def test_unconfirmed_create_overrides_the_typed_branch_retry_advice(capsys):
         data = json.loads(capsys.readouterr().out)
         assert data["code"] == "UNCONFIRMED_WRITE", f"{type(error).__name__} kept its own code"
         assert data["unconfirmed"] is True
+        # The branch's own text carries the advice ("Retry after 30s"), so it
+        # must be REPLACED, not merely annotated — and ``retry_after`` is an
+        # instruction in machine-readable form, so it must not survive either.
+        # ``_output_error`` serializes ``extra`` but NOT ``hint``, which is why
+        # the hint is carried in ``extra`` for JSON.
+        assert "Retry after" not in data["message"]
+        assert "retry_after" not in data
+        assert "retrying blind can create a duplicate" in data["hint"]
 
 
 def test_unconfirmed_create_note_reaches_human_output(capsys):
@@ -700,7 +708,12 @@ def test_unconfirmed_create_note_reaches_human_output(capsys):
         raise mark_unconfirmed(NetworkError("Connection failed"))
 
     out = capsys.readouterr()
-    assert "retrying blind can create a duplicate" in (out.out + out.err).lower()
+    combined = (out.out + out.err).lower()
+    assert "retrying blind can create a duplicate" in combined
+    # Once, not twice: text mode prints the hint after the message, so setting
+    # both would repeat the whole paragraph.
+    assert combined.count("retrying blind can create a duplicate") == 1
+    assert "could not be confirmed" in combined
 
 
 def test_ordinary_errors_keep_their_typed_branch_code(capsys):

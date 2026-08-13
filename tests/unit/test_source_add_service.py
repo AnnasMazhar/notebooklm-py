@@ -1135,3 +1135,102 @@ class TestBuildSourceAddPlanUrlRouting:
             looks_path_shaped=self._make_looks_path(),
         )
         assert plan.detected_type == "youtube"
+
+
+def _drive_source(source_id: str, file_id: str, title: str = "Drive Doc") -> Source:
+    """A Drive-backed row, built from the captured wire shape.
+
+    Copied from the live ``GET_NOTEBOOK`` capture in
+    ``tests/cassettes/sources_check_freshness_drive.yaml`` (the same shape
+    ``tests/integration/test_sources_idempotency.py::_google_docs_source_row``
+    uses): the Drive block sits at ``metadata[0]`` and **no** URL slot is
+    populated — which is exactly why the pre-#2113 URL-based probe could never
+    match one. Decoding a real row rather than setting the property keeps this
+    honest: if the ``documentId`` slot ever moves, these tests notice.
+    """
+    metadata: list = [
+        [file_id, "SCRUBBED_AONS", 12],
+        911,
+        [1769105469, 316769000],
+        ["d4325602-2399-44c2-b45b-9df8f433189f", [1769105982, 178269000]],
+        1,  # SourceType.GOOGLE_DOCS
+        None,
+        1,
+    ]
+    source = Source.from_api_response(
+        [[source_id], title, metadata, [None, 2]],
+        method_id=RPCMethod.GET_NOTEBOOK.value,
+    )
+    # Guard the fixture itself: a silently non-matching row would make the
+    # probe return None and the test would fail for the wrong reason.
+    assert source.drive_document_id == file_id, "fixture no longer decodes as a Drive row"
+    return source
+
+
+@pytest.mark.asyncio
+async def test_add_drive_baseline_failure_makes_a_match_ambiguous(
+    service: SourceAddService,
+    logger: logging.Logger,
+) -> None:
+    """The Drive twin of ``test_add_url_baseline_failure_makes_a_match_ambiguous``.
+
+    This branch had **no** test at all before #2220's round-4 review — neither
+    for the #2113 ambiguity behaviour nor for the marker. A ``documentId`` is
+    not unique within a notebook, so without a baseline a match may predate the
+    add; adopting it would report a create that never landed.
+    """
+    file_id = "drive_file_1"
+    existing = _drive_source("src_pre_existing", file_id)
+
+    with pytest.raises(SourceAddError, match="Cannot disambiguate Drive source") as raised:
+        await service.add_drive(
+            "nb_1",
+            file_id,
+            "Drive Doc",
+            rpc=SimpleNamespace(rpc_call=AsyncMock(side_effect=ServerError("commit lost"))),
+            # baseline fails, then the probe finds the unattributable match
+            list_sources=AsyncMock(side_effect=[RPCError("baseline decode failed"), [existing]]),
+            wait_until_ready=AsyncMock(),
+            logger=logger,
+        )
+
+    # Parity with add_url: the error names what broke the baseline, because the
+    # caller reads "baseline snapshot failed" long after that read happened and
+    # nothing else in the process can explain it.
+    assert isinstance(raised.value.cause, RPCError)
+    assert "RPCError" in str(raised.value)
+    # The create's outcome is unknown, so this must not be classified as a
+    # per-item input rejection a batch add can isolate and continue past.
+    assert getattr(raised.value, "unconfirmed", False) is True
+    assert classify(raised.value).category is ErrorCategory.RPC
+    assert classify(raised.value).retriable is False
+
+
+@pytest.mark.asyncio
+async def test_add_drive_probe_raises_on_multiple_new_matches(
+    service: SourceAddService,
+    logger: logging.Logger,
+) -> None:
+    """Two new rows sharing a ``documentId`` cannot be told apart — raise, don't pick.
+
+    The repo's own cassette holds two source ids sharing one ``documentId``
+    (#2113), so this is a real shape, not a hypothetical.
+    """
+    file_id = "drive_file_2"
+    first = _drive_source("src_a", file_id)
+    second = _drive_source("src_b", file_id)
+
+    with pytest.raises(SourceAddError, match="probe found 2 new sources") as raised:
+        await service.add_drive(
+            "nb_1",
+            file_id,
+            "Drive Doc",
+            rpc=SimpleNamespace(rpc_call=AsyncMock(side_effect=ServerError("commit lost"))),
+            list_sources=AsyncMock(side_effect=[[], [first, second]]),
+            wait_until_ready=AsyncMock(),
+            logger=logger,
+        )
+
+    assert "src_a" in str(raised.value) or "2 new sources" in str(raised.value)
+    assert getattr(raised.value, "unconfirmed", False) is True
+    assert classify(raised.value).category is ErrorCategory.RPC

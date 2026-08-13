@@ -115,9 +115,10 @@ def _generation_status_extra(status: Any) -> dict[str, Any]:
 #: would otherwise give: the write may already exist, so repeating it is the one
 #: action that can make things worse.
 _UNCONFIRMED_WRITE_NOTE = (
-    "This write was NOT retried and its outcome is unknown: it may or may not "
-    "have been created. Check the notebook (or the notebook's source list) "
-    "before retrying — retrying blind can create a duplicate."
+    "The outcome of this write is unknown: it may or may not have been created, "
+    "and no further attempt was made once the check came back inconclusive. "
+    "Check the notebook (or the notebook's source list) before retrying — "
+    "retrying blind can create a duplicate."
 )
 
 
@@ -301,11 +302,25 @@ def handle_errors(verbose: bool = False, json_output: bool = False) -> Generator
             # because a script keying on ``RATE_LIMITED`` would otherwise back
             # off and retry exactly as the message told it not to.
             code = "UNCONFIRMED_WRITE"
+            # REPLACE the branch's message rather than appending to it. The
+            # branches bake their advice into the text — the rate-limit branch
+            # renders "Error: Rate limited. Retry after 30s." and also sets a
+            # ``retry_after`` field — so appending a warning leaves the original
+            # instruction standing, first, and in JSON leaves it as the only
+            # machine-readable guidance (``_output_error`` serializes ``extra``
+            # but NOT ``hint``). ``str(exc)`` carries the underlying detail
+            # without the advice.
+            detail = str(exc) if exc is not None else message
+            message = f"Error: this write could not be confirmed ({detail})"
+            if extra:
+                # Same reason: a stale ``retry_after`` is an instruction.
+                extra = {k: v for k, v in extra.items() if k != "retry_after"}
             if json_out:
-                extra = {**(extra or {}), "unconfirmed": True}
+                extra = {**(extra or {}), "unconfirmed": True, "hint": _UNCONFIRMED_WRITE_NOTE}
             else:
-                message = f"{message}\n{_UNCONFIRMED_WRITE_NOTE}"
-            hint = _UNCONFIRMED_WRITE_NOTE
+                # Text mode prints ``hint`` after ``message``; JSON ignores it,
+                # which is why the JSON branch above carries it in ``extra``.
+                hint = _UNCONFIRMED_WRITE_NOTE
         _output_error(message, code, json_out, exit_code, extra=extra, hint=hint)
 
     try:

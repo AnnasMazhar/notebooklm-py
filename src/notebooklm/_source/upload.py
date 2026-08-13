@@ -624,9 +624,10 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                             "source list first. Cannot confirm file source "
                             f"{filename!r}: the registration may or may not have "
                             "committed, and the idempotency probe that would settle "
-                            f"it failed too ({type(exc).__name__}). It was NOT "
-                            "retried, because retrying on an unanswered probe is how "
-                            "duplicates happen."
+                            f"it failed too ({type(exc).__name__}). No FURTHER attempt was "
+                            "made, because retrying on an unanswered probe is how "
+                            "duplicates happen — but an earlier attempt in this call "
+                            "may also have committed."
                         ),
                     )
                 ) from exc
