@@ -11739,7 +11739,7 @@
           "default": "Sentinel.UNSET",
           "envvar": null,
           "has_custom_shell_complete": false,
-          "help": "Only list sources with this ingestion status (repeatable).",
+          "help": "Only list sources with this ingestion status (repeatable). Use 'preparing' to find rows a failed add left behind.",
           "is_flag": false,
           "kind": "option",
           "multiple": true,
@@ -11797,32 +11797,6 @@
               "image",
               "media",
               "unknown"
-            ],
-            "name": "choice"
-          }
-        },
-        {
-          "default": null,
-          "envvar": null,
-          "has_custom_shell_complete": false,
-          "help": "Only list sources with this status. Use 'preparing' to find rows a failed add left behind.",
-          "is_flag": false,
-          "kind": "option",
-          "multiple": false,
-          "name": "status_filter",
-          "opts": [
-            "--status"
-          ],
-          "required": false,
-          "secondary_opts": [],
-          "type": {
-            "case_sensitive": true,
-            "choices": [
-              "unknown",
-              "processing",
-              "ready",
-              "error",
-              "preparing"
             ],
             "name": "choice"
           }
