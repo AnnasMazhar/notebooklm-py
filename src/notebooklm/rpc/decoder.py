@@ -863,6 +863,20 @@ def decode_response(
         # rejection (#2188).
         rejected = status is not None and status[0] != GrpcStatusCode.OK
         if allow_null and not (raise_on_null_status and rejected):
+            if rejected and status is not None:
+                # Still swallowed, but no longer without trace. DEBUG rather
+                # than WARNING because at least one caller's tolerance is
+                # deliberate and evidence-backed (REMOVE_RECENTLY_VIEWED's
+                # ``[13]``), so a warning would be noise on a healthy call. The
+                # other ``allow_null=True`` call sites have not been evaluated
+                # against live rejections; this line is what makes such a
+                # swallow findable when one of them misbehaves (#2188).
+                logger.debug(
+                    "Null result for %s carried status %s; swallowed because the "
+                    "call site did not pass raise_on_null_status",
+                    rpc_id,
+                    status[1],
+                )
             return None
 
         if status is not None:

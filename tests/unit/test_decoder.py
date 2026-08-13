@@ -1752,6 +1752,25 @@ class TestRaiseOnNullStatus:
 
         assert exc_info.value.rpc_code == 5
 
+    def test_swallowed_rejection_is_logged(self, caplog):
+        """A swallow without opt-in leaves a trace instead of vanishing."""
+        with caplog.at_level(logging.DEBUG, logger="notebooklm.rpc.decoder"):
+            assert decode_response(self._raw([13]), self.RPC_ID, allow_null=True) is None
+
+        assert any(
+            "swallowed because the call site did not pass raise_on_null_status" in r.message
+            and "Internal" in r.getMessage()
+            for r in caplog.records
+        )
+
+    @pytest.mark.parametrize("status", [None, [0]])
+    def test_a_benign_null_logs_nothing(self, caplog, status):
+        """A genuinely empty payload is not a rejection, so it stays quiet."""
+        with caplog.at_level(logging.DEBUG, logger="notebooklm.rpc.decoder"):
+            assert decode_response(self._raw(status), self.RPC_ID, allow_null=True) is None
+
+        assert not any("swallowed because" in r.message for r in caplog.records)
+
     def test_opt_in_does_not_change_a_populated_result(self):
         """Strictness only concerns null results."""
         chunk = json.dumps(["wrb.fr", self.RPC_ID, '["art_1"]', None, None, [3], "generic"])
