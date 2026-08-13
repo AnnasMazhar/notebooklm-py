@@ -191,6 +191,36 @@ def test_notebook_view_role_label_is_none_for_unknown_role() -> None:
     assert view["is_owner"] is True
 
 
+def test_source_view_labels_the_drive_status_code() -> None:
+    """``source_view`` labels the raw Drive-health code for agents (#2111)."""
+    from notebooklm._app.views import source_view
+    from notebooklm.types import DriveSourceStatus, Source
+
+    view = source_view(Source(id="src-1", drive_status=DriveSourceStatus.INACCESSIBLE))
+
+    assert view["drive_status"] == DriveSourceStatus.INACCESSIBLE.value
+    assert view["drive_status_label"] == "inaccessible"
+    # Additive: the ingestion labels are untouched by the Drive axis.
+    assert view["status_label"] == "ready"
+
+
+def test_source_view_drive_status_label_is_none_when_absent() -> None:
+    """No Drive claim stays ``None`` rather than becoming the "unknown" label.
+
+    ``None`` (no claim) and ``"unknown"`` (a code we could not read) are
+    different answers, and an agent must be able to tell them apart.
+    """
+    from notebooklm._app.views import source_view
+    from notebooklm.types import DriveSourceStatus, Source
+
+    absent = source_view(Source(id="src-1"))
+    assert absent["drive_status"] is None
+    assert absent["drive_status_label"] is None
+
+    unreadable = source_view(Source(id="src-1", drive_status=DriveSourceStatus.UNKNOWN))
+    assert unreadable["drive_status_label"] == "unknown"
+
+
 def test_unknown_object_falls_back_to_str() -> None:
     class Opaque:
         def __str__(self) -> str:

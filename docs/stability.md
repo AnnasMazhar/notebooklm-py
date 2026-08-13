@@ -127,7 +127,7 @@ QuizQuantity, QuizDifficulty
 InfographicOrientation, InfographicDetail, InfographicStyle
 SlideDeckFormat, SlideDeckLength
 ReportFormat
-SourceType, ArtifactType, SourceStatus
+SourceType, ArtifactType, SourceStatus, DriveSourceStatus
 ShareAccess, SharePermission, ShareViewLevel
 ChatGoal, ChatResponseLength, ChatMode
 DriveMimeType, ExportType

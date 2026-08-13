@@ -140,6 +140,20 @@ MAPPINGS: tuple[Mapping, ...] = (
         section=SOURCE_SETTINGS,
         note="the documented source[3][1] descent",
     ),
+    Mapping(
+        "sources",
+        "SourceRow",
+        "_DRIVE_STATUS_INNER_POS",
+        "SourceSettings",
+        "userDriveSourceStatus",
+        section=SOURCE_SETTINGS,
+        note=(
+            "#2111 — the sibling of status in the same settings block. "
+            "Live: 4/409 source rows carry settings=[null,2,null,3] (all "
+            "Drive-backed, all DRIVE_SOURCE_STATUS_ACTIVE); the other 405 "
+            "omit the slot. Read by SourceRow.drive_status."
+        ),
+    ),
     # ---- Source row: SourceMetadata ---------------------------------------
     Mapping(
         "sources", "SourceRow", "_META_TYPE_POS", "SourceMetadata", "originalSourceContentType"
@@ -529,6 +543,22 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
             2: "SOURCE_STATUS_COMPLETE",
             3: "SOURCE_STATUS_ERROR",
             5: "SOURCE_STATUS_TENTATIVE",
+        },
+    ),
+    # rpc/types.py::DriveSourceStatus (#2111). Only ACTIVE has been observed on
+    # the wire; the rest are bound from the recovered backend enum, which is
+    # exactly what this table is for — the binding is the evidence, not a live
+    # sighting. UNKNOWN(-1) is a client sentinel, declared in
+    # ``_CLIENT_SYNTHETIC_VALUES``.
+    "DriveSourceStatus": (
+        "UserDriveSourceStatus",
+        {
+            0: "DRIVE_SOURCE_STATUS_UNSPECIFIED",
+            1: "DRIVE_SOURCE_STATUS_INACCESSIBLE",
+            2: "DRIVE_SOURCE_STATUS_SYNCING",
+            3: "DRIVE_SOURCE_STATUS_ACTIVE",
+            4: "DRIVE_SOURCE_STATUS_DELETED",
+            5: "DRIVE_SOURCE_STATUS_GEN_AI_ACCESS_DENIED",
         },
     ),
     "ArtifactStatus": (

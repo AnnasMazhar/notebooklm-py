@@ -13,7 +13,10 @@ pytest.importorskip("fastmcp")
 
 from notebooklm._types.sources import SourceType  # noqa: E402 - after importorskip guard
 from notebooklm.exceptions import SourceTimeoutError  # noqa: E402 - after importorskip guard
-from notebooklm.rpc.types import SourceStatus  # noqa: E402 - after importorskip guard
+from notebooklm.rpc.types import (  # noqa: E402 - after importorskip guard
+    DriveSourceStatus,
+    SourceStatus,
+)
 
 from .conftest import AsyncMock  # noqa: E402 - after importorskip guard
 
@@ -41,6 +44,10 @@ class FakeSource:
     @property
     def status(self) -> SourceStatus:
         return SourceStatus.READY
+
+    @property
+    def drive_status(self) -> DriveSourceStatus | None:
+        return None
 
 
 @dataclass
@@ -83,6 +90,7 @@ async def test_source_read_full_is_json_first(mcp_call, mock_client) -> None:
             "title": "Doc",
             "kind": "pasted_text",
             "status_label": "ready",
+            "drive_status_label": None,
         },
         "content": "hello world",
         "char_count": 11,
@@ -122,7 +130,15 @@ async def test_source_wait_is_json_first(mcp_call, mock_client) -> None:
     assert result.structured_content == {
         "notebook_id": NB_ID,
         "ok": True,
-        "ready": [{"id": SRC_ID, "title": "Doc", "kind": "pasted_text", "status_label": "ready"}],
+        "ready": [
+            {
+                "id": SRC_ID,
+                "title": "Doc",
+                "kind": "pasted_text",
+                "status_label": "ready",
+                "drive_status_label": None,
+            }
+        ],
         "timed_out": [],
         "failed": [],
         "not_found": [],
@@ -177,7 +193,15 @@ async def test_source_add_wait_is_json_first(mcp_call, mock_client) -> None:
     assert result.structured_content == {
         "notebook_id": NB_ID,
         "ok": True,
-        "ready": [{"id": SRC_ID, "title": "Notes", "kind": "pasted_text", "status_label": "ready"}],
+        "ready": [
+            {
+                "id": SRC_ID,
+                "title": "Notes",
+                "kind": "pasted_text",
+                "status_label": "ready",
+                "drive_status_label": None,
+            }
+        ],
         "timed_out": [],
         "failed": [],
         "not_found": [],

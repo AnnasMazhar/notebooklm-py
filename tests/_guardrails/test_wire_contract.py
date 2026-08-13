@@ -73,6 +73,9 @@ _CLIENT_SYNTHETIC_VALUES: dict[str, dict[int, str]] = {
     # Not a wire value: returned when source[3][1] is absent, malformed, or a
     # code we do not map yet. See SourceStatus.UNKNOWN in rpc/types.py.
     "SourceStatus": {-1: "UNKNOWN"},
+    # Same shape for the Drive-side sibling: returned when source[3][3] is
+    # populated with a code (or type) we do not model. See DriveSourceStatus.
+    "DriveSourceStatus": {-1: "UNKNOWN"},
 }
 
 _SRC = Path(__file__).resolve().parents[2] / "src" / "notebooklm"

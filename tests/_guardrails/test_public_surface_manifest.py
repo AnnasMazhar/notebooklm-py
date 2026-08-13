@@ -227,6 +227,7 @@ _REEXPORTED_RPC_ENUMS = [
     "ChatGoal",
     "ChatResponseLength",
     "DriveMimeType",
+    "DriveSourceStatus",
     "ExportType",
     "InfographicDetail",
     "InfographicOrientation",
@@ -510,6 +511,7 @@ def test_rpc_helper_reexports_are_canonical_identities() -> None:
     assert public_types.artifact_status_to_str is rpc_types.artifact_status_to_str
     assert public_types.source_status_to_str is rpc_types.source_status_to_str
     assert public_types.share_permission_to_str is rpc_types.share_permission_to_str
+    assert public_types.drive_source_status_to_str is rpc_types.drive_source_status_to_str
 
 
 def test_types_non_all_facade_attributes_are_frozen() -> None:

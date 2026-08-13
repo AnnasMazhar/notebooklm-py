@@ -114,6 +114,7 @@
     "DriveMimeType",
     "ExportType",
     "SourceStatus",
+    "DriveSourceStatus",
     "ShareAccess",
     "ShareViewLevel",
     "SharePermission",

@@ -34,7 +34,10 @@ from notebooklm.mcp.tools._content_sanity import (  # noqa: E402 - after importo
     _BOT_CHALLENGE_BODY_SCAN_LIMIT,
     _THIN_SOURCE_CHAR_THRESHOLD,
 )
-from notebooklm.rpc.types import SourceStatus  # noqa: E402 - after importorskip guard
+from notebooklm.rpc.types import (  # noqa: E402 - after importorskip guard
+    DriveSourceStatus,
+    SourceStatus,
+)
 from notebooklm.types import Label, Source  # noqa: E402 - after importorskip guard
 
 from .conftest import AsyncMock  # noqa: E402 - after importorskip guard
@@ -67,6 +70,10 @@ class FakeSource:
     def status(self) -> SourceStatus:
         return SourceStatus.READY
 
+    @property
+    def drive_status(self) -> DriveSourceStatus | None:
+        return None
+
 
 @dataclass
 class FakeNotReadySource:
@@ -90,6 +97,10 @@ class FakeNotReadySource:
     @property
     def status(self) -> SourceStatus:
         return SourceStatus.PROCESSING
+
+    @property
+    def drive_status(self) -> DriveSourceStatus | None:
+        return None
 
 
 @dataclass
@@ -115,6 +126,10 @@ class FakeFailedSource:
     @property
     def status(self) -> SourceStatus:
         return SourceStatus.ERROR
+
+    @property
+    def drive_status(self) -> DriveSourceStatus | None:
+        return None
 
 
 @dataclass
@@ -143,6 +158,10 @@ class FakeReadyTextSource:
     def status(self) -> SourceStatus:
         return SourceStatus.READY
 
+    @property
+    def drive_status(self) -> DriveSourceStatus | None:
+        return None
+
 
 @dataclass
 class FakeFulltext:
@@ -164,7 +183,15 @@ async def test_source_list(mcp_call, mock_client) -> None:
     result = await mcp_call("source_list", {"notebook": NB_ID})
     assert result.structured_content == {
         "notebook_id": NB_ID,
-        "sources": [{"id": SRC_ID, "title": "Doc", "kind": "web_page", "status_label": "ready"}],
+        "sources": [
+            {
+                "id": SRC_ID,
+                "title": "Doc",
+                "kind": "web_page",
+                "status_label": "ready",
+                "drive_status_label": None,
+            }
+        ],
         "total": 1,
         "offset": 0,
         "has_more": False,
@@ -189,6 +216,7 @@ async def test_source_list_status_filter(mcp_call, mock_client) -> None:
                 "title": "Broken Import",
                 "kind": "web_page",
                 "status_label": "error",
+                "drive_status_label": None,
             }
         ],
         "total": 1,
@@ -341,7 +369,13 @@ async def test_source_list_default_is_full_unchanged(mcp_call, mock_client) -> N
     mock_client.sources.list = AsyncMock(return_value=[FakeSource(id=SRC_ID, title="Doc")])
     result = await mcp_call("source_list", {"notebook": NB_ID})
     assert result.structured_content["sources"] == [
-        {"id": SRC_ID, "title": "Doc", "kind": "web_page", "status_label": "ready"}
+        {
+            "id": SRC_ID,
+            "title": "Doc",
+            "kind": "web_page",
+            "status_label": "ready",
+            "drive_status_label": None,
+        }
     ]
 
 
@@ -360,6 +394,7 @@ async def test_source_read(mcp_call, mock_client) -> None:
             "title": "Doc",
             "kind": "web_page",
             "status_label": "ready",
+            "drive_status_label": None,
         },
         "content": "hello world",
         "char_count": 11,
@@ -549,6 +584,7 @@ async def test_source_read_not_ready_returns_null_without_fetch(mcp_call, mock_c
         "title": "Doc",
         "kind": "pdf",
         "status_label": "processing",
+        "drive_status_label": None,
     }
     assert result.structured_content["content"] is None
     assert result.structured_content["char_count"] == 0
@@ -809,7 +845,13 @@ async def test_source_wait_single_source_ready(mcp_call, mock_client) -> None:
     _assert_aggregate_shape(sc)
     assert sc["ok"] is True
     assert sc["ready"] == [
-        {"id": SRC_ID, "title": "Ready", "kind": "web_page", "status_label": "ready"}
+        {
+            "id": SRC_ID,
+            "title": "Ready",
+            "kind": "web_page",
+            "status_label": "ready",
+            "drive_status_label": None,
+        }
     ]
     assert sc["timed_out"] == sc["failed"] == sc["not_found"] == []
 
@@ -1458,7 +1500,13 @@ async def test_source_add_text(mcp_call, mock_client) -> None:
     assert result.structured_content == {
         "notebook_id": NB_ID,
         "status": "added",
-        "source": {"id": SRC_ID, "title": "Notes", "kind": "web_page", "status_label": "ready"},
+        "source": {
+            "id": SRC_ID,
+            "title": "Notes",
+            "kind": "web_page",
+            "status_label": "ready",
+            "drive_status_label": None,
+        },
     }
     mock_client.sources.add_text.assert_awaited_once_with(NB_ID, "Notes", "hello world")
 
@@ -1471,7 +1519,13 @@ async def test_source_add_url(mcp_call, mock_client) -> None:
     assert result.structured_content == {
         "notebook_id": NB_ID,
         "status": "added",
-        "source": {"id": SRC_ID, "title": "Page", "kind": "web_page", "status_label": "ready"},
+        "source": {
+            "id": SRC_ID,
+            "title": "Page",
+            "kind": "web_page",
+            "status_label": "ready",
+            "drive_status_label": None,
+        },
     }
     mock_client.sources.add_url.assert_awaited_once_with(NB_ID, "https://example.com/a")
 
@@ -1506,7 +1560,13 @@ async def test_source_add_drive(mcp_call, mock_client) -> None:
     # SourceAddDriveResult carries the source plus the drive provenance fields.
     assert result.structured_content == {
         "status": "added",
-        "source": {"id": SRC_ID, "title": "Sheet", "kind": "web_page", "status_label": "ready"},
+        "source": {
+            "id": SRC_ID,
+            "title": "Sheet",
+            "kind": "web_page",
+            "status_label": "ready",
+            "drive_status_label": None,
+        },
         "notebook_id": NB_ID,
         "file_id": "drivefile123",
         "mime_type": "google-sheets",
@@ -1732,7 +1792,13 @@ async def test_source_add_single_metadata_not_rejected(mcp_call, mock_client) ->
     assert result.structured_content == {
         "notebook_id": NB_ID,
         "status": "added",
-        "source": {"id": SRC_ID, "title": "My Page", "kind": "web_page", "status_label": "ready"},
+        "source": {
+            "id": SRC_ID,
+            "title": "My Page",
+            "kind": "web_page",
+            "status_label": "ready",
+            "drive_status_label": None,
+        },
     }
     # The add actually proceeded (not silently rejected). A url source ignores
     # mime_type downstream but now honors ``title`` via a post-add rename (#1960),
@@ -1782,7 +1848,13 @@ async def test_source_add_youtube_accepts_youtube_url(mcp_call, mock_client) -> 
     assert result.structured_content == {
         "notebook_id": NB_ID,
         "status": "added",
-        "source": {"id": SRC_ID, "title": "Vid", "kind": "web_page", "status_label": "ready"},
+        "source": {
+            "id": SRC_ID,
+            "title": "Vid",
+            "kind": "web_page",
+            "status_label": "ready",
+            "drive_status_label": None,
+        },
     }
     mock_client.sources.add_url.assert_awaited_once_with(NB_ID, yt)
 
@@ -2415,7 +2487,13 @@ async def test_source_add_wait_url_ready(mcp_call, mock_client) -> None:
     assert sc["source_id"] == SRC_ID
     assert sc["ok"] is True
     assert sc["ready"] == [
-        {"id": SRC_ID, "title": "Page", "kind": "web_page", "status_label": "ready"}
+        {
+            "id": SRC_ID,
+            "title": "Page",
+            "kind": "web_page",
+            "status_label": "ready",
+            "drive_status_label": None,
+        }
     ]
     assert sc["timed_out"] == sc["failed"] == sc["not_found"] == []
     mock_client.sources.add_url.assert_awaited_once_with(NB_ID, "https://example.com/a")
@@ -2445,7 +2523,13 @@ async def test_source_add_wait_text_ready(mcp_call, mock_client) -> None:
     assert sc["source_id"] == SRC_ID
     assert sc["ok"] is True
     assert sc["ready"] == [
-        {"id": SRC_ID, "title": "Notes", "kind": "pasted_text", "status_label": "ready"}
+        {
+            "id": SRC_ID,
+            "title": "Notes",
+            "kind": "pasted_text",
+            "status_label": "ready",
+            "drive_status_label": None,
+        }
     ]
     mock_client.sources.add_text.assert_awaited_once_with(NB_ID, "Notes", "hello world")
     mock_client.sources.get_fulltext.assert_not_called()
