@@ -31,9 +31,17 @@ repos:
       # Scoped by ``files:`` to the directories that hold committed captures, so
       # the common Python-only commit skips it entirely. The script accepts
       # individual paths, so pre-commit passes only the staged files.
+      # ``--strict`` disables the repair allowlist. Without it, staging a leaked
+      # fixture's basename into ``cassette_repair_allowlist.txt`` in the same
+      # commit makes the hook skip the file and exit 0 — CI catches that, but
+      # only after the push this hook exists to prevent.
+      #
+      # ``txt`` is in the file filter because ``--secrets-only`` already scans
+      # it (``_SECRETS_ONLY_EXTENSIONS``); omitting it here would let a
+      # credential-bearing ``.txt`` capture skip the hook entirely.
       - id: fixture-secrets
         name: fixture-secrets (no credential shapes in captures)
-        entry: uv run python tests/scripts/check_cassettes_clean.py --secrets-only
+        entry: uv run python tests/scripts/check_cassettes_clean.py --secrets-only --strict
         language: system
-        files: ^tests/(cassettes|fixtures|unit/fixtures)/.*\.(json|ya?ml|html)$
+        files: ^tests/(cassettes|fixtures|unit/fixtures)/.*\.(json|ya?ml|html|txt)$
         require_serial: true

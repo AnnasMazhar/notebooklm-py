@@ -1189,10 +1189,34 @@ _DETECT_AUTHUSER_EMAIL_DOUBLE_ENCODED = re.compile(
 # fixtures, docs, source) with no per-file allowlist. This is what the
 # ``--secrets-only`` mode of ``check_cassettes_clean.py`` uses to extend leak
 # detection beyond ``tests/cassettes/`` without drowning in false positives.
+# Signed blob-capability URLs (#2120). A live source-fulltext capture embeds a
+# download URL whose query parameter carries an opaque capability addressing a
+# NotebookLM blob, plus a Drive viewer wrapper around the same blob:
+#
+#     https://contribution.usercontent.google.com/download?c=<capability>&filename=…
+#     https://drive.google.com/viewer/upload?ck=…&ds=…&dsmi=…&p=…
+#
+# These are NAME-ANCHORED on the host + path, deliberately, rather than on the
+# capability's shape. The capability is an opaque base64 blob with no prefix to
+# key on, and the existing high-entropy scan only catches it when it happens to
+# be long enough: a 117-char capability trips it, a short one does NOT (measured
+# on #2215 — a synthetic ``?c=AIP70Bshortcap123`` URL scanned clean). Anchoring
+# on the endpoint makes detection independent of capability length.
+#
+# Scoped to the two hosts actually observed carrying capabilities, so an
+# ordinary ``drive.google.com/file/d/<id>`` reference in a fixture (a public
+# document id, not a credential) does not trip the guard.
+_DETECT_BLOB_CAPABILITY_URL = re.compile(
+    r"https?://contribution\.usercontent\.google\.com/download\?[^\s\"'<>]*\bc="
+    r"|https?://drive\.google\.com/viewer/upload\?[^\s\"'<>]*\b(?:ck|ds|dsmi|p)="
+    r"|/blobstore/[^\s\"'<>]*/blobrefs/"
+)
+
 _CREDENTIAL_DETECTORS: list[tuple[str, re.Pattern[str]]] = [
     ("auth token", _DETECT_AUTH_TOKEN),
     ("Google API key", _DETECT_GOOGLE_API_KEY),
     ("double-encoded authuser email", _DETECT_AUTHUSER_EMAIL_DOUBLE_ENCODED),
+    ("signed blob-capability URL", _DETECT_BLOB_CAPABILITY_URL),
 ]
 
 
