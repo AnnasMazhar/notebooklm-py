@@ -2758,7 +2758,7 @@ as an `is_public_sharing_denied` key.
 > `max_individuals_share_limit - len(shared_users)` is plausible but unverified,
 > and plausibly off by one. Treat the cap as the backend's stated ceiling, not
 > as an operand in arithmetic this project has confirmed.
-
+>
 > **`set_public` deliberately does not consult the gate.** Making it pre-check
 > `is_public_sharing_allowed` would add an RPC round-trip to every call and
 > change a public method's failure mode on the strength of a consequence that
