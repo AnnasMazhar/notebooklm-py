@@ -476,6 +476,25 @@ except NonIdempotentRetryError:
 
 `client.sources.add_file(...)` and `client.sources.add_drive(...)` are now also covered by the probe-then-create wrapper: the create RPC runs with `disable_internal_retries=True` and, on transport failure, the wrapper probes the server-side source list (via `idempotent_create`) before deciding whether to retry — so transient failures no longer produce duplicate sources. See `_source/add.py` (`SourceAddService.add_drive`) and `_source/upload.py` (`SourceUploadPipeline.register_file_source`) for the implementation.
 
+**When the probe itself fails, the call fails ([#2220](https://github.com/teng-lin/notebooklm-py/issues/2220)).** The probe is what makes the retry safe, so it is never allowed to guess. If its own list RPC fails for a non-transport reason — realistically, wire drift making the strict decoder raise `RPCError` — the create is **not** retried, and you get `SourceAddError` (source paths) or `RPCError` (`notebooks.create`) saying the create could not be confirmed. The transport error that triggered the probe is retained as `__context__`, and the probe's own failure as `__cause__`.
+
+Handle it as "unresolved, go look" rather than "failed":
+
+```python
+from notebooklm import RPCError, SourceAddError
+
+try:
+    source = await client.sources.add_url(nb_id, url)
+except SourceAddError as exc:
+    if "Cannot confirm" in str(exc):
+        # The source may or may not exist. Check before re-adding, or you
+        # risk the duplicate the probe was there to prevent.
+        existing = [s for s in await client.sources.list(nb_id) if s.url == url]
+    raise
+```
+
+The alternative — retrying on an unanswered probe — is what this replaced. It recovered silently in the common case, at the cost of occasionally handing back a duplicate, or the wrong source id, with nothing to signal it. A raised error is actionable; an unreported duplicate is not.
+
 **Partial file uploads.** File registration creates the source row before the
 resumable HTTP upload starts. If session setup or the combined upload/finalize
 request then fails, the source row is **retained** — the client never deletes it

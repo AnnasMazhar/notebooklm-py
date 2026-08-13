@@ -307,21 +307,31 @@ async def test_probed_result_without_proven_freshness_skips_the_rename() -> None
 
 
 @pytest.mark.asyncio
-async def test_add_url_probe_decode_failure_warns(
+async def test_add_url_probe_decode_failure_propagates_without_retrying(
     service: SourceAddService,
     logger: logging.Logger,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A non-transport probe failure logs at WARNING, not DEBUG (#2204).
+    """A probe that cannot answer aborts the add instead of retrying (#2220).
 
-    It is indistinguishable from "the create did not land", so the add is
-    re-issued with no internal retries left as a net — the operator needs to
-    see it.
+    A decode failure leaves the probe unable to say whether the create landed.
+    Returning "no match" there would re-issue ``ADD_SOURCE`` on no evidence,
+    and this variant runs with ``disable_internal_retries=True`` precisely
+    because a blind re-POST can duplicate. So the create must NOT fire twice.
+
+    The raised error has to stay diagnosable end to end: the decode failure as
+    ``cause``/``__cause__``, and the transport failure that triggered the probe
+    as ``__context__`` (``idempotent_create`` awaits the probe inside its
+    handler for that error).
     """
     add_url_source = AsyncMock(side_effect=NetworkError("temporary network failure"))
-    list_sources = AsyncMock(side_effect=[[], RPCError("probe decode failed"), [], []])
+    probe_error = RPCError("probe decode failed")
+    list_sources = AsyncMock(side_effect=[[], probe_error, [], []])
 
-    with caplog.at_level(logging.WARNING, logger=logger.name), pytest.raises(NetworkError):
+    with (
+        caplog.at_level(logging.WARNING, logger=logger.name),
+        pytest.raises(SourceAddError) as exc_info,
+    ):
         await service.add_url(
             "nb_1",
             "https://example.com",
@@ -334,8 +344,15 @@ async def test_add_url_probe_decode_failure_warns(
             logger=logger,
         )
 
-    assert "may create a duplicate source" in caplog.text
-    assert add_url_source.await_count == 2
+    assert "will not be retried" in caplog.text
+    # The load-bearing assertion: one create, not two. Flip the probe back to
+    # ``return None`` and this is what fails.
+    assert add_url_source.await_count == 1
+    assert exc_info.value.cause is probe_error
+    assert exc_info.value.__cause__ is probe_error
+    assert isinstance(exc_info.value.__context__, RPCError)
+    # The transport error that made the probe run at all is still reachable.
+    assert isinstance(probe_error.__context__, NetworkError)
 
 
 @pytest.mark.asyncio

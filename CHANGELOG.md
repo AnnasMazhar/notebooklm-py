@@ -302,6 +302,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An idempotency probe that cannot answer no longer retries the create.**
+  All four `PROBE_THEN_CREATE` paths — `notebooks.create`, `sources.add_url`,
+  `sources.add_drive`, and `register_file_source` — ran their probe's `list()`
+  inside a `try`, propagated transport failures, and swallowed everything else
+  with a log and a `return None`. But `None` means "no match", which
+  `idempotent_create` reads as *evidence the create did not land* and acts on by
+  re-issuing it. A drifted `GET_NOTEBOOK` / `LIST_NOTEBOOKS` makes the strict
+  decoder raise `RPCError`, which is indistinguishable from "not committed" — so
+  the create was repeated on no evidence, and these variants run with
+  `disable_internal_retries=True` precisely because a blind re-POST can
+  duplicate. The probe failing is the moment its protection matters most.
+
+  A probe now returns `None` only when it has affirmatively established that no
+  matching resource exists, and raises when it cannot: `SourceAddError` on the
+  three source paths, `RPCError` on `notebooks.create` — in both cases the type
+  that path's existing "cannot disambiguate" branch already raises, so no
+  caller's `except` clause changes meaning. The transport failure that triggered
+  the probe is retained as `__context__` and the decode failure as `cause` /
+  `__cause__`, so both halves stay in the traceback.
+
+  **This is a deliberate trade, not a free win.** A decode blip on a create that
+  never landed now surfaces as a hard failure the caller must retry by hand,
+  where before it recovered silently. It is accepted because the outcomes are
+  not symmetric in *detectability*: a caller told "unresolved, go look" can act,
+  while a caller handed a silent duplicate — or, on `add_url`, the wrong source
+  id — has nothing to act on and no reason to look. Swallowing also converted a
+  `PROBE_THEN_CREATE` operation into an at-least-once one at the moment its
+  guarantee was load-bearing, and this codebase makes at-least-once an explicit
+  opt-in (`AT_LEAST_ONCE_ACCEPTED`, which emits a rate-limited WARN so the
+  trade-off stays visible). The rule and its rationale are now in ADR-0005.
+  ([#2220](https://github.com/teng-lin/notebooklm-py/issues/2220))
+
+  The *pre-create baseline* read deliberately still degrades rather than
+  failing — it runs before anything is written, so proceeding is safe and
+  refusing would break adds that would otherwise succeed. What changed there is
+  only the log level: `register_file_source` and `notebooks.create` swallowed at
+  `DEBUG`, and the `notebooklm` logger defaults to `WARNING`, so the record was
+  discarded before any handler saw it and the call ran with a degraded probe in
+  silence. Both now log at `WARNING` and name the failure type, matching what
+  `add_url` / `add_drive` got in
+  [#2204](https://github.com/teng-lin/notebooklm-py/issues/2204).
+
 - **A configured `timeout=` was silently overridden for chat and
   IMPORT_RESEARCH.** ([#2205](https://github.com/teng-lin/notebooklm-py/issues/2205))
   Both RPCs carry a longer-than-default built-in read window — 180 s for chat,

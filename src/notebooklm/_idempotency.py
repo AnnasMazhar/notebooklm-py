@@ -120,6 +120,22 @@ async def idempotent_create(
             ``add_url``: list-then-url-match and ``add_drive``:
             list-then-documentId-match, both filtered by a pre-create
             baseline).
+
+            **A probe must return ``None`` only when it has affirmatively
+            established that no matching resource exists.** ``None`` is
+            read here as evidence that the create did not land, and it is
+            acted on by re-issuing that create. A probe that cannot answer
+            — its own list failed, a match it cannot attribute, several
+            matches it cannot choose between — must raise instead (#2220).
+            Raising aborts the retry loop and surfaces to the caller, with
+            the transport error that triggered the probe attached as
+            ``__context__``.
+
+            The alternative, swallowing and returning ``None``, silently
+            converts a ``PROBE_THEN_CREATE`` operation into an
+            at-least-once one at the moment its guarantee matters most.
+            :attr:`IdempotencyPolicy.AT_LEAST_ONCE_ACCEPTED` exists for
+            callers who want that, and it is opt-in by name.
         max_attempts: Maximum total ``create()`` invocations (default
             2 — one initial + one retry). Each attempt is followed by
             a probe; the probe runs only after a transport failure.
@@ -135,6 +151,13 @@ async def idempotent_create(
         consistently returns ``None`` and retries are exhausted. Non-
         transport exceptions (auth, validation, decoding) propagate
         from the first ``create()`` call without invoking the probe.
+
+        Whatever ``probe()`` raises, immediately and without a further
+        create attempt. Because the probe is awaited inside the handler
+        for the transport failure, the raised error carries that failure
+        as its ``__context__``, so the traceback shows both halves: the
+        create that may have committed, and the probe that could not say
+        whether it did.
 
     Cancellation:
         Pure ``await`` — no ``asyncio.shield``. A ``CancelledError``

@@ -550,9 +550,23 @@ class SourceUploadPipeline(LoopBoundPrimitive):
             baseline_sources = await list_sources(notebook_id)
             baseline_ids = {source.id for source in baseline_sources}
             baseline_source_count = len(baseline_sources)
-        except Exception:
-            logger.debug(
-                "register_file_source: baseline list() failed; baseline unavailable",
+        except Exception as exc:
+            # WARNING, not DEBUG (#2220 parity with ``add_url`` / ``add_drive``,
+            # #2204): the ``notebooklm`` logger defaults to WARNING, so a DEBUG
+            # record here is discarded before any handler sees it and the call
+            # silently proceeds with its idempotency probe degraded.
+            #
+            # This one still swallows, unlike the probe below, and the asymmetry
+            # is deliberate: nothing has been written yet at baseline time, so
+            # degrading is safe and failing here would break adds that would
+            # otherwise have succeeded. The probe runs *after* a create that may
+            # already have committed, so it has no such freedom.
+            logger.warning(
+                "register_file_source: baseline list() failed (%s); the idempotency probe "
+                "can no longer tell a source this call created from one that was already "
+                "there, so a transport failure will surface as an ambiguity error instead "
+                "of recovering",
+                type(exc).__name__,
                 exc_info=True,
             )
             baseline_ids = None
@@ -566,13 +580,34 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                 # — otherwise idempotent_create would retry the
                 # register on top of a broken probe.
                 raise
-            except Exception:
-                logger.debug(
-                    "register_file_source: probe list() failed with "
-                    "non-transport error; treating as no match",
+            except Exception as exc:
+                # Propagate, do not retry (#2220) — see the full rationale on
+                # ``SourceAddService.add_url._probe``. Sharper here than on the
+                # URL paths: a wrong answer does not merely duplicate a row, it
+                # picks the source id the *file bytes* are then streamed into,
+                # so an unconfirmed guess can direct an upload at the wrong
+                # source. This branch is also reached from ``_create`` below,
+                # where the register RPC already returned and the probe is the
+                # only way to learn the id — "no match" there is a claim this
+                # failure cannot support either.
+                logger.warning(
+                    "register_file_source: probe list() failed with a non-transport error "
+                    "(%s); the registration cannot be confirmed, so it will not be retried",
+                    type(exc).__name__,
                     exc_info=True,
                 )
-                return None
+                raise SourceAddError(
+                    filename,
+                    cause=exc,
+                    message=(
+                        f"Cannot confirm file source {filename!r}: the registration could "
+                        f"not be completed and the idempotency probe then failed too "
+                        f"({type(exc).__name__}), so it is unknown whether the source was "
+                        "registered. It was NOT retried, because retrying on an unanswered "
+                        "probe is how duplicates happen. Check the notebook source list "
+                        "before retrying."
+                    ),
+                ) from exc
             matches = [source for source in sources if source.title == filename]
             if baseline_ids is not None:
                 matches = [source for source in matches if source.id not in baseline_ids]

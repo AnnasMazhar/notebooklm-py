@@ -32,6 +32,7 @@ Test plan:
 from __future__ import annotations
 
 import json
+import logging
 
 import httpx
 import pytest
@@ -262,6 +263,93 @@ async def test_notebooks_create_re_creates_when_probe_finds_nothing(auth_tokens)
     assert create_rpc_count == 2, f"expected 2 CREATE_NOTEBOOK, got {create_rpc_count}"
     # Two LIST_NOTEBOOKS: baseline + probe after the 502
     assert list_rpc_count == 2, f"expected 2 LIST_NOTEBOOKS, got {list_rpc_count}"
+
+
+async def test_notebooks_create_probe_decode_failure_aborts_instead_of_retrying(
+    auth_tokens, caplog
+) -> None:
+    """A probe that cannot answer aborts the create instead of retrying (#2220).
+
+    ``notebooks.create`` is the fourth instance of the probe-then-create shape
+    (the three source paths are the others), and #2220's argument is that they
+    move together. A drifted LIST_NOTEBOOKS makes the decoder raise, which is
+    not a transport signal but does leave the probe unable to say whether the
+    create landed — so re-issuing CREATE_NOTEBOOK would risk two notebooks with
+    the same title and hand back neither id.
+    """
+    title = "Undecodable Probe"
+    create_rpc_count = 0
+    list_rpc_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal create_rpc_count, list_rpc_count
+        rpc_id = _rpc_id_in_request(request)
+        if rpc_id == RPCMethod.LIST_NOTEBOOKS.value:
+            list_rpc_count += 1
+            if list_rpc_count == 1:
+                return httpx.Response(200, text=_list_notebooks_response([]))
+            # Structurally undecodable list envelope -> decode error, not 5xx.
+            return httpx.Response(
+                200, text=_wrb_response(RPCMethod.LIST_NOTEBOOKS.value, "nonsense")
+            )
+        if rpc_id == RPCMethod.CREATE_NOTEBOOK.value:
+            create_rpc_count += 1
+            return httpx.Response(502, text="bad gateway")
+        return httpx.Response(404, text="unexpected")
+
+    transport = httpx.MockTransport(handler)
+    client = _make_client_with_transport(transport, auth_tokens)
+    with caplog.at_level(logging.WARNING, logger="notebooklm._notebooks"):
+        try:
+            with pytest.raises(RPCError, match="Cannot confirm notebook"):
+                await client.notebooks.create(title)
+        finally:
+            await client._collaborators.kernel.get_http_client().aclose()
+
+    # The load-bearing assertion: ONE create, not two.
+    assert create_rpc_count == 1, f"expected 1 CREATE_NOTEBOOK, got {create_rpc_count}"
+    assert "will not be retried" in caplog.text
+
+
+async def test_notebooks_create_baseline_failure_warns_but_proceeds(auth_tokens, caplog) -> None:
+    """A failed *baseline* still degrades — loudly — rather than failing the create (#2220).
+
+    The asymmetry with the probe above is the point of the change: at baseline
+    time nothing has been written, so proceeding is safe and refusing would
+    break creates that would otherwise succeed. The record has to actually
+    reach a handler, though: the ``notebooklm`` logger defaults to WARNING, so
+    the old DEBUG line was dropped before anything could see it and the call ran
+    with a degraded probe in silence.
+    """
+    title = "Baseline Blind"
+    nb_id = "nb_created"
+    list_rpc_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal list_rpc_count
+        rpc_id = _rpc_id_in_request(request)
+        if rpc_id == RPCMethod.LIST_NOTEBOOKS.value:
+            list_rpc_count += 1
+            # The baseline read is undecodable; the create then succeeds.
+            return httpx.Response(
+                200, text=_wrb_response(RPCMethod.LIST_NOTEBOOKS.value, "nonsense")
+            )
+        if rpc_id == RPCMethod.CREATE_NOTEBOOK.value:
+            return httpx.Response(200, text=_create_notebook_response(nb_id, title))
+        return httpx.Response(404, text="unexpected")
+
+    transport = httpx.MockTransport(handler)
+    client = _make_client_with_transport(transport, auth_tokens)
+    with caplog.at_level(logging.WARNING, logger="notebooklm._notebooks"):
+        try:
+            notebook = await client.notebooks.create(title)
+        finally:
+            await client._collaborators.kernel.get_http_client().aclose()
+
+    assert notebook.id == nb_id
+    assert list_rpc_count == 1
+    # Emitted at a level the default configuration actually passes through.
+    assert "falling back to an empty baseline" in caplog.text
 
 
 async def test_notebooks_create_raises_on_ambiguous_probe(auth_tokens) -> None:

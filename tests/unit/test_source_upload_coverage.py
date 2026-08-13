@@ -533,7 +533,10 @@ class TestRegisterFileSourceBranches:
                 logger=logger,
                 rpc_call=_rpc_call,
             )
-        logger.debug.assert_called()
+        # WARNING, not DEBUG (#2220): the ``notebooklm`` logger defaults to
+        # WARNING, so the old DEBUG record never reached a handler and the
+        # degraded baseline was invisible.
+        logger.warning.assert_called()
 
     @pytest.mark.asyncio
     async def test_probe_returns_none_when_no_match(self) -> None:

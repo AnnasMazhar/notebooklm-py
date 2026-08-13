@@ -531,9 +531,22 @@ class NotebooksAPI:
         # uniqueness should embed a UUID in the title.
         try:
             baseline_ids = {nb.id for nb in await self.list()}
-        except Exception:
-            logger.debug(
-                "create: baseline list() failed; falling back to empty baseline",
+        except Exception as exc:
+            # WARNING, not DEBUG (#2220 parity with the source paths, #2204):
+            # the ``notebooklm`` logger defaults to WARNING, so a DEBUG record
+            # here is discarded before any handler sees it and the call silently
+            # proceeds with the empty-baseline limitation described above live.
+            #
+            # Swallowing is still right at *baseline* time — nothing has been
+            # written yet, so degrading is safe and failing here would break
+            # creates that would otherwise have succeeded. The probe below runs
+            # after a create that may already have committed and therefore has
+            # no such freedom; that asymmetry is the whole shape of #2220.
+            logger.warning(
+                "create: baseline list() failed (%s); falling back to an empty baseline, so "
+                "a pre-existing notebook with this title could be mistaken for one this "
+                "call created",
+                type(exc).__name__,
                 exc_info=True,
             )
             baseline_ids = set()
@@ -563,11 +576,12 @@ class NotebooksAPI:
             # connectivity recovers) before retrying the create.
             #
             # Other exception types (decoding errors, unexpected RPC
-            # failures, programming bugs) are still treated as "probe
-            # could not confirm a match" — those signal that the probe
-            # path itself is broken in a way that wouldn't be fixed by a
-            # retry, so falling through to None preserves the existing
-            # contract of "best-effort probe".
+            # failures, programming bugs) propagate too, as of #2220. They
+            # signal that the probe path itself is broken — which is exactly
+            # when its protection matters most, because "broken probe" is
+            # indistinguishable from "the create did not land". The old
+            # best-effort contract returned ``None`` there and let the create
+            # be re-issued on no evidence.
             try:
                 current = await self.list()
             except (AuthError, RateLimitError, ServerError, NetworkError):
@@ -580,12 +594,27 @@ class NotebooksAPI:
                     "propagating so the caller can avoid a duplicate-resource retry"
                 )
                 raise
-            except Exception:
-                logger.debug(
-                    "create: probe list() failed with non-transport error; treating as no match",
+            except Exception as exc:
+                # Propagate, do not retry (#2220). ``notebooks.create`` is the
+                # fourth instance of the probe-then-create pattern the issue
+                # names three of; leaving it swallowing would split the very
+                # uniformity that argument rests on. ``RPCError`` matches what
+                # the ambiguity branch below already raises, so no call site's
+                # ``except`` clause changes meaning.
+                logger.warning(
+                    "create: probe list() failed with a non-transport error (%s); the "
+                    "create cannot be confirmed, so it will not be retried",
+                    type(exc).__name__,
                     exc_info=True,
                 )
-                return None
+                raise RPCError(
+                    f"Cannot confirm notebook with title {title!r}: the create failed at "
+                    f"the transport level and the idempotency probe then failed too "
+                    f"({type(exc).__name__}), so it is unknown whether the notebook was "
+                    "created. It was NOT retried, because retrying on an unanswered probe "
+                    "is how duplicates happen. Check your notebook list before retrying.",
+                    method_id=RPCMethod.CREATE_NOTEBOOK.value,
+                ) from exc
             matches = [nb for nb in current if nb.id not in baseline_ids and nb.title == title]
             if len(matches) == 1:
                 # ``matches`` is a list of typed ``Notebook`` objects (NOT a raw

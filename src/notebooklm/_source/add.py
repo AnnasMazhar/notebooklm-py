@@ -162,6 +162,32 @@ class SourceAddService:
         :class:`~notebooklm.exceptions.SourceAddError` rather than guessing.
 
         .. note::
+           **A probe that cannot answer aborts the add (#2220).** If the
+           probe's own ``list()`` fails for a non-transport reason — a drifted
+           ``GET_NOTEBOOK`` making the strict decoder raise ``RPCError`` is the
+           realistic case — this raises :class:`~notebooklm.exceptions.SourceAddError`
+           instead of reporting "no match" and letting the create be re-issued.
+
+           The probe returns ``None`` only when it has affirmatively
+           established that no matching source exists; ``None`` is read by
+           ``idempotent_create`` as evidence the create did not land, and acted
+           on by repeating it. A broken probe is not that evidence. Retrying
+           anyway would silently turn a ``PROBE_THEN_CREATE`` operation into an
+           at-least-once one at the exact moment its guarantee matters — and
+           this codebase makes at-least-once an explicit, named opt-in
+           (:attr:`~notebooklm._idempotency.IdempotencyPolicy.AT_LEAST_ONCE_ACCEPTED`).
+
+           The cost is real and was weighed: a decode blip on a create that
+           never landed now surfaces as a hard failure the caller must retry by
+           hand, where before it recovered silently. That is accepted because
+           the two outcomes are not symmetric in *detectability*. A caller who
+           is told "unresolved, go look" can act; a caller handed a silent
+           duplicate — or the wrong source id — has nothing to act on and no
+           reason to look. The baseline read, by contrast, still degrades
+           rather than failing: it runs before anything is written, so
+           proceeding is safe there.
+
+        .. note::
            **This is a behaviour change (#2204).** ``add_url`` used to list
            sources only inside ``_probe``, which ``idempotent_create`` runs
            only after a transport failure; it now takes that snapshot on
@@ -298,19 +324,37 @@ class SourceAddService:
                 # re-issue the create on top of a broken probe, which is
                 # exactly the duplicate-source bug we are guarding against.
                 raise
-            except Exception:
-                # WARNING, not DEBUG: a decode failure here (e.g. the strict
-                # ``RPCError`` GET_NOTEBOOK raises on a drifted response) is
-                # indistinguishable from "the create did not land", so
-                # idempotent_create re-issues the add — and this variant runs
-                # with ``disable_internal_retries=True``, leaving no other net
-                # against the duplicate this probe exists to prevent (#2204).
+            except Exception as exc:
+                # Propagate, do not retry (#2220). A decode failure here (e.g.
+                # the strict ``RPCError`` GET_NOTEBOOK raises on a drifted
+                # response) leaves the probe unable to answer, and its answer is
+                # the only thing that makes the retry safe: this variant runs
+                # with ``disable_internal_retries=True`` precisely because a
+                # blind re-POST of ``ADD_SOURCE`` can duplicate. Returning
+                # ``None`` here would claim "the create did not land" on no
+                # evidence and re-issue it — silently downgrading a
+                # ``PROBE_THEN_CREATE`` operation to at-least-once, which this
+                # codebase's own taxonomy (``AT_LEAST_ONCE_ACCEPTED``) requires
+                # the *caller* to opt into. Raising hands the caller the one
+                # thing they can act on: this add is unresolved, go look.
                 logger.warning(
-                    "add_url: probe list() failed with a non-transport error; treating as "
-                    "no match, so a retry may create a duplicate source",
+                    "add_url: probe list() failed with a non-transport error (%s); the "
+                    "create cannot be confirmed, so it will not be retried",
+                    type(exc).__name__,
                     exc_info=True,
                 )
-                return None
+                raise SourceAddError(
+                    url,
+                    cause=exc,
+                    message=(
+                        f"Cannot confirm URL source {url!r}: the create failed at the "
+                        f"transport level and the idempotency probe then failed too "
+                        f"({type(exc).__name__}), so it is unknown whether the source was "
+                        "created. It was NOT retried, because retrying on an unanswered "
+                        "probe is how duplicates happen. Check the notebook source list "
+                        "before retrying."
+                    ),
+                ) from exc
             matches = [source for source in sources if source.url == url]
             if baseline_ids is not None:
                 matches = [source for source in matches if source.id not in baseline_ids]
@@ -618,19 +662,29 @@ class SourceAddService:
                 # Transport- and auth-level probe failures must propagate
                 # — see the rationale in ``add_url._probe``.
                 raise
-            except Exception:
-                # WARNING, not DEBUG: a decode failure here (e.g. the strict
-                # ``RPCError`` GET_NOTEBOOK raises on a drifted response) is
-                # indistinguishable from "the create did not land", so
-                # idempotent_create re-issues the add — and this variant runs
-                # with ``disable_internal_retries=True``, leaving no other net
-                # against the duplicate this probe exists to prevent.
+            except Exception as exc:
+                # Propagate, do not retry (#2220) — see the full rationale on
+                # ``add_url._probe``. An unanswered probe is not evidence that
+                # the create did not land, and this variant has no internal
+                # retries left as a net against the duplicate.
                 logger.warning(
-                    "add_drive: probe list() failed with a non-transport error; treating as "
-                    "no match, so a retry may create a duplicate Drive source",
+                    "add_drive: probe list() failed with a non-transport error (%s); the "
+                    "create cannot be confirmed, so it will not be retried",
+                    type(exc).__name__,
                     exc_info=True,
                 )
-                return None
+                raise SourceAddError(
+                    title,
+                    cause=exc,
+                    message=(
+                        f"Cannot confirm Drive source {file_id!r}: the create failed at the "
+                        f"transport level and the idempotency probe then failed too "
+                        f"({type(exc).__name__}), so it is unknown whether the source was "
+                        "created. It was NOT retried, because retrying on an unanswered "
+                        "probe is how duplicates happen. Check the notebook source list "
+                        "before retrying."
+                    ),
+                ) from exc
             matches = [source for source in sources if source.drive_document_id == file_id]
             if baseline_ids is not None:
                 matches = [source for source in matches if source.id not in baseline_ids]
