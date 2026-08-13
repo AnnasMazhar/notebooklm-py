@@ -12,8 +12,8 @@ Post-fix:
 - An API-layer ``_idempotency.idempotent_create`` wrapper owns
   probe-then-retry with API-specific probes:
     - notebooks.create → baseline-diff by title
-    - sources.add_url → list-then-url-match
-    - sources._add_youtube_source → list-then-url-match
+    - sources.add_url → list-then-url-match, baseline-diff (#2204)
+    - sources._add_youtube_source → same wrapper as sources.add_url
 - ``sources.add_text`` is decision-not-to-fix: the new ``idempotent=True``
   keyword raises ``NonIdempotentRetryError`` rather than silently
   duplicating (no reliable server-side dedupe key for text sources).
@@ -101,6 +101,8 @@ def _create_notebook_response(notebook_id: str, title: str) -> str:
 def _get_notebook_with_sources_response(
     notebook_id: str,
     sources: list[tuple[str, str, str]],
+    *,
+    type_code: int = 5,
 ) -> str:
     """Build a GET_NOTEBOOK response that ``SourcesAPI.list`` parses.
 
@@ -108,12 +110,18 @@ def _get_notebook_with_sources_response(
     the parsing path in ``SourcesAPI.list`` (which reads from
     ``GET_NOTEBOOK``): each src entry is roughly
     ``[[id], title, metadata_with_url_at_[7], status]``.
+
+    ``type_code`` is the source-type code at ``metadata[4]`` — 5 (web page) by
+    default, 9 for YouTube (``SourceType``). It does not steer the probe, which
+    reads only ``source.url``, but a YouTube test that hands the probe a
+    web-page row is not exercising a YouTube row.
     """
     src_rows = []
     for src_id, title, url in sources:
         # metadata: url at index [7] (matches Source.from_api_response /
         # _extract_source_url precedence, allow_bare_http=False).
         metadata: list = [None] * 8
+        metadata[4] = type_code
         metadata[7] = [url]
         # status block at src[3] — [_, READY=2]
         status_block = [None, 2]
@@ -295,7 +303,11 @@ async def test_notebooks_create_raises_on_ambiguous_probe(auth_tokens) -> None:
 
 
 async def test_sources_add_url_idempotent_on_5xx_retry(auth_tokens) -> None:
-    """ADD_SOURCE 5xx + probe(list)-finds-url returns existing source."""
+    """ADD_SOURCE 5xx + probe(list)-finds-url returns the source it created.
+
+    The source is absent from the pre-create baseline and present at probe
+    time, so it is provably the one this call committed (#2204).
+    """
     notebook_id = "nb_test"
     url = "https://example.com/article"
     src_id = "src_existing"
@@ -310,11 +322,13 @@ async def test_sources_add_url_idempotent_on_5xx_retry(auth_tokens) -> None:
             add_count += 1
             return httpx.Response(503, text="service unavailable")
         if rpc_id == RPCMethod.GET_NOTEBOOK.value:
-            # SourcesAPI.list calls GET_NOTEBOOK
+            # SourcesAPI.list calls GET_NOTEBOOK. Any list before the first
+            # create attempt is the pre-create baseline; later ones are probes.
             get_count += 1
+            rows = [] if add_count == 0 else [(src_id, "Existing", url)]
             return httpx.Response(
                 200,
-                text=_get_notebook_with_sources_response(notebook_id, [(src_id, "Existing", url)]),
+                text=_get_notebook_with_sources_response(notebook_id, rows),
             )
         return httpx.Response(404, text="unexpected")
 
@@ -329,8 +343,8 @@ async def test_sources_add_url_idempotent_on_5xx_retry(auth_tokens) -> None:
     assert source.url == url
     # Exactly ONE ADD_SOURCE: no naive re-POST after the 503
     assert add_count == 1, f"expected 1 ADD_SOURCE, got {add_count}"
-    # Exactly ONE GET_NOTEBOOK (the probe — no baseline for sources)
-    assert get_count == 1, f"expected 1 GET_NOTEBOOK probe, got {get_count}"
+    # TWO GET_NOTEBOOKs: the pre-create baseline plus the probe (#2204).
+    assert get_count == 2, f"expected baseline + probe GET_NOTEBOOK, got {get_count}"
 
 
 async def test_sources_add_youtube_idempotent_on_5xx_retry(auth_tokens) -> None:
@@ -350,11 +364,12 @@ async def test_sources_add_youtube_idempotent_on_5xx_retry(auth_tokens) -> None:
             return httpx.Response(502, text="bad gateway")
         if rpc_id == RPCMethod.GET_NOTEBOOK.value:
             get_count += 1
+            rows = [] if add_count == 0 else [(src_id, "Video Title", url)]
             return httpx.Response(
                 200,
-                text=_get_notebook_with_sources_response(
-                    notebook_id, [(src_id, "Video Title", url)]
-                ),
+                # type_code 9: a real YouTube row, not a web-page row wearing a
+                # YouTube URL — otherwise this test never sees a YouTube shape.
+                text=_get_notebook_with_sources_response(notebook_id, rows, type_code=9),
             )
         return httpx.Response(404, text="unexpected")
 
@@ -367,8 +382,9 @@ async def test_sources_add_youtube_idempotent_on_5xx_retry(auth_tokens) -> None:
 
     assert source.id == src_id
     assert source.url == url
+    assert source.kind == "youtube"
     assert add_count == 1, f"expected 1 ADD_SOURCE, got {add_count}"
-    assert get_count == 1, f"expected 1 GET_NOTEBOOK probe, got {get_count}"
+    assert get_count == 2, f"expected baseline + probe GET_NOTEBOOK, got {get_count}"
 
 
 # ---------------------------------------------------------------------------

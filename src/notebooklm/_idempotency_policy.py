@@ -262,11 +262,18 @@ def register_default_policies(registry: IdempotencyRegistry) -> None:
     # content). Each variant has a different retry-safety profile because the
     # server-side dedupe key differs:
     #
-    # * ``"url"`` — probe by ``source.url == url`` on a notebook list. The probe
-    #   is a single GET_NOTEBOOK; the wrapper retries the create once if the
-    #   probe finds nothing. PROBE_THEN_CREATE.
-    # * ``"drive"`` — probe by ``file_id in source.url`` (Drive URLs embed the
-    #   file_id). Same wrapper as ``"url"``. PROBE_THEN_CREATE.
+    # * ``"url"`` — probe by ``source.url == url`` on a notebook list, filtered
+    #   against a baseline of source ids captured before the create: a URL is
+    #   NOT unique within a notebook, so an unfiltered match could hand back a
+    #   pre-existing source and report a create that never landed (#2204). The
+    #   probe is a single GET_NOTEBOOK; the wrapper retries the create once if
+    #   the probe finds nothing. PROBE_THEN_CREATE.
+    # * ``"drive"`` — probe by ``source.drive_document_id == file_id``, the
+    #   Drive ``documentId`` echoed back in the source metadata, filtered
+    #   against the same kind of pre-create baseline (a ``documentId`` is not
+    #   unique within a notebook either; #2113). Drive rows carry no URL at
+    #   all, so the ``/d/<file_id>``-in-``source.url`` probe this replaced
+    #   could never match. Same wrapper as ``"url"``. PROBE_THEN_CREATE.
     # * ``"text"`` — no reliable dedupe key (titles non-unique, body not
     #   exposed in the source list). NON_IDEMPOTENT_NO_RETRY: force-disable the
     #   inner transport retries and let the first failure surface so the caller
@@ -301,13 +308,19 @@ def register_default_policies(registry: IdempotencyRegistry) -> None:
         RPCMethod.ADD_SOURCE,
         IdempotencyPolicy.PROBE_THEN_CREATE,
         variant="url",
-        notes="probe by source.url == url on notebook list (web + YouTube)",
+        notes=(
+            "probe by source.url == url on notebook list (web + YouTube), "
+            "filtered against a pre-create source-id baseline"
+        ),
     )
     registry.register(
         RPCMethod.ADD_SOURCE,
         IdempotencyPolicy.PROBE_THEN_CREATE,
         variant="drive",
-        notes="probe by /d/<file_id> URL segment marker on notebook list",
+        notes=(
+            "probe by source.drive_document_id == file_id on notebook list, "
+            "filtered against a pre-create source-id baseline"
+        ),
     )
     registry.register(
         RPCMethod.ADD_SOURCE,

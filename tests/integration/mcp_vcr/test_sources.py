@@ -165,7 +165,7 @@ async def test_mcp_source_delete_two_step_confirm_over_vcr() -> None:
 
 @pytest.mark.asyncio
 @notebooklm_vcr.use_cassette("sources_add_url.yaml")
-async def test_mcp_source_add_url_over_vcr() -> None:
+async def test_mcp_source_add_url_over_vcr(legacy_vcr_add_url_baseline) -> None:
     """``source_add source_type=url`` replays the recorded ``ADD_SOURCE`` RPC.
 
     The url flow runs ``_app.source_add`` (``build_source_add_plan`` →

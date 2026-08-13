@@ -459,8 +459,8 @@ The following methods are idempotent under retry:
 | Method | Probe |
 |---|---|
 | `client.notebooks.create(title)` | Snapshot notebook IDs *before*, list *after* a transport failure, return the single new notebook with the matching title (or raise on ambiguity). |
-| `client.sources.add_url(notebook_id, url)` | List the notebook's sources, return the existing source whose `url` exactly matches. |
-| `client.sources.add_url(notebook_id, youtube_url)` | Same probe via canonical YouTube URL. |
+| `client.sources.add_url(notebook_id, url)` | Snapshot source IDs *before*, list *after* a transport failure, return the single **new** source whose `url` exactly matches (or raise on ambiguity). The same URL can legitimately appear twice in one notebook, so an unfiltered match could hand back a source that predates the call ([#2204](https://github.com/teng-lin/notebooklm-py/issues/2204)). |
+| `client.sources.add_url(notebook_id, youtube_url)` | Same probe; the backend echoes the requested YouTube URL back verbatim, short (`youtu.be/…`) forms included. |
 
 `client.sources.add_text(notebook_id, title, content)` is **not** retry-safe: text sources lack a reliable server-side dedupe key (titles aren't unique; content isn't exposed in the source list). The default behavior is unchanged from previous releases. If you want explicit failure rather than possible silent duplication on retry, opt in:
 
@@ -2210,19 +2210,24 @@ effect of doing something else:
 | `notebooks.rename()` | Re-reads after the mutation to return the updated `Notebook`. |
 | `notebooks.create()` (CLI/MCP/REST path) | One best-effort re-read to backfill the timestamps `CREATE_NOTEBOOK` leaves null; skipped when both are already populated. |
 | `chat.get_settings()` | Chat config lives in the notebook payload. |
-| `sources.add_file()` / `add_drive()` | An **unconditional** pre-create baseline of existing source ids, on every call — the idempotency probe needs it to tell a source it created from one that was already there. |
-| `sources.add_url()` | Only **on a retry**: its idempotency probe runs after a transport failure, not on the happy path. (`add_text()` is `NON_IDEMPOTENT_NO_RETRY` and runs no probe at all, so it never bumps recency.) |
+| `sources.add_file()` / `add_drive()` / `add_url()` | An **unconditional** pre-create baseline of existing source ids, on every call — the idempotency probe needs it to tell a source it created from one that was already there. (`add_text()` is `NON_IDEMPOTENT_NO_RETRY` and runs no probe at all, so it never bumps recency.) |
 | REST `POST /v1/notebooks/{id}/sources/batch` preflight | One shared existence/auth check before the per-URL loop. |
 
-> **`sources.add_drive()` moved rows in
-> [#2113](https://github.com/teng-lin/notebooklm-py/issues/2113).** It used to
-> probe only on a retry; it now takes an **unconditional** pre-create baseline,
-> the same shape `add_file` already uses. A Drive `documentId` turns out not to
-> be unique within a notebook (the repo's own cassette holds two source ids
-> sharing one `documentId`), so matching on `documentId` alone could return a
-> pre-existing copy and report success for a create that never landed. The
-> baseline is the correct fix — this table records the recency cost it carries,
-> not an objection to it.
+> **`sources.add_drive()` and `sources.add_url()` moved rows**, in
+> [#2113](https://github.com/teng-lin/notebooklm-py/issues/2113) and
+> [#2204](https://github.com/teng-lin/notebooklm-py/issues/2204) respectively.
+> Both used to probe only on a retry; both now take an **unconditional**
+> pre-create baseline, the same shape `add_file` already uses. Neither probe key
+> is unique within a notebook — the repo's own cassette holds two source ids
+> sharing one Drive `documentId`, and a live probe added the same URL twice and
+> got two distinct source ids — so matching on the key alone could return a
+> pre-existing copy and report success for a create that never landed. (The
+> #2204 probe caught exactly that: a create that *did* land as `df618843-…`
+> returned the pre-existing `0d2c15a1-…`.) The baseline is the correct fix —
+> this table records the recency cost it carries, not an objection to it. The
+> cost is real for `add_url` specifically: `ADD_SOURCE` alone does **not** bump
+> `lastViewedTime` (live-verified), so the baseline read is a genuinely new
+> side effect on the highest-traffic add path.
 
 Paths that issue `LIST_NOTEBOOKS` — listed for completeness, since they cost an
 RPC but, per the probe above, **do not perturb recency**: `notebooks.create()`
