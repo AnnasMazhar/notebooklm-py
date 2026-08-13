@@ -497,14 +497,17 @@ except Exception as exc:
     # since the snapshot and matching the URL is attributable to this call.
     new = [s for s in await client.sources.list(nb_id) if s.id not in before and s.url == url]
     if len(new) == 1:
-        source = new[0]                                    # it did land
+        source = new[0]                                    # attributable to this call
     elif not new:
-        source = await client.sources.add_url(nb_id, url)  # it did not; safe to re-issue
+        source = await client.sources.add_url(nb_id, url)  # it did not land; safe to re-issue
     else:
-        raise  # two new matches: a concurrent add. Resolve by hand.
+        raise  # several new matches — cannot attribute. Resolve by hand.
 ```
 
-(The reconciling `sources.list()` can itself fail — if the outage that broke the probe is still going, this whole block re-raises, which is the correct outcome: still unresolved.)
+Two caveats on that reconciliation, both inherent to a list-based probe rather than to this example:
+
+- **A single new match is *attributable*, not *proven*.** A snapshot establishes *when* a source appeared, not *who* created it. If another client adds the same URL after your snapshot while your own create never lands, you will see exactly one new match and adopt their source — the two-match branch never fires. `add_url`'s own docstring carries the same warning: the wire has no client-supplied idempotency key, so serialize concurrent adds of the same URL into one notebook if you need that guarantee, or treat the single-match case as unresolved too.
+- **The reconciling `sources.list()` can itself fail.** If the outage that broke the probe is still going, this whole block raises, which is the correct outcome — still unresolved.
 
 The attribute is set on more than just the "probe raised" case. It marks every way a probe fails to settle whether the create landed: a match it cannot attribute because the pre-create baseline was unavailable, several new matches it cannot choose between, or a create that returned success with no trustworthy id whose recovery probe then came up empty. Those raise without anything having thrown inside the probe, so they look like ordinary rejections — but the server may hold a row either way.
 

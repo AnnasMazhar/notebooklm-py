@@ -217,6 +217,21 @@ class ClassifiedError:
     retriable: bool
 
 
+#: Remediation hint for an UNCONFIRMED create (#2220) — an error whose
+#: idempotency probe could not settle whether the write committed. It REPLACES
+#: the category hint in the MCP and REST projections, for two reasons: those
+#: errors are forced to :attr:`ErrorCategory.RPC`, whose hint is ``None`` (so a
+#: client would otherwise get "retriable: false" with no explanation at all),
+#: and the underlying exception is often a bare connection failure whose own
+#: message says nothing about a possible write. Same override shape the
+#: near-miss ``candidates`` use.
+UNCONFIRMED_HINT = (
+    "The write was NOT retried and its outcome is unknown — it may or may not "
+    "have been created. Reconcile against the notebook (or its source list) "
+    "before retrying; retrying blind can create a duplicate."
+)
+
+
 #: Categories for which a retry could plausibly succeed.
 _RETRIABLE_CATEGORIES = frozenset(
     {

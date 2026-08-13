@@ -449,3 +449,36 @@ def test_redact_runs_before_truncation_so_secret_not_half_cut() -> None:
     out = redact(f"{filler} Cookie: SID={secret}")
     assert secret not in out
     assert "1111-this-is-a-secret" not in out  # no partial tail survived the cap
+
+
+def test_unconfirmed_create_is_surfaced_in_the_mcp_payload() -> None:
+    """An unconfirmed create must not reach a client as an opaque failure (#2220).
+
+    These errors are forced to the RPC category, whose hint is ``None`` — and
+    the underlying exception is frequently a bare connection failure whose own
+    message says nothing about a possible write. So without this the client sees
+    a generic message plus ``retriable: false`` and has no way to learn that a
+    source may already exist, which is the one fact it needs to avoid creating a
+    duplicate on its next call.
+    """
+    from notebooklm._app.errors import UNCONFIRMED_HINT
+    from notebooklm._idempotency import mark_unconfirmed
+    from notebooklm.mcp._errors import tool_error_payload
+
+    payload = tool_error_payload(mark_unconfirmed(exc.NetworkError("connection reset")))
+
+    assert payload["unconfirmed"] is True
+    assert payload["retriable"] is False
+    assert payload["hint"] == UNCONFIRMED_HINT
+    # The point is the override: NETWORK's own hint is "Transient connectivity
+    # issue; retry.", which is the exact advice that would duplicate the source.
+    from notebooklm._app.errors import CATEGORY_HINTS
+
+    assert payload["hint"] != CATEGORY_HINTS[ErrorCategory.NETWORK]
+
+
+def test_ordinary_errors_carry_no_unconfirmed_field() -> None:
+    """The field is opt-in, so its presence is meaningful."""
+    from notebooklm.mcp._errors import tool_error_payload
+
+    assert "unconfirmed" not in tool_error_payload(exc.NetworkError("connection reset"))

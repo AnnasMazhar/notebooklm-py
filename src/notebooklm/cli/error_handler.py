@@ -110,6 +110,17 @@ def _generation_status_extra(status: Any) -> dict[str, Any]:
     }
 
 
+#: Recovery line for a create whose outcome an idempotency probe could not
+#: settle (#2220). Deliberately contradicts the retry advice the typed branches
+#: would otherwise give: the write may already exist, so repeating it is the one
+#: action that can make things worse.
+_UNCONFIRMED_WRITE_NOTE = (
+    "This write was NOT retried and its outcome is unknown: it may or may not "
+    "have been created. Check the notebook (or the notebook's source list) "
+    "before retrying — retrying blind can create a duplicate."
+)
+
+
 def _retained_source_note(source_id: str, stage: str) -> str:
     """Recovery line naming the source row a partial upload left behind.
 
@@ -272,6 +283,29 @@ def handle_errors(verbose: bool = False, json_output: bool = False) -> Generator
                 extra = {**(extra or {}), "source_id": source_id, "stage": stage}
             else:
                 message = f"{message}\n{_retained_source_note(source_id, stage)}"
+        if getattr(exc, "unconfirmed", False):
+            # An idempotency probe could not determine whether a create
+            # committed (#2220), so a write may be live. The branches below
+            # match on TYPE, and a probe re-raises its transport/auth failure
+            # unchanged — so a marked RateLimitError lands in the rate-limit
+            # branch and is told "Retry after Ns", a marked AuthError is told to
+            # re-login and retry, a marked NetworkError is told to try again.
+            # Each of those invites the duplicate this marker exists to prevent.
+            #
+            # Correcting it here rather than in the ladder is deliberate, and is
+            # the same reasoning as the retained-source block above: ``emit`` is
+            # the one funnel every branch passes through, and several branches
+            # build their text from a literal rather than from ``str(e)``, so a
+            # per-branch fix would be both duplicated and easy to miss on the
+            # next branch added. The code is overridden (not merely annotated)
+            # because a script keying on ``RATE_LIMITED`` would otherwise back
+            # off and retry exactly as the message told it not to.
+            code = "UNCONFIRMED_WRITE"
+            if json_out:
+                extra = {**(extra or {}), "unconfirmed": True}
+            else:
+                message = f"{message}\n{_UNCONFIRMED_WRITE_NOTE}"
+            hint = _UNCONFIRMED_WRITE_NOTE
         _output_error(message, code, json_out, exit_code, extra=extra, hint=hint)
 
     try:
