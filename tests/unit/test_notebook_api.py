@@ -26,6 +26,7 @@ from notebooklm.exceptions import (
     NotebookLimitError,
     NotebookNotFoundError,
     RPCError,
+    ServerError,
 )
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import (
@@ -346,6 +347,60 @@ def _set_account_limit(api: NotebooksAPI, limit: int | None) -> AsyncMock:
     mock = AsyncMock(return_value=AccountLimits(notebook_limit=limit))
     api._get_account_limits = mock  # type: ignore[method-assign]
     return mock
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "baseline_failure",
+    [
+        # A drifted LIST_NOTEBOOKS: the strict decoder raises, not the transport.
+        pytest.param(RPCError("baseline decode failed"), id="decode_failure"),
+        # A transport failure. The probe deliberately re-RAISES this class; the
+        # baseline capture deliberately swallows it, so pin that asymmetry.
+        pytest.param(ServerError("baseline 503"), id="transport_failure"),
+    ],
+)
+async def test_create_baseline_failure_makes_a_match_ambiguous(
+    caplog: pytest.LogCaptureFixture,
+    baseline_failure: Exception,
+) -> None:
+    """No baseline + a match = ``RPCError``, not a guess (#2232).
+
+    The notebook twin of ``test_add_url_baseline_failure_makes_a_match_ambiguous``.
+    Titles are not unique in NotebookLM, so without a baseline a probe match may
+    predate the create; adopting it hands the caller someone else's notebook
+    under the name of one they think they just made, and every subsequent write
+    in that session lands there. The error must carry enough to act on: what
+    broke the baseline, and which notebook is ambiguous.
+    """
+    transport_error = NetworkError("temporary network failure")
+    api = _make_api(rpc_call=AsyncMock(side_effect=transport_error))
+    pre_existing = Notebook(id="nb_pre_existing", title="Quarterly Review")
+    # First call = the baseline (fails); second = the probe.
+    api.list = AsyncMock(side_effect=[baseline_failure, [pre_existing]])  # type: ignore[method-assign]
+
+    with (
+        caplog.at_level(logging.WARNING, logger="notebooklm._notebooks"),
+        pytest.raises(RPCError) as raised,
+    ):
+        await api.create("Quarterly Review")
+
+    # Not the pre-existing notebook, under any guise.
+    assert "disambiguate" in str(raised.value)
+    assert pre_existing.id in str(raised.value)
+    # ``__cause__`` carries what broke the baseline — otherwise nothing in the
+    # process can explain why the snapshot was unavailable.
+    assert raised.value.__cause__ is baseline_failure
+    # The transport error that triggered the probe survives as context.
+    assert raised.value.__context__ is transport_error
+    # An ambiguity IS an unconfirmed create (#2220): nothing threw inside the
+    # probe, so this looks like an ordinary rejection — but the server may hold
+    # a notebook either way, which is precisely what the marker names.
+    assert getattr(raised.value, "unconfirmed", False) is True
+    # One create attempt: the ambiguity aborts the loop, it does not re-issue.
+    assert api._rpc.rpc_call.await_count == 1
+    # The swallow is visible at the default logger level (WARNING), not DEBUG.
+    assert "baseline list() failed" in caplog.text
 
 
 class TestCreateNotebookQuotaDetection:
