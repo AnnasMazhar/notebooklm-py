@@ -626,6 +626,16 @@ _SOURCE_STATUS_MAP: dict[int, str] = {
 }
 
 
+#: Every label :func:`source_status_to_str` can return, in enum order — the
+#: canonical vocabulary for a status filter, so a CLI ``--status`` choice cannot
+#: drift from the enum the rows are rendered from. Derived from the map rather
+#: than restated, which is the whole point: a new ``SourceStatus`` member becomes
+#: filterable the moment it is mapped. (The MCP tool's ``Literal`` cannot be
+#: derived — ``Literal`` needs static values — and is guarded for parity by
+#: ``tests/unit/mcp/test_sources.py::test_source_list_status_filter_enum_parity``.)
+SOURCE_STATUS_LABELS: tuple[str, ...] = tuple(_SOURCE_STATUS_MAP.values())
+
+
 def source_status_to_str(status_code: int | SourceStatus) -> str:
     """Convert source status code to human-readable string.
 

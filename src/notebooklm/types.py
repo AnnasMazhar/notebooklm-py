@@ -100,6 +100,7 @@ from .exceptions import (
 
 # Re-export enums from rpc/types.py for convenience
 from .rpc.types import (
+    SOURCE_STATUS_LABELS,
     ArtifactStatus,
     AudioFormat,
     AudioLength,
@@ -289,6 +290,7 @@ __all__ = [
     "discovery_mode_to_str",
     "drive_source_status_to_str",
     "share_permission_to_str",
+    "SOURCE_STATUS_LABELS",
     "source_status_to_str",
 ]
 

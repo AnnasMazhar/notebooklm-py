@@ -155,7 +155,7 @@ Supported source types: URLs, YouTube videos, files (PDF, text, Markdown, Word, 
 
 | Command | Arguments | Options | Example |
 |---------|-----------|---------|---------|
-| `list` | - | `--json`, `--limit N`, `--no-truncate` | `source list --limit 20 --no-truncate` |
+| `list` | - | `--json`, `--limit N`, `--no-truncate`, `--label`, `--status` | `source list --limit 20 --no-truncate` |
 | `add <content>` | URL/file/text (use `-` for stdin) | `--title`, `--type`, `--timeout`, `--follow-symlinks`, `--allow-internal` (URL sources only), `--json` (file-source `--mime-type` overrides extension inference — see [detailed section](#source-add-mime-type-file-sources)) | `source add "https://..." --timeout 90` |
 | `add-drive <id> <title>` | Drive file ID, title | `--mime-type [google-doc\|google-slides\|google-sheets\|pdf]`, `--json` | `source add-drive abc123 "Doc" --mime-type google-slides` |
 | `add-drive-file <id>` | Drive file ID or share URL | `--title`, `--wait`, `--json` | `source add-drive-file abc123 --title "Notes" --wait` |
@@ -182,6 +182,21 @@ All `source` subcommands also accept `-n/--notebook ID` (resolves via flag > `NO
 `source stale` reports whether a URL/Drive source needs a refresh. By default it follows the standard CLI exit convention (`0` on success, `1` on error); branch on the JSON `stale`/`fresh` fields (or stdout text) for the freshness verdict. Pass `--exit-on-stale` to opt into the back-compat inverted predicate (`0` = stale, `1` = fresh) for shell idioms like `if notebooklm source stale --exit-on-stale ID; then refresh; fi`.
 
 `source list` also accepts `--label <id|name>` to list only the sources in a given label (a saved selection). The selector resolves a label id (or partial prefix) **or** an exact label name; see [Label Commands](#label-commands-notebooklm-label-cmd).
+
+`source list --status <state>` restricts the listing to one ingestion status — `ready`, `processing`, `error`, `preparing`, or `unknown`. The choices are derived from `SourceStatus`, so they cannot drift from the labels the Status column renders, and the filter is applied inside the fetch, so `count` in `--json` always matches the rows shown. It composes with `--label`.
+
+#### Finding orphaned sources (`--status preparing`)
+
+A file add that fails *after* its source row is registered leaves that row in place deliberately — it is the evidence of what happened, and it still counts against the notebook's source quota. The row sits at `preparing`, **not** `error`, so the status a caller reaches for first finds nothing ([#2138](https://github.com/teng-lin/notebooklm-py/issues/2138)):
+
+```bash
+notebooklm source list --status preparing        # the reconciliation query
+notebooklm source delete <id>                    # once you have confirmed it is stuck
+```
+
+Rows that are genuinely mid-upload also report `preparing`, so this filter cannot by itself tell "abandoned" from "in flight" — re-run it a minute apart and act only on rows that persist. Nothing is deleted automatically; that posture is deliberate (see [#2110](https://github.com/teng-lin/notebooklm-py/issues/2110)).
+
+When the failing add raised in your own process, you do not need to search at all: the exception carries the retained row's id directly, via `getattr(exc, "source_id", None)`.
 
 #### Drive-backed sources in `source list` / `source get`
 

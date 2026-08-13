@@ -11013,6 +11013,32 @@
           "default": null,
           "envvar": null,
           "has_custom_shell_complete": false,
+          "help": "Only list sources with this status. Use 'preparing' to find rows a failed add left behind.",
+          "is_flag": false,
+          "kind": "option",
+          "multiple": false,
+          "name": "status_filter",
+          "opts": [
+            "--status"
+          ],
+          "required": false,
+          "secondary_opts": [],
+          "type": {
+            "case_sensitive": true,
+            "choices": [
+              "unknown",
+              "processing",
+              "ready",
+              "error",
+              "preparing"
+            ],
+            "name": "choice"
+          }
+        },
+        {
+          "default": null,
+          "envvar": null,
+          "has_custom_shell_complete": false,
           "help": "Show at most N rows. 0 = show no rows. Omit for unlimited. Applies to both text and --json output.",
           "is_flag": false,
           "kind": "option",

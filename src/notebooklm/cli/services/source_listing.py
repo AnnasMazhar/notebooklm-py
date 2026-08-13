@@ -46,6 +46,10 @@ class SourceListPlan:
     # The filter is applied INSIDE the fetch closure so ``prepare_list``'s
     # ``count``/rows match the filtered set (no post-filter desync).
     label_filter: str | None = None
+    # When set, restrict to sources whose rendered status label matches. Applied
+    # in the same closure, for the same count/rows reason. ``preparing`` is the
+    # reconciliation query for rows a failed add left behind (#2138).
+    status_filter: str | None = None
 
 
 def _status_cell(src: Source) -> str:
@@ -97,6 +101,7 @@ def _build_spec(
     *,
     label_filter: str | None = None,
     json_output: bool = False,
+    status_filter: str | None = None,
 ) -> ListSpec[Source]:
     """Build the ``ListSpec`` for ``source list``.
 
@@ -120,6 +125,7 @@ def _build_spec(
             label_filter=label_filter,
             label_resolver=resolve_label_id,
             json_output=json_output,
+            status_filter=status_filter,
         )
 
     return ListSpec(
@@ -151,6 +157,7 @@ async def execute_source_list(client: NotebookLMClient, plan: SourceListPlan) ->
         plan.source_type_display,
         label_filter=plan.label_filter,
         json_output=plan.json_output,
+        status_filter=plan.status_filter,
     )
     return await prepare_list(
         spec,
