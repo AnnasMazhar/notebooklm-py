@@ -50,6 +50,16 @@ logger = logging.getLogger(__name__)
 CREATE_NOTEBOOK_QUOTA_RPC_CODE = 3
 
 
+def _describe_notebooks(notebooks: list[Notebook]) -> str:
+    """Render matched notebooks as ``id (title)`` for an ambiguity message.
+
+    Mirrors ``_source/add.py::_describe_sources``. The ambiguity raises tell the
+    caller to go and check their notebook list; naming the exact rows saves them
+    diffing that list by eye against a title that, by definition, is not unique.
+    """
+    return ", ".join(f"{notebook.id} ({notebook.title!r})" for notebook in notebooks)
+
+
 def _extract_summary(outer: Any) -> str:
     """Extract the summary string from a SUMMARIZE ``result[0]`` payload.
 
@@ -510,47 +520,61 @@ class NotebooksAPI:
             than one matches, the wrapper raises an :class:`RPCError`
             because the situation is ambiguous (concurrent creates by
             other clients) and the caller must intervene.
+
+            "Appeared since the call started" is measured against a
+            pre-create snapshot of the notebook ids. If that snapshot
+            could not be taken, the probe cannot attribute *any* match
+            and raises :class:`RPCError` on the first one rather than
+            adopting a notebook it may not have created (#2232). The
+            raised error carries the ``unconfirmed`` marker; see
+            docs/python-api.md#idempotency.
         """
         logger.debug("Creating notebook: %s", title)
         params = build_create_notebook_params(title)
 
         # Capture the baseline notebook IDs *before* the create so the
         # probe can distinguish a notebook that landed during this
-        # call from a pre-existing notebook with the same title. The
-        # baseline is best-effort — if listing fails (e.g. transient
-        # 5xx), we fall back to an empty baseline so a brand-new
-        # account behaves correctly.
+        # call from a pre-existing notebook with the same title.
+        # Titles are NOT unique in NotebookLM, so an unfiltered match
+        # could hand back a notebook that predates the call — and every
+        # subsequent ``sources.add_*`` / ``chat.ask`` in that session
+        # would then target the wrong notebook.
         #
-        # Edge case: when the baseline fetch fails AND a pre-existing
-        # notebook with the same title already exists, the probe cannot
-        # tell that notebook apart from one that just landed. The
-        # ambiguous-probe guard only fires when >1 matches appear, so
-        # a single pre-existing same-titled notebook would be returned
-        # as if it were freshly created. This is a doubly-exceptional
-        # scenario (baseline list failure + title collision) and is
-        # accepted as a known limitation; callers needing strict
-        # uniqueness should embed a UUID in the title.
+        # ``None`` is the "baseline unavailable" sentinel, matching the
+        # three sibling PROBE_THEN_CREATE paths (``add_url``,
+        # ``add_drive``, ``register_file_source``). The probe below then
+        # refuses to guess and raises on any match instead. This
+        # deliberately trades a possible duplicate create — loud, visible
+        # in the notebook list, diagnosable — for the silent wrong-identity
+        # outcome the previous empty-set fallback produced (#2232).
+        baseline_ids: set[str] | None
+        # Retained so the ambiguity raise below can name what went wrong: the
+        # caller sees "baseline unavailable" long after this line ran, and
+        # without the cause there is nothing in the process that can explain it.
+        baseline_error: Exception | None = None
         try:
             baseline_ids = {nb.id for nb in await self.list()}
         except Exception as exc:
             # WARNING, not DEBUG (#2220 parity with the source paths, #2204):
             # the ``notebooklm`` logger defaults to WARNING, so a DEBUG record
             # here is discarded before any handler sees it and the call silently
-            # proceeds with the empty-baseline limitation described above live.
+            # runs with its idempotency probe disabled.
             #
             # Swallowing is still right at *baseline* time — nothing has been
             # written yet, so degrading is safe and failing here would break
             # creates that would otherwise have succeeded. The probe below runs
             # after a create that may already have committed and therefore has
             # no such freedom; that asymmetry is the whole shape of #2220.
+            baseline_error = exc
             logger.warning(
-                "create: baseline list() failed (%s); falling back to an empty baseline, so "
-                "a pre-existing notebook with this title could be mistaken for one this "
-                "call created",
+                "create: baseline list() failed (%s); the idempotency probe can no "
+                "longer tell a notebook this call created from one that was already "
+                "there, so a transport failure will surface as an ambiguity error "
+                "instead of recovering",
                 type(exc).__name__,
                 exc_info=True,
             )
-            baseline_ids = set()
+            baseline_ids = None
 
         async def _create() -> Notebook:
             try:
@@ -632,7 +656,39 @@ class NotebooksAPI:
                         method_id=RPCMethod.CREATE_NOTEBOOK.value,
                     )
                 ) from exc
-            matches = [nb for nb in current if nb.id not in baseline_ids and nb.title == title]
+            matches = [nb for nb in current if nb.title == title]
+            if baseline_ids is not None:
+                matches = [nb for nb in matches if nb.id not in baseline_ids]
+            elif matches:
+                # Without a baseline a match may predate this create — see the
+                # ``baseline_ids`` comment for the failure mode this guards.
+                # Both halves of the ambiguity are worth stating: the match may
+                # predate the create, or it may BE the create, in which case it
+                # landed and the caller will otherwise never learn its id.
+                #
+                # Deliberately NOT ``raise ... from baseline_error``. Setting
+                # ``__cause__`` (by ``from`` or by hand) makes the traceback
+                # print the cause *instead of* ``__context__`` — and here
+                # ``__context__`` is the create's transport failure, the half
+                # ``idempotent_create`` promises stays visible ("the traceback
+                # shows both halves", ``_idempotency.py``). The baseline failure
+                # is named by type in the message instead, which is all the two
+                # sibling paths without a ``cause=`` field surface either.
+                raise _unconfirmed(
+                    RPCError(
+                        # Action first — the MCP/REST surfaces truncate messages
+                        # at 300 characters, and a realistic title plus one
+                        # ``id (title)`` row runs past that, cutting the closing
+                        # instruction off. Same reasoning as the probe-failure
+                        # raise above.
+                        f"Cannot disambiguate notebook with title {title!r} — check your "
+                        "notebook list before retrying: the pre-create baseline snapshot "
+                        f"failed ({type(baseline_error).__name__}), so "
+                        f"{_describe_notebooks(matches)} may either predate this create "
+                        "or be the notebook it just created.",
+                        method_id=RPCMethod.CREATE_NOTEBOOK.value,
+                    )
+                )
             if len(matches) == 1:
                 # ``matches`` is a list of typed ``Notebook`` objects (NOT a raw
                 # RPC payload) — tuple unpacking reads the single match

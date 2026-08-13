@@ -402,6 +402,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`notebooks.create()` could hand back a notebook it did not create.** All
+  four probe-then-create paths snapshot the resource list *before* the create so
+  their probe can tell the row they just made from one that was already there.
+  Three of them degrade a *failed* snapshot to `None` — "baseline unavailable" —
+  and refuse to attribute any match after that. `notebooks.create` degraded to
+  an empty `set()` instead, which reads as *"nothing existed"* and disables the
+  filter outright: with a failed baseline and a single pre-existing notebook of
+  the same title, that notebook passed the "is it new?" test and was returned as
+  freshly created. Titles are not unique on this backend — two `create()` calls
+  with one title yield two distinct notebooks — so nothing else could catch it,
+  and the ambiguity guard only fires above one match. The caller then held an id
+  it believed was a new empty notebook, and every later `sources.add_*` /
+  `chat.ask` in that session wrote into someone else's.
+
+  It was documented in place as an accepted limitation, written before the
+  sentinel the source paths adopted in
+  [#2113](https://github.com/teng-lin/notebooklm-py/issues/2113) /
+  [#2204](https://github.com/teng-lin/notebooklm-py/issues/2204), which left
+  `notebooks.create` the only one of the four still guessing. It now uses the
+  same sentinel and raises `RPCError` — marked `unconfirmed`, naming the
+  ambiguous rows — on any match it cannot attribute. The gate is on *matches*,
+  not on the sentinel itself: a probe that lists cleanly and finds no notebook
+  with the title has answered the question, so an unavailable baseline still
+  never fails a create that would otherwise succeed.
+
+  The trade is deliberate and is the same one #2204 made: refusing to attribute
+  can cost a duplicate create, which is loud, visible in the notebook list, and
+  diagnosable, where the silent wrong identity it replaces gave the caller
+  nothing to act on and no reason to look. Reaching either outcome still takes a
+  failed baseline `list()`, a commit-lost create, and a working probe `list()`
+  at once. ADR-0005 named this as the one gap
+  [#2220](https://github.com/teng-lin/notebooklm-py/issues/2220) left open and
+  now records the closed rule.
+  ([#2232](https://github.com/teng-lin/notebooklm-py/issues/2232))
 - **A table in the readable rendering no longer runs its cells together.**
   `StructuredDocument.render()` — and through it
   `SourceFulltext.rendered_content` and the passage
@@ -533,13 +567,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The *pre-create baseline* read deliberately still degrades rather than
   failing — it runs before anything is written, so proceeding is safe and
-  refusing would break adds that would otherwise succeed. What changed there is
-  only the log level: `register_file_source` and `notebooks.create` swallowed at
-  `DEBUG`, and the `notebooklm` logger defaults to `WARNING`, so the record was
-  discarded before any handler saw it and the call ran with a degraded probe in
-  silence. Both now log at `WARNING` and name the failure type, matching what
-  `add_url` / `add_drive` got in
-  [#2204](https://github.com/teng-lin/notebooklm-py/issues/2204).
+  refusing would break adds that would otherwise succeed. What changed there in
+  this release is only the log level: `register_file_source` and
+  `notebooks.create` swallowed at `DEBUG`, and the `notebooklm` logger defaults
+  to `WARNING`, so the record was discarded before any handler saw it and the
+  call ran with a degraded probe in silence. Both now log at `WARNING` and name
+  the failure type, matching what `add_url` / `add_drive` got in
+  [#2204](https://github.com/teng-lin/notebooklm-py/issues/2204). What the
+  degraded baseline degrades *to* is a separate question, settled for
+  `notebooks.create` by
+  [#2232](https://github.com/teng-lin/notebooklm-py/issues/2232) above.
 
 - **A configured `timeout=` was silently overridden for chat and
   IMPORT_RESEARCH.** ([#2205](https://github.com/teng-lin/notebooklm-py/issues/2205))

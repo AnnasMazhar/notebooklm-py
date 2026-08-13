@@ -492,7 +492,7 @@ The following methods are idempotent under retry:
 
 | Method | Probe |
 |---|---|
-| `client.notebooks.create(title)` | Snapshot notebook IDs *before*, list *after* a transport failure, return the single new notebook with the matching title (or raise on ambiguity). |
+| `client.notebooks.create(title)` | Snapshot notebook IDs *before*, list *after* a transport failure, return the single **new** notebook with the matching title (or raise on ambiguity). Titles are not unique, so an unfiltered match could hand back a notebook that predates the call — and every later `sources.add_*` / `chat.ask` in the session would then target it ([#2232](https://github.com/teng-lin/notebooklm-py/issues/2232)). |
 | `client.sources.add_url(notebook_id, url)` | Snapshot source IDs *before*, list *after* a transport failure, return the single **new** source whose `url` exactly matches (or raise on ambiguity). The same URL can legitimately appear twice in one notebook, so an unfiltered match could hand back a source that predates the call ([#2204](https://github.com/teng-lin/notebooklm-py/issues/2204)). |
 | `client.sources.add_url(notebook_id, youtube_url)` | Same probe; the backend echoes the requested YouTube URL back verbatim, short (`youtu.be/…`) forms included. |
 
