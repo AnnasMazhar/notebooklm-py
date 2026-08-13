@@ -459,8 +459,8 @@ The following methods are idempotent under retry:
 | Method | Probe |
 |---|---|
 | `client.notebooks.create(title)` | Snapshot notebook IDs *before*, list *after* a transport failure, return the single new notebook with the matching title (or raise on ambiguity). |
-| `client.sources.add_url(notebook_id, url)` | List the notebook's sources, return the existing source whose `url` exactly matches. |
-| `client.sources.add_url(notebook_id, youtube_url)` | Same probe via canonical YouTube URL. |
+| `client.sources.add_url(notebook_id, url)` | Snapshot source IDs *before*, list *after* a transport failure, return the single **new** source whose `url` exactly matches (or raise on ambiguity). The same URL can legitimately appear twice in one notebook, so an unfiltered match could hand back a source that predates the call ([#2204](https://github.com/teng-lin/notebooklm-py/issues/2204)). |
+| `client.sources.add_url(notebook_id, youtube_url)` | Same probe; the backend echoes the requested YouTube URL back verbatim, short (`youtu.be/…`) forms included. |
 
 `client.sources.add_text(notebook_id, title, content)` is **not** retry-safe: text sources lack a reliable server-side dedupe key (titles aren't unique; content isn't exposed in the source list). The default behavior is unchanged from previous releases. If you want explicit failure rather than possible silent duplication on retry, opt in:
 
