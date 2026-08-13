@@ -159,14 +159,7 @@ def _build_spec(
                 statuses=status_filters,
                 types=type_filters,
             )
-            status_set = set(source_filter.statuses)
-            type_set = set(source_filter.types)
-            sources = [
-                source
-                for source in sources
-                if (not status_set or source.status in status_set)
-                and (not type_set or source.kind in type_set)
-            ]
+            sources = [source for source in sources if source_filter.matches(source)]
         return sources
 
     return ListSpec(

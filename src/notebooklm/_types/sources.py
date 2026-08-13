@@ -146,6 +146,12 @@ class SourceFilter:
         object.__setattr__(self, "statuses", statuses)
         object.__setattr__(self, "types", source_types)
 
+    def matches(self, source: Source) -> bool:
+        """Return whether ``source`` matches both populated filter axes."""
+        return (not self.statuses or source.status in self.statuses) and (
+            not self.types or source.kind in self.types
+        )
+
     @classmethod
     def from_values(
         cls,
@@ -194,14 +200,7 @@ class SourceInventory:
 
     def select_filter(self, source_filter: SourceFilter) -> list[Source]:
         """Select with OR inside each filter axis and AND between axes."""
-        statuses = set(source_filter.statuses)
-        source_types = set(source_filter.types)
-        return [
-            source
-            for source in self.sources
-            if (not statuses or source.status in statuses)
-            and (not source_types or source.kind in source_types)
-        ]
+        return [source for source in self.sources if source_filter.matches(source)]
 
     def select_filter_ids(self, source_filter: SourceFilter) -> list[str]:
         """Return first-occurrence IDs matching ``source_filter``."""

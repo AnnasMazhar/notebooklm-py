@@ -2574,6 +2574,25 @@ class TestSourceFilter:
         )
         assert source_filter.types == (SourceType.PDF,)
 
+    def test_matches_ors_within_axes_and_ands_between_them(self) -> None:
+        source_filter = SourceFilter(
+            statuses=(SourceStatus.READY, SourceStatus.PROCESSING),
+            types=(SourceType.PDF, SourceType.WEB_PAGE),
+        )
+
+        assert source_filter.matches(
+            Source(id="ready_pdf", _type_code=3, status=SourceStatus.READY)
+        )
+        assert source_filter.matches(
+            Source(id="processing_web", _type_code=5, status=SourceStatus.PROCESSING)
+        )
+        assert not source_filter.matches(
+            Source(id="error_pdf", _type_code=3, status=SourceStatus.ERROR)
+        )
+        assert not source_filter.matches(
+            Source(id="ready_youtube", _type_code=9, status=SourceStatus.READY)
+        )
+
 
 class TestNotebookMetadata:
     """Tests for NotebookMetadata dataclass."""

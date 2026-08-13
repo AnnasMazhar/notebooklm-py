@@ -136,27 +136,40 @@ class TestSourceList:
 
     def test_source_list_status_and_type_filters_compose(self, runner, mock_auth):
         mock_client = create_mock_client()
-        mock_client.sources.list = AsyncMock(
-            return_value=[
-                Source(
-                    id="ready_pdf",
-                    title="Ready PDF",
-                    _type_code=3,
-                    status=SourceStatus.READY,
-                ),
-                Source(
-                    id="error_pdf",
-                    title="Broken PDF",
-                    _type_code=3,
-                    status=SourceStatus.ERROR,
-                ),
-                Source(
-                    id="ready_web",
-                    title="Ready page",
-                    _type_code=5,
-                    status=SourceStatus.READY,
-                ),
-            ]
+        sources = (
+            Source(
+                id="ready_pdf",
+                title="Ready PDF",
+                _type_code=3,
+                status=SourceStatus.READY,
+            ),
+            Source(
+                id="error_pdf",
+                title="Broken PDF",
+                _type_code=3,
+                status=SourceStatus.ERROR,
+            ),
+            Source(
+                id="ready_web",
+                title="Ready page",
+                _type_code=5,
+                status=SourceStatus.READY,
+            ),
+        )
+        counts = SourceCounts(
+            records_total=3,
+            id_bearing_records=3,
+            unique_sources=3,
+            by_status={"ready": 2, "error": 1},
+            by_type={"pdf": 2, "web_page": 1},
+        )
+        mock_client.sources.supports_source_inventory = True
+        mock_client.sources.inventory = AsyncMock(
+            return_value=SourceInventory(
+                sources=sources,
+                raw_source_ids=tuple(source.id for source in sources),
+                counts=counts,
+            )
         )
         mock_client.notebooks.get = AsyncMock(return_value=MagicMock(title="Test Notebook"))
 
@@ -183,6 +196,7 @@ class TestSourceList:
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
         assert [source["id"] for source in payload["sources"]] == ["ready_pdf"]
+        assert payload["source_counts"] == counts.to_dict()
 
     def test_source_list_composes_cli_service_and_client_boundary(self, runner, mock_auth):
         """The CLI list path reaches the client-backed source-list service.

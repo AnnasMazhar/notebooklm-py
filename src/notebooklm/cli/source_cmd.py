@@ -194,6 +194,11 @@ def source_list(
       --type <kind>     Restrict to a source type. Repeatable.
 
     \b
+    Counts vs rows:
+      JSON source_counts describe the whole notebook even when --status or
+      --type filters the displayed rows. --label output omits source_counts.
+
+    \b
     Finding orphaned sources:
       A file add that fails after its source row is registered leaves that row
       in place on purpose — it is the evidence, and it still counts against the
