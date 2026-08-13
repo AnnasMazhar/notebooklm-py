@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import ast
 import importlib
+import importlib.util
 import json
 import os
 import subprocess
