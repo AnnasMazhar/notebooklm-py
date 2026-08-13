@@ -844,6 +844,9 @@ class TestResearchImport:
         assert result.exit_code == 0
         assert "1 of 3" in result.output
         assert "Importing 3 cited" not in result.output
+        # "selected", not "cited": the count includes any preserved report row,
+        # which ``matched_url_source_count`` excludes.
+        assert "selected source(s)" in result.output
         sent = mock_client.research.import_sources_with_verification.await_args.args[2]
         assert len(sent) == 1
 
@@ -873,6 +876,50 @@ class TestResearchImport:
         assert result.exit_code == 0
         sent = mock_client.research.import_sources_with_verification.await_args.args[2]
         assert [s["url"] for s in sent] == ["http://example.com/2"]
+
+    def test_import_resume_hint_repins_the_notebook_run_and_filters(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """A SIGINT resume hint must re-run THIS import, not a wider one.
+
+        A bare 'notebooklm research import' would retarget the active notebook,
+        go ambiguous instead of re-pinning this run, and drop --cited-only /
+        --max-sources — so following it could import sources the user excluded.
+        """
+        hint = research_module._import_resume_hint(
+            notebook_id="nb_resolved",
+            run_id="run_789",
+            cited_only=True,
+            max_sources=2,
+            allow_duplicate=True,
+            timeout=1800,
+        )
+        assert hint == (
+            "notebooklm research import -n nb_resolved --run-id run_789 "
+            "--cited-only --max-sources 2 --allow-duplicate"
+        )
+
+    def test_import_resume_hint_omits_defaults_and_unset_flags(self):
+        hint = research_module._import_resume_hint(
+            notebook_id="nb_resolved",
+            run_id="run_789",
+            cited_only=False,
+            max_sources=None,
+            allow_duplicate=False,
+            timeout=1800,
+        )
+        assert hint == "notebooklm research import -n nb_resolved --run-id run_789"
+
+    def test_import_resume_hint_carries_a_non_default_timeout(self):
+        hint = research_module._import_resume_hint(
+            notebook_id="nb",
+            run_id="r",
+            cited_only=False,
+            max_sources=None,
+            allow_duplicate=False,
+            timeout=60,
+        )
+        assert hint.endswith("--timeout 60")
 
     def test_import_flags_the_cited_only_fallback(self, runner, mock_auth, mock_fetch_tokens):
         """When no citation resolves, --cited-only silently imports EVERYTHING.
@@ -980,3 +1027,76 @@ class TestResearchImport:
         assert data["status"] == "imported"
         assert data["imported"] == 0
         assert data["already_present"] == 0
+
+
+# =============================================================================
+# _display_cited_import_selection — capped-count arithmetic (#2206 review)
+# =============================================================================
+
+
+class TestCitedImportSelectionDisplay:
+    """The capped message must count the SAME rows in numerator and denominator.
+
+    ``matched_url_source_count`` counts cited URL rows only, while the selection
+    can also carry a preserved deep-research report row — so mixing the two
+    produced a message that could not be read literally.
+    """
+
+    @staticmethod
+    def _selection(*, rows: int, matched: int, fallback: bool = False):
+        from notebooklm.types import CitedSourceSelection
+
+        return CitedSourceSelection(
+            sources=[{"url": f"http://example.com/{i}"} for i in range(rows)],
+            cited_url_count=matched,
+            matched_url_source_count=matched,
+            used_fallback=fallback,
+        )
+
+    def test_capped_message_counts_selected_rows_not_matched_urls(self, capsys):
+        from rich.console import Console
+
+        console = Console(force_terminal=False, width=200)
+        # 3 cited URLs + 1 preserved report row = 4 selected rows; cap to 2.
+        research_import_module._display_cited_import_selection(
+            self._selection(rows=4, matched=3),
+            output_console=console,
+            selected_count=2,
+        )
+        out = capsys.readouterr().out
+        assert "2 of 4 selected source(s)" in out
+        # The old arithmetic mixed the two counters and said "2 of 3 cited".
+        assert "of 3" not in out
+
+    def test_uncapped_message_is_unchanged_for_the_research_wait_caller(self, capsys):
+        from rich.console import Console
+
+        console = Console(force_terminal=False, width=200)
+        research_import_module._display_cited_import_selection(
+            self._selection(rows=3, matched=3), output_console=console
+        )
+        assert "Importing 3 cited source(s)" in capsys.readouterr().out
+
+    def test_capped_fallback_message_reports_the_cap(self, capsys):
+        from rich.console import Console
+
+        console = Console(force_terminal=False, width=200)
+        research_import_module._display_cited_import_selection(
+            self._selection(rows=5, matched=0, fallback=True),
+            output_console=console,
+            selected_count=2,
+        )
+        out = capsys.readouterr().out
+        assert "Could not resolve cited sources" in out
+        assert "2 of 5 selected source(s)" in out
+        # It must not claim it is importing everything while capping.
+        assert "importing all sources" not in out
+
+    def test_uncapped_fallback_message_is_unchanged(self, capsys):
+        from rich.console import Console
+
+        console = Console(force_terminal=False, width=200)
+        research_import_module._display_cited_import_selection(
+            self._selection(rows=5, matched=0, fallback=True), output_console=console
+        )
+        assert "importing all sources" in capsys.readouterr().out

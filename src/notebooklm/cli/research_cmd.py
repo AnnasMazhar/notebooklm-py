@@ -71,6 +71,9 @@ from .services.research import (
 # with the underlying API or with `research wait --import-all`).
 _SUMMARY_PREVIEW_CHARS = 500
 
+#: Default ``research import --timeout``; matches ``research wait --timeout``.
+_DEFAULT_IMPORT_TIMEOUT = 1800
+
 
 @click.group()
 def research():
@@ -189,7 +192,7 @@ def _print_failure_reason(reason_message: str | None, hint: str | None) -> None:
 @click.option("--cited-only", is_flag=True, help="Import only report-cited sources")
 @click.option(
     "--timeout",
-    default=1800,
+    default=_DEFAULT_IMPORT_TIMEOUT,
     type=int,
     help=(
         "Seconds budget for the import retry loop (default: 1800). The command "
@@ -279,11 +282,22 @@ def research_import(
                 _display_cited_import_selection(cited_selection, selected_count=len(selected))
             # The import is the one slow step here, so it gets the spinner (and
             # with it the canonical "Cancelled. Resume with: ..." SIGINT
-            # envelope) the way ``research wait`` wraps its poll loop.
+            # envelope) the way ``research wait`` wraps its poll loop. The hint
+            # is built from the RESOLVED notebook/run plus the selection flags:
+            # a bare 'research import' would retarget the active notebook, go
+            # ambiguous instead of re-pinning this run, and silently drop the
+            # filters, so following it could import sources the user excluded.
             async with status_with_elapsed(
                 f"Importing {len(selected)} sources...",
                 json_output=json_output,
-                resume_hint="notebooklm research import",
+                resume_hint=_import_resume_hint(
+                    notebook_id=nb_id_resolved,
+                    run_id=resolved_run_id,
+                    cited_only=cited_only,
+                    max_sources=max_sources,
+                    allow_duplicate=allow_duplicate,
+                    timeout=timeout,
+                ),
             ):
                 outcome = await import_research_sources_core(
                     client,
@@ -303,6 +317,34 @@ def research_import(
             )
 
     return _run()
+
+
+def _import_resume_hint(
+    *,
+    notebook_id: str,
+    run_id: str,
+    cited_only: bool,
+    max_sources: int | None,
+    allow_duplicate: bool,
+    timeout: int,
+) -> str:
+    """Build a resume command that re-runs THIS import, not a different one.
+
+    Re-pins the resolved notebook and run (a bare re-run would target the active
+    notebook and, with several runs in flight, fail as ambiguous) and carries
+    every flag that changes WHAT is imported, so following the hint cannot widen
+    the import past what the user asked for.
+    """
+    parts = ["notebooklm research import", "-n", notebook_id, "--run-id", run_id]
+    if cited_only:
+        parts.append("--cited-only")
+    if max_sources is not None:
+        parts += ["--max-sources", str(max_sources)]
+    if allow_duplicate:
+        parts.append("--allow-duplicate")
+    if timeout != _DEFAULT_IMPORT_TIMEOUT:
+        parts += ["--timeout", str(timeout)]
+    return " ".join(parts)
 
 
 def _render_import_result(

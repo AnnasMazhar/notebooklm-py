@@ -87,36 +87,48 @@ def _display_cited_import_selection(
 ) -> None:
     """Report what cited-only selection chose, honestly under a later cap.
 
-    ``selected_count`` is the number actually being imported, for callers that
-    narrow the selection further after this ran (``research import --max-sources``).
-    Without it the natural counts are already final (``research wait --import-all``
-    has no cap), so it stays optional and that caller is unchanged. When it is
-    smaller, both branches say "N of M" — otherwise a run with ten citations and
-    ``--max-sources 2`` announced "Importing 10 cited source(s)" and imported two,
-    and the fallback branch claimed "importing all sources" while capping.
+    ``selected_count`` is the number of rows actually being imported, for callers
+    that narrow the selection further after this ran (``research import
+    --max-sources``). Without it the natural counts are already final
+    (``research wait --import-all`` has no cap), so it stays optional and that
+    caller's output is unchanged.
+
+    When the cap bit, BOTH numbers are row counts of ``cited_selection.sources``
+    — deliberately not ``matched_url_source_count``, which counts only cited URL
+    rows and so excludes a preserved deep-research report row. Mixing the two
+    produced arithmetic that could not be read literally: three cited URLs plus a
+    report under ``--max-sources 2`` would have claimed "2 of 3 cited source(s)"
+    while importing the report and one URL. The capped wording therefore says
+    "selected source(s)", which is what the count actually measures.
     """
     if cited_selection is None:
         return
 
     status_console = console if output_console is None else output_console
-    natural = (
-        len(cited_selection.sources)
-        if cited_selection.used_fallback
-        else cited_selection.matched_url_source_count
-    )
-    capped = selected_count is not None and selected_count < natural
+    selected_rows = len(cited_selection.sources)
+    capped = selected_count is not None and selected_count < selected_rows
 
-    if cited_selection.used_fallback:
-        tail = (
-            f"importing {selected_count} of {natural} sources."
-            if capped
-            else "importing all sources."
+    if capped:
+        prefix = (
+            "[yellow]Could not resolve cited sources; i"
+            if cited_selection.used_fallback
+            else "[dim]I"
         )
-        status_console.print(f"[yellow]Could not resolve cited sources; {tail}[/yellow]")
+        suffix = "[/yellow]" if cited_selection.used_fallback else "[/dim]"
+        status_console.print(
+            f"{prefix}mporting {selected_count} of {selected_rows} selected source(s){suffix}"
+        )
         return
 
-    body = f"{selected_count} of {natural}" if capped else f"{natural}"
-    status_console.print(f"[dim]Importing {body} cited source(s)[/dim]")
+    if cited_selection.used_fallback:
+        status_console.print(
+            "[yellow]Could not resolve cited sources; importing all sources.[/yellow]"
+        )
+        return
+
+    status_console.print(
+        f"[dim]Importing {cited_selection.matched_url_source_count} cited source(s)[/dim]"
+    )
 
 
 async def import_research_sources(

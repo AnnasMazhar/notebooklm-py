@@ -1717,7 +1717,7 @@ notebooklm source add-drive 1AbcD...XyZ "Whitepaper" --mime-type pdf --json
 
 ### Source: `add-drive-file`
 
-Add an upload-only Google Drive file (`epub`/`docx`/`pptx`/`txt`/`md`/`csv`/`pdf`/…) by id or share URL. NotebookLM's native Drive import (`source add-drive`) only ingests Google-native Docs/Slides/Sheets + PDF by reference; for every other Drive-hosted file type, this command downloads the file server-side (using your session) and uploads it through the resumable-upload path — a Drive PDF can go either way.
+Add an upload-only Google Drive file (`epub`/`docx`/`pptx`/`txt`/`md`/`rtf`/`odt`/`csv`/`tsv`/`pdf`) by id or share URL. NotebookLM's native Drive import (`source add-drive`) only ingests Google-native Docs/Slides/Sheets + PDF by reference; for every other Drive-hosted file type, this command downloads the file server-side (using your session) and uploads it through the resumable-upload path — a Drive PDF can go either way.
 
 ```bash
 notebooklm source add-drive-file [OPTIONS] DOCUMENT_ID

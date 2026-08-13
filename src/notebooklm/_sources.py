@@ -596,8 +596,9 @@ class SourcesAPI:
     ) -> Source:
         """Auto-route an upload-only Google Drive file: download it, then upload (#1884).
 
-        Covers the upload-only Drive file types (epub/docx/pptx/txt/md/csv/pdf/...; the
-        rejection error names the full accepted set, derived from one declaration);
+        Covers the upload-only Drive file types
+        (epub/docx/pptx/txt/md/rtf/odt/csv/tsv/pdf; the rejection error names the
+        full accepted set, derived from one declaration);
         a Drive PDF can also go by reference via :meth:`add_drive`. Fetches the file
         SERVER-SIDE using the same live ``.google.com`` cookie jar the upload leg
         uses (so it works in stdio AND remote MCP mode with no ``upload_required``

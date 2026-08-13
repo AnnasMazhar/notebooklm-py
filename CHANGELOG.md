@@ -35,15 +35,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   It also closes the idempotency gap the CLI's bespoke import path had: a repeat
   import now reports `0 new, N already present` (each with the *existing*
-  source's `{id, title, url}`) instead of looking like a no-op, matching what
-  MCP and REST already returned. Options: `--run-id` (default: the notebook's
-  current run), `--cited-only`, `--max-sources`, `--allow-duplicate`, `--timeout`,
+  source's `{id, title, url}`) instead of looking like a no-op, matching what the
+  MCP tool already returned. (Not REST: that route deliberately stays on the
+  one-shot `import_sources` so a web request cannot block on a multi-minute
+  reconcile loop, and returns no `already_present` split. The *importable-state
+  ladder* is shared by all three adapters; the idempotent importer is shared by
+  MCP and the CLI.) Options: `--run-id` (default: the notebook's
+  single unambiguous run — with several runs in flight it errors rather than
+  guessing, so pin the id), `--cited-only`, `--max-sources`, `--allow-duplicate`, `--timeout`,
   `--json`. The import RPC itself is retried with reconciliation (it commonly
   outlives one client timeout on deep payloads); `--timeout` bounds that, using
   the same vocabulary as `research wait --timeout`.
-  No new core logic — it drives the same `_app` importable-state ladder and
-  idempotent importer the other two adapters drive, so the guard cannot fork a
-  third time.
+  No new core logic — it drives the same `_app` importable-state ladder all three
+  adapters drive (so the guard cannot fork a third time) and the same idempotent
+  importer the MCP tool drives.
 
 - **Citations can now be aligned to both the answer and the source.** The two
   halves of that mapping were each missing a piece, and neither was usable
