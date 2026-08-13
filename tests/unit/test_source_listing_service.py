@@ -461,6 +461,61 @@ async def test_strict_list_rejects_source_without_usable_id() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("bad_row", "detail"),
+    [
+        ([["src_incomplete"], "Title"], "metadata block is missing"),
+        (
+            [["src_incomplete"], "Title", [None, 11, [1704067200, 0], None]],
+            "metadata type code is missing",
+        ),
+        (
+            [["src_incomplete"], "Title", [None, 11, [1704067200, 0], None, "5"]],
+            "metadata type code is malformed",
+        ),
+        (
+            [["src_incomplete"], "Title", [None, 11, [1704067200, 0], None, 5]],
+            "status block is missing",
+        ),
+        (
+            [["src_incomplete"], "Title", [None, 11, [1704067200, 0], None, 5], []],
+            "status code is missing",
+        ),
+        (
+            [
+                ["src_incomplete"],
+                "Title",
+                [None, 11, [1704067200, 0], None, 5],
+                [None, "2"],
+            ],
+            "status code is malformed",
+        ),
+    ],
+)
+async def test_strict_list_rejects_incomplete_id_bearing_rows(
+    bad_row: list[Any],
+    detail: str,
+) -> None:
+    lister = SourceLister(RecordingRpc([["Notebook", [bad_row]]]))
+
+    with pytest.raises(RPCError, match=rf"incomplete source row at index 0 \({detail}"):
+        await lister.list("nb_123", strict=True)
+
+
+@pytest.mark.asyncio
+async def test_tolerant_list_keeps_incomplete_id_bearing_row_as_unknown() -> None:
+    row = [["src_incomplete"], "Title"]
+    lister = SourceLister(RecordingRpc([["Notebook", [row]]]))
+
+    sources = await lister.list("nb_123")
+
+    assert len(sources) == 1
+    assert sources[0].id == "src_incomplete"
+    assert sources[0].status is SourceStatus.UNKNOWN
+    assert sources[0].kind is SourceType.UNKNOWN
+
+
+@pytest.mark.asyncio
 async def test_list_dedups_duplicate_ids_keeping_first(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

@@ -364,6 +364,37 @@ class SourceRow:
         """
         return bool(self.id)
 
+    def listing_shape_error(self) -> str | None:
+        """Return why this row cannot support a strict source-list snapshot.
+
+        The general row adapter intentionally degrades incomplete shapes to
+        ``None`` / ``UNKNOWN`` because non-listing RPCs may omit metadata or a
+        status block. ``GET_NOTEBOOK`` source-list rows have a stronger shape:
+        strict filtering/counting needs both the type and status discriminants
+        to be present and integer-valued. Keeping this check on the adapter
+        preserves its ownership of all positional wire knowledge.
+        """
+        metadata = self.metadata
+        if metadata is None:
+            return "metadata block is missing or malformed"
+        if len(metadata) <= self._META_TYPE_POS:
+            return "metadata type code is missing"
+        type_code = metadata[self._META_TYPE_POS]
+        if not isinstance(type_code, int) or isinstance(type_code, bool):
+            return "metadata type code is malformed"
+
+        if len(self._raw) <= self._STATUS_BLOCK_POS:
+            return "status block is missing"
+        status_block = self._raw[self._STATUS_BLOCK_POS]
+        if not isinstance(status_block, list):
+            return "status block is malformed"
+        if len(status_block) <= self._STATUS_INNER_POS:
+            return "status code is missing"
+        status_code = status_block[self._STATUS_INNER_POS]
+        if not isinstance(status_code, int) or isinstance(status_code, bool):
+            return "status code is malformed"
+        return None
+
     @property
     def title(self) -> str | None:
         """Source title — ``None`` when absent (preserves legacy contract).

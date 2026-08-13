@@ -1217,9 +1217,10 @@ The `strict` option is for callers that need a trustworthy count. Response-
 envelope drift always raises `RPCError`, regardless of this option. At the row
 level, the default `strict=False` keeps backward-compatible recovery: malformed
 or id-less rows are skipped and duplicate IDs keep their first normalized
-value. `strict=True` instead raises on any malformed/id-less row or on duplicate
-IDs whose normalized values conflict. Duplicate rows that normalize to the same
-`Source` still collapse to one resource because the count is of unique,
+value. `strict=True` instead raises on malformed/id-less rows, on ID-bearing
+rows whose type or status discriminant is missing/malformed, and on duplicate
+IDs whose normalized values conflict. Duplicate rows that normalize to the
+same `Source` still collapse to one resource because the count is of unique,
 addressable sources—not raw wire rows. Therefore the canonical exact-count
 operation is:
 

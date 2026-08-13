@@ -265,6 +265,12 @@ class SourceLister:
                 )
             return None
 
+        if strict and (shape_error := row.listing_shape_error()) is not None:
+            raise RPCError(
+                f"Could not list sources for {notebook_id}: "
+                f"incomplete source row at index {index} ({shape_error})"
+            )
+
         # Funnel through the single ``Source`` construction site shared
         # with ``Source.from_api_response`` so the list/get/poll path and
         # the ADD_SOURCE/rename path produce identical Sources.
