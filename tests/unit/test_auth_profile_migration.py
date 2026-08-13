@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
 from types import SimpleNamespace
@@ -474,6 +475,127 @@ def test_scheduler_worker_contains_baseexception_and_deregisters(tmp_path, caplo
         scheduler.drain(10.0)
     assert not scheduler._workers_for_tests()
     assert "Background legacy account promotion crashed for" in caplog.text
+
+
+def test_drain_reports_and_warns_when_a_worker_outlives_the_budget(tmp_path, caplog):
+    """An incomplete drain must be observable, not silent (#2223).
+
+    Before the fix ``drain`` joined each worker and returned regardless: a
+    process could exit with the promotion unfinished and nothing anywhere --
+    no return value, no log, no exception -- said so.
+    """
+    release = threading.Event()
+
+    class _StuckMigrator:
+        def promote(self, store):
+            release.wait(30)
+
+    scheduler = LegacyPromotionScheduler()
+    store = _SequencedStore(tmp_path / "profile" / "storage_state.json", [])
+    try:
+        assert scheduler.schedule(store, _StuckMigrator()) is True  # type: ignore[arg-type]
+        with caplog.at_level("WARNING", logger="notebooklm.auth"):
+            assert scheduler.drain(0.05) is False
+        assert "did not finish within" in caplog.text
+        # The warning has to name the profile that may not have been migrated,
+        # otherwise it is not diagnosable.
+        assert str(store.path) in caplog.text
+        assert "NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT" in caplog.text
+    finally:
+        release.set()
+        assert scheduler.drain(30.0) is True
+
+
+def test_drain_returns_true_and_stays_quiet_when_every_worker_finishes(tmp_path, caplog):
+    class _Migrator:
+        def promote(self, store):
+            return None
+
+    scheduler = LegacyPromotionScheduler()
+    store = _SequencedStore(tmp_path / "state.json", [])
+    assert scheduler.schedule(store, _Migrator()) is True  # type: ignore[arg-type]
+    with caplog.at_level("WARNING", logger="notebooklm.auth"):
+        assert scheduler.drain(30.0) is True
+    assert "did not finish within" not in caplog.text
+    assert not scheduler._workers_for_tests()
+
+
+def test_drain_budget_is_an_overall_deadline_not_per_worker(tmp_path):
+    """N stalled workers must not multiply the wait (the pre-fix semantics)."""
+    release = threading.Event()
+
+    class _StuckMigrator:
+        def promote(self, store):
+            release.wait(30)
+
+    scheduler = LegacyPromotionScheduler()
+    stores = [_SequencedStore(tmp_path / f"state{index}.json", []) for index in range(4)]
+    try:
+        for store in stores:
+            assert scheduler.schedule(store, _StuckMigrator()) is True  # type: ignore[arg-type]
+        started = time.monotonic()
+        assert scheduler.drain(0.5) is False
+        elapsed = time.monotonic() - started
+        # Per-worker budgeting would spend 4 * 0.5s here.
+        assert elapsed < 1.5, f"drain spent {elapsed:.2f}s across {len(stores)} stalled workers"
+    finally:
+        release.set()
+        assert scheduler.drain(30.0) is True
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, migration._PROMOTION_EXIT_JOIN_SECONDS),
+        ("", migration._PROMOTION_EXIT_JOIN_SECONDS),
+        ("   ", migration._PROMOTION_EXIT_JOIN_SECONDS),
+        ("0", 0.0),
+        ("45", 45.0),
+        ("1.5", 1.5),
+    ],
+)
+def test_promotion_exit_timeout_honours_the_operator_override(monkeypatch, raw, expected):
+    if raw is None:
+        monkeypatch.delenv("NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT", raising=False)
+    else:
+        monkeypatch.setenv("NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT", raw)
+    assert migration._promotion_exit_timeout() == expected
+
+
+@pytest.mark.parametrize("raw", ["abc", "-1", "nan"])
+def test_promotion_exit_timeout_rejects_unusable_values_out_loud(monkeypatch, caplog, raw):
+    monkeypatch.setenv("NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT", raw)
+    with caplog.at_level("WARNING", logger="notebooklm.auth"):
+        resolved = migration._promotion_exit_timeout()
+    assert resolved == migration._PROMOTION_EXIT_JOIN_SECONDS
+    assert "NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT" in caplog.text
+
+
+def test_exit_budget_can_outlast_the_scrub_lock_it_waits_on():
+    """The exit budget must exceed the promotion's own internal lock wait.
+
+    A promotion queued behind the ``context.json`` lock is healthy work in
+    progress, not a hang. If the drain budget is below that lock's timeout, such
+    a promotion is abandoned every time by construction — which is how the
+    shipped 2.0s budget could lose writes silently against a 10.0s scrub lock
+    (#2223).
+    """
+    assert migration._PROMOTION_EXIT_JOIN_SECONDS > migration._CONTEXT_SCRUB_LOCK_TIMEOUT_SECONDS, (
+        "the exit drain gives up before the scrub lock it is waiting on can even time out"
+    )
+
+
+def test_exit_drain_hook_uses_the_resolved_budget(monkeypatch):
+    """The ``atexit`` hook must read the override, not the bare constant."""
+    seen: list[float] = []
+    monkeypatch.setenv("NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT", "7.5")
+    monkeypatch.setattr(
+        migration.LegacyPromotionScheduler.process_default(),
+        "drain",
+        lambda timeout: seen.append(timeout) or True,
+    )
+    migration._drain_promotions_at_exit()
+    assert seen == [7.5]
 
 
 def _login_state() -> dict[str, Any]:

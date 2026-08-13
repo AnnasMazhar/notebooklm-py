@@ -6,7 +6,9 @@ import atexit
 import copy
 import json
 import logging
+import os
 import threading
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +38,17 @@ from .profile_store import LoginWriteRequest, ProfileStore, ReplaceResult
 logger = logging.getLogger("notebooklm.auth")
 
 _ACCOUNT_CONTEXT_KEY = "account"
+
+#: How long the ``context.json`` scrub waits for its own file lock. A promotion
+#: that is merely *queued* behind this lock is still healthy work in progress,
+#: so the exit drain budget has to be able to outlast it — see
+#: ``_PROMOTION_EXIT_JOIN_SECONDS``.
+_CONTEXT_SCRUB_LOCK_TIMEOUT_SECONDS = 10.0
+
+#: Operator override for the exit drain budget, in float seconds (``0`` = never
+#: wait). Owned here rather than in ``_auth.paths`` because this module is its
+#: only consumer, matching ``headless_reauth``'s local env-name ownership.
+NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT_ENV = "NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -122,7 +135,7 @@ class LegacyAccountContext:
             return
         lock_path = context_path.with_suffix(context_path.suffix + ".lock")
         try:
-            with FileLock(str(lock_path), timeout=10.0):
+            with FileLock(str(lock_path), timeout=_CONTEXT_SCRUB_LOCK_TIMEOUT_SECONDS):
                 if not context_path.exists():
                     return
                 try:
@@ -271,7 +284,9 @@ class LegacyPromotionScheduler:
     def __init__(self, thread_factory: ThreadFactory | None = None) -> None:
         self._registry_lock = threading.Lock()
         self._once_paths: set[str] = set()
-        self._workers: set[threading.Thread] = set()
+        # Worker -> the profile whose promotion it owns, so an incomplete drain
+        # can name the file that may not have been migrated.
+        self._workers: dict[threading.Thread, Path] = {}
         self._thread_factory = threading.Thread if thread_factory is None else thread_factory
 
     @classmethod
@@ -290,7 +305,7 @@ class LegacyPromotionScheduler:
                 name="notebooklm-account-promotion",
                 daemon=True,
             )
-            self._workers.add(worker)
+            self._workers[worker] = store.path
             worker.start()
             return True
 
@@ -301,13 +316,39 @@ class LegacyPromotionScheduler:
             logger.debug("Background legacy account promotion crashed for %s: %s", store.path, exc)
         finally:
             with self._registry_lock:
-                self._workers.discard(threading.current_thread())
+                self._workers.pop(threading.current_thread(), None)
 
-    def drain(self, timeout_per_worker: float) -> None:
+    def drain(self, timeout: float) -> bool:
+        """Join outstanding promotion workers within one overall deadline.
+
+        ``timeout`` is an upper bound shared by every outstanding worker, not a
+        per-worker budget: N stalled workers must not multiply the wait. It is
+        a *deadline*, not a sleep — the common case (a promotion that already
+        finished, or finishes in milliseconds) returns immediately.
+
+        Returns ``True`` when every worker finished. A ``False`` return is also
+        reported at ``WARNING`` naming the profile that may not have been
+        migrated, because an unobserved timeout here is silent data loss: the
+        process exits, the daemon worker is killed mid-write, and nothing else
+        in the system ever notices (#2223).
+        """
         with self._registry_lock:
-            workers = list(self._workers)
-        for worker in workers:
-            worker.join(timeout_per_worker)
+            workers = list(self._workers.items())
+        deadline = time.monotonic() + timeout
+        complete = True
+        for worker, path in workers:
+            worker.join(max(deadline - time.monotonic(), 0.0))
+            if worker.is_alive():
+                complete = False
+                logger.warning(
+                    "Legacy account promotion for %s did not finish within the %.1fs exit "
+                    "budget; its account metadata may not have been migrated in-band. "
+                    "Re-run the command, or raise %s to allow a longer wait at exit.",
+                    path,
+                    timeout,
+                    NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT_ENV,
+                )
+        return complete
 
     def _scheduled_paths_for_tests(self) -> frozenset[str]:
         with self._registry_lock:
@@ -326,12 +367,62 @@ class LegacyPromotionScheduler:
 
 LegacyPromotionScheduler._process_default_scheduler = LegacyPromotionScheduler()
 
-_PROMOTION_EXIT_JOIN_SECONDS = 2.0
+# Why 30s and not the 2.0s this used to be (#2223).
+#
+# The budget is a *ceiling*, not a sleep: a promotion that has already
+# finished — the overwhelming common case — joins instantly, so raising the
+# ceiling costs a healthy process nothing. What the old 2.0s got wrong is that
+# it sat below the latency of an ordinary *uncontended* promotion on a loaded
+# machine. One promotion performs two lock acquisitions and two atomic writes
+# (``update_account`` then the ``context.json`` scrub); on a contended runner,
+# or a laptop with antivirus scanning the profile directory, that routinely
+# exceeds two seconds. The write was then abandoned with no signal at all.
+#
+# It cannot simply be raised to cover the worst case either: a promotion
+# blocked behind another process's storage lock may legitimately run for
+# ``storage_lock._LOCK_ACQUIRE_DEADLINE_SECONDS`` (90s), and no CLI should
+# stall that long on exit. 30s is chosen as an order of magnitude above
+# ordinary jitter while staying well inside a human's patience if a genuinely
+# stuck promotion is ever waited on; past it, ``drain`` warns rather than
+# leaving the loss silent. Operators who need a different trade-off set
+# ``NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT`` (``0`` = never wait).
+#
+# The floor is not a matter of taste: it must exceed
+# ``_CONTEXT_SCRUB_LOCK_TIMEOUT_SECONDS``, or a promotion that is simply queued
+# behind the context lock is abandoned every single time, by construction.
+# ``test_exit_budget_can_outlast_the_scrub_lock_it_waits_on`` pins that.
+_PROMOTION_EXIT_JOIN_SECONDS = 30.0
+
+
+def _promotion_exit_timeout() -> float:
+    """Resolve the exit drain budget, honouring the operator override."""
+    raw = os.environ.get(NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT_ENV)
+    if raw is None or not raw.strip():
+        return _PROMOTION_EXIT_JOIN_SECONDS
+    try:
+        override = float(raw)
+    except ValueError:
+        logger.warning(
+            "Ignoring %s=%r: not a number of seconds; using the %.1fs default.",
+            NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT_ENV,
+            raw,
+            _PROMOTION_EXIT_JOIN_SECONDS,
+        )
+        return _PROMOTION_EXIT_JOIN_SECONDS
+    if override < 0 or override != override:  # NaN compares unequal to itself
+        logger.warning(
+            "Ignoring %s=%r: must be a non-negative number of seconds; using the %.1fs default.",
+            NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT_ENV,
+            raw,
+            _PROMOTION_EXIT_JOIN_SECONDS,
+        )
+        return _PROMOTION_EXIT_JOIN_SECONDS
+    return override
 
 
 @atexit.register
 def _drain_promotions_at_exit() -> None:
-    LegacyPromotionScheduler.process_default().drain(_PROMOTION_EXIT_JOIN_SECONDS)
+    LegacyPromotionScheduler.process_default().drain(_promotion_exit_timeout())
 
 
 def replace_profile_from_login(
