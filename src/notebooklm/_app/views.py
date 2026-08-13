@@ -13,6 +13,9 @@ projection into ``_app`` rather than copy it per adapter):
   labels added alongside the raw ``status`` / ``_type_code`` integers.
 * :func:`notebook_view` — a ``Notebook`` with a string ``role_label`` added
   alongside the raw ``role`` integer.
+* :func:`notebook_viewed_keys` — the ``last_viewed_at`` timestamp plus its
+  deprecated ``modified_at`` alias key, for the hand-built CLI JSON envelopes
+  that do not go through :func:`notebook_view`.
 * :func:`ask_result_view` — an ``AskResult`` serialized with the internal
   ``raw_response`` debugging blob stripped (it just burns agent context; the
   field stays on the dataclass, it is only omitted from the wire).
@@ -38,6 +41,7 @@ __all__ = [
     "ask_result_view",
     "label",
     "notebook_view",
+    "notebook_viewed_keys",
     "share_status_view",
     "source_view",
 ]
@@ -120,6 +124,25 @@ def notebook_view(notebook: Notebook) -> dict[str, Any]:
         share_permission_to_str(notebook.role) if notebook.role is not None else None
     )
     return view
+
+
+def notebook_viewed_keys(notebook: Notebook) -> dict[str, str | None]:
+    """Return ``{"last_viewed_at": iso, "modified_at": iso}`` for a notebook.
+
+    ``modified_at`` is the deprecated alias of ``last_viewed_at`` (#2126): the
+    wire slot is ``lastViewedTime``, not a modification time. Both keys carry
+    the same ISO-8601 value so no consumer of the old key breaks during the v1.0
+    runway, and both are read from ``last_viewed_at`` so nothing here depends on
+    the alias staying in sync.
+
+    :func:`notebook_view` already emits both (they are dataclass fields, so
+    :func:`to_jsonable` picks them up). This helper exists for the hand-built
+    CLI ``--json`` envelopes, which pick individual keys rather than serializing
+    the whole dataclass — it keeps the alias policy in one place instead of
+    three copies of the same conditional.
+    """
+    viewed = notebook.last_viewed_at.isoformat() if notebook.last_viewed_at else None
+    return {"last_viewed_at": viewed, "modified_at": viewed}
 
 
 def ask_result_view(result: AskResult) -> dict[str, Any]:

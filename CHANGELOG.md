@@ -75,6 +75,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accepted (a partial/no match surfaces the error immediately rather than
   retrying against the already-rejected task). Fixes
   [#2187](https://github.com/teng-lin/notebooklm-py/issues/2187).
+- **`Notebook.modified_at` was never a modification time — it is
+  `lastViewedTime`, and reading a notebook advances it.** The field is now
+  `Notebook.last_viewed_at` / `NotebookMetadata.last_viewed_at`, with
+  `modified_at` kept as a deprecated alias through v1.0 (see
+  [`docs/deprecations.md`](docs/deprecations.md)). A re-confirmation probe on a
+  pair of throwaway notebooks reproduced both halves: three pure reads with no
+  mutation of any kind advanced the slot, and one bare `GET_NOTEBOOK` moved a
+  notebook from index 1 to index 0 of the recency list. Because that slot is the
+  sort key behind the NotebookLM web UI's "Recent" ordering, **every**
+  `notebooks.get()` this client issues — including internal reads and every
+  source-readiness poll iteration — reshuffles that ordering as a side effect of
+  observation. `notebooks.list()` does not: a third probe held the value pinned
+  across repeated `LIST_NOTEBOOKS`, so listing reads the ordering without
+  touching it. `docs/python-api.md` now documents the semantics and carries an
+  inventory of the internal call paths that bump recency — `chat.ask()` without
+  explicit `source_ids` is the most frequent, and `sources.add_file()` carries an
+  unconditional pre-create baseline read;
+  `client.notebooks.remove_from_recent()` is the only way to undo it. The
+  backend exposes no lighter-weight existence/status probe than `GET_NOTEBOOK`,
+  so no call path could be narrowed. `Notebook.modified_at` stays a dataclass
+  field (silent, docs-only deprecation — a warning there would also fire from
+  `repr` / `__eq__` / `dataclasses.replace` / serialization), while the
+  `NotebookMetadata.modified_at` *property* emits a gated `DeprecationWarning`.
+  Every JSON surface (CLI `--json`, MCP, REST) emits `last_viewed_at` alongside
+  the unchanged `modified_at` key.
+  ([#2126](https://github.com/teng-lin/notebooklm-py/issues/2126))
 - **`Notebook.is_owner` no longer inverts on shared notebooks, and the notebook's
   role is now surfaced.** `is_owner` was decoded from `meta[1]` (proto tag 2) on
   the belief that the slot flagged ownership. A two-account live probe showed

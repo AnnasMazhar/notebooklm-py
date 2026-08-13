@@ -140,6 +140,7 @@ def test_real_notebooklm_type_round_trips() -> None:
         "is_owner": True,
         "modified_at": None,
         "role": 1,
+        "last_viewed_at": None,
     }
     json.dumps(result)
 
@@ -155,6 +156,27 @@ def test_notebook_view_adds_role_label() -> None:
     # The projection is additive — every dataclass field still ships.
     assert view["is_owner"] is False
     assert view["id"] == "nb-1"
+
+
+def test_notebook_viewed_keys_returns_the_new_key_and_its_alias() -> None:
+    """``notebook_viewed_keys`` is the single home for the alias policy (#2126).
+
+    The hand-built CLI ``--json`` envelopes pick individual keys instead of
+    serializing the dataclass, so they need this helper to stay in step with the
+    ``to_jsonable`` surfaces.
+    """
+    from notebooklm._app.views import notebook_viewed_keys
+
+    nb = Notebook(id="nb-1", title="N", last_viewed_at=datetime(2026, 8, 12, 10, 0))
+
+    assert notebook_viewed_keys(nb) == {
+        "last_viewed_at": "2026-08-12T10:00:00",
+        "modified_at": "2026-08-12T10:00:00",
+    }
+    assert notebook_viewed_keys(Notebook(id="nb-1", title="N")) == {
+        "last_viewed_at": None,
+        "modified_at": None,
+    }
 
 
 def test_notebook_view_role_label_is_none_for_unknown_role() -> None:

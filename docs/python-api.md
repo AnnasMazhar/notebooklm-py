@@ -2164,32 +2164,76 @@ class Notebook:
     title: str
     created_at: Optional[datetime]   # creation time (tz-aware UTC)
     sources_count: int
-    is_owner: bool                   # role is SharePermission.OWNER
-    modified_at: Optional[datetime]  # last-modified time (tz-aware UTC)
-    role: Optional[SharePermission]  # your own level: OWNER / EDITOR / VIEWER
+    is_owner: bool                     # role is SharePermission.OWNER
+    modified_at: Optional[datetime]    # DEPRECATED alias for last_viewed_at
+    role: Optional[SharePermission]    # your own level: OWNER / EDITOR / VIEWER
+    last_viewed_at: Optional[datetime] # when YOU last opened it (tz-aware UTC)
 ```
 
-`role` is the calling account's permission level on the notebook, decoded from
-the backend's `userRole` field. It is `None` only when the row does not state a
-level (an unexpectedly short or unmapped row), in which case `is_owner`
-defaults to `True`.
+#### `last_viewed_at` is not a modification time — and `GET_NOTEBOOK` mutates it
 
-`is_owner` is kept as the `role is SharePermission.OWNER` shorthand for
-backward compatibility. Prefer `role` when the distinction matters: a read-only
-collaborator (`VIEWER`) and a full editor (`EDITOR`) both report
-`is_owner=False`.
+`last_viewed_at` decodes the backend's `lastViewedTime` field. Two things follow
+that regularly surprise callers:
 
-```python
-from notebooklm.types import SharePermission, share_permission_to_str
+1. **It does not track edits.** It advances when *this account* opens the
+   notebook, so an untouched notebook keeps getting a newer `last_viewed_at`,
+   and a notebook a collaborator just rewrote does not. There is no
+   modification timestamp on the wire; do not try to derive one from this
+   field.
+2. **`GET_NOTEBOOK` is not read-only.** `lastViewedTime` is the sort key the
+   backend uses for `ListRecentlyViewedProjects`, and it *writes* the field on
+   every notebook fetch. The [#2126](https://github.com/teng-lin/notebooklm-py/issues/2126)
+   audit saw three consecutive pure reads, with no mutation of any kind, advance
+   it `1786105463 → 1786105467 → 1786105471`, and a single bare `GET_NOTEBOOK`
+   move that notebook to index 0 of the recency list.
 
-for nb in await client.notebooks.list():
-    if nb.role is SharePermission.VIEWER:
-        print(f"{nb.title}: read-only")
-    # Guard the None case: share_permission_to_str is typed int | SharePermission,
-    # and an unstated role is not a level to label.
-    label = share_permission_to_str(nb.role) if nb.role is not None else "unstated"
-    print(label)  # "owner" / "editor" / "viewer" / "unstated"
-```
+So `notebooks.get()` — plus everything built on `GET_NOTEBOOK` in the table
+below — reorders the "Recent" list the human sees in the NotebookLM web UI.
+`notebooks.list()` does **not**: a follow-up probe held a notebook's
+`last_viewed_at` pinned across 15 seconds of repeated `LIST_NOTEBOOKS`, so
+listing reads the ordering without touching it.
+
+There is no read-without-touching notebook fetch, so if this matters for your
+automation, budget your `GET_NOTEBOOK`s.
+`client.notebooks.remove_from_recent(notebook_id)` is the only way to take a
+notebook back out of the list.
+
+Internal call paths that issue a recency-bumping `GET_NOTEBOOK` as a side
+effect of doing something else:
+
+| Path | Notes |
+|------|-------|
+| `chat.ask()` when `source_ids` is not passed | **Most frequent by far** — `get_source_ids()` runs on every ask that does not pin sources explicitly. |
+| `sources.list()` / `sources.get()` / `sources.wait_until_ready()` / `wait_all_until_ready()` | Sources are only exposed inside the notebook payload. The waiters re-read **once per poll iteration**, so a slow upload bumps recency a dozen times. |
+| `notebooks.get_metadata()` | **Two** `GET_NOTEBOOK`s — it gathers `notebooks.get()` and `sources.list()` concurrently. |
+| `notebooks.get_source_ids()` / `get_raw()` | Also reached by every `artifacts.generate_*`, `mind_maps.generate()`, and `notebooks.suggest_prompts()` that does not pin source ids. |
+| `notebooks.rename()` | Re-reads after the mutation to return the updated `Notebook`. |
+| `notebooks.create()` (CLI/MCP/REST path) | One best-effort re-read to backfill the timestamps `CREATE_NOTEBOOK` leaves null; skipped when both are already populated. |
+| `chat.get_settings()` | Chat config lives in the notebook payload. |
+| `sources.add_file()` | An **unconditional** pre-create baseline of existing source ids, on every call — the idempotency probe needs it to tell a source it created from one that was already there. |
+| `sources.add_url()` / `add_text()` / `add_drive()` | Only **on a retry**: their idempotency probe runs after a transport failure, not on the happy path. See the note below on `add_drive`. |
+| REST `POST /v1/notebooks/{id}/sources/batch` preflight | One shared existence/auth check before the per-URL loop. |
+
+> **Pending change — `sources.add_drive()`.**
+> [#2113](https://github.com/teng-lin/notebooklm-py/issues/2113) moves `add_drive`
+> from a retry-only probe to an **unconditional** pre-create baseline, the same
+> shape `add_file` already uses, because a Drive `documentId` turns out not to be
+> unique within a notebook (the repo's own cassette holds two source ids sharing
+> one `documentId`), so matching on `documentId` alone could return a
+> pre-existing copy and report success for a create that never landed. When that
+> lands, `add_drive` moves up a row: it will bump recency on **every** call rather
+> than only on a retry. The baseline is the correct fix — this table records the
+> recency cost it carries, not an objection to it.
+
+Paths that issue `LIST_NOTEBOOKS` — listed for completeness, since they cost an
+RPC but, per the probe above, **do not perturb recency**: `notebooks.create()`
+(an unconditional idempotency baseline before every create, plus a re-probe and
+a quota diagnosis on failure), MCP notebook-name resolution, and the auth
+master-token validation probe.
+
+Where a call only needs to know a notebook *exists*, it already uses the
+narrowest RPC available — the backend exposes no lighter-weight existence or
+status probe than `GET_NOTEBOOK`.
 
 ### Source
 

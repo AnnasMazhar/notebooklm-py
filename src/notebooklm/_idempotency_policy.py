@@ -336,8 +336,18 @@ def register_default_policies(registry: IdempotencyRegistry) -> None:
 
     _IDEMPOTENT_READ_OR_SET_OP_NOTES: dict[RPCMethod, str] = {
         # Live method ListRecentlyViewedProjects: a read-only recents list.
+        # Probed for #2126: repeated LIST_NOTEBOOKS leaves lastViewedTime pinned,
+        # so unlike GET_NOTEBOOK it writes nothing at all.
         RPCMethod.LIST_NOTEBOOKS: "read-only recents list; replay does not mutate notebook state",
-        RPCMethod.GET_NOTEBOOK: "read-only notebook fetch; replay does not mutate notebook state",
+        # NOT free of server-side effect, despite the bucket: GET_NOTEBOOK writes
+        # ProjectMetadata.lastViewedTime and so reorders the account's recency
+        # list (#2126). It stays idempotent because that write is
+        # last-write-wins on a timestamp — a replay lands the same notebook at
+        # the top of the same list, creating no resource and losing no data.
+        RPCMethod.GET_NOTEBOOK: (
+            "notebook fetch; replay does not mutate notebook content (it does refresh the "
+            "server-side lastViewedTime recency stamp, which is last-write-wins under replay)"
+        ),
         # Live method MutateProject (generic notebook mutator; covers title plus
         # chat-config and view-level via different params).
         RPCMethod.RENAME_NOTEBOOK: (
