@@ -53,6 +53,12 @@ MODULE_LEVEL = "<module>"
 # Must include the package prefix: `tailwind_doc.pb.dart` alone also matches the
 # persistence copy of the same message, which carries different tags.
 DOC = "orchestration.v1/tailwind_doc.pb.dart"
+# ``TextStyle`` / ``ParagraphStyle`` / ``BulletInfo`` live in the sibling
+# ``_common`` file. The distinction is load-bearing, not cosmetic: the
+# persistence copy of ``BulletInfo`` numbers ``nestingLevel`` 1 where the wire
+# copy numbers it 3, so a missing section hint would assert against the wrong
+# tags and pass for the wrong reason.
+DOC_COMMON = "orchestration.v1/tailwind_doc_common.pb.dart"
 
 
 @dataclass(frozen=True)
@@ -221,6 +227,222 @@ MAPPINGS: tuple[Mapping, ...] = (
     Mapping("artifacts", "ArtifactRow", "_INFOGRAPHIC_METADATA_POS", "Artifact", "infographic"),
     Mapping("artifacts", "ArtifactRow", "_SLIDE_DECK_METADATA_POS", "Artifact", "slides"),
     # ---- Answer row: AnswerResponse / TailwindDoc -------------------------
+    # ---- Citation + TailwindDoc tree (#2120, #2128) ------------------------
+    # Every one of these was UNMAPPED or absent before #2120. Recovering the
+    # ``tailwind_doc`` section of the schema is what turned the citation
+    # descent from guesswork into an assertion — and it is what showed the
+    # fragment's elements sit one level below ``Citation.fragment``, which was
+    # the whole of the truncation bug.
+    Mapping("chat", "CitationDetail", "_FRAGMENT_POS", "Citation", "fragment", section=DOC),
+    Mapping(
+        "chat",
+        "CitationDetail",
+        "_SOURCE_ID_POS",
+        "Citation",
+        "sourceAttribution",
+        section=DOC,
+    ),
+    Mapping(
+        "chat",
+        "CitationDetail",
+        "_FRAGMENT_ELEMENTS_POS",
+        "TailwindDocFragment",
+        "elements",
+        section=DOC,
+        note=(
+            "the second level of the descent: Citation.fragment is a message, "
+            "and stopping at it yields a 1-element wrapper — the #2120 defect"
+        ),
+    ),
+    Mapping(
+        "chat",
+        "CitationDetail",
+        "_FRAGMENT_RANGE_START_POS",
+        "Range",
+        "startIndex",
+        section=DOC,
+    ),
+    Mapping("chat", "CitationDetail", "_FRAGMENT_RANGE_END_POS", "Range", "endIndex", section=DOC),
+    Mapping("documents", "DocumentBodyRow", "_CONTENT_POS", "Body", "content", section=DOC),
+    Mapping(
+        "documents",
+        "DocumentBodyRow",
+        "_ANNOTATIONS_POS",
+        "Body",
+        "inlineObjectLocations",
+        section=DOC,
+    ),
+    Mapping(
+        "documents",
+        "StructuralElementRow",
+        "_START_POS",
+        "StructuralElement",
+        "startIndex",
+        section=DOC,
+    ),
+    Mapping(
+        "documents",
+        "StructuralElementRow",
+        "_END_POS",
+        "StructuralElement",
+        "endIndex",
+        section=DOC,
+    ),
+    Mapping(
+        "documents",
+        "StructuralElementRow",
+        "_PARAGRAPH_POS",
+        "StructuralElement",
+        "paragraph",
+        section=DOC,
+    ),
+    Mapping(
+        "documents", "StructuralElementRow", "_TABLE_POS", "StructuralElement", "table", section=DOC
+    ),
+    Mapping(
+        "documents", "StructuralElementRow", "_IMAGE_POS", "StructuralElement", "image", section=DOC
+    ),
+    Mapping(
+        "documents",
+        "StructuralElementRow",
+        "_CODE_BLOCK_POS",
+        "StructuralElement",
+        "codeBlock",
+        section=DOC,
+    ),
+    Mapping(
+        "documents",
+        "StructuralElementRow",
+        "_A2UI_BLOCK_POS",
+        "StructuralElement",
+        "a2uiBlock",
+        section=DOC,
+    ),
+    Mapping(
+        "documents",
+        "StructuralElementRow",
+        "_THOUGHT_POS",
+        "StructuralElement",
+        "thought",
+        section=DOC,
+    ),
+    Mapping(
+        "documents",
+        "StructuralElementRow",
+        "_FUNCTION_CALL_POS",
+        "StructuralElement",
+        "functionCall",
+        section=DOC,
+    ),
+    Mapping(
+        "documents",
+        "StructuralElementRow",
+        "_FUNCTION_RESPONSE_POS",
+        "StructuralElement",
+        "functionResponse",
+        section=DOC,
+    ),
+    Mapping(
+        "documents",
+        "StructuralElementRow",
+        "_HORIZONTAL_RULE_POS",
+        "StructuralElement",
+        "horizontalRule",
+        section=DOC,
+    ),
+    Mapping("documents", "TableRow", "_TABLE_ROWS_POS", "Table", "tableRows", section=DOC),
+    Mapping("documents", "TableRow", "_ROW_START_POS", "TableRow", "startIndex", section=DOC),
+    Mapping("documents", "TableRow", "_ROW_END_POS", "TableRow", "endIndex", section=DOC),
+    Mapping("documents", "TableRow", "_ROW_CELLS_POS", "TableRow", "tableCells", section=DOC),
+    Mapping("documents", "TableRow", "_CELL_START_POS", "TableCell", "startIndex", section=DOC),
+    Mapping("documents", "TableRow", "_CELL_END_POS", "TableCell", "endIndex", section=DOC),
+    Mapping("documents", "TableRow", "_CELL_CONTENT_POS", "TableCell", "content", section=DOC),
+    Mapping("documents", "ParagraphRow", "_ELEMENTS_POS", "Paragraph", "elements", section=DOC),
+    Mapping("documents", "ParagraphRow", "_STYLE_POS", "Paragraph", "paragraphStyle", section=DOC),
+    Mapping(
+        "documents", "ParagraphRow", "_BULLET_INFO_POS", "Paragraph", "bulletInfo", section=DOC
+    ),
+    Mapping(
+        "documents",
+        "ParagraphRow",
+        "_NAMED_STYLE_POS",
+        "ParagraphStyle",
+        "namedStyleType",
+        section=DOC_COMMON,
+    ),
+    Mapping(
+        "documents",
+        "ParagraphElementRow",
+        "_START_POS",
+        "ParagraphElement",
+        "startIndex",
+        section=DOC,
+    ),
+    Mapping(
+        "documents",
+        "ParagraphElementRow",
+        "_END_POS",
+        "ParagraphElement",
+        "endIndex",
+        section=DOC,
+    ),
+    Mapping(
+        "documents",
+        "ParagraphElementRow",
+        "_TEXT_RUN_POS",
+        "ParagraphElement",
+        "textRun",
+        section=DOC,
+    ),
+    Mapping("documents", "TextRunRow", "_CONTENT_POS", "TextRun", "content", section=DOC),
+    Mapping("documents", "TextRunRow", "_STYLE_POS", "TextRun", "textStyle", section=DOC),
+    Mapping("documents", "TextRunRow", "_BOLD_POS", "TextStyle", "bold", section=DOC_COMMON),
+    Mapping("documents", "TextRunRow", "_ITALIC_POS", "TextStyle", "italic", section=DOC_COMMON),
+    Mapping(
+        "documents",
+        "TextRunRow",
+        "_UNDERLINE_POS",
+        "TextStyle",
+        "underline",
+        section=DOC_COMMON,
+    ),
+    Mapping("documents", "TextRunRow", "_URL_POS", "TextStyle", "url", section=DOC_COMMON),
+    Mapping(
+        "documents",
+        "BulletInfoRow",
+        "_NESTING_LEVEL_POS",
+        "BulletInfo",
+        "nestingLevel",
+        section=DOC_COMMON,
+    ),
+    Mapping(
+        "documents",
+        "AnnotationEntryRow",
+        "_OBJECT_ID_POS",
+        "AnnotationMapEntry",
+        "objectId",
+        section=DOC,
+        note=(
+            "objectId is tag 1 and contentRange tag 2 — the order #2120's issue "
+            "body transcribed the other way round; the live capture matches the "
+            "schema, and the id is what joins an annotation to its citation"
+        ),
+    ),
+    Mapping(
+        "documents",
+        "AnnotationEntryRow",
+        "_RANGE_POS",
+        "AnnotationMapEntry",
+        "contentRange",
+        section=DOC,
+    ),
+    Mapping(
+        "documents", "AnnotationEntryRow", "_OBJECT_ID_VALUE_POS", "ObjectId", "id", section=DOC
+    ),
+    Mapping(
+        "documents", "AnnotationEntryRow", "_RANGE_START_POS", "Range", "startIndex", section=DOC
+    ),
+    Mapping("documents", "AnnotationEntryRow", "_RANGE_END_POS", "Range", "endIndex", section=DOC),
     Mapping("chat", "AnswerRow", "_TEXT_POS", "AnswerResponse", "response"),
     Mapping("chat", "AnswerRow", "_CONV_BLOCK_POS", "AnswerResponse", "conversationTurnKey"),
     Mapping("chat", "AnswerRow", "_TYPE_BLOCK_POS", "AnswerResponse", "responseDoc"),
@@ -232,6 +454,18 @@ MAPPINGS: tuple[Mapping, ...] = (
         "objects",
         section=DOC,
         note="nested inside responseDoc, not a top-level AnswerResponse index",
+    ),
+    Mapping(
+        "chat",
+        "AnswerRow",
+        "_DOC_BODY_POS",
+        "TailwindDoc",
+        "body",
+        section=DOC,
+        note=(
+            "nested inside responseDoc; the answer's own document body, whose "
+            "annotation map anchors each citation to a range of the answer (#2120)"
+        ),
     ),
     Mapping(
         "chat",
@@ -399,31 +633,14 @@ UNMAPPED: tuple[Unmapped, ...] = (
         "google.rpc.Status envelope, not a Tailwind message",
     ),
     Unmapped("chat", "ErrorPayloadRow", "_ENTRIES_POS", "google.rpc.Status envelope"),
-    Unmapped("chat", "TextLeafRow", "_TEXT_POS", _NESTED_LOCAL),
     Unmapped("chat", "CitationRow", "_CHUNK_BLOCK_POS", _NESTED_LOCAL),
     Unmapped("chat", "CitationRow", "_DETAIL_POS", _NESTED_LOCAL),
-    Unmapped("chat", "CitationDetail", "_SCORE_POS", _NESTED_LOCAL),
     Unmapped(
         "chat",
         "CitationDetail",
-        "_ANSWER_RANGE_POS",
-        "reads Citation tag 4; live-confirmed to carry the fragment's SOURCE-side "
-        "union range, not an answer-text range as the field name claims — see #2120",
+        "_SCORE_POS",
+        "reads Citation tag 3, which the recovered schema does not name",
     ),
-    Unmapped(
-        "chat",
-        "CitationDetail",
-        "_PASSAGES_POS",
-        "reads the fragment message (a 1-element list), so the passage loop can "
-        "never iterate — see #2120",
-    ),
-    Unmapped("chat", "CitationDetail", "_SOURCE_ID_POS", _NESTED_LOCAL),
-    Unmapped("chat", "CitationDetail", "_ANSWER_RANGE_START_POS", _NESTED_LOCAL),
-    Unmapped("chat", "CitationDetail", "_ANSWER_RANGE_END_POS", _NESTED_LOCAL),
-    Unmapped("chat", "PassageRow", "_PASSAGE_DATA_POS", _NESTED_LOCAL),
-    Unmapped("chat", "PassageRow", "_START_POS", _NESTED_LOCAL),
-    Unmapped("chat", "PassageRow", "_END_POS", _NESTED_LOCAL),
-    Unmapped("chat", "PassageRow", "_TEXT_PAYLOAD_POS", _NESTED_LOCAL),
     # notes.py
     Unmapped("notes", "NoteRow", "_STATUS_POS", "reads the NoteOrStatus wrapper, not ProjectNote"),
     Unmapped("notes", "NoteRow", "_INNER_META_POS", _NESTED_LOCAL),
@@ -478,6 +695,17 @@ UNMAPPED: tuple[Unmapped, ...] = (
 
 
 PINNED: tuple[Pinned, ...] = (
+    Pinned(
+        "chat",
+        "CitationDetail",
+        "_FRAGMENT_RANGE_POS",
+        3,
+        "Citation tag 4 — the cited fragment's SOURCE-side character range",
+        "live-confirmed on two independent captures: for every citation the value "
+        "equals the union of that fragment's own element ranges, and on a "
+        "536-character answer one citation reported [1130, 1695] — so it cannot be "
+        "the answer-text range this client documented it as until #2120",
+    ),
     Pinned(
         "artifacts",
         "ArtifactRow",

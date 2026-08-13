@@ -118,6 +118,15 @@
     "ShareAccess",
     "ShareViewLevel",
     "SharePermission",
+    "BlockKind",
+    "BlockStyle",
+    "DocumentAnnotation",
+    "DocumentBlock",
+    "ListInfo",
+    "ListStyle",
+    "StructuredDocument",
+    "TextSpan",
+    "utf16_len",
     "configure_logging"
   ],
   "notebooklm.artifacts": [

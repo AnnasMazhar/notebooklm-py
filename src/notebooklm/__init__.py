@@ -127,6 +127,8 @@ from .types import (
     AskResult,
     AudioFormat,
     AudioLength,
+    BlockKind,
+    BlockStyle,
     ChatGoal,
     ChatMode,
     ChatReference,
@@ -136,6 +138,8 @@ from .types import (
     Collection,
     ConnectionLimits,
     ConversationTurn,
+    DocumentAnnotation,
+    DocumentBlock,
     DriveMimeType,
     DriveSourceStatus,
     ExportType,
@@ -145,6 +149,8 @@ from .types import (
     InfographicOrientation,
     InfographicStyle,
     Label,
+    ListInfo,
+    ListStyle,
     MindMap,
     MindMapKind,
     MindMapResult,
@@ -176,13 +182,16 @@ from .types import (
     SourceStatus,
     SourceSummary,
     SourceType,
+    StructuredDocument,
     # Enums for configuration
     SuggestedTopic,
+    TextSpan,
     # Warnings
     UnknownTypeWarning,
     UserSettings,
     VideoFormat,
     VideoStyle,
+    utf16_len,
 )
 
 # Public API: Utility helpers
@@ -329,4 +338,13 @@ __all__ = [
     "ShareAccess",
     "ShareViewLevel",
     "SharePermission",
+    "BlockKind",
+    "BlockStyle",
+    "DocumentAnnotation",
+    "DocumentBlock",
+    "ListInfo",
+    "ListStyle",
+    "StructuredDocument",
+    "TextSpan",
+    "utf16_len",
 ]

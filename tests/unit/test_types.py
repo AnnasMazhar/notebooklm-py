@@ -2227,11 +2227,20 @@ class TestChatReference:
         with pytest.raises(ValueError, match="start_char/end_char"):
             ChatReference(source_id="x", end_char=5)
 
-    def test_paired_offset_invariant_answer_pair_half_populated(self):
-        """answer_start_char without answer_end_char (or vice versa) must raise."""
-        with pytest.raises(ValueError, match="answer_start_char"):
+    def test_paired_offset_invariant_fragment_pair_half_populated(self):
+        """A half-populated fragment range must raise, under either name.
+
+        The deprecated ``answer_*`` keywords are reconciled onto the canonical
+        ``fragment_*`` pair before validation (#2120), so both spellings fail
+        with the canonical name in the message.
+        """
+        with pytest.raises(ValueError, match="fragment_start_char/fragment_end_char"):
+            ChatReference(source_id="x", fragment_start_char=5)
+        with pytest.raises(ValueError, match="fragment_start_char/fragment_end_char"):
+            ChatReference(source_id="x", fragment_end_char=5)
+        with pytest.raises(ValueError, match="fragment_start_char/fragment_end_char"):
             ChatReference(source_id="x", answer_start_char=5)
-        with pytest.raises(ValueError, match="answer_start_char"):
+        with pytest.raises(ValueError, match="fragment_start_char/fragment_end_char"):
             ChatReference(source_id="x", answer_end_char=5)
 
     def test_paired_offset_invariant_inverted_source_range(self):
@@ -2239,10 +2248,19 @@ class TestChatReference:
         with pytest.raises(ValueError, match="> end_char"):
             ChatReference(source_id="x", start_char=10, end_char=5)
 
-    def test_paired_offset_invariant_inverted_answer_range(self):
-        """answer_start_char > answer_end_char must raise."""
-        with pytest.raises(ValueError, match="> answer_end_char"):
+    def test_paired_offset_invariant_inverted_fragment_range(self):
+        """fragment_start_char > fragment_end_char must raise."""
+        with pytest.raises(ValueError, match="> fragment_end_char"):
+            ChatReference(source_id="x", fragment_start_char=10, fragment_end_char=5)
+        with pytest.raises(ValueError, match="> fragment_end_char"):
             ChatReference(source_id="x", answer_start_char=10, answer_end_char=5)
+
+    def test_paired_offset_invariant_answer_doc_pair(self):
+        """The new answer-document range is validated as its own pair (#2120)."""
+        with pytest.raises(ValueError, match="answer_anchor_start/answer_anchor_end"):
+            ChatReference(source_id="x", answer_anchor_start=5)
+        with pytest.raises(ValueError, match="> answer_anchor_end"):
+            ChatReference(source_id="x", answer_anchor_start=10, answer_anchor_end=5)
 
     def test_paired_offset_invariant_valid_constructions(self):
         """All-None pairs, both pairs populated, and zero-width ranges all accepted."""
@@ -2250,20 +2268,26 @@ class TestChatReference:
         ChatReference(source_id="x")
         # Source pair populated.
         ChatReference(source_id="x", start_char=5, end_char=10)
-        # Answer pair populated.
+        # Fragment pair populated (under either name).
+        ChatReference(source_id="x", fragment_start_char=0, fragment_end_char=3)
         ChatReference(source_id="x", answer_start_char=0, answer_end_char=3)
-        # Both pairs populated.
+        # All three pairs populated.
         ChatReference(
             source_id="x",
             start_char=5,
             end_char=10,
-            answer_start_char=0,
-            answer_end_char=3,
+            fragment_start_char=0,
+            fragment_end_char=3,
+            answer_anchor_start=1,
+            answer_anchor_end=2,
         )
         # Zero-width ranges (start == end) are valid: many citations are
-        # structural anchors that resolve to single-position ranges.
+        # structural anchors that resolve to single-position ranges, and the
+        # answer-side anchor is zero-width whenever it marks an insertion
+        # point rather than a span (#2120).
         ChatReference(source_id="x", start_char=5, end_char=5)
-        ChatReference(source_id="x", answer_start_char=0, answer_end_char=0)
+        ChatReference(source_id="x", fragment_start_char=0, fragment_end_char=0)
+        ChatReference(source_id="x", answer_anchor_start=7, answer_anchor_end=7)
 
 
 class TestSourceFulltext:

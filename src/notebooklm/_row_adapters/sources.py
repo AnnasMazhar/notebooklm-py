@@ -1056,7 +1056,15 @@ class SourceFulltextRow:
 
     @property
     def text_content_blocks(self) -> list[Any] | None:
-        """Text-content blocks at ``result[3][0]`` — ``None`` when absent / non-list.
+        """The document ``Body`` at ``result[3][0]`` — ``None`` when absent / non-list.
+
+        ``result[3]`` is the source's ``tailwindDoc`` and ``[3][0]`` its
+        ``Body``: a structured tree, not the pre-flattened string list the name
+        suggests. ``_source/content.py`` derives two things from it — the legacy
+        newline-joined ``SourceFulltext.content`` and, since #2128, the parsed
+        ``SourceFulltext.document`` (via
+        :func:`notebooklm._row_adapters.documents.build_document`, which owns
+        every position below this one).
 
         Mirrors the legacy text-path guard: a falsy / non-list ``result[3]`` or
         a non-list ``result[3][0]`` yields ``None`` (empty content + warning).

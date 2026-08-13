@@ -13,6 +13,7 @@ from ..rpc.types import DriveSourceStatus, SourceStatus
 from .common import (
     UnknownTypeWarning,
 )
+from .documents import StructuredDocument
 
 if TYPE_CHECKING:
     from .._row_adapters.sources import SourceRow
@@ -407,7 +408,36 @@ class Source:
 
 @dataclass
 class SourceFulltext:
-    """Full text content of a source as indexed by NotebookLM."""
+    """Full text content of a source as indexed by NotebookLM.
+
+    Attributes:
+        source_id: The source UUID.
+        title: The source title.
+        content: The legacy flat rendering — every text run the document tree
+            contains, joined with ``"\\n"`` in traversal order. Kept
+            byte-identical to its pre-#2128 output so existing callers are
+            unaffected, which also means **its offsets are not the backend's**:
+            the joins insert separators the wire's character ranges never
+            accounted for. Use :attr:`document` when offsets matter.
+        url: The source URL, when it has one.
+        char_count: ``len(content)`` — Python characters over the legacy flat
+            rendering, **including the** ``"\\n"`` **separators that rendering
+            inserts**. It is a size, not a coordinate: it is neither the
+            document's extent nor comparable to any citation or annotation
+            offset (those are UTF-16 code units over :attr:`document`, which
+            has no separators). On the module's own test source the two read
+            548 and 532. Use :attr:`document` for anything positional.
+        document: The parsed document tree (#2128) — headings, list structure,
+            per-run styling, and the character ranges everything indexes. This
+            is the surface citation alignment is built on: resolve a
+            ``ChatReference``'s ``start_char`` / ``end_char`` with
+            ``document.slice(start_char, end_char)``. Empty (not ``None``) when
+            the response carried no decodable document, so consumers never have
+            to branch.
+
+            Not emitted by the CLI ``--json`` / MCP / REST fulltext payloads,
+            which stay pinned to their existing key sets.
+    """
 
     source_id: str
     title: str
@@ -415,6 +445,7 @@ class SourceFulltext:
     _type_code: int | None = field(default=None, repr=False)
     url: str | None = None
     char_count: int = 0
+    document: StructuredDocument = field(default_factory=StructuredDocument, repr=False)
 
     @property
     def kind(self) -> SourceType:
@@ -426,11 +457,36 @@ class SourceFulltext:
         cited_text: str,
         context_chars: int = 200,
     ) -> list[tuple[str, int]]:
-        """Search for citation text and return matching contexts."""
+        """Search for citation text in :attr:`content` and return matching contexts.
+
+        The search key is a prefix of ``cited_text``, capped at 40 characters
+        **and at the first block boundary the citation crosses**. Both caps
+        matter, and the second one is not an optimisation:
+
+        :attr:`content` joins the document's text runs with ``"\n"`` —
+        characters the backend never counted (#2128) — while ``cited_text``
+        concatenates the cited blocks with no separator at all (#2120). A key
+        that spans a block boundary therefore contains a join that ``content``
+        renders differently, and **cannot match anywhere**. That is not
+        hypothetical: a source whose first block is a short heading (14
+        characters is typical) produces a 40-character key crossing the very
+        first boundary, so every multi-block citation into it would fail to
+        resolve.
+
+        Before #2120 ``cited_text`` was truncated to the fragment's first block,
+        so the key could not straddle a boundary and this never arose. Capping
+        here restores that property for the *key* while leaving ``cited_text``
+        the complete, offset-accurate value.
+
+        This remains a value-based search against a string the citation offsets
+        do not describe. Resolving by offset against :attr:`document` is exact
+        and needs no search; see
+        `#2211 <https://github.com/teng-lin/notebooklm-py/issues/2211>`_.
+        """
         if not cited_text or not self.content:
             return []
 
-        search_text = cited_text[: min(40, len(cited_text))]
+        search_text = cited_text[: min(40, self._first_block_boundary(cited_text))]
 
         matches = []
         pos = 0
@@ -441,3 +497,15 @@ class SourceFulltext:
             pos = idx + len(search_text)
 
         return matches
+
+    def _first_block_boundary(self, cited_text: str) -> int:
+        """Length of ``cited_text`` up to the first document-block boundary.
+
+        Returns ``len(cited_text)`` when no boundary applies — an undecoded
+        document, or a citation this source's blocks do not open — so the
+        behaviour is unchanged for every case that was already working.
+        """
+        for block in self.document.blocks:
+            if block.text and cited_text.startswith(block.text):
+                return len(block.text)
+        return len(cited_text)

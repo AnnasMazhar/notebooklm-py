@@ -7,6 +7,169 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Citations can now be aligned to both the answer and the source.** The two
+  halves of that mapping were each missing a piece, and neither was usable
+  without the other.
+
+  On the **source** side ([#2128](https://github.com/teng-lin/notebooklm-py/issues/2128)),
+  `GET_SOURCE` returns a structured `TailwindDoc` tree and this client kept only
+  the strings in it — discarding headings, list structure, and every character
+  offset, then joining the remainder with `"\n"` separators the backend's
+  offsets never accounted for. `SourceFulltext.document` is now that tree
+  parsed: `StructuredDocument` with typed `DocumentBlock` / `TextSpan` /
+  `DocumentAnnotation` nodes, heading levels, ordered/unordered list info with
+  glyphs and ordinals, per-run bold/italic/underline/link styling, and the
+  absolute character ranges everything indexes. Table cell text is walked too,
+  so an infobox no longer leaves a hole in the coordinate space.
+  `SourceFulltext.content` is untouched, byte for byte, and no CLI / MCP / REST
+  payload changes shape. There was no cheaper route: a `grpcio` sweep across 17
+  sources and 10 content types found `plainText` and `markdownString` absent
+  17/17 on the mobile transport too, so the first-party Android client parses
+  this same tree.
+
+  On the **answer** side ([#2120](https://github.com/teng-lin/notebooklm-py/issues/2120)),
+  the answer's own `responseDoc` carries an annotation map — `Body`'s
+  `inlineObjectLocations` — pairing each citation's object id with the range of
+  the answer it supports. Nothing read it. `AskResult.answer_document` now
+  exposes that document, and each `ChatReference` carries
+  `answer_anchor_start` / `answer_anchor_end`, joined **by object id** so a
+  skipped malformed citation cannot shift an anchor onto its neighbour. They
+  resolve against `answer_document`, not `AskResult.answer` — the answer string
+  additionally carries markdown emphasis and the inline `[N]` markers the
+  document does not — and they are named "anchor" because the backend commonly
+  anchors a citation at its marker's zero-width insertion point rather than over
+  a span. `answer_document` is omitted from the MCP / REST / CLI `--json`
+  envelopes, which would otherwise roughly double in size; the per-reference
+  offsets survive the trim.
+
+  `StructuredDocument.text` is laid out at the backend's offsets, so
+  `slice(n, m)` is by construction what the backend meant by `[n, m)`.
+  Positions the document occupies but whose text this client cannot render — an
+  image, a rule, and for now a code block — are filled with `"\ufffc"` rather
+  than collapsed, because collapsing them is exactly how the flat rendering lost
+  the coordinate space in the first place.
+
+  Those offsets are **UTF-16 code units**, the JavaScript convention, not Python
+  code points: 22 of 22 spans in the captured answer document match their
+  declared width in UTF-16 units where only 21 match in characters, the
+  divergence being the span that opens with an emoji. `slice()` translates;
+  `notebooklm.types.utf16_len()` is exported for callers doing their own offset
+  arithmetic. Indexing `text` directly is off by one position per astral
+  character, which is why `slice()` is the sanctioned accessor.
+
+  A repo-wide sweep for the same defect class — every `len(` in
+  `src/notebooklm` co-occurring with an offset concept — found no further
+  instances: the remaining hits are list-length bounds checks on raw wire
+  arrays, list pagination, and one self-consistent local string manipulation.
+  The one thing it did surface is not a defect in either component but a
+  composition hazard between them, filed as
+  [#2211](https://github.com/teng-lin/notebooklm-py/issues/2211): `source
+  read --offset` windows `SourceFulltext.content` in Python characters, so it
+  is not interchangeable with a citation's `start_char` — different string,
+  different unit. The affected docstrings now say so explicitly.
+
+  Both surfaces are additive: new fields at the end of their dataclasses, empty
+  (never `None`) when a response carries no decodable document.
+
+### Changed
+
+- **`ChatReference.cited_text` now returns a different value for the same
+  citation.** This is the point of the change rather than a side effect, and it
+  is worth stating on its own because **no signature-level compatibility audit
+  can see it**: the field's type, name and position are unchanged, and only its
+  contents move. Previously it held the cited fragment's *first block*; it now
+  holds the whole fragment — 42 characters became 560 on the live capture that
+  motivated the fix, and 16 became 3,927 on one citation in this repo's own
+  `chat_ask_with_references` cassette. Anything that stores, hashes, diffs,
+  de-duplicates or persists `cited_text` as a key will see different data from
+  identical input, and any golden file recording it needs refreshing.
+
+  Two related facts a caller should not have to rediscover:
+
+  - **The offsets are UTF-16 code units**, the backend's own unit, not Python
+    characters. They differ on any text outside the Basic Multilingual Plane —
+    one emoji costs one position, and every offset after it shifts.
+    `notebooklm.types.utf16_len()` is exported for callers doing their own
+    offset arithmetic, and `document.slice()` does the conversion.
+  - **`len(cited_text)` is not a reliable width.** It usually equals
+    `end_char - start_char` and is not guaranteed to: it counts Python
+    characters against a UTF-16 range, and it omits positions this client does
+    not render as text. Take the width from `end_char - start_char`, or measure
+    with `utf16_len()`.
+
+  `ChatReference.answer_start_char` / `answer_end_char` keep returning exactly
+  the values they always did — see **Fixed** below for why their *names* were
+  wrong — so that pair is unaffected by this.
+
+### Fixed
+
+- **`SourceFulltext.find_citation_context()` could not locate a multi-block
+  citation.** Its search key is a prefix of `cited_text`, and once `cited_text`
+  spanned a whole fragment (below) that key crossed block boundaries — where
+  `content` has a `"\n"` the citation does not, so the key could not occur in
+  the string being searched. For a source whose first block is a short heading
+  the key crossed the very first boundary, so `resolve_chat_reference_passage`
+  raised `ChatResponseParseError` for a perfectly valid citation. The key is now
+  capped at the first block boundary as well as at 40 characters, restoring the
+  property that held before — when `cited_text` was first-block-only, the key
+  could not straddle a join. `cited_text` itself is unchanged: making its
+  *value* wrong to satisfy a value-based consumer would reintroduce exactly the
+  separators #2128 removed. Resolving by offset against `document` needs no
+  search at all and is tracked as
+  [#2211](https://github.com/teng-lin/notebooklm-py/issues/2211).
+
+- **Saved-from-chat notes miscounted their citation offsets on non-ASCII
+  answers.** `build_save_chat_as_note_params` sized its `TailwindDoc` ranges —
+  the cited passage's local span, the cleaned-answer span, and every `[N]`
+  marker anchor — with `len()`, i.e. Python characters, where the backend
+  counts UTF-16 code units. One emoji anywhere in an answer ended each
+  subsequent range a unit short, misaligning the saved note's hover anchoring.
+  Latent before this change and newly reachable after it, because `cited_text`
+  now spans the whole cited fragment rather than its first block.
+
+- **The fixture secrets scan now covers `tests/unit/fixtures` too.** CI swept
+  `tests/fixtures` with `check_cassettes_clean.py --secrets-only` but not the
+  sibling directory, so a live-captured payload committed there could carry
+  credential-shaped material unchallenged — which is exactly what the first
+  such payload in this change did, until it was scrubbed. Both directories are
+  now scanned, in CI and in the `pytest` mirror of that step.
+
+- **`ChatReference.cited_text` was truncated to the first block of each
+  citation.** `Citation.fragment` is a *message* whose `elements` list sits one
+  level below it, and the decoder stopped at the message — so the passage loop
+  iterated a single wrapper and returned whatever the fragment's first block
+  held. On the live capture that motivated the fix, 37 characters of an
+  available 556; on this repo's own `chat_ask_with_references` cassette, one
+  citation went from 16 characters of a 3,927-character range to the whole of
+  it. `cited_text` is now the fragment's text verbatim and `start_char` /
+  `end_char` span the whole fragment. (Verbatim, not padded: where a length
+  guarantee matters, `document.slice(start_char, end_char)` gives one.)
+
+  The fix had to be two-level. Descending to the elements while still unwrapping
+  each one's `[0]` — the pre-fix `PassageRow` behaviour — reads an element's
+  `startIndex`, an `int` where a nested record is expected; every element then
+  fails well-formedness and `cited_text` becomes `None` for *every* citation,
+  strictly worse than the truncation. `tests/unit/test_citation_alignment.py`
+  pins that trap against the real fragment. The per-passage adapters
+  (`PassageRow`, `TextLeafRow`) are retired in favour of the shared document
+  adapters, which decode the same `StructuralElement` rows the source path uses.
+  ([#2120](https://github.com/teng-lin/notebooklm-py/issues/2120))
+
+- **`ChatReference.answer_start_char` / `answer_end_char` were documented as
+  answer-text positions and are not.** They are the cited fragment's
+  **source-side** range, the union of the fragment's own element ranges. A live
+  capture reported `[1130, 1695]` for the third citation of a 536-character
+  answer, so following the docstring and slicing the answer indexed off the end.
+  (The slot is `Citation`'s protobuf tag 4, which the recovered schema does not
+  name; the meaning comes from live capture.) The fields are renamed to `fragment_start_char` /
+  `fragment_end_char`; the old names remain as deprecated aliases through v1.0,
+  returning exactly the values they always did (see
+  [`docs/deprecations.md`](docs/deprecations.md)). The genuinely answer-side
+  range is the new `answer_anchor_*` pair above.
+  ([#2120](https://github.com/teng-lin/notebooklm-py/issues/2120))
+
 ### Changed
 
 - **`notebooklm research wait --timeout` now defaults to 1800 seconds, up from

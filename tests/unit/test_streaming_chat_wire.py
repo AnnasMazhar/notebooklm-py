@@ -20,9 +20,8 @@ import pytest
 from notebooklm._chat.wire import (
     StreamingChatParseResult,
     build_streaming_chat_request,
-    collect_texts_from_nested,
     extract_answer_and_refs_from_chunk,
-    extract_answer_range,
+    extract_fragment_range,
     extract_score,
     extract_text_passages,
     extract_uuid_from_nested,
@@ -90,17 +89,35 @@ def _citation(
     start: int = 10,
     end: int = 20,
     score: float | None = 0.9,
-    answer_start: int | None = None,
-    answer_end: int | None = None,
+    fragment_start: int | None = None,
+    fragment_end: int | None = None,
 ) -> list[Any]:
+    """Build one ``DocumentObject`` citation entry in the shape the wire sends.
+
+    The nesting is the live one, level for level (see
+    ``tests/unit/fixtures/chat_answer_row_with_citations.json`` for the capture
+    this mirrors): ``Citation.fragment`` is a *message* whose ``elements`` list
+    sits one level below it, each element is a ``StructuralElement``
+    ``[startIndex, endIndex, paragraph]``, and the leaf ``TextRun`` wraps its
+    content in a list rather than being a bare string.
+
+    That last detail is not pedantry: this helper used to place a bare string
+    where the wire places ``[content]``, and the resulting fixture agreed with
+    a decoder that also read it wrongly (#2120).
+    """
+    text_run = [text]
+    paragraph_element = [start, end, text_run]
+    paragraph = [[paragraph_element]]
+    structural_element = [start, end, paragraph]
+    fragment = [[structural_element]]
     return [
         [chunk_id],
         [
             None,
             None,
             score,
-            [[None, answer_start, answer_end]] if answer_start is not None else [[None]],
-            [[[start, end, [[[start, end, text]]]]]],
+            [[None, fragment_start, fragment_end]] if fragment_start is not None else [[None]],
+            fragment,
             [[[source_id]]],
             [chunk_id],
         ],
@@ -116,9 +133,8 @@ def test_module_signatures_are_stable() -> None:
         "parse_citations": inspect.signature(parse_citations),
         "parse_single_citation": inspect.signature(parse_single_citation),
         "extract_text_passages": inspect.signature(extract_text_passages),
-        "extract_answer_range": inspect.signature(extract_answer_range),
+        "extract_fragment_range": inspect.signature(extract_fragment_range),
         "extract_score": inspect.signature(extract_score),
-        "collect_texts_from_nested": inspect.signature(collect_texts_from_nested),
         "extract_uuid_from_nested": inspect.signature(extract_uuid_from_nested),
     }
 
@@ -137,12 +153,15 @@ def test_module_signatures_are_stable() -> None:
     assert list(signatures["parse_streaming_chat_response"].parameters) == ["response_text"]
     assert list(signatures["extract_answer_and_refs_from_chunk"].parameters) == ["json_str"]
     assert list(signatures["raise_if_rate_limited"].parameters) == ["error_payload"]
-    assert list(signatures["parse_citations"].parameters) == ["first"]
+    # ``document`` is optional and defaults to ``None`` (#2120): the stream
+    # parser passes the answer document it has already built, and a direct
+    # single-argument call still works exactly as before.
+    assert list(signatures["parse_citations"].parameters) == ["first", "document"]
+    assert signatures["parse_citations"].parameters["document"].default is None
     assert list(signatures["parse_single_citation"].parameters) == ["cite"]
     assert list(signatures["extract_text_passages"].parameters) == ["cite_inner"]
-    assert list(signatures["extract_answer_range"].parameters) == ["cite_inner"]
+    assert list(signatures["extract_fragment_range"].parameters) == ["cite_inner"]
     assert list(signatures["extract_score"].parameters) == ["cite_inner"]
-    assert list(signatures["collect_texts_from_nested"].parameters) == ["nested", "texts"]
     assert list(signatures["extract_uuid_from_nested"].parameters) == ["data", "max_depth"]
     assert signatures["extract_uuid_from_nested"].parameters["max_depth"].default == 10
     assert StreamingChatParseResult("a", [], None).answer == "a"
@@ -404,8 +423,8 @@ def test_parse_citations_extracts_multiple_references_and_assigns_numbers() -> N
             start=1,
             end=11,
             score=0.85,
-            answer_start=100,
-            answer_end=200,
+            fragment_start=100,
+            fragment_end=200,
         ),
         _citation(
             source_id="11111111-2222-3333-4444-555555555555",
@@ -414,8 +433,8 @@ def test_parse_citations_extracts_multiple_references_and_assigns_numbers() -> N
             start=12,
             end=27,
             score=0.7,
-            answer_start=200,
-            answer_end=350,
+            fragment_start=200,
+            fragment_end=350,
         ),
     ]
 
@@ -429,6 +448,11 @@ def test_parse_citations_extracts_multiple_references_and_assigns_numbers() -> N
     assert [ref.chunk_id for ref in result.references] == ["chunk-1", "chunk-2"]
     assert [ref.cited_text for ref in result.references] == ["first citation", "second citation"]
     assert [(ref.start_char, ref.end_char) for ref in result.references] == [(1, 11), (12, 27)]
+    assert [(ref.fragment_start_char, ref.fragment_end_char) for ref in result.references] == [
+        (100, 200),
+        (200, 350),
+    ]
+    # The deprecated aliases keep reporting the same values (#2120).
     assert [(ref.answer_start_char, ref.answer_end_char) for ref in result.references] == [
         (100, 200),
         (200, 350),
@@ -436,30 +460,30 @@ def test_parse_citations_extracts_multiple_references_and_assigns_numbers() -> N
     assert [ref.score for ref in result.references] == [0.85, 0.7]
 
 
-def test_extract_answer_range_handles_well_formed_and_malformed_shapes() -> None:
+def test_extract_fragment_range_handles_well_formed_and_malformed_shapes() -> None:
     # Well-formed: [[None, start, end]]
-    assert extract_answer_range([None, None, None, [[None, 10, 20]]]) == (10, 20)
+    assert extract_fragment_range([None, None, None, [[None, 10, 20]]]) == (10, 20)
     # Zero-length but valid: end == start
-    assert extract_answer_range([None, None, None, [[None, 5, 5]]]) == (5, 5)
+    assert extract_fragment_range([None, None, None, [[None, 5, 5]]]) == (5, 5)
     # Missing outer: too short
-    assert extract_answer_range([None, None, None]) == (None, None)
+    assert extract_fragment_range([None, None, None]) == (None, None)
     # Inner [None] only (server omitted positions)
-    assert extract_answer_range([None, None, None, [[None]]]) == (None, None)
+    assert extract_fragment_range([None, None, None, [[None]]]) == (None, None)
     # Non-int positions
-    assert extract_answer_range([None, None, None, [[None, "10", "20"]]]) == (None, None)
+    assert extract_fragment_range([None, None, None, [[None, "10", "20"]]]) == (None, None)
     # Empty outer
-    assert extract_answer_range([None, None, None, []]) == (None, None)
+    assert extract_fragment_range([None, None, None, []]) == (None, None)
     # Outer[0] not a list
-    assert extract_answer_range([None, None, None, ["bad"]]) == (None, None)
+    assert extract_fragment_range([None, None, None, ["bad"]]) == (None, None)
     # bool positions rejected (bool is int subclass in Python)
-    assert extract_answer_range([None, None, None, [[None, True, False]]]) == (None, None)
+    assert extract_fragment_range([None, None, None, [[None, True, False]]]) == (None, None)
     # Partial range: end is None — paired check returns (None, None) not (10, None)
-    assert extract_answer_range([None, None, None, [[None, 10, None]]]) == (None, None)
-    assert extract_answer_range([None, None, None, [[None, None, 20]]]) == (None, None)
+    assert extract_fragment_range([None, None, None, [[None, 10, None]]]) == (None, None)
+    assert extract_fragment_range([None, None, None, [[None, None, 20]]]) == (None, None)
     # Negative start rejected
-    assert extract_answer_range([None, None, None, [[None, -1, 10]]]) == (None, None)
+    assert extract_fragment_range([None, None, None, [[None, -1, 10]]]) == (None, None)
     # end < start rejected
-    assert extract_answer_range([None, None, None, [[None, 20, 10]]]) == (None, None)
+    assert extract_fragment_range([None, None, None, [[None, 20, 10]]]) == (None, None)
 
 
 def test_extract_score_accepts_float_and_int_rejects_bool_and_out_of_range() -> None:
@@ -629,10 +653,12 @@ def test_row_level_citation_helpers_keep_soft_contracts() -> None:
         None,
         None,
     )
-
-    texts: list[str] = []
-    collect_texts_from_nested([["malformed"]], texts)
-    assert texts == []
+    # A fragment whose elements carry no usable range degrades the same way.
+    assert extract_text_passages([None, None, None, None, [["malformed"]]]) == (
+        None,
+        None,
+        None,
+    )
 
 
 def test_parse_single_citation_chunk_id_absent_keeps_citation_with_none_chunk() -> None:
@@ -910,7 +936,6 @@ def test_chat_module_keeps_only_delegating_stream_parser_wrappers() -> None:
         "_parse_citations",
         "_parse_single_citation",
         "_extract_text_passages",
-        "_collect_texts_from_nested",
         "_extract_uuid_from_nested",
     }
     expected_delegate = {
@@ -920,7 +945,6 @@ def test_chat_module_keeps_only_delegating_stream_parser_wrappers() -> None:
         "_parse_citations": "parse_citations",
         "_parse_single_citation": "parse_single_citation",
         "_extract_text_passages": "extract_text_passages",
-        "_collect_texts_from_nested": "collect_texts_from_nested",
         "_extract_uuid_from_nested": "extract_uuid_from_nested",
     }
 

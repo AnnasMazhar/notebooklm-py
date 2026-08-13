@@ -34,7 +34,6 @@ from .transport import chat_aware_authed_post
 from .wire import (
     _extract_next_turn_content,
     build_streaming_chat_request,
-    collect_texts_from_nested,
     extract_answer_and_refs_from_chunk,
     extract_text_passages,
     extract_uuid_from_nested,
@@ -47,6 +46,7 @@ from .wire import (
 if TYPE_CHECKING:
     from .._reqid_counter import ReqidCounter
     from .._runtime.transport import RuntimeTransport
+from .._types.documents import StructuredDocument
 from ..rpc import (
     ChatGoal,
     ChatResponseLength,
@@ -293,7 +293,7 @@ class ChatAPI(LoopBoundPrimitive):
             conversation_history: list[Any] | None,
             active_conversation_id: str | None,
             resolved_id_override: str | None = None,
-        ) -> tuple[str, list[ChatReference], str, str]:
+        ) -> tuple[str, list[ChatReference], str, str, StructuredDocument]:
             # Capture into closure-local variables so the nested ``build_request``
             # closure carries explicit types — mypy doesn't propagate flow
             # narrowing through nested-function captures, and the wire
@@ -345,9 +345,9 @@ class ChatAPI(LoopBoundPrimitive):
             # 0 turns, and passing it back as ``params[4]`` for a follow-up
             # produces a ghost turn the server does not register. We discard
             # it here and fetch the real id via ``hPTbtc`` below.
-            answer_text, references, _ignored_stream_id = self._parse_ask_response_with_references(
-                response.text
-            )
+            parsed = parse_streaming_chat_response(response.text)
+            answer_text, references = parsed.answer, parsed.references
+            answer_document = parsed.answer_document
 
             resolved_conversation_id = active_conversation_id
             if resolved_id_override is not None:
@@ -402,7 +402,13 @@ class ChatAPI(LoopBoundPrimitive):
 
             assert resolved_conversation_id is not None
 
-            return answer_text, references, resolved_conversation_id, response.text
+            return (
+                answer_text,
+                references,
+                resolved_conversation_id,
+                response.text,
+                answer_document,
+            )
 
         def cache_turn(
             resolved_conversation_id: str,
@@ -433,7 +439,13 @@ class ChatAPI(LoopBoundPrimitive):
                     posted = await perform_request(
                         conversation_history=None, active_conversation_id=None
                     )
-                    answer_text, references, resolved_conversation_id, raw_response = posted
+                    (
+                        answer_text,
+                        references,
+                        resolved_conversation_id,
+                        raw_response,
+                        answer_document,
+                    ) = posted
             # Existing conversation: release the notebook lock and serialize on the
             # conversation lock alone, so other null asks on this notebook resolve
             # in parallel yet still serialize here on that shared lock.
@@ -458,7 +470,13 @@ class ChatAPI(LoopBoundPrimitive):
                         active_conversation_id=None,
                         resolved_id_override=override,
                     )
-                    answer_text, references, resolved_conversation_id, raw_response = posted
+                    (
+                        answer_text,
+                        references,
+                        resolved_conversation_id,
+                        raw_response,
+                        answer_document,
+                    ) = posted
                     turn_number = cache_turn(
                         resolved_conversation_id, answer_text, prior_turn_count
                     )
@@ -477,6 +495,7 @@ class ChatAPI(LoopBoundPrimitive):
                     references,
                     resolved_conversation_id,
                     raw_response,
+                    answer_document,
                 ) = await perform_request(
                     conversation_history=conversation_history,
                     active_conversation_id=conversation_id,
@@ -490,6 +509,7 @@ class ChatAPI(LoopBoundPrimitive):
             is_follow_up=is_follow_up,
             references=references,
             raw_response=raw_response[:1000],
+            answer_document=answer_document,
         )
 
     async def get_conversation_turns(
@@ -955,7 +975,12 @@ class ChatAPI(LoopBoundPrimitive):
     def _parse_ask_response_with_references(
         self, response_text: str
     ) -> tuple[str, list[ChatReference], str | None]:
-        """Compatibility wrapper preserving the old tuple return shape."""
+        """Compatibility wrapper preserving the old tuple return shape.
+
+        Deliberately still a 3-tuple: the answer document added by #2120 is
+        read from :func:`parse_streaming_chat_response` directly on the ask
+        path, so this legacy shape does not have to grow a fourth element.
+        """
         result = parse_streaming_chat_response(response_text)
         return result.answer, result.references, result.conversation_id
 
@@ -980,10 +1005,6 @@ class ChatAPI(LoopBoundPrimitive):
     def _extract_text_passages(self, cite_inner: list) -> tuple[str | None, int | None, int | None]:
         """Compatibility wrapper for streamed-chat citation text extraction."""
         return extract_text_passages(cite_inner)
-
-    def _collect_texts_from_nested(self, nested: Any, texts: list[str]) -> None:
-        """Compatibility wrapper for streamed-chat nested text collection."""
-        collect_texts_from_nested(nested, texts)
 
     def _extract_uuid_from_nested(self, data: Any, max_depth: int = 10) -> str | None:
         """Compatibility wrapper for streamed-chat source UUID extraction."""

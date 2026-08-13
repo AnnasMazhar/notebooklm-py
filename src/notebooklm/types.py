@@ -36,6 +36,17 @@ from ._types.common import (
     UnknownTypeWarning,
     UserSettings,
 )
+from ._types.documents import (
+    BlockKind,
+    BlockStyle,
+    DocumentAnnotation,
+    DocumentBlock,
+    ListInfo,
+    ListStyle,
+    StructuredDocument,
+    TextSpan,
+    utf16_len,
+)
 from ._types.labels import Label
 from ._types.mind_maps import MindMap, MindMapKind
 from ._types.notebooks import (
@@ -187,6 +198,15 @@ __all__ = [
     "Collection",
     "ConversationTurn",
     "ChatReference",
+    "BlockKind",
+    "BlockStyle",
+    "DocumentAnnotation",
+    "DocumentBlock",
+    "ListInfo",
+    "ListStyle",
+    "StructuredDocument",
+    "TextSpan",
+    "utf16_len",
     "AskResult",
     "ChatMode",
     "ChatSettings",
