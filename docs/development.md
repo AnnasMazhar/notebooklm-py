@@ -637,6 +637,37 @@ the matrix gives the child process 30 additional seconds to report failure and
 tear down. Workspace/SSO, regional-account, and long-duration-expiry cases remain
 account-specific manual validation.
 
+#### The extras above are load-bearing — especially `headless`
+
+Run the matrix with the full set shown in the commands above
+(`browser`, `cookies`, `headless`, `mcp`, `server`). They are not
+interchangeable with the contributor install in
+[CLAUDE.md](../CLAUDE.md), which deliberately mirrors CI's test job and
+includes neither `cookies` nor `headless` — CI never runs this matrix.
+
+`headless` (`gpsoauth`) is the trap. Without it, every master-token cell
+fails **as if the token had been rejected**: `_require_gpsoauth` raises
+through `MasterTokenError`, and `_run_master_token_reauth` logs a warning
+and returns `None`, which the rung reports to its caller as a plain
+`False`. The visible symptom is `RPCError: The server rejected this
+request (unauthenticated)` — indistinguishable from a genuinely revoked
+master token, and it will send you off re-bootstrapping credentials that
+were fine all along. The distinguishing evidence is only in the log:
+
+```
+WARNING [notebooklm.auth] Master-token re-mint failed
+(Master-token auth needs gpsoauth. Install: pip install 'notebooklm-py[headless]');
+authentication error stands.
+```
+
+If a master-token, sibling, or REST cell fails, check for that warning
+before suspecting your credentials. Tracked as
+[#2239](https://github.com/teng-lin/notebooklm-py/issues/2239).
+
+Similarly, without `cookies` (`rookiepy`) the browser discovery/login and
+browser-refresh cells cannot run at all; use `--skip-browser` rather than
+reading their absence as a pass.
+
 #### Where a cell's code lives
 
 `scripts/live_auth_matrix.py` owns isolation, execution, and reporting only. The
