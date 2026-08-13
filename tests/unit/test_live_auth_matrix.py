@@ -1009,3 +1009,64 @@ def test_scenarios_never_read_or_write_text_with_the_ambient_locale() -> None:
             ):
                 offenders.append(f"{path.name}:{node.lineno} {node.func.attr}()")
     assert offenders == [], f"pass encoding='utf-8' explicitly: {offenders}"
+
+
+def test_scenarios_never_pass_subprocess_output_as_an_invariant_message() -> None:
+    """``require`` messages must name the invariant, not echo a child's output.
+
+    ``_contract.require`` documents that a message "must name the broken
+    invariant, never quote a credential". Forwarding the stderr tail of
+    ``notebooklm login --master-token-refresh`` breaks that: the tail is
+    arbitrary CLI logging, it lands in the scenario's own stderr, and the
+    orchestrator copies that into a report meant for a release checklist.
+    """
+    offenders: list[str] = []
+    for path in sorted(SCENARIO_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "require"
+                and len(node.args) == 2
+            ):
+                continue
+            leaked = [
+                child.attr
+                for child in ast.walk(node.args[1])
+                if isinstance(child, ast.Attribute) and child.attr in {"stderr", "stdout"}
+            ]
+            offenders += [f"{path.name}:{node.lineno} .{attr}" for attr in leaked]
+    assert offenders == [], f"name the invariant instead of echoing child output: {offenders}"
+
+
+def test_scenarios_restore_owner_only_mode_when_replacing_a_profile_file() -> None:
+    """Any hand-rolled ``os.replace`` onto a profile file must pin 0o600.
+
+    ``atomic_write_json`` writes credential files at 0o600
+    (``src/notebooklm/_atomic_io.py``), but a bare ``write_text`` lands at the
+    process umask and ``os.replace`` carries that mode onto the profile.
+    """
+    offenders: list[str] = []
+    for path in sorted(SCENARIO_DIR.glob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        chmod_lines = {
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "chmod"
+        }
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "replace"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "os"
+            ):
+                # The chmod must precede the replace inside the same block.
+                if not any(line < node.lineno for line in chmod_lines):
+                    offenders.append(f"{path.name}:{node.lineno}")
+    assert offenders == [], f"chmod(0o600) the temp file before os.replace: {offenders}"

@@ -79,6 +79,12 @@ async def stale_startup() -> tuple[str, ...]:
     state["cookies"] = []
     replacement = storage.with_suffix(".matrix-tmp")
     replacement.write_text(json.dumps(state), encoding="utf-8")
+    # Match ``atomic_write_json``'s 0o600 (``_atomic_io.py``): a bare
+    # ``write_text`` lands at the process umask (0o644), and ``os.replace``
+    # carries the temp file's mode onto the profile. The disposable home is
+    # already 0o700, so this is defence in depth rather than a live hole,
+    # but a credential file must never widen on any path.
+    replacement.chmod(0o600)
     os.replace(replacement, storage)
     require(token.is_file(), f"{STALE_PROFILE} profile has no master_token.json")
     token.replace(held_token)
@@ -106,7 +112,10 @@ async def stale_startup() -> tuple[str, ...]:
             timeout=90,
             check=False,
         )
-        require(sibling.returncode == 0, sibling.stderr[-1000:])
+        require(
+            sibling.returncode == 0,
+            f"stale-profile master-token re-mint failed with exit code {sibling.returncode}",
+        )
         transport = httpx.ASGITransport(
             app=app, client=("127.0.0.1", 5555), raise_app_exceptions=False
         )

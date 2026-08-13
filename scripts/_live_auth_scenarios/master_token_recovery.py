@@ -46,6 +46,12 @@ async def scenario() -> ScenarioResult:
         state["cookies"] = []
         replacement = storage.with_suffix(".matrix-tmp")
         replacement.write_text(json.dumps(state), encoding="utf-8")
+        # Match ``atomic_write_json``'s 0o600 (``_atomic_io.py``): a bare
+        # ``write_text`` lands at the process umask (0o644), and ``os.replace``
+        # carries the temp file's mode onto the profile. The disposable home is
+        # already 0o700, so this is defence in depth rather than a live hole,
+        # but a credential file must never widen on any path.
+        replacement.chmod(0o600)
         os.replace(replacement, storage)
         live = client._collaborators.kernel.get_http_client().cookies
         live.clear()

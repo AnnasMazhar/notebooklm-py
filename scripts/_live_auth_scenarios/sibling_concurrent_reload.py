@@ -69,7 +69,10 @@ async def scenario() -> ScenarioResult:
             timeout=90,
             check=False,
         )
-        require(sibling.returncode == 0, sibling.stderr[-1000:])
+        require(
+            sibling.returncode == 0,
+            f"sibling master-token re-mint failed with exit code {sibling.returncode}",
+        )
         after_hash = hashlib.sha256(storage.read_bytes()).hexdigest()
         require(
             after_hash != before_hash,
