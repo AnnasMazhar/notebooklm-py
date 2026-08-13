@@ -42,6 +42,8 @@ from datetime import date
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from ..types import drive_source_status_to_str
+
 if TYPE_CHECKING:
     from ..types import Source
 
@@ -111,6 +113,10 @@ def source_summary(source: Source) -> dict[str, Any]:
     ``source add`` / ``source add-drive`` JSON envelopes import this helper so
     the summary dict is built in exactly one place. ``type`` is the source
     kind's public ``.value`` (``None`` when the kind is unknown).
+
+    Deliberately narrow: it is the shape the add envelopes publish, so new
+    per-source fields do NOT belong here. The CLI's list/get rows compose it
+    with :func:`source_drive_fields` instead.
     """
     kind = source.kind
     return {
@@ -118,6 +124,49 @@ def source_summary(source: Source) -> dict[str, Any]:
         "title": source.title,
         "type": kind.value if kind is not None else None,
         "url": source.url,
+    }
+
+
+def source_drive_fields(source: Source) -> dict[str, Any]:
+    """Return the Drive axis of a ``Source`` as a CLI-shaped JSON fragment.
+
+    The sibling of :func:`source_summary`, kept separate on purpose: that
+    function is the pinned ``{"id", "title", "type", "url"}`` summary shared
+    with the ``source add`` / ``source add-drive`` envelopes, and widening it
+    would change those envelopes too. This fragment is merged only into the
+    CLI's source *rows* (``source list --json`` / ``source get --json``), so
+    the Drive axis reaches the CLI without touching the add envelopes.
+
+    All four keys are always present — ``null`` / ``false`` on a non-Drive
+    source rather than omitted — so a ``jq`` filter can read
+    ``.drive_status`` on every row without a ``// empty`` guard, matching
+    :func:`notebooklm._app.views.source_view`, which also emits the Drive keys
+    unconditionally for MCP/REST.
+
+    Key names follow the **CLI's** own convention, not ``source_view``'s: the
+    CLI already emits ``status`` (label string) beside ``status_id`` (raw
+    code), so the Drive axis is ``drive_status`` / ``drive_status_id`` and
+    reads identically to its ingestion sibling. ``source_view`` inverts that
+    (``drive_status`` = raw code, ``drive_status_label`` = string) because
+    MCP/REST serialize the dataclass field directly. Both spellings resolve
+    through :func:`~notebooklm.types.drive_source_status_to_str`, the repo's
+    single source of truth for the mapping, so the labels stay in lock-step.
+
+    ``drive_status`` is ``None`` — not ``"unknown"`` — when the row carried no
+    Drive-health claim at all, so a caller can tell "not a Drive source" from
+    "a Drive code we could not read" (#2111). ``is_drive_degraded`` carries the
+    *verdict* over those codes; it is a property, so no dataclass-walking
+    serializer would pick it up, and without it every consumer would re-derive
+    the degraded set from the label string.
+    """
+    drive_status = source.drive_status
+    return {
+        "drive_document_id": source.drive_document_id,
+        "drive_status": (
+            drive_source_status_to_str(drive_status) if drive_status is not None else None
+        ),
+        "drive_status_id": int(drive_status) if drive_status is not None else None,
+        "is_drive_degraded": source.is_drive_degraded,
     }
 
 

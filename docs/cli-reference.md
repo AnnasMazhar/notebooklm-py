@@ -183,6 +183,31 @@ All `source` subcommands also accept `-n/--notebook ID` (resolves via flag > `NO
 
 `source list` also accepts `--label <id|name>` to list only the sources in a given label (a saved selection). The selector resolves a label id (or partial prefix) **or** an exact label name; see [Label Commands](#label-commands-notebooklm-label-cmd).
 
+#### Drive-backed sources in `source list` / `source get`
+
+Both commands emit the same `--json` source row:
+
+```json
+{
+  "id": "ef72c03c-…", "title": "Rubisco Research", "type": "google_docs", "url": null,
+  "status": "ready", "status_id": 2, "created_at": "2026-01-23T18:42:00",
+  "drive_document_id": "1oAk_INJ…", "drive_status": "deleted", "drive_status_id": 4,
+  "is_drive_degraded": true
+}
+```
+
+(`source list` prefixes each row with a 1-based `index`.)
+
+- **`drive_document_id`** — the Google Drive file id. A Drive source carries no `url`, so this is the only field tying it back to the file it was created from; `source add-drive` matches on it to stay idempotent.
+- **`drive_status`** / **`drive_status_id`** — Drive-side health (`inaccessible` / `syncing` / `active` / `deleted` / `gen_ai_access_denied`, or `unknown` for a code this client cannot map), paired with its raw code exactly like `status` / `status_id`. **`null` means the row made no Drive claim at all** — every non-Drive source — which is a different answer from `"unknown"`.
+- **`is_drive_degraded`** — `true` only when the backend explicitly reported a non-healthy Drive state. `false` means "nothing degraded was reported", not "the file is confirmed present".
+
+All four keys are present on **every** row (null/false on non-Drive sources), so `jq '.sources[] | select(.drive_status == "deleted")'` needs no `// empty` guard.
+
+`status` and `drive_status` are **different axes**: `status` reports NotebookLM's own ingestion, which completes and stays complete after the Drive file is deleted or unshared. A source therefore reads `"status": "ready"` while `"drive_status": "deleted"` — answers grounded on it may be stale. Human (non-`--json`) output reflects this without a new column: the `source list` Status cell reads `ready (drive: deleted)` **only** for a degraded Drive row, and `source get` adds `Drive File ID:` / `Drive Status:` lines only when the source carries a Drive claim.
+
+> The MCP and REST surfaces spell the same axis `drive_status` (raw code) + `drive_status_label` (string); the CLI uses `drive_status` (string) + `drive_status_id` (raw code) to match its own long-standing `status` / `status_id` pairing. Both resolve through the same mapping helper.
+
 ### Label Commands (`notebooklm label <cmd>`)
 
 Source labels group a notebook's sources into topic buckets. A `<id|name>` argument accepts a label id (or partial prefix) **or** an exact label name; an ambiguous name lists the matching ids so you can disambiguate.

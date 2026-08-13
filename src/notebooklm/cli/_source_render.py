@@ -31,7 +31,7 @@ from .._app.source_wait import (
     SourceWaitReady,
     SourceWaitTimeout,
 )
-from ..types import Source, source_status_to_str
+from ..types import Source, drive_source_status_to_str
 from .error_handler import _output_error, current_json_output, exit_with_code
 from .rendering import (
     cli_print,
@@ -55,6 +55,7 @@ from .services.source_research import SourceAddResearchResult
 from .services.source_serializers import (
     source_fulltext_payload,
     source_kind_value,
+    source_row_payload,
     source_summary_payload,
 )
 
@@ -108,17 +109,7 @@ def _render_source_get_result(result: SourceGetResult, *, json_output: bool) -> 
         raise AssertionError("unreachable")  # pragma: no cover
 
     if json_output:
-        json_output_response(
-            {
-                "source": {
-                    **source_summary_payload(src),
-                    "status": source_status_to_str(src.status),
-                    "status_id": src.status,
-                    "created_at": (src.created_at.isoformat() if src.created_at else None),
-                },
-                "found": True,
-            }
-        )
+        json_output_response({"source": source_row_payload(src), "found": True})
         return
 
     console.print(f"[bold cyan]Source:[/bold cyan] {src.id}")
@@ -128,6 +119,33 @@ def _render_source_get_result(result: SourceGetResult, *, json_output: bool) -> 
         console.print(f"[bold]URL:[/bold] {src.url}")
     if src.created_at:
         console.print(f"[bold]Created:[/bold] {src.created_at.strftime('%Y-%m-%d %H:%M')}")
+    _print_drive_lines(src)
+
+
+def _print_drive_lines(src: Source) -> None:
+    """Print the Drive-only lines of ``source get`` text output.
+
+    Emitted only for a source that actually carries a Drive claim, so the
+    non-Drive output (the overwhelming majority) is byte-identical to before.
+    ``drive_document_id`` is the sole handle on a Drive source — the backend
+    leaves the URL slots empty, so ``source get`` previously showed no way to
+    tie the row back to its Drive file (#2113). The Drive status line exists
+    because ``Type``/``Created`` say nothing about a file that was deleted or
+    unshared after ingestion completed (#2111).
+    """
+    if src.drive_document_id:
+        console.print(f"[bold]Drive File ID:[/bold] {src.drive_document_id}")
+    if src.drive_status is None:
+        return
+    drive_label = drive_source_status_to_str(src.drive_status)
+    if src.is_drive_degraded:
+        console.print(
+            f"[bold]Drive Status:[/bold] [yellow]{drive_label}[/yellow] "
+            "(ingestion finished, but the Drive file is no longer healthy — "
+            "answers may be stale)"
+        )
+    else:
+        console.print(f"[bold]Drive Status:[/bold] {drive_label}")
 
 
 def _available_output_path(path: Path) -> Path:

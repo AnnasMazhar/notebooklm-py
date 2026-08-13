@@ -24,10 +24,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..._app.source_listing import fetch_sources
-from ...types import Source, SourceType, source_status_to_str
+from ...types import Source, SourceType, drive_source_status_to_str, source_status_to_str
 from .label_listing import resolve_label_id
 from .listing import ListRender, ListSpec, prepare_list
-from .source_serializers import source_summary_payload
+from .source_serializers import source_row_payload
 
 if TYPE_CHECKING:
     from ...client import NotebookLMClient
@@ -46,6 +46,29 @@ class SourceListPlan:
     # The filter is applied INSIDE the fetch closure so ``prepare_list``'s
     # ``count``/rows match the filtered set (no post-filter desync).
     label_filter: str | None = None
+
+
+def _status_cell(src: Source) -> str:
+    """Render the table's Status cell, flagging a degraded Drive source.
+
+    The Status column reports NotebookLM's *ingestion* pipeline, which stays
+    ``ready`` after the underlying Drive file is deleted or unshared — so for
+    those rows the bare label is actively misleading (#2111). Append the Drive
+    verdict there rather than adding a Drive column: a column would be blank on
+    every non-Drive row (the overwhelming majority) and would cost table width
+    on every listing, while this touches only the rows where the two axes
+    disagree. Healthy Drive rows (``active``) and non-Drive rows render exactly
+    as before.
+
+    ``--json`` is unaffected: it carries the full Drive axis on every row via
+    :func:`~notebooklm.cli.services.source_serializers.source_row_payload`.
+    """
+    status = source_status_to_str(src.status)
+    drive_status = src.drive_status
+    if drive_status is None or not src.is_drive_degraded:
+        return status
+    # Parentheses, not brackets: Rich would parse "[...]" as console markup.
+    return f"{status} (drive: {drive_source_status_to_str(drive_status)})"
 
 
 def _build_spec(
@@ -82,19 +105,14 @@ def _build_spec(
         title="Sources in {notebook_id}",
         items_key="sources",
         fetch=fetch,
-        serialize=lambda src: {
-            **source_summary_payload(src),
-            "status": source_status_to_str(src.status),
-            "status_id": src.status,
-            "created_at": src.created_at.isoformat() if src.created_at else None,
-        },
+        serialize=source_row_payload,
         columns=["ID", "Title", "Type", "Created", "Status"],
         row=lambda src: [
             src.id,
             src.title or "-",
             source_type_display(src.kind),
             src.created_at.strftime("%Y-%m-%d %H:%M") if src.created_at else "-",
-            source_status_to_str(src.status),
+            _status_cell(src),
         ],
         envelope_extras=envelope_extras,
     )

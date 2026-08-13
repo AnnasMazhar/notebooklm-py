@@ -196,6 +196,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#2143](https://github.com/teng-lin/notebooklm-py/issues/2143))
 ### Added
 
+- **The CLI now reports the Drive axis that MCP/REST already had.**
+  `Source.drive_document_id` (#2113) and `Source.drive_status` /
+  `Source.is_drive_degraded` (#2111) reached the MCP and REST surfaces
+  automatically — those serialize the whole dataclass — but `source list` and
+  `source get --json` hand-compose their row from the deliberately narrow
+  `{"id", "title", "type", "url"}` summary, so both fields were invisible
+  there. Both commands now emit `drive_document_id`, `drive_status` (string
+  label), `drive_status_id` (raw code) and `is_drive_degraded` on **every**
+  row — `null` / `false` on non-Drive sources, so a `jq` filter needs no
+  `// empty` guard. The CLI spelling pairs label-with-code the way its existing
+  `status` / `status_id` does; MCP/REST keep their `drive_status` (code) +
+  `drive_status_label` (string) spelling, and both resolve through the same
+  `drive_source_status_to_str` helper.
+
+  `source add` / `source add-drive` / `source add-drive-file` JSON envelopes
+  are **unchanged**: the Drive keys are composed into the list/get row rather
+  than added to the shared summary those envelopes publish. `source list` and
+  `source get --json` now build that row from one shared serializer, so the two
+  cannot drift apart again — which is how this gap opened.
+
+  Human output keeps its shape: no new table column (it would be blank on the
+  overwhelming majority of sources). `source list` appends `(drive: deleted)`
+  to the Status cell **only** where the two axes disagree, and `source get`
+  prints `Drive File ID:` / `Drive Status:` lines only for a source that
+  carries a Drive claim.
+  ([#2113](https://github.com/teng-lin/notebooklm-py/issues/2113),
+  [#2111](https://github.com/teng-lin/notebooklm-py/issues/2111))
+
 - **Drive-backed sources now report Drive-side health.**
   `SourceSettings.userDriveSourceStatus` (proto tag 4 → `source[3][3]`) is
   populated by the backend on Drive-backed sources and was read nowhere in this

@@ -228,6 +228,90 @@ def test_source_view_drive_status_label_is_none_when_absent() -> None:
     assert unreadable["is_drive_degraded"] is False
 
 
+def test_source_drive_fields_labels_the_code_and_keeps_the_raw_id() -> None:
+    """The CLI-shaped Drive fragment pairs a label with its raw code (#2111/#2113)."""
+    from notebooklm._app.serialize import source_drive_fields
+    from notebooklm.types import DriveSourceStatus, Source
+
+    fields = source_drive_fields(
+        Source(
+            id="src-1",
+            drive_document_id="1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+            drive_status=DriveSourceStatus.DELETED,
+        )
+    )
+
+    assert fields == {
+        "drive_document_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+        # ``drive_status``/``drive_status_id`` mirror the CLI's existing
+        # ``status``/``status_id`` pairing — the inverse of ``source_view``'s
+        # ``drive_status`` (raw) + ``drive_status_label`` (string) spelling.
+        "drive_status": "deleted",
+        "drive_status_id": DriveSourceStatus.DELETED.value,
+        "is_drive_degraded": True,
+    }
+    # ``drive_status_id`` is a plain int, not the enum member, so the JSON
+    # envelope does not depend on ``json.dumps`` unwrapping an IntEnum.
+    assert type(fields["drive_status_id"]) is int
+
+
+def test_source_drive_fields_are_null_but_present_for_a_non_drive_source() -> None:
+    """A non-Drive source gets the keys with ``null``, not omitted keys.
+
+    Deliberate: a stable row shape lets ``jq '.sources[] | select(.drive_status
+    == "deleted")'`` run over every row without a ``// empty`` guard, and it
+    matches ``source_view``, which also emits the Drive keys unconditionally.
+    """
+    from notebooklm._app.serialize import source_drive_fields
+    from notebooklm.types import DriveSourceStatus, Source
+
+    web = source_drive_fields(Source(id="src-1", url="https://example.com", _type_code=5))
+    assert web == {
+        "drive_document_id": None,
+        "drive_status": None,
+        "drive_status_id": None,
+        "is_drive_degraded": False,
+    }
+
+    # A healthy Drive source is NOT degraded, but still carries its file id —
+    # the only handle on a Drive source, whose ``url`` slots stay empty.
+    active = source_drive_fields(
+        Source(id="src-2", drive_document_id="1AbC", drive_status=DriveSourceStatus.ACTIVE)
+    )
+    assert active["drive_status"] == "active"
+    assert active["is_drive_degraded"] is False
+    assert active["drive_document_id"] == "1AbC"
+
+    # A code this client cannot map is distinguishable from "no claim": the
+    # label degrades to "unknown" while the raw code survives for triage.
+    unreadable = source_drive_fields(Source(id="src-3", drive_status=DriveSourceStatus.UNKNOWN))
+    assert unreadable["drive_status"] == "unknown"
+    assert unreadable["drive_status_id"] == DriveSourceStatus.UNKNOWN.value
+    assert unreadable["is_drive_degraded"] is False
+
+
+def test_source_summary_stays_narrow_so_add_envelopes_do_not_widen() -> None:
+    """``source_summary`` must NOT grow the Drive axis.
+
+    It is the shape ``source add`` / ``source add-drive`` publish. The Drive
+    fields reached the CLI by composition (``source_drive_fields``) precisely so
+    those envelopes keep their pinned four keys; this guards the decision.
+    """
+    from notebooklm._app.serialize import source_summary
+    from notebooklm.types import DriveSourceStatus, Source
+
+    summary = source_summary(
+        Source(
+            id="src-1",
+            title="Shared Doc",
+            drive_document_id="1AbC",
+            drive_status=DriveSourceStatus.DELETED,
+        )
+    )
+
+    assert list(summary) == ["id", "title", "type", "url"]
+
+
 def test_unknown_object_falls_back_to_str() -> None:
     class Opaque:
         def __str__(self) -> str:
