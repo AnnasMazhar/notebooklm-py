@@ -1,5 +1,6 @@
 """E2E test fixtures and configuration."""
 
+import asyncio
 import contextlib
 import hashlib
 import logging
@@ -319,8 +320,6 @@ async def read_back_option_pair(
     Raises:
         AssertionError: If the row never appears or carries no option pair.
     """
-    import asyncio
-
     from notebooklm._row_adapters.artifacts import ArtifactRow
 
     assert family in ("quiz", "flashcards"), family

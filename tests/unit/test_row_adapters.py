@@ -430,25 +430,43 @@ class TestQuizOptionEcho:
                     ["", [1, None, None, "en", None, None, None, None]],
                 ],  # fmt: skip
             ),
-            (
-                "option slot is not a list",
-                [
-                    "id",
-                    "title",
-                    4,
-                    None,
-                    3,
-                    None,
-                    None,
-                    None,
-                    None,
-                    ["", [1, None, None, "en", None, None, 3, None]],
-                ],  # fmt: skip
-            ),
         ],
     )
     def test_absent_or_unusable_slots_return_none(self, description: str, row: list) -> None:
         assert ArtifactRow(row).flashcards_options is None, description
+
+    @pytest.mark.parametrize(
+        ("description", "generation_options"),
+        [
+            ("option slot holds a scalar", [1, None, None, "en", None, None, 3, None]),
+            ("option slot holds a dict", [1, None, None, "en", None, None, {"a": 1}, None]),
+        ],
+    )
+    def test_malformed_option_container_raises(
+        self, description: str, generation_options: list
+    ) -> None:
+        """A present-but-wrong-shaped option slot is drift, not absence.
+
+        The distinction this pins: ``null`` at the slot means "this row is not
+        that family" and must stay soft, but a scalar or dict there means the
+        message changed shape. Returning ``None`` for both would make a
+        reshaped payload indistinguishable from an unset option — in the one
+        accessor whose whole job is reporting what the server stored.
+        """
+        row = ["id", "title", 4, None, 3, None, None, None, None, ["", generation_options]]
+        with pytest.raises(UnknownRPCMethodError):
+            _ = ArtifactRow(row).flashcards_options, description
+
+    def test_malformed_generation_options_container_raises(self) -> None:
+        """Same policy one level up, at ``data[9][1]`` itself."""
+        row = ["id", "title", 4, None, 3, None, None, None, None, ["", 7]]
+        with pytest.raises(UnknownRPCMethodError):
+            _ = ArtifactRow(row).flashcards_options
+
+    def test_null_generation_options_stays_soft(self) -> None:
+        """``data[9][1] = null`` is a genuine absence, not drift."""
+        row = ["id", "title", 4, None, 3, None, None, None, None, ["", None]]
+        assert ArtifactRow(row).flashcards_options is None
 
     def test_non_int_codes_degrade_to_none(self) -> None:
         """Strings and bools at the option leaves are not codes.

@@ -623,6 +623,45 @@ def test_quiz_option_choices_match_core_and_mcp(subcommand: str, flag: str, axis
     assert choices == _KIND_OPTIONS[subcommand][axis]
 
 
+@pytest.mark.parametrize(
+    ("subcommand", "flag", "axis"),
+    _QUIZ_OPTION_AXES,
+    ids=[f"{sub}{flag}" for sub, flag, _ in _QUIZ_OPTION_AXES],
+)
+def test_quiz_option_flag_default_matches_the_wire_default(
+    subcommand: str, flag: str, axis: str
+) -> None:
+    """The flag's ``default=`` selects the code the builders actually send.
+
+    #2197 removed the duplicated choice *list*; the flag default is the same
+    duplication one line down — ``default="standard"`` restates
+    ``DEFAULT_QUIZ_QUANTITY`` as a string with nothing tying them together, so
+    if the client default ever moved, the CLI would keep sending the old one
+    while the Python API sent the new one.
+
+    Unlike the choice list, this one cannot be fixed by derivation: the layering
+    guardrails (``test_app_boundary`` / ``test_cli_boundary``) forbid both
+    ``_app`` and ``cli`` from importing ``_artifact.payloads``, where the wire
+    default lives. So the binding is enforced here instead — the same
+    hardcode-plus-parity-test shape the MCP and REST option tuples already use.
+    A test is allowed to import across layers precisely so it can check one.
+    """
+    from notebooklm._app import generate_plans as gp
+    from notebooklm._artifact.payloads import DEFAULT_QUIZ_DIFFICULTY, DEFAULT_QUIZ_QUANTITY
+
+    generate = cli.commands["generate"]
+    command = generate.commands[subcommand]  # type: ignore[attr-defined]
+    param = next(p for p in command.params if flag in p.opts)
+
+    if axis == "quantity":
+        core_map, wire_default = gp._QUIZ_QUANTITY_MAP, DEFAULT_QUIZ_QUANTITY
+    else:
+        core_map, wire_default = gp._QUIZ_DIFFICULTY_MAP, DEFAULT_QUIZ_DIFFICULTY
+
+    assert param.default in core_map, f"{flag} default {param.default!r} is not a valid choice"
+    assert core_map[param.default] is wire_default
+
+
 def test_quiz_option_choices_are_derived_not_hardcoded() -> None:
     """The ``click.Choice`` args are derived expressions, never literal lists.
 
@@ -668,10 +707,21 @@ def test_quiz_option_choices_are_derived_not_hardcoded() -> None:
             assert choice_arg is not None, (
                 f"{node.name} {first.value}: expected type=click.Choice(...)"
             )
-            assert not isinstance(choice_arg, (ast.List, ast.Tuple, ast.Set)), (
-                f"{node.name} {first.value} passes a literal to click.Choice. Derive it "
-                "from _QUIZ_QUANTITY_MAP / _QUIZ_DIFFICULTY_MAP (#2197) so a new enum "
-                "member cannot reach MCP and REST while staying absent from the CLI."
+            # Require the map ITSELF to appear in the expression. Rejecting only
+            # bare literals is not enough: `click.Choice(list(("fewer",
+            # "standard", "more")))` is a wrapped literal that passes an
+            # is-not-a-List check while still going stale when a member is
+            # added, and the value-parity test above stays green until the map
+            # actually changes.
+            expected_map = (
+                "_QUIZ_QUANTITY_MAP" if first.value == "--quantity" else "_QUIZ_DIFFICULTY_MAP"
+            )
+            names = {n.id for n in ast.walk(choice_arg) if isinstance(n, ast.Name)}
+            assert expected_map in names, (
+                f"{node.name} {first.value} does not derive its choices from "
+                f"{expected_map} (#2197). Found names: {sorted(names) or 'none — a literal'}. "
+                "A hardcoded (or wrapped-literal) list goes stale silently: a new enum "
+                "member would reach MCP and REST while staying absent from the CLI."
             )
             checked.add((node.name, first.value))
 

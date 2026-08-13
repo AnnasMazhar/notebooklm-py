@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypeVar
+from typing import Any, Final, TypeVar
 
 from ..exceptions import ValidationError
 from ..rpc import (
@@ -252,9 +252,11 @@ def build_report_artifact_params(
 
 
 #: The client-side defaults applied when a quiz/flashcards option is omitted.
-#: These are *sent explicitly*; see :func:`_quiz_option_code` for why.
-DEFAULT_QUIZ_QUANTITY = QuizQuantity.STANDARD
-DEFAULT_QUIZ_DIFFICULTY = QuizDifficulty.MEDIUM
+#: These are *sent explicitly*; see :func:`_quiz_option_code` for why. The CLI
+#: binds its ``--quantity`` / ``--difficulty`` flag defaults to these too, so
+#: the flag default and the wire default cannot drift apart (#2197).
+DEFAULT_QUIZ_QUANTITY: Final = QuizQuantity.STANDARD
+DEFAULT_QUIZ_DIFFICULTY: Final = QuizDifficulty.MEDIUM
 
 _QuizOption = TypeVar("_QuizOption", QuizQuantity, QuizDifficulty)
 
@@ -313,6 +315,30 @@ def _quiz_option_code(
     return value.value
 
 
+def _quiz_option_pair(
+    quantity: QuizQuantity | None,
+    difficulty: QuizDifficulty | None,
+) -> list[int]:
+    """Build the ``[quantity, difficulty]`` pair both option messages carry.
+
+    The ONE place this client decides that quantity comes first. Both
+    ``QuizGenerationOptions`` and ``FlashcardsGenerationOptions`` number
+    ``quantity`` 1 and ``difficulty`` 2, so the two builders emit an identical
+    pair into different slots (quiz ``[9][1][7]``, flashcards ``[9][1][6]``).
+
+    Sharing it is the point rather than a tidy-up: #2116 was two hand-written
+    literals drifting apart, with the flashcards one transposed for long enough
+    that ``docs/rpc-reference.md`` documented the inversion as intended. One
+    expression cannot disagree with itself. The decode side is symmetric —
+    :class:`~notebooklm._row_adapters.artifacts.QuizOptionPair` reads the pair
+    back through named fields rather than positions.
+    """
+    return [
+        _quiz_option_code(quantity, DEFAULT_QUIZ_QUANTITY, parameter="quantity"),
+        _quiz_option_code(difficulty, DEFAULT_QUIZ_DIFFICULTY, parameter="difficulty"),
+    ]
+
+
 def build_quiz_artifact_params(
     notebook_id: str,
     source_ids: list[str],
@@ -323,8 +349,7 @@ def build_quiz_artifact_params(
 ) -> list[Any]:
     """Build ``CREATE_ARTIFACT`` params for quiz generation."""
     source_ids_triple = nest_source_ids(source_ids, 2)
-    quantity_code = _quiz_option_code(quantity, DEFAULT_QUIZ_QUANTITY, parameter="quantity")
-    difficulty_code = _quiz_option_code(difficulty, DEFAULT_QUIZ_DIFFICULTY, parameter="difficulty")
+    option_pair = _quiz_option_pair(quantity, difficulty)
 
     return [
         _artifact_client_options(),
@@ -349,7 +374,7 @@ def build_quiz_artifact_params(
                     None,
                     None,
                     None,
-                    [quantity_code, difficulty_code],
+                    option_pair,
                 ],
             ],
         ],
@@ -366,8 +391,7 @@ def build_flashcards_artifact_params(
 ) -> list[Any]:
     """Build ``CREATE_ARTIFACT`` params for flashcard generation."""
     source_ids_triple = nest_source_ids(source_ids, 2)
-    quantity_code = _quiz_option_code(quantity, DEFAULT_QUIZ_QUANTITY, parameter="quantity")
-    difficulty_code = _quiz_option_code(difficulty, DEFAULT_QUIZ_DIFFICULTY, parameter="difficulty")
+    option_pair = _quiz_option_pair(quantity, difficulty)
 
     return [
         _artifact_client_options(),
@@ -391,10 +415,10 @@ def build_flashcards_artifact_params(
                     None,
                     None,
                     None,
-                    # ``FlashcardsGenerationOptions`` is {1: cardQuantity,
-                    # 2: flashcardsDifficulty}, i.e. quantity first — the same
-                    # order the quiz builder above uses (#2116).
-                    [quantity_code, difficulty_code],
+                    # Same expression as the quiz builder above — the ordering
+                    # lives in ``_quiz_option_pair`` so the two cannot drift
+                    # apart again (#2116).
+                    option_pair,
                 ],
             ],
         ],

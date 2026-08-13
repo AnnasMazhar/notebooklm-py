@@ -226,7 +226,7 @@ class TestQuizGeneration:
     """
 
     @pytest.mark.asyncio
-    async def test_generate_quiz_default(self, client, generation_notebook_id):
+    async def test_generate_quiz_fewer_hard(self, client, generation_notebook_id):
         """Quiz options survive the round trip: what we send is what is stored."""
         result = await client.artifacts.generate_quiz(
             generation_notebook_id,
