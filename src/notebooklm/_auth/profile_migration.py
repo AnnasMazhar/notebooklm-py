@@ -6,6 +6,7 @@ import atexit
 import copy
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -14,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TypeAlias
 
-from filelock import FileLock
+from filelock import FileLock, Timeout
 
 from .._atomic_io import atomic_write_json
 from .cookies import (
@@ -129,29 +130,60 @@ class LegacyAccountContext:
             return None
         return copy.deepcopy(account)
 
-    def scrub(self, storage_path: Path) -> None:
+    def scrub(self, storage_path: Path) -> bool:
+        """Remove the legacy account key, reporting whether it is gone.
+
+        Returns ``True`` when no legacy account copy remains at rest. A
+        ``False`` return means the stale account email is still on disk and is
+        reported at ``WARNING``: this used to be swallowed at ``DEBUG``, which
+        made the privacy half of the migration fail invisibly (#2223 review).
+        ``filelock.Timeout`` subclasses ``OSError``, so the plain ``except
+        OSError`` below silently ate the *lock* timeout too — ordinary
+        contention between two notebooklm processes was enough.
+        """
         context_path = self._path(storage_path)
         if not context_path.exists():
-            return
+            return True
         lock_path = context_path.with_suffix(context_path.suffix + ".lock")
         try:
             with FileLock(str(lock_path), timeout=_CONTEXT_SCRUB_LOCK_TIMEOUT_SECONDS):
                 if not context_path.exists():
-                    return
+                    return True
                 try:
                     data = json.loads(context_path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError) as exc:
-                    logger.debug("legacy account-key cleanup skipped at %s: %s", context_path, exc)
-                    return
+                    logger.warning(
+                        "Legacy account metadata may still be present in %s: it could not be "
+                        "read for cleanup (%s). Re-run `notebooklm login` to rewrite the profile.",
+                        context_path,
+                        exc,
+                    )
+                    return False
                 if not isinstance(data, dict) or _ACCOUNT_CONTEXT_KEY not in data:
-                    return
+                    return True
                 del data[_ACCOUNT_CONTEXT_KEY]
                 if data:
                     atomic_write_json(context_path, data)
                 else:
                     context_path.unlink()
+                return True
+        except Timeout:
+            logger.warning(
+                "Your account email is still stored in %s: the cleanup could not take the file "
+                "lock within %.1fs, because another notebooklm process is holding it. The "
+                "account itself is migrated; re-run `notebooklm login` to remove the stale copy.",
+                context_path,
+                _CONTEXT_SCRUB_LOCK_TIMEOUT_SECONDS,
+            )
+            return False
         except OSError as exc:
-            logger.debug("legacy account-key cleanup failed at %s: %s", context_path, exc)
+            logger.warning(
+                "Your account email may still be stored in %s: cleanup failed (%s). "
+                "Re-run `notebooklm login` to remove the stale copy.",
+                context_path,
+                exc,
+            )
+            return False
 
 
 def _in_band_route(storage_state: dict[str, Any]) -> tuple[bool, ProfileAccount | None]:
@@ -269,8 +301,9 @@ class LegacyAccountMigrator:
             return Promoted(record)
         return AlreadyInBand()
 
-    def scrub(self, store: ProfileStore) -> None:
-        self._contexts.scrub(store.path)
+    def scrub(self, store: ProfileStore) -> bool:
+        """Remove the legacy copy; ``False`` means it is still at rest."""
+        return self._contexts.scrub(store.path)
 
 
 ThreadFactory: TypeAlias = Callable[..., threading.Thread]
@@ -313,7 +346,15 @@ class LegacyPromotionScheduler:
         try:
             migrator.promote(store)
         except BaseException as exc:  # noqa: BLE001 - detached workers must not escape
-            logger.debug("Background legacy account promotion crashed for %s: %s", store.path, exc)
+            # WARNING, not DEBUG: `drain` reports a *timed-out* promotion, so
+            # leaving the *crashed* one at DEBUG made the louder failure the
+            # quieter one — the caller is told everything finished (#2223).
+            logger.warning(
+                "Legacy account promotion failed for %s: %s. Your account metadata was not "
+                "migrated; re-run the command to try again.",
+                store.path,
+                exc,
+            )
         finally:
             with self._registry_lock:
                 self._workers.pop(threading.current_thread(), None)
@@ -326,29 +367,46 @@ class LegacyPromotionScheduler:
         a *deadline*, not a sleep — the common case (a promotion that already
         finished, or finishes in milliseconds) returns immediately.
 
-        Returns ``True`` when every worker finished. A ``False`` return is also
-        reported at ``WARNING`` naming the profile that may not have been
-        migrated, because an unobserved timeout here is silent data loss: the
-        process exits, the daemon worker is killed mid-write, and nothing else
-        in the system ever notices (#2223).
+        Returns ``True`` when no worker was still running when the budget
+        expired, and reports every straggler at ``WARNING`` naming its profile
+        — an unobserved timeout here is silent data loss: the process exits,
+        the daemon worker is killed mid-write, and nothing else in the system
+        ever notices (#2223).
+
+        ``True`` means *the threads finished*, NOT *the migrations succeeded*.
+        A promotion that failed or crashed still terminates its worker; those
+        outcomes are reported by ``promote`` and ``_run`` on their own.
         """
-        with self._registry_lock:
-            workers = list(self._workers.items())
         deadline = time.monotonic() + timeout
         complete = True
-        for worker, path in workers:
-            worker.join(max(deadline - time.monotonic(), 0.0))
-            if worker.is_alive():
-                complete = False
-                logger.warning(
-                    "Legacy account promotion for %s did not finish within the %.1fs exit "
-                    "budget; its account metadata may not have been migrated in-band. "
-                    "Re-run the command, or raise %s to allow a longer wait at exit.",
-                    path,
-                    timeout,
-                    NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT_ENV,
-                )
-        return complete
+        # Re-snapshot rather than joining one entry list: a worker scheduled
+        # after the first snapshot would otherwise be neither joined nor
+        # warned about — the exact silence this method exists to remove.
+        # ``joined`` keeps each worker to a single join so the loop cannot spin.
+        joined: set[threading.Thread] = set()
+        while True:
+            with self._registry_lock:
+                pending = [item for item in self._workers.items() if item[0] not in joined]
+            if not pending:
+                return complete
+            for worker, path in pending:
+                joined.add(worker)
+                remaining = max(deadline - time.monotonic(), 0.0)
+                worker.join(remaining)
+                if worker.is_alive():
+                    complete = False
+                    logger.warning(
+                        "Legacy account promotion for %s was still running when the shared "
+                        "%.1fs exit budget ran out. Your account metadata may be only partly "
+                        "migrated, and a stale copy of your account email may remain in the "
+                        "sibling context.json. Re-run the command; if this repeats, run "
+                        "`notebooklm login` to rewrite the profile, or raise %s.",
+                        path,
+                        timeout,
+                        NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT_ENV,
+                    )
+            if time.monotonic() >= deadline:
+                return complete
 
     def _scheduled_paths_for_tests(self) -> frozenset[str]:
         with self._registry_lock:
@@ -409,15 +467,22 @@ def _promotion_exit_timeout() -> float:
             _PROMOTION_EXIT_JOIN_SECONDS,
         )
         return _PROMOTION_EXIT_JOIN_SECONDS
-    if override < 0 or override != override:  # NaN compares unequal to itself
+    # ``math.isfinite`` also covers NaN. Rejecting inf matters: ``float()``
+    # happily parses "inf" and "1e400", and ``Thread.join(inf)`` then raises
+    # OverflowError straight out of the atexit hook — replacing this feature's
+    # diagnostic with a shutdown traceback, and skipping every later worker.
+    if not math.isfinite(override) or override < 0:
         logger.warning(
-            "Ignoring %s=%r: must be a non-negative number of seconds; using the %.1fs default.",
+            "Ignoring %s=%r: must be a finite, non-negative number of seconds; "
+            "using the %.1fs default.",
             NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT_ENV,
             raw,
             _PROMOTION_EXIT_JOIN_SECONDS,
         )
         return _PROMOTION_EXIT_JOIN_SECONDS
-    return override
+    # Finite but huge is the same OverflowError; clamp rather than refuse, so a
+    # deliberately generous setting still means "wait as long as possible".
+    return min(override, threading.TIMEOUT_MAX)
 
 
 @atexit.register

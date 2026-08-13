@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import math
 import threading
 import time
 from dataclasses import FrozenInstanceError, fields
@@ -11,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from filelock import Timeout
 
 import notebooklm.auth as public_auth
 from notebooklm._auth import profile_migration as migration
@@ -470,11 +473,19 @@ def test_scheduler_worker_contains_baseexception_and_deregisters(tmp_path, caplo
 
     scheduler = LegacyPromotionScheduler()
     store = _SequencedStore(tmp_path / "state.json", [])
-    with caplog.at_level("DEBUG", logger="notebooklm.auth"):
+    # WARNING, not DEBUG: `drain` reports a timed-out promotion out loud, so a
+    # *crashed* one must not be the quieter of the two (#2223 review).
+    with caplog.at_level("WARNING", logger="notebooklm.auth"):
         assert scheduler.schedule(store, _FatalMigrator()) is True  # type: ignore[arg-type]
-        scheduler.drain(10.0)
+        assert scheduler.drain(10.0) is True
     assert not scheduler._workers_for_tests()
-    assert "Background legacy account promotion crashed for" in caplog.text
+    crashes = [
+        record
+        for record in caplog.records
+        if record.levelno >= logging.WARNING and "promotion failed" in record.getMessage()
+    ]
+    assert len(crashes) == 1
+    assert str(store.path) in crashes[0].getMessage()
 
 
 def test_drain_reports_and_warns_when_a_worker_outlives_the_budget(tmp_path, caplog):
@@ -491,16 +502,27 @@ def test_drain_reports_and_warns_when_a_worker_outlives_the_budget(tmp_path, cap
             release.wait(30)
 
     scheduler = LegacyPromotionScheduler()
-    store = _SequencedStore(tmp_path / "profile" / "storage_state.json", [])
+    # ``path`` and ``ordering_key`` differ here (the key is ``.resolve()``d), so
+    # the assertion below pins that the warning names the profile the user sees
+    # rather than the internal dedupe key.
+    store = _SequencedStore(tmp_path / "profile" / ".." / "storage_state.json", [])
+    assert str(store.path) != str(store.ordering_key)
     try:
         assert scheduler.schedule(store, _StuckMigrator()) is True  # type: ignore[arg-type]
         with caplog.at_level("WARNING", logger="notebooklm.auth"):
             assert scheduler.drain(0.05) is False
-        assert "did not finish within" in caplog.text
-        # The warning has to name the profile that may not have been migrated,
-        # otherwise it is not diagnosable.
-        assert str(store.path) in caplog.text
-        assert "NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT" in caplog.text
+        stragglers = [
+            record.getMessage()
+            for record in caplog.records
+            if "still running when the shared" in record.getMessage()
+        ]
+        assert len(stragglers) == 1
+        # The repo's redacting handler clears ``LogRecord.args``, so the
+        # rendered message is what a reader actually gets -- assert on it.
+        assert str(store.path) in stragglers[0]
+        assert "0.1s exit budget" in stragglers[0]
+        assert "NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT" in stragglers[0]
+        assert "context.json" in stragglers[0]
     finally:
         release.set()
         assert scheduler.drain(30.0) is True
@@ -516,12 +538,58 @@ def test_drain_returns_true_and_stays_quiet_when_every_worker_finishes(tmp_path,
     assert scheduler.schedule(store, _Migrator()) is True  # type: ignore[arg-type]
     with caplog.at_level("WARNING", logger="notebooklm.auth"):
         assert scheduler.drain(30.0) is True
-    assert "did not finish within" not in caplog.text
+    # A prose-keyed negative assertion would pass forever if the message were
+    # reworded; assert no WARNING was emitted at all.
+    assert [record for record in caplog.records if record.levelno >= logging.WARNING] == []
     assert not scheduler._workers_for_tests()
 
 
-def test_drain_budget_is_an_overall_deadline_not_per_worker(tmp_path):
-    """N stalled workers must not multiply the wait (the pre-fix semantics)."""
+def test_drain_budget_is_one_shared_deadline_and_the_first_worker_gets_it_all():
+    """Pins BOTH halves of the deadline contract.
+
+    A purely elapsed-time assertion is one-sided: a ``drain`` that gave up
+    instantly (``join(0.0)``) would also finish fast and pass. Recording the
+    timeout each worker is actually handed pins that the first worker is
+    offered the whole budget and later ones inherit only what is left -- which
+    is what makes this an overall deadline rather than a per-worker one.
+    """
+    budget = 0.2
+    handed: list[float] = []
+
+    class _FakeWorker:
+        """A worker that stays alive, so each join consumes its whole timeout."""
+
+        def __init__(self) -> None:
+            self.daemon = True
+            self.name = "notebooklm-account-promotion"
+
+        def start(self) -> None:
+            return None
+
+        def join(self, timeout=None) -> None:
+            handed.append(timeout)
+            time.sleep(timeout)
+
+        def is_alive(self) -> bool:
+            return True
+
+    scheduler = LegacyPromotionScheduler(lambda **kwargs: _FakeWorker())  # type: ignore[arg-type]
+    stores = [_SequencedStore(Path(f"/nonexistent/state{index}.json"), []) for index in range(4)]
+    for store in stores:
+        assert scheduler.schedule(store, LegacyAccountMigrator()) is True  # type: ignore[arg-type]
+
+    assert scheduler.drain(budget) is False
+
+    # Each worker is joined exactly once -- the re-snapshot loop must not spin.
+    assert len(handed) == 4, handed
+    assert handed[0] == pytest.approx(budget, rel=0.05), handed
+    # A per-worker budget would hand the full `budget` to every one of them.
+    assert all(value <= budget / 4 for value in handed[1:]), handed
+    scheduler._workers.clear()
+
+
+def test_drain_warns_for_every_stalled_profile_not_just_the_first(tmp_path, caplog):
+    """The worker -> path mapping must be per-worker, not a single hoisted path."""
     release = threading.Event()
 
     class _StuckMigrator:
@@ -529,18 +597,174 @@ def test_drain_budget_is_an_overall_deadline_not_per_worker(tmp_path):
             release.wait(30)
 
     scheduler = LegacyPromotionScheduler()
-    stores = [_SequencedStore(tmp_path / f"state{index}.json", []) for index in range(4)]
+    stores = [_SequencedStore(tmp_path / f"state{index}.json", []) for index in range(3)]
     try:
         for store in stores:
             assert scheduler.schedule(store, _StuckMigrator()) is True  # type: ignore[arg-type]
-        started = time.monotonic()
-        assert scheduler.drain(0.5) is False
-        elapsed = time.monotonic() - started
-        # Per-worker budgeting would spend 4 * 0.5s here.
-        assert elapsed < 1.5, f"drain spent {elapsed:.2f}s across {len(stores)} stalled workers"
+        with caplog.at_level("WARNING", logger="notebooklm.auth"):
+            assert scheduler.drain(0.05) is False
+        messages = [
+            record.getMessage()
+            for record in caplog.records
+            if "still running when the shared" in record.getMessage()
+        ]
+        assert len(messages) == len(stores)
+        for store in stores:
+            assert any(str(store.path) in message for message in messages), store.path
     finally:
         release.set()
         assert scheduler.drain(30.0) is True
+
+
+def test_drain_zero_never_waits_but_still_reports(tmp_path, caplog):
+    """The documented ``0`` setting must not become a silent escape hatch."""
+    release = threading.Event()
+
+    class _StuckMigrator:
+        def promote(self, store):
+            release.wait(30)
+
+    scheduler = LegacyPromotionScheduler()
+    store = _SequencedStore(tmp_path / "state.json", [])
+    try:
+        assert scheduler.schedule(store, _StuckMigrator()) is True  # type: ignore[arg-type]
+        started = time.monotonic()
+        with caplog.at_level("WARNING", logger="notebooklm.auth"):
+            assert scheduler.drain(0.0) is False
+        assert time.monotonic() - started < 5.0
+        assert any("still running when the shared" in r.getMessage() for r in caplog.records)
+    finally:
+        release.set()
+        assert scheduler.drain(30.0) is True
+
+
+def test_drain_also_joins_a_worker_scheduled_after_it_started(tmp_path, caplog):
+    """A worker registered mid-drain must not escape unjoined and unreported.
+
+    ``drain`` used to take one snapshot and join only that. A promotion
+    scheduled after the snapshot was then neither waited for nor warned about,
+    and ``drain`` still returned ``True`` -- the exact silence this method
+    exists to remove. The late worker here stays stuck on purpose, so a
+    single-snapshot drain would report a clean shutdown.
+    """
+    release = threading.Event()
+    scheduler = LegacyPromotionScheduler()
+    late_store = _SequencedStore(tmp_path / "late.json", [])
+
+    class _Stuck:
+        def promote(self, store):
+            release.wait(30)
+
+    class _SchedulesAStuckOne:
+        def promote(self, store):
+            scheduler.schedule(late_store, _Stuck())  # type: ignore[arg-type]
+
+    first = _SequencedStore(tmp_path / "first.json", [])
+    try:
+        assert scheduler.schedule(first, _SchedulesAStuckOne()) is True  # type: ignore[arg-type]
+        with caplog.at_level("WARNING", logger="notebooklm.auth"):
+            assert scheduler.drain(0.3) is False
+        messages = [
+            record.getMessage()
+            for record in caplog.records
+            if "still running when the shared" in record.getMessage()
+        ]
+        assert len(messages) == 1
+        assert str(late_store.path) in messages[0]
+    finally:
+        release.set()
+        assert scheduler.drain(30.0) is True
+
+
+def test_scrub_reports_a_lock_timeout_instead_of_swallowing_it(tmp_path, caplog, monkeypatch):
+    """``filelock.Timeout`` subclasses ``OSError`` (#2223 review).
+
+    The old ``except OSError`` therefore ate the *lock* timeout at DEBUG, so
+    ordinary contention between two notebooklm processes left the user's
+    account email at rest in ``context.json`` with no signal whatsoever -- and
+    ``drain()`` still reported success.
+    """
+    assert issubclass(Timeout, OSError), "the bug this guards depends on this subclassing"
+
+    storage_path = tmp_path / "storage_state.json"
+    context_path = tmp_path / "context.json"
+    context_path.write_text(
+        json.dumps({"account": {"authuser": 3, "email": "stale@example.com"}}), encoding="utf-8"
+    )
+
+    class _AlwaysContended:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            raise Timeout("lock held elsewhere")
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(migration, "FileLock", _AlwaysContended)
+    with caplog.at_level("WARNING", logger="notebooklm.auth"):
+        assert LegacyAccountContext().scrub(storage_path) is False
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    assert str(context_path) in warnings[0]
+    assert "account email is still stored" in warnings[0]
+    # The stale copy really is still on disk -- the warning is not a false alarm.
+    assert "stale@example.com" in context_path.read_text(encoding="utf-8")
+
+
+def test_scrub_reports_an_ordinary_os_failure_too(tmp_path, caplog, monkeypatch):
+    context_path = tmp_path / "context.json"
+    context_path.write_text(json.dumps({"account": {"authuser": 1}}), encoding="utf-8")
+
+    class _Boom:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            raise PermissionError("no access to the lock file")
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(migration, "FileLock", _Boom)
+    with caplog.at_level("WARNING", logger="notebooklm.auth"):
+        assert LegacyAccountContext().scrub(tmp_path / "storage_state.json") is False
+    assert any("no access to the lock file" in r.getMessage() for r in caplog.records)
+
+
+def test_scrub_returns_true_when_the_legacy_copy_is_gone(tmp_path, caplog):
+    storage_path = tmp_path / "storage_state.json"
+    context_path = tmp_path / "context.json"
+    context_path.write_text(
+        json.dumps({"account": {"authuser": 3, "email": "stale@example.com"}}), encoding="utf-8"
+    )
+    with caplog.at_level("WARNING", logger="notebooklm.auth"):
+        assert LegacyAccountContext().scrub(storage_path) is True
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert not context_path.exists()
+    # Absent file: still "gone", still quiet.
+    assert LegacyAccountContext().scrub(storage_path) is True
+
+
+def test_scrub_lock_is_actually_wired_to_the_pinned_constant(tmp_path, monkeypatch):
+    """The floor test below is constant-vs-constant; this pins the wiring."""
+    seen: list[float] = []
+    real_filelock = migration.FileLock
+
+    def _record(path, timeout=None):
+        seen.append(timeout)
+        return real_filelock(path, timeout=timeout)
+
+    context_path = tmp_path / "context.json"
+    context_path.write_text(json.dumps({"account": {"authuser": 1}}), encoding="utf-8")
+    monkeypatch.setattr(migration, "FileLock", _record)
+    # Move the constant to a value no literal would coincide with: a source that
+    # hardcodes the timeout instead of reading the constant fails here.
+    monkeypatch.setattr(migration, "_CONTEXT_SCRUB_LOCK_TIMEOUT_SECONDS", 3.75)
+    assert LegacyAccountContext().scrub(tmp_path / "storage_state.json") is True
+    assert seen == [3.75]
 
 
 @pytest.mark.parametrize(
@@ -552,6 +776,9 @@ def test_drain_budget_is_an_overall_deadline_not_per_worker(tmp_path):
         ("0", 0.0),
         ("45", 45.0),
         ("1.5", 1.5),
+        # Finite but past threading.TIMEOUT_MAX -> OverflowError from join();
+        # clamped rather than refused so "wait as long as possible" still works.
+        ("1e12", threading.TIMEOUT_MAX),
     ],
 )
 def test_promotion_exit_timeout_honours_the_operator_override(monkeypatch, raw, expected):
@@ -562,13 +789,46 @@ def test_promotion_exit_timeout_honours_the_operator_override(monkeypatch, raw, 
     assert migration._promotion_exit_timeout() == expected
 
 
-@pytest.mark.parametrize("raw", ["abc", "-1", "nan"])
-def test_promotion_exit_timeout_rejects_unusable_values_out_loud(monkeypatch, caplog, raw):
+@pytest.mark.parametrize(
+    ("raw", "clause"),
+    [
+        ("abc", "not a number of seconds"),
+        ("-1", "finite, non-negative"),
+        ("nan", "finite, non-negative"),
+        # float() parses these happily; Thread.join() then raises OverflowError
+        # straight out of the atexit hook, skipping every remaining worker.
+        ("inf", "finite, non-negative"),
+        ("-inf", "finite, non-negative"),
+        ("1e400", "finite, non-negative"),
+    ],
+)
+def test_promotion_exit_timeout_rejects_unusable_values_out_loud(monkeypatch, caplog, raw, clause):
     monkeypatch.setenv("NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT", raw)
     with caplog.at_level("WARNING", logger="notebooklm.auth"):
         resolved = migration._promotion_exit_timeout()
     assert resolved == migration._PROMOTION_EXIT_JOIN_SECONDS
+    # Assert the *discriminating* clause, so collapsing the two rejection
+    # branches into one is not silently equivalent.
+    assert clause in caplog.text
     assert "NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "raw", ["inf", "-inf", "1e400", "1e12", "9e18", "0", "45", "abc", "-1", "nan", "", "  "]
+)
+def test_resolved_budget_is_always_safe_to_hand_to_thread_join(monkeypatch, raw):
+    """No operator input may turn the exit hook into an OverflowError.
+
+    ``Thread.join`` computes a deadline from its timeout, so a non-finite or
+    oversized value raises ``OverflowError: timestamp out of range`` -- out of
+    ``atexit``, replacing this feature's diagnostic with a shutdown traceback
+    and skipping every remaining worker. This pins the numeric contract that
+    makes that unreachable, for accepted and rejected inputs alike.
+    """
+    monkeypatch.setenv("NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT", raw)
+    resolved = migration._promotion_exit_timeout()
+    assert math.isfinite(resolved), resolved
+    assert 0.0 <= resolved <= threading.TIMEOUT_MAX, resolved
 
 
 def test_exit_budget_can_outlast_the_scrub_lock_it_waits_on():

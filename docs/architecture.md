@@ -560,9 +560,9 @@ the default dependency.
 | [`_auth/psidts_recovery.py`](../src/notebooklm/_auth/psidts_recovery.py) | Inline PSIDTS recovery plus the generic load→validate→heal→retry composition over injected pure loaders. It owns typed raw-document observation/CAS and `ProfileStore` persistence, not cookie-module or storage-facade policy. Sentinel/contended/acquired paths preserve their distinct rereads and narrow caught-error sets; success means the post-save disk state is live, including a sibling winner. Also owns the captured-cookie `validate`/`heal` compatibility seam. |
 | [`_auth/master_token.py`](../src/notebooklm/_auth/master_token.py) | Headless master-token compatibility boundary: exchange/mint remain exact v0.x adapters over `MintService`, the raw reader projects one `MasterTokenFile` sample, the writer preserves the call-time `storage.write_master_token` seam, and coarse operations compose `MasterTokenBootstrapper` with late-bound legacy-owner, Android-ID, strict-loader, and verifier bridges. `MasterTokenError` is an identity re-export from the dependency-bottom types leaf. |
 
-The measured persistence boundary is 1,090 lines in `storage.py`, 419 in
+The measured persistence boundary is 1,090 lines in `storage.py`, 575 in
 `profile_migration.py`, 876 in `profile_store.py`, 96 in `cookie_filter.py`, and 89 in
-`master_token_file.py`: 2,570 lines total.
+`master_token_file.py`: 2,726 lines total.
 The migration module is internal composition, not a public `ProfileStore` extension surface.
 The Phase 9 loader owners remain in `tokens.py` and `refresh.py`. Phase 10 consumes their closed
 `FileLoadedAuth` result by registering its exact `ProfileStore`/baseline pair in runtime
