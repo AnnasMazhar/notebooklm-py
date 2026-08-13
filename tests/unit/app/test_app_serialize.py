@@ -228,6 +228,29 @@ def test_source_view_drive_status_label_is_none_when_absent() -> None:
     assert unreadable["is_drive_degraded"] is False
 
 
+def test_source_summary_stays_narrow_so_add_envelopes_do_not_widen() -> None:
+    """``source_summary`` must NOT grow the Drive axis.
+
+    It is the shape ``source add`` / ``source add-drive`` publish. The Drive
+    fields reached the CLI by composition — the CLI-only spelling lives in
+    ``cli.services.source_serializers.source_row_payload`` — precisely so those
+    envelopes keep their pinned four keys; this guards that decision.
+    """
+    from notebooklm._app.serialize import source_summary
+    from notebooklm.types import DriveSourceStatus, Source
+
+    summary = source_summary(
+        Source(
+            id="src-1",
+            title="Shared Doc",
+            drive_document_id="1AbC",
+            drive_status=DriveSourceStatus.DELETED,
+        )
+    )
+
+    assert list(summary) == ["id", "title", "type", "url"]
+
+
 def test_unknown_object_falls_back_to_str() -> None:
     class Opaque:
         def __str__(self) -> str:
