@@ -34,6 +34,7 @@ This module is transport-neutral — no ``click`` / ``rich`` / ``cli`` /
 from __future__ import annotations
 
 import contextlib
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -41,6 +42,8 @@ from typing import Any, Literal, NoReturn, Protocol
 
 from ..exceptions import ValidationError
 from ..types import discovery_mode_to_str
+
+logger = logging.getLogger(__name__)
 
 # ===========================================================================
 # research status
@@ -111,13 +114,30 @@ class ResearchStatusResult:
         either timestamp is missing or the interval is negative — the same
         slot-swap guard ``ResearchTask.duration`` applies, re-derived here
         because this projection holds the ISO strings, not the datetimes.
+
+        It WARNS on the negative case rather than dropping it silently, and
+        that warning is not redundant with ``ResearchTask.duration``'s: this
+        projection is built from the timestamps directly, so on the MCP/REST
+        path ``ResearchTask.duration`` is never called and its warning never
+        fires. Without this one, the surface where an agent actually consumes
+        the value would be the surface with no diagnostic at all.
         """
         if self.created_at is None or self.updated_at is None:
             return None
         elapsed = (
             datetime.fromisoformat(self.updated_at) - datetime.fromisoformat(self.created_at)
         ).total_seconds()
-        return elapsed if elapsed >= 0 else None
+        if elapsed < 0:
+            logger.warning(
+                "research task %r reports updated_at (%s) BEFORE created_at (%s); "
+                "reporting duration_seconds=None — the POLL_RESEARCH timestamp slots "
+                "may have moved",
+                self.task_id,
+                self.updated_at,
+                self.created_at,
+            )
+            return None
+        return elapsed
 
 
 def _classify_status_kind(status_val: str) -> ResearchStatusKind:

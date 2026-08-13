@@ -40,7 +40,9 @@ from notebooklm.rpc.types import DiscoveryMode
 #: pair, because which slot is which is exactly what a hand-built fixture
 #: cannot establish.
 _CAPTURED_POLLS: list = json.loads(
-    (Path(__file__).parent / "fixtures" / "research_poll_task_metadata.json").read_text()
+    (Path(__file__).parent / "fixtures" / "research_poll_task_metadata.json").read_text(
+        encoding="utf-8"
+    )
 )["polls"]
 #: The in-flight and settled task rows from that capture.
 _IN_FLIGHT_ROW: list = _CAPTURED_POLLS[1][0][0]
@@ -50,7 +52,9 @@ _SETTLED_ROW: list = _CAPTURED_POLLS[2][0][0]
 #: a settled fast one, so the two discovery modes are pinned against real
 #: ``task_info`` rows from the same payload rather than a hand-built list.
 _DEEP_POLL: list = json.loads(
-    (Path(__file__).parent / "fixtures" / "research_poll_deep_task.json").read_text()
+    (Path(__file__).parent / "fixtures" / "research_poll_deep_task.json").read_text(
+        encoding="utf-8"
+    )
 )["poll"]
 _DEEP_TASK_INFO: list = next(task[1] for task in _DEEP_POLL[0] if task[1][2] == 5)
 _FAST_TASK_INFO: list = next(task[1] for task in _DEEP_POLL[0] if task[1][2] == 1)

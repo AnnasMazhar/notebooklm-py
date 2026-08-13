@@ -45,7 +45,9 @@ from notebooklm.rpc import RPCMethod
 #: ``isFinalResponse`` / ``ConversationTurnKey`` reads below are pinned against
 #: a shape the backend actually sent.
 _CAPTURED_STREAM: list = json.loads(
-    (Path(__file__).parent / "fixtures" / "chat_stream_final_response.json").read_text()
+    (Path(__file__).parent / "fixtures" / "chat_stream_final_response.json").read_text(
+        encoding="utf-8"
+    )
 )["chunks"]
 
 # ---------------------------------------------------------------------------

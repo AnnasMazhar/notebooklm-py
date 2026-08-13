@@ -2503,7 +2503,9 @@ class TestAskCarriesTheConversationTurnKey:
     @staticmethod
     def _captured_stream_body() -> bytes:
         chunks = json.loads(
-            (Path(__file__).parent / "fixtures" / "chat_stream_final_response.json").read_text()
+            (Path(__file__).parent / "fixtures" / "chat_stream_final_response.json").read_text(
+                encoding="utf-8"
+            )
         )["chunks"]
         parts = [")]}'"]
         for chunk in chunks:

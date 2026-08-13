@@ -683,7 +683,9 @@ class TestStatusCodeTableIsSingleSourced:
 #: The same live ``POLL_RESEARCH`` capture the row-adapter tests use (#2122):
 #: one fast web run polled while in flight and again once it settled.
 _CAPTURED_POLLS = json.loads(
-    (Path(__file__).parent / "fixtures" / "research_poll_task_metadata.json").read_text()
+    (Path(__file__).parent / "fixtures" / "research_poll_task_metadata.json").read_text(
+        encoding="utf-8"
+    )
 )["polls"]
 
 
@@ -799,9 +801,15 @@ class TestDurationRefusesAnInvertedInterval:
         instant = datetime.fromtimestamp(1786619578, tz=UTC)
         assert self._task(instant, instant).duration == timedelta(0)
 
-    def test_the_app_projection_refuses_it_too(self) -> None:
+    def test_the_app_projection_refuses_it_too(self, caplog) -> None:
         """``ResearchStatusResult.duration_seconds`` re-derives from the ISO
-        strings, so the guard has to hold there independently."""
+        strings, so the guard has to hold there independently — AND warn.
+
+        On the MCP/REST path ``ResearchTask.duration`` is never called (this
+        projection is built from the timestamps directly), so if this did not
+        warn, the one surface an agent consumes the value from would be the
+        surface with no diagnostic.
+        """
         from notebooklm._app.research import ResearchStatusResult
 
         inverted = ResearchStatusResult(
@@ -815,7 +823,9 @@ class TestDurationRefusesAnInvertedInterval:
             created_at="2026-08-13T12:11:16+00:00",
             updated_at="2026-08-13T12:11:10+00:00",
         )
-        assert inverted.duration_seconds is None
+        with caplog.at_level(logging.WARNING, logger="notebooklm._app.research"):
+            assert inverted.duration_seconds is None
+        assert any("BEFORE created_at" in r.message for r in caplog.records)
 
         forward = ResearchStatusResult(
             kind="completed",

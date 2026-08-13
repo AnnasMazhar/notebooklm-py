@@ -1013,7 +1013,9 @@ def test_chat_module_keeps_only_delegating_stream_parser_wrappers() -> None:
 #: end-to-end assertions below are made against a real backend stream rather
 #: than the ``_chunk`` builder's idea of one.
 _CAPTURED_CHUNKS: list[Any] = json.loads(
-    (Path(__file__).parent / "fixtures" / "chat_stream_final_response.json").read_text()
+    (Path(__file__).parent / "fixtures" / "chat_stream_final_response.json").read_text(
+        encoding="utf-8"
+    )
 )["chunks"]
 
 
