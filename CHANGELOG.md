@@ -77,6 +77,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#2230](https://github.com/teng-lin/notebooklm-py/issues/2230)).
   ([#2211](https://github.com/teng-lin/notebooklm-py/issues/2211))
 
+- **`notebooklm source list --status <state>`** filters the listing to one
+  ingestion status — `ready`, `processing`, `error`, `preparing`, or `unknown`
+  — bringing the CLI to parity with the MCP `source_list` tool, which has had
+  the filter (including `preparing`) all along. The choices derive from
+  `SourceStatus` via the new `SOURCE_STATUS_LABELS`, so they cannot drift from
+  the labels the Status column renders, and the filter runs inside the fetch so
+  `--json`'s `count` always matches the rows shown. It composes with `--label`.
+
+  **`--status preparing` is the reconciliation query for orphaned sources.** A
+  file add that fails after its source row is registered leaves that row in
+  place on purpose — it is the evidence, and it still consumes notebook quota —
+  but the row sits at `preparing`, not `error`, so a caller looking under
+  `error` finds nothing. There was previously no supported way to reach those
+  rows from the CLI at all. Rows genuinely mid-upload report `preparing` too, so
+  the filter cannot by itself tell "abandoned" from "in flight"; re-run it and
+  act only on rows that persist. Nothing is auto-deleted — that posture is
+  deliberate ([#2110](https://github.com/teng-lin/notebooklm-py/issues/2110)).
+  ([#2138](https://github.com/teng-lin/notebooklm-py/issues/2138))
+
 - **Notebook sharing now reports the collaborator cap and the public-sharing
   policy gate.** `GET_SHARE_STATUS` returns an eight-slot response carrying six
   known response fields — five of them non-null on every row observed, the sixth
@@ -382,6 +401,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wrong — so that pair is unaffected by this.
 
 ### Fixed
+
+- **A file whose processing fails after a clean upload no longer reports a
+  timeout.** When bytes transfer fine and NotebookLM's server-side processing
+  *then* fails, the source settles at `status=ERROR`. For audio and
+  still-unclassified sources (`type_code` 10 / 0 / `None`) a brief ERROR is
+  treated as transient — the poll waits it out rather than failing fast, which
+  is right, because those types really do report ERROR mid-transcription. But
+  the tolerance had no bound other than the deadline: `wait_until_ready` kept
+  polling to the timeout and raised `SourceTimeoutError`, so a genuine terminal
+  failure was reported as *"still working, ask again later"* and nothing
+  anywhere named it. Live-reproduced with a `.wav` upload (WAV is not a
+  supported audio container; `.mp3` and `.m4a` are), which is exactly the shape
+  that hits it.
+
+  Tolerating a transient error is a hypothesis, and the deadline is what
+  disproves it: if the last observed status was ERROR and the poll then ran out
+  of time, the source did not fail to answer — it answered ERROR, repeatedly,
+  until we gave up. `wait_until_ready`, `wait_until_registered`, and
+  `wait_all_until_ready` now resolve that case as `SourceProcessingError`
+  instead, naming the elapsed budget so *"ERROR throughout a 120s poll"* and
+  *"ERROR on the last tick of a 2s poll"* stay distinguishable. A source still
+  legitimately `PROCESSING` at the deadline is unchanged — still a timeout, so
+  slow sources are not relabelled as broken. Both types are `SourceError` and
+  every consumer already handles them side by side (`_app`'s wait outcomes, the
+  MCP `source_wait` buckets, `notebooklm source wait`'s exit codes), so the
+  `.wav` case moves from the "timed out, retry" bucket to "failed".
+  ([#2138](https://github.com/teng-lin/notebooklm-py/issues/2138))
 
 - **An idempotency probe that cannot answer no longer retries the create.**
   All four `PROBE_THEN_CREATE` paths — `notebooks.create`, `sources.add_url`,

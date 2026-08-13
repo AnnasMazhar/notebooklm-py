@@ -392,6 +392,38 @@ except NotFoundError as e:
     print(f"Missing resource: {e}")
 ```
 
+#### Processing failures vs. timeouts
+
+`SourceProcessingError` means *this source will not become ready*; `SourceTimeoutError` means *it had not become ready yet*. The distinction matters because only the second is worth waiting on again.
+
+A source whose `type_code` is audio (`10`) or still unclassified (`0` / `None`) may report `status=ERROR` briefly while it is being transcribed or classified, so the waiters tolerate that rather than failing fast. That tolerance is bounded by your `timeout`: if the last status observed was `ERROR` and the poll then ran out of time, the waiters raise **`SourceProcessingError`**, not `SourceTimeoutError` ([#2138](https://github.com/teng-lin/notebooklm-py/issues/2138)). The source answered `ERROR` repeatedly until the deadline; reporting that as a timeout would invite an endless retry.
+
+This is the route a file whose *processing* fails takes. `add_file()` returns as soon as the bytes are transferred — with `wait=False` (the default) it does not poll at all, and the `status=PROCESSING` on the returned `Source` is a placeholder, not an observation. So a post-transfer processing failure is only ever visible through a wait:
+
+```python
+from notebooklm import SourceProcessingError, SourceTimeoutError
+
+source = await client.sources.add_file(nb_id, "recording.wav")
+try:
+    ready = await client.sources.wait_until_ready(nb_id, source.id, timeout=300)
+except SourceProcessingError as exc:
+    # Terminal: the format was rejected, the content was unreadable, etc.
+    # The row is retained server-side; see the reconciliation note below.
+    print(f"will not become ready: {exc}")
+except SourceTimeoutError:
+    print("still processing; poll again later")
+```
+
+Pass `wait=True` to have `add_file()` do this for you.
+
+**Reconciling what a failed add left behind.** A row registered by an add that then failed is deliberately *not* deleted — it is the evidence, and it still counts against the notebook's source quota. It sits at `SourceStatus.PREPARING`, not `ERROR`, so filtering for error status will not find it:
+
+```python
+stuck = [s for s in await client.sources.list(nb_id) if s.status is SourceStatus.PREPARING]
+```
+
+(or `notebooklm source list --status preparing` from the CLI). Rows genuinely mid-upload also report `PREPARING`, so re-read before deleting. When the failing add raised in your own process you do not need to search: the exception carries the id directly, as `getattr(exc, "source_id", None)`.
+
 Methods that *raise* a `*NotFoundError` on not-found include every namespace
 `get()` (as of v0.8.0 — `client.notebooks.get`, `client.sources.get`,
 `client.artifacts.get`, `client.notes.get`, `client.mind_maps.get`),
@@ -1209,7 +1241,7 @@ print(url)
 | `refresh(notebook_id, source_id)` | `str, str` | `None` | Refresh URL/Drive source |
 | `check_freshness(notebook_id, source_id)` | `str, str` | `bool` | Check if source needs refresh |
 | `delete(notebook_id, source_id)` | `str, str` | `None` | Delete source (idempotent; returns `None` whether or not it existed) |
-| `wait_until_ready(notebook_id, source_id, timeout=120.0, ...)` | `str, str, float, ...` | `Source` | Poll until `status == READY` (fully processed). Raises `SourceTimeoutError`/`SourceProcessingError`/`SourceNotFoundError`. |
+| `wait_until_ready(notebook_id, source_id, timeout=120.0, ...)` | `str, str, float, ...` | `Source` | Poll until `status == READY` (fully processed). Raises `SourceTimeoutError`/`SourceProcessingError`/`SourceNotFoundError` — see [Processing failures vs. timeouts](#processing-failures-vs-timeouts). |
 | `wait_until_registered(notebook_id, source_id, timeout=30.0, ...)` | `str, str, float, ...` | `Source` | Poll until the source is visible server-side (any non-ERROR status). Completes quickly (seconds for typical sources); intended for narrow follow-up RPCs (e.g. `UPDATE_SOURCE`) that only require registration, not full processing. |
 | `wait_for_sources(notebook_id, source_ids, timeout=120.0, **kwargs)` | `str, list[str], float, ...` | `list[Source]` | Wait for multiple sources to become ready **in parallel**. Per-source timeout; `**kwargs` are forwarded to `wait_until_ready`. |
 | `wait_all_until_ready(notebook_id, source_ids, timeout=120.0, initial_interval=1.0, max_interval=10.0, backoff_factor=1.5, transient_error_types=None)` | `str, list[str], float, ...` | `list[SourceWaitResult]` | Wait for many sources with **one notebook snapshot per poll tick** (cheaper than `wait_for_sources`'s per-source polling for large batches). Terminal per-source failures (`SourceNotFoundError` / `SourceProcessingError` / `SourceTimeoutError`) are **returned**, not raised — one result per id, in input order. |

@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any
 
 from .._deadline import RuntimeDeadline
+from ..rpc.types import SourceStatus
 from ..types import Source, SourceNotFoundError, SourceProcessingError, SourceTimeoutError
 
 # Source type codes where status=3 (ERROR) is transient rather than terminal.
@@ -18,6 +19,55 @@ from ..types import Source, SourceNotFoundError, SourceProcessingError, SourceTi
 # New unknown types default to terminal - fail fast rather than silently looping
 # until timeout. See #391.
 _TRANSIENT_ERROR_TYPES: tuple[int | None, ...] = (10, 0, None)
+
+
+def _expiry_error(
+    source_id: str,
+    timeout: float,
+    last_status: int | None,
+) -> SourceProcessingError | SourceTimeoutError:
+    """Report the failure actually observed at the deadline, not merely "time ran out".
+
+    Tolerating a transient ERROR (see ``_TRANSIENT_ERROR_TYPES``) is a
+    *hypothesis*: an audio or still-unclassified source may report status=3
+    briefly while it is being transcribed/classified, so the poll keeps going
+    rather than failing fast. The deadline is what disproves that hypothesis. If
+    the last status observed was ERROR and the poll then ran out of time, the
+    source did not fail to answer — it answered ERROR, repeatedly, until we gave
+    up. Calling that a timeout misdiagnoses it.
+
+    This is the #2138 ``.wav`` route. A WAV uploads cleanly (bytes transfer
+    fine) and processing then ends at ``status=ERROR`` with ``type_code=0``,
+    which is in the transient list — so the poll tolerated it to the deadline
+    and raised :class:`SourceTimeoutError`, and nothing anywhere named the
+    processing failure. Callers reasonably read a timeout as "still working, ask
+    again later" and retry forever.
+
+    Both types are :class:`~notebooklm.exceptions.SourceError`, and every
+    consumer in this repo already handles them side by side (``_app``'s
+    ``SourceWaitOutcome`` buckets, the MCP ``_waitagg`` mapper, ``notebooklm
+    source wait``'s exit codes), so this changes which bucket the ``.wav`` case
+    lands in — from "timed out, try again" to "failed" — rather than adding an
+    unhandled shape.
+
+    The timeout is still named in the message, because "ERROR throughout a 120 s
+    poll" and "ERROR on the last tick of a 2 s poll" are different claims and
+    the reader needs to know which one this is.
+    """
+    if last_status == SourceStatus.ERROR:
+        return SourceProcessingError(
+            source_id,
+            last_status,
+            message=(
+                f"Source {source_id} failed to process: still reporting ERROR after "
+                f"{timeout:.1f}s. Its type is one for which a brief ERROR is treated as "
+                "transient, so the poll waited it out; it never resolved, so the failure "
+                "is terminal. The source row is retained server-side — list the notebook's "
+                "sources to find it."
+            ),
+        )
+    return SourceTimeoutError(source_id, timeout, last_status)
+
 
 GetSource = Callable[[str, str], Awaitable[Source | None]]
 ListSources = Callable[[str], Awaitable[builtins.list[Source]]]
@@ -64,7 +114,7 @@ class SourcePoller:
         while True:
             # Check timeout before each poll.
             if deadline.expired():
-                raise SourceTimeoutError(source_id, timeout, last_status)
+                raise _expiry_error(source_id, timeout, last_status)
 
             source = await get_source(notebook_id, source_id)
 
@@ -87,7 +137,7 @@ class SourcePoller:
 
             # Don't sleep longer than remaining time.
             if deadline.expired():
-                raise SourceTimeoutError(source_id, timeout, last_status)
+                raise _expiry_error(source_id, timeout, last_status)
 
             sleep_time = deadline.clamp_sleep(interval)
             await sleep(sleep_time)
@@ -118,7 +168,7 @@ class SourcePoller:
 
         while True:
             if deadline.expired():
-                raise SourceTimeoutError(source_id, timeout, last_status)
+                raise _expiry_error(source_id, timeout, last_status)
 
             source = await get_source(notebook_id, source_id)
 
@@ -140,7 +190,7 @@ class SourcePoller:
                     return source
 
             if deadline.expired():
-                raise SourceTimeoutError(source_id, timeout, last_status)
+                raise _expiry_error(source_id, timeout, last_status)
 
             sleep_time = deadline.clamp_sleep(interval)
             await sleep(sleep_time)
@@ -253,7 +303,7 @@ class SourcePoller:
     ) -> None:
         """Resolve every still-pending source to its own :class:`SourceTimeoutError`."""
         for index, sid in pending.items():
-            results[index] = SourceTimeoutError(sid, timeout, last_status.get(index))
+            results[index] = _expiry_error(sid, timeout, last_status.get(index))
 
     async def wait_for_sources(
         self,

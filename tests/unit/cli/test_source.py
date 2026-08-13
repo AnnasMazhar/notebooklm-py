@@ -128,6 +128,85 @@ class TestSourceList:
         mock_client.sources.list.assert_awaited_once_with("nb_123")
         mock_client.notebooks.get.assert_awaited_once_with("nb_123")
 
+    def test_source_list_status_preparing_surfaces_the_orphan(self, runner, mock_auth):
+        """``--status preparing`` finds a row a failed add left behind (#2138).
+
+        The orphan sits at PREPARING, not ERROR, so before this option the CLI
+        had no way to reach it at all — ``source list`` showed it buried among
+        healthy rows and offered no filter, while the status a caller would
+        reach for (``error``) never matches it.
+
+        The ``count`` must narrow with the rows: the filter runs inside the
+        fetch precisely so the envelope and the listing cannot disagree.
+        """
+        mock_client = create_mock_client()
+        mock_client.sources.list = AsyncMock(
+            return_value=[
+                Source(id="src_ok", title="Good", status=SourceStatus.READY),
+                Source(id="src_orphan", title="probe_excel.xlsx", status=SourceStatus.PREPARING),
+            ]
+        )
+        mock_client.notebooks.get = AsyncMock(return_value=MagicMock(title="Test Notebook"))
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli,
+                ["source", "list", "-n", "nb_123", "--status", "preparing", "--json"],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["count"] == 1
+        assert [src["id"] for src in payload["sources"]] == ["src_orphan"]
+
+    def test_source_list_status_error_does_not_match_a_preparing_orphan(self, runner, mock_auth):
+        """The other half: ``error`` is where callers look, and it stays empty.
+
+        This is the gap #2138 reports, pinned so it cannot be "fixed" by
+        quietly reclassifying PREPARING as an error state — which would break
+        every genuinely mid-upload row.
+        """
+        mock_client = create_mock_client()
+        mock_client.sources.list = AsyncMock(
+            return_value=[
+                Source(id="src_orphan", title="probe_excel.xlsx", status=SourceStatus.PREPARING)
+            ]
+        )
+        mock_client.notebooks.get = AsyncMock(return_value=MagicMock(title="Test Notebook"))
+
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli,
+                ["source", "list", "-n", "nb_123", "--status", "error", "--json"],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output)["count"] == 0
+
+    def test_source_list_rejects_an_unknown_status(self, runner, mock_auth):
+        """``--status`` is constrained to the enum's labels, not free text."""
+        mock_client = create_mock_client()
+        with patch.object(
+            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = ("csrf", "session")
+            result = runner.invoke(
+                cli,
+                ["source", "list", "-n", "nb_123", "--status", "stuck"],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code != 0
+        assert "stuck" in result.output
+
     @pytest.mark.parametrize("output_mode", ["text", "json"])
     def test_source_list(self, runner, mock_auth, output_mode):
         mock_client = create_mock_client()
