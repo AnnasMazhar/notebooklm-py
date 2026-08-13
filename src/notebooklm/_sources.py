@@ -3,7 +3,7 @@
 import asyncio
 import builtins
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from pathlib import Path
 from time import monotonic
 from typing import IO, Any, Literal
@@ -31,6 +31,8 @@ from .rpc import RPCMethod
 from .types import (
     Source,
     SourceFulltext,
+    SourceStatus,
+    SourceType,
 )
 
 logger = logging.getLogger(__name__)
@@ -133,18 +135,35 @@ class SourcesAPI:
             operation_variant=operation_variant,
         )
 
-    async def list(self, notebook_id: str, *, strict: bool = False) -> list[Source]:
+    async def list(
+        self,
+        notebook_id: str,
+        *,
+        strict: bool = False,
+        statuses: Collection[SourceStatus] | None = None,
+        types: Collection[SourceType] | None = None,
+    ) -> list[Source]:
         """List all sources in a notebook.
 
         Args:
             notebook_id: The notebook ID.
-            strict: Retained for call-site clarity; malformed source-list
-                responses always raise ``RPCError``. Empty notebooks return ``[]``.
+            strict: Reject malformed source rows and conflicting duplicate IDs.
+                Malformed response envelopes always raise ``RPCError``. Use
+                ``strict=True`` when ``len(result)`` must be an exact count of
+                uniquely addressable matching sources.
+            statuses: Optional collection of accepted statuses. Members are ORed.
+            types: Optional collection of accepted source types. Members are ORed.
+                When both filters are supplied, a source must match both.
 
         Returns:
-            List of Source objects.
+            Source objects in backend order after normalization and filtering.
         """
-        return await self._lister.list(notebook_id, strict=strict)
+        return await self._lister.list(
+            notebook_id,
+            strict=strict,
+            statuses=statuses,
+            types=types,
+        )
 
     async def get(self, notebook_id: str, source_id: str) -> Source:
         """Get details of a specific source.

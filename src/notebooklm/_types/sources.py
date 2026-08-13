@@ -544,8 +544,11 @@ class SourceFulltext:
         had parsed, not a rendering anybody chose. Since #2128 the tree *is*
         parsed, so this property renders from it instead — runs joined
         **within** a block, blocks separated, blocks with nothing to read
-        omitted. :meth:`~notebooklm.types.StructuredDocument.render` carries the
-        full account, including the measurement on this repo's own capture.
+        omitted. A table is the one exception to "one line per block": it reads
+        as one line per **row**, cells tab-separated, from the cell boundaries
+        the parse carries alongside its flattened runs (#2230).
+        :meth:`~notebooklm.types.StructuredDocument.render` carries the full
+        account, including the measurement on this repo's own capture.
 
         It is derived, additive and free — the document is parsed on every
         ``get_fulltext`` regardless of ``output_format``, so nothing extra is

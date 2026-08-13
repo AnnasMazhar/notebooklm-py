@@ -29,6 +29,7 @@
   "ListInfo",
   "ListStyle",
   "StructuredDocument",
+  "TableCell",
   "TextSpan",
   "utf16_len",
   "AskResult",

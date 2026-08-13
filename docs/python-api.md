@@ -1230,7 +1230,7 @@ print(url)
 
 | Method | Parameters | Returns | Description |
 |--------|------------|---------|-------------|
-| `list(notebook_id, strict=False)` | `notebook_id: str, strict: bool = False` | `list[Source]` | List sources |
+| `list(notebook_id, *, strict=False, statuses=None, types=None)` | `str, *, bool, Collection[SourceStatus] \| None, Collection[SourceType] \| None` | `list[Source]` | List sources, optionally filtered after normalization |
 | `get(notebook_id, source_id)` | `str, str` | `Source` | Get source details; raises `SourceNotFoundError` on a miss |
 | `get_or_none(notebook_id, source_id)` | `str, str` | `Source \| None` | Optional lookup; returns `None` when absent |
 | `get_fulltext(notebook_id, source_id, *, output_format="text")` | `str, str, *, output_format: Literal["text", "markdown"]` | `SourceFulltext` | Get full content; `"markdown"` requires the optional `markdownify` extra |
@@ -1280,6 +1280,21 @@ sources = await client.sources.list(nb_id)
 for src in sources:
     print(f"{src.id}: {src.title} ({src.kind})")
 
+# Filters are ORed within an axis and ANDed across axes. Backend order is
+# preserved; an explicitly empty filter matches no sources.
+from notebooklm import SourceStatus, SourceType
+
+ready_documents = await client.sources.list(
+    nb_id,
+    statuses={SourceStatus.READY},
+    types={SourceType.PDF, SourceType.DOCX, SourceType.GOOGLE_DOCS},
+)
+
+# The backend does not expose a separate authoritative count endpoint. For an
+# exact count of uniquely addressable sources, request a strict normalized
+# snapshot and count it locally.
+actual_source_count = len(await client.sources.list(nb_id, strict=True))
+
 await client.sources.rename(nb_id, src.id, "Better Title")
 await client.sources.refresh(nb_id, src.id)  # Re-fetch URL content
 
@@ -1298,6 +1313,34 @@ print(f"Summary: {guide.summary}")
 print(f"Keywords: {guide.keywords}")
 # SourceGuide is a typed value; prefer attribute access.
 ```
+
+`sources.list()` performs one `GET_NOTEBOOK` read. `statuses` and `types` do
+not trigger extra RPCs: each collection is snapshotted before the read, then
+matched against normalized `Source.status` and `Source.kind` values. Multiple
+members within `statuses` or `types` are alternatives (OR); supplying both
+axes requires both to match (AND). `None` means no filter on that axis, while
+an explicitly empty collection matches nothing.
+
+The `strict` option is for callers that need a trustworthy count. Response-
+envelope drift always raises `RPCError`, regardless of this option. At the row
+level, the default `strict=False` keeps backward-compatible recovery: malformed
+or id-less rows are skipped and duplicate IDs keep their first normalized
+value. `strict=True` instead raises on malformed/id-less rows, on ID-bearing
+rows whose type or status discriminant is missing/malformed, and on duplicate
+IDs whose normalized values conflict. Duplicate rows that normalize to the
+same `Source` still collapse to one resource because the count is of unique,
+addressable sources—not raw wire rows. Therefore the canonical exact-count
+operation is:
+
+```python
+actual_count = len(await client.sources.list(notebook_id, strict=True))
+```
+
+Apply `statuses=` / `types=` to that same call when the desired count is for a
+filtered subset. There is intentionally no separate `sources.count()` or
+inventory object: the backend already returns the source rows needed to count,
+so another public surface would imply authority or efficiency that does not
+exist.
 
 ---
 
@@ -3104,9 +3147,12 @@ costs no extra request, `content` does not move, and like `content` it is
 deliberately **not** offset-addressable — its separators are its own. It is
 also marker-free: list glyphs and heading levels stay on `blocks` rather than
 being rendered, so this is the flat rendering `content` should have been, not
-a markdown one. A **table** renders as one line with its cells running
-together, because the parse flattens rows and cells into the block's spans
-([#2230](https://github.com/teng-lin/notebooklm-py/issues/2230)).
+a markdown one. A **table** is the one block that is not one line: it renders
+one line per row with its cells tab-separated, read from the cell offsets the
+parse carries on `DocumentBlock.table_rows`
+([#2230](https://github.com/teng-lin/notebooklm-py/issues/2230)). Those are
+offsets only — `document.text`, `DocumentBlock.text` and `cited_text` are
+byte-for-byte what they were, and the tab lives in the rendering alone.
 
 With `output_format="markdown"` the two are not the same material: `content`
 is then built from the response's HTML rendition while `document` — and so
@@ -3125,7 +3171,9 @@ and `source read --offset` keeps windowing `content` in those same units, not
 in the document's.
 
 `StructuredDocument` exposes `blocks` (`DocumentBlock`: `start_index`,
-`end_index`, `spans`, `style`, `list_info`, `kind`), `annotations`
+`end_index`, `spans`, `style`, `list_info`, `kind`, `table_rows` — a tuple of
+rows of `TableCell` ranges, non-empty only for a `BlockKind.TABLE`),
+`annotations`
 (`DocumentAnnotation`: `object_id`, `start_index`, `end_index`), `text`,
 `extent`, `slice()`, `render()` and `annotations_for()`. Each `TextSpan`
 carries its own range plus `bold` / `italic` / `underline` / `url`.
@@ -3369,10 +3417,14 @@ class DiscoveryMode(Enum):
 
 **Usage Example:**
 ```python
-from notebooklm import SourceType, ArtifactType
+from notebooklm import ArtifactType, SourceStatus, SourceType
 
-# List sources by type using .kind property
-sources = await client.sources.list(nb_id)
+# Request the source families and states you need directly.
+sources = await client.sources.list(
+    nb_id,
+    statuses={SourceStatus.READY},
+    types={SourceType.PDF, SourceType.MEDIA, SourceType.IMAGE, SourceType.UNKNOWN},
+)
 for src in sources:
     if src.kind == SourceType.PDF:
         print(f"PDF: {src.title}")
