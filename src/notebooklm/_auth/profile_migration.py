@@ -320,6 +320,10 @@ class LegacyPromotionScheduler:
         # Worker -> the profile whose promotion it owns, so an incomplete drain
         # can name the file that may not have been migrated.
         self._workers: dict[threading.Thread, Path] = {}
+        # Set, under the registry lock, at the instant a drain concludes there is
+        # nothing left to wait for. Past that point a new detached worker would
+        # never be joined by anyone, so `schedule` refuses it out loud instead.
+        self._drain_closed = False
         self._thread_factory = threading.Thread if thread_factory is None else thread_factory
 
     @classmethod
@@ -329,6 +333,17 @@ class LegacyPromotionScheduler:
     def schedule(self, store: ProfileStore, migrator: LegacyAccountMigrator) -> bool:
         canonical = str(store.ordering_key)
         with self._registry_lock:
+            if self._drain_closed:
+                # Same lock as the drain's final emptiness check, so the two
+                # decisions are atomic: a promotion is either joined by the
+                # drain or refused here — never started with nobody to wait.
+                logger.warning(
+                    "Legacy account promotion for %s was not started because the process is "
+                    "already shutting down; its account metadata was not migrated. "
+                    "Re-run the command to migrate it.",
+                    store.path,
+                )
+                return False
             if canonical in self._once_paths:
                 return False
             self._once_paths.add(canonical)
@@ -387,8 +402,12 @@ class LegacyPromotionScheduler:
         while True:
             with self._registry_lock:
                 pending = [item for item in self._workers.items() if item[0] not in joined]
-            if not pending:
-                return complete
+                if not pending:
+                    # Closing the door under the same lock is what makes this a
+                    # decision rather than a guess: no worker can slip in
+                    # between "nothing left" and the return.
+                    self._drain_closed = True
+                    return complete
             for worker, path in pending:
                 joined.add(worker)
                 remaining = max(deadline - time.monotonic(), 0.0)
@@ -421,6 +440,9 @@ class LegacyPromotionScheduler:
             if self._workers:
                 raise RuntimeError("promotion workers must be drained before reset")
             self._once_paths.clear()
+            # Tests drain the process-default scheduler between cases; without
+            # reopening it, every later test's promotion would be refused.
+            self._drain_closed = False
 
 
 LegacyPromotionScheduler._process_default_scheduler = LegacyPromotionScheduler()

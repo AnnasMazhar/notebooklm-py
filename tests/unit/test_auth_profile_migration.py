@@ -676,6 +676,41 @@ def test_drain_also_joins_a_worker_scheduled_after_it_started(tmp_path, caplog):
         assert scheduler.drain(30.0) is True
 
 
+def test_a_promotion_scheduled_after_the_drain_closed_is_refused_out_loud(tmp_path, caplog):
+    """The last window: nobody would ever join a worker started after the drain.
+
+    ``drain`` closes the registry under the same lock as its final emptiness
+    check, so a promotion is either joined by the drain or refused here --
+    never started with no one left to wait for it, which at interpreter
+    shutdown means killed mid-write in silence.
+    """
+    scheduler = LegacyPromotionScheduler()
+    assert scheduler.drain(30.0) is True  # nothing outstanding -> closes
+
+    store = _SequencedStore(tmp_path / "state.json", [])
+    with caplog.at_level("WARNING", logger="notebooklm.auth"):
+        assert scheduler.schedule(store, LegacyAccountMigrator()) is False  # type: ignore[arg-type]
+
+    refusals = [
+        record.getMessage()
+        for record in caplog.records
+        if "was not started because the process is already shutting down" in record.getMessage()
+    ]
+    assert len(refusals) == 1
+    assert str(store.path) in refusals[0]
+    # Refused, not silently registered.
+    assert not scheduler._workers_for_tests()
+
+
+def test_reset_reopens_the_scheduler_for_the_next_test(tmp_path):
+    scheduler = LegacyPromotionScheduler()
+    assert scheduler.drain(30.0) is True
+    scheduler._reset_for_tests()
+    store = _SequencedStore(tmp_path / "state.json", [])
+    assert scheduler.schedule(store, LegacyAccountMigrator()) is True  # type: ignore[arg-type]
+    assert scheduler.drain(30.0) is True
+
+
 def test_scrub_reports_a_lock_timeout_instead_of_swallowing_it(tmp_path, caplog, monkeypatch):
     """``filelock.Timeout`` subclasses ``OSError`` (#2223 review).
 

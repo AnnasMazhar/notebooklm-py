@@ -330,9 +330,9 @@ bounded store lock. `_auth/profile_migration.py` owns the path-shaped
 sanitization, only-if-absent promotion, and embed-before-scrub ordering;
 `LegacyAccountContext` owns the sibling file and lock. `LegacyPromotionScheduler` owns the
 canonical process one-shot registry and daemon workers. Reads only schedule and return; the
-process-default exit hook drains outstanding workers within one shared
-30-second budget (`NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT`), warning if any is still
-running when it expires.
+process-default exit hook drains outstanding workers within one shared budget
+(30 seconds by default, configurable via `NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT`),
+warning if any is still running when it expires.
 
 First-party app and CLI flows pass primitive account modes to `replace_profile_from_login` and
 consume `ReplaceResult`; `storage.replace_from_login` keeps its v0.x signature and projects that
