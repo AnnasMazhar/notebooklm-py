@@ -228,6 +228,38 @@ def test_source_view_drive_status_label_is_none_when_absent() -> None:
     assert unreadable["is_drive_degraded"] is False
 
 
+def test_source_view_does_not_publish_python_only_source_metadata() -> None:
+    """Enriching ``Source`` must not implicitly widen the MCP/REST contract."""
+    from notebooklm._app.views import source_view
+    from notebooklm.types import Source
+
+    source = Source(
+        id="src-1",
+        download_url="https://example.test/download",
+        viewer_url="https://example.test/view",
+        content_mime="text/markdown",
+        word_count=123,
+        revision_id="revision-1",
+        revision_timestamp=datetime(2026, 8, 13, tzinfo=timezone.utc),
+        last_modified_at=datetime(2026, 8, 14, tzinfo=timezone.utc),
+    )
+
+    view = source_view(source)
+
+    assert (
+        not {
+            "download_url",
+            "viewer_url",
+            "content_mime",
+            "word_count",
+            "revision_id",
+            "revision_timestamp",
+            "last_modified_at",
+        }
+        & view.keys()
+    )
+
+
 def test_source_summary_stays_narrow_so_add_envelopes_do_not_widen() -> None:
     """``source_summary`` must NOT grow the Drive axis.
 

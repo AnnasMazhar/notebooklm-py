@@ -54,6 +54,21 @@ ACCESS_LABELS = {0: "restricted", 1: "anyone_with_link"}
 VIEW_LEVEL_LABELS = {0: "full", 1: "chat"}
 PERMISSION_LABELS = {1: "owner", 2: "editor", 3: "viewer"}
 
+# Stable source fields exposed by the MCP and REST adapters. ``Source`` also
+# carries Python-only metadata that those established wire contracts do not
+# publish. Keep this allowlist explicit so enriching the dataclass cannot widen
+# every adapter response accidentally.
+_SOURCE_VIEW_FIELDS = (
+    "id",
+    "title",
+    "url",
+    "_type_code",
+    "created_at",
+    "status",
+    "drive_document_id",
+    "drive_status",
+)
+
 
 def label(mapping: dict[int, str], value: int) -> str:
     """Map an ``int, Enum`` member (or raw int) to its label; unknown → ``str``."""
@@ -132,8 +147,13 @@ def source_view(source: Source) -> dict[str, Any]:
     property, so :func:`to_jsonable` would drop it, leaving every non-Python
     consumer to re-derive the degraded set from the label string — exactly the
     per-adapter duplication this module exists to prevent.
+
+    The base fields are an explicit allowlist. ``Source`` is also the public
+    Python model and may gain local metadata without implicitly changing the
+    established MCP/REST response schema.
     """
-    view = to_jsonable(source)
+    serialized = to_jsonable(source)
+    view = {key: serialized[key] for key in _SOURCE_VIEW_FIELDS if key in serialized}
     view["kind"] = source.kind.value
     view["status_label"] = source_status_to_str(source.status)
     view["drive_status_label"] = (

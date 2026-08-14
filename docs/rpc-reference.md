@@ -108,7 +108,7 @@ Internal integer codes returned by `GET_NOTEBOOK` / `LIST_SOURCES` and consumed 
 
 > Codes outside this map are surfaced as `SourceType.UNKNOWN` and emit `UnknownTypeWarning` on first occurrence so unmapped types don't crash callers.
 
-> **Code `14` is overloaded** (live-captured #1828/#1832): the backend returns `14` for a native Google Sheet *and* for a Drive-hosted PDF. Drive sources carry no URL (`metadata[5]/[7]` are null and `metadata[0]` holds the Drive metadata block, not a URL — see `SourceRow.drive_document_id`), so the two are disambiguated by the MIME at `metadata[19]` (fallback `metadata[9][2]`): `application/vnd.google-apps.spreadsheet` → `GOOGLE_SPREADSHEET`, `application/pdf` → `PDF`. See `_disambiguate_type_code` in `src/notebooklm/_types/sources.py`.
+> **Code `14` is overloaded** (live-captured #1828/#1832): the backend returns `14` for a native Google Sheet *and* for a Drive-hosted PDF. Drive sources carry no URL (`metadata[5]/[7]` are null and `metadata[0]` holds the Drive metadata block, not a URL — see `SourceRow.drive_document_id`), so the two are disambiguated by the original-content MIME at `source[7][2]`, falling back to the Drive-only MIME at `metadata[19]` / `metadata[9][2]`: `application/vnd.google-apps.spreadsheet` → `GOOGLE_SPREADSHEET`, `application/pdf` → `PDF`. See `_disambiguate_type_code` in `src/notebooklm/_types/sources.py`.
 
 ### Source Settings Block (`source[3]`)
 
@@ -123,6 +123,26 @@ they answer different questions:
 Shapes observed across 409 live source rows (2026-08-07 audit): `[null, 2]` ×402,
 `[null, 2, null, 3]` ×4 (all Drive-backed, all `ACTIVE`), and
 `[null, 2, [null,null,null,[]]]` ×3.
+
+### Additional Source Metadata (`source[5:8]`, `source[2]`)
+
+The web source row carries useful fields beyond the four named by the recovered
+mobile `Source` message. Uploaded-file rows may populate all three trailing
+slots together:
+
+| Index | Proto tag | `Source` field | Meaning |
+|-------|-----------|----------------|---------|
+| 5 | 6 | `download_url` | Direct download URL for the original file |
+| 6 | 7 | `viewer_url` | Drive viewer URL for the original file |
+| 7 | 8 | `content_mime` | MIME at blob descriptor index 2 |
+
+The nested `SourceMetadata` row also exposes `word_count` at index 1,
+`[revision_id, revision_timestamp]` at index 3, and `last_modified_at` at index
+14. Their shapes and population are live-confirmed, but the mobile schema marks
+the slots unused, so those semantic names are inferred and recorded as pinned
+wire evidence rather than schema mappings.
+
+### Drive Source Status Codes
 
 | Code | `DriveSourceStatus` | Backend member |
 |------|---------------------|----------------|

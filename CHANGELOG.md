@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Source listings retain original-file and revision metadata already present
+  on the wire.** `Source` now exposes `download_url`, `viewer_url`, and
+  `content_mime` for uploaded files, plus `word_count`, `revision_id`,
+  `revision_timestamp`, and `last_modified_at`. All fields are optional so
+  source kinds and response shapes that omit the corresponding slots continue
+  to decode cleanly. The MIME from the original-content descriptor also joins
+  the existing Drive-only MIME as a type-disambiguation signal. The recovered
+  mobile schema leaves these slots unnamed; names for the size/revision/update
+  metadata are explicitly evidence-based, backed by live shapes rather than
+  presented as recovered proto names. ([#2112](https://github.com/teng-lin/notebooklm-py/issues/2112),
+  [#2114](https://github.com/teng-lin/notebooklm-py/issues/2114))
+
 - **A readable rendering of a source, and citation resolution that reads
   offsets instead of searching for text.** `SourceFulltext` gains
   `rendered_content`, and `StructuredDocument` gains `render(start, end)` and
