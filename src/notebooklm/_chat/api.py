@@ -10,12 +10,13 @@ import asyncio
 import logging
 import reprlib
 import weakref
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from .._conversation_cache import ConversationCache
 from .._logging import get_request_id, reset_request_id, set_request_id
 from .._loop_bound import LoopBoundPrimitive
-from .._notebook_metadata import NotebookSourceIdProvider
+from .._notebook_metadata import CreatedChatSessionProvider, NotebookSourceIdProvider
 from .._notebooks import build_get_notebook_params
 from .._request_types import AuthSnapshot
 from .._row_adapters.chat import (
@@ -24,7 +25,11 @@ from .._row_adapters.chat import (
     unwrap_conversation_turns,
     unwrap_last_conversation_id,
 )
-from .._runtime.config import DEFAULT_CHAT_RESPONSE_MAX_BYTES, DEFAULT_CHAT_TIMEOUT
+from .._runtime.config import (
+    DEFAULT_CHAT_RESPONSE_MAX_BYTES,
+    DEFAULT_CHAT_TIMEOUT,
+    assert_resolved_read_timeout,
+)
 from .._runtime.contracts import LoopGuard, RpcCaller
 from ..exceptions import ChatError, NetworkError, UnknownRPCMethodError, ValidationError
 from .deleted_tracker import RecentlyDeletedConversations
@@ -34,7 +39,6 @@ from .transport import chat_aware_authed_post
 from .wire import (
     _extract_next_turn_content,
     build_streaming_chat_request,
-    collect_texts_from_nested,
     extract_answer_and_refs_from_chunk,
     extract_text_passages,
     extract_uuid_from_nested,
@@ -47,6 +51,7 @@ from .wire import (
 if TYPE_CHECKING:
     from .._reqid_counter import ReqidCounter
     from .._runtime.transport import RuntimeTransport
+from .._types.documents import StructuredDocument
 from ..rpc import (
     ChatGoal,
     ChatResponseLength,
@@ -59,10 +64,35 @@ from ..types import (
     ChatReference,
     ChatSettings,
     ConversationTurn,
+    ConversationTurnKey,
+    NextStepSuggestion,
     Note,
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _PostedAsk:
+    """One completed streamed-chat POST, as :meth:`ChatAPI.ask` consumes it.
+
+    A frozen dataclass rather than a ``NamedTuple``: this shape has grown twice
+    (#2120, #2122), and a ``NamedTuple`` would have kept positional access and
+    field ORDER load-bearing at every consumption site — so inserting a member
+    anywhere but the end would silently misbind. Read the members by name.
+    """
+
+    answer: str
+    references: list[ChatReference]
+    conversation_id: str
+    raw_response: str
+    #: The answer's own structured document (#2120).
+    answer_document: StructuredDocument
+    #: The backend's key for this turn, or ``None`` when the stream carried
+    #: none. Threaded onto :attr:`AskResult.turn_key` (#2122).
+    turn_key: ConversationTurnKey | None
+    #: Suggested follow-up actions decoded from NextStepSuggestions (#2119).
+    next_steps: list[NextStepSuggestion]
 
 
 class ChatAPI(LoopBoundPrimitive):
@@ -96,6 +126,7 @@ class ChatAPI(LoopBoundPrimitive):
         chat_response_max_bytes: int | None = DEFAULT_CHAT_RESPONSE_MAX_BYTES,
         conversation_cache: ConversationCache | None = None,
         notebooks: NotebookSourceIdProvider | None = None,
+        created_chat_sessions: CreatedChatSessionProvider | None = None,
     ):
         """Initialize the chat API.
 
@@ -123,18 +154,30 @@ class ChatAPI(LoopBoundPrimitive):
             notebooks: Optional source-id resolver; defaults to a
                 ``NotebooksAPI`` around ``rpc`` so a bare ``ChatAPI(...)`` still
                 resolves source ids without callers wiring the full graph.
+            created_chat_sessions: Optional one-shot provider for the initial
+                session id returned by ``CREATE_NOTEBOOK``. The assembled
+                client passes its shared ``NotebooksAPI`` instance.
         """
         self._rpc = rpc
         self._transport = transport
         self._reqid = reqid
         self._loop_guard = loop_guard
+        # ``chat_timeout`` arrives already resolved against the client's
+        # ``timeout=`` (``_client_assembly`` calls ``resolve_chat_read_timeout``).
+        # Every layer below here guards on ``is not None``, so an unresolved
+        # AUTO_READ_TIMEOUT would sail into ``httpx.Timeout`` — which accepts it
+        # — and only surface as a TypeError inside the timeout error formatter.
+        assert_resolved_read_timeout(chat_timeout, name="chat_timeout")
         self._chat_timeout = chat_timeout
         self._chat_response_max_bytes = chat_response_max_bytes
         if notebooks is None:
             from .._notebooks import NotebooksAPI
 
             notebooks = NotebooksAPI(rpc)
+            if created_chat_sessions is None:
+                created_chat_sessions = notebooks
         self._notebooks = notebooks
+        self._created_chat_sessions = created_chat_sessions
         self._cache = conversation_cache if conversation_cache is not None else ConversationCache()
         # Per-``conversation_id`` lock serializing follow-up asks on the same
         # conversation. Without it, two ``asyncio.gather``'d asks read identical
@@ -293,7 +336,7 @@ class ChatAPI(LoopBoundPrimitive):
             conversation_history: list[Any] | None,
             active_conversation_id: str | None,
             resolved_id_override: str | None = None,
-        ) -> tuple[str, list[ChatReference], str, str]:
+        ) -> _PostedAsk:
             # Capture into closure-local variables so the nested ``build_request``
             # closure carries explicit types — mypy doesn't propagate flow
             # narrowing through nested-function captures, and the wire
@@ -338,16 +381,19 @@ class ChatAPI(LoopBoundPrimitive):
                 if reqid_token is not None:
                     reset_request_id(reqid_token)
 
-            # ``_parse_ask_response_with_references`` returns a third tuple
-            # element historically called ``server_conv_id``. Live API tests
-            # (issue #659) proved that field is a per-stream/per-query id,
-            # not a real conversation_id: querying ``khqZz`` with it returns
-            # 0 turns, and passing it back as ``params[4]`` for a follow-up
-            # produces a ghost turn the server does not register. We discard
-            # it here and fetch the real id via ``hPTbtc`` below.
-            answer_text, references, _ignored_stream_id = self._parse_ask_response_with_references(
-                response.text
-            )
+            # ``StreamingChatParseResult.conversation_id`` is historically
+            # called ``server_conv_id``. Live API tests (issue #659) proved
+            # that field is a per-stream/per-query id, not a real
+            # conversation_id: querying ``khqZz`` with it returns 0 turns, and
+            # passing it back as ``params[4]`` for a follow-up produces a ghost
+            # turn the server does not register. We discard it here and fetch
+            # the real id via ``hPTbtc`` below. (It reads the same wire slot
+            # #2122 surfaces as ``turn_key.session_id`` — which is exactly why
+            # that field claims nothing; see ``ConversationTurnKey``.)
+            parsed = parse_streaming_chat_response(response.text)
+            answer_text = parsed.answer
+            references = parsed.references
+            answer_document = parsed.answer_document
 
             resolved_conversation_id = active_conversation_id
             if resolved_id_override is not None:
@@ -402,7 +448,15 @@ class ChatAPI(LoopBoundPrimitive):
 
             assert resolved_conversation_id is not None
 
-            return answer_text, references, resolved_conversation_id, response.text
+            return _PostedAsk(
+                answer=answer_text,
+                references=references,
+                conversation_id=resolved_conversation_id,
+                raw_response=response.text,
+                answer_document=answer_document,
+                turn_key=parsed.turn_key,
+                next_steps=parsed.next_steps,
+            )
 
         def cache_turn(
             resolved_conversation_id: str,
@@ -426,14 +480,29 @@ class ChatAPI(LoopBoundPrimitive):
         # resolve and this POST.
         if is_new_conversation:
             async with self._get_new_conversation_lock(notebook_id):
-                current_id = await self.get_conversation_id(notebook_id)
+                # CREATE_NOTEBOOK already returned this notebook's initial
+                # ChatSession. Consume that one-shot hint before falling back
+                # to hPTbtc, avoiding an immediate re-fetch of data the server
+                # just volunteered (#2133). Keep its provenance: unlike an id
+                # resolved from hPTbtc, the create hint must be bound to the
+                # POST below. Otherwise another client changing the notebook's
+                # current session between create() and ask() would make the
+                # null-session POST land elsewhere while we still reported the
+                # stale create id.
+                created_session_id = (
+                    self._created_chat_sessions._take_created_chat_session_id(notebook_id)
+                    if self._created_chat_sessions is not None
+                    else None
+                )
+                current_id = created_session_id
+                if current_id is None:
+                    current_id = await self.get_conversation_id(notebook_id)
                 if current_id is None:
                     # First-ever conversation: no id to lock on, so serialize the
                     # create under the notebook lock; recover the id post-POST.
                     posted = await perform_request(
                         conversation_history=None, active_conversation_id=None
                     )
-                    answer_text, references, resolved_conversation_id, raw_response = posted
             # Existing conversation: release the notebook lock and serialize on the
             # conversation lock alone, so other null asks on this notebook resolve
             # in parallel yet still serialize here on that shared lock.
@@ -455,16 +524,22 @@ class ChatAPI(LoopBoundPrimitive):
                         is_follow_up = prior_turn_count > 0
                     posted = await perform_request(
                         conversation_history=None,
-                        active_conversation_id=None,
+                        # A CREATE hint is a genuine server-issued session id,
+                        # not the client-minted UUID forbidden by #659. Bind
+                        # the first ask to it so the returned id and the POST
+                        # target cannot diverge if the server's current pointer
+                        # changed in another client meanwhile.
+                        active_conversation_id=(
+                            override if created_session_id is not None else None
+                        ),
                         resolved_id_override=override,
                     )
-                    answer_text, references, resolved_conversation_id, raw_response = posted
                     turn_number = cache_turn(
-                        resolved_conversation_id, answer_text, prior_turn_count
+                        posted.conversation_id, posted.answer, prior_turn_count
                     )
             else:
-                async with self._get_conversation_lock(resolved_conversation_id):
-                    turn_number = cache_turn(resolved_conversation_id, answer_text, 0)
+                async with self._get_conversation_lock(posted.conversation_id):
+                    turn_number = cache_turn(posted.conversation_id, posted.answer, 0)
         else:
             assert conversation_id is not None  # narrowed by is_new_conversation
             async with self._get_conversation_lock(conversation_id):
@@ -472,24 +547,22 @@ class ChatAPI(LoopBoundPrimitive):
                     self.get_conversation_turns, notebook_id, conversation_id
                 )
                 conversation_history = self._build_conversation_history(conversation_id)
-                (
-                    answer_text,
-                    references,
-                    resolved_conversation_id,
-                    raw_response,
-                ) = await perform_request(
+                posted = await perform_request(
                     conversation_history=conversation_history,
                     active_conversation_id=conversation_id,
                 )
-                turn_number = cache_turn(resolved_conversation_id, answer_text, prior_turn_count)
+                turn_number = cache_turn(posted.conversation_id, posted.answer, prior_turn_count)
 
         return AskResult(
-            answer=answer_text,
-            conversation_id=resolved_conversation_id,
+            answer=posted.answer,
+            conversation_id=posted.conversation_id,
             turn_number=turn_number,
             is_follow_up=is_follow_up,
-            references=references,
-            raw_response=raw_response[:1000],
+            references=posted.references,
+            raw_response=posted.raw_response[:1000],
+            answer_document=posted.answer_document,
+            turn_key=posted.turn_key,
+            next_steps=posted.next_steps,
         )
 
     async def get_conversation_turns(
@@ -955,7 +1028,12 @@ class ChatAPI(LoopBoundPrimitive):
     def _parse_ask_response_with_references(
         self, response_text: str
     ) -> tuple[str, list[ChatReference], str | None]:
-        """Compatibility wrapper preserving the old tuple return shape."""
+        """Compatibility wrapper preserving the old tuple return shape.
+
+        Deliberately still a 3-tuple: the answer document added by #2120 is
+        read from :func:`parse_streaming_chat_response` directly on the ask
+        path, so this legacy shape does not have to grow a fourth element.
+        """
         result = parse_streaming_chat_response(response_text)
         return result.answer, result.references, result.conversation_id
 
@@ -980,10 +1058,6 @@ class ChatAPI(LoopBoundPrimitive):
     def _extract_text_passages(self, cite_inner: list) -> tuple[str | None, int | None, int | None]:
         """Compatibility wrapper for streamed-chat citation text extraction."""
         return extract_text_passages(cite_inner)
-
-    def _collect_texts_from_nested(self, nested: Any, texts: list[str]) -> None:
-        """Compatibility wrapper for streamed-chat nested text collection."""
-        collect_texts_from_nested(nested, texts)
 
     def _extract_uuid_from_nested(self, data: Any, max_depth: int = 10) -> str | None:
         """Compatibility wrapper for streamed-chat source UUID extraction."""

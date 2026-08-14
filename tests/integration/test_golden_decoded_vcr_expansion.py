@@ -97,28 +97,47 @@ _WIKIPEDIA_SOURCE_ID = "466b9ee3-c1ce-45ef-861c-1d4bfcd939ad"
 
 
 # Per-row golden for the first three recorded notebooks:
-# (id, title, sources_count, is_owner). The (id <-> title <-> count <-> owner)
-# tuple is the positional canary for the notebook-list decoder.
+# (id, title, sources_count, role, is_owner). The tuple is the positional canary
+# for the notebook-list decoder.
+#
+# Row 2 is the #2125 regression witness: the recorded row carries
+# ``meta[0] == 1`` (userRole OWNER) alongside ``meta[1] is True`` (the notebook
+# has been shared). The pre-fix decoder read ``meta[1]`` and reported
+# ``is_owner=False`` for this row — the recorded account's own notebook,
+# labelled "Shared" by its own CLI.
 _NOTEBOOKS_LIST_GOLDEN_HEAD = [
     (
         "f66923f0-1df4-4ffe-9822-3ed63c558b1c",
         "GENERATION: Claude Code Deep Dive: Skills, Agents, Commands & Plugins",
         42,
+        SharePermission.OWNER,
         True,
     ),
     (
         "167481cd-23a3-4331-9a45-c8948900bf91",
         "READ ONLY: Learn Claude Code & AI Agents for High School Students",
         8,
-        False,
+        SharePermission.OWNER,
+        True,
     ),
     (
         "c3f6285f-1709-44c4-9cd6-e95cf0ea4f5e",
         "TypeScript Fundamentals: A Handbook of Type Systems and Rules",
         2,
+        SharePermission.OWNER,
         True,
     ),
 ]
+
+#: The one recorded row the account does NOT own — ``meta[0] == 3`` (READER).
+#: Pinned separately so the list golden covers a genuine non-owner role rather
+#: than only the owner path.
+_NOTEBOOKS_LIST_GOLDEN_VIEWER_ROW = (
+    "40b0bb3f-afa6-49b2-959f-d91fb0a91a3b",
+    "Jane Austen: The Complete Works",
+    SharePermission.VIEWER,
+    False,
+)
 
 
 class TestNotebooksGoldenDecoded:
@@ -128,20 +147,27 @@ class TestNotebooksGoldenDecoded:
     @pytest.mark.asyncio
     @notebooklm_vcr.use_cassette("notebooks_list.yaml")
     async def test_list_decoded_golden(self):
-        """``notebooks.list`` decodes id/title/sources_count/is_owner per row."""
+        """``notebooks.list`` decodes id/title/sources_count/role/is_owner per row."""
         async with vcr_client() as client:
             notebooks = await client.notebooks.list()
 
         assert_decoded_equals(len(notebooks), 12, field="notebooks_list length")
-        actual_head = [(n.id, n.title, n.sources_count, n.is_owner) for n in notebooks[:3]]
+        actual_head = [(n.id, n.title, n.sources_count, n.role, n.is_owner) for n in notebooks[:3]]
         assert_decoded_equals(
             actual_head, _NOTEBOOKS_LIST_GOLDEN_HEAD, field="notebooks_list[:3] rows"
         )
-        # The created_at / modified_at slots decode to real timestamps (not
+        viewer = next(nb for nb in notebooks if nb.id == _NOTEBOOKS_LIST_GOLDEN_VIEWER_ROW[0])
+        assert_decoded_equals(
+            (viewer.id, viewer.title, viewer.role, viewer.is_owner),
+            _NOTEBOOKS_LIST_GOLDEN_VIEWER_ROW,
+            field="notebooks_list viewer row",
+        )
+        # The created_at / last_viewed_at slots decode to real timestamps (not
         # fabricated defaults) — pin the first row's to catch a timestamp-column
         # slip. ``created_at`` is the CREATION instant (``data[5][8][0]``) and
-        # ``modified_at`` is the LAST-MODIFIED instant (``data[5][5][0]``); the
-        # two were historically swapped (created_at exposed the modified time).
+        # ``last_viewed_at`` is ``lastViewedTime`` (``data[5][5][0]``, #2126 —
+        # NOT a modification time); the two were historically swapped, and the
+        # second was additionally misnamed ``modified_at``.
         # The decoder renders tz-aware UTC (``fromtimestamp(.., tz=utc)``,
         # #1519), so the round-tripped epoch is identical on every timezone/CI
         # host. We pin the epoch (not a wall-time string) and assert tz-awareness
@@ -154,15 +180,17 @@ class TestNotebooksGoldenDecoded:
             1768174413,  # data[5][8][0] — true creation instant
             field="notebooks_list[0].created_at (epoch seconds)",
         )
-        assert first.modified_at is not None
-        assert first.modified_at.tzinfo is not None
+        assert first.last_viewed_at is not None
+        assert first.last_viewed_at.tzinfo is not None
         assert_decoded_equals(
-            int(first.modified_at.timestamp()),
-            1768311605,  # data[5][5][0] — last-modified instant
-            field="notebooks_list[0].modified_at (epoch seconds)",
+            int(first.last_viewed_at.timestamp()),
+            1768311605,  # data[5][5][0] — lastViewedTime instant
+            field="notebooks_list[0].last_viewed_at (epoch seconds)",
         )
-        # Creation precedes last modification in the recorded row.
-        assert first.created_at < first.modified_at
+        # The deprecated ``modified_at`` alias mirrors it exactly (#2126).
+        assert first.modified_at == first.last_viewed_at
+        # Creation precedes the last view in the recorded row.
+        assert first.created_at < first.last_viewed_at
 
     @pytest.mark.vcr
     @pytest.mark.asyncio
@@ -181,10 +209,12 @@ class TestNotebooksGoldenDecoded:
             field="notebooks_get.title",
         )
         assert_decoded_equals(notebook.sources_count, 2, field="notebooks_get.sources_count")
+        assert_decoded_equals(notebook.role, SharePermission.OWNER, field="notebooks_get.role")
         assert_decoded_equals(notebook.is_owner, True, field="notebooks_get.is_owner")
-        # created_at is the CREATION instant (``data[5][8][0]``); modified_at is
-        # the LAST-MODIFIED instant (``data[5][5][0]``). Pin both epochs (TZ-
-        # invariant per #1511/#1519) to lock the previously-swapped slots.
+        # created_at is the CREATION instant (``data[5][8][0]``);
+        # last_viewed_at is ``lastViewedTime`` (``data[5][5][0]``). Pin both
+        # epochs (TZ-invariant per #1511/#1519) to lock the previously-swapped
+        # slots.
         assert notebook.created_at is not None
         assert notebook.created_at.tzinfo is not None
         assert_decoded_equals(
@@ -192,14 +222,15 @@ class TestNotebooksGoldenDecoded:
             1767921609,  # data[5][8][0] — true creation instant
             field="notebooks_get.created_at (epoch seconds)",
         )
-        assert notebook.modified_at is not None
-        assert notebook.modified_at.tzinfo is not None
+        assert notebook.last_viewed_at is not None
+        assert notebook.last_viewed_at.tzinfo is not None
         assert_decoded_equals(
-            int(notebook.modified_at.timestamp()),
-            1768963937,  # data[5][5][0] — last-modified instant
-            field="notebooks_get.modified_at (epoch seconds)",
+            int(notebook.last_viewed_at.timestamp()),
+            1768963937,  # data[5][5][0] — lastViewedTime instant
+            field="notebooks_get.last_viewed_at (epoch seconds)",
         )
-        assert notebook.created_at < notebook.modified_at
+        assert notebook.modified_at == notebook.last_viewed_at
+        assert notebook.created_at < notebook.last_viewed_at
 
     @pytest.mark.vcr
     @pytest.mark.asyncio
@@ -251,6 +282,11 @@ class TestNotebooksGoldenDecoded:
         )
         assert_decoded_equals(notebook.title, "VCR Test Notebook", field="notebooks_create.title")
         assert_decoded_equals(notebook.sources_count, 0, field="notebooks_create.sources_count")
+        assert_decoded_equals(
+            [session.id for session in notebook.chat_sessions],
+            ["6b8bc782-7624-47cd-a5ef-8679165c076f"],
+            field="notebooks_create.chat_sessions",
+        )
 
 
 # =============================================================================
@@ -282,7 +318,7 @@ class TestSourceMutationsGoldenDecoded:
     @pytest.mark.vcr
     @pytest.mark.asyncio
     @notebooklm_vcr.use_cassette("sources_add_url.yaml")
-    async def test_add_url_decoded_golden(self):
+    async def test_add_url_decoded_golden(self, legacy_vcr_add_url_baseline):
         """``sources.add_url`` decodes the server-extracted page title.
 
         The title is the strongest pin here: the test passes only the URL, so
@@ -702,9 +738,9 @@ class TestArtifactsWriteGoldenDecoded:
             "31dc7d61-2b07-444e-8be2-5da70154ac5a",
             field="artifacts_generate_report.task_id",
         )
-        assert_decoded_equals(
-            status.status, "in_progress", field="artifacts_generate_report.status"
-        )
+        # The recorded row's status slot is code 1 (ARTIFACT_STATUS_INITIALIZED):
+        # a just-created artifact is queued, not yet generating (#2127).
+        assert_decoded_equals(status.status, "pending", field="artifacts_generate_report.status")
         assert_decoded_equals(status.error, None, field="artifacts_generate_report.error")
 
     @pytest.mark.vcr
@@ -776,7 +812,8 @@ class TestArtifactsWriteGoldenDecoded:
             "b84c4e66-ce7b-43b8-ac86-80c8add3fa23",
             field="artifacts_revise_slide.task_id",
         )
-        assert_decoded_equals(status.status, "in_progress", field="artifacts_revise_slide.status")
+        # Status slot is code 1 (ARTIFACT_STATUS_INITIALIZED) → "pending" (#2127).
+        assert_decoded_equals(status.status, "pending", field="artifacts_revise_slide.status")
 
 
 # =============================================================================
@@ -915,12 +952,13 @@ def test_golden_values_visible_in_cassette_bytes() -> None:
         ("notes_create.yaml", "1768312234"),
         ("notes_list.yaml", "1768311078"),
         ("generate_mind_map_chain.yaml", "1778851315"),
-        # Notebook created_at/modified_at epochs (swapped-slot fix): created_at
-        # comes from data[5][8][0], modified_at from data[5][5][0].
+        # Notebook created_at/last_viewed_at epochs (swapped-slot fix):
+        # created_at comes from data[5][8][0], last_viewed_at from
+        # data[5][5][0] (#2126).
         ("notebooks_list.yaml", "1768174413"),  # list[0].created_at
-        ("notebooks_list.yaml", "1768311605"),  # list[0].modified_at
+        ("notebooks_list.yaml", "1768311605"),  # list[0].last_viewed_at
         ("notebooks_get.yaml", "1767921609"),  # get.created_at
-        ("notebooks_get.yaml", "1768963937"),  # get.modified_at
+        ("notebooks_get.yaml", "1768963937"),  # get.last_viewed_at
         ("artifacts_export_report.yaml", "1bAgBGlybk82LZfbz6IPCwpQ12E4hlDQsuWTVWJVEHfM"),
         ("research_poll.yaml", "32b1e6c3-863f-4502-8509-fe9d5801db14"),
         ("generate_mind_map_chain.yaml", "208ac8c0-5206-4e93-ae24-4b83ce14084b"),

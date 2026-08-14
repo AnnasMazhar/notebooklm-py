@@ -91,7 +91,14 @@ jobs:
       run: uv run pre-commit run --all-files
 
     - name: Run type checking
-      run: uv run mypy src/notebooklm --ignore-missing-imports
+      # `scripts/_live_auth_scenarios` is included deliberately: those modules
+      # are the live-auth matrix cells that used to be `python -c` source
+      # strings (#2180). Type-checking them is most of the point of extracting
+      # them — they cannot be exercised without live Google credentials, so the
+      # checker is the only thing standing between a typo and a maintainer's
+      # release run. `--ignore-missing-imports` keeps this green on the lean
+      # install this job uses (no `mcp`/`server` extras).
+      run: uv run mypy src/notebooklm scripts/_live_auth_scenarios --ignore-missing-imports
 
     - name: Assert workflow permissions are scoped
       run: uv run python scripts/check_workflow_permissions.py
@@ -306,7 +313,7 @@ jobs:
       # (Google auth tokens + API keys) without tripping on the intentional
       # placeholder content (``"Scrubbed ..."`` names, test emails) that fills
       # those fixtures.
-      run: uv run python tests/scripts/check_cassettes_clean.py --secrets-only --recursive tests/fixtures
+      run: uv run python tests/scripts/check_cassettes_clean.py --secrets-only --recursive tests/fixtures tests/unit/fixtures
 
     - name: Run tests with coverage
       # ``-n auto --dist loadgroup`` parallelizes the ~11k-test suite across the

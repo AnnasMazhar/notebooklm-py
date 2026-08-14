@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import re
+from urllib.parse import parse_qs
 
 import pytest
 
@@ -122,15 +123,14 @@ def _reset_poke_state():
        run), so we clear it eagerly to keep tests independent.
     3. ``_SECONDARY_BINDING_WARNED`` — one-shot flag for the Tier 2 cookie
        warning. Reset so tests can independently observe the warning fire.
-    4. ``LegacyPromotionScheduler.process_default()`` — the detached one-shot
+    4. ``LegacyPromotionScheduler.process_default()`` — the detached retryable
        legacy-account promotion (ADR-0033 PR 5.1). A read of
        a legacy-only profile schedules a background writer, so teardown must
        JOIN it before clearing: a worker still running when the next test
        starts would write into a ``tmp_path`` that test believes it owns, and
-       a leftover scheduled-path entry would suppress the very
-       promotion another test is asserting on (``tmp_path`` uniqueness makes
-       real path collisions unlikely, but the drain is what makes the durable
-       half deterministic rather than a race the suite usually wins).
+       a leftover active-path entry would suppress the very promotion another
+       test is asserting on (``tmp_path`` uniqueness makes real path collisions
+       unlikely, but the drain makes the durable half deterministic).
     """
     from notebooklm import auth as _auth
     from notebooklm._auth import cookie_policy as _cookie_policy
@@ -536,6 +536,24 @@ def build_rpc_response():
 
 
 @pytest.fixture
+def rpc_request_params():
+    """Decode the positional params out of an outgoing ``batchexecute`` request.
+
+    The inverse of :func:`build_rpc_response` for assertions on request shape:
+    unwraps the ``f.req`` form body and returns the params list the client sent.
+    Shared here rather than duplicated per test module, since both tiers assert on
+    wire shape and ``tests/_guardrails/test_no_cross_test_imports.py`` forbids one
+    test module importing another.
+    """
+
+    def _params(request) -> list:
+        outer = json.loads(parse_qs(request.content.decode())["f.req"][0])
+        return json.loads(outer[0][0][1])
+
+    return _params
+
+
+@pytest.fixture
 def mock_get_conversation_id(httpx_mock, build_rpc_response):
     """Register batchexecute responses for an existing conversation.
 
@@ -606,6 +624,61 @@ def legacy_vcr_follow_up_probe(monkeypatch):
         return 1
 
     monkeypatch.setattr(chat_api_module, "count_prior_server_turns", _count_prior_server_turns)
+
+
+@pytest.fixture
+def legacy_vcr_add_url_baseline(monkeypatch):
+    """Answer the pre-create source baseline omitted from legacy add_url cassettes.
+
+    ``sources.add_url`` snapshots the notebook's source ids before issuing the
+    create so its idempotency probe can tell a source it created from one that
+    was already there (#2204). Cassettes recorded before that change hold no
+    such ``GET_NOTEBOOK``. Without this fixture the read still *fires*: VCR
+    refuses it, the add swallows the failure, and the call proceeds with the
+    probe disabled — green, and silently not testing the thing it names. In a
+    cassette that also records later ``GET_NOTEBOOK``s the miss is worse, since
+    the baseline consumes a poll's response and desynchronises the journey.
+
+    Keep those recordings immutable and answer only the missing read. Every
+    consumer of this fixture replays a cassette whose create **succeeds**, so
+    the probe never runs and the returned value is never compared against
+    anything — ``[]`` is the neutral answer, not a claim about the notebook.
+    That invariant is enforced rather than trusted: a second call means the
+    probe fired, and the fixture fails the test instead of letting an invented
+    empty baseline license a match. Every other list still replays from the
+    cassette. The probe itself is covered against explicit request sequences in
+    ``tests/integration/test_sources_idempotency.py``, so nothing here is its
+    only coverage. Mirrors :func:`legacy_vcr_follow_up_probe`.
+    """
+    from notebooklm._source.add import SourceAddService
+
+    original_add_url = SourceAddService.add_url
+
+    async def _add_url(self, notebook_id, url, *, list_sources, **kwargs):
+        calls = 0
+
+        async def _list_sources(nb_id: str):
+            nonlocal calls
+            calls += 1
+            if calls > 1:
+                raise AssertionError(
+                    "legacy_vcr_add_url_baseline: the idempotency probe fired, so this "
+                    "cassette's create did not succeed. The stubbed empty baseline would "
+                    "decide the probe's answer — record the probe's GET_NOTEBOOK instead "
+                    "of stubbing the baseline."
+                )
+            return []
+
+        result = await original_add_url(
+            self, notebook_id, url, list_sources=_list_sources, **kwargs
+        )
+        assert calls == 1, (
+            "legacy_vcr_add_url_baseline: add_url no longer captures a pre-create "
+            "baseline, so this fixture is stale — drop it."
+        )
+        return result
+
+    monkeypatch.setattr(SourceAddService, "add_url", _add_url)
 
 
 @pytest.fixture
