@@ -449,7 +449,8 @@ button (`mattooltip='Close source view'`).
 
 ### RPC: ADD_SOURCE (izAoDd) - URL
 
-**Source:** `_source/add.py::SourceAddService.add_url_source()`
+**Sources:** `_source/add.py::SourceAddService.add_url_source()` (single item),
+`_source/batch.py::SourceBatchAddService.add_urls()` (true batch)
 
 ```python
 # URL goes at position [2] in an 11-element source spec.
@@ -460,6 +461,16 @@ params = [
                                                            # 2: Shared request-options wrapper
 ]
 ```
+
+The existing MCP `source_add(urls=[...])` and REST `/sources/batch` endpoints
+put multiple URL specs in `params[0]` and issue this RPC once. `AddSources` is
+per-item rather than atomic: successful Source rows remain in request order,
+while failed entries are silently omitted unless every entry fails (then the
+RPC raises). The adapters reconcile omissions with an ERROR-status source list
+and restore positional result rows. This true-batch path disables transport
+retries because a timeout leaves the committed subset unknown; the ordinary
+single-item `sources.add_url()` path still uses its dedicated probe-then-create
+recovery unchanged.
 
 ### RPC: ADD_SOURCE (izAoDd) - Text
 
