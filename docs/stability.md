@@ -392,7 +392,8 @@ if artifact.kind == "audio":
 ```
 
 **Available `ArtifactType` values:**
-`AUDIO`, `VIDEO`, `REPORT`, `QUIZ`, `FLASHCARDS`, `MIND_MAP`, `INFOGRAPHIC`, `SLIDE_DECK`, `DATA_TABLE`, `UNKNOWN`
+`AUDIO`, `VIDEO`, `REPORT`, `QUIZ`, `FLASHCARDS`, `MIND_MAP`, `INFOGRAPHIC`,
+`SLIDE_DECK`, `DATA_TABLE`, `FANTASY_MAP`, `FILE`, `UNKNOWN`
 
 #### 3. `Artifact.variant` → `Artifact.kind` or helpers
 

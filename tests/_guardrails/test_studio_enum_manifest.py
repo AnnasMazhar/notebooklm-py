@@ -83,9 +83,11 @@ _RPC_ENUM_SNAPSHOT: dict[str, dict[str, int]] = {
         "QUIZ": 4,
         "QUIZ_FLASHCARD": 4,  # value-alias of QUIZ
         "MIND_MAP": 5,
+        "FANTASY_MAP": 6,
         "INFOGRAPHIC": 7,
         "SLIDE_DECK": 8,
         "DATA_TABLE": 9,
+        "FILE": 10,
     },
     "AudioFormat": {"DEEP_DIVE": 1, "BRIEF": 2, "CRITIQUE": 3, "DEBATE": 4},
     "AudioLength": {"SHORT": 1, "DEFAULT": 2, "LONG": 3},

@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   presented as recovered proto names. ([#2112](https://github.com/teng-lin/notebooklm-py/issues/2112),
   [#2114](https://github.com/teng-lin/notebooklm-py/issues/2114))
 
+- **Complete artifact listing metadata and user state**
+  ([#2136](https://github.com/teng-lin/notebooklm-py/issues/2136),
+  [#2135](https://github.com/teng-lin/notebooklm-py/issues/2135),
+  [#2129](https://github.com/teng-lin/notebooklm-py/issues/2129)). `Artifact`
+  now retains every audio/video media URL and duration, slide and infographic
+  text, report kind, source IDs, last-modified time, etag, audio resume
+  position, and flashcard study progress returned by `LIST_ARTIFACTS`. The
+  content and per-user state are exposed as typed frozen records; unknown
+  media/state variants and report labels remain observable. The genuine
+  backend artifact codes 6 (`FANTASY_MAP`) and 10 (`FILE`) are now represented
+  by both `ArtifactTypeCode` and public `ArtifactType` members.
+
 - **A readable rendering of a source, and citation resolution that reads
   offsets instead of searching for text.** `SourceFulltext` gains
   `rendered_content`, and `StructuredDocument` gains `render(start, end)` and
