@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from ..exceptions import MissingDependencyError
 from .master_token_types import MasterToken
 
 _MASTER_APP = "com.google.android.apps.chromecast.app"
@@ -47,7 +48,7 @@ def _require_gpsoauth() -> Any:
     try:
         import gpsoauth  # noqa: PLC0415 (lazy optional [headless] dependency)
     except ImportError as exc:  # pragma: no cover - import guard
-        raise _MintError(
+        raise MissingDependencyError(
             "Master-token auth needs gpsoauth. Install: pip install 'notebooklm-py[headless]'"
         ) from exc
     return gpsoauth
