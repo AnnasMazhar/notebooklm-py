@@ -320,10 +320,10 @@ class Source:
     drive_status: DriveSourceStatus | None = None
     #: Direct URL for downloading the original uploaded file. Populated only
     #: when the backend retains a downloadable blob for the source (#2112).
-    download_url: str | None = None
+    download_url: str | None = field(default=None, repr=False)
     #: Human-clickable Drive viewer URL for the original uploaded file, when
     #: the backend supplies one (#2112).
-    viewer_url: str | None = None
+    viewer_url: str | None = field(default=None, repr=False)
     #: True MIME type from the source's content blob descriptor. Unlike the
     #: internal Drive MIME used for type disambiguation, this also covers
     #: ordinary uploaded files (#2112).
@@ -431,10 +431,12 @@ class Source:
         single field mapping below therefore covers all three wire shapes
         identically.
         """
-        # Correct the type_code==14 native-Sheet/Drive-PDF overload by the row
-        # MIME before it reaches ``kind`` (#1832). No-op for every other type
-        # code and for real Sheets.
-        type_code = _disambiguate_type_code(row.type_code, row.content_mime or row.mime)
+        # Correct the type_code==14 native-Sheet/Drive-PDF overload before it
+        # reaches ``kind`` (#1832). Prefer the original-content MIME, then fall
+        # back to the Drive-only MIME if the first value is not a known
+        # override. Both passes are no-ops for every other code and real Sheets.
+        type_code = _disambiguate_type_code(row.type_code, row.content_mime)
+        type_code = _disambiguate_type_code(type_code, row.mime)
         return cls(
             id=row.id,
             # #1850: a direct-PDF URL arrives with the raw URL in the title slot

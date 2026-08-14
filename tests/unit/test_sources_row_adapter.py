@@ -437,7 +437,10 @@ def test_non_14_type_code_with_pdf_mime_is_untouched() -> None:
 
 
 def _live_enriched_source_row(
-    *, type_code: int = 8, content_mime: str = "text/markdown"
+    *,
+    type_code: int = 8,
+    content_mime: str = "text/markdown",
+    drive_mime: str | None = None,
 ) -> SourceRow:
     """Build the live shape shared by the two source-enrichment issues."""
     metadata: list[object] = [None] * 20
@@ -446,6 +449,7 @@ def _live_enriched_source_row(
     metadata[3] = ["a25483bc-01fc-4e64-9deb-d2c2cf001887", [1_754_560_100, 456_000_000]]
     metadata[4] = type_code
     metadata[14] = [1_754_560_200, 789_000_000]
+    metadata[19] = drive_mime
     return SourceRow.from_entry(
         [
             ["source-id"],
@@ -500,12 +504,53 @@ def test_source_from_row_surfaces_every_enriched_field() -> None:
     assert source.last_modified_at == _datetime_from_timestamp(1_754_560_200)
 
 
+def test_source_repr_omits_signed_capability_urls() -> None:
+    """Routine logging must not persist access-bearing source URL tokens."""
+    from notebooklm._types.sources import Source
+
+    download_token = "download-capability-token"
+    viewer_token = "viewer-capability-token"
+    source = Source(
+        id="source-id",
+        download_url=f"https://example.test/download?token={download_token}",
+        viewer_url=f"https://example.test/view?token={viewer_token}",
+    )
+
+    rendered = repr(source)
+
+    assert download_token not in rendered
+    assert viewer_token not in rendered
+    assert source.download_url is not None
+    assert source.viewer_url is not None
+
+
 def test_content_mime_disambiguates_drive_pdf_without_drive_metadata_mime() -> None:
     """The true content MIME is preferred over the older Drive-only slots."""
     from notebooklm._types.sources import Source, SourceType
 
     source = Source.from_row(
         _live_enriched_source_row(type_code=14, content_mime="application/pdf")
+    )
+
+    assert source.kind is SourceType.PDF
+
+
+@pytest.mark.parametrize(
+    "content_mime",
+    ["application/octet-stream", "application/pdf; charset=binary"],
+)
+def test_drive_mime_disambiguates_when_content_mime_is_unrecognized(
+    content_mime: str,
+) -> None:
+    """An unusable content MIME must not mask the proven Drive MIME fallback."""
+    from notebooklm._types.sources import Source, SourceType
+
+    source = Source.from_row(
+        _live_enriched_source_row(
+            type_code=14,
+            content_mime=content_mime,
+            drive_mime="application/pdf",
+        )
     )
 
     assert source.kind is SourceType.PDF
@@ -549,6 +594,22 @@ def test_enriched_fields_reject_malformed_values() -> None:
     assert row.word_count is None
     assert row.revision_id is None
     assert row.revision_timestamp is None
+    assert row.last_modified_at is None
+
+
+def test_source_row_rejects_boolean_timestamps() -> None:
+    """JSON booleans are not numeric timestamps despite subclassing ``int``."""
+    metadata: list[object] = [None] * 15
+    metadata[2] = [True]
+    metadata[3] = ["revision-id", [False]]
+    metadata[14] = [True]
+    row = SourceRow.from_entry([["source-id"], "Title", metadata, [None, SourceStatus.READY]])
+
+    assert row.created_at_raw is None
+    assert row.created_at is None
+    assert row.revision_timestamp_raw is None
+    assert row.revision_timestamp is None
+    assert row.last_modified_at_raw is None
     assert row.last_modified_at is None
 
 

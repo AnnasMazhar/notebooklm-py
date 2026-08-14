@@ -746,8 +746,18 @@ class SourceRow:
             return candidate
         return None
 
-    def _timestamp_raw_from_block(self, timestamp_block: Any, *, source: str) -> int | float | None:
-        """Decode seconds from a ``[seconds, nanos]`` block."""
+    def _timestamp_raw_from_block(
+        self,
+        timestamp_block: Any,
+        *,
+        source: str,
+        allow_bool: bool = False,
+    ) -> int | float | None:
+        """Decode seconds from a ``[seconds, nanos]`` block.
+
+        ``allow_bool`` exists only for the legacy metadata helper, whose
+        long-standing public behavior treats booleans as integers.
+        """
         if not isinstance(timestamp_block, list) or not timestamp_block:
             return None
         value = safe_index(
@@ -756,7 +766,11 @@ class SourceRow:
             method_id=self.method_id,
             source=source,
         )
-        return value if isinstance(value, (int, float)) else None
+        return (
+            value
+            if isinstance(value, (int, float)) and (allow_bool or not isinstance(value, bool))
+            else None
+        )
 
     @property
     def created_at_raw(self) -> int | float | None:
@@ -820,9 +834,8 @@ class SourceRow:
     def _from_metadata(cls, metadata: Any) -> SourceRow:
         """Wrap a bare metadata sub-list as a row whose ``metadata`` is it.
 
-        Used only by :meth:`created_at_from_metadata` so the timestamp walk
-        reuses the strict :attr:`created_at` property unchanged. ``_raw[0]``
-        / ``_raw[1]`` are placeholders the timestamp path never reads.
+        Used only by :meth:`created_at_from_metadata`. ``_raw[0]`` / ``_raw[1]``
+        are placeholders the timestamp path never reads.
         """
         return cls(_raw=[None, None, metadata])
 
@@ -839,7 +852,17 @@ class SourceRow:
         """
         if not isinstance(metadata, list):
             return None
-        return cls._from_metadata(metadata).created_at
+        if len(metadata) <= cls._META_TIMESTAMP_POS:
+            return None
+        row = cls._from_metadata(metadata)
+        raw = row._timestamp_raw_from_block(
+            metadata[cls._META_TIMESTAMP_POS],
+            source="SourceRow.created_at_raw",
+            # The legacy public helper treated bool as an int. Preserve that
+            # compatibility here while real SourceRow properties reject it.
+            allow_bool=True,
+        )
+        return _datetime_from_timestamp(raw) if raw is not None else None
 
     @classmethod
     def url_from_metadata(cls, metadata: Any, *, allow_bare_http: bool = True) -> str | None:
