@@ -135,7 +135,7 @@ class AuthTokens:
             pre-multi-account behavior. A pre-v0.5.0 profile's account
             metadata in the legacy sibling ``context.json`` is derived into
             in-band shape on load (and promoted in-band durably by a detached
-            one-shot) — see ``notebooklm._auth.storage`` — rather than read
+            retryable single-flight) — see ``notebooklm._auth.storage`` — rather than read
             from here.
         account_email: Stable Google account identity for routing. When set,
             NotebookLM requests use it as the ``authuser`` value instead of the
@@ -587,10 +587,15 @@ class AccountRouteResolver:
             return _account_from_compatibility(raw) if isinstance(raw, Mapping) and raw else None
 
         def resolve_file_account():
-            return self._migrator._resolve_with_projection(source.store)
+            resolved, compatibility = self._migrator._resolve_with_projection(source.store)
+            return (
+                resolved,
+                compatibility,
+                self._migrator.needs_reconciliation(source.store.path, resolved),
+            )
 
-        resolved, compatibility = await asyncio.to_thread(resolve_file_account)
-        if isinstance(resolved, LegacyAccount):
+        resolved, compatibility, reconcile = await asyncio.to_thread(resolve_file_account)
+        if reconcile:
             self._promotions.schedule(source.store, self._migrator)
         if isinstance(resolved, InBandAccount | LegacyAccount):
             return _account_from_compatibility(compatibility)

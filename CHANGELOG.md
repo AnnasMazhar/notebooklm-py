@@ -441,6 +441,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A missing master-token dependency no longer masquerades as revoked
+  credentials.** When `gpsoauth` is absent, the master-token recovery rung now
+  raises `MissingDependencyError` with the existing
+  `pip install "notebooklm-py[headless]"` remedy. It bypasses the private mint,
+  bootstrap, and `MasterTokenError` translations. MCP/REST callers reach the
+  shared `DEPENDENCY` classification, while the CLI reports its actionable
+  configuration error instead of a generic unauthenticated failure. An
+  installed dependency whose exchange rejects a token still follows the
+  unchanged `MasterTokenError`/rung-declined path.
+  ([#2239](https://github.com/teng-lin/notebooklm-py/issues/2239))
+
+- **Interrupted legacy-account promotion now self-heals, including its privacy
+  scrub.** The detached migration remains single-flight while a worker is
+  active, keeping the 90-second storage lock and 10-second `context.json` lock
+  off the caller and event-loop threads. Once a worker settles, however, its
+  path is retryable on a later read instead of being poisoned for the rest of
+  the process. Reads also detect an already in-band account with a stale legacy
+  sibling — the state left by a process dying between the durable write and
+  scrub — and schedule cleanup without overwriting the in-band winner. The
+  bounded exit drain remains diagnostic rather than pretending its 30-second
+  default can cover 90 seconds of legitimate lock contention; an unfinished or
+  failed attempt is retried on the next read/run.
+  ([#2228](https://github.com/teng-lin/notebooklm-py/issues/2228))
+
 - **`notebooks.create()` could hand back a notebook it did not create.** All
   four probe-then-create paths snapshot the resource list *before* the create so
   their probe can tell the row they just made from one that was already there.

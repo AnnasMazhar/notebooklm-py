@@ -329,7 +329,10 @@ bounded store lock. `_auth/profile_migration.py` owns the path-shaped
 `LegacyAccountMigrator` performs lossless in-band/legacy/in-band two-read resolution, typed legacy
 sanitization, only-if-absent promotion, and embed-before-scrub ordering;
 `LegacyAccountContext` owns the sibling file and lock. `LegacyPromotionScheduler` owns the
-canonical process one-shot registry and daemon workers. Reads only schedule and return; the
+canonical per-path active-work registry and daemon workers. Reads only schedule and return; the
+path becomes eligible again after a worker settles, and an in-band record with a stale legacy copy
+schedules the privacy scrub, making lock failures and write-then-scrub interruption self-healing.
+Concurrent readers still share one active worker; the
 process-default exit hook drains outstanding workers within one shared budget
 (30 seconds by default, configurable via `NOTEBOOKLM_PROMOTION_EXIT_TIMEOUT`),
 warning if any is still running when it expires.
@@ -645,23 +648,17 @@ interchangeable with the contributor install in
 [CLAUDE.md](../CLAUDE.md), which deliberately mirrors CI's test job and
 includes neither `cookies` nor `headless` — CI never runs this matrix.
 
-`headless` (`gpsoauth`) is the trap. Without it, every master-token cell
-fails **as if the token had been rejected**: `_require_gpsoauth` raises
-through `MasterTokenError`, and `_run_master_token_reauth` logs a warning
-and returns `None`, which the rung reports to its caller as a plain
-`False`. The visible symptom is `RPCError: The server rejected this
-request (unauthenticated)` — indistinguishable from a genuinely revoked
-master token, and it will send you off re-bootstrapping credentials that
-were fine all along. The distinguishing evidence is only in the log:
+`headless` (`gpsoauth`) is load-bearing. Without it, master-token cells now
+stop with an actionable `MissingDependencyError`:
 
-```
-WARNING [notebooklm.auth] Master-token re-mint failed
-(Master-token auth needs gpsoauth. Install: pip install 'notebooklm-py[headless]');
-authentication error stands.
+```text
+Master-token auth needs gpsoauth. Install: pip install 'notebooklm-py[headless]'
 ```
 
-If a master-token, sibling, or REST cell fails, check for that warning
-before suspecting your credentials. Tracked as
+The dependency fault bypasses `MasterTokenError` and the recovery rung's
+ordinary `False` decline. MCP/REST adapters classify it as `DEPENDENCY`; the CLI
+reports the actionable configuration error. A genuinely revoked token still
+reports the authentication failure. This distinction is pinned by
 [#2239](https://github.com/teng-lin/notebooklm-py/issues/2239).
 
 Similarly, without `cookies` (`rookiepy`) the browser discovery/login and
