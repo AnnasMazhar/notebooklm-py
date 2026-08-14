@@ -258,10 +258,10 @@ def normalize_grpc_status(code: str | int | None) -> GrpcStatusCode | None:
 class ArtifactTypeCode(int, Enum):
     """Integer codes for artifact types used in RPC calls.
 
-    Codes 1, 2, 3, 4, 7, 8, and 9 are raw CREATE_ARTIFACT / LIST_ARTIFACTS
-    values. MIND_MAP (5) is the library's synthetic code for note-backed mind
-    maps returned by GET_NOTES_AND_MIND_MAPS; interactive mind maps are type 4 /
-    variant 4.
+    Codes 1 through 10 are backend ``ArtifactType`` values. The library also
+    uses the genuine MIND_MAP code (5) when adapting note-backed mind maps from
+    GET_NOTES_AND_MIND_MAPS into the public artifact listing; interactive mind
+    maps are APP/QUIZ-family type 4 / variant 4.
 
     Note: This is an internal enum. Users should use ArtifactType (str enum)
     from notebooklm.types for a cleaner API.
@@ -275,16 +275,17 @@ class ArtifactTypeCode(int, Enum):
     QUIZ = 4  # Also used for flashcards and interactive mind maps (variant 4)
     QUIZ_FLASHCARD = 4  # Alias for backward compatibility
     MIND_MAP = 5
-    # Note: Type 6 appears unused in current API
+    FANTASY_MAP = 6
     INFOGRAPHIC = 7
     SLIDE_DECK = 8
     DATA_TABLE = 9
+    FILE = 10
 
 
 # Variant codes at artifact_data[9][1][0], distinguishing sub-kinds within the
 # type-4 (QUIZ) family. The interactive mind map is a studio artifact
 # (type 4 / variant 4) created via CREATE_ARTIFACT, distinct from the
-# note-backed mind map (surfaced with the synthetic type code 5).
+# note-backed mind map (adapted using the genuine backend mind-map code 5).
 FLASHCARDS_VARIANT: Final[int] = 1
 QUIZ_VARIANT: Final[int] = 2
 INTERACTIVE_MIND_MAP_VARIANT: Final[int] = 4
@@ -494,6 +495,10 @@ class ReportFormat(str, Enum):
     BRIEFING_DOC = "briefing_doc"
     STUDY_GUIDE = "study_guide"
     BLOG_POST = "blog_post"
+    # Returned by LIST_ARTIFACTS as a report kind. Read-only for now: unlike
+    # the three static generation presets, its generation directive has not
+    # been recovered, so build_report_artifact_params rejects it explicitly.
+    CONCEPT_EXPLANATION = "concept_explanation"
     CUSTOM = "custom"
 
 

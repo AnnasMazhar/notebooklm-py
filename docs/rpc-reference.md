@@ -80,10 +80,12 @@
 | 2 | Report | Briefing Doc, Study Guide, Blog Post |
 | 3 | Video | Video Overview |
 | 4 | Quiz/Flashcards (QUIZ_FLASHCARD alias) | Quiz (variant=2), Flashcards (variant=1) |
-| 5 | Mind Map | Library synthetic type for note-backed mind maps |
+| 5 | Mind Map | Backend mind map type; also used when adapting note-backed mind maps |
+| 6 | Fantasy Map | Backend fantasy-map artifact |
 | 7 | Infographic | Infographic |
 | 8 | Slide Deck | Slide Deck |
 | 9 | Data Table | Data Table |
+| 10 | File | Backend file artifact |
 
 ### Source Type Codes (file uploads & sources)
 
@@ -1587,7 +1589,8 @@ params = [
 
 NotebookLM's web app now generates an **interactive** mind map — a studio
 artifact in the type-4 family with `variant 4` (distinct from the note-backed
-JSON mind map above, which the library surfaces with the synthetic type code 5).
+JSON mind map above, which the library adapts using the genuine backend mind-map
+type code 5).
 Unlike the synchronous note-backed kind, this is created asynchronously via
 `CREATE_ARTIFACT` and polled to completion (issue #1256).
 

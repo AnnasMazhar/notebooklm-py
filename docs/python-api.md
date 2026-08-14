@@ -1364,7 +1364,7 @@ exist.
 
 #### Type-Specific List Methods
 
-**CLI equivalent:** `notebooklm artifact list --type <audio|video|slide-deck|quiz|flashcard|infographic|data-table|mind-map|report>` (see [Artifact Commands](cli-reference.md#artifact-commands-notebooklm-artifact-cmd)).
+**CLI equivalent:** `notebooklm artifact list --type <audio|video|slide-deck|quiz|flashcard|infographic|data-table|mind-map|report|fantasy-map|file>` (see [Artifact Commands](cli-reference.md#artifact-commands-notebooklm-artifact-cmd)).
 
 | Method | Parameters | Returns | Description |
 |--------|------------|---------|-------------|
@@ -2591,6 +2591,15 @@ class Artifact:
     url: Optional[str]
     _variant: int | None = None     # Internal variant for type-4 artifacts (1=flashcards, 2=quiz, 4=interactive mind map).
     generation_prompt: str | None = None  # Free-text prompt this artifact was generated from, if any (see get_prompt()).
+    media_urls: tuple[ArtifactMedia, ...] = ()
+    duration_seconds: float | None = None
+    slides: tuple[ArtifactSlide, ...] = ()
+    infographics: tuple[ArtifactInfographic, ...] = ()
+    report_kind: str | None = None
+    source_ids: tuple[str, ...] = ()
+    last_modified_at: datetime | None = None
+    etag: str | None = None
+    user_state: ArtifactUserState | None = None
 
     @property
     def kind(self) -> ArtifactType:
@@ -2630,7 +2639,21 @@ class Artifact:
         'blog_post', or 'report' for type-2 artifacts; None otherwise.
         Use this instead of parsing titles in caller code.
         """
+
+    @property
+    def report_format(self) -> ReportFormat | None:
+        """Typed format for a known report_kind; None for unknown labels."""
 ```
+
+`media_urls` contains all returned progressive, HLS, DASH, and download
+variants; the historical `url` remains the preferred single download URL.
+`slides` and `infographics` retain image dimensions, alt text, and full text.
+The `ArtifactMedia`, `ArtifactSlide`, `ArtifactInfographic`,
+`AudioArtifactUserState`, `FlashcardArtifactUserState`, and
+`UnknownArtifactUserState` records are frozen dataclasses exported from
+`notebooklm`. Unknown media type codes and user-state shapes preserve their raw
+identity instead of being discarded. `report_kind` likewise retains an unknown
+backend label verbatim while `report_format` maps labels the client recognizes.
 
 **Note on `_artifact_type` / `_variant`:** these are private (leading-underscore) fields with `repr=False` and are part of the dataclass for `from_api_response()` round-tripping. Always consume them via the public `.kind`, `.is_quiz`, `.is_flashcards`, and `.report_subtype` accessors.
 
@@ -3296,8 +3319,13 @@ class ReportFormat(str, Enum):
     BRIEFING_DOC = "briefing_doc"
     STUDY_GUIDE = "study_guide"
     BLOG_POST = "blog_post"
+    CONCEPT_EXPLANATION = "concept_explanation"
     CUSTOM = "custom"
 ```
+
+`CONCEPT_EXPLANATION` is currently read-only: it can be returned by artifact
+listings, but generation rejects it until NotebookLM's creation directive is
+known.
 
 ### Infographics
 
@@ -3393,6 +3421,8 @@ class ArtifactType(str, Enum):
     INFOGRAPHIC = "infographic"
     SLIDE_DECK = "slide_deck"
     DATA_TABLE = "data_table"
+    FANTASY_MAP = "fantasy_map"
+    FILE = "file"
     UNKNOWN = "unknown"
 
 class SourceStatus(Enum):

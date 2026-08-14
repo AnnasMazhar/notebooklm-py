@@ -12,6 +12,16 @@ Usage:
 from ._types import artifacts as _artifact_types
 from ._types import common as _common_types
 from ._types import sources as _source_types
+from ._types.artifact_content import (
+    ArtifactInfographic,
+    ArtifactMedia,
+    ArtifactMediaType,
+    ArtifactSlide,
+    ArtifactUserState,
+    AudioArtifactUserState,
+    FlashcardArtifactUserState,
+    UnknownArtifactUserState,
+)
 from ._types.artifacts import (
     Artifact,
     ArtifactType,
@@ -203,6 +213,14 @@ __all__ = [
     "SourceFulltext",
     "SourceSummary",
     "Artifact",
+    "ArtifactInfographic",
+    "ArtifactMedia",
+    "ArtifactMediaType",
+    "ArtifactSlide",
+    "ArtifactUserState",
+    "AudioArtifactUserState",
+    "FlashcardArtifactUserState",
+    "UnknownArtifactUserState",
     "GenerationState",
     "GenerationStatus",
     "ReportSuggestion",
@@ -312,6 +330,13 @@ del _public_common_type
 
 for _public_moved_type in (
     Artifact,
+    ArtifactInfographic,
+    ArtifactMedia,
+    ArtifactMediaType,
+    ArtifactSlide,
+    AudioArtifactUserState,
+    FlashcardArtifactUserState,
+    UnknownArtifactUserState,
     ArtifactType,
     AskResult,
     ChatMode,
