@@ -651,7 +651,7 @@ includes neither `cookies` nor `headless` — CI never runs this matrix.
 `headless` (`gpsoauth`) is load-bearing. Without it, master-token cells now
 stop with an actionable `MissingDependencyError`:
 
-```
+```text
 Master-token auth needs gpsoauth. Install: pip install 'notebooklm-py[headless]'
 ```
 
