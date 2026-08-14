@@ -818,7 +818,7 @@
       "path": "src/notebooklm/_auth/login_wait_trace.py"
     },
     {
-      "lines": 461,
+      "lines": 469,
       "name": "master_token",
       "path": "src/notebooklm/_auth/master_token.py"
     },
@@ -838,7 +838,7 @@
       "path": "src/notebooklm/_auth/master_token_types.py"
     },
     {
-      "lines": 195,
+      "lines": 208,
       "name": "mint_service",
       "path": "src/notebooklm/_auth/mint_service.py"
     },
@@ -926,7 +926,7 @@
     "function_local_edges": 12,
     "module_edges": 130,
     "modules": 41,
-    "total_lines": 16128,
+    "total_lines": 16149,
     "unique_edges": 142
   },
   "version": 1

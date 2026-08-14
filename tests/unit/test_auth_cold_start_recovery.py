@@ -441,19 +441,28 @@ async def test_missing_headless_dependency_escapes_l4_instead_of_looking_revoked
     """A configuration fault must not collapse into the rung's ``False`` decline."""
     storage = tmp_path / "storage_state.json"
     _write_storage(storage, sid="stale")
+    master_secret = "MASTER-SECRET-FOR-L4-TRACEBACK"
     mt.write_master_token(
         tmp_path / "master_token.json",
         email="agent@example.com",
-        master_token="aas_et/test",
+        master_token=master_secret,
         android_id="abc123",
     )
     monkeypatch.setitem(sys.modules, "gpsoauth", None)
 
-    with pytest.raises(MissingDependencyError, match=r"notebooklm-py\[headless\]"):
+    with pytest.raises(MissingDependencyError, match=r"notebooklm-py\[headless\]") as raised:
         await recovery_mod.try_master_token_reauth(
             storage_path=storage,
             cookie_jar=httpx.Cookies(),
         )
+    traceback = raised.value.__traceback__
+    while traceback is not None:
+        if traceback.tb_frame.f_globals.get("__name__", "").startswith("notebooklm."):
+            for value in traceback.tb_frame.f_locals.values():
+                assert value != master_secret
+                if isinstance(value, mt.MasterToken):
+                    assert value.secret != master_secret
+        traceback = traceback.tb_next
 
 
 @pytest.mark.asyncio

@@ -656,9 +656,10 @@ Master-token auth needs gpsoauth. Install: pip install 'notebooklm-py[headless]'
 ```
 
 The dependency fault bypasses `MasterTokenError` and the recovery rung's
-ordinary `False` decline, so adapters classify it as `DEPENDENCY`; a genuinely
-revoked token still reports the authentication failure. This distinction is
-pinned by [#2239](https://github.com/teng-lin/notebooklm-py/issues/2239).
+ordinary `False` decline. MCP/REST adapters classify it as `DEPENDENCY`; the CLI
+reports the actionable configuration error. A genuinely revoked token still
+reports the authentication failure. This distinction is pinned by
+[#2239](https://github.com/teng-lin/notebooklm-py/issues/2239).
 
 Similarly, without `cookies` (`rookiepy`) the browser discovery/login and
 browser-refresh cells cannot run at all; use `--skip-browser` rather than

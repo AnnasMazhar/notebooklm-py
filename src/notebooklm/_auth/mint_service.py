@@ -111,7 +111,14 @@ class MintService:
         android_id: str,
     ) -> MasterToken:
         """Exchange a single-use OAuth token for a durable master token."""
-        gpsoauth = _require_gpsoauth()
+        try:
+            gpsoauth = _require_gpsoauth()
+        except BaseException:
+            # MissingDependencyError deliberately bypasses the private auth
+            # translation. Scrub its direct caller frame before it escapes so
+            # traceback inspection cannot recover the single-use token.
+            del oauth_token
+            raise
         try:
             with _quiet_gpsoauth_logging():
                 result = gpsoauth.exchange_token(email, oauth_token, android_id)
@@ -127,7 +134,13 @@ class MintService:
 
     async def mint(self, token: MasterToken) -> httpx.Cookies:
         """Mint a fresh live transport jar from one durable master token."""
-        gpsoauth = _require_gpsoauth()
+        try:
+            gpsoauth = _require_gpsoauth()
+        except BaseException:
+            # See ``exchange``: this dependency failure is public, so do not
+            # leave the durable master token in the escaping traceback frame.
+            del token
+            raise
         try:
             oauth = await asyncio.to_thread(
                 _perform_oauth,

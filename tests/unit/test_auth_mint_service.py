@@ -138,6 +138,18 @@ def _assert_public_projection_has_no_private_error(error: BaseException) -> None
         current = current.tb_next
 
 
+def _assert_traceback_does_not_retain_secret(error: BaseException, secret: str) -> None:
+    """Pin secrets out of frames for exceptions that intentionally escape raw."""
+    current = error.__traceback__
+    while current is not None:
+        if current.tb_frame.f_globals.get("__name__", "").startswith("notebooklm."):
+            for value in current.tb_frame.f_locals.values():
+                assert value != secret
+                if isinstance(value, MasterToken):
+                    assert value.secret != secret
+        current = current.tb_next
+
+
 def _adapter_traceback_retains(
     error: BaseException,
     target: BaseException,
@@ -268,9 +280,10 @@ def test_missing_dependency_bypasses_private_and_public_auth_error_translation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "gpsoauth", None)
+    oauth_secret = "OAUTH-SECRET-FOR-TRACEBACK"
 
     with pytest.raises(MissingDependencyError) as lower:
-        MintService().exchange("person@example.com", "oauth-secret", "android-1")
+        MintService().exchange("person@example.com", oauth_secret, "android-1")
     assert "pip install 'notebooklm-py[headless]'" in str(lower.value)
     assert isinstance(lower.value.__cause__, ImportError)
     _assert_chain(
@@ -279,9 +292,10 @@ def test_missing_dependency_bypasses_private_and_public_auth_error_translation(
         context=lower.value.__cause__,
         suppress=True,
     )
+    _assert_traceback_does_not_retain_secret(lower.value, oauth_secret)
 
     with pytest.raises(MissingDependencyError) as public:
-        master_token.exchange_master_token("person@example.com", "oauth-secret", "android-1")
+        master_token.exchange_master_token("person@example.com", oauth_secret, "android-1")
     assert "pip install 'notebooklm-py[headless]'" in str(public.value)
     assert isinstance(public.value.__cause__, ImportError)
     _assert_chain(
@@ -292,6 +306,7 @@ def test_missing_dependency_bypasses_private_and_public_auth_error_translation(
     )
     assert classify(public.value).category is ErrorCategory.DEPENDENCY
     assert not isinstance(public.value, master_token.MasterTokenError | _MintError)
+    _assert_traceback_does_not_retain_secret(public.value, oauth_secret)
 
 
 @pytest.mark.parametrize("raises", [False, True], ids=("success", "failure"))
@@ -482,11 +497,17 @@ async def test_missing_gpsoauth_happens_before_offload(
         pytest.fail("missing dependency must fail before the first offload")
 
     monkeypatch.setattr(asyncio, "to_thread", forbidden)
+    master_secret = "MASTER-SECRET-FOR-TRACEBACK"
     with pytest.raises(MissingDependencyError, match=r"notebooklm-py\[headless\]") as raised:
-        await MintService().mint(MasterToken("e@example.com", "android", "secret"))
+        await MintService().mint(MasterToken("e@example.com", "android", master_secret))
     assert offloaded is False
     assert classify(raised.value).category is ErrorCategory.DEPENDENCY
     assert not isinstance(raised.value, _MintError)
+    _assert_traceback_does_not_retain_secret(raised.value, master_secret)
+
+    with pytest.raises(MissingDependencyError) as public:
+        await master_token.mint_cookies("e@example.com", master_secret, "android")
+    _assert_traceback_does_not_retain_secret(public.value, master_secret)
 
 
 class _SecretCarrier:

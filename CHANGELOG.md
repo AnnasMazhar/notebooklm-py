@@ -445,10 +445,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   credentials.** When `gpsoauth` is absent, the master-token recovery rung now
   raises `MissingDependencyError` with the existing
   `pip install "notebooklm-py[headless]"` remedy. It bypasses the private mint,
-  bootstrap, and `MasterTokenError` translations, so CLI/MCP/REST callers reach
-  the shared `DEPENDENCY` classification instead of receiving a generic
-  unauthenticated failure. An installed dependency whose exchange rejects a
-  token still follows the unchanged `MasterTokenError`/rung-declined path.
+  bootstrap, and `MasterTokenError` translations. MCP/REST callers reach the
+  shared `DEPENDENCY` classification, while the CLI reports its actionable
+  configuration error instead of a generic unauthenticated failure. An
+  installed dependency whose exchange rejects a token still follows the
+  unchanged `MasterTokenError`/rung-declined path.
   ([#2239](https://github.com/teng-lin/notebooklm-py/issues/2239))
 
 - **Interrupted legacy-account promotion now self-heals, including its privacy

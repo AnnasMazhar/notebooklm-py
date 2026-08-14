@@ -472,7 +472,7 @@ def test_phase_11d_bootstrap_extraction_modules_are_measured_exactly() -> None:
             "_auth/storage.py",
         }
     } == {
-        "_auth/master_token.py": 461,
+        "_auth/master_token.py": 469,
         "_auth/master_token_bootstrap.py": 373,
         "_auth/storage.py": 1089,
     }

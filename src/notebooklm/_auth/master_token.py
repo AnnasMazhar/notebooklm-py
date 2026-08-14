@@ -82,6 +82,10 @@ def exchange_master_token(email: str, oauth_token: str, android_id: str) -> str:
         )
     else:
         return token.secret
+    finally:
+        # Public dependency/configuration failures bypass the translation;
+        # remove the single-use token from this escaping adapter frame.
+        del oauth_token
     caller_exception = None
     error = MasterTokenError(error_snapshot[0])
     try:
@@ -122,6 +126,10 @@ async def mint_cookies(email: str, master_token: str, android_id: str) -> httpx.
         )
     else:
         return jar
+    finally:
+        # Public dependency/configuration failures bypass the translation;
+        # remove the durable token from this escaping adapter frame.
+        del master_token
     caller_exception = None
     error = MasterTokenError(error_snapshot[0])
     try:
