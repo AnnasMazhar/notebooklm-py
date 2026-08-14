@@ -995,7 +995,7 @@ class TestAskServerAssignedConversationId:
         httpx_mock: HTTPXMock,
         build_rpc_response,
     ) -> None:
-        """CREATE's Project.chatSessions replaces the redundant hPTbtc read (#2133)."""
+        """CREATE's session binds the POST and replaces the redundant hPTbtc read (#2133)."""
         session_id = "created-session-id"
         httpx_mock.add_response(
             url=re.compile(r".*batchexecute.*rpcids=khqZz.*"),
@@ -1029,6 +1029,12 @@ class TestAskServerAssignedConversationId:
         assert result.is_follow_up is False
         assert [step.question for step in result.next_steps] == ["What next?"]
         assert not any("rpcids=hPTbtc" in str(request.url) for request in httpx_mock.get_requests())
+        chat_request = next(
+            request
+            for request in httpx_mock.get_requests()
+            if "GenerateFreeFormStreamed" in str(request.url)
+        )
+        assert self._decode_params(chat_request)[4] == session_id
 
     @pytest.mark.asyncio
     async def test_new_conversation_sends_null_conversation_id_in_request(

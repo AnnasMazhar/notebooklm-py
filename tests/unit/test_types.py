@@ -2743,6 +2743,17 @@ class TestLastViewedAtAlias:
         assert restored.last_viewed_at == datetime(2026, 8, 12)
         assert restored.modified_at == restored.last_viewed_at
 
+    def test_pre_chat_sessions_pickle_restores_with_an_empty_list(self):
+        """A pre-#2133 pickle gets the default-factory field it never stored."""
+        nb = Notebook(id="nb_1", title="N")
+        del nb.__dict__["chat_sessions"]
+
+        restored = pickle.loads(pickle.dumps(nb))
+
+        assert restored.chat_sessions == []
+        assert repr(restored)
+        assert dataclasses.asdict(restored)["chat_sessions"] == []
+
     def test_current_pickle_round_trip_is_unchanged(self):
         """The ordinary round trip keeps equality — ``__setstate__`` is additive."""
         nb = Notebook(

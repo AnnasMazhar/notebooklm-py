@@ -279,11 +279,16 @@ class Notebook:
         whole change exists to remove. Seed the canonical field so the promise
         holds for unpickled objects too.
 
-        ``role`` needs no equivalent: an old pickle restores it as ``None``
-        (unknown), and an unknown role deliberately leaves the pickled
-        ``is_owner`` untouched — already the documented soft-degrade (#2125).
+        ``chat_sessions`` is different from the other additive fields: its
+        ``default_factory`` creates no class-level fallback, so a pickle from
+        before #2133 would raise ``AttributeError`` on access unless we seed an
+        empty list here. ``role`` needs no equivalent: an old pickle restores
+        it as ``None`` (unknown), and an unknown role deliberately leaves the
+        pickled ``is_owner`` untouched — already the documented soft-degrade
+        (#2125).
         """
         self.__dict__.update(state)
+        self.__dict__.setdefault("chat_sessions", [])
         if state.get("last_viewed_at") is None and state.get("modified_at") is not None:
             self.__dict__["last_viewed_at"] = state["modified_at"]
 

@@ -483,12 +483,18 @@ class ChatAPI(LoopBoundPrimitive):
                 # CREATE_NOTEBOOK already returned this notebook's initial
                 # ChatSession. Consume that one-shot hint before falling back
                 # to hPTbtc, avoiding an immediate re-fetch of data the server
-                # just volunteered (#2133).
-                current_id = (
+                # just volunteered (#2133). Keep its provenance: unlike an id
+                # resolved from hPTbtc, the create hint must be bound to the
+                # POST below. Otherwise another client changing the notebook's
+                # current session between create() and ask() would make the
+                # null-session POST land elsewhere while we still reported the
+                # stale create id.
+                created_session_id = (
                     self._created_chat_sessions._take_created_chat_session_id(notebook_id)
                     if self._created_chat_sessions is not None
                     else None
                 )
+                current_id = created_session_id
                 if current_id is None:
                     current_id = await self.get_conversation_id(notebook_id)
                 if current_id is None:
@@ -518,7 +524,14 @@ class ChatAPI(LoopBoundPrimitive):
                         is_follow_up = prior_turn_count > 0
                     posted = await perform_request(
                         conversation_history=None,
-                        active_conversation_id=None,
+                        # A CREATE hint is a genuine server-issued session id,
+                        # not the client-minted UUID forbidden by #659. Bind
+                        # the first ask to it so the returned id and the POST
+                        # target cannot diverge if the server's current pointer
+                        # changed in another client meanwhile.
+                        active_conversation_id=(
+                            override if created_session_id is not None else None
+                        ),
                         resolved_id_override=override,
                     )
                     turn_number = cache_turn(
