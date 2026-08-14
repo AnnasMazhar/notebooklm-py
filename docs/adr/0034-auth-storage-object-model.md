@@ -180,11 +180,10 @@ two-read resolution, typed sanitization, only-if-absent promotion, and embed-bef
 Its closed results are `InBandAccount | LegacyAccount | NoAccount` and
 `Promoted | AlreadyInBand | NoLegacyRecord | PromotionFailed`. `LegacyAccountContext` alone owns
 `context.json` read/scrub, its 10-second `FileLock`, public atomic write, and error/log behavior.
-`LegacyPromotionScheduler` owns canonical active-path state, daemon workers/injection, and the
-exit drain on one shared, operator-tunable budget that warns when a worker
-outlives it (#2223); per-RPC reads never wait for the 90-second writer. A settled path becomes
-retryable, and an in-band winner with a stale legacy sibling schedules scrub-only reconciliation,
-so lock failure and a stop between embed and scrub self-heal (#2228).
+`LegacyPromotionScheduler` owns active paths, daemon workers/injection, and the shared-budget exit
+drain warning (#2223); per-RPC reads never wait for the 90-second writer. Settled paths are retryable,
+and an in-band winner with a stale legacy sibling schedules scrub-only reconciliation, so lock
+failure and a stop between embed and scrub self-heal (#2228).
 `LoginProfileWriter` reconciles only after `APPLIED` and lock release using the literal raw-key rule;
 `AccountMetadataWriter` preserves write/clear-specific post-operation scrub and exception ordering.
 At that stage, `storage.py` remained the v0.x signature/result facade. Exact pins were storage 1,127,
