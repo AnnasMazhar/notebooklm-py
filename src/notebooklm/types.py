@@ -36,6 +36,7 @@ from ._types.chat import (
     ChatSettings,
     ConversationTurn,
     ConversationTurnKey,
+    NextStepSuggestion,
 )
 from ._types.collections import Collection
 from ._types.common import (
@@ -62,9 +63,11 @@ from ._types.documents import (
 from ._types.labels import Label
 from ._types.mind_maps import MindMap, MindMapKind
 from ._types.notebooks import (
+    ChatSession,
     Notebook,
     NotebookDescription,
     NotebookMetadata,
+    PremiumFeatureInfo,
     PromptSuggestion,
     SourceSummary,
     SuggestedTopic,
@@ -124,6 +127,7 @@ from .rpc.types import (
     InfographicDetail,
     InfographicOrientation,
     InfographicStyle,
+    MagicArtifactType,
     QuizDifficulty,
     QuizQuantity,
     ReportFormat,
@@ -206,6 +210,8 @@ __all__ = [
     "ClientMetricsSnapshot",
     "RpcTelemetryEvent",
     "Notebook",
+    "PremiumFeatureInfo",
+    "ChatSession",
     "NotebookDescription",
     "NotebookMetadata",
     "SuggestedTopic",
@@ -229,6 +235,7 @@ __all__ = [
     "Collection",
     "ConversationTurn",
     "ConversationTurnKey",
+    "NextStepSuggestion",
     "ChatReference",
     "BlockKind",
     "BlockStyle",
@@ -297,6 +304,7 @@ __all__ = [
     "ReportFormat",
     "ChatGoal",
     "ChatResponseLength",
+    "MagicArtifactType",
     "DriveMimeType",
     "ExportType",
     "SourceStatus",
@@ -342,9 +350,11 @@ for _public_moved_type in (
     ChatMode,
     ChatReference,
     ChatSettings,
+    ChatSession,
     Collection,
     ConversationTurn,
     ConversationTurnKey,
+    NextStepSuggestion,
     GenerationState,
     GenerationStatus,
     Label,
@@ -355,6 +365,7 @@ for _public_moved_type in (
     Notebook,
     NotebookDescription,
     NotebookMetadata,
+    PremiumFeatureInfo,
     PromptSuggestion,
     ReportSuggestion,
     ResearchSource,

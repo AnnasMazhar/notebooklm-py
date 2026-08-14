@@ -502,6 +502,27 @@ class ReportFormat(str, Enum):
     CUSTOM = "custom"
 
 
+class MagicArtifactType(int, Enum):
+    """Artifact/suggestion surface codes used by NextStepSuggestions."""
+
+    UNSPECIFIED = 0
+    MINDMAP = 1
+    AUDIO_OVERVIEW = 2
+    VIDEO_OVERVIEW = 3
+    NOTE = 4
+    TABLE = 5
+    LINE_CHART = 6
+    FLASHCARDS = 7
+    REPORT = 8
+    CONVERSATIONAL_TEXT_CHIP = 9
+    VIDEO_OVERVIEW_TEXT_CHIP = 10
+    AUDIO_OVERVIEW_TEXT_CHIP = 11
+    REPORT_TEXT_CHIP = 12
+    FLASHCARDS_TEXT_CHIP = 13
+    QUIZ_TEXT_CHIP = 14
+    SOURCE_DISCOVERY_TEXT_CHIP = 15
+
+
 class ChatGoal(int, Enum):
     """Chat persona/goal options for notebook configuration.
 

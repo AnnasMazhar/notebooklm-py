@@ -660,6 +660,30 @@ MAPPINGS: tuple[Mapping, ...] = (
             "exactly the last, across a 5-chunk and a 6-chunk stream."
         ),
     ),
+    Mapping(
+        "chat",
+        "StreamEnvelopeRow",
+        "_NEXT_STEPS_POS",
+        "GenerateFreeFormStreamedResponse",
+        "nextStepSuggestions",
+        note="#2119 — typed follow-up chips carried on the final live stream envelope",
+    ),
+    Mapping(
+        "chat",
+        "StreamEnvelopeRow",
+        "_NEXT_STEPS_ROWS_POS",
+        "NextStepSuggestions",
+        "nextSteps",
+        note="nested inside GenerateFreeFormStreamedResponse.nextStepSuggestions",
+    ),
+    Mapping("chat", "NextStepSuggestionRow", "_QUESTION_POS", "NextStep", "suggestion"),
+    Mapping(
+        "chat",
+        "NextStepSuggestionRow",
+        "_TYPE_CODE_POS",
+        "NextStep",
+        "suggestionType",
+    ),
     # ---- Chat: ConversationTurnKey (inside AnswerResponse tag 3) -----------
     # The three slots of the key at ``answer_row[2]``. Slot 0 keeps its proto
     # name on the public type; slot 1 does NOT, because its proto name
@@ -723,6 +747,21 @@ MAPPINGS: tuple[Mapping, ...] = (
     ),
     Mapping("research", "ResearchResultRow", "_RESULT_TYPE_POS", "DiscoveredSource", "corpusType"),
     # ---- Notebooks: PromptSuggestion --------------------------------------
+    Mapping("notebooks", "ProjectRow", "_EMOJI_POS", "Project", "emoji"),
+    Mapping(
+        "notebooks",
+        "ProjectRow",
+        "_PREMIUM_FEATURE_INFO_POS",
+        "Project",
+        "premiumFeatureInfo",
+    ),
+    Mapping(
+        "notebooks",
+        "ProjectRow",
+        "_CHAT_SESSIONS_POS",
+        "Project",
+        "chatSessions",
+    ),
     Mapping("notebooks", "PromptSuggestionRow", "_TITLE_POS", "PromptSuggestion", "title"),
     Mapping("notebooks", "PromptSuggestionRow", "_PROMPT_POS", "PromptSuggestion", "prompt"),
     # ---- Account limits: TierLimits ---------------------------------------
@@ -1261,6 +1300,27 @@ ENUM_BINDINGS: dict[str, tuple[str, dict[int, str]]] = {
             8: "ARTIFACT_TYPE_SLIDES",
             9: "ARTIFACT_TYPE_TABLE",
             10: "ARTIFACT_TYPE_FILE",
+        },
+    ),
+    "MagicArtifactType": (
+        "MagicArtifactType",
+        {
+            0: "MAGIC_ARTIFACT_TYPE_UNSPECIFIED",
+            1: "MINDMAP",
+            2: "AUDIO_OVERVIEW",
+            3: "VIDEO_OVERVIEW",
+            4: "NOTE",
+            5: "TABLE",
+            6: "LINE_CHART",
+            7: "FLASHCARDS",
+            8: "REPORT",
+            9: "CONVERSATIONAL_TEXT_CHIP",
+            10: "VIDEO_OVERVIEW_TEXT_CHIP",
+            11: "AUDIO_OVERVIEW_TEXT_CHIP",
+            12: "REPORT_TEXT_CHIP",
+            13: "FLASHCARDS_TEXT_CHIP",
+            14: "QUIZ_TEXT_CHIP",
+            15: "SOURCE_DISCOVERY_TEXT_CHIP",
         },
     ),
     "SourceStatus": (
