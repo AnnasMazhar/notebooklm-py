@@ -173,7 +173,26 @@ def notebook_view(notebook: Notebook) -> dict[str, Any]:
     source of truth for permission→string — and is one of ``owner``/``editor``/
     ``viewer``, or ``None`` when the row did not state a role.
     """
-    view = to_jsonable(notebook)
+    # Stable MCP/REST contract: Notebook's richer Project-only fields
+    # (emoji, premium capabilities, create-only chat sessions, chat settings)
+    # are Python API data and must be opted into a transport deliberately.
+    # Filtering a serialized dict retains datetime/enum normalization without
+    # letting every future dataclass addition silently expand these APIs.
+    serialized = to_jsonable(notebook)
+    view = {
+        key: serialized[key]
+        for key in (
+            "id",
+            "title",
+            "created_at",
+            "sources_count",
+            "is_owner",
+            "modified_at",
+            "role",
+            "last_viewed_at",
+        )
+        if key in serialized
+    }
     view["role_label"] = (
         share_permission_to_str(notebook.role) if notebook.role is not None else None
     )

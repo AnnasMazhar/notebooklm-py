@@ -1179,6 +1179,8 @@ async with NotebookLMClient.from_storage(rate_limit_max_retries=0) as client:
 | `get(notebook_id)` | `notebook_id: str` | `Notebook` | Get notebook details |
 | `delete(notebook_id)` | `notebook_id: str` | `None` | Delete a notebook (idempotent; returns `None` whether or not it existed) |
 | `rename(notebook_id, new_title)` | `notebook_id: str, new_title: str` | `Notebook` | Rename a notebook (re-fetched; raises `NotebookNotFoundError` if missing) |
+| `set_emoji(notebook_id, emoji)` | `notebook_id: str, emoji: str` | `Notebook` | Set (or clear with `""`) the notebook display emoji and re-fetch it |
+| `update(notebook_id, *, title=None, emoji=None)` | `str, str \| None, str \| None` | `Notebook` | Set title and/or emoji in one `MutateProject`; raises `ValidationError` when both are `None` |
 | `get_description(notebook_id)` | `notebook_id: str` | `NotebookDescription` | Get AI summary and topics |
 | `suggest_prompts(notebook_id, *, source_ids=None, mode=4, query=None)` | `str, list[str] \| None, int, str \| None` | `list[PromptSuggestion]` | Get AI-suggested prompts for the notebook. `source_ids=None` uses all sources; `mode` is the required `1..10` "mode/surface" int (default `4` suggests chat questions; other modes target other surfaces); `query` optionally steers the suggestions. Each `PromptSuggestion.prompt` is a ready-to-send instruction for `ask()`. |
 | `get_metadata(notebook_id)` | `notebook_id: str` | `NotebookMetadata` | Get notebook metadata and sources |
@@ -1196,7 +1198,7 @@ for nb in notebooks:
 
 # Create and rename
 nb = await client.notebooks.create("Draft")
-nb = await client.notebooks.rename(nb.id, "Final Version")
+nb = await client.notebooks.update(nb.id, title="Final Version", emoji="📖")
 
 # Get AI-generated description (parsed with suggested topics)
 desc = await client.notebooks.get_description(nb.id)
@@ -1700,10 +1702,12 @@ async def ask(
 - `conversation_id=None` matches the web UI's default: the server attaches the
   question to your current conversation on this notebook (or creates one if
   none exists). Repeated `ask()` calls without `conversation_id` extend the
-  same conversation; they do not start fresh ones. The SDK fetches the
-  server-recorded conversation_id via `hPTbtc` after each new-conversation
-  ask and surfaces it on `AskResult.conversation_id`, so passing it back as
-  `conversation_id=` for follow-ups works as expected.
+  same conversation; they do not start fresh ones. The SDK resolves the
+  server-recorded conversation id through `hPTbtc` when needed and surfaces it
+  on `AskResult.conversation_id`, so passing it back as `conversation_id=` for
+  follow-ups works. The first ask after `notebooks.create()` binds to the
+  server-issued `ChatSession` id in the create response instead, avoiding that
+  redundant lookup while keeping the POST target and returned id identical.
 - `conversation_id=<existing-id>` is a follow-up: the question is appended
   to the named conversation.
 - To force a brand-new conversation, call
@@ -1721,7 +1725,7 @@ from notebooklm import ChatGoal, ChatResponseLength
 # Ask questions (uses all sources)
 result = await client.chat.ask(nb_id, "What are the main themes?")
 print(result.answer)
-print(result.conversation_id)  # server-recorded id, fetched via hPTbtc
+print(result.conversation_id)  # server-recorded id (CREATE hint or hPTbtc)
 
 # Access source references (cited in answer as [1], [2], etc.)
 for ref in result.references:
@@ -2367,7 +2371,30 @@ class Notebook:
     modified_at: Optional[datetime]    # DEPRECATED alias for last_viewed_at
     role: Optional[SharePermission]    # your own level: OWNER / EDITOR / VIEWER
     last_viewed_at: Optional[datetime] # when YOU last opened it (tz-aware UTC)
+    emoji: Optional[str]               # Project.emoji; None when unstated
+    premium_features: Optional[PremiumFeatureInfo]
+    chat_sessions: list[ChatSession]   # populated by CREATE; GET omits it
+    chat_settings: Optional[ChatSettings] # current goal/length/persona on get()
+
+@dataclass(frozen=True)
+class PremiumFeatureInfo:
+    can_edit_advanced_settings: bool | None
+    can_edit_guidebook_config: bool | None
+    can_view_analytics: bool | None
+
+@dataclass(frozen=True)
+class ChatSession:
+    id: str
 ```
+
+The three premium flags are tri-state: `None` means the response made no usable
+claim. `chat_sessions` is normally populated only on the object returned by
+`create()`; the client consumes its first id once when the first `chat.ask()` is
+made, avoiding a redundant `hPTbtc` lookup. `chat_settings` is populated by
+`notebooks.get()`; it stays `None` on `list()` because the listing RPC does not
+project the configuration (its null slot cannot distinguish default from a
+configured notebook). These richer Project fields are Python API data and do
+not silently widen the established CLI/MCP/REST notebook JSON contracts.
 
 #### `last_viewed_at` is not a modification time — and `GET_NOTEBOOK` mutates it
 
@@ -2842,6 +2869,13 @@ class AskResult:
     raw_response: str                  # First 1000 chars of raw API response
     answer_document: StructuredDocument  # The answer's own parsed document (#2120)
     turn_key: ConversationTurnKey | None  # Backend key for THIS turn (#2122)
+    next_steps: list[NextStepSuggestion]  # Backend-suggested follow-ups (#2119)
+
+@dataclass(frozen=True)
+class NextStepSuggestion:
+    question: str
+    type_code: int                     # raw MagicArtifactType code, preserved
+    kind: MagicArtifactType | None     # typed property; None for a new code
 
 @dataclass(frozen=True)
 class ConversationTurnKey:
@@ -2875,13 +2909,22 @@ class ChatReference:
     answer_anchor_end: int | None    # ...and end
 ```
 
+`next_steps` decodes the `NextStepSuggestions` block the backend includes with
+live answers. A normal chat follow-up uses
+`MagicArtifactType.CONVERSATIONAL_TEXT_CHIP` (`9`). The raw `type_code` remains
+available even when a newer backend sends an enum value this client does not
+yet know; in that case `kind` is `None` rather than dropping the suggestion.
+MCP and REST ask responses serialize each item as `{question, type_code}`.
+
 > **`session_id` is not a conversation id.** It is the same wire slot issue
 > #659 established is a *per-stream* identifier (`khqZz` returns 0 turns for
 > it). The evidence is mixed — a live two-turn probe saw the `hPTbtc`-resolved
 > conversation id there, while this repo's recorded cassettes show it differing
 > from the recorded `hPTbtc` id in 4/4 chat captures — so it is exposed under
 > its proto name with nothing claimed for it. Use `AskResult.conversation_id`
-> for follow-ups; `ask()` still resolves that through `hPTbtc`.
+> for follow-ups. `ask()` normally resolves that through `hPTbtc`; immediately
+> after `notebooks.create()`, it binds the first ask to the create response's
+> server-issued `ChatSession` instead of fetching the same id again.
 >
 > `turn_id` deliberately does **not** take its proto name (`conversationId`),
 > which contradicts every observation: it changes on each turn of one

@@ -27,6 +27,7 @@ from notebooklm.exceptions import (
     NotebookNotFoundError,
     RPCError,
     ServerError,
+    ValidationError,
 )
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import (
@@ -437,6 +438,31 @@ class TestCreateNotebookQuotaDetection:
         )
 
     @pytest.mark.asyncio
+    async def test_create_retains_and_caches_volunteered_chat_session(self) -> None:
+        api = _make_api()
+        api.list = AsyncMock(return_value=[])
+        api._rpc.rpc_call.return_value = [
+            "Session Notebook",
+            None,
+            "nb-session",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            [["chat-session-1"]],
+        ]
+
+        notebook = await api.create("Session Notebook")
+
+        assert [session.id for session in notebook.chat_sessions] == ["chat-session-1"]
+        assert api._take_created_chat_session_id("nb-session") == "chat-session-1"
+        assert api._take_created_chat_session_id("nb-session") is None
+
+    @pytest.mark.asyncio
     async def test_create_invalid_argument_near_paid_limit_raises_limit_error(self):
         original = _create_invalid_argument_error()
         api = _make_api(rpc_call=AsyncMock(side_effect=original))
@@ -694,6 +720,72 @@ class TestCreateNotebookQuotaDetection:
             [None, [1, None, None, None, None, None, None, None, None, None, [1]]],
             source_path="/",
         )
+
+
+class TestUpdateNotebook:
+    @pytest.mark.asyncio
+    async def test_rename_preserves_title_only_wire_shape(self) -> None:
+        rpc_call = AsyncMock(
+            side_effect=[
+                None,
+                [["Renamed", None, "nb-1", "", None, None, None, None]],
+            ]
+        )
+        api = _make_api(rpc_call=rpc_call)
+
+        await api.rename("nb-1", "Renamed")
+
+        assert rpc_call.await_args_list[0].args[1] == [
+            "nb-1",
+            [[None, None, None, [None, "Renamed"]]],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_set_emoji_uses_change_property_tag_three(self) -> None:
+        rpc_call = AsyncMock(
+            side_effect=[
+                None,
+                [["Notebook", None, "nb-1", "🧬", None, None, None, None]],
+            ]
+        )
+        api = _make_api(rpc_call=rpc_call)
+
+        notebook = await api.set_emoji("nb-1", "🧬")
+
+        assert notebook.emoji == "🧬"
+        first = rpc_call.await_args_list[0]
+        assert first.args == (
+            RPCMethod.RENAME_NOTEBOOK,
+            ["nb-1", [[None, None, None, [None, None, "🧬"]]]],
+        )
+        assert first.kwargs == {"source_path": "/", "allow_null": True}
+
+    @pytest.mark.asyncio
+    async def test_update_title_and_emoji_in_one_mutation(self) -> None:
+        rpc_call = AsyncMock(
+            side_effect=[
+                None,
+                [["Renamed", None, "nb-1", "📖", None, None, None, None]],
+            ]
+        )
+        api = _make_api(rpc_call=rpc_call)
+
+        notebook = await api.update("nb-1", title="Renamed", emoji="📖")
+
+        assert (notebook.title, notebook.emoji) == ("Renamed", "📖")
+        assert rpc_call.await_args_list[0].args[1] == [
+            "nb-1",
+            [[None, None, None, [None, "Renamed", "📖"]]],
+        ]
+
+    @pytest.mark.asyncio
+    async def test_update_requires_at_least_one_property(self) -> None:
+        api = _make_api()
+
+        with pytest.raises(ValidationError, match="At least one"):
+            await api.update("nb-1")
+
+        api._rpc.rpc_call.assert_not_awaited()
 
 
 class TestGetNotebookFailsClosed:

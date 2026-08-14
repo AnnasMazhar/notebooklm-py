@@ -16,6 +16,7 @@ from ._notebook_payloads import (
     build_create_notebook_params,
     build_get_notebook_params,
     build_prompt_suggestions_params,
+    build_update_notebook_params,
 )
 from ._row_adapters.notebooks import PromptSuggestionRow, unwrap_prompt_suggestions
 from ._row_adapters.sources import SourceRow
@@ -231,6 +232,17 @@ class NotebooksAPI:
             source_lister=self._sources,
         )
         self._share_manager = share_manager or ShareManager(self._rpc)
+        # CREATE_NOTEBOOK volunteers its newly-created ChatSession, while
+        # GET_NOTEBOOK omits it. Keep that one-shot hint until ChatAPI consumes
+        # it so the first ask need not immediately re-fetch the same id through
+        # hPTbtc (#2133). The cache is scoped to this client instance and each
+        # entry is popped on first use; closing the client releases any hints
+        # from notebooks that were created without a subsequent ask.
+        self._created_chat_session_ids: dict[str, str] = {}
+
+    def _take_created_chat_session_id(self, notebook_id: str) -> str | None:
+        """Consume CREATE_NOTEBOOK's volunteered current chat-session id."""
+        return self._created_chat_session_ids.pop(notebook_id, None)
 
     async def _rpc_call(
         self,
@@ -587,6 +599,8 @@ class NotebooksAPI:
                 await self._raise_quota_error_if_detected(exc)
                 raise
             notebook = Notebook.from_api_response(result)
+            if notebook.id and notebook.chat_sessions:
+                self._created_chat_session_ids[notebook.id] = notebook.chat_sessions[0].id
             logger.debug("Created notebook: %s", notebook.id)
             return notebook
 
@@ -843,7 +857,7 @@ class NotebooksAPI:
                 notebook_id,
                 method_id=RPCMethod.GET_NOTEBOOK.value,
             )
-        notebook = Notebook.from_api_response(nb_info)
+        notebook = Notebook.from_api_response(nb_info, include_chat_settings=True)
         # Defense-in-depth: even when the outer list isn't empty, the server can
         # return a payload whose id and title both parse to ``""``. A valid
         # notebook always has at least one of the two populated.
@@ -918,14 +932,39 @@ class NotebooksAPI:
         Returns:
             The renamed Notebook object (fetched after rename).
         """
-        logger.debug("Renaming notebook %s to: %s", notebook_id, new_title)
+        return await self.update(notebook_id, title=new_title)
+
+    async def set_emoji(self, notebook_id: str, emoji: str) -> Notebook:
+        """Set a notebook's display emoji and return the refreshed notebook."""
+        return await self.update(notebook_id, emoji=emoji)
+
+    async def update(
+        self,
+        notebook_id: str,
+        *,
+        title: str | None = None,
+        emoji: str | None = None,
+    ) -> Notebook:
+        """Update a notebook's title and/or emoji in one mutation.
+
+        ``None`` means preserve the existing property; an empty string is sent
+        verbatim and can therefore clear the emoji. At least one property must
+        be supplied.
+        """
+        if title is None and emoji is None:
+            raise ValidationError("At least one of title or emoji must be provided")
+
+        logger.debug("Updating notebook %s (title=%r, emoji=%r)", notebook_id, title, emoji)
         # RENAME_NOTEBOOK is the live ``MutateProject``, a generic notebook
         # mutator: the same RPC sets the title here, chat config in
         # ``ChatAPI.configure``, and the share view-level in
         # ``SharingAPI.set_view_level`` — each with a different params shape.
-        # Payload format discovered via browser traffic capture:
-        # [notebook_id, [[null, null, null, [null, new_title]]]]
-        params = [notebook_id, [[None, None, None, [None, new_title]]]]
+        # Payload format recovered from the web client's generated protobuf
+        # serializer and live-verified: ChangeProperty tag 2 is title and tag 3
+        # is emoji.
+        # [notebook_id, [[null, null, null, [null, title, emoji]]]]
+        # (the trailing emoji slot is omitted for a title-only mutation)
+        params = build_update_notebook_params(notebook_id, title=title, emoji=emoji)
         await self._rpc.rpc_call(
             RPCMethod.RENAME_NOTEBOOK,
             params,

@@ -33,6 +33,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend artifact codes 6 (`FANTASY_MAP`) and 10 (`FILE`) are now represented
   by both `ArtifactTypeCode` and public `ArtifactType` members.
 
+- **Notebook Project metadata and live chat follow-up suggestions are now
+  retained instead of discarded.** `Notebook` exposes its `emoji`, typed
+  `premium_features`, create-only `chat_sessions`, and current `chat_settings`;
+  `notebooks.set_emoji()` / `notebooks.update()` make the emoji writable. The
+  initial `ChatSession` returned by `CREATE_NOTEBOOK` is consumed on the first
+  ask, avoiding the redundant `hPTbtc` lookup that previously fetched the same
+  id again. `AskResult.next_steps` now carries the backend's suggested
+  follow-up chips as typed `NextStepSuggestion` values, preserving both their
+  question and raw `MagicArtifactType` code (including unknown future codes).
+  The richer notebook fields are Python-only so existing CLI/MCP/REST notebook
+  JSON key sets stay stable; chat next steps are intentionally additive on MCP
+  and REST ask responses. ([#2133](https://github.com/teng-lin/notebooklm-py/issues/2133),
+  [#2123](https://github.com/teng-lin/notebooklm-py/issues/2123),
+  [#2119](https://github.com/teng-lin/notebooklm-py/issues/2119))
+
 - **A readable rendering of a source, and citation resolution that reads
   offsets instead of searching for text.** `SourceFulltext` gains
   `rendered_content`, and `StructuredDocument` gains `render(start, end)` and

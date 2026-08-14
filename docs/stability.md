@@ -74,11 +74,11 @@ NotebookLMClient.rpc_call()
 # Types
 Notebook, Source, Artifact, Note, Label, MindMap, Collection
 GenerationState, GenerationStatus, AskResult   # incl. the .is_terminal predicate on both
-NotebookDescription, ConversationTurn
+NotebookDescription, ConversationTurn, ChatSession, PremiumFeatureInfo
 ShareStatus, SharedUser, SourceFulltext, SourceGuide
 NotebookMetadata, SourceSummary
 AccountLimits, UserSettings
-ChatReference, ReportSuggestion, PromptSuggestion, SuggestedTopic
+ChatReference, NextStepSuggestion, ReportSuggestion, PromptSuggestion, SuggestedTopic
 MindMapKind, MindMapResult
 ResearchStart, ResearchStatus, ResearchTask, ResearchSource, ResearchTerminationReason
 ClientMetricsSnapshot, ConnectionLimits, RpcTelemetryEvent
@@ -129,7 +129,7 @@ SlideDeckFormat, SlideDeckLength
 ReportFormat
 SourceType, ArtifactType, SourceStatus, DriveSourceStatus, DiscoveryMode
 ShareAccess, SharePermission, ShareViewLevel
-ChatGoal, ChatResponseLength, ChatMode
+ChatGoal, ChatResponseLength, ChatMode, MagicArtifactType
 DriveMimeType, ExportType
 ArtifactStatus, artifact_status_to_str     # notebooklm.types.<X> only — NOT top-level (see below)
 
