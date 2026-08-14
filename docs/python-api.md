@@ -1705,9 +1705,9 @@ async def ask(
   same conversation; they do not start fresh ones. The SDK resolves the
   server-recorded conversation id through `hPTbtc` when needed and surfaces it
   on `AskResult.conversation_id`, so passing it back as `conversation_id=` for
-  follow-ups works. The first ask after `notebooks.create()` consumes the
-  create response's identical `ChatSession` id instead, avoiding that redundant
-  lookup.
+  follow-ups works. The first ask after `notebooks.create()` binds to the
+  server-issued `ChatSession` id in the create response instead, avoiding that
+  redundant lookup while keeping the POST target and returned id identical.
 - `conversation_id=<existing-id>` is a follow-up: the question is appended
   to the named conversation.
 - To force a brand-new conversation, call
@@ -2923,8 +2923,8 @@ MCP and REST ask responses serialize each item as `{question, type_code}`.
 > from the recorded `hPTbtc` id in 4/4 chat captures — so it is exposed under
 > its proto name with nothing claimed for it. Use `AskResult.conversation_id`
 > for follow-ups. `ask()` normally resolves that through `hPTbtc`; immediately
-> after `notebooks.create()`, it reuses the create response's `ChatSession`
-> instead of fetching the same id again.
+> after `notebooks.create()`, it binds the first ask to the create response's
+> server-issued `ChatSession` instead of fetching the same id again.
 >
 > `turn_id` deliberately does **not** take its proto name (`conversationId`),
 > which contradicts every observation: it changes on each turn of one
