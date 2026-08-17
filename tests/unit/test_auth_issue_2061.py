@@ -104,6 +104,7 @@ def _rotate_requests(httpx_mock: HTTPXMock) -> list[httpx.Request]:
         # milliseconds with no unit tag. Anything past year 3000 as seconds
         # is implausible for a browser cookie, so it is rescaled.
         (1_755_000_000_000, 1_755_000_000, False),
+        (1_755_000_000_000_000, 1_755_000_000, False),  # raw microseconds: rescaled twice
         (32_503_680_000, 32_503_680_000, False),  # exactly year 3000: not rescaled
         (32_503_680_001, 32_503_680, False),  # one second past: rescaled
     ],

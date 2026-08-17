@@ -79,7 +79,7 @@ def normalize_cookie_expiry(raw: Any) -> NormalizedExpiry:
     except (ValueError, TypeError, OverflowError) as exc:
         raise CookieRowError("expires", "not numeric") from exc
 
-    if value > _MAX_PLAUSIBLE_EXPIRY_SECONDS:
+    while value > _MAX_PLAUSIBLE_EXPIRY_SECONDS:
         value //= 1000
 
     # Preserve the distinction between a dated -1 and Playwright's session
