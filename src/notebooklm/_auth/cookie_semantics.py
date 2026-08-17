@@ -51,6 +51,8 @@ class NormalizedExpiry:
 # browser cookie store, so treating the ambiguity as "assume milliseconds"
 # is the safer default here.
 _MAX_PLAUSIBLE_EXPIRY_SECONDS = 32_503_680_000  # 3000-01-01T00:00:00Z
+_MAX_PLAUSIBLE_EXPIRY_MILLISECONDS = 32_503_680_000_000  # 3000-01-01 in ms
+_MAX_PLAUSIBLE_EXPIRY_MICROSECONDS = 32_503_680_000_000_000  # 3000-01-01 in µs
 
 
 def normalize_cookie_expiry(raw: Any) -> NormalizedExpiry:
@@ -60,7 +62,7 @@ def normalize_cookie_expiry(raw: Any) -> NormalizedExpiry:
     session-cookie forms.  Every other accepted numeric representation is a
     dated value, including ``-1.0`` and ``"-1"``.  Dated values use the same
     ``int(float(value))`` conversion as ``http.cookiejar``, then get rescaled
-    from milliseconds to seconds if implausibly large (see
+    from milliseconds or microseconds to seconds if implausibly large (see
     ``_MAX_PLAUSIBLE_EXPIRY_SECONDS``).
     """
     if raw is None or (type(raw) is int and raw == -1):
@@ -79,7 +81,9 @@ def normalize_cookie_expiry(raw: Any) -> NormalizedExpiry:
     except (ValueError, TypeError, OverflowError) as exc:
         raise CookieRowError("expires", "not numeric") from exc
 
-    while value > _MAX_PLAUSIBLE_EXPIRY_SECONDS:
+    if _MAX_PLAUSIBLE_EXPIRY_MILLISECONDS < value <= _MAX_PLAUSIBLE_EXPIRY_MICROSECONDS:
+        value //= 1_000_000
+    elif _MAX_PLAUSIBLE_EXPIRY_SECONDS < value <= _MAX_PLAUSIBLE_EXPIRY_MILLISECONDS:
         value //= 1000
 
     # Preserve the distinction between a dated -1 and Playwright's session
