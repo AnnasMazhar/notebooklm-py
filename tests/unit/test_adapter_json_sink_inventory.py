@@ -768,6 +768,28 @@ def test_mcp_mind_map_union_projections_are_on_value_carrying_branches() -> None
     assert delete_id in projection_ids("studio_delete", 5)
 
 
+def test_status_derived_contributions_are_on_exact_terminal_or_error_funnel() -> None:
+    allocations = reachability._load_reviewed_allocations()
+    expected = {
+        (
+            "rest response|notebooklm/server/routes/sources.py|get_source_content|return|2",
+            "rest.Source.transitive-source-content-readiness-contribution",
+        ),
+        (
+            "mcp tool result|notebooklm/mcp/tools/studio.py|"
+            "register.studio_download|tool-error-funnel|1",
+            "mcp.Artifact.transitive-download-incomplete-status-error-text-contribution",
+        ),
+        (
+            "mcp tool result|notebooklm/mcp/tools/studio.py|"
+            "register.studio_retry|tool-error-funnel|1",
+            "mcp.Artifact.transitive-retry-wrong-state-status-error-text-contribution",
+        ),
+    }
+    for locator, projection_id in expected:
+        assert projection_id in allocations[locator]["projection_ids"]
+
+
 def test_reachability_rejects_unallocated_known_projection_id() -> None:
     with pytest.raises(ValueError, match="no adapter terminal allocation"):
         reachability.derive_adapter_sink_reachability_contract(

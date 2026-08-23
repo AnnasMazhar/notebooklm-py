@@ -1602,7 +1602,8 @@
       "projection_ids": [
         "mcp.Notebook.conditional-resolver-error-text-contribution",
         "mcp.Artifact.conditional-resolver-error-text-contribution",
-        "mcp.Artifact.always-listed-studio-download-resolver-error-text-contribution"
+        "mcp.Artifact.always-listed-studio-download-resolver-error-text-contribution",
+        "mcp.Artifact.transitive-download-incomplete-status-error-text-contribution"
       ]
     },
     {
@@ -1670,7 +1671,8 @@
       "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_retry|tool-error-funnel|1",
       "projection_ids": [
         "mcp.Notebook.conditional-resolver-error-text-contribution",
-        "mcp.Artifact.conditional-resolver-error-text-contribution"
+        "mcp.Artifact.conditional-resolver-error-text-contribution",
+        "mcp.Artifact.transitive-retry-wrong-state-status-error-text-contribution"
       ]
     },
     {
@@ -2245,7 +2247,8 @@
     {
       "locator": "rest response|notebooklm/server/routes/sources.py|get_source_content|return|2",
       "projection_ids": [
-        "rest.SourceFulltext.manual-content-projection"
+        "rest.SourceFulltext.manual-content-projection",
+        "rest.Source.transitive-source-content-readiness-contribution"
       ]
     },
     {
