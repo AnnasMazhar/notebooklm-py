@@ -1,0 +1,1141 @@
+{
+  "models": {
+    "notebooklm._types.documents.DocumentAnnotation": {
+      "dataclass_fields": [
+        "object_id",
+        "start_index",
+        "end_index"
+      ],
+      "exports": [
+        "notebooklm.DocumentAnnotation",
+        "notebooklm.types.DocumentAnnotation"
+      ],
+      "module": "notebooklm._types.documents",
+      "qualname": "DocumentAnnotation",
+      "to_jsonable_keys": [
+        "object_id",
+        "start_index",
+        "end_index"
+      ]
+    },
+    "notebooklm._types.documents.DocumentBlock": {
+      "dataclass_fields": [
+        "start_index",
+        "end_index",
+        "spans",
+        "style",
+        "list_info",
+        "kind",
+        "table_rows"
+      ],
+      "exports": [
+        "notebooklm.DocumentBlock",
+        "notebooklm.types.DocumentBlock"
+      ],
+      "module": "notebooklm._types.documents",
+      "qualname": "DocumentBlock",
+      "to_jsonable_keys": [
+        "start_index",
+        "end_index",
+        "spans",
+        "style",
+        "list_info",
+        "kind",
+        "table_rows"
+      ]
+    },
+    "notebooklm._types.documents.ListInfo": {
+      "dataclass_fields": [
+        "style",
+        "nesting_level",
+        "glyph",
+        "ordinal"
+      ],
+      "exports": [
+        "notebooklm.ListInfo",
+        "notebooklm.types.ListInfo"
+      ],
+      "module": "notebooklm._types.documents",
+      "qualname": "ListInfo",
+      "to_jsonable_keys": [
+        "style",
+        "nesting_level",
+        "glyph",
+        "ordinal"
+      ]
+    },
+    "notebooklm._types.documents.StructuredDocument": {
+      "dataclass_fields": [
+        "blocks",
+        "annotations"
+      ],
+      "exports": [
+        "notebooklm.StructuredDocument",
+        "notebooklm.types.StructuredDocument"
+      ],
+      "module": "notebooklm._types.documents",
+      "qualname": "StructuredDocument",
+      "to_jsonable_keys": [
+        "blocks",
+        "annotations"
+      ]
+    },
+    "notebooklm._types.documents.TableCell": {
+      "dataclass_fields": [
+        "start_index",
+        "end_index"
+      ],
+      "exports": [
+        "notebooklm.TableCell",
+        "notebooklm.types.TableCell"
+      ],
+      "module": "notebooklm._types.documents",
+      "qualname": "TableCell",
+      "to_jsonable_keys": [
+        "start_index",
+        "end_index"
+      ]
+    },
+    "notebooklm._types.documents.TextSpan": {
+      "dataclass_fields": [
+        "start_index",
+        "end_index",
+        "text",
+        "bold",
+        "italic",
+        "underline",
+        "url"
+      ],
+      "exports": [
+        "notebooklm.TextSpan",
+        "notebooklm.types.TextSpan"
+      ],
+      "module": "notebooklm._types.documents",
+      "qualname": "TextSpan",
+      "to_jsonable_keys": [
+        "start_index",
+        "end_index",
+        "text",
+        "bold",
+        "italic",
+        "underline",
+        "url"
+      ]
+    },
+    "notebooklm.artifacts.RateLimitRetryEvent": {
+      "dataclass_fields": [
+        "result",
+        "next_attempt_number",
+        "total_attempts",
+        "retry_number",
+        "max_retries",
+        "delay"
+      ],
+      "exports": [
+        "notebooklm.artifacts.RateLimitRetryEvent"
+      ],
+      "module": "notebooklm.artifacts",
+      "qualname": "RateLimitRetryEvent",
+      "to_jsonable_keys": [
+        "result",
+        "next_attempt_number",
+        "total_attempts",
+        "retry_number",
+        "max_retries",
+        "delay"
+      ]
+    },
+    "notebooklm.auth.AuthTokens": {
+      "dataclass_fields": [
+        "cookies",
+        "csrf_token",
+        "session_id",
+        "storage_path",
+        "cookie_jar",
+        "authuser",
+        "cookie_snapshot",
+        "account_email",
+        "_profile_session_generation"
+      ],
+      "exports": [
+        "notebooklm.AuthTokens",
+        "notebooklm.auth.AuthTokens"
+      ],
+      "module": "notebooklm.auth",
+      "qualname": "AuthTokens",
+      "to_jsonable_keys": [
+        "cookies",
+        "csrf_token",
+        "session_id",
+        "storage_path",
+        "cookie_jar",
+        "authuser",
+        "cookie_snapshot",
+        "account_email",
+        "_profile_session_generation"
+      ]
+    },
+    "notebooklm.types.AccountLimits": {
+      "dataclass_fields": [
+        "notebook_limit",
+        "source_limit",
+        "raw_limits",
+        "tier"
+      ],
+      "exports": [
+        "notebooklm.AccountLimits",
+        "notebooklm.types.AccountLimits"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "AccountLimits",
+      "to_jsonable_keys": [
+        "notebook_limit",
+        "source_limit",
+        "raw_limits",
+        "tier"
+      ]
+    },
+    "notebooklm.types.Artifact": {
+      "dataclass_fields": [
+        "id",
+        "title",
+        "_artifact_type",
+        "status",
+        "created_at",
+        "url",
+        "_variant",
+        "generation_prompt",
+        "media_urls",
+        "duration_seconds",
+        "slides",
+        "infographics",
+        "report_kind",
+        "source_ids",
+        "last_modified_at",
+        "etag",
+        "user_state"
+      ],
+      "exports": [
+        "notebooklm.Artifact",
+        "notebooklm.types.Artifact"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "Artifact",
+      "to_jsonable_keys": [
+        "id",
+        "title",
+        "_artifact_type",
+        "status",
+        "created_at",
+        "url",
+        "_variant",
+        "generation_prompt",
+        "media_urls",
+        "duration_seconds",
+        "slides",
+        "infographics",
+        "report_kind",
+        "source_ids",
+        "last_modified_at",
+        "etag",
+        "user_state"
+      ]
+    },
+    "notebooklm.types.ArtifactInfographic": {
+      "dataclass_fields": [
+        "title",
+        "image_url",
+        "width",
+        "height",
+        "alt_text",
+        "text"
+      ],
+      "exports": [
+        "notebooklm.ArtifactInfographic",
+        "notebooklm.types.ArtifactInfographic"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ArtifactInfographic",
+      "to_jsonable_keys": [
+        "title",
+        "image_url",
+        "width",
+        "height",
+        "alt_text",
+        "text"
+      ]
+    },
+    "notebooklm.types.ArtifactMedia": {
+      "dataclass_fields": [
+        "url",
+        "kind",
+        "type_code",
+        "mime_type"
+      ],
+      "exports": [
+        "notebooklm.ArtifactMedia",
+        "notebooklm.types.ArtifactMedia"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ArtifactMedia",
+      "to_jsonable_keys": [
+        "url",
+        "kind",
+        "type_code",
+        "mime_type"
+      ]
+    },
+    "notebooklm.types.ArtifactSlide": {
+      "dataclass_fields": [
+        "image_url",
+        "width",
+        "height",
+        "alt_text",
+        "text"
+      ],
+      "exports": [
+        "notebooklm.ArtifactSlide",
+        "notebooklm.types.ArtifactSlide"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ArtifactSlide",
+      "to_jsonable_keys": [
+        "image_url",
+        "width",
+        "height",
+        "alt_text",
+        "text"
+      ]
+    },
+    "notebooklm.types.AskResult": {
+      "dataclass_fields": [
+        "answer",
+        "conversation_id",
+        "turn_number",
+        "is_follow_up",
+        "references",
+        "raw_response",
+        "answer_document",
+        "turn_key",
+        "next_steps"
+      ],
+      "exports": [
+        "notebooklm.AskResult",
+        "notebooklm.types.AskResult"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "AskResult",
+      "to_jsonable_keys": [
+        "answer",
+        "conversation_id",
+        "turn_number",
+        "is_follow_up",
+        "references",
+        "raw_response",
+        "answer_document",
+        "turn_key",
+        "next_steps"
+      ]
+    },
+    "notebooklm.types.AudioArtifactUserState": {
+      "dataclass_fields": [
+        "playback_position_seconds"
+      ],
+      "exports": [
+        "notebooklm.AudioArtifactUserState",
+        "notebooklm.types.AudioArtifactUserState"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "AudioArtifactUserState",
+      "to_jsonable_keys": [
+        "playback_position_seconds"
+      ]
+    },
+    "notebooklm.types.ChatReference": {
+      "dataclass_fields": [
+        "source_id",
+        "citation_number",
+        "cited_text",
+        "start_char",
+        "end_char",
+        "chunk_id",
+        "passage_id",
+        "answer_start_char",
+        "answer_end_char",
+        "score",
+        "fragment_start_char",
+        "fragment_end_char",
+        "answer_anchor_start",
+        "answer_anchor_end"
+      ],
+      "exports": [
+        "notebooklm.ChatReference",
+        "notebooklm.types.ChatReference"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ChatReference",
+      "to_jsonable_keys": [
+        "source_id",
+        "citation_number",
+        "cited_text",
+        "start_char",
+        "end_char",
+        "chunk_id",
+        "passage_id",
+        "answer_start_char",
+        "answer_end_char",
+        "score",
+        "fragment_start_char",
+        "fragment_end_char",
+        "answer_anchor_start",
+        "answer_anchor_end"
+      ]
+    },
+    "notebooklm.types.ChatSession": {
+      "dataclass_fields": [
+        "id"
+      ],
+      "exports": [
+        "notebooklm.ChatSession",
+        "notebooklm.types.ChatSession"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ChatSession",
+      "to_jsonable_keys": [
+        "id"
+      ]
+    },
+    "notebooklm.types.ChatSettings": {
+      "dataclass_fields": [
+        "goal",
+        "response_length",
+        "custom_prompt"
+      ],
+      "exports": [
+        "notebooklm.types.ChatSettings"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ChatSettings",
+      "to_jsonable_keys": [
+        "goal",
+        "response_length",
+        "custom_prompt"
+      ]
+    },
+    "notebooklm.types.CitedSourceSelection": {
+      "dataclass_fields": [
+        "sources",
+        "cited_url_count",
+        "matched_url_source_count",
+        "used_fallback"
+      ],
+      "exports": [
+        "notebooklm.CitedSourceSelection",
+        "notebooklm.types.CitedSourceSelection"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "CitedSourceSelection",
+      "to_jsonable_keys": [
+        "sources",
+        "cited_url_count",
+        "matched_url_source_count",
+        "used_fallback"
+      ]
+    },
+    "notebooklm.types.ClientMetricsSnapshot": {
+      "dataclass_fields": [
+        "rpc_calls_started",
+        "rpc_calls_succeeded",
+        "rpc_calls_failed",
+        "rpc_rate_limit_retries",
+        "rpc_server_error_retries",
+        "rpc_auth_retries",
+        "rpc_latency_seconds_total",
+        "rpc_queue_wait_seconds_total",
+        "rpc_queue_wait_seconds_max",
+        "upload_queue_wait_seconds_total",
+        "upload_queue_wait_seconds_max",
+        "lock_wait_seconds_total",
+        "lock_wait_seconds_max",
+        "rpc_decode_errors"
+      ],
+      "exports": [
+        "notebooklm.ClientMetricsSnapshot",
+        "notebooklm.types.ClientMetricsSnapshot"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ClientMetricsSnapshot",
+      "to_jsonable_keys": [
+        "rpc_calls_started",
+        "rpc_calls_succeeded",
+        "rpc_calls_failed",
+        "rpc_rate_limit_retries",
+        "rpc_server_error_retries",
+        "rpc_auth_retries",
+        "rpc_latency_seconds_total",
+        "rpc_queue_wait_seconds_total",
+        "rpc_queue_wait_seconds_max",
+        "upload_queue_wait_seconds_total",
+        "upload_queue_wait_seconds_max",
+        "lock_wait_seconds_total",
+        "lock_wait_seconds_max",
+        "rpc_decode_errors"
+      ]
+    },
+    "notebooklm.types.Collection": {
+      "dataclass_fields": [
+        "id",
+        "name",
+        "emoji",
+        "notebook_ids"
+      ],
+      "exports": [
+        "notebooklm.Collection",
+        "notebooklm.types.Collection"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "Collection",
+      "to_jsonable_keys": [
+        "id",
+        "name",
+        "emoji",
+        "notebook_ids"
+      ]
+    },
+    "notebooklm.types.ConnectionLimits": {
+      "dataclass_fields": [
+        "max_connections",
+        "max_keepalive_connections",
+        "keepalive_expiry"
+      ],
+      "exports": [
+        "notebooklm.ConnectionLimits",
+        "notebooklm.types.ConnectionLimits"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ConnectionLimits",
+      "to_jsonable_keys": [
+        "max_connections",
+        "max_keepalive_connections",
+        "keepalive_expiry"
+      ]
+    },
+    "notebooklm.types.ConversationTurn": {
+      "dataclass_fields": [
+        "query",
+        "answer",
+        "turn_number"
+      ],
+      "exports": [
+        "notebooklm.ConversationTurn",
+        "notebooklm.types.ConversationTurn"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ConversationTurn",
+      "to_jsonable_keys": [
+        "query",
+        "answer",
+        "turn_number"
+      ]
+    },
+    "notebooklm.types.ConversationTurnKey": {
+      "dataclass_fields": [
+        "session_id",
+        "turn_id",
+        "turn_code"
+      ],
+      "exports": [
+        "notebooklm.ConversationTurnKey",
+        "notebooklm.types.ConversationTurnKey"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ConversationTurnKey",
+      "to_jsonable_keys": [
+        "session_id",
+        "turn_id",
+        "turn_code"
+      ]
+    },
+    "notebooklm.types.FlashcardArtifactUserState": {
+      "dataclass_fields": [
+        "card_acquisitions",
+        "current_card_index",
+        "hidden_card_indices",
+        "last_shown_order",
+        "current_view"
+      ],
+      "exports": [
+        "notebooklm.FlashcardArtifactUserState",
+        "notebooklm.types.FlashcardArtifactUserState"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "FlashcardArtifactUserState",
+      "to_jsonable_keys": [
+        "card_acquisitions",
+        "current_card_index",
+        "hidden_card_indices",
+        "last_shown_order",
+        "current_view"
+      ]
+    },
+    "notebooklm.types.GenerationStatus": {
+      "dataclass_fields": [
+        "task_id",
+        "status",
+        "url",
+        "error",
+        "error_code",
+        "metadata"
+      ],
+      "exports": [
+        "notebooklm.GenerationStatus",
+        "notebooklm.types.GenerationStatus"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "GenerationStatus",
+      "to_jsonable_keys": [
+        "task_id",
+        "status",
+        "url",
+        "error",
+        "error_code",
+        "metadata"
+      ]
+    },
+    "notebooklm.types.Label": {
+      "dataclass_fields": [
+        "id",
+        "name",
+        "notebook_id",
+        "emoji",
+        "source_ids"
+      ],
+      "exports": [
+        "notebooklm.Label",
+        "notebooklm.types.Label"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "Label",
+      "to_jsonable_keys": [
+        "id",
+        "name",
+        "notebook_id",
+        "emoji",
+        "source_ids"
+      ]
+    },
+    "notebooklm.types.MindMap": {
+      "dataclass_fields": [
+        "id",
+        "notebook_id",
+        "title",
+        "kind",
+        "created_at",
+        "tree"
+      ],
+      "exports": [
+        "notebooklm.MindMap",
+        "notebooklm.types.MindMap"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "MindMap",
+      "to_jsonable_keys": [
+        "id",
+        "notebook_id",
+        "title",
+        "kind",
+        "created_at",
+        "tree"
+      ]
+    },
+    "notebooklm.types.MindMapResult": {
+      "dataclass_fields": [
+        "mind_map",
+        "note_id",
+        "created_at"
+      ],
+      "exports": [
+        "notebooklm.MindMapResult",
+        "notebooklm.types.MindMapResult"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "MindMapResult",
+      "to_jsonable_keys": [
+        "mind_map",
+        "note_id",
+        "created_at"
+      ]
+    },
+    "notebooklm.types.NextStepSuggestion": {
+      "dataclass_fields": [
+        "question",
+        "type_code"
+      ],
+      "exports": [
+        "notebooklm.NextStepSuggestion",
+        "notebooklm.types.NextStepSuggestion"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "NextStepSuggestion",
+      "to_jsonable_keys": [
+        "question",
+        "type_code"
+      ]
+    },
+    "notebooklm.types.Note": {
+      "dataclass_fields": [
+        "id",
+        "notebook_id",
+        "title",
+        "content",
+        "created_at"
+      ],
+      "exports": [
+        "notebooklm.Note",
+        "notebooklm.types.Note"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "Note",
+      "to_jsonable_keys": [
+        "id",
+        "notebook_id",
+        "title",
+        "content",
+        "created_at"
+      ]
+    },
+    "notebooklm.types.Notebook": {
+      "dataclass_fields": [
+        "id",
+        "title",
+        "created_at",
+        "sources_count",
+        "is_owner",
+        "modified_at",
+        "role",
+        "last_viewed_at",
+        "emoji",
+        "premium_features",
+        "chat_sessions",
+        "chat_settings"
+      ],
+      "exports": [
+        "notebooklm.Notebook",
+        "notebooklm.types.Notebook"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "Notebook",
+      "to_jsonable_keys": [
+        "id",
+        "title",
+        "created_at",
+        "sources_count",
+        "is_owner",
+        "modified_at",
+        "role",
+        "last_viewed_at",
+        "emoji",
+        "premium_features",
+        "chat_sessions",
+        "chat_settings"
+      ]
+    },
+    "notebooklm.types.NotebookDescription": {
+      "dataclass_fields": [
+        "summary",
+        "suggested_topics"
+      ],
+      "exports": [
+        "notebooklm.NotebookDescription",
+        "notebooklm.types.NotebookDescription"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "NotebookDescription",
+      "to_jsonable_keys": [
+        "summary",
+        "suggested_topics"
+      ]
+    },
+    "notebooklm.types.NotebookMetadata": {
+      "dataclass_fields": [
+        "notebook",
+        "sources"
+      ],
+      "exports": [
+        "notebooklm.NotebookMetadata",
+        "notebooklm.types.NotebookMetadata"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "NotebookMetadata",
+      "to_jsonable_keys": [
+        "notebook",
+        "sources"
+      ]
+    },
+    "notebooklm.types.PremiumFeatureInfo": {
+      "dataclass_fields": [
+        "can_edit_advanced_settings",
+        "can_edit_guidebook_config",
+        "can_view_analytics"
+      ],
+      "exports": [
+        "notebooklm.PremiumFeatureInfo",
+        "notebooklm.types.PremiumFeatureInfo"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "PremiumFeatureInfo",
+      "to_jsonable_keys": [
+        "can_edit_advanced_settings",
+        "can_edit_guidebook_config",
+        "can_view_analytics"
+      ]
+    },
+    "notebooklm.types.PromptSuggestion": {
+      "dataclass_fields": [
+        "title",
+        "prompt"
+      ],
+      "exports": [
+        "notebooklm.PromptSuggestion",
+        "notebooklm.types.PromptSuggestion"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "PromptSuggestion",
+      "to_jsonable_keys": [
+        "title",
+        "prompt"
+      ]
+    },
+    "notebooklm.types.ReportSuggestion": {
+      "dataclass_fields": [
+        "title",
+        "description",
+        "prompt",
+        "audience_level"
+      ],
+      "exports": [
+        "notebooklm.ReportSuggestion",
+        "notebooklm.types.ReportSuggestion"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ReportSuggestion",
+      "to_jsonable_keys": [
+        "title",
+        "description",
+        "prompt",
+        "audience_level"
+      ]
+    },
+    "notebooklm.types.ResearchSource": {
+      "dataclass_fields": [
+        "url",
+        "title",
+        "result_type",
+        "research_task_id",
+        "report_markdown",
+        "source_ordinal",
+        "hint"
+      ],
+      "exports": [
+        "notebooklm.ResearchSource",
+        "notebooklm.types.ResearchSource"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ResearchSource",
+      "to_jsonable_keys": [
+        "url",
+        "title",
+        "result_type",
+        "research_task_id",
+        "report_markdown",
+        "source_ordinal",
+        "hint"
+      ]
+    },
+    "notebooklm.types.ResearchStart": {
+      "dataclass_fields": [
+        "task_id",
+        "report_id",
+        "notebook_id",
+        "query",
+        "mode"
+      ],
+      "exports": [
+        "notebooklm.ResearchStart",
+        "notebooklm.types.ResearchStart"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ResearchStart",
+      "to_jsonable_keys": [
+        "task_id",
+        "report_id",
+        "notebook_id",
+        "query",
+        "mode"
+      ]
+    },
+    "notebooklm.types.ResearchTask": {
+      "dataclass_fields": [
+        "task_id",
+        "status",
+        "query",
+        "sources",
+        "summary",
+        "report",
+        "tasks",
+        "status_code",
+        "source_type",
+        "discovery_mode",
+        "created_at",
+        "updated_at",
+        "account_id"
+      ],
+      "exports": [
+        "notebooklm.ResearchTask",
+        "notebooklm.types.ResearchTask"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ResearchTask",
+      "to_jsonable_keys": [
+        "task_id",
+        "status",
+        "query",
+        "sources",
+        "summary",
+        "report",
+        "tasks",
+        "status_code",
+        "source_type",
+        "discovery_mode",
+        "created_at",
+        "updated_at",
+        "account_id"
+      ]
+    },
+    "notebooklm.types.RpcTelemetryEvent": {
+      "dataclass_fields": [
+        "method",
+        "status",
+        "elapsed_seconds",
+        "request_id",
+        "error_type"
+      ],
+      "exports": [
+        "notebooklm.RpcTelemetryEvent",
+        "notebooklm.types.RpcTelemetryEvent"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "RpcTelemetryEvent",
+      "to_jsonable_keys": [
+        "method",
+        "status",
+        "elapsed_seconds",
+        "request_id",
+        "error_type"
+      ]
+    },
+    "notebooklm.types.ShareStatus": {
+      "dataclass_fields": [
+        "notebook_id",
+        "is_public",
+        "access",
+        "view_level",
+        "shared_users",
+        "share_url",
+        "max_individuals_share_limit",
+        "is_public_sharing_allowed"
+      ],
+      "exports": [
+        "notebooklm.ShareStatus",
+        "notebooklm.types.ShareStatus"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "ShareStatus",
+      "to_jsonable_keys": [
+        "notebook_id",
+        "is_public",
+        "access",
+        "view_level",
+        "shared_users",
+        "share_url",
+        "max_individuals_share_limit",
+        "is_public_sharing_allowed"
+      ]
+    },
+    "notebooklm.types.SharedUser": {
+      "dataclass_fields": [
+        "email",
+        "permission",
+        "display_name",
+        "avatar_url"
+      ],
+      "exports": [
+        "notebooklm.SharedUser",
+        "notebooklm.types.SharedUser"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "SharedUser",
+      "to_jsonable_keys": [
+        "email",
+        "permission",
+        "display_name",
+        "avatar_url"
+      ]
+    },
+    "notebooklm.types.Source": {
+      "dataclass_fields": [
+        "id",
+        "title",
+        "url",
+        "_type_code",
+        "created_at",
+        "status",
+        "drive_document_id",
+        "drive_status",
+        "download_url",
+        "viewer_url",
+        "content_mime",
+        "word_count",
+        "revision_id",
+        "revision_timestamp",
+        "last_modified_at"
+      ],
+      "exports": [
+        "notebooklm.Source",
+        "notebooklm.types.Source"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "Source",
+      "to_jsonable_keys": [
+        "id",
+        "title",
+        "url",
+        "_type_code",
+        "created_at",
+        "status",
+        "drive_document_id",
+        "drive_status",
+        "download_url",
+        "viewer_url",
+        "content_mime",
+        "word_count",
+        "revision_id",
+        "revision_timestamp",
+        "last_modified_at"
+      ]
+    },
+    "notebooklm.types.SourceFulltext": {
+      "dataclass_fields": [
+        "source_id",
+        "title",
+        "content",
+        "_type_code",
+        "url",
+        "char_count",
+        "document"
+      ],
+      "exports": [
+        "notebooklm.SourceFulltext",
+        "notebooklm.types.SourceFulltext"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "SourceFulltext",
+      "to_jsonable_keys": [
+        "source_id",
+        "title",
+        "content",
+        "_type_code",
+        "url",
+        "char_count",
+        "document"
+      ]
+    },
+    "notebooklm.types.SourceGuide": {
+      "dataclass_fields": [
+        "summary",
+        "keywords"
+      ],
+      "exports": [
+        "notebooklm.SourceGuide",
+        "notebooklm.types.SourceGuide"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "SourceGuide",
+      "to_jsonable_keys": [
+        "summary",
+        "keywords"
+      ]
+    },
+    "notebooklm.types.SourceSummary": {
+      "dataclass_fields": [
+        "kind",
+        "title",
+        "url"
+      ],
+      "exports": [
+        "notebooklm.SourceSummary",
+        "notebooklm.types.SourceSummary"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "SourceSummary",
+      "to_jsonable_keys": [
+        "kind",
+        "title",
+        "url"
+      ]
+    },
+    "notebooklm.types.SuggestedTopic": {
+      "dataclass_fields": [
+        "question",
+        "prompt"
+      ],
+      "exports": [
+        "notebooklm.SuggestedTopic",
+        "notebooklm.types.SuggestedTopic"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "SuggestedTopic",
+      "to_jsonable_keys": [
+        "question",
+        "prompt"
+      ]
+    },
+    "notebooklm.types.UnknownArtifactUserState": {
+      "dataclass_fields": [
+        "raw"
+      ],
+      "exports": [
+        "notebooklm.UnknownArtifactUserState",
+        "notebooklm.types.UnknownArtifactUserState"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "UnknownArtifactUserState",
+      "to_jsonable_keys": [
+        "raw"
+      ]
+    },
+    "notebooklm.types.UserSettings": {
+      "dataclass_fields": [
+        "limits",
+        "output_language"
+      ],
+      "exports": [
+        "notebooklm.UserSettings",
+        "notebooklm.types.UserSettings"
+      ],
+      "module": "notebooklm.types",
+      "qualname": "UserSettings",
+      "to_jsonable_keys": [
+        "limits",
+        "output_language"
+      ]
+    }
+  },
+  "reachability_categories": [
+    "cli --json",
+    "mcp tool result",
+    "rest response"
+  ],
+  "schema_version": 1,
+  "selection": "conservative superset: every dataclass in __all__ of every audit-discovered public module; public models are shared by CLI --json, MCP results, and REST responses"
+}

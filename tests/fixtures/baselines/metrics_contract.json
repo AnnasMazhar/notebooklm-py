@@ -1,0 +1,181 @@
+{
+  "client_metrics_snapshot_fields": [
+    {
+      "name": "rpc_calls_started",
+      "type": "int"
+    },
+    {
+      "name": "rpc_calls_succeeded",
+      "type": "int"
+    },
+    {
+      "name": "rpc_calls_failed",
+      "type": "int"
+    },
+    {
+      "name": "rpc_rate_limit_retries",
+      "type": "int"
+    },
+    {
+      "name": "rpc_server_error_retries",
+      "type": "int"
+    },
+    {
+      "name": "rpc_auth_retries",
+      "type": "int"
+    },
+    {
+      "name": "rpc_latency_seconds_total",
+      "type": "float"
+    },
+    {
+      "name": "rpc_queue_wait_seconds_total",
+      "type": "float"
+    },
+    {
+      "name": "rpc_queue_wait_seconds_max",
+      "type": "float"
+    },
+    {
+      "name": "upload_queue_wait_seconds_total",
+      "type": "float"
+    },
+    {
+      "name": "upload_queue_wait_seconds_max",
+      "type": "float"
+    },
+    {
+      "name": "lock_wait_seconds_total",
+      "type": "float"
+    },
+    {
+      "name": "lock_wait_seconds_max",
+      "type": "float"
+    },
+    {
+      "name": "rpc_decode_errors",
+      "type": "int"
+    }
+  ],
+  "rpc_telemetry_emission_scenarios": {
+    "non_rpc_error": {
+      "event_count": 0,
+      "events": [],
+      "snapshot": {
+        "lock_wait_seconds_max": 0.0,
+        "lock_wait_seconds_total": 0.0,
+        "rpc_auth_retries": 0,
+        "rpc_calls_failed": 0,
+        "rpc_calls_started": 0,
+        "rpc_calls_succeeded": 0,
+        "rpc_decode_errors": 0,
+        "rpc_latency_seconds_total": 0.0,
+        "rpc_queue_wait_seconds_max": 0.0,
+        "rpc_queue_wait_seconds_total": 0.0,
+        "rpc_rate_limit_retries": 0,
+        "rpc_server_error_retries": 0,
+        "upload_queue_wait_seconds_max": 0.0,
+        "upload_queue_wait_seconds_total": 0.0
+      }
+    },
+    "non_rpc_success": {
+      "event_count": 0,
+      "events": [],
+      "snapshot": {
+        "lock_wait_seconds_max": 0.0,
+        "lock_wait_seconds_total": 0.0,
+        "rpc_auth_retries": 0,
+        "rpc_calls_failed": 0,
+        "rpc_calls_started": 0,
+        "rpc_calls_succeeded": 0,
+        "rpc_decode_errors": 0,
+        "rpc_latency_seconds_total": 0.0,
+        "rpc_queue_wait_seconds_max": 0.0,
+        "rpc_queue_wait_seconds_total": 0.0,
+        "rpc_rate_limit_retries": 0,
+        "rpc_server_error_retries": 0,
+        "upload_queue_wait_seconds_max": 0.0,
+        "upload_queue_wait_seconds_total": 0.0
+      }
+    },
+    "rpc_error": {
+      "event_count": 1,
+      "events": [
+        {
+          "elapsed_seconds": "non-negative-float",
+          "error_type": "_ContractError",
+          "method": "CONTRACT_RPC",
+          "request_id": "contract-request-id",
+          "status": "error"
+        }
+      ],
+      "snapshot": {
+        "lock_wait_seconds_max": 0.0,
+        "lock_wait_seconds_total": 0.0,
+        "rpc_auth_retries": 0,
+        "rpc_calls_failed": 1,
+        "rpc_calls_started": 0,
+        "rpc_calls_succeeded": 0,
+        "rpc_decode_errors": 0,
+        "rpc_latency_seconds_total": "positive-float",
+        "rpc_queue_wait_seconds_max": 0.0,
+        "rpc_queue_wait_seconds_total": 0.0,
+        "rpc_rate_limit_retries": 0,
+        "rpc_server_error_retries": 0,
+        "upload_queue_wait_seconds_max": 0.0,
+        "upload_queue_wait_seconds_total": 0.0
+      }
+    },
+    "rpc_success": {
+      "event_count": 1,
+      "events": [
+        {
+          "elapsed_seconds": "non-negative-float",
+          "error_type": null,
+          "method": "CONTRACT_RPC",
+          "request_id": "contract-request-id",
+          "status": "success"
+        }
+      ],
+      "snapshot": {
+        "lock_wait_seconds_max": 0.0,
+        "lock_wait_seconds_total": 0.0,
+        "rpc_auth_retries": 0,
+        "rpc_calls_failed": 0,
+        "rpc_calls_started": 0,
+        "rpc_calls_succeeded": 1,
+        "rpc_decode_errors": 0,
+        "rpc_latency_seconds_total": "positive-float",
+        "rpc_queue_wait_seconds_max": 0.0,
+        "rpc_queue_wait_seconds_total": 0.0,
+        "rpc_rate_limit_retries": 0,
+        "rpc_server_error_retries": 0,
+        "upload_queue_wait_seconds_max": 0.0,
+        "upload_queue_wait_seconds_total": 0.0
+      }
+    }
+  },
+  "rpc_telemetry_event_fields": [
+    {
+      "name": "method",
+      "type": "str"
+    },
+    {
+      "name": "status",
+      "type": "Literal['success', 'error']"
+    },
+    {
+      "name": "elapsed_seconds",
+      "type": "float"
+    },
+    {
+      "name": "request_id",
+      "type": "str | None"
+    },
+    {
+      "name": "error_type",
+      "type": "str | None"
+    }
+  ],
+  "schema_version": 1
+}

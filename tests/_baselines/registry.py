@@ -139,6 +139,27 @@ def _derive_auth_import_graph() -> dict[str, object]:
     return build_projection()
 
 
+def _derive_public_model_contract() -> dict[str, object]:
+    """Every exported dataclass/enum's structural and pickle contract."""
+    from tests._baselines.compatibility_contracts import derive_public_model_contract
+
+    return derive_public_model_contract()
+
+
+def _derive_metrics_contract() -> dict[str, object]:
+    """Public metrics fields/types and per-RPC telemetry emission semantics."""
+    from tests._baselines.compatibility_contracts import derive_metrics_contract
+
+    return derive_metrics_contract()
+
+
+def _derive_json_envelope_contract() -> dict[str, object]:
+    """Shared CLI/MCP/REST public-model JSON key sets."""
+    from tests._baselines.compatibility_contracts import derive_json_envelope_contract
+
+    return derive_json_envelope_contract()
+
+
 # ---------------------------------------------------------------------------
 # Baseline registry
 # ---------------------------------------------------------------------------
@@ -214,6 +235,27 @@ BASELINES: list[Baseline] = [
         derive=_derive_ungated_surface,
         sort_keys=False,
         description="Collected public surface of every ungated public module.",
+    ),
+    Baseline(
+        name="public_model_contract",
+        path=_BASELINES_DIR / "public_model_contract.json",
+        derive=_derive_public_model_contract,
+        sort_keys=True,
+        description="Structural and pickle contract of every exported dataclass/enum.",
+    ),
+    Baseline(
+        name="metrics_contract",
+        path=_BASELINES_DIR / "metrics_contract.json",
+        derive=_derive_metrics_contract,
+        sort_keys=True,
+        description="Public metrics fields/types and RPC telemetry emission semantics.",
+    ),
+    Baseline(
+        name="json_envelope",
+        path=_BASELINES_DIR / "json_envelope.json",
+        derive=_derive_json_envelope_contract,
+        sort_keys=True,
+        description="Shared to_jsonable key schema for CLI, MCP, and REST public models.",
     ),
     Baseline(
         name="cli_contract",
