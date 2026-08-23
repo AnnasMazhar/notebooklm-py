@@ -17,16 +17,19 @@ from pathlib import Path
 from typing import Any
 
 from notebooklm._idempotency import IDEMPOTENCY_REGISTRY
-from notebooklm._operations import Operation
+from notebooklm._operations import CallPolicy, Operation
 
 if __package__:
     from ._operation_catalog_ast import (
         _operation_authorities,
         audit_operation_authorities,
+        audit_public_namespace_contract,
         audit_recency_contracts,
+        collect_app_authority_source_evidence,
         collect_app_callers,
         collect_native_execution_sites,
         collect_public_client_members,
+        collect_public_client_namespaces,
         collect_public_namespace_methods,
         collect_rpc_references,
         collect_unresolved_app_dispatches,
@@ -58,10 +61,13 @@ else:  # pragma: no cover - direct script execution
     from _operation_catalog_ast import (
         _operation_authorities,
         audit_operation_authorities,
+        audit_public_namespace_contract,
         audit_recency_contracts,
+        collect_app_authority_source_evidence,
         collect_app_callers,
         collect_native_execution_sites,
         collect_public_client_members,
+        collect_public_client_namespaces,
         collect_public_namespace_methods,
         collect_rpc_references,
         collect_unresolved_app_dispatches,
@@ -90,7 +96,8 @@ else:  # pragma: no cover - direct script execution
         native_key_text,
     )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+_EXPECTED_OPERATION_COUNT = 86
 _native_key_text = native_key_text
 
 __all__ = [
@@ -103,9 +110,11 @@ __all__ = [
     "audit_operation_catalog",
     "audit_rpc_registry_evidence",
     "build_operation_catalog",
+    "collect_app_authority_source_evidence",
     "collect_app_callers",
     "collect_golden_evidence",
     "collect_native_execution_sites",
+    "collect_public_client_namespaces",
     "collect_public_client_members",
     "collect_public_namespace_methods",
     "collect_rpc_references",
@@ -119,6 +128,12 @@ __all__ = [
 def audit_operation_catalog() -> list[str]:
     """Return catalog completeness/staleness errors; an empty list is green."""
     errors: list[str] = []
+    if len(Operation.__members__) != len(Operation):
+        errors.append("Operation aliases are forbidden")
+    if len(Operation) != _EXPECTED_OPERATION_COUNT:
+        errors.append(
+            f"Operation count changed: expected={_EXPECTED_OPERATION_COUNT}, actual={len(Operation)}"
+        )
     specs_by_operation: dict[Operation, OperationSpec] = {}
     for spec in OPERATION_SPECS:
         if spec.operation in specs_by_operation:
@@ -145,6 +160,10 @@ def audit_operation_catalog() -> list[str]:
         errors.append(f"Operation members missing specs: {missing_operations}")
     if stale_operations:
         errors.append(f"specs for unknown Operation members: {stale_operations}")
+
+    used_policies = {spec.policy for spec in OPERATION_SPECS}
+    if unused_policies := sorted(policy.value for policy in set(CallPolicy) - used_policies):
+        errors.append(f"CallPolicy members unused by operation specs: {unused_policies}")
 
     native_rows = {
         (method, variant) for method, variant, _entry in IDEMPOTENCY_REGISTRY.iter_entries()
@@ -214,6 +233,7 @@ def audit_operation_catalog() -> list[str]:
         ]
         if absent:
             errors.append(f"greenfield omission {feature!r} lacks catalog operations: {absent}")
+    errors.extend(audit_public_namespace_contract())
     errors.extend(audit_operation_authorities())
     errors.extend(audit_recency_contracts())
     errors.extend(audit_rpc_registry_evidence(load_rpc_registry_evidence()))
@@ -233,6 +253,7 @@ def build_operation_catalog(
     public_origins = collect_public_namespace_methods()
     client_members = collect_public_client_members()
     app_callers = collect_app_callers({name.split(".", 1)[0] for name in public_origins})
+    app_authority_source_evidence = collect_app_authority_source_evidence()
     rpc_references = collect_rpc_references()
     variant_golden = collect_variant_golden_evidence()
     override_honored, override_evidence = _override_honored()
@@ -372,6 +393,7 @@ def build_operation_catalog(
             for name, details in client_members.items()
         },
         "app_callers": app_callers,
+        "app_authority_source_evidence": app_authority_source_evidence,
         "app_orchestrator_dispositions": dict(sorted(APP_ORCHESTRATOR_DISPOSITIONS.items())),
         "greenfield_omission_coverage": {
             feature: sorted(operation.value for operation in operations)

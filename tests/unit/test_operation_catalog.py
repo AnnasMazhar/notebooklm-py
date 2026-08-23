@@ -29,6 +29,14 @@ def test_operation_definition_is_inert_frozen_slotted_vocabulary() -> None:
         definition.policy = CallPolicy.MUTATION  # type: ignore[misc]
 
 
+def test_operation_and_call_policy_vocabularies_are_total_non_vacuous_and_alias_free() -> None:
+    rows = catalog.build_operation_catalog()["operations"]
+
+    assert len(Operation.__members__) == len(Operation) == len(catalog.OPERATION_SPECS) == 86
+    assert {row["policy"] for row in rows} == {policy.value for policy in CallPolicy}
+    assert next(row for row in rows if row["key"] == "chat.ask")["policy"] == "stream"
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("method", "variant"),
@@ -138,10 +146,58 @@ def test_app_ast_walk_records_transport_neutral_orchestrators() -> None:
     callers = catalog.collect_app_callers()
 
     assert "_app/source_wait.py:execute_source_wait" in callers["sources.wait_until_ready"]
+    assert "_app/source_wait.py:wait_all_sources" in callers["sources.wait_all_until_ready"]
     assert "_app/collections.py:execute_collection_list" in callers["collections.list"]
     assert "_app/download.py:_fetch_artifacts_once" in callers["artifacts.list"]
     assert "_app/generate.py:execute_generation" in callers["artifacts.generate_audio"]
     assert "_app/download.py:_bind_download_fn" in callers["artifacts.download_audio"]
+
+
+def test_namespace_discovery_is_name_agnostic_and_matches_compat_inventory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StudioCatalog:
+        def list_items(self) -> None:
+            return None
+
+    StudioCatalog.__module__ = "notebooklm._future"
+    StudioCatalog.__qualname__ = "StudioCatalog"
+    discovered = set(catalog.collect_public_client_namespaces())
+    assert discovered == set(catalog_ast.CLIENT_NAMESPACE_ATTRIBUTES)
+
+    monkeypatch.setattr(
+        catalog_ast,
+        "collect_public_client_namespaces",
+        lambda: {"studio": StudioCatalog},
+    )
+    assert catalog.collect_public_namespace_methods() == {
+        "studio.list_items": "notebooklm._future.StudioCatalog"
+    }
+    assert catalog_ast.audit_public_namespace_contract() == [
+        "public client namespaces disagree with CLIENT_NAMESPACE_ATTRIBUTES: "
+        "missing=['studio'], stale=['artifacts', 'chat', 'collections', 'labels', 'mind_maps', "
+        "'notebooks', 'notes', 'research', 'settings', 'sharing', 'sources']"
+    ]
+
+
+def test_call_policy_audit_rejects_an_unused_vocabulary_arm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        catalog,
+        "OPERATION_SPECS",
+        tuple(
+            dataclasses.replace(spec, policy=CallPolicy.STATEFUL_START)
+            if spec.operation is Operation.CHAT_ASK
+            else spec
+            for spec in catalog.OPERATION_SPECS
+        ),
+    )
+
+    assert (
+        "CallPolicy members unused by operation specs: ['stream']"
+        in catalog.audit_operation_catalog()
+    )
 
 
 def test_audit_bites_on_unresolved_dynamic_or_non_rpc_authority(
@@ -396,6 +452,50 @@ def test_non_rpc_authority_source_contract_fails_closed(
     )
 
 
+def test_app_authority_source_contract_and_fingerprint_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    site = "artifacts.py:with_rate_limit_retry"
+    evidence = catalog.collect_app_authority_source_evidence()[site]
+
+    assert len(evidence["function_ast_sha256"]) == 64
+    assert evidence["public_export"] == "with_rate_limit_retry"
+    assert evidence["observed_required_calls"] == [
+        "calculate_backoff_delay",
+        "generate_fn",
+        "sleep_func",
+    ]
+    assert len(evidence["internal_call_edges"]) == 1
+    edge = evidence["internal_call_edges"][0]
+    assert edge["caller"] == "_app/generate_retry.py:generate_with_retry"
+    assert edge["target"] == "artifact_retry.with_rate_limit_retry"
+    assert len(edge["caller_ast_sha256"]) == 64
+
+    contracts = dict(catalog_ast.APP_AUTHORITY_SOURCE_CONTRACTS)
+    contracts[site] = dataclasses.replace(
+        contracts[site], required_calls=(*contracts[site].required_calls, ("future_retry",))
+    )
+    monkeypatch.setattr(catalog_ast, "APP_AUTHORITY_SOURCE_CONTRACTS", contracts)
+    assert any(
+        f"app authority {site} no longer reaches required loop call future_retry" in error
+        for error in catalog.audit_operation_catalog()
+    )
+
+    monkeypatch.undo()
+    fingerprints = catalog_ast.collect_function_ast_fingerprints()
+    monkeypatch.setattr(
+        catalog_ast,
+        "collect_function_ast_fingerprints",
+        lambda: {**fingerprints, site: "0" * 64},
+    )
+    assert (
+        catalog.build_operation_catalog()["app_authority_source_evidence"][site][
+            "function_ast_sha256"
+        ]
+        == "0" * 64
+    )
+
+
 def test_known_divergences_remain_reported_but_do_not_fail_audit() -> None:
     assert catalog.audit_operation_catalog() == []
     divergences = catalog.build_operation_catalog()["known_divergences"]
@@ -411,9 +511,7 @@ def test_known_divergences_remain_reported_but_do_not_fail_audit() -> None:
         "artifact.generate_slide_deck",
         "artifact.generate_video",
         "artifact.revise_slide",
-        "artifact.wait",
         "source.refresh",
-        "source.wait",
     }
 
 
@@ -422,10 +520,14 @@ def test_operation_authorities_are_exact_discriminated_and_include_non_rpc_paths
 
     audio = rows["artifact.generate_audio"]["execution_authorities"]
     assert {row["site"] for row in audio} == {
-        "_app/generate_retry.py:generate_with_retry",
+        "artifacts.py:with_rate_limit_retry",
         "_artifact/generation.py:ArtifactGenerationService._call_generate",
         "_notebooks.py:NotebooksAPI.get_raw",
     }
+    retry_authority = next(
+        row for row in audio if row["site"] == "artifacts.py:with_rate_limit_retry"
+    )
+    assert retry_authority["binding"] == "public_helper"
     assert all(row["discriminator"] for row in audio)
     assert not any("MindMapsAPI.generate" in row["site"] for row in audio)
 
@@ -460,8 +562,15 @@ def test_operation_authorities_are_exact_discriminated_and_include_non_rpc_paths
         "orchestrator",
     }
     assert all(
-        row["site"] != "_app/generate_retry.py:generate_with_retry"
+        row["site"] != "artifacts.py:with_rate_limit_retry"
         for row in rows["artifact.retry"]["execution_authorities"]
+    )
+    assert rows["source.wait"]["known_divergence"] is None
+    assert rows["artifact.wait"]["known_divergence"] is None
+    assert not any(
+        row["transport_kind"] == "orchestrator"
+        for operation in ("source.wait", "artifact.wait")
+        for row in rows[operation]["execution_authorities"]
     )
 
 

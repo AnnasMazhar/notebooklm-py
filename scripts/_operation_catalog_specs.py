@@ -47,10 +47,11 @@ def _p(namespace: str, *methods: str) -> tuple[str, ...]:
 
 
 _CREATE_ARTIFACT = (_b(RPCMethod.CREATE_ARTIFACT),)
+_APP_GENERATION_AUTHORITY_SITE = "artifacts.py:with_rate_limit_retry"
 _APP_GENERATION_DIVERGENCE = (
-    "_app/generate_retry.py:generate_with_retry re-invokes the initial facade operation after "
-    "rate limiting. P5 removes this duplicate Studio execution authority while retaining "
-    "adapter-neutral retry presentation policy."
+    "The exported notebooklm.artifacts.with_rate_limit_retry helper re-invokes the internal "
+    "facade operation after rate limiting. P4.2 removes that internal use while preserving the "
+    "public helper and adapter-neutral retry presentation policy."
 )
 
 # This table is the catalog's reviewed source.  Do not add copied RPC ids,
@@ -304,9 +305,6 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         ),
         (_b(RPCMethod.GET_NOTEBOOK),),
         disposition=Disposition.COMPOSITE,
-        app_authorities=("_app/source_wait.py:execute_source_wait",),
-        known_divergence="_app/source_wait.py maps outcomes while SourcesAPI owns polling. P4.2 "
-        "passes one caller budget through the public facade and leaves one polling authority.",
         recency_effect="one GET_NOTEBOOK per poll tick (shared across multi-wait inputs)",
     ),
     OperationSpec(
@@ -346,7 +344,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "Creates audio with format/length/instruction variants.",
         _p("artifacts", "generate_audio"),
         _CREATE_ARTIFACT + (_b(RPCMethod.GET_NOTEBOOK),),
-        app_authorities=("_app/generate_retry.py:generate_with_retry",),
+        app_authorities=(_APP_GENERATION_AUTHORITY_SITE,),
         known_divergence=_APP_GENERATION_DIVERGENCE,
         recency_effect="one GET_NOTEBOOK when source_ids is omitted",
     ),
@@ -358,7 +356,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "Creates standard or cinematic video while preserving their option shapes.",
         _p("artifacts", "generate_video", "generate_cinematic_video"),
         _CREATE_ARTIFACT + (_b(RPCMethod.GET_NOTEBOOK),),
-        app_authorities=("_app/generate_retry.py:generate_with_retry",),
+        app_authorities=(_APP_GENERATION_AUTHORITY_SITE,),
         known_divergence=_APP_GENERATION_DIVERGENCE,
         recency_effect="one GET_NOTEBOOK when source_ids is omitted",
     ),
@@ -370,7 +368,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "Creates report or study-guide variants.",
         _p("artifacts", "generate_report", "generate_study_guide"),
         _CREATE_ARTIFACT + (_b(RPCMethod.GET_NOTEBOOK),),
-        app_authorities=("_app/generate_retry.py:generate_with_retry",),
+        app_authorities=(_APP_GENERATION_AUTHORITY_SITE,),
         known_divergence=_APP_GENERATION_DIVERGENCE,
         recency_effect="one GET_NOTEBOOK when source_ids is omitted",
     ),
@@ -382,7 +380,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "Creates quiz variant 2.",
         _p("artifacts", "generate_quiz"),
         _CREATE_ARTIFACT + (_b(RPCMethod.GET_NOTEBOOK),),
-        app_authorities=("_app/generate_retry.py:generate_with_retry",),
+        app_authorities=(_APP_GENERATION_AUTHORITY_SITE,),
         known_divergence=_APP_GENERATION_DIVERGENCE,
         recency_effect="one GET_NOTEBOOK when source_ids is omitted",
     ),
@@ -394,7 +392,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "Creates flashcard variant 1.",
         _p("artifacts", "generate_flashcards"),
         _CREATE_ARTIFACT + (_b(RPCMethod.GET_NOTEBOOK),),
-        app_authorities=("_app/generate_retry.py:generate_with_retry",),
+        app_authorities=(_APP_GENERATION_AUTHORITY_SITE,),
         known_divergence=_APP_GENERATION_DIVERGENCE,
         recency_effect="one GET_NOTEBOOK when source_ids is omitted",
     ),
@@ -406,7 +404,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "Creates an infographic with orientation/detail/style variants.",
         _p("artifacts", "generate_infographic"),
         _CREATE_ARTIFACT + (_b(RPCMethod.GET_NOTEBOOK),),
-        app_authorities=("_app/generate_retry.py:generate_with_retry",),
+        app_authorities=(_APP_GENERATION_AUTHORITY_SITE,),
         known_divergence=_APP_GENERATION_DIVERGENCE,
         recency_effect="one GET_NOTEBOOK when source_ids is omitted",
     ),
@@ -418,7 +416,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "Creates a slide deck with format and length variants.",
         _p("artifacts", "generate_slide_deck"),
         _CREATE_ARTIFACT + (_b(RPCMethod.GET_NOTEBOOK),),
-        app_authorities=("_app/generate_retry.py:generate_with_retry",),
+        app_authorities=(_APP_GENERATION_AUTHORITY_SITE,),
         known_divergence=_APP_GENERATION_DIVERGENCE,
         recency_effect="one GET_NOTEBOOK when source_ids is omitted",
     ),
@@ -430,7 +428,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "Creates a data-table artifact.",
         _p("artifacts", "generate_data_table"),
         _CREATE_ARTIFACT + (_b(RPCMethod.GET_NOTEBOOK),),
-        app_authorities=("_app/generate_retry.py:generate_with_retry",),
+        app_authorities=(_APP_GENERATION_AUTHORITY_SITE,),
         known_divergence=_APP_GENERATION_DIVERGENCE,
         recency_effect="one GET_NOTEBOOK when source_ids is omitted",
     ),
@@ -457,7 +455,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "Derives one revised slide from an existing deck.",
         _p("artifacts", "revise_slide"),
         (_b(RPCMethod.REVISE_SLIDE),),
-        app_authorities=("_app/generate_retry.py:generate_with_retry",),
+        app_authorities=(_APP_GENERATION_AUTHORITY_SITE,),
         known_divergence=_APP_GENERATION_DIVERGENCE,
     ),
     OperationSpec(
@@ -531,10 +529,6 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         _p("artifacts", "wait_for_completion"),
         (_b(RPCMethod.LIST_ARTIFACTS),),
         disposition=Disposition.COMPOSITE,
-        app_authorities=("_app/generate_retry.py:handle_generation_result",),
-        known_divergence="ArtifactsAPI.wait_for_completion and _app/generate_retry.py both own "
-        "wait/retry timing. P4.2 passes one budget; shared-leader followers remain the explicit "
-        "deadline exception.",
     ),
     OperationSpec(
         Operation.ARTIFACT_SUGGEST_REPORTS,
@@ -547,7 +541,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     ),
     OperationSpec(
         Operation.CHAT_ASK,
-        CallPolicy.STATEFUL_START,
+        CallPolicy.STREAM,
         "ChatService",
         "notebook+conversation+source-set",
         "Two-phase all-or-nothing operation: streamed query first, then conversation-id RPC. "
@@ -993,9 +987,7 @@ DIVERGENCE_KINDS: Mapping[Operation, str] = {
     Operation.ARTIFACT_GENERATE_SLIDE_DECK: "authority",
     Operation.ARTIFACT_GENERATE_VIDEO: "authority",
     Operation.ARTIFACT_REVISE_SLIDE: "authority",
-    Operation.ARTIFACT_WAIT: "authority",
     Operation.SOURCE_REFRESH: "policy",
-    Operation.SOURCE_WAIT: "authority",
 }
 
 
@@ -1065,12 +1057,13 @@ GREENFIELD_OMISSION_COVERAGE: Mapping[str, tuple[Operation, ...]] = {
 
 APP_ORCHESTRATOR_DISPOSITIONS: Mapping[str, str] = {
     "_app/generate_retry.py": (
-        "Keep adapter-neutral command composition; P4.2 passes one outer budget through the "
-        "public facade and P5 removes duplicate backend retry/wait authority."
+        "Keep adapter-neutral command composition, optional wait dispatch, progress, and outcome "
+        "projection. P4.2 passes one budget through the public facade and removes the internal use "
+        "of the exported retry helper; the helper itself remains public."
     ),
     "_app/source_wait.py": (
-        "Keep typed outcome mapping; P4.2 makes the semantic SourceService the sole polling "
-        "authority and passes the caller budget through SourcesAPI."
+        "Keep validation and typed outcome mapping as ordinary application callers. The public "
+        "source facade is already the sole polling authority and receives the caller budget once."
     ),
     "_app/download.py": (
         "Keep selection/conflict/filesystem choreography; P4.2 starts a separate budget for "

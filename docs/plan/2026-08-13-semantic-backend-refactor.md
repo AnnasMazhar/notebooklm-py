@@ -5,7 +5,8 @@
 frozen; this plan does not mark P1-P8 complete.
 **Planning date:** 2026-08-13
 **Planning base:** `main` at `3bb0c185` (re-pinned; the original `dd710a09` base had drifted).
-P0's inventory is measured at the merge-base of its own PR, not against this commit.
+P0's inventory is independently measured at its PR merge base, which for this frozen baseline is
+also `3bb0c185`.
 **Scope:** internal architecture of the `notebooklm` package; no public API break is authorized by
 this plan
 **Decision:** introduce a semantic backend boundary incrementally beneath the existing public
@@ -370,11 +371,13 @@ flowchart TB
     CLI2["CLI / MCP / REST"] --> APP
 
     subgraph APP["_app/ — frontend-neutral"]
-        GR["generate_retry.py<br/>OWNS a retry loop + its own clock"]
-        SW["source_wait.py<br/>OWNS readiness polling"]
+        GR["generate_retry.py<br/>delegates retry; maps outcomes"]
+        SW["source_wait.py<br/>maps outcomes<br/>facade OWNS readiness polling"]
         DL["download.py (919 LOC)"]
     end
 
+    GR --> RETRY["public artifacts.with_rate_limit_retry<br/>OWNS retry loop + its clock"]
+    RETRY -->|"supplied facade callable"| FACADE
     APP -->|"public facade only"| FACADE["NotebookLMClient + feature APIs"]
     FACADE --> SVC["semantic services"]
     SVC --> BE["BackendAdapter"]
@@ -383,17 +386,19 @@ flowchart TB
     GUARD["test_app_boundary.py:<br/>_app MUST NOT import any private _* sibling"]
     GUARD -.->|"blocks"| APP
 
-    DEADLINE -.->|"cannot reach"| GR
+    DEADLINE -.->|"not threaded through _app"| RETRY
 
-    style GR fill:#c0392b,color:#fff
+    style RETRY fill:#c0392b,color:#fff
     style GUARD fill:#e67e22,color:#fff
     style DEADLINE fill:#2c3e50,color:#fff
 ```
 
-`_app/generate_retry.py` is a **second execution authority** for artifact generation that the plan
-never counted, and it cannot be handed a `RuntimeDeadline` because the guardrail forbids the import.
-So "one total deadline is observable" was unmeetable, and migration rule 2's duplicate-authority
-counter starts non-zero. The fix is a public facade parameter, not a private import.
+The exported `notebooklm.artifacts.with_rate_limit_retry` helper is a **second execution authority**
+for artifact generation when `_app/generate_retry.py` calls it around the initial facade operation.
+The `_app` caller cannot receive a `RuntimeDeadline` because the guardrail forbids the import. So
+"one total deadline is observable" was unmeetable, and migration rule 2's duplicate-authority
+counter starts non-zero. P4.2 removes only that internal use through a public facade parameter; the
+exported helper remains available to external callers.
 
 ### 4. What actually shrinks, and when
 
@@ -602,9 +607,10 @@ classified as a semantic service becomes unreachable from `_app/`. Use three rul
 
 **`_app/` needs a real disposition, and P0 must produce it.** A material share of the orchestration
 this plan wants semantic services to own already lives *above* the public facade:
-`_app/generate_retry.py` owns an artifact-generation retry-with-backoff loop and its own clock,
-`_app/source_wait.py` owns readiness polling, `_app/download.py` (919 lines) owns download
-choreography, and `_app/pagination.py` reasons about a *protocol* fact (that the underlying
+`_app/generate_retry.py` delegates to the exported `notebooklm.artifacts.with_rate_limit_retry`
+loop, `_app/source_wait.py` validates and maps outcomes while the source facade alone polls,
+`_app/download.py` (919 lines) owns download choreography, and `_app/pagination.py` reasons about a
+*protocol* fact (that the underlying
 `batchexecute` RPCs do not paginate) inside the frontend-neutral layer. Until P0 records, per
 operation, which of these `_app/` orchestrators stop orchestrating and which public facade
 signatures grow to accept a budget, principle 6's single-deadline goal and migration rule 2's
@@ -847,8 +853,8 @@ P0 operation inventory + ADR
   reviewed. Copying those derived columns into a hand-pinned table is not reviewable.
 - The catalog records, per operation, **every existing execution authority**, including RPC,
   streaming query, resumable upload, HTTPS download, and `_app` orchestration. The P0 projection
-  allocates 159 exact authority rows; 41 of 86 semantic operations have more than one. It records
-  13 divergences: 12 authority divergences with a named collapse phase, plus `source.refresh` as
+  allocates 157 exact authority rows; 39 of 86 semantic operations have more than one. It records
+  11 divergences: 10 authority divergences with a named collapse phase, plus `source.refresh` as
   the one policy divergence.
 - Add `"collections"` to `CLIENT_NAMESPACE_ATTRIBUTES` in `scripts/audit_public_api_compat.py` and
   absorb the baseline delta. `docs/stability.md` lists `NotebookLMClient.collections` as stable, but
@@ -1159,12 +1165,13 @@ reconstructed at feature call sites.
   followers ignore their own timeout knobs and source polling does not clamp an in-flight read;
   changing either is an observable timeout change and needs its own behavior-change PR, not P4.2.
 - Eliminate nested deadline resets in migrated paths before deleting old timeout knobs.
-- **Operations reachable through an `_app/` retry or wait orchestrator** (`_app/generate_retry.py`,
+- **Operations reachable through an `_app/` retry or wait workflow** (`_app/generate_retry.py`,
   `_app/source_wait.py`, `_app/download.py`) receive the caller's budget **through a public facade
-  parameter**. `RuntimeDeadline` lives in the private `_deadline.py` and `_app/` may not import it,
-  so the `_app/`-owned clock is either deleted in favour of the facade's, or declared a separately
-  reserved outer budget under principle 6 and recorded in the catalog. Without one of those, the
-  acceptance criterion below is unmeetable rather than merely hard.
+  parameter**. `RuntimeDeadline` lives in the private `_deadline.py` and `_app/` may not import it.
+  P4.2 removes `_app`'s internal use of the exported `with_rate_limit_retry` execution loop while
+  preserving the helper for public callers. Source and artifact polling already live in their
+  facades; their `_app` callers retain validation, optional dispatch, and result projection without
+  becoming separate deadline authorities.
 - Shared-leader artifact polling is retained as the single sanctioned exception to principle 6: the
   first waiter owns the poll task and followers attach via `asyncio.shield` (`_polling_registry.py`),
   so a follower's deadline bounds only its own await, never the leader's poll. Record it as an
@@ -1654,7 +1661,7 @@ Record a baseline at P0 and update it at every phase boundary.
 | Production calls to public `from_api_response()`/`from_row()` | Down to zero for migrated resources, counted over the P3 scope only (excludes `_app/`, `mcp/`) |
 | Test files referencing `build_client_shell_for_tests` / `compose_client_internals` (39 at P0) | Down; semantic tests use fake backend |
 | Test-only post-construction mutation seams in production runtime | Down after P7 |
-| Semantic operation rows with more than one exact allocated execution authority | Down to one authority per *migrated* operation; starts at 41 of 86 operations |
+| Semantic operation rows with more than one exact allocated execution authority | Down to one authority per *migrated* operation; starts at 39 of 86 operations |
 | Native method/variant rows with more than one direct non-test execution site | Track separately from semantic authority allocation; starts at 14 of 56 native rows |
 | Existing cassette rewrites caused only by code motion | Zero |
 | Public API compatibility audit failures | Zero, with **no new entry in `scripts/api-compat-allowlist.json`** |
@@ -1676,7 +1683,7 @@ phase reports rerun the same commands and record their base commit.
 | Production calls to public `from_api_response()` / `from_row()` in P3 scope | **17** calls in **13** modules |
 | Test files referencing `build_client_shell_for_tests` / `compose_client_internals` | **39** files |
 | Test-only post-construction mutation seams in production runtime | **7** test-observed live-rebind targets: `ClientSeams.is_auth_error`, refresh delegate, chain, chain terminal, and three retry-budget attributes |
-| Semantic operation rows with more than one exact allocated execution authority | **41 of 86** operations; the catalog allocates **159** total RPC/stream/upload/download/orchestrator authority rows and records **13** divergences (**12** authority plus one policy) |
+| Semantic operation rows with more than one exact allocated execution authority | **39 of 86** operations; the catalog allocates **157** total RPC/stream/upload/download/orchestrator authority rows and records **11** divergences (**10** authority plus one policy) |
 | Native method/variant rows with more than one direct non-test execution site | **14 of 56** native rows; this direct-callsite measure is intentionally distinct from per-operation authority allocation |
 | Existing cassette rewrites caused only by code motion | **0** changed cassette files |
 | Public API compatibility audit failures / allowlist entries | **0 / 0** |
@@ -1702,8 +1709,8 @@ reachable only through the exact redacted MCP/REST `server_info` identity projec
 serialization remains forbidden.
 
 The catalog also records 86 semantic operations, 47 RPC ids, 56 native rows, 146 public namespace
-methods (eight local-only), and ten public root-client members. It carries 13 reviewed divergences:
-12 authority and one policy. Golden evidence scope is `variant`, `method_family`, or
+methods (eight local-only), and ten public root-client members. It carries 11 reviewed divergences:
+10 authority and one policy. Golden evidence scope is `variant`, `method_family`, or
 `method_contract`; four native rows are honestly `not_recorded`:
 `ADD_SOURCE:<default>`, `ADD_SOURCE:drive`, `CREATE_NOTE:<default>`, and
 `CREATE_NOTE:saved_from_chat`. Every native row has source-dataflow plus parameterized runtime
@@ -1764,9 +1771,9 @@ The registered projections and compatibility gates reproduce the remaining value
 
 ```bash
 # Catalog totals: 86 operations, 47 RPC ids, 56 native rows, 146 namespace
-# methods (eight local-only), ten root-client members, 159 allocated authority
-# rows, 41 multi-authority operations, 14 multi-site native rows, 13 divergences
-# (12 authority plus one policy), four honest golden gaps, and 56/56 override proof.
+# methods (eight local-only), ten root-client members, 157 allocated authority
+# rows, 39 multi-authority operations, 14 multi-site native rows, 11 divergences
+# (10 authority plus one policy), four honest golden gaps, and 56/56 override proof.
 uv run python scripts/audit_operation_catalog.py --json | uv run python -c \
   'import json,sys; c=json.load(sys.stdin); print({"operations": len(c["operations"]), "rpc_ids": len({r["rpc_method"] for r in c["native_bindings"]}), "native_rows": len(c["native_bindings"]), "namespace_methods": len(c["public_methods"]), "namespace_local_only": sum(r["disposition"] == "local_only" for r in c["public_methods"].values()), "root_client_members": len(c["client_members"]), "allocated_authority_rows": sum(len(r["execution_authorities"]) for r in c["operations"]), "multi_authority_operations": sum(len(r["execution_authorities"]) > 1 for r in c["operations"]), "multi_site_native_rows": sum(len(r["execution_authorities"]) > 1 for r in c["native_bindings"]), "authority_divergences": sum(r["kind"] == "authority" for r in c["known_divergences"]), "policy_divergences": sum(r["kind"] == "policy" for r in c["known_divergences"]), "golden_not_recorded": sum(r["golden_disposition"] == "not_recorded" for r in c["native_bindings"]), "override_honored": sum(r["override_honored"] for r in c["native_bindings"])})'
 # JSON envelope totals: CLI 31 models/133 projections, MCP 32/123, REST 32/57;

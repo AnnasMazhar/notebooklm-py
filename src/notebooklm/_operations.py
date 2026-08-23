@@ -9,13 +9,14 @@ backend/runtime types and the first concrete DTOs.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, unique
 from typing import Generic, TypeVar
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
 
 
+@unique
 class Operation(str, Enum):
     """Backend-neutral product operations known to the current client."""
 

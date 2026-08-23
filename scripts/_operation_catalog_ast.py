@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import inspect
 import typing
 from collections import defaultdict
@@ -17,6 +18,7 @@ if __package__:
     from ._operation_catalog_authorities import (
         _GET_SOURCES,
         _GET_TYPED,
+        APP_AUTHORITY_SOURCE_CONTRACTS,
         APP_OPERATION_AUTHORITIES,
         NON_RPC_AUTHORITY_RULES,
         NON_RPC_SOURCE_CONTRACTS,
@@ -33,10 +35,12 @@ if __package__:
         _p,
         native_key_text,
     )
+    from .audit_public_api_compat import CLIENT_NAMESPACE_ATTRIBUTES
 else:  # pragma: no cover - direct script execution
     from _operation_catalog_authorities import (
         _GET_SOURCES,
         _GET_TYPED,
+        APP_AUTHORITY_SOURCE_CONTRACTS,
         APP_OPERATION_AUTHORITIES,
         NON_RPC_AUTHORITY_RULES,
         NON_RPC_SOURCE_CONTRACTS,
@@ -53,6 +57,7 @@ else:  # pragma: no cover - direct script execution
         _p,
         native_key_text,
     )
+    from audit_public_api_compat import CLIENT_NAMESPACE_ATTRIBUTES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src" / "notebooklm"
@@ -221,6 +226,30 @@ def _parse(path: Path) -> ast.Module:
     return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
 
+def collect_public_client_namespaces() -> dict[str, type[object]]:
+    """Return every public class-typed namespace annotation on the client."""
+
+    hints = typing.get_type_hints(NotebookLMClient)
+    return {
+        namespace: cls
+        for namespace, cls in sorted(hints.items())
+        if not namespace.startswith("_") and inspect.isclass(cls)
+    }
+
+
+def audit_public_namespace_contract() -> list[str]:
+    """Require compat-audit and live client namespace discovery to agree exactly."""
+
+    discovered = set(collect_public_client_namespaces())
+    expected = set(CLIENT_NAMESPACE_ATTRIBUTES)
+    if discovered == expected:
+        return []
+    return [
+        "public client namespaces disagree with CLIENT_NAMESPACE_ATTRIBUTES: "
+        f"missing={sorted(discovered - expected)}, stale={sorted(expected - discovered)}"
+    ]
+
+
 def collect_public_namespace_methods() -> dict[str, str]:
     """Return every public callable on each annotated client namespace.
 
@@ -229,15 +258,8 @@ def collect_public_namespace_methods() -> dict[str, str]:
     ``chat.set_bound_loop`` and ``chat.reset_after_open`` cannot disappear from
     this inventory.
     """
-    hints = typing.get_type_hints(NotebookLMClient)
     methods: dict[str, str] = {}
-    for namespace, cls in sorted(hints.items()):
-        if (
-            namespace.startswith("_")
-            or not inspect.isclass(cls)
-            or not cls.__name__.endswith("API")
-        ):
-            continue
+    for namespace, cls in collect_public_client_namespaces().items():
         for base in reversed(cls.__mro__):
             if base is object or not base.__module__.startswith("notebooklm"):
                 continue
@@ -487,6 +509,41 @@ def collect_function_sites() -> set[str]:
     return sites
 
 
+def collect_function_ast_fingerprints() -> dict[str, str]:
+    """Return stable AST fingerprints for every production function/method."""
+
+    fingerprints: dict[str, str] = {}
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self, relative: str) -> None:
+            self.relative = relative
+            self.stack: list[str] = []
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            self.stack.append(node.name)
+            self.generic_visit(node)
+            self.stack.pop()
+
+        def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+            self.stack.append(node.name)
+            site = f"{self.relative}:{_qualname(self.stack)}"
+            normalized = ast.dump(node, annotate_fields=True, include_attributes=False)
+            fingerprints[site] = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+            self.generic_visit(node)
+            self.stack.pop()
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self._visit_function(node)
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            self._visit_function(node)
+
+    for path in sorted(SRC_ROOT.rglob("*.py")):
+        relative = path.relative_to(SRC_ROOT).as_posix()
+        Visitor(relative).visit(_parse(path))
+    return fingerprints
+
+
 def collect_function_call_targets() -> dict[str, set[tuple[str, ...]]]:
     """Return call-target attribute paths keyed by exact production function site."""
     calls: dict[str, set[tuple[str, ...]]] = defaultdict(set)
@@ -521,6 +578,63 @@ def collect_function_call_targets() -> dict[str, set[tuple[str, ...]]]:
         relative = path.relative_to(SRC_ROOT).as_posix()
         Visitor(relative).visit(_parse(path))
     return calls
+
+
+def _declared_module_exports(relative: str) -> set[str]:
+    """Return literal names in one production module's ``__all__``."""
+
+    tree = _parse(SRC_ROOT / relative)
+    for statement in tree.body:
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        if not any(isinstance(target, ast.Name) and target.id == "__all__" for target in targets):
+            continue
+        if not isinstance(statement.value, (ast.List, ast.Tuple)):
+            return set()
+        return {
+            value for item in statement.value.elts if (value := _literal_string(item)) is not None
+        }
+    return set()
+
+
+def collect_app_authority_source_evidence() -> dict[str, dict[str, object]]:
+    """Derive helper-body and internal-call-edge evidence for app authorities."""
+
+    call_targets = collect_function_call_targets()
+    fingerprints = collect_function_ast_fingerprints()
+    evidence: dict[str, dict[str, object]] = {}
+    for site, contract in sorted(APP_AUTHORITY_SOURCE_CONTRACTS.items()):
+        helper_targets = call_targets.get(site, set())
+        observed_required_calls = sorted(
+            ".".join(required)
+            for required in contract.required_calls
+            if any(target[-len(required) :] == required for target in helper_targets)
+        )
+        internal_callers = sorted(
+            caller
+            for caller, targets in call_targets.items()
+            if any(
+                target[-len(contract.caller_target) :] == contract.caller_target
+                for target in targets
+            )
+        )
+        evidence[site] = {
+            "function_ast_sha256": fingerprints.get(site),
+            "observed_required_calls": observed_required_calls,
+            "public_export": contract.public_export
+            if contract.public_export in _declared_module_exports(site.split(":", 1)[0])
+            else None,
+            "internal_call_edges": [
+                {
+                    "caller": caller,
+                    "caller_ast_sha256": fingerprints.get(caller),
+                    "target": ".".join(contract.caller_target),
+                }
+                for caller in internal_callers
+            ],
+        }
+    return evidence
 
 
 def _operation_authorities(
@@ -562,11 +676,11 @@ def _operation_authorities(
     rows.extend(
         {
             "transport_kind": "orchestrator",
-            "binding": "public_facade",
-            "site": site,
-            "discriminator": discriminator,
+            "binding": rule.binding,
+            "site": rule.site,
+            "discriminator": rule.discriminator,
         }
-        for site, discriminator in APP_OPERATION_AUTHORITIES.get(spec.operation, ())
+        for rule in APP_OPERATION_AUTHORITIES.get(spec.operation, ())
     )
     return sorted(
         rows,
@@ -636,8 +750,49 @@ def audit_operation_authorities() -> list[str]:
                     f"non-RPC authority {site} no longer reaches transport call "
                     f"{'.'.join(required)}"
                 )
+    manual_app_sites = {rule.site for rules in APP_OPERATION_AUTHORITIES.values() for rule in rules}
+    if unallocated_contracts := sorted(set(APP_AUTHORITY_SOURCE_CONTRACTS) - manual_app_sites):
+        errors.append(f"app authority source contracts are unallocated: {unallocated_contracts}")
+    public_helper_sites = {
+        rule.site
+        for rules in APP_OPERATION_AUTHORITIES.values()
+        for rule in rules
+        if rule.binding == "public_helper"
+    }
+    if uncontracted_helpers := sorted(public_helper_sites - set(APP_AUTHORITY_SOURCE_CONTRACTS)):
+        errors.append(
+            f"public-helper app authorities lack source contracts: {uncontracted_helpers}"
+        )
+    fingerprints = collect_function_ast_fingerprints()
+    for site, contract in APP_AUTHORITY_SOURCE_CONTRACTS.items():
+        if site not in fingerprints:
+            errors.append(f"app authority helper no longer exists: {site}")
+            continue
+        actual_targets = call_targets.get(site, set())
+        for required in contract.required_calls:
+            if not any(target[-len(required) :] == required for target in actual_targets):
+                errors.append(
+                    f"app authority {site} no longer reaches required loop call "
+                    f"{'.'.join(required)}"
+                )
+        module_exports = _declared_module_exports(site.split(":", 1)[0])
+        if contract.public_export not in module_exports:
+            errors.append(f"app authority {site} lost public export {contract.public_export}")
+        internal_callers = {
+            caller
+            for caller, targets in call_targets.items()
+            if any(
+                target[-len(contract.caller_target) :] == contract.caller_target
+                for target in targets
+            )
+        }
+        if internal_callers != {contract.internal_caller}:
+            errors.append(
+                f"app authority {site} internal callers changed: "
+                f"expected={[contract.internal_caller]}, actual={sorted(internal_callers)}"
+            )
     for spec in OPERATION_SPECS:
-        expected_app = {site for site, _ in APP_OPERATION_AUTHORITIES.get(spec.operation, ())}
+        expected_app = {rule.site for rule in APP_OPERATION_AUTHORITIES.get(spec.operation, ())}
         actual_app = set(spec.app_authorities)
         if expected_app != actual_app:
             errors.append(

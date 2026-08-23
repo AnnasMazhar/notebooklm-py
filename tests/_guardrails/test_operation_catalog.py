@@ -9,11 +9,13 @@ from scripts.audit_operation_catalog import (
     audit_operation_catalog,
     build_operation_catalog,
     collect_public_client_members,
+    collect_public_client_namespaces,
     collect_public_namespace_methods,
 )
+from scripts.audit_public_api_compat import CLIENT_NAMESPACE_ATTRIBUTES
 
 from notebooklm._idempotency import IDEMPOTENCY_REGISTRY
-from notebooklm._operations import Operation
+from notebooklm._operations import CallPolicy, Operation
 from notebooklm.rpc import RPCMethod
 
 pytestmark = pytest.mark.repo_lint
@@ -35,6 +37,14 @@ def test_catalog_projection_covers_the_live_authorities() -> None:
         for method, variant, _entry in IDEMPOTENCY_REGISTRY.iter_entries()
     }
     assert set(catalog["public_methods"]) == set(collect_public_namespace_methods())
+    assert len(Operation.__members__) == len(Operation) == len(catalog["operations"]) == 86
+    assert {row["policy"] for row in catalog["operations"]} == {
+        policy.value for policy in CallPolicy
+    }
+
+
+def test_catalog_and_public_compat_audit_agree_on_client_namespaces() -> None:
+    assert set(collect_public_client_namespaces()) == set(CLIENT_NAMESPACE_ATTRIBUTES)
 
 
 def test_catalog_names_every_inherited_and_local_only_public_helper() -> None:
@@ -54,6 +64,37 @@ def test_catalog_names_every_root_client_member_disposition() -> None:
     assert client_members["refresh_auth"]["disposition"] == "auth"
     assert client_members["metrics_snapshot"]["disposition"] == "observability"
     assert client_members["rpc_call"]["disposition"] == "raw"
+
+
+def test_rule_two_distinguishes_app_callers_from_execution_authorities() -> None:
+    catalog = build_operation_catalog()
+    rows = {row["key"]: row for row in catalog["operations"]}
+
+    assert catalog["app_callers"]["sources.wait_until_ready"] == [
+        "_app/source_wait.py:execute_source_wait"
+    ]
+    assert catalog["app_callers"]["sources.wait_all_until_ready"] == [
+        "_app/source_wait.py:wait_all_sources"
+    ]
+    for operation in ("source.wait", "artifact.wait"):
+        assert rows[operation]["known_divergence"] is None
+        assert not any(
+            authority["transport_kind"] == "orchestrator"
+            for authority in rows[operation]["execution_authorities"]
+        )
+
+
+def test_generation_retry_authority_has_live_helper_and_call_edge_evidence() -> None:
+    catalog = build_operation_catalog()
+    evidence = catalog["app_authority_source_evidence"]["artifacts.py:with_rate_limit_retry"]
+
+    assert len(evidence["function_ast_sha256"]) == 64
+    assert evidence["public_export"] == "with_rate_limit_retry"
+    assert len(evidence["internal_call_edges"]) == 1
+    edge = evidence["internal_call_edges"][0]
+    assert edge["caller"] == "_app/generate_retry.py:generate_with_retry"
+    assert edge["target"] == "artifact_retry.with_rate_limit_retry"
+    assert len(edge["caller_ast_sha256"]) == 64
 
 
 def test_every_active_binding_honors_runtime_rpc_overrides() -> None:

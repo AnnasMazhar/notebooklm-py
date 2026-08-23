@@ -104,17 +104,18 @@ P0 adds four ADR-0022 contract baselines before runtime delegation:
 
 | Baseline | Freezes |
 | --- | --- |
-| `operation_catalog` | 86 operations with 159 exact authority rows (41 multi-authority); 56 native rows (14 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; 146 namespace methods (eight local-only), ten root-client members, and 13 divergences (12 authority, one policy) |
+| `operation_catalog` | 86 operations with 157 exact authority rows (39 multi-authority); 56 native rows (14 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; 146 namespace methods (eight local-only), ten root-client members, and 11 divergences (10 authority, one policy) |
 | `public_model_contract` | The 86 exported identities (50 dataclasses, 36 enums): construction, field/member order, behavior flags, export paths, structured pickle success/failure, first-party state hooks, and `Notebook` / `ChatReference` legacy-state restore invariants |
 | `json_envelope` | Exact sink/view-backed projection modes, keys, causal fields, and conditional variants: CLI 31 model identities/133 projections, MCP 32/123, REST 32/57 (313 unique ids). Its closed-world sink inventory covers 349 terminal/error sites: 225 public-projection, 116 reviewed non-public, eight forwarding infrastructure, and 15 conditional non-public variants. Every live id has a terminal allocation; registrations/direct JSON bypasses fail closed. It also pins 19 private DTO -> public dataclass paths (18 linked; one `SourceRefreshResult.result` arm mutation-proven production-dead) and 16 delegated-helper fingerprints. The supplemental 49-dataclass inventory excludes `AuthTokens`; only the exact redacted MCP/REST `server_info` identity contributions are allowed. `authuser` / `account_email` may emit, while storage path/profile generation only select control flow; recursive credentials and any extra projection fail closed. |
 | `metrics_contract` | The 14 snapshot and five event fields plus normalized success/transport-error/decode-error observations through composed public `rpc_call()` / `metrics_snapshot()`; direct non-RPC middleware probes are supplemental |
 
 `_app/` remains governed by ADR-0021 and never imports the private backend or deadline type.
-Generation retry/poll execution moves behind an artifact facade in P4 while `_app` retains planning,
-progress, and result projection. Source waiting already delegates polling to its facade. Download
-selection/conflict and multi-item composition stay in `_app`, with each list/download call treated
-as its own semantic operation. Pagination remains a pure returned-list slice; protocol pagination
-support belongs to backend capability metadata.
+The internal use of the exported generation-retry helper moves behind an artifact facade in P4.2
+while the public helper remains available and `_app` retains planning, optional wait dispatch,
+progress, and result projection. Artifact and source waiting already delegate polling to their
+facades. Download selection/conflict and multi-item composition stay in `_app`, with each
+list/download call treated as its own semantic operation. Pagination remains a pure returned-list
+slice; protocol pagination support belongs to backend capability metadata.
 
 ### Transport-neutral application layer (`_app/`)
 
@@ -1226,7 +1227,7 @@ src/notebooklm/
 │   ├── source_listing.py        # Click-free `source list` fetch core: fetch_sources (label_filter resolution; label_resolver injected)
 │   ├── source_mutations.py      # Click-free source delete/delete-by-title/rename/refresh/add-drive core: resolvers + SourceMutationError + typed results (validate_id/resolve_source_id injected; confirmer injected)
 │   ├── source_research.py       # Click-free `source add-research` start/wait/import workflow + validate_add_research_flags (importer injected; SourceAddResearchPlan/Result)
-│   ├── source_wait.py           # Click-free `source wait` readiness-poll core: execute_source_wait + typed SourceWaitOutcome (wait_context injected) + wait_all_sources (single-snapshot loop via client.sources.wait_all_until_ready — one notebook poll per tick, order-preserving; #1870) shared by the MCP tool + REST route (#1871) + the MAX_WAIT_TIMEOUT / MAX_WAIT_SOURCE_IDS caps
+│   ├── source_wait.py           # Click-free `source wait` validation/outcome core: execute_source_wait + typed SourceWaitOutcome (wait_context injected) + wait_all_sources (delegates the single-snapshot loop to client.sources.wait_all_until_ready — one notebook poll per tick, order-preserving; #1870) shared by the MCP tool + REST route (#1871) + the MAX_WAIT_TIMEOUT / MAX_WAIT_SOURCE_IDS caps
 │   └── views.py                 # Transport-neutral output-projection views: share_status_view (access/permission/view_level enum→label), source_view (kind/status_label/drive_status_label + is_drive_degraded added), notebook_view (role_label added), notebook_viewed_keys (last_viewed_at + its deprecated modified_at alias, for hand-built CLI JSON envelopes), ask_result_view (raw_response debug blob stripped); shared by the MCP tools + REST routes so both emit the identical enriched shape (Option B)
 ├── _runtime/                    # Client-runtime subpackage (promoted from flat _runtime_*.py, #1328)
 │   ├── __init__.py              # Re-exports the cluster's public names
@@ -1533,7 +1534,7 @@ src/notebooklm/
 - [ADR-0021](./adr/0021-transport-neutral-app-layer.md) — Transport-neutral application layer (`_app/`) (Accepted; boundary enforced by `tests/_guardrails/test_app_boundary.py`, classify↔error_handler agreement by `tests/_guardrails/test_classify_error_handler_consistency.py`).
 - [ADR-0022](./adr/0022-regenerable-baselines.md) — Regenerable test baselines (Accepted).
 - [ADR-0023](./adr/0023-master-token-headless-auth.md) — Master-token headless auth (Accepted; the L4 unattended re-mint path, `[headless]` extra).
-- [ADR-0024](./adr/0024-mcp-remote-file-transfer.md) — Remote-MCP file transfer via signed-URL side-channel (Proposed).
+- [ADR-0024](./adr/0024-mcp-remote-file-transfer.md) — Remote-MCP file transfer via signed-URL side-channel (Accepted; implemented).
 - [ADR-0025](./adr/0025-mcp-tool-granularity.md) — MCP tool granularity (Accepted).
 - [ADR-0026](./adr/0026-mcp-studio-surface.md) — MCP Studio surface — notes + artifacts unified (Accepted).
 - [ADR-0027](./adr/0027-mcp-app-upload-widget.md) — In-app MCP-App upload widget (Accepted; experimental / opt-in, `NOTEBOOKLM_MCP_UPLOAD_WIDGET=1`).

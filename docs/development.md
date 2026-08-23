@@ -735,9 +735,9 @@ tests/
 │   └── mcp/                         # MCP adapter unit tests (importorskip fastmcp)
 ├── server/                          # REST adapter suite — FastAPI routes (importorskip fastapi)
 ├── _guardrails/                     # Architecture/invariant gates (custom AST + filesystem lint)
-├── _baselines/                      # Regenerable-baseline registry (ADR-0022): derive/store/compare
+├── _baselines/                      # Regenerable-baseline registry (ADR-0022): nine derive/store/compare contracts
 ├── fixtures/
-│   └── baselines/                   # Committed derived baselines (types_all.json, ungated_surface.json)
+│   └── baselines/                   # Eight committed registry baselines; cli_contract remains one level above
 ├── integration/                     # Mocked HTTP responses + VCR cassettes
 │   ├── test_artifacts_integration.py # ArtifactsAPI integration
 │   ├── test_artifacts_drift.py      # CREATE_ARTIFACT payload drift guard
@@ -922,8 +922,14 @@ surface change is a deliberate, diff-visible act. These **regenerable baselines*
 
 | Baseline | Derives from | Committed file |
 |---|---|---|
+| `auth_patch_sites` | static auth test patch-site audit | `tests/fixtures/baselines/auth_patch_sites.json` |
+| `auth_import_graph` | static direct-module `notebooklm._auth` import graph | `tests/fixtures/baselines/auth_import_graph.json` |
 | `types_all` | `notebooklm.types.__all__` | `tests/fixtures/baselines/types_all.json` |
 | `ungated_surface` | collected `__all__` of each ungated public module | `tests/fixtures/baselines/ungated_surface.json` |
+| `operation_catalog` | semantic operations, bindings, authorities, callers, and evidence | `tests/fixtures/baselines/operation_catalog.json` |
+| `public_model_contract` | exported dataclass/enum structure and pickle behavior | `tests/fixtures/baselines/public_model_contract.json` |
+| `metrics_contract` | public metrics fields and RPC telemetry behavior | `tests/fixtures/baselines/metrics_contract.json` |
+| `json_envelope` | CLI/MCP/REST public-model projections and terminal reachability | `tests/fixtures/baselines/json_envelope.json` |
 | `cli_contract` | `build_cli_contract()` | `tests/fixtures/cli_contract_baseline.json` |
 
 The freeze test `test_baseline_matches_committed_file` (in

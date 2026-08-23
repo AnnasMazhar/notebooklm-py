@@ -1,8 +1,9 @@
 """Transport-neutral artifact-generation retry + wait orchestration.
 
 This is the retry/wait half of the Click-free ``generate`` core (the sibling
-:mod:`notebooklm._app.generate` owns plan-building + the executor). It holds the
-retry-with-backoff loop, the wait-for-completion orchestration, the typed
+:mod:`notebooklm._app.generate` owns plan-building + the executor). It delegates
+retry-with-backoff to the exported :mod:`notebooklm.artifacts` helper, retains
+wait-for-completion dispatch and outcome orchestration, and defines the typed
 :class:`GenerationOutcome`, the status-extraction helpers, and the spinner
 status-line formatter. Splitting this out keeps each module under the
 ADR-0008 module-size budget while leaving a single import surface

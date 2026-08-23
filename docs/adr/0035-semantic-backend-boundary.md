@@ -102,7 +102,7 @@ owners rather than hiding them:
 
 | `_app/` area | Disposition | Budget route |
 | --- | --- | --- |
-| `generate.py` / `generate_retry.py` | Keep plan building, ID resolution, progress events, and outcome projection. Move generation retry sleeps and wait/poll execution behind one artifact facade/service entry point in P4; delete the duplicate `_app` execution loop then. | The facade accepts scalar timeout/retry inputs and creates or receives one private absolute deadline. `_app` forwards the caller's values once and never imports `RuntimeDeadline`. |
+| `generate.py` / `generate_retry.py` | Keep plan building, ID resolution, optional wait dispatch, progress events, and outcome projection. In P4.2 remove the internal use of the exported `notebooklm.artifacts.with_rate_limit_retry` loop by moving retry execution behind one artifact facade/service entry point; preserve the public helper for external callers. Artifact polling already executes only in the public facade. | The facade accepts scalar timeout/retry inputs and creates or receives one private absolute deadline. `_app` forwards the caller's values once and never imports `RuntimeDeadline`. |
 | `source_wait.py` | Keep validation, multi-result shaping, and exception-to-outcome projection. The public source facade remains the sole polling authority. | Forward the existing scalar `timeout` once; the source facade starts the private deadline and threads it through list/poll calls. |
 | `download.py` | Keep artifact selection, filename/conflict policy, multi-item composition, progress, and result shaping. Network listing and each download remain separate facade operations. | Each facade operation owns its own semantic deadline from an explicit scalar or client configuration. No artificial command-wide deadline is added to a multi-download workflow. |
 | `pagination.py` | Keep the pure bounded slice. Remove its claim about the native protocol; pagination support is a backend capability/catalog fact. | None: it performs no I/O and owns no clock. |
@@ -123,8 +123,8 @@ P0 establishes evidence before runtime delegation:
   explicit scope/disposition and its own override proof: source dataflow plus a parameterized
   runtime test. Semantic owner, policy, route context, composite behavior, and migration
   disposition remain reviewed metadata. Missing, duplicate, or unallocated authorities and public
-  members fail the audit rather than becoming silent omissions. P0 allocates 159 authority rows;
-  41 operations have more than one, with 13 reviewed divergences (12 authority and one policy).
+  members fail the audit rather than becoming silent omissions. P0 allocates 157 authority rows;
+  39 operations have more than one, with 11 reviewed divergences (10 authority and one policy).
   Four native golden rows remain explicitly `not_recorded` rather than claiming
   evidence that does not exist.
 - `public_model_contract` freezes every dataclass and enum reachable through the `__all__` of a
