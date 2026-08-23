@@ -5,9 +5,13 @@ from __future__ import annotations
 import copy
 import json
 import shutil
-from pathlib import Path
+from collections.abc import Callable
+from pathlib import Path, PurePath, PureWindowsPath
 
 import pytest
+from scripts.audit_adapter_json_sinks import (
+    _relative_source_path as _sink_relative_source_path,
+)
 from scripts.audit_adapter_json_sinks import (
     assert_exact_sink_dispositions,
     assert_no_unreviewed_direct_json_emissions,
@@ -22,6 +26,9 @@ from scripts.audit_adapter_projection_paths import (
 
 import notebooklm
 from tests._baselines import adapter_sink_reachability as reachability
+from tests._baselines.json_envelope_contracts import (
+    _relative_source_path as _contract_relative_source_path,
+)
 
 
 def _source_root() -> Path:
@@ -32,6 +39,19 @@ def _write_adapter_source(root: Path, relative_path: str, source: str) -> None:
     path = root / "notebooklm" / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "relative_source_path",
+    [_sink_relative_source_path, _contract_relative_source_path],
+)
+def test_relative_source_paths_are_posix_on_windows(
+    relative_source_path: Callable[[PurePath, PurePath], str],
+) -> None:
+    root = PureWindowsPath(r"C:\repo\src")
+    path = root / "notebooklm" / "cli" / "artifact_cmd.py"
+
+    assert relative_source_path(path, root) == "notebooklm/cli/artifact_cmd.py"
 
 
 def test_inventory_covers_every_current_terminal_adapter_site() -> None:

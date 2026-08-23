@@ -20,7 +20,7 @@ import hashlib
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Literal, cast
 
 Channel = Literal["cli --json", "mcp tool result", "mcp auxiliary response", "rest response"]
@@ -448,8 +448,8 @@ def _python_files(path: Path) -> Iterator[Path]:
     yield from sorted(path.rglob("*.py"))
 
 
-def _relative_source_path(path: Path, source_root: Path) -> str:
-    return str(path.relative_to(source_root))
+def _relative_source_path(path: PurePath, source_root: PurePath) -> str:
+    return path.relative_to(source_root).as_posix()
 
 
 def _keyword_value(node: ast.Call, name: str) -> ast.expr | None:
@@ -774,7 +774,7 @@ def assert_supported_adapter_registrations(source_root: Path) -> None:
                     continue
                 if owner_name == "router" and id(node) in decorator_calls:
                     continue
-                relative = path.relative_to(source_root)
+                relative = _relative_source_path(path, source_root)
                 violations.append(f"{relative}:{node.lineno}:{owner_name}.{_call_name(node)}")
     # A Starlette Route(...) constructor is another externally reachable route
     # registration style.  The OAuth login route is the one reviewed non-JSON
@@ -786,7 +786,7 @@ def assert_supported_adapter_registrations(source_root: Path) -> None:
                 continue
             if node.func.id != "Route":
                 continue
-            relative = str(path.relative_to(source_root))
+            relative = _relative_source_path(path, source_root)
             reviewed_oauth_login = _is_reviewed_oauth_login_route(relative, node)
             if not reviewed_oauth_login:
                 violations.append(f"{relative}:{node.lineno}:Route")

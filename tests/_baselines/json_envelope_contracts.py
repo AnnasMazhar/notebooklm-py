@@ -7,7 +7,7 @@ import dataclasses
 import hashlib
 import importlib
 import typing
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 from .json_envelope_specs import _CHANNEL_PROJECTION_SPECS
@@ -110,6 +110,11 @@ def _source_module_name(path: Path, source_root: Path) -> tuple[str, str]:
         return module_name, module_name
     module_name = ".".join(parts)
     return module_name, module_name.rpartition(".")[0]
+
+
+def _relative_source_path(path: PurePath, source_root: PurePath) -> str:
+    """Return a platform-independent repository-relative source path."""
+    return path.relative_to(source_root).as_posix()
 
 
 def _resolved_import_module(node: ast.ImportFrom, package: str) -> str | None:
@@ -228,10 +233,10 @@ def _supplemental_channel_import_references() -> dict[str, dict[str, list[str]]]
         references: dict[str, set[str]] = {}
         secret_violations: list[str] = []
         for path in sorted((package_root / relative_root).rglob("*.py")):
-            relative_path = path.relative_to(source_root)
+            relative_path = _relative_source_path(path, source_root)
             source = path.read_text(encoding="utf-8")
             secret_violations.extend(
-                _secret_serialization_violations(source, filename=str(relative_path))
+                _secret_serialization_violations(source, filename=relative_path)
             )
             tree = ast.parse(source, filename=str(path))
             _module_name, package = _source_module_name(path, source_root)
