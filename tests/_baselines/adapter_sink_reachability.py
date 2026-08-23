@@ -148,6 +148,30 @@ def _specific_review_note(allocation: dict[str, object], *, identity: str) -> st
     return note
 
 
+def _validate_non_public_variants(allocation: dict[str, object], *, identity: str) -> None:
+    variants = allocation.get("non_public_variants")
+    if variants is None:
+        return
+    if "projection_ids" not in allocation or not isinstance(variants, list) or not variants:
+        raise ValueError(f"invalid non-public projection variants at {identity}")
+    conditions: set[str] = set()
+    for variant in variants:
+        if not isinstance(variant, dict):
+            raise ValueError(f"invalid non-public projection variant at {identity}")
+        condition = variant.get("condition")
+        category = variant.get("category")
+        if (
+            not isinstance(condition, str)
+            or len(condition.strip()) < 20
+            or condition in conditions
+            or not isinstance(category, str)
+            or category not in _NON_PUBLIC_CATEGORIES
+        ):
+            raise ValueError(f"invalid non-public projection variant at {identity}")
+        conditions.add(condition)
+        _specific_review_note(variant, identity=f"{identity}:{condition}")
+
+
 def _private_path_key(row: PrivateDataclassProjectionPath) -> tuple[str, str, str]:
     return (
         str(row.private_model),
@@ -351,6 +375,7 @@ def derive_adapter_sink_reachability_contract(
     helper_symbols: set[str] = set()
     for locator, sink in discovered.items():
         allocation = reviewed[locator]
+        _validate_non_public_variants(allocation, identity=locator)
         selected = {
             key
             for key in ("projection_ids", "non_public_category", "infrastructure_category")

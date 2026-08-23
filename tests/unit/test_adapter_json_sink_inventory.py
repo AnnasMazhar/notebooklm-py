@@ -790,6 +790,43 @@ def test_status_derived_contributions_are_on_exact_terminal_or_error_funnel() ->
         assert projection_id in allocations[locator]["projection_ids"]
 
 
+def test_mcp_source_add_projections_follow_exact_return_branches() -> None:
+    allocations = reachability._load_reviewed_allocations()
+    expected_source_ids = {
+        1: {"mcp.Source.transitive-batch-added-item-final-wrapper"},
+        2: {"mcp.Source.app-view-source-wait-final-wrapper"},
+        3: {"mcp.Source.app-view-source-add-final-wrapper"},
+        4: set(),
+        5: {"mcp.Source.app-view-source-wait-final-wrapper"},
+        6: {"mcp.Source.app-view-source-add-drive-final-wrapper"},
+        7: {"mcp.Source.app-view-source-wait-final-wrapper"},
+        8: {"mcp.Source.app-view-source-add-final-wrapper"},
+    }
+    for ordinal, expected in expected_source_ids.items():
+        locator = (
+            f"mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|{ordinal}"
+        )
+        actual = {
+            projection_id
+            for projection_id in allocations[locator]["projection_ids"]
+            if projection_id.startswith("mcp.Source.")
+        }
+        assert actual == expected
+
+    rest_batch = allocations[
+        "rest response|notebooklm/server/routes/sources.py|add_batch|return|1"
+    ]["projection_ids"]
+    assert rest_batch == ["rest.Source.transitive-batch-added-item-final-wrapper"]
+    for locator in (
+        "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|1",
+        "rest response|notebooklm/server/routes/sources.py|add_batch|return|1",
+    ):
+        variants = allocations[locator]["non_public_variants"]
+        assert [variant["condition"] for variant in variants] == [
+            "all batch inputs fail before any Source instance is returned"
+        ]
+
+
 def test_reachability_rejects_unallocated_known_projection_id() -> None:
     with pytest.raises(ValueError, match="no adapter terminal allocation"):
         reachability.derive_adapter_sink_reachability_contract(
@@ -849,6 +886,21 @@ def test_sink_allocations_reject_duplicate_and_generic_review_rows(
         _write_allocation_copy(tmp_path, "generic.json", generic),
     )
     with pytest.raises(ValueError, match="generic review_note"):
+        reachability.derive_adapter_sink_reachability_contract(
+            _source_root(), known_projection_ids=_allocation_projection_ids()
+        )
+
+    invalid_variant = copy.deepcopy(raw)
+    variant_row = next(
+        row for row in invalid_variant["allocations"] if "non_public_variants" in row
+    )
+    variant_row["non_public_variants"][0]["category"] = "generic"
+    monkeypatch.setattr(
+        reachability,
+        "_ALLOCATION_PATH",
+        _write_allocation_copy(tmp_path, "invalid-variant.json", invalid_variant),
+    )
+    with pytest.raises(ValueError, match="invalid non-public projection variant"):
         reachability.derive_adapter_sink_reachability_contract(
             _source_root(), known_projection_ids=_allocation_projection_ids()
         )

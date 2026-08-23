@@ -140,7 +140,6 @@
       "projection_ids": ["cli.Source.transitive-add-drive-final-wrapper", "mcp.Source.app-view-source-add-drive-final-wrapper", "rest.Source.app-view-source-view"],
       "terminal_locators": [
         "cli --json|notebooklm/cli/_source_render.py|_render_source_add_drive_result|json_output_response|1",
-        "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|5",
         "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|6",
         "rest response|notebooklm/server/routes/sources.py|add_drive|return|1"
       ]

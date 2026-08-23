@@ -1142,7 +1142,6 @@
       "projection_ids": [
         "mcp.NotebookDescription.nested-notebook-describe-final",
         "mcp.NotebookDescription.nested-notebook-describe-final.nested-suggested_topics-SuggestedTopic",
-        "mcp.Notebook.app-view-notebook-metadata-nested",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
       ]
     },
@@ -1462,15 +1461,21 @@
     {
       "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|1",
       "projection_ids": [
-        "mcp.Source.transitive-batch-error-item-final-wrapper",
+        "mcp.Source.transitive-batch-added-item-final-wrapper",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "all batch inputs fail before any Source instance is returned",
+          "category": "mcp-scalar-result",
+          "review_note": "The all-error batch variant contains only input indexes, private per-item error payloads, and scalar summary counts; the Source added-item projection is conditional on at least one successful Source result."
+        }
       ]
     },
     {
       "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|2",
       "projection_ids": [
-        "mcp.Source.app-view-source-add-final-wrapper",
-        "mcp.Source.transitive-batch-added-item-final-wrapper",
+        "mcp.Source.app-view-source-wait-final-wrapper",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
       ]
     },
@@ -1478,7 +1483,6 @@
       "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|3",
       "projection_ids": [
         "mcp.Source.app-view-source-add-final-wrapper",
-        "mcp.Source.transitive-batch-added-item-final-wrapper",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
       ]
     },
@@ -1491,7 +1495,7 @@
     {
       "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|5",
       "projection_ids": [
-        "mcp.Source.app-view-source-add-drive-final-wrapper",
+        "mcp.Source.app-view-source-wait-final-wrapper",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
       ]
     },
@@ -1505,8 +1509,7 @@
     {
       "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|7",
       "projection_ids": [
-        "mcp.Source.app-view-source-add-final-wrapper",
-        "mcp.Source.transitive-batch-added-item-final-wrapper",
+        "mcp.Source.app-view-source-wait-final-wrapper",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
       ]
     },
@@ -1514,7 +1517,6 @@
       "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|8",
       "projection_ids": [
         "mcp.Source.app-view-source-add-final-wrapper",
-        "mcp.Source.transitive-batch-added-item-final-wrapper",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
       ]
     },
@@ -2260,8 +2262,14 @@
     {
       "locator": "rest response|notebooklm/server/routes/sources.py|add_batch|return|1",
       "projection_ids": [
-        "rest.Source.transitive-batch-added-item-final-wrapper",
-        "rest.Source.transitive-batch-error-item-final-wrapper"
+        "rest.Source.transitive-batch-added-item-final-wrapper"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "all batch inputs fail before any Source instance is returned",
+          "category": "rest-scalar-response",
+          "review_note": "The all-error REST batch variant contains request indexes, URLs, and classified private error bodies only; the Source added-item projection is conditional on at least one successful Source result."
+        }
       ]
     },
     {
