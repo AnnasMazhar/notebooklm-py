@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 from scripts.audit_adapter_json_sinks import (
     assert_exact_sink_dispositions,
+    assert_no_unreviewed_direct_json_emissions,
+    assert_supported_adapter_registrations,
     discover_adapter_json_sinks,
     fingerprint_adapter_helpers,
 )
@@ -35,7 +37,7 @@ def test_inventory_covers_every_current_terminal_adapter_site() -> None:
         for channel in ("cli --json", "mcp tool result", "rest response")
     }
     assert {channel: len(rows) for channel, rows in by_channel.items()} == {
-        "cli --json": 157,
+        "cli --json": 160,
         "mcp tool result": 61,
         "rest response": 47,
     }
@@ -45,11 +47,13 @@ def test_inventory_covers_every_current_terminal_adapter_site() -> None:
     } == {
         "projection": 105,
         "error-projection": 49,
-        "forwarding-infrastructure": 3,
+        "forwarding-infrastructure": 6,
     }
     assert len({sink.id for sink in sinks}) == len(sinks)
     assert all(sink.expression_fingerprint.startswith("sha256:") for sink in sinks)
     assert all(sink.owner_fingerprint.startswith("sha256:") for sink in sinks)
+    assert_no_unreviewed_direct_json_emissions(sinks)
+    assert_supported_adapter_registrations(_source_root())
 
 
 def test_private_dto_catalog_covers_every_annotation_proven_public_model_path() -> None:
@@ -328,6 +332,74 @@ def real_route():
         ("mcp tool result", "real_tool"),
         ("rest response", "real_route"),
     ]
+
+
+def test_direct_cli_json_bypass_is_discovered_and_rejected(tmp_path: Path) -> None:
+    _write_adapter_source(
+        tmp_path,
+        "cli/example.py",
+        """
+import json
+import click
+
+def command(payload):
+    click.echo(json.dumps(payload))
+""",
+    )
+
+    sinks = discover_adapter_json_sinks(tmp_path)
+
+    assert len(sinks) == 1
+    assert sinks[0].kind == "direct-json-emission"
+    with pytest.raises(ValueError, match="unreviewed direct CLI JSON emissions"):
+        assert_no_unreviewed_direct_json_emissions(sinks)
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "source"),
+    [
+        (
+            "mcp/dynamic.py",
+            """
+def register(mcp):
+    def hidden_tool():
+        return {"hidden": True}
+    mcp.add_tool(hidden_tool)
+""",
+        ),
+        (
+            "server/routes/dynamic.py",
+            """
+def hidden_route():
+    return {"hidden": True}
+router.add_api_route("/hidden", hidden_route)
+""",
+        ),
+    ],
+)
+def test_dynamic_adapter_registration_is_rejected(
+    tmp_path: Path, relative_path: str, source: str
+) -> None:
+    _write_adapter_source(tmp_path, relative_path, source)
+
+    with pytest.raises(ValueError, match="unsupported dynamic adapter registrations"):
+        assert_supported_adapter_registrations(tmp_path)
+
+
+def test_decorated_mcp_tool_registration_is_supported(tmp_path: Path) -> None:
+    _write_adapter_source(
+        tmp_path,
+        "mcp/tools/example.py",
+        """
+def register(mcp):
+    @mcp.tool(annotations={"readOnlyHint": True})
+    def visible_tool():
+        return {"visible": True}
+""",
+    )
+
+    assert_supported_adapter_registrations(tmp_path)
+    assert len(discover_adapter_json_sinks(tmp_path)) == 1
 
 
 def test_qualified_owner_includes_class_scope(tmp_path: Path) -> None:

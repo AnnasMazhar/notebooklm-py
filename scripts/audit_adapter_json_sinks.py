@@ -37,6 +37,13 @@ _CLI_FORWARDING_OWNERS = frozenset(
         ("notebooklm/cli/rendering.py", "json_error_response"),
     }
 )
+_CLI_DIRECT_JSON_OWNERS = frozenset(
+    {
+        ("notebooklm/cli/error_handler.py", "_output_error"),
+        ("notebooklm/cli/error_handler.py", "emit_cancelled_and_exit"),
+        ("notebooklm/cli/rendering.py", "json_output_response"),
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -114,6 +121,29 @@ def _call_name(node: ast.Call) -> str | None:
         return node.func.id
     if isinstance(node.func, ast.Attribute):
         return node.func.attr
+    return None
+
+
+def _call_owner_name(node: ast.Call) -> str | None:
+    if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+        return node.func.value.id
+    return None
+
+
+def _json_dumps_argument(node: ast.Call) -> ast.expr | None:
+    if _call_name(node) != "dumps" or _call_owner_name(node) != "json":
+        return None
+    return node.args[0] if node.args else None
+
+
+def _direct_json_argument(node: ast.Call) -> ast.expr | None:
+    if _call_name(node) not in {"echo", "print", "write"}:
+        return None
+    for child in ast.walk(node):
+        if isinstance(child, ast.Call):
+            argument = _json_dumps_argument(child)
+            if argument is not None:
+                return argument
     return None
 
 
@@ -219,6 +249,22 @@ class _CliSinkVisitor(_OwnedNodeVisitor):
                     kind=cast(str, call_name),
                     site_role=site_role,
                     expression=expression,
+                    owner_node=self.owner,
+                    lineno=node.lineno,
+                    col_offset=node.col_offset,
+                )
+            )
+        direct_expression = _direct_json_argument(node)
+        if direct_expression is not None:
+            direct_forwarding = (self.path, self.qualname) in _CLI_DIRECT_JSON_OWNERS
+            self.rows.append(
+                _Candidate(
+                    channel="cli --json",
+                    path=self.path,
+                    owner=self.qualname,
+                    kind="direct-json-emission",
+                    site_role=("forwarding-infrastructure" if direct_forwarding else "projection"),
+                    expression=direct_expression,
                     owner_node=self.owner,
                     lineno=node.lineno,
                     col_offset=node.col_offset,
@@ -394,6 +440,55 @@ def fingerprint_adapter_helpers(source_root: Path, helper_symbols: Iterable[str]
     return {symbol: fingerprints[symbol] for symbol in sorted(fingerprints)}
 
 
+def assert_no_unreviewed_direct_json_emissions(sinks: Iterable[AdapterJsonSink]) -> None:
+    """Reject CLI stdout JSON that bypasses the reviewed rendering funnels."""
+    violations = sorted(
+        sink.id
+        for sink in sinks
+        if sink.kind == "direct-json-emission" and sink.site_role != "forwarding-infrastructure"
+    )
+    if violations:
+        raise ValueError(f"unreviewed direct CLI JSON emissions: {violations}")
+
+
+def assert_supported_adapter_registrations(source_root: Path) -> None:
+    """Reject tool/route registration styles the terminal scanner cannot follow."""
+    violations: list[str] = []
+    roots = (
+        (source_root / "notebooklm" / "mcp", "mcp", {"add_tool", "tool"}),
+        (
+            source_root / "notebooklm" / "server" / "routes",
+            "router",
+            {"add_api_route", "api_route", "add_route", "route"},
+        ),
+    )
+    for root, owner_name, rejected_names in roots:
+        for path in _python_files(root):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            decorator_calls = {
+                id(decorator)
+                for node in ast.walk(tree)
+                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+                for decorator in node.decorator_list
+                if isinstance(decorator, ast.Call)
+            }
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if _call_owner_name(node) != owner_name or _call_name(node) not in rejected_names:
+                    continue
+                if (
+                    owner_name == "mcp"
+                    and _call_name(node) == "tool"
+                    and id(node) in decorator_calls
+                ):
+                    continue
+                relative = path.relative_to(source_root)
+                violations.append(f"{relative}:{node.lineno}:{owner_name}.{_call_name(node)}")
+    if violations:
+        raise ValueError(f"unsupported dynamic adapter registrations: {sorted(violations)}")
+
+
 def assert_exact_sink_dispositions(
     sinks: Iterable[AdapterJsonSink],
     dispositions: dict[str, object],
@@ -476,6 +571,8 @@ def assert_exact_sink_dispositions(
 __all__ = [
     "AdapterJsonSink",
     "assert_exact_sink_dispositions",
+    "assert_no_unreviewed_direct_json_emissions",
+    "assert_supported_adapter_registrations",
     "discover_adapter_json_sinks",
     "fingerprint_adapter_helpers",
 ]
