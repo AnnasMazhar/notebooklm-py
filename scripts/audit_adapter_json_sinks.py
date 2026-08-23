@@ -18,12 +18,12 @@ from __future__ import annotations
 import ast
 import hashlib
 from collections import Counter
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal, cast
 
-Channel = Literal["cli --json", "mcp tool result", "rest response"]
+Channel = Literal["cli --json", "mcp tool result", "mcp auxiliary response", "rest response"]
 SiteRole = Literal["projection", "error-projection", "forwarding-infrastructure"]
 
 _REST_DECORATORS = frozenset({"delete", "get", "patch", "post", "put"})
@@ -130,18 +130,34 @@ def _call_owner_name(node: ast.Call) -> str | None:
     return None
 
 
-def _json_dumps_argument(node: ast.Call) -> ast.expr | None:
-    if _call_name(node) != "dumps" or _call_owner_name(node) != "json":
+def _json_dumps_argument(
+    node: ast.Call,
+    *,
+    module_aliases: frozenset[str],
+    dumps_aliases: frozenset[str],
+) -> ast.expr | None:
+    qualified = _call_name(node) == "dumps" and _call_owner_name(node) in module_aliases
+    direct = isinstance(node.func, ast.Name) and node.func.id in dumps_aliases
+    if not qualified and not direct:
         return None
     return node.args[0] if node.args else None
 
 
-def _direct_json_argument(node: ast.Call) -> ast.expr | None:
+def _direct_json_argument(
+    node: ast.Call,
+    *,
+    module_aliases: frozenset[str],
+    dumps_aliases: frozenset[str],
+) -> ast.expr | None:
     if _call_name(node) not in {"echo", "print", "write"}:
         return None
     for child in ast.walk(node):
         if isinstance(child, ast.Call):
-            argument = _json_dumps_argument(child)
+            argument = _json_dumps_argument(
+                child,
+                module_aliases=module_aliases,
+                dumps_aliases=dumps_aliases,
+            )
             if argument is not None:
                 return argument
     return None
@@ -170,9 +186,31 @@ def _is_mcp_tool(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     )
 
 
+def _is_mcp_custom_route(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    return any(
+        _decorator_owner(decorator) == "mcp" and _decorator_name(decorator) == "custom_route"
+        for decorator in node.decorator_list
+    )
+
+
 def _is_rest_handler(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     return any(
-        _decorator_owner(decorator) == "router" and _decorator_name(decorator) in _REST_DECORATORS
+        _decorator_owner(decorator) in {"app", "router"}
+        and _decorator_name(decorator) in _REST_DECORATORS
+        for decorator in node.decorator_list
+    )
+
+
+def _is_rest_exception_handler(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    return any(
+        _decorator_owner(decorator) == "app" and _decorator_name(decorator) == "exception_handler"
+        for decorator in node.decorator_list
+    )
+
+
+def _is_rest_http_middleware(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    return any(
+        _decorator_owner(decorator) == "app" and _decorator_name(decorator) == "middleware"
         for decorator in node.decorator_list
     )
 
@@ -225,10 +263,14 @@ class _CliSinkVisitor(_OwnedNodeVisitor):
         *,
         path: str,
         qualname: str,
+        json_module_aliases: frozenset[str],
+        json_dumps_aliases: frozenset[str],
     ) -> None:
         super().__init__(owner)
         self.path = path
         self.qualname = qualname
+        self.json_module_aliases = json_module_aliases
+        self.json_dumps_aliases = json_dumps_aliases
         self.rows: list[_Candidate] = []
 
     def visit_Call(self, node: ast.Call) -> None:
@@ -254,7 +296,11 @@ class _CliSinkVisitor(_OwnedNodeVisitor):
                     col_offset=node.col_offset,
                 )
             )
-        direct_expression = _direct_json_argument(node)
+        direct_expression = _direct_json_argument(
+            node,
+            module_aliases=self.json_module_aliases,
+            dumps_aliases=self.json_dumps_aliases,
+        )
         if direct_expression is not None:
             direct_forwarding = (self.path, self.qualname) in _CLI_DIRECT_JSON_OWNERS
             self.rows.append(
@@ -305,6 +351,99 @@ class _ReturnSinkVisitor(_OwnedNodeVisitor):
         self.generic_visit(node)
 
 
+class _McpErrorFunnelVisitor(_OwnedNodeVisitor):
+    """Record each registered tool's central ``mcp_errors`` serialization boundary."""
+
+    def __init__(
+        self,
+        owner: ast.FunctionDef | ast.AsyncFunctionDef,
+        *,
+        path: str,
+        qualname: str,
+    ) -> None:
+        super().__init__(owner)
+        self.path = path
+        self.qualname = qualname
+        self.rows: list[_Candidate] = []
+
+    def _visit_with(self, node: ast.With | ast.AsyncWith) -> None:
+        for item in node.items:
+            expression = item.context_expr
+            if isinstance(expression, ast.Call) and _call_name(expression) == "mcp_errors":
+                self.rows.append(
+                    _Candidate(
+                        channel="mcp tool result",
+                        path=self.path,
+                        owner=self.qualname,
+                        kind="tool-error-funnel",
+                        site_role="error-projection",
+                        expression=expression,
+                        owner_node=self.owner,
+                        lineno=node.lineno,
+                        col_offset=node.col_offset,
+                    )
+                )
+        self.generic_visit(node)
+
+    visit_With = _visit_with
+    visit_AsyncWith = _visit_with
+
+
+class _JsonResponseSinkVisitor(_ReturnSinkVisitor):
+    """Collect only JSONResponse terminals inside an MCP auxiliary HTTP route."""
+
+    def __init__(self, *args: object, site_role: SiteRole = "projection", **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self._site_role = site_role
+
+    def visit_Return(self, node: ast.Return) -> None:
+        value = node.value
+        if isinstance(value, ast.Call) and _call_name(value) == "JSONResponse":
+            expression = value.args[0] if value.args else _keyword_value(value, "content")
+            if expression is None:
+                self.generic_visit(node)
+                return
+            self.rows.append(
+                _Candidate(
+                    channel=self.channel,
+                    path=self.path,
+                    owner=self.qualname,
+                    kind="json-response-return",
+                    site_role=self._site_role,
+                    expression=expression,
+                    owner_node=self.owner,
+                    lineno=node.lineno,
+                    col_offset=node.col_offset,
+                )
+            )
+        self.generic_visit(node)
+
+
+class _NamedResponseSinkVisitor(_ReturnSinkVisitor):
+    """Collect returns routed through one of the named JSON response helpers."""
+
+    def visit_Return(self, node: ast.Return) -> None:
+        value = node.value
+        if isinstance(value, ast.Call) and _call_name(value) in {
+            "error_response",
+            "http_error_response",
+        }:
+            self.rows.append(
+                _Candidate(
+                    channel=self.channel,
+                    path=self.path,
+                    owner=self.qualname,
+                    kind="json-helper-return",
+                    site_role="projection",
+                    expression=value,
+                    owner_node=self.owner,
+                    lineno=node.lineno,
+                    col_offset=node.col_offset,
+                )
+            )
+        self.generic_visit(node)
+
+
 def _python_files(path: Path) -> Iterator[Path]:
     yield from sorted(path.rglob("*.py"))
 
@@ -328,6 +467,21 @@ def _error_extra_expression(node: ast.Call, call_name: str) -> ast.expr | None:
     return None
 
 
+def _json_import_aliases(tree: ast.Module) -> tuple[frozenset[str], frozenset[str]]:
+    modules: set[str] = set()
+    dumps: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "json":
+                    modules.add(alias.asname or "json")
+        elif isinstance(node, ast.ImportFrom) and node.module == "json":
+            for alias in node.names:
+                if alias.name in {"dumps", "*"}:
+                    dumps.add(alias.asname or "dumps")
+    return frozenset(modules), frozenset(dumps)
+
+
 def _discover_candidates(source_root: Path) -> list[_Candidate]:
     package_root = source_root / "notebooklm"
     candidates: list[_Candidate] = []
@@ -335,11 +489,13 @@ def _discover_candidates(source_root: Path) -> list[_Candidate]:
     channel_roots: tuple[tuple[Channel, Path], ...] = (
         ("cli --json", package_root / "cli"),
         ("mcp tool result", package_root / "mcp"),
-        ("rest response", package_root / "server" / "routes"),
+        ("mcp auxiliary response", package_root / "mcp"),
+        ("rest response", package_root / "server"),
     )
     for channel, root in channel_roots:
         for path in _python_files(root):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            json_module_aliases, json_dumps_aliases = _json_import_aliases(tree)
             functions = _FunctionCollector()
             functions.visit(tree)
             relative_path = _relative_source_path(path, source_root)
@@ -349,6 +505,8 @@ def _discover_candidates(source_root: Path) -> list[_Candidate]:
                         function,
                         path=relative_path,
                         qualname=qualname,
+                        json_module_aliases=json_module_aliases,
+                        json_dumps_aliases=json_dumps_aliases,
                     )
                 elif channel == "mcp tool result":
                     if not _is_mcp_tool(function):
@@ -359,8 +517,15 @@ def _discover_candidates(source_root: Path) -> list[_Candidate]:
                         path=relative_path,
                         qualname=qualname,
                     )
-                else:
-                    if not _is_rest_handler(function):
+                    errors = _McpErrorFunnelVisitor(
+                        function,
+                        path=relative_path,
+                        qualname=qualname,
+                    )
+                    errors.visit(function)
+                    candidates.extend(errors.rows)
+                elif channel == "mcp auxiliary response":
+                    if not _is_mcp_custom_route(function):
                         continue
                     visitor = _ReturnSinkVisitor(
                         function,
@@ -368,6 +533,34 @@ def _discover_candidates(source_root: Path) -> list[_Candidate]:
                         path=relative_path,
                         qualname=qualname,
                     )
+                else:
+                    if _is_rest_handler(function) or _is_rest_exception_handler(function):
+                        visitor = _ReturnSinkVisitor(
+                            function,
+                            channel=channel,
+                            path=relative_path,
+                            qualname=qualname,
+                        )
+                    elif _is_rest_http_middleware(function):
+                        visitor = _NamedResponseSinkVisitor(
+                            function,
+                            channel=channel,
+                            path=relative_path,
+                            qualname=qualname,
+                        )
+                    elif relative_path == "notebooklm/server/_errors.py" and qualname in {
+                        "error_response",
+                        "http_error_response",
+                    }:
+                        visitor = _JsonResponseSinkVisitor(
+                            function,
+                            channel=channel,
+                            path=relative_path,
+                            qualname=qualname,
+                            site_role="forwarding-infrastructure",
+                        )
+                    else:
+                        continue
                 visitor.visit(function)
                 candidates.extend(visitor.rows)
     return candidates
@@ -440,6 +633,50 @@ def fingerprint_adapter_helpers(source_root: Path, helper_symbols: Iterable[str]
     return {symbol: fingerprints[symbol] for symbol in sorted(fingerprints)}
 
 
+def fingerprint_adapter_evidence(
+    source_root: Path,
+    required_ast_fragments: Mapping[str, Iterable[str]],
+) -> dict[str, str]:
+    """Fingerprint named function scopes and require normalized AST evidence fragments."""
+    requirements = {
+        symbol: tuple(fragments) for symbol, fragments in required_ast_fragments.items()
+    }
+    if any(
+        not symbol
+        or not fragments
+        or any(not isinstance(fragment, str) or not fragment for fragment in fragments)
+        for symbol, fragments in requirements.items()
+    ):
+        raise ValueError("adapter evidence requires named scopes and non-empty AST fragments")
+
+    fingerprints = fingerprint_adapter_helpers(source_root, requirements)
+    normalized_scopes: dict[str, str] = {}
+    for path in _python_files(source_root / "notebooklm"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        functions = _FunctionCollector()
+        functions.visit(tree)
+        module_path = path.relative_to(source_root).with_suffix("")
+        module_parts = list(module_path.parts)
+        if module_parts[-1] == "__init__":
+            module_parts.pop()
+        module = ".".join(module_parts)
+        for qualname, function in functions.rows:
+            symbol = f"{module}.{qualname}"
+            if symbol in requirements:
+                normalized_scopes[symbol] = ast.unparse(function)
+
+    missing_fragments = {
+        symbol: [fragment for fragment in fragments if fragment not in normalized_scopes[symbol]]
+        for symbol, fragments in requirements.items()
+    }
+    missing_fragments = {
+        symbol: fragments for symbol, fragments in missing_fragments.items() if fragments
+    }
+    if missing_fragments:
+        raise ValueError(f"missing required adapter evidence AST fragments: {missing_fragments}")
+    return fingerprints
+
+
 def assert_no_unreviewed_direct_json_emissions(sinks: Iterable[AdapterJsonSink]) -> None:
     """Reject CLI stdout JSON that bypasses the reviewed rendering funnels."""
     violations = sorted(
@@ -451,15 +688,65 @@ def assert_no_unreviewed_direct_json_emissions(sinks: Iterable[AdapterJsonSink])
         raise ValueError(f"unreviewed direct CLI JSON emissions: {violations}")
 
 
+def _is_reviewed_oauth_login_route(relative: str, node: ast.Call) -> bool:
+    if relative != "notebooklm/mcp/_oauth.py" or len(node.args) < 2:
+        return False
+    path_arg, handler_arg = node.args[:2]
+    methods = _keyword_value(node, "methods")
+    return (
+        isinstance(path_arg, ast.Constant)
+        and path_arg.value == "/login"
+        and isinstance(handler_arg, ast.Attribute)
+        and isinstance(handler_arg.value, ast.Name)
+        and handler_arg.value.id == "self"
+        and handler_arg.attr == "_login"
+        and isinstance(methods, ast.List)
+        and [item.value for item in methods.elts if isinstance(item, ast.Constant)]
+        == ["GET", "POST"]
+        and len(methods.elts) == 2
+    )
+
+
 def assert_supported_adapter_registrations(source_root: Path) -> None:
     """Reject tool/route registration styles the terminal scanner cannot follow."""
     violations: list[str] = []
     roots = (
-        (source_root / "notebooklm" / "mcp", "mcp", {"add_tool", "tool"}),
         (
-            source_root / "notebooklm" / "server" / "routes",
+            source_root / "notebooklm" / "mcp",
+            "mcp",
+            {"add_tool", "tool", "add_custom_route", "custom_route"},
+        ),
+        (
+            source_root / "notebooklm" / "server",
             "router",
-            {"add_api_route", "api_route", "add_route", "route"},
+            {
+                "add_api_route",
+                "api_route",
+                "add_route",
+                "delete",
+                "get",
+                "patch",
+                "post",
+                "put",
+                "route",
+            },
+        ),
+        (
+            source_root / "notebooklm" / "server",
+            "app",
+            {
+                "add_api_route",
+                "add_exception_handler",
+                "api_route",
+                "delete",
+                "exception_handler",
+                "get",
+                "middleware",
+                "patch",
+                "post",
+                "put",
+                "route",
+            },
         ),
     )
     for root, owner_name, rejected_names in roots:
@@ -479,12 +766,30 @@ def assert_supported_adapter_registrations(source_root: Path) -> None:
                     continue
                 if (
                     owner_name == "mcp"
-                    and _call_name(node) == "tool"
+                    and _call_name(node) in {"custom_route", "tool"}
                     and id(node) in decorator_calls
                 ):
                     continue
+                if owner_name == "app" and id(node) in decorator_calls:
+                    continue
+                if owner_name == "router" and id(node) in decorator_calls:
+                    continue
                 relative = path.relative_to(source_root)
                 violations.append(f"{relative}:{node.lineno}:{owner_name}.{_call_name(node)}")
+    # A Starlette Route(...) constructor is another externally reachable route
+    # registration style.  The OAuth login route is the one reviewed non-JSON
+    # exception; any new constructor would otherwise bypass decorator discovery.
+    for path in _python_files(source_root / "notebooklm" / "mcp"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            if node.func.id != "Route":
+                continue
+            relative = str(path.relative_to(source_root))
+            reviewed_oauth_login = _is_reviewed_oauth_login_route(relative, node)
+            if not reviewed_oauth_login:
+                violations.append(f"{relative}:{node.lineno}:Route")
     if violations:
         raise ValueError(f"unsupported dynamic adapter registrations: {sorted(violations)}")
 
@@ -574,5 +879,6 @@ __all__ = [
     "assert_no_unreviewed_direct_json_emissions",
     "assert_supported_adapter_registrations",
     "discover_adapter_json_sinks",
+    "fingerprint_adapter_evidence",
     "fingerprint_adapter_helpers",
 ]
