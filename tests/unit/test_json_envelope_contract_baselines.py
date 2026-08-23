@@ -284,7 +284,7 @@ def test_json_envelope_preserves_original_exact_contract_assertions() -> None:
     }
     populated_metadata = mcp_metadata["transitive-notebook-describe-final-with-metadata"]
     null_metadata = mcp_metadata[
-        "transitive-notebook-describe-final-with-metadata-null-description"
+        "transitive:notebook-describe-final-with-metadata-null-description"
     ]
     for projection in (populated_metadata, null_metadata):
         assert projection["keys"] == ["notebook_id", "description", "metadata"]
@@ -302,7 +302,7 @@ def test_json_envelope_preserves_original_exact_contract_assertions() -> None:
     ]
     mcp_source = {row["mode"]: row for row in mcp["notebooklm.types.Source"]["projections"]}
     mcp_metadata_source = mcp_source[
-        "transitive-notebook-describe-metadata-source-summary-final-wrapper"
+        "transitive:notebook-describe-metadata-source-summary-final-wrapper"
     ]
     assert mcp_metadata_source["keys"] == ["notebook_id", "description", "metadata"]
     assert mcp_metadata_source["nested_keys"]["metadata.sources"] == [
@@ -745,7 +745,7 @@ def test_json_envelope_covers_exported_models_and_exact_adapter_variants() -> No
     assert "no ResearchSource field" in cli_import_refusal["contribution_semantics"]
     assert "transitive-source-add-research-completed-final-projection" in cli_research
     cli_source = {row["mode"]: row for row in cli["notebooklm.types.Source"]["projections"]}
-    cli_metadata_source = cli_source["transitive-notebook-metadata-source-summary-final-wrapper"]
+    cli_metadata_source = cli_source["transitive:notebook-metadata-source-summary-final-wrapper"]
     assert cli_metadata_source["nested_keys"]["sources"] == ["type", "title", "url"]
     assert cli_metadata_source["model_contribution_keys"] == ["title", "url", "_type_code"]
     assert "at least one listed public Source" in cli_metadata_source["projection_condition"]
@@ -1231,7 +1231,7 @@ def test_json_envelope_covers_exported_models_and_exact_adapter_variants() -> No
     prompt_rows = {
         row["mode"]: row for row in mcp["notebooklm.types.PromptSuggestion"]["projections"]
     }
-    suggestion_only = prompt_rows["manual-chat-suggestion-only-final-wrapper"]
+    suggestion_only = prompt_rows["manual:chat-suggestion-only-final-wrapper"]
     assert suggestion_only["keys"] == ["notebook_id", "suggested_prompts"]
     assert suggestion_only["optional_keys"] == ["history", "conversation_id", "source_ids"]
     share_rows = {row["mode"]: row for row in mcp["notebooklm.types.ShareStatus"]["projections"]}

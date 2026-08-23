@@ -7626,7 +7626,7 @@
               "emoji",
               "notebook_ids"
             ],
-            "mode": "manual-remove-membership-final-projection",
+            "mode": "manual:remove-membership-final-projection",
             "shape_derivation": "runtime:cli-collection-remove"
           },
           {
@@ -8706,7 +8706,7 @@
             "keys": [
               "id"
             ],
-            "mode": "always-listed-collection-membership-resolver-id-contribution",
+            "mode": "always-listed:collection-membership-resolver-id-contribution",
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
@@ -10146,7 +10146,7 @@
               "role",
               "sources"
             ],
-            "mode": "transitive-notebook-metadata-source-summary-final-wrapper",
+            "mode": "transitive:notebook-metadata-source-summary-final-wrapper",
             "model_contribution_keys": [
               "title",
               "url",
@@ -12658,7 +12658,7 @@
               "description",
               "metadata"
             ],
-            "mode": "transitive-notebook-describe-final-with-metadata-null-description",
+            "mode": "transitive:notebook-describe-final-with-metadata-null-description",
             "model_contribution_keys": [
               "notebook",
               "sources"
@@ -12745,7 +12745,7 @@
               "notebook_id",
               "suggested_prompts"
             ],
-            "mode": "manual-chat-suggestion-only-final-wrapper",
+            "mode": "manual:chat-suggestion-only-final-wrapper",
             "nested_keys": {
               "suggested_prompts": [
                 "title",
@@ -13756,7 +13756,7 @@
               "description",
               "metadata"
             ],
-            "mode": "transitive-notebook-describe-metadata-source-summary-final-wrapper",
+            "mode": "transitive:notebook-describe-metadata-source-summary-final-wrapper",
             "model_contribution_keys": [
               "title",
               "url",

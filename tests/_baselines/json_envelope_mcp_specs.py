@@ -857,7 +857,7 @@ MCP_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
     },
     {
         "model": "notebooklm.types.NotebookMetadata",
-        "mode": "transitive-notebook-describe-final-with-metadata-null-description",
+        "mode": "transitive:notebook-describe-final-with-metadata-null-description",
         "keys": ("notebook_id", "description", "metadata"),
         "nested_keys": {
             "metadata": ("notebook", "sources"),
@@ -929,7 +929,7 @@ MCP_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
     },
     {
         "model": "notebooklm.types.PromptSuggestion",
-        "mode": "manual-chat-suggestion-only-final-wrapper",
+        "mode": "manual:chat-suggestion-only-final-wrapper",
         "keys": ("notebook_id", "suggested_prompts"),
         "optional_keys": ("history", "conversation_id", "source_ids"),
         "nested_keys": {"suggested_prompts": ("title", "prompt")},
@@ -1389,7 +1389,7 @@ MCP_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
     },
     {
         "model": "notebooklm.types.Source",
-        "mode": "transitive-notebook-describe-metadata-source-summary-final-wrapper",
+        "mode": "transitive:notebook-describe-metadata-source-summary-final-wrapper",
         "keys": ("notebook_id", "description", "metadata"),
         "nested_keys": {
             "metadata": ("notebook", "sources"),

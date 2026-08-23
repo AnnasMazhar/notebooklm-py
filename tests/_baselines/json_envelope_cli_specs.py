@@ -471,7 +471,7 @@ CLI_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
     },
     {
         "model": "notebooklm.types.Collection",
-        "mode": "manual-remove-membership-final-projection",
+        "mode": "manual:remove-membership-final-projection",
         "evidence": ("notebooklm/cli/collection_cmd.py:removed_notebook_ids",),
         "derive": "runtime:cli-collection-remove",
     },
@@ -1493,7 +1493,7 @@ CLI_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
     },
     {
         "model": "notebooklm.types.Source",
-        "mode": "transitive-notebook-metadata-source-summary-final-wrapper",
+        "mode": "transitive:notebook-metadata-source-summary-final-wrapper",
         "keys": (
             "id",
             "title",
@@ -1578,7 +1578,7 @@ CLI_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
     },
     {
         "model": "notebooklm.types.Notebook",
-        "mode": "always-listed-collection-membership-resolver-id-contribution",
+        "mode": "always-listed:collection-membership-resolver-id-contribution",
         "keys": ("id",),
         "evidence": (
             "notebooklm/cli/collection_cmd.py:async def _resolve_notebook_ids",

@@ -15,7 +15,7 @@ from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm.rpc import RPCMethod
 from scripts import _operation_catalog_ast as catalog_ast
 from scripts import audit_operation_catalog as catalog
-from tests.unit.test_rpc_executor import _executor, _Owner
+from tests.unit._rpc_executor_support import _executor, _Owner
 
 
 def test_operation_definition_is_inert_frozen_slotted_vocabulary() -> None:
