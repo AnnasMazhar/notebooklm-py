@@ -3335,6 +3335,52 @@
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "adapter_surface": "MCP ToolError flat message",
+            "contribution_semantics": "Artifact.status is rendered through status_str into the actionable incomplete download ValidationError",
+            "evidence": [
+              "notebooklm/mcp/tools/studio.py:match.status_str",
+              "notebooklm/mcp/tools/studio.py:incomplete.status_str",
+              "notebooklm/mcp/_errors.py:def to_tool_error"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/mcp/_errors.py:def to_tool_error": "sha256:302e9e00b6f2aba750aba9afd81f87a65f41b77299ed43151424731d1d5ac734",
+              "notebooklm/mcp/tools/studio.py:incomplete.status_str": "sha256:867d5349d137efc0721669d835be10492982e61587ca8c0fe2e1a6c0bec8ac1a",
+              "notebooklm/mcp/tools/studio.py:match.status_str": "sha256:867d5349d137efc0721669d835be10492982e61587ca8c0fe2e1a6c0bec8ac1a"
+            },
+            "id": "mcp.Artifact.transitive-download-incomplete-status-error-text-contribution",
+            "keys": [
+              "message"
+            ],
+            "mode": "transitive-download-incomplete-status-error-text-contribution",
+            "model_contribution_keys": [
+              "status"
+            ],
+            "projection_condition": "a resolved artifact or explicit typed artifact id names an incomplete artifact",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "adapter_surface": "MCP ToolError flat message",
+            "contribution_semantics": "Artifact.status is rendered through status_str into the wrong-state retry ValidationError",
+            "evidence": [
+              "notebooklm/mcp/tools/studio.py:art.status_str",
+              "notebooklm/mcp/_errors.py:def to_tool_error"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/mcp/_errors.py:def to_tool_error": "sha256:302e9e00b6f2aba750aba9afd81f87a65f41b77299ed43151424731d1d5ac734",
+              "notebooklm/mcp/tools/studio.py:art.status_str": "sha256:94852eed766b3d36ff1bcc2caf22be26129cfd38caef82b115e2eb732d9d3f5d"
+            },
+            "id": "mcp.Artifact.transitive-retry-wrong-state-status-error-text-contribution",
+            "keys": [
+              "message"
+            ],
+            "mode": "transitive-retry-wrong-state-status-error-text-contribution",
+            "model_contribution_keys": [
+              "status"
+            ],
+            "projection_condition": "retry refusal resolves to a non-failed public Artifact",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
             "evidence": [
               "notebooklm/mcp/_resolve.py:async def resolve_artifact",
               "notebooklm/mcp/_resolve.py:items = await client.artifacts.list(notebook_id)"
@@ -5312,6 +5358,7 @@
             "shape_derivation": "runtime:source-view-mcp-wait"
           },
           {
+            "contribution_semantics": "Each added Source contributes source_id, title, status_label, the added count, and aggregate status; scalar error siblings may coexist but an all-error batch is non-public",
             "evidence": [
               "notebooklm/mcp/tools/sources.py:async def _add_url_batch"
             ],
@@ -5327,46 +5374,12 @@
               "results"
             ],
             "mode": "transitive-batch-added-item-final-wrapper",
-            "nested_keys": {
-              "results": [
-                "input",
-                "status",
-                "source_id",
-                "title",
-                "status_label"
-              ]
-            },
-            "nested_optional_keys": {
-              "results": [
-                "warning"
-              ]
-            },
-            "shape_derivation": "manual-reviewed+fingerprint"
-          },
-          {
-            "evidence": [
-              "notebooklm/mcp/tools/sources.py:tool_error_payload(exc)",
-              "notebooklm/mcp/_errors.py:def tool_error_payload"
+            "model_contribution_keys": [
+              "id",
+              "title",
+              "status"
             ],
-            "evidence_shape_fingerprints": {
-              "notebooklm/mcp/_errors.py:def tool_error_payload": "sha256:c7062911b5c360ecaf6003a5d2c192aec44ee27707040d50dfedd3e999e2cd35",
-              "notebooklm/mcp/tools/sources.py:tool_error_payload(exc)": "sha256:f38e814307c7f633561e0ef3d4ffa6ec26c9b63e72a2f079d131ec20841db9fb"
-            },
-            "id": "mcp.Source.transitive-batch-error-item-final-wrapper",
-            "keys": [
-              "status",
-              "notebook_id",
-              "added",
-              "failed",
-              "results"
-            ],
-            "mode": "transitive-batch-error-item-final-wrapper",
             "nested_keys": {
-              "results": [
-                "input",
-                "status",
-                "error"
-              ],
               "results[].error": [
                 "code",
                 "message",
@@ -5374,12 +5387,32 @@
               ]
             },
             "nested_optional_keys": {
+              "results[].added": [
+                "warning"
+              ],
               "results[].error": [
                 "unconfirmed",
                 "candidates",
                 "hint"
               ]
             },
+            "nested_union_keys": {
+              "results": {
+                "added": [
+                  "input",
+                  "status",
+                  "source_id",
+                  "title",
+                  "status_label"
+                ],
+                "error": [
+                  "input",
+                  "status",
+                  "error"
+                ]
+              }
+            },
+            "projection_condition": "batch contains at least one successfully added public Source",
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
@@ -6748,6 +6781,7 @@
             "shape_derivation": "runtime:source-view-rest-wait"
           },
           {
+            "contribution_semantics": "Each added Source contributes source_id, title, status_label, the added count, and aggregate status; scalar error siblings may coexist but an all-error batch is non-public",
             "evidence": [
               "notebooklm/server/routes/sources.py:async def add_batch"
             ],
@@ -6763,41 +6797,12 @@
               "results"
             ],
             "mode": "transitive-batch-added-item-final-wrapper",
-            "nested_keys": {
-              "results": [
-                "input",
-                "status",
-                "source_id",
-                "title",
-                "status_label"
-              ]
-            },
-            "shape_derivation": "manual-reviewed+fingerprint"
-          },
-          {
-            "evidence": [
-              "notebooklm/server/routes/sources.py:error_item(exc)",
-              "notebooklm/server/_errors.py:def error_item"
+            "model_contribution_keys": [
+              "id",
+              "title",
+              "status"
             ],
-            "evidence_shape_fingerprints": {
-              "notebooklm/server/_errors.py:def error_item": "sha256:a2662de3bdc0528b38dbe466093c4928b5cb7eb0899c8cc34123e391419e2b23",
-              "notebooklm/server/routes/sources.py:error_item(exc)": "sha256:d502956034825d489642f7e31e8ff17d45fcf0982f3cbabae3b4c5c36e7a5677"
-            },
-            "id": "rest.Source.transitive-batch-error-item-final-wrapper",
-            "keys": [
-              "status",
-              "notebook_id",
-              "added",
-              "failed",
-              "results"
-            ],
-            "mode": "transitive-batch-error-item-final-wrapper",
             "nested_keys": {
-              "results": [
-                "input",
-                "status",
-                "error"
-              ],
               "results[].error": [
                 "category",
                 "message",
@@ -6811,6 +6816,49 @@
                 "hint"
               ]
             },
+            "nested_union_keys": {
+              "results": {
+                "added": [
+                  "input",
+                  "status",
+                  "source_id",
+                  "title",
+                  "status_label"
+                ],
+                "error": [
+                  "input",
+                  "status",
+                  "error"
+                ]
+              }
+            },
+            "projection_condition": "batch contains at least one successfully added public Source",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "contribution_semantics": "Source.status/is_ready selects fetched content versus the stable null, zero, false response values; the SourceFulltext row covers only the fetched branch",
+            "evidence": [
+              "notebooklm/_app/source_content.py:if source.is_ready",
+              "notebooklm/server/routes/sources.py:read = await content_core.execute_source_read"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_app/source_content.py:if source.is_ready": "sha256:a901c9b428e711ce8d1092de048699a224083a0b803efd2c26bf9754aedfe36e",
+              "notebooklm/server/routes/sources.py:read = await content_core.execute_source_read": "sha256:242e0340ddbe188c527c4e37e730dc8f9bfffa541f30cb44e26e2031d48b01e2"
+            },
+            "id": "rest.Source.transitive-source-content-readiness-contribution",
+            "keys": [
+              "notebook_id",
+              "source_id",
+              "content",
+              "char_count",
+              "truncated",
+              "output_format"
+            ],
+            "mode": "transitive-source-content-readiness-contribution",
+            "model_contribution_keys": [
+              "status"
+            ],
+            "projection_condition": "full source-content response after the public Source readiness gate",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]

@@ -370,21 +370,43 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
         "model": "notebooklm.types.Source",
         "mode": "transitive-batch-added-item-final-wrapper",
         "keys": ("status", "notebook_id", "added", "failed", "results"),
-        "nested_keys": {"results": ("input", "status", "source_id", "title", "status_label")},
+        "nested_union_keys": {
+            "results": {
+                "added": ("input", "status", "source_id", "title", "status_label"),
+                "error": ("input", "status", "error"),
+            }
+        },
+        "nested_keys": {"results[].error": ("category", "message", "retriable")},
+        "nested_optional_keys": {"results[].error": ("unconfirmed", "candidates", "hint")},
+        "model_contribution_keys": ("id", "title", "status"),
+        "projection_condition": "batch contains at least one successfully added public Source",
+        "contribution_semantics": (
+            "Each added Source contributes source_id, title, status_label, the added count, and "
+            "aggregate status; scalar error siblings may coexist but an all-error batch is "
+            "non-public"
+        ),
         "evidence": ("notebooklm/server/routes/sources.py:async def add_batch",),
     },
     {
         "model": "notebooklm.types.Source",
-        "mode": "transitive-batch-error-item-final-wrapper",
-        "keys": ("status", "notebook_id", "added", "failed", "results"),
-        "nested_keys": {
-            "results": ("input", "status", "error"),
-            "results[].error": ("category", "message", "retriable"),
-        },
-        "nested_optional_keys": {"results[].error": ("unconfirmed", "candidates", "hint")},
+        "mode": "transitive-source-content-readiness-contribution",
+        "keys": (
+            "notebook_id",
+            "source_id",
+            "content",
+            "char_count",
+            "truncated",
+            "output_format",
+        ),
+        "model_contribution_keys": ("status",),
+        "projection_condition": "full source-content response after the public Source readiness gate",
+        "contribution_semantics": (
+            "Source.status/is_ready selects fetched content versus the stable null, zero, false "
+            "response values; the SourceFulltext row covers only the fetched branch"
+        ),
         "evidence": (
-            "notebooklm/server/routes/sources.py:error_item(exc)",
-            "notebooklm/server/_errors.py:def error_item",
+            "notebooklm/_app/source_content.py:if source.is_ready",
+            "notebooklm/server/routes/sources.py:read = await content_core.execute_source_read",
         ),
     },
     {

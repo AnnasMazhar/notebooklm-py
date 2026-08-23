@@ -240,6 +240,41 @@ MCP_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "model": "notebooklm.types.Artifact",
+        "mode": "transitive-download-incomplete-status-error-text-contribution",
+        "keys": ("message",),
+        "model_contribution_keys": ("status",),
+        "projection_condition": (
+            "a resolved artifact or explicit typed artifact id names an incomplete artifact"
+        ),
+        "adapter_surface": "MCP ToolError flat message",
+        "contribution_semantics": (
+            "Artifact.status is rendered through status_str into the actionable incomplete "
+            "download ValidationError"
+        ),
+        "evidence": (
+            "notebooklm/mcp/tools/studio.py:match.status_str",
+            "notebooklm/mcp/tools/studio.py:incomplete.status_str",
+            "notebooklm/mcp/_errors.py:def to_tool_error",
+        ),
+    },
+    {
+        "model": "notebooklm.types.Artifact",
+        "mode": "transitive-retry-wrong-state-status-error-text-contribution",
+        "keys": ("message",),
+        "model_contribution_keys": ("status",),
+        "projection_condition": "retry refusal resolves to a non-failed public Artifact",
+        "adapter_surface": "MCP ToolError flat message",
+        "contribution_semantics": (
+            "Artifact.status is rendered through status_str into the wrong-state retry "
+            "ValidationError"
+        ),
+        "evidence": (
+            "notebooklm/mcp/tools/studio.py:art.status_str",
+            "notebooklm/mcp/_errors.py:def to_tool_error",
+        ),
+    },
+    {
         "model": "notebooklm.types.GenerationStatus",
         "mode": "app-status-view-projection",
         "evidence": (
@@ -848,23 +883,25 @@ MCP_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
         "model": "notebooklm.types.Source",
         "mode": "transitive-batch-added-item-final-wrapper",
         "keys": ("status", "notebook_id", "added", "failed", "results"),
-        "nested_keys": {"results": ("input", "status", "source_id", "title", "status_label")},
-        "nested_optional_keys": {"results": ("warning",)},
-        "evidence": ("notebooklm/mcp/tools/sources.py:async def _add_url_batch",),
-    },
-    {
-        "model": "notebooklm.types.Source",
-        "mode": "transitive-batch-error-item-final-wrapper",
-        "keys": ("status", "notebook_id", "added", "failed", "results"),
-        "nested_keys": {
-            "results": ("input", "status", "error"),
-            "results[].error": ("code", "message", "retriable"),
+        "nested_union_keys": {
+            "results": {
+                "added": ("input", "status", "source_id", "title", "status_label"),
+                "error": ("input", "status", "error"),
+            }
         },
-        "nested_optional_keys": {"results[].error": ("unconfirmed", "candidates", "hint")},
-        "evidence": (
-            "notebooklm/mcp/tools/sources.py:tool_error_payload(exc)",
-            "notebooklm/mcp/_errors.py:def tool_error_payload",
+        "nested_keys": {"results[].error": ("code", "message", "retriable")},
+        "nested_optional_keys": {
+            "results[].added": ("warning",),
+            "results[].error": ("unconfirmed", "candidates", "hint"),
+        },
+        "model_contribution_keys": ("id", "title", "status"),
+        "projection_condition": "batch contains at least one successfully added public Source",
+        "contribution_semantics": (
+            "Each added Source contributes source_id, title, status_label, the added count, and "
+            "aggregate status; scalar error siblings may coexist but an all-error batch is "
+            "non-public"
         ),
+        "evidence": ("notebooklm/mcp/tools/sources.py:async def _add_url_batch",),
     },
     {
         "model": "notebooklm.types.Source",

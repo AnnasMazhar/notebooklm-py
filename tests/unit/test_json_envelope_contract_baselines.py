@@ -706,18 +706,28 @@ def test_json_envelope_covers_exported_models_and_exact_adapter_variants() -> No
         "status",
     ]
     assert "optional_keys" not in mcp_source["app-view:source-add-drive-file-final-wrapper"]
-    assert "transitive-batch-added-item-final-wrapper" in mcp_source
-    batch_error = mcp_source["transitive-batch-error-item-final-wrapper"]
-    assert batch_error["nested_keys"]["results[].error"] == [
+    batch = mcp_source["transitive-batch-added-item-final-wrapper"]
+    assert "transitive-batch-error-item-final-wrapper" not in mcp_source
+    assert batch["nested_union_keys"]["results"]["added"] == [
+        "input",
+        "status",
+        "source_id",
+        "title",
+        "status_label",
+    ]
+    assert batch["nested_union_keys"]["results"]["error"] == ["input", "status", "error"]
+    assert batch["nested_keys"]["results[].error"] == [
         "code",
         "message",
         "retriable",
     ]
-    assert batch_error["nested_optional_keys"]["results[].error"] == [
+    assert batch["nested_optional_keys"]["results[].error"] == [
         "unconfirmed",
         "candidates",
         "hint",
     ]
+    assert batch["model_contribution_keys"] == ["id", "title", "status"]
+    assert "all-error batch is non-public" in batch["contribution_semantics"]
     wait = mcp_source["app-view:source-wait-final-wrapper"]
     for bucket in ("timed_out", "failed", "not_found"):
         assert wait["nested_keys"][bucket] == ["source_id", "error"]
@@ -772,6 +782,14 @@ def test_json_envelope_covers_exported_models_and_exact_adapter_variants() -> No
         "transitive-mcp-stdio-download-executed-wrapper",
         "transitive-mcp-remote-download-broker-wrapper",
     } <= mcp_artifact_modes
+    mcp_artifact = {row["mode"]: row for row in mcp["notebooklm.types.Artifact"]["projections"]}
+    for mode in (
+        "transitive-download-incomplete-status-error-text-contribution",
+        "transitive-retry-wrong-state-status-error-text-contribution",
+    ):
+        assert mcp_artifact[mode]["keys"] == ["message"]
+        assert mcp_artifact[mode]["model_contribution_keys"] == ["status"]
+        assert "optional_keys" not in mcp_artifact[mode]
     broker = next(
         row
         for row in mcp["notebooklm.types.Artifact"]["projections"]
@@ -896,12 +914,35 @@ def test_json_envelope_covers_exported_models_and_exact_adapter_variants() -> No
     for mode in ("http-failed-409-error-envelope", "http-removed-410-error-envelope"):
         assert rest_generation[mode]["nested_keys"]["error"] == ["category", "message"]
     rest_source = {row["mode"]: row for row in rest["notebooklm.types.Source"]["projections"]}
-    rest_batch_error = rest_source["transitive-batch-error-item-final-wrapper"]
-    assert rest_batch_error["nested_keys"]["results[].error"] == [
+    content_gate = rest_source["transitive-source-content-readiness-contribution"]
+    assert content_gate["keys"] == [
+        "notebook_id",
+        "source_id",
+        "content",
+        "char_count",
+        "truncated",
+        "output_format",
+    ]
+    assert content_gate["model_contribution_keys"] == ["status"]
+    assert "null, zero, false" in content_gate["contribution_semantics"]
+    rest_batch = rest_source["transitive-batch-added-item-final-wrapper"]
+    assert "transitive-batch-error-item-final-wrapper" not in rest_source
+    assert rest_batch["nested_union_keys"]["results"]["added"][-3:] == [
+        "source_id",
+        "title",
+        "status_label",
+    ]
+    assert rest_batch["nested_union_keys"]["results"]["error"] == [
+        "input",
+        "status",
+        "error",
+    ]
+    assert rest_batch["nested_keys"]["results[].error"] == [
         "category",
         "message",
         "retriable",
     ]
+    assert rest_batch["model_contribution_keys"] == ["id", "title", "status"]
     rest_wait = rest_source["app-view:source-wait-final-wrapper"]
     for bucket in ("timed_out", "failed", "not_found"):
         assert rest_wait["nested_keys"][bucket] == ["source_id", "error"]
