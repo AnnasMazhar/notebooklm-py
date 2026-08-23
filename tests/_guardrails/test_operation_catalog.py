@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import pytest
 from scripts.audit_operation_catalog import (
+    CLIENT_PUBLIC_MEMBER_DISPOSITIONS,
     LOCAL_PUBLIC_METHODS,
     audit_operation_catalog,
     build_operation_catalog,
+    collect_public_client_members,
     collect_public_namespace_methods,
 )
 
@@ -43,14 +45,27 @@ def test_catalog_names_every_inherited_and_local_only_public_helper() -> None:
     assert set(LOCAL_PUBLIC_METHODS) <= set(public_methods)
 
 
+def test_catalog_names_every_root_client_member_disposition() -> None:
+    client_members = build_operation_catalog()["client_members"]
+
+    assert set(client_members) == set(collect_public_client_members())
+    assert set(client_members) == set(CLIENT_PUBLIC_MEMBER_DISPOSITIONS)
+    assert client_members["close"]["disposition"] == "lifecycle"
+    assert client_members["refresh_auth"]["disposition"] == "auth"
+    assert client_members["metrics_snapshot"]["disposition"] == "observability"
+    assert client_members["rpc_call"]["disposition"] == "raw"
+
+
 def test_every_active_binding_honors_runtime_rpc_overrides() -> None:
     rows = build_operation_catalog()["native_bindings"]
 
     assert len(rows) == sum(1 for _entry in IDEMPOTENCY_REGISTRY.iter_entries())
-    assert {row["override_evidence"] for row in rows} == {
-        "_rpc_executor.py:RpcExecutor._execute_once"
-    }
     assert all(row["override_honored"] for row in rows)
+    evidence = rows[0]["override_evidence"]
+    assert all(row["override_evidence"] == evidence for row in rows)
+    assert evidence["source_contract"] == "_rpc_executor.py:RpcExecutor._execute_once"
+    assert all(evidence["dataflow"].values())
+    assert "test_runtime_rpc_override" in evidence["behavior_test"]
 
 
 def test_polymorphic_native_surfaces_keep_all_reviewed_dispositions() -> None:
