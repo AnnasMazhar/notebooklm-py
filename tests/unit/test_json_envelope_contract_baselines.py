@@ -981,3 +981,23 @@ def test_json_envelope_conditional_key_groups_preserve_cooccurrence_mutations() 
                 {"condition": "inline", "keys": ("char_count",)},
             )
         )
+
+
+def test_json_envelope_allocates_every_live_projection_to_an_exact_terminal() -> None:
+    contract = derive_json_envelope_contract()
+    live_projection_ids = {
+        projection["id"]
+        for channel in contract["channels"].values()
+        for model_row in channel.values()
+        for projection in model_row["projections"]
+    }
+    reachability = contract["adapter_sink_reachability"]
+    allocated_projection_ids = {
+        projection_id
+        for site in reachability["sites"]
+        for projection_id in site["allocation"].get("projection_ids", [])
+    }
+
+    assert allocated_projection_ids == live_projection_ids
+    assert reachability["site_count"] == 349
+    assert len(reachability["private_dataclass_projection_paths"]) == 19

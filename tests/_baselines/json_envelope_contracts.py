@@ -1289,9 +1289,23 @@ def _validate_no_secret_channel_models(channel_models: dict[str, set[str]]) -> N
         )
 
 
+def _all_channel_projection_ids(channels: dict[str, object]) -> set[str]:
+    """Return every explicit and auto-derived projection identity."""
+    return {
+        str(projection["id"])
+        for channel_rows in channels.values()
+        for model_row in typing.cast(dict[str, dict[str, object]], channel_rows).values()
+        for projection in typing.cast(list[dict[str, object]], model_row["projections"])
+    }
+
+
 def derive_json_envelope_contract() -> dict[str, object]:
     """Freeze exported keys separately from per-channel adapter reachability."""
+    import notebooklm
     from notebooklm._app.serialize import to_jsonable
+    from tests._baselines.adapter_sink_reachability import (
+        derive_adapter_sink_reachability_contract,
+    )
 
     exported_inventory: dict[str, object] = {}
     for cls, export_paths in sorted(
@@ -1318,6 +1332,10 @@ def derive_json_envelope_contract() -> dict[str, object]:
         channel: set(typing.cast(dict[str, object], models)) for channel, models in channels.items()
     }
     _validate_no_secret_channel_models(channel_model_keys)
+    adapter_sink_reachability = derive_adapter_sink_reachability_contract(
+        Path(notebooklm.__file__).resolve().parents[1],
+        known_projection_ids=_all_channel_projection_ids(channels),
+    )
 
     return {
         "schema_version": 1,
@@ -1332,6 +1350,7 @@ def derive_json_envelope_contract() -> dict[str, object]:
             "dataclass fields"
         ),
         "channels": channels,
+        "adapter_sink_reachability": adapter_sink_reachability,
         "supplemental_import_references": _supplemental_channel_import_references(),
         "secret_bearing_exclusions": {
             "notebooklm.auth.AuthTokens": {
