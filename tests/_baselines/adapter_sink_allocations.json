@@ -292,8 +292,9 @@
     },
     {
       "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_retry._run|json_output_response|3",
-      "non_public_category": "cli-scalar-success",
-      "review_note": "Audited artifact_retry's timeout envelope: artifact_id is copied from the fresh retry GenerationStatus.task_id, while the listed Artifact resolver value only selects the operation and does not reach the emitted fields."
+      "projection_ids": [
+        "cli.GenerationStatus.transitive-retry-timeout-task-id-contribution"
+      ]
     },
     {
       "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_suggestions._run|json_output_response|1",
@@ -318,7 +319,11 @@
         "cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion",
         "cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference",
         "cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey",
-        "cli.Note.transitive-chat-save-note-projection"
+        "cli.Note.transitive-chat-save-note-projection",
+        "cli.StructuredDocument.transitive-chat-reference-full-contribution",
+        "cli.DocumentAnnotation.transitive-chat-reference-full-contribution",
+        "cli.DocumentBlock.transitive-chat-reference-full-contribution",
+        "cli.TextSpan.transitive-chat-reference-full-contribution"
       ]
     },
     {
@@ -343,7 +348,10 @@
     {
       "locator": "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.history_cmd._run|json_output_response|1",
       "non_public_category": "cli-scalar-success",
-      "review_note": "Audited history --clear's local-cache result envelope: this branch returns before notebook resolution and emits only private cache-result scalars, so no public Notebook instance reaches it."
+      "review_note": "Audited history --clear's local-cache result envelope: this branch returns before notebook resolution and emits only private cache-result scalars, so no public Notebook instance reaches it.",
+      "helper_symbols": [
+        "notebooklm.cli.chat_cmd._clear_cache_json_payload"
+      ]
     },
     {
       "locator": "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.history_cmd._run|_output_error|1",
@@ -444,6 +452,13 @@
       ],
       "helper_symbols": [
         "notebooklm.cli.services.download.build_download_envelope"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "artifact listing is empty and the download result is NO_ARTIFACTS",
+          "category": "cli-scalar-success",
+          "review_note": "When artifact listing returns no rows, the NO_ARTIFACTS envelope contains only literal status/count fields and an empty items list; no public Artifact instance exists to contribute."
+        }
       ]
     },
     {
@@ -459,7 +474,15 @@
     {
       "locator": "cli --json|notebooklm/cli/error_handler.py|handle_errors.emit|_output_error|1",
       "projection_ids": [
-        "cli.GenerationStatus.nested-timeout-transition-projection"
+        "cli.GenerationStatus.nested-timeout-transition-projection",
+        "cli.ResearchTask.transitive-import-refusal-error-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the caught exception is neither a GenerationStatus timeout nor a ResearchTask import refusal",
+          "category": "cli-scalar-error",
+          "review_note": "Other exceptions handled by the central CLI funnel contribute only exception/private DTO scalars to the standard error envelope; no public GenerationStatus or ResearchTask field reaches those variants."
+        }
       ]
     },
     {
@@ -486,7 +509,9 @@
       "locator": "cli --json|notebooklm/cli/generate_cmd.py|_output_mind_map_result|json_output_response|1",
       "projection_ids": [
         "cli.MindMap.transitive-cli-final-tree-wrapper",
-        "cli.MindMapResult.transitive-cli-final-tree-wrapper"
+        "cli.MindMapResult.transitive-cli-final-tree-wrapper",
+        "cli.Note.transitive-note-backed-mind-map-generation-final-contribution",
+        "cli.Artifact.transitive-interactive-mind-map-generation-final-contribution"
       ]
     },
     {
@@ -747,7 +772,8 @@
       "locator": "cli --json|notebooklm/cli/notebook_cmd.py|register_notebook_commands.metadata_cmd._run|json_output_response|1",
       "projection_ids": [
         "cli.NotebookMetadata.manual-to-dict-projection",
-        "cli.Notebook.transitive-metadata-flattened-projection"
+        "cli.Notebook.transitive-metadata-flattened-projection",
+        "cli.Source.transitive-notebook-metadata-source-summary-final-wrapper"
       ]
     },
     {
@@ -840,6 +866,8 @@
       "locator": "cli --json|notebooklm/cli/research_cmd.py|_render_import_result|json_output_response|1",
       "projection_ids": [
         "cli.CitedSourceSelection.manual-direct-import-projection",
+        "cli.ResearchTask.transitive-import-success-final-wrapper",
+        "cli.ResearchSource.transitive-import-selection-final-contribution",
         "cli.Source.transitive-research-import-existing-source-projection",
         "cli.Source.transitive-research-import-new-source-projection",
         "cli.Source.transitive-research-import-direct-final-wrapper"
@@ -869,7 +897,8 @@
     {
       "locator": "cli --json|notebooklm/cli/research_cmd.py|_render_wait_result|json_output_response|3",
       "projection_ids": [
-        "cli.ResearchTask.transitive-wait-failed-final-projection"
+        "cli.ResearchTask.transitive-wait-failed-final-projection",
+        "cli.ResearchSource.transitive-wait-failed-final-wrapper"
       ]
     },
     {
@@ -877,6 +906,7 @@
       "projection_ids": [
         "cli.ResearchTask.transitive-wait-completed-final-projection",
         "cli.CitedSourceSelection.manual-completed-wait-projection",
+        "cli.ResearchSource.transitive-wait-completed-final-wrapper",
         "cli.Source.transitive-research-wait-imported-sources-final-wrapper"
       ]
     },
@@ -1066,7 +1096,13 @@
         "mcp.PromptSuggestion.manual-chat-inline-projection",
         "mcp.PromptSuggestion.manual-chat-suggestion-only-final-wrapper",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
-        "mcp.Source.conditional-noncanonical-resolver-id-contribution"
+        "mcp.Source.conditional-noncanonical-resolver-id-contribution",
+        "mcp.StructuredDocument.transitive-chat-reference-full-contribution",
+        "mcp.DocumentAnnotation.transitive-chat-reference-full-contribution",
+        "mcp.DocumentBlock.transitive-chat-reference-full-contribution",
+        "mcp.TextSpan.transitive-chat-reference-full-contribution",
+        "mcp.DocumentBlock.transitive-chat-reference-lite-fragment-contribution",
+        "mcp.TextSpan.transitive-chat-reference-lite-fragment-contribution"
       ]
     },
     {
@@ -1105,7 +1141,8 @@
       "locator": "mcp tool result|notebooklm/mcp/tools/meta.py|register.server_info|return|1",
       "projection_ids": [
         "mcp.AccountLimits.transitive-server-info-account-success-wrapper",
-        "mcp.UserSettings.transitive-server-info-account-success-wrapper"
+        "mcp.UserSettings.transitive-server-info-account-success-wrapper",
+        "mcp.AuthTokens.redacted-server-info-account-identity-contribution"
       ]
     },
     {
@@ -1142,15 +1179,19 @@
       "projection_ids": [
         "mcp.NotebookDescription.nested-notebook-describe-final",
         "mcp.NotebookDescription.nested-notebook-describe-final.nested-suggested_topics-SuggestedTopic",
-        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+        "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata",
+        "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata-null-description",
+        "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata.nested-sources-SourceSummary",
+        "mcp.Notebook.app-view-notebook-metadata-nested",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Source.transitive-notebook-describe-metadata-source-summary-final-wrapper"
       ]
     },
     {
       "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_describe|return|2",
       "projection_ids": [
-        "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata",
-        "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata.nested-sources-SourceSummary",
-        "mcp.Notebook.app-view-notebook-metadata-nested",
+        "mcp.NotebookDescription.nested-notebook-describe-final",
+        "mcp.NotebookDescription.nested-notebook-describe-final.nested-suggested_topics-SuggestedTopic",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
       ]
     },
@@ -1209,7 +1250,15 @@
     {
       "locator": "mcp tool result|notebooklm/mcp/tools/research.py|register.research_start|tool-error-funnel|1",
       "projection_ids": [
-        "mcp.Notebook.conditional-resolver-error-text-contribution"
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.ResearchStart.transitive-start-missing-report-id-error-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the failure is outside Notebook resolution and the missing ResearchStart report-id branch",
+          "category": "mcp-scalar-result",
+          "review_note": "Other research-start validation or transport errors contribute private exception text only; no resolver-error Notebook field or missing-id public ResearchStart field reaches those ToolError variants."
+        }
       ]
     },
     {
@@ -1257,7 +1306,15 @@
     {
       "locator": "mcp tool result|notebooklm/mcp/tools/research.py|register.research_import|tool-error-funnel|1",
       "projection_ids": [
-        "mcp.Notebook.conditional-resolver-error-text-contribution"
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.ResearchTask.transitive-import-refusal-error-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the failure is outside Notebook resolution and ResearchTask import classification",
+          "category": "mcp-scalar-result",
+          "review_note": "Validation, transport, or import-operation failures outside the resolver and ResearchTask refusal ladder serialize private exception text only; no listed Notebook or public ResearchTask field reaches them."
+        }
       ]
     },
     {
@@ -1281,7 +1338,6 @@
       "locator": "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_status|return|1",
       "projection_ids": [
         "mcp.ShareStatus.app-view-share-status-view",
-        "mcp.ShareStatus.app-view-share-status-view-view-level",
         "mcp.SharedUser.nested-manual-field-projection",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
       ]
@@ -1434,6 +1490,13 @@
         "mcp.Source.app-view-source-wait-final-wrapper",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
         "mcp.Source.conditional-noncanonical-resolver-id-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the notebook and every explicit subset ref use canonical-id fast paths and every outcome is non-ready",
+          "category": "mcp-scalar-result",
+          "review_note": "When the notebook and all explicit subset refs are canonical IDs and every outcome times out, fails, or is not found, the aggregate contains only caller IDs and private wait-error text; no listed public Notebook or Source instance contributes."
+        }
       ]
     },
     {
@@ -1442,14 +1505,27 @@
         "mcp.Source.app-view-source-wait-final-wrapper",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
         "mcp.Source.conditional-noncanonical-resolver-id-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the notebook and single ref use canonical-id fast paths and the outcome is non-ready",
+          "category": "mcp-scalar-result",
+          "review_note": "When both notebook and source refs are canonical IDs and the outcome times out, fails, or is not found, the aggregate contains caller IDs and private wait-error text only; no listed public Notebook or Source instance contributes."
+        }
       ]
     },
     {
       "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_wait|return|3",
       "projection_ids": [
         "mcp.Source.app-view-source-wait-final-wrapper",
-        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
-        "mcp.Source.conditional-noncanonical-resolver-id-contribution"
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the notebook uses the canonical-id fast path and wait-all lists zero Source instances",
+          "category": "mcp-scalar-result",
+          "review_note": "With a canonical notebook ID and an empty Source list, wait-all returns an empty aggregate with literal counts and buckets, so no public Notebook or Source instance reaches this terminal variant."
+        }
       ]
     },
     {
@@ -1466,9 +1542,9 @@
       ],
       "non_public_variants": [
         {
-          "condition": "all batch inputs fail before any Source instance is returned",
+          "condition": "the notebook uses the canonical-id fast path and all batch inputs fail before any Source instance is returned",
           "category": "mcp-scalar-result",
-          "review_note": "The all-error batch variant contains only input indexes, private per-item error payloads, and scalar summary counts; the Source added-item projection is conditional on at least one successful Source result."
+          "review_note": "With a canonical notebook ID, the all-error batch variant contains only input indexes, private per-item errors, and scalar counts; no public Notebook or Source contributes, while the added-item projection requires a successful Source."
         }
       ]
     },
@@ -1583,7 +1659,9 @@
         "mcp.MindMap.transitive-mcp-generation-final-wrapper",
         "mcp.MindMapResult.transitive-mcp-generation-final-wrapper",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
-        "mcp.Source.conditional-noncanonical-resolver-id-contribution"
+        "mcp.Source.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Note.transitive-note-backed-mind-map-generation-final-contribution",
+        "mcp.Artifact.transitive-interactive-mind-map-generation-final-contribution"
       ]
     },
     {
@@ -1618,6 +1696,13 @@
       ],
       "helper_symbols": [
         "notebooklm.mcp.tools._studio_download._broker_download"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the notebook uses the canonical-id fast path, artifact_type latest mode omits artifact and artifact_id, and the kind is non-inline",
+          "category": "mcp-scalar-result",
+          "review_note": "In remote broker mode, a canonical notebook plus latest selection and a non-inline kind avoids every Artifact listing/resolution path; the broker response contains only request/configuration scalars and URL metadata."
+        }
       ]
     },
     {
@@ -1634,6 +1719,13 @@
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
         "mcp.Artifact.conditional-noncanonical-resolver-id-contribution",
         "mcp.Artifact.always-listed-studio-download-resolver-id-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the notebook uses the canonical-id fast path and the artifact listing is empty",
+          "category": "mcp-scalar-result",
+          "review_note": "With a canonical notebook ID and no listed Artifact rows, the stdio download envelope contains only literal/scalar no-artifacts state and empty items; no public Notebook or Artifact instance contributes."
+        }
       ]
     },
     {
@@ -1647,8 +1739,8 @@
     {
       "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_rename|return|1",
       "projection_ids": [
-        "mcp.Artifact.transitive-studio-rename-final-projection",
         "mcp.MindMap.transitive-resolver-rename-final-wrapper",
+        "mcp.Artifact.transitive-mind-map-rename-membership-final-contribution",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
       ]
     },
@@ -1665,6 +1757,7 @@
       "projection_ids": [
         "mcp.Artifact.transitive-studio-rename-final-projection",
         "mcp.MindMap.transitive-resolver-rename-final-wrapper",
+        "mcp.Artifact.transitive-mind-map-rename-membership-final-contribution",
         "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
         "mcp.Artifact.always-listed-studio-item-resolver-id-contribution"
       ]
@@ -1917,8 +2010,17 @@
     },
     {
       "locator": "rest response|notebooklm/server/_errors.py|install_exception_handlers._handle_library|return|1",
-      "non_public_category": "rest-scalar-response",
-      "review_note": "Audited notebooklm/server/_errors.py:install_exception_handlers._handle_library expression `error_response(exc)`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal.",
+      "projection_ids": [
+        "rest.ResearchTask.transitive-import-refusal-error-contribution",
+        "rest.ResearchStart.transitive-start-missing-poll-id-error-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the library exception is not produced by a public research start or import refusal path",
+          "category": "rest-scalar-response",
+          "review_note": "All other library exceptions entering the central REST handler contribute exception classification and private scalar text only; no public ResearchTask or ResearchStart field reaches those response variants."
+        }
+      ],
       "helper_symbols": [
         "notebooklm.server._errors.error_response",
         "notebooklm.server._errors._project_classified"
@@ -1928,7 +2030,18 @@
       "locator": "rest response|notebooklm/server/_errors.py|install_exception_handlers._handle_http|return|1",
       "projection_ids": [
         "rest.GenerationStatus.http-failed-409-error-envelope",
-        "rest.GenerationStatus.http-removed-410-error-envelope"
+        "rest.GenerationStatus.http-removed-410-error-envelope",
+        "rest.Artifact.transitive-download-no-artifacts-409-error-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the HTTPException is unrelated to GenerationStatus transitions and is not a download filter error backed by a nonempty public Artifact list",
+          "category": "rest-scalar-response",
+          "review_note": "Other HTTPException variants, including an artifact download whose listing is truly empty, carry only request/private scalar detail; no public GenerationStatus or Artifact instance contributes."
+        }
+      ],
+      "helper_symbols": [
+        "notebooklm.server._errors.http_error_response"
       ]
     },
     {
@@ -2008,7 +2121,9 @@
       "projection_ids": [
         "rest.GenerationStatus.manual-generate-projection",
         "rest.MindMap.dataclass-full-nested-in-generation-wrapper",
-        "rest.MindMapResult.dataclass-full-nested-in-generation-wrapper"
+        "rest.MindMapResult.dataclass-full-nested-in-generation-wrapper",
+        "rest.Note.transitive-note-backed-mind-map-generation-final-contribution",
+        "rest.Artifact.transitive-interactive-mind-map-generation-final-contribution"
       ]
     },
     {
@@ -2037,7 +2152,8 @@
     {
       "locator": "rest response|notebooklm/server/routes/artifacts.py|rename|return|1",
       "projection_ids": [
-        "rest.MindMap.transitive-artifact-rename-final-wrapper"
+        "rest.MindMap.transitive-artifact-rename-final-wrapper",
+        "rest.Artifact.transitive-mind-map-rename-membership-final-contribution"
       ]
     },
     {
@@ -2062,7 +2178,11 @@
         "rest.AskResult.app-view-ask-result-view",
         "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion",
         "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference",
-        "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey"
+        "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey",
+        "rest.StructuredDocument.transitive-chat-reference-full-contribution",
+        "rest.DocumentAnnotation.transitive-chat-reference-full-contribution",
+        "rest.DocumentBlock.transitive-chat-reference-full-contribution",
+        "rest.TextSpan.transitive-chat-reference-full-contribution"
       ]
     },
     {
@@ -2075,7 +2195,8 @@
       "locator": "rest response|notebooklm/server/routes/meta.py|server_info|return|1",
       "projection_ids": [
         "rest.AccountLimits.transitive-server-info-account-success-wrapper",
-        "rest.UserSettings.transitive-server-info-account-success-wrapper"
+        "rest.UserSettings.transitive-server-info-account-success-wrapper",
+        "rest.AuthTokens.redacted-server-info-account-identity-contribution"
       ]
     },
     {
@@ -2276,6 +2397,18 @@
       "locator": "rest response|notebooklm/server/routes/sources.py|wait_sources|return|1",
       "projection_ids": [
         "rest.Source.app-view-source-wait-final-wrapper"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "explicit canonical source_ids all produce non-ready outcomes",
+          "category": "rest-scalar-response",
+          "review_note": "With explicit canonical IDs and only timeout, failure, or not-found outcomes, the REST aggregate contains caller IDs and private wait-error strings only; no listed public Source instance contributes."
+        },
+        {
+          "condition": "wait-all lists zero Source instances",
+          "category": "rest-scalar-response",
+          "review_note": "When source_ids is omitted and the notebook Source list is empty, wait-all returns an empty aggregate of literal counts and buckets, so no public Source instance reaches the response."
+        }
       ]
     },
     {

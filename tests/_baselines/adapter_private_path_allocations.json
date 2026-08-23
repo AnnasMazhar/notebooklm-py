@@ -46,17 +46,18 @@
       "projection_ids": ["cli.NotebookDescription.manual-summary-projection", "cli.NotebookDescription.manual-summary-with-topics-projection", "mcp.NotebookDescription.nested-notebook-describe-final"],
       "terminal_locators": [
         "cli --json|notebooklm/cli/notebook_cmd.py|register_notebook_commands.summary_cmd._run|json_output_response|1",
-        "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_describe|return|1"
+        "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_describe|return|1",
+        "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_describe|return|2"
       ]
     },
     {
       "private_model": "notebooklm._app.notebooks.NotebookMetadataResult",
       "field_path": "metadata",
       "public_model": "notebooklm.types.NotebookMetadata",
-      "projection_ids": ["cli.NotebookMetadata.manual-to-dict-projection", "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata"],
+      "projection_ids": ["cli.NotebookMetadata.manual-to-dict-projection", "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata", "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata-null-description"],
       "terminal_locators": [
         "cli --json|notebooklm/cli/notebook_cmd.py|register_notebook_commands.metadata_cmd._run|json_output_response|1",
-        "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_describe|return|2"
+        "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_describe|return|1"
       ]
     },
     {

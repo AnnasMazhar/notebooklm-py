@@ -322,6 +322,31 @@ def test_nonpublic_delegated_helper_mutation_changes_reachability_contract(
     )
 
 
+def test_cli_clear_cache_helper_is_fingerprinted(tmp_path: Path) -> None:
+    known_projection_ids = _allocation_projection_ids()
+    before = reachability.derive_adapter_sink_reachability_contract(
+        _source_root(), known_projection_ids=known_projection_ids
+    )
+    copied_source_root = tmp_path / "src"
+    shutil.copytree(_source_root(), copied_source_root)
+    chat_path = copied_source_root / "notebooklm" / "cli" / "chat_cmd.py"
+    source = chat_path.read_text(encoding="utf-8")
+    old = 'return {"cleared": result.cleared, "count": result.count}'
+    new = 'return {"cleared": result.cleared, "count": result.count, "extra": True}'
+    assert old in source
+    chat_path.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+    after = reachability.derive_adapter_sink_reachability_contract(
+        copied_source_root, known_projection_ids=known_projection_ids
+    )
+    symbol = "notebooklm.cli.chat_cmd._clear_cache_json_payload"
+    assert symbol in before["delegated_helper_fingerprints"]
+    assert (
+        before["delegated_helper_fingerprints"][symbol]
+        != after["delegated_helper_fingerprints"][symbol]
+    )
+
+
 def test_duplicate_sink_expression_keeps_multiplicity(tmp_path: Path) -> None:
     _write_adapter_source(
         tmp_path,
@@ -763,6 +788,9 @@ def test_mcp_mind_map_union_projections_are_on_value_carrying_branches() -> None
 
     assert rename_id in projection_ids("studio_rename", 1)
     assert rename_id in projection_ids("studio_rename", 3)
+    artifact_rename_id = "mcp.Artifact.transitive-studio-rename-final-projection"
+    assert artifact_rename_id not in projection_ids("studio_rename", 1)
+    assert artifact_rename_id in projection_ids("studio_rename", 3)
     assert delete_id in projection_ids("studio_delete", 2)
     assert delete_id not in projection_ids("studio_delete", 3)
     assert delete_id in projection_ids("studio_delete", 5)
@@ -771,6 +799,10 @@ def test_mcp_mind_map_union_projections_are_on_value_carrying_branches() -> None
 def test_status_derived_contributions_are_on_exact_terminal_or_error_funnel() -> None:
     allocations = reachability._load_reviewed_allocations()
     expected = {
+        (
+            "cli --json|notebooklm/cli/artifact_cmd.py|artifact_retry._run|json_output_response|3",
+            "cli.GenerationStatus.transitive-retry-timeout-task-id-contribution",
+        ),
         (
             "rest response|notebooklm/server/routes/sources.py|get_source_content|return|2",
             "rest.Source.transitive-source-content-readiness-contribution",
@@ -817,14 +849,254 @@ def test_mcp_source_add_projections_follow_exact_return_branches() -> None:
         "rest response|notebooklm/server/routes/sources.py|add_batch|return|1"
     ]["projection_ids"]
     assert rest_batch == ["rest.Source.transitive-batch-added-item-final-wrapper"]
-    for locator in (
-        "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|1",
-        "rest response|notebooklm/server/routes/sources.py|add_batch|return|1",
-    ):
-        variants = allocations[locator]["non_public_variants"]
-        assert [variant["condition"] for variant in variants] == [
+    expected_variants = {
+        "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|1": (
+            "the notebook uses the canonical-id fast path and all batch inputs fail before any "
+            "Source instance is returned"
+        ),
+        "rest response|notebooklm/server/routes/sources.py|add_batch|return|1": (
             "all batch inputs fail before any Source instance is returned"
-        ]
+        ),
+    }
+    for locator, condition in expected_variants.items():
+        variants = allocations[locator]["non_public_variants"]
+        assert [variant["condition"] for variant in variants] == [condition]
+
+
+def test_source_wait_no_source_variants_are_explicit() -> None:
+    allocations = reachability._load_reviewed_allocations()
+    expected_conditions = {
+        "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_wait|return|1": {
+            "the notebook and every explicit subset ref use canonical-id fast paths and every outcome is non-ready"
+        },
+        "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_wait|return|2": {
+            "the notebook and single ref use canonical-id fast paths and the outcome is non-ready"
+        },
+        "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_wait|return|3": {
+            "the notebook uses the canonical-id fast path and wait-all lists zero Source instances"
+        },
+        "rest response|notebooklm/server/routes/sources.py|wait_sources|return|1": {
+            "explicit canonical source_ids all produce non-ready outcomes",
+            "wait-all lists zero Source instances",
+        },
+    }
+    for locator, conditions in expected_conditions.items():
+        variants = allocations[locator]["non_public_variants"]
+        assert {variant["condition"] for variant in variants} == conditions
+
+    wait_all_ids = allocations[
+        "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_wait|return|3"
+    ]["projection_ids"]
+    assert "mcp.Source.conditional-noncanonical-resolver-id-contribution" not in wait_all_ids
+
+
+def test_download_no_model_variants_are_explicit() -> None:
+    allocations = reachability._load_reviewed_allocations()
+    expected_conditions = {
+        "cli --json|notebooklm/cli/download_cmd.py|_run_artifact_download|json_output_response|1": (
+            "artifact listing is empty and the download result is NO_ARTIFACTS"
+        ),
+        "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_download|return|1": (
+            "the notebook uses the canonical-id fast path, artifact_type latest mode omits "
+            "artifact and artifact_id, and the kind is non-inline"
+        ),
+        "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_download|return|2": (
+            "the notebook uses the canonical-id fast path and the artifact listing is empty"
+        ),
+    }
+    for locator, condition in expected_conditions.items():
+        variants = allocations[locator]["non_public_variants"]
+        assert [variant["condition"] for variant in variants] == [condition]
+
+
+def test_metadata_and_mind_map_contributions_use_exact_terminals() -> None:
+    allocations = reachability._load_reviewed_allocations()
+    expected = {
+        "cli --json|notebooklm/cli/notebook_cmd.py|"
+        "register_notebook_commands.metadata_cmd._run|json_output_response|1": {
+            "cli.Source.transitive-notebook-metadata-source-summary-final-wrapper"
+        },
+        "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_describe|return|1": {
+            "mcp.Source.transitive-notebook-describe-metadata-source-summary-final-wrapper",
+            "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata-null-description",
+            "mcp.NotebookDescription.nested-notebook-describe-final",
+        },
+        "cli --json|notebooklm/cli/generate_cmd.py|"
+        "_output_mind_map_result|json_output_response|1": {
+            "cli.Note.transitive-note-backed-mind-map-generation-final-contribution",
+            "cli.Artifact.transitive-interactive-mind-map-generation-final-contribution",
+        },
+        "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_generate|return|1": {
+            "mcp.Note.transitive-note-backed-mind-map-generation-final-contribution",
+            "mcp.Artifact.transitive-interactive-mind-map-generation-final-contribution",
+        },
+        "rest response|notebooklm/server/routes/artifacts.py|generate|return|1": {
+            "rest.Note.transitive-note-backed-mind-map-generation-final-contribution",
+            "rest.Artifact.transitive-interactive-mind-map-generation-final-contribution",
+        },
+        "rest response|notebooklm/server/routes/artifacts.py|rename|return|1": {
+            "rest.Artifact.transitive-mind-map-rename-membership-final-contribution"
+        },
+    }
+    for locator, expected_ids in expected.items():
+        assert expected_ids <= set(allocations[locator]["projection_ids"])
+
+    default_describe = allocations[
+        "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_describe|return|2"
+    ]["projection_ids"]
+    assert (
+        "mcp.Source.transitive-notebook-describe-metadata-source-summary-final-wrapper"
+        not in default_describe
+    )
+    private_paths = reachability._load_private_path_allocations()
+    metadata_path = private_paths[
+        (
+            "notebooklm._app.notebooks.NotebookMetadataResult",
+            "metadata",
+            "notebooklm.types.NotebookMetadata",
+        )
+    ]
+    assert (
+        "mcp tool result|notebooklm/mcp/tools/notebooks.py|"
+        "register.notebook_describe|return|1" in metadata_path["terminal_locators"]
+    )
+    assert (
+        "mcp tool result|notebooklm/mcp/tools/notebooks.py|"
+        "register.notebook_describe|return|2" not in metadata_path["terminal_locators"]
+    )
+    assert (
+        "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata-null-description"
+        in metadata_path["projection_ids"]
+    )
+
+
+def test_cli_research_wait_source_projection_covers_failed_and_completed_results() -> None:
+    allocations = reachability._load_reviewed_allocations()
+    expected = {
+        3: "cli.ResearchSource.transitive-wait-failed-final-wrapper",
+        4: "cli.ResearchSource.transitive-wait-completed-final-wrapper",
+    }
+    for ordinal, projection_id in expected.items():
+        locator = (
+            "cli --json|notebooklm/cli/research_cmd.py|"
+            f"_render_wait_result|json_output_response|{ordinal}"
+        )
+        assert projection_id in allocations[locator]["projection_ids"]
+        assert (
+            "cli.ResearchSource.nested-to-public-dict-projection"
+            not in allocations[locator]["projection_ids"]
+        )
+
+    import_ids = allocations[
+        "cli --json|notebooklm/cli/research_cmd.py|_render_import_result|json_output_response|1"
+    ]["projection_ids"]
+    assert {
+        "cli.ResearchTask.transitive-import-success-final-wrapper",
+        "cli.ResearchSource.transitive-import-selection-final-contribution",
+    } <= set(import_ids)
+
+
+def test_chat_document_contributions_use_only_ask_terminals() -> None:
+    allocations = reachability._load_reviewed_allocations()
+    expected = {
+        "cli --json|notebooklm/cli/chat_cmd.py|"
+        "register_chat_commands.ask_cmd._run|json_output_response|1": {
+            "cli.StructuredDocument.transitive-chat-reference-full-contribution",
+            "cli.DocumentAnnotation.transitive-chat-reference-full-contribution",
+            "cli.DocumentBlock.transitive-chat-reference-full-contribution",
+            "cli.TextSpan.transitive-chat-reference-full-contribution",
+        },
+        "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1": {
+            "mcp.StructuredDocument.transitive-chat-reference-full-contribution",
+            "mcp.DocumentAnnotation.transitive-chat-reference-full-contribution",
+            "mcp.DocumentBlock.transitive-chat-reference-full-contribution",
+            "mcp.TextSpan.transitive-chat-reference-full-contribution",
+            "mcp.DocumentBlock.transitive-chat-reference-lite-fragment-contribution",
+            "mcp.TextSpan.transitive-chat-reference-lite-fragment-contribution",
+        },
+        "rest response|notebooklm/server/routes/chat.py|ask|return|1": {
+            "rest.StructuredDocument.transitive-chat-reference-full-contribution",
+            "rest.DocumentAnnotation.transitive-chat-reference-full-contribution",
+            "rest.DocumentBlock.transitive-chat-reference-full-contribution",
+            "rest.TextSpan.transitive-chat-reference-full-contribution",
+        },
+    }
+    for locator, expected_ids in expected.items():
+        assert expected_ids <= set(allocations[locator]["projection_ids"])
+
+
+def test_account_rename_and_http_error_contributions_use_exact_terminals() -> None:
+    allocations = reachability._load_reviewed_allocations()
+    server_info_ids = allocations[
+        "mcp tool result|notebooklm/mcp/tools/meta.py|register.server_info|return|1"
+    ]["projection_ids"]
+    assert "mcp.AuthTokens.redacted-server-info-account-identity-contribution" in server_info_ids
+    rest_server_info_ids = allocations[
+        "rest response|notebooklm/server/routes/meta.py|server_info|return|1"
+    ]["projection_ids"]
+    assert (
+        "rest.AuthTokens.redacted-server-info-account-identity-contribution" in rest_server_info_ids
+    )
+
+    rename_id = "mcp.Artifact.transitive-mind-map-rename-membership-final-contribution"
+    for ordinal in (1, 3):
+        locator = (
+            "mcp tool result|notebooklm/mcp/tools/studio.py|"
+            f"register.studio_rename|return|{ordinal}"
+        )
+        assert rename_id in allocations[locator]["projection_ids"]
+    note_branch = allocations[
+        "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_rename|return|2"
+    ]["projection_ids"]
+    assert rename_id not in note_branch
+
+    http_handler = allocations[
+        "rest response|notebooklm/server/_errors.py|"
+        "install_exception_handlers._handle_http|return|1"
+    ]
+    assert (
+        "rest.Artifact.transitive-download-no-artifacts-409-error-contribution"
+        in http_handler["projection_ids"]
+    )
+    assert http_handler["non_public_variants"]
+
+
+def test_research_error_contributions_use_exact_shared_funnels() -> None:
+    allocations = reachability._load_reviewed_allocations()
+    expected = {
+        "cli --json|notebooklm/cli/error_handler.py|handle_errors.emit|_output_error|1": {
+            "cli.ResearchTask.transitive-import-refusal-error-contribution"
+        },
+        "mcp tool result|notebooklm/mcp/tools/research.py|"
+        "register.research_import|tool-error-funnel|1": {
+            "mcp.ResearchTask.transitive-import-refusal-error-contribution"
+        },
+        "mcp tool result|notebooklm/mcp/tools/research.py|"
+        "register.research_start|tool-error-funnel|1": {
+            "mcp.ResearchStart.transitive-start-missing-report-id-error-contribution"
+        },
+        "rest response|notebooklm/server/_errors.py|"
+        "install_exception_handlers._handle_library|return|1": {
+            "rest.ResearchTask.transitive-import-refusal-error-contribution",
+            "rest.ResearchStart.transitive-start-missing-poll-id-error-contribution",
+        },
+    }
+    for locator, expected_ids in expected.items():
+        projection_ids = set(allocations[locator]["projection_ids"])
+        assert expected_ids <= projection_ids
+        assert allocations[locator]["non_public_variants"]
+
+
+def test_share_status_get_omits_view_level_projection() -> None:
+    allocations = reachability._load_reviewed_allocations()
+    get_ids = allocations[
+        "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_status|return|1"
+    ]["projection_ids"]
+    mutation_ids = allocations[
+        "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_set_access|return|2"
+    ]["projection_ids"]
+    assert "mcp.ShareStatus.app-view-share-status-view-view-level" not in get_ids
+    assert "mcp.ShareStatus.app-view-mutation-final-updated-view-level" in mutation_ids
 
 
 def test_reachability_rejects_unallocated_known_projection_id() -> None:
