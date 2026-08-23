@@ -152,6 +152,249 @@ def test_json_envelope_covers_every_exported_dataclass_and_exact_field_order() -
         "last_viewed_at",
         "modified_at",
     ]
+    assert cli["notebooklm.types.NotebookMetadata"]["projections"][0]["keys"] == [
+        "id",
+        "title",
+        "created_at",
+        "last_viewed_at",
+        "modified_at",
+        "is_owner",
+        "role",
+        "sources",
+    ]
+    assert cli["notebooklm.types.SourceSummary"]["projections"][0]["keys"] == [
+        "type",
+        "title",
+        "url",
+    ]
+    assert [
+        projection["keys"]
+        for projection in cli["notebooklm.types.NotebookDescription"]["projections"]
+    ] == [
+        ["notebook_id", "summary"],
+        ["notebook_id", "summary", "suggested_topics"],
+    ]
+    assert cli["notebooklm.types.SuggestedTopic"]["projections"][0]["keys"] == ["question"]
+    assert "notebooklm.types.ResearchTask" in cli
+    assert "notebooklm.types.ResearchSource" in cli
+    assert cli["notebooklm.types.SourceGuide"]["projections"][0]["keys"] == [
+        "source_id",
+        "summary",
+        "keywords",
+    ]
+    cli_generation = {
+        projection["mode"]: projection
+        for projection in cli["notebooklm.types.GenerationStatus"]["projections"]
+    }
+    assert cli_generation["manual-poll-projection"]["keys"] == [
+        "task_id",
+        "status",
+        "url",
+        "error",
+        "error_code",
+        "metadata",
+    ]
+    assert cli_generation["manual-wait-projection"]["keys"] == [
+        "artifact_id",
+        "status",
+        "url",
+        "error",
+    ]
+    assert cli_generation["manual-retry-kickoff-projection"]["keys"] == [
+        "task_id",
+        "status",
+        "url",
+        "error",
+        "error_code",
+    ]
+    assert cli_generation["manual-generation-completed-projection"]["keys"] == [
+        "task_id",
+        "status",
+        "url",
+    ]
+    assert cli_generation["manual-generation-pending-projection"]["keys"] == [
+        "task_id",
+        "status",
+    ]
+    assert cli_generation["manual-generation-failure-envelope"]["keys"] == [
+        "error",
+        "code",
+        "message",
+    ]
+    assert cli_generation["nested-timeout-transition-projection"]["keys"] == [
+        "task_id",
+        "status",
+        "url",
+        "error",
+        "error_code",
+        "metadata",
+    ]
+
+    mcp = contract["channels"]["mcp tool result"]
+    assert mcp["notebooklm.types.NotebookMetadata"]["projections"][0]["keys"] == [
+        "notebook",
+        "sources",
+    ]
+    assert mcp["notebooklm.types.SourceSummary"]["projections"][0] == {
+        "mode": "nested-dataclass",
+        "keys": ["kind", "title", "url"],
+        "evidence": ["nested-via:notebooklm.types.NotebookMetadata.sources"],
+    }
+    assert all(
+        projection["mode"] != "dataclass-full"
+        for projection in mcp["notebooklm.types.Source"]["projections"]
+    )
+    assert mcp["notebooklm.types.NotebookDescription"]["projections"][0]["keys"] == [
+        "summary",
+        "suggested_topics",
+    ]
+    assert mcp["notebooklm.types.SuggestedTopic"]["projections"][0]["keys"] == [
+        "question",
+        "prompt",
+    ]
+    assert mcp["notebooklm.types.ResearchStart"]["projections"][0]["keys"] == [
+        "notebook_id",
+        "query",
+        "mode",
+        "poll_task_id",
+    ]
+    assert mcp["notebooklm.types.ResearchTask"]["projections"][0]["mode"] == (
+        "manual-status-projection"
+    )
+    mcp_research_source = mcp["notebooklm.types.ResearchSource"]["projections"][0]
+    assert mcp_research_source["mode"] == "nested-dataclass-with-report-gate"
+    assert mcp_research_source["keys"] == [
+        "url",
+        "title",
+        "result_type",
+        "research_task_id",
+        "source_ordinal",
+        "hint",
+    ]
+    assert mcp_research_source["optional_keys"] == ["report_markdown"]
+    assert "notebooklm.types.SourceFulltext" in mcp
+    assert "notebooklm.types.SourceGuide" in mcp
+    mcp_source = {
+        projection["mode"]: projection
+        for projection in mcp["notebooklm.types.Source"]["projections"]
+    }
+    assert mcp_source["manual-compact-projection"]["keys"] == [
+        "id",
+        "title",
+        "kind",
+        "status_label",
+        "drive_status_label",
+        "created_at",
+    ]
+    account_success_keys = [
+        "email",
+        "authuser",
+        "available",
+        "notebook_limit",
+        "source_limit",
+        "tier",
+        "output_language",
+        "output_language_is_default",
+    ]
+    assert mcp["notebooklm.types.UserSettings"]["projections"][0]["mode"] == (
+        "manual-account-success-projection"
+    )
+    assert mcp["notebooklm.types.UserSettings"]["projections"][0]["keys"] == account_success_keys
+    assert mcp["notebooklm.types.AccountLimits"]["projections"][0]["keys"] == account_success_keys
+    mcp_generation = {
+        projection["mode"]: projection
+        for projection in mcp["notebooklm.types.GenerationStatus"]["projections"]
+    }
+    assert mcp_generation["app-status-view-projection"]["keys"] == [
+        "notebook_id",
+        "task_id",
+        "status",
+        "url",
+        "error",
+        "error_code",
+        "metadata",
+        "is_complete",
+        "media_ready",
+    ]
+    assert mcp_generation["manual-retry-projection"]["keys"] == [
+        "notebook_id",
+        "artifact_id",
+        "task_id",
+        "status",
+    ]
+    assert mcp_generation["manual-generate-projection"]["keys"] == [
+        "notebook_id",
+        "kind",
+        "task_id",
+        "status",
+        "url",
+        "error",
+    ]
+
+    rest = contract["channels"]["rest response"]
+    assert rest["notebooklm.types.ResearchStart"]["projections"][0]["keys"] == [
+        "task_id",
+        "report_id",
+        "notebook_id",
+        "query",
+        "mode",
+        "poll_id",
+    ]
+    assert rest["notebooklm.types.ResearchTask"]["projections"][0]["mode"] == (
+        "manual-status-projection"
+    )
+    assert rest["notebooklm.types.ResearchSource"]["projections"][0] == {
+        "mode": "nested-dataclass-projection",
+        "keys": [
+            "url",
+            "title",
+            "result_type",
+            "research_task_id",
+            "report_markdown",
+            "source_ordinal",
+            "hint",
+        ],
+        "evidence": ["notebooklm/server/routes/research.py:to_jsonable(result.sources)"],
+    }
+    assert "notebooklm.types.SourceFulltext" in rest
+    assert "notebooklm.types.SourceGuide" in rest
+    assert "notebooklm.types.UserSettings" in rest
+    assert "notebooklm.types.AccountLimits" in rest
+    assert rest["notebooklm.types.UserSettings"]["projections"][0]["keys"] == (account_success_keys)
+    assert rest["notebooklm.types.AccountLimits"]["projections"][0]["keys"] == (
+        account_success_keys
+    )
+    rest_generation = {
+        projection["mode"]: projection
+        for projection in rest["notebooklm.types.GenerationStatus"]["projections"]
+    }
+    assert rest_generation["app-status-view-projection"]["keys"] == [
+        "notebook_id",
+        "task_id",
+        "status",
+        "url",
+        "error",
+        "error_code",
+        "metadata",
+        "is_complete",
+        "media_ready",
+    ]
+    assert rest_generation["manual-retry-projection"]["keys"] == [
+        "notebook_id",
+        "artifact_id",
+        "task_id",
+        "status",
+    ]
+    assert rest_generation["manual-generate-projection"]["keys"] == [
+        "notebook_id",
+        "kind",
+        "task_id",
+        "status",
+        "url",
+        "error",
+    ]
+    assert "notebooklm.types.NotebookMetadata" not in rest
+    assert "notebooklm.types.SourceSummary" not in rest
     assert (
         "notebooklm.types.CitedSourceSelection"
         in contract["supplemental_import_references"]["cli --json"]
