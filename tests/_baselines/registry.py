@@ -160,6 +160,13 @@ def _derive_json_envelope_contract() -> dict[str, object]:
     return derive_json_envelope_contract()
 
 
+def _derive_operation_catalog() -> dict[str, object]:
+    """Current semantic dispositions derived from native and public authorities."""
+    from scripts.audit_operation_catalog import build_operation_catalog
+
+    return build_operation_catalog()
+
+
 # ---------------------------------------------------------------------------
 # Baseline registry
 # ---------------------------------------------------------------------------
@@ -235,6 +242,13 @@ BASELINES: list[Baseline] = [
         derive=_derive_ungated_surface,
         sort_keys=False,
         description="Collected public surface of every ungated public module.",
+    ),
+    Baseline(
+        name="operation_catalog",
+        path=_BASELINES_DIR / "operation_catalog.json",
+        derive=_derive_operation_catalog,
+        sort_keys=True,
+        description="Semantic dispositions for active RPC rows and public feature methods.",
     ),
     Baseline(
         name="public_model_contract",
