@@ -1,6 +1,245 @@
 {
   "channels": {
     "cli --json": {
+      "notebooklm._types.documents.DocumentAnnotation": {
+        "projections": [
+          {
+            "contribution_semantics": "DocumentAnnotation object_id joins the citation and its offsets become answer_anchor_start/end",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)": "sha256:ed367425dcb5320da49dde3724bbb8c5de788ae459f459299b1722080341f9a3"
+            },
+            "id": "cli.DocumentAnnotation.transitive-chat-reference-full-contribution",
+            "keys": [
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-full-contribution",
+            "model_contribution_keys": [
+              "object_id",
+              "start_index",
+              "end_index"
+            ],
+            "nested_keys": {
+              "note": [
+                "id",
+                "title"
+              ],
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text",
+                "start_char",
+                "end_char",
+                "chunk_id",
+                "passage_id",
+                "answer_start_char",
+                "answer_end_char",
+                "score",
+                "fragment_start_char",
+                "fragment_end_char",
+                "answer_anchor_start",
+                "answer_anchor_end"
+              ]
+            },
+            "optional_keys": [
+              "note",
+              "note_save_error"
+            ],
+            "projection_condition": "an in-range DocumentAnnotation.object_id matches a surviving ChatReference.chunk_id",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
+      "notebooklm._types.documents.DocumentBlock": {
+        "projections": [
+          {
+            "contribution_semantics": "DocumentBlock ranges produce fragment_start/end and its span-derived text produces cited_text; answer-document blocks also bound anchor validity",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def extract_text_passages",
+              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)": "sha256:ed367425dcb5320da49dde3724bbb8c5de788ae459f459299b1722080341f9a3"
+            },
+            "id": "cli.DocumentBlock.transitive-chat-reference-full-contribution",
+            "keys": [
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-full-contribution",
+            "model_contribution_keys": [
+              "start_index",
+              "end_index",
+              "spans"
+            ],
+            "nested_keys": {
+              "note": [
+                "id",
+                "title"
+              ],
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text",
+                "start_char",
+                "end_char",
+                "chunk_id",
+                "passage_id",
+                "answer_start_char",
+                "answer_end_char",
+                "score",
+                "fragment_start_char",
+                "fragment_end_char",
+                "answer_anchor_start",
+                "answer_anchor_end"
+              ]
+            },
+            "optional_keys": [
+              "note",
+              "note_save_error"
+            ],
+            "projection_condition": "a decoded citation fragment contains a usable DocumentBlock, or an accepted answer anchor depends on the answer document's block extent/text",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
+      "notebooklm._types.documents.StructuredDocument": {
+        "projections": [
+          {
+            "contribution_semantics": "StructuredDocument.annotations selects the matching anchor and text/extent derived from blocks validates its range, producing answer_anchor_start/end; answer_document itself is removed from the CLI envelope",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)": "sha256:ed367425dcb5320da49dde3724bbb8c5de788ae459f459299b1722080341f9a3"
+            },
+            "id": "cli.StructuredDocument.transitive-chat-reference-full-contribution",
+            "keys": [
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-full-contribution",
+            "model_contribution_keys": [
+              "blocks",
+              "annotations"
+            ],
+            "nested_keys": {
+              "note": [
+                "id",
+                "title"
+              ],
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text",
+                "start_char",
+                "end_char",
+                "chunk_id",
+                "passage_id",
+                "answer_start_char",
+                "answer_end_char",
+                "score",
+                "fragment_start_char",
+                "fragment_end_char",
+                "answer_anchor_start",
+                "answer_anchor_end"
+              ]
+            },
+            "optional_keys": [
+              "note",
+              "note_save_error"
+            ],
+            "projection_condition": "the answer document contains an in-range annotation whose object_id matches a surviving ChatReference.chunk_id",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
+      "notebooklm._types.documents.TextSpan": {
+        "projections": [
+          {
+            "contribution_semantics": "TextSpan offsets/text build DocumentBlock.text and StructuredDocument.text, thereby producing cited_text/ranges or validating answer anchors",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def extract_text_passages",
+              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)": "sha256:ed367425dcb5320da49dde3724bbb8c5de788ae459f459299b1722080341f9a3"
+            },
+            "id": "cli.TextSpan.transitive-chat-reference-full-contribution",
+            "keys": [
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-full-contribution",
+            "model_contribution_keys": [
+              "start_index",
+              "end_index",
+              "text"
+            ],
+            "nested_keys": {
+              "note": [
+                "id",
+                "title"
+              ],
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text",
+                "start_char",
+                "end_char",
+                "chunk_id",
+                "passage_id",
+                "answer_start_char",
+                "answer_end_char",
+                "score",
+                "fragment_start_char",
+                "fragment_end_char",
+                "answer_anchor_start",
+                "answer_anchor_end"
+              ]
+            },
+            "optional_keys": [
+              "note",
+              "note_save_error"
+            ],
+            "projection_condition": "a decoded citation fragment contains a usable TextSpan, or an accepted answer anchor depends on answer-document text built from a TextSpan",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
       "notebooklm.types.Artifact": {
         "projections": [
           {
@@ -78,6 +317,31 @@
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "Artifact.id constructs MindMap.id and is emitted as note_id; the raw create-id fallback emits the same wrapper without a public Artifact contribution",
+            "evidence": [
+              "notebooklm/_mind_maps_api.py:art = await self._find_interactive",
+              "notebooklm/_mind_maps_api.py:if art is not None:",
+              "notebooklm/cli/generate_cmd.py:_output_mind_map_result"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_mind_maps_api.py:art = await self._find_interactive": "sha256:fd45e90d1f73d51441d32a7e668efdda978a888ea2f554d86d0ddc56130e213a",
+              "notebooklm/_mind_maps_api.py:if art is not None:": "sha256:a62bc298c074a817d110f83e82cbe60393e4a0bbd435a98f1247ba80420280cc",
+              "notebooklm/cli/generate_cmd.py:_output_mind_map_result": "sha256:d2680ea672181b764845d049e04f982a15dae5b043a669c16a34c99b279cf6de"
+            },
+            "id": "cli.Artifact.transitive-interactive-mind-map-generation-final-contribution",
+            "keys": [
+              "mind_map",
+              "note_id",
+              "kind"
+            ],
+            "mode": "transitive-interactive-mind-map-generation-final-contribution",
+            "model_contribution_keys": [
+              "id"
+            ],
+            "projection_condition": "interactive mind-map generation finds the newly created public Artifact",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
             "evidence": [
               "notebooklm/_app/download.py:selected_envelope"
             ],
@@ -148,6 +412,7 @@
             "shape_derivation": "runtime:artifact-download-executed"
           },
           {
+            "contribution_semantics": "Artifact.kind (backed by _artifact_type and _variant) and Artifact.status (through is_completed) select the NO_ARTIFACTS envelope; a truly empty listing reaches the same envelope without any public Artifact instance and is non-public",
             "evidence": [
               "notebooklm/cli/services/download.py:DownloadOutcome.NO_ARTIFACTS"
             ],
@@ -160,6 +425,12 @@
               "suggestion"
             ],
             "mode": "transitive-download-no-artifacts-final-wrapper",
+            "model_contribution_keys": [
+              "_artifact_type",
+              "status",
+              "_variant"
+            ],
+            "projection_condition": "the Artifact listing is non-empty but every public Artifact is excluded by the requested kind or completed-status filters",
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
@@ -391,6 +662,7 @@
       "notebooklm.types.CitedSourceSelection": {
         "projections": [
           {
+            "contribution_semantics": "len(CitedSourceSelection.sources) becomes cited_sources_selected and used_fallback becomes cited_only_fallback; cited URL diagnostic counts do not reach JSON",
             "evidence": [
               "notebooklm/cli/research_cmd.py:_completed_wait_payload"
             ],
@@ -399,14 +671,35 @@
             },
             "id": "cli.CitedSourceSelection.manual-completed-wait-projection",
             "keys": [
-              "cited_only",
-              "cited_sources_selected",
-              "cited_only_fallback"
+              "status",
+              "query",
+              "sources_found",
+              "sources",
+              "report"
             ],
             "mode": "manual-completed-wait-projection",
+            "model_contribution_keys": [
+              "sources",
+              "used_fallback"
+            ],
+            "nested_keys": {
+              "imported_sources": [
+                "id",
+                "title"
+              ]
+            },
+            "optional_keys": [
+              "cited_only",
+              "cited_sources_selected",
+              "cited_only_fallback",
+              "imported",
+              "imported_sources"
+            ],
+            "projection_condition": "research wait --import-all completes with a CitedSourceSelection",
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "len(CitedSourceSelection.sources) becomes sources_selected and used_fallback becomes cited_only_fallback; cited URL diagnostic counts do not reach JSON",
             "evidence": [
               "notebooklm/cli/research_cmd.py:_render_import_result"
             ],
@@ -415,13 +708,40 @@
             },
             "id": "cli.CitedSourceSelection.manual-direct-import-projection",
             "keys": [
+              "status",
+              "run_id",
+              "sources_found",
+              "sources_selected",
+              "imported",
+              "imported_sources",
+              "already_present",
+              "already_present_sources"
+            ],
+            "mode": "manual-direct-import-projection",
+            "model_contribution_keys": [
+              "sources",
+              "used_fallback"
+            ],
+            "nested_keys": {
+              "already_present_sources": [
+                "id",
+                "title",
+                "url"
+              ],
+              "imported_sources": [
+                "id",
+                "title"
+              ]
+            },
+            "optional_keys": [
               "cited_only",
               "cited_only_fallback"
             ],
-            "mode": "manual-direct-import-projection",
+            "projection_condition": "research import performs cited-only selection",
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "len(CitedSourceSelection.sources) becomes cited_sources_selected and used_fallback becomes cited_only_fallback",
             "evidence": [
               "notebooklm/_app/source_research.py:def cited_selection",
               "notebooklm/cli/_source_render.py:completed_payload"
@@ -439,6 +759,16 @@
               "report"
             ],
             "mode": "transitive-source-add-research-completed-projection",
+            "model_contribution_keys": [
+              "sources",
+              "used_fallback"
+            ],
+            "nested_keys": {
+              "imported_sources": [
+                "id",
+                "title"
+              ]
+            },
             "optional_keys": [
               "cited_only",
               "cited_sources_selected",
@@ -446,6 +776,7 @@
               "imported",
               "imported_sources"
             ],
+            "projection_condition": "source add-research completes and creates a CitedSourceSelection",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -736,6 +1067,29 @@
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "The fresh GenerationStatus.task_id is renamed to artifact_id; timeout status and error text are CLI-owned scalars",
+            "evidence": [
+              "notebooklm/cli/artifact_cmd.py:except TimeoutError",
+              "notebooklm/cli/artifact_cmd.py:\"artifact_id\": status.task_id"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/cli/artifact_cmd.py:\"artifact_id\": status.task_id": "sha256:ceeb667ca71f7dd15125763bffbf6f8facf6c43a832b472550a26527b6afe6a6",
+              "notebooklm/cli/artifact_cmd.py:except TimeoutError": "sha256:9eedd3e9f9b4d92f1117939ca1fa2dfbf1f45b3afc772d0c925907444f938e5c"
+            },
+            "id": "cli.GenerationStatus.transitive-retry-timeout-task-id-contribution",
+            "keys": [
+              "artifact_id",
+              "status",
+              "error"
+            ],
+            "mode": "transitive-retry-timeout-task-id-contribution",
+            "model_contribution_keys": [
+              "task_id"
+            ],
+            "projection_condition": "blocking artifact retry times out after kickoff",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
             "evidence": [
               "notebooklm/_app/generate_retry.py:generation_outcome_from_status",
               "notebooklm/cli/generate_cmd.py:_output_generation_outcome"
@@ -791,6 +1145,7 @@
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "Each GenerationStatus supplies the six nested status_transitions fields; an empty transition collection emits the same root without a public-model contribution",
             "evidence": [
               "notebooklm/cli/error_handler.py:_generation_status_extra"
             ],
@@ -799,6 +1154,19 @@
             },
             "id": "cli.GenerationStatus.nested-timeout-transition-projection",
             "keys": [
+              "error",
+              "code",
+              "message",
+              "notebook_id",
+              "task_id",
+              "timeout_seconds",
+              "last_status",
+              "status_history",
+              "status_transitions",
+              "stalled_phase"
+            ],
+            "mode": "nested-timeout-transition-projection",
+            "model_contribution_keys": [
               "task_id",
               "status",
               "url",
@@ -806,7 +1174,17 @@
               "error_code",
               "metadata"
             ],
-            "mode": "nested-timeout-transition-projection",
+            "nested_keys": {
+              "status_transitions": [
+                "task_id",
+                "status",
+                "url",
+                "error",
+                "error_code",
+                "metadata"
+              ]
+            },
+            "projection_condition": "ArtifactTimeoutError.status_transitions contains at least one public GenerationStatus",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -1110,6 +1488,7 @@
                 ]
               }
             ],
+            "contribution_semantics": "MindMap.id membership selects the note-backed delete branch and adds kind/note; a regular or missing full-id artifact uses the same terminal without a public MindMap",
             "evidence": [
               "notebooklm/_app/artifacts.py:async def delete_artifact",
               "notebooklm/cli/artifact_cmd.py:def serialize_success"
@@ -1124,6 +1503,10 @@
               "deleted"
             ],
             "mode": "transitive-artifact-delete-final-carveout",
+            "model_contribution_keys": [
+              "id"
+            ],
+            "projection_condition": "list_note_backed returns a MindMap whose id matches the target",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -1165,6 +1548,29 @@
       },
       "notebooklm.types.Note": {
         "projections": [
+          {
+            "contribution_semantics": "The created Note.id is copied into MindMapResult.note_id and emitted as note_id; interactive or absent-leaf paths have no Note contribution",
+            "evidence": [
+              "notebooklm/_artifact/generation.py:note = await self._note_service.create_note",
+              "notebooklm/cli/generate_cmd.py:_output_mind_map_result"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_artifact/generation.py:note = await self._note_service.create_note": "sha256:b6b2ecef2a307a60bcc4ea9ca7627c9789a1e0786de9e682704bc40f8caf205e",
+              "notebooklm/cli/generate_cmd.py:_output_mind_map_result": "sha256:d2680ea672181b764845d049e04f982a15dae5b043a669c16a34c99b279cf6de"
+            },
+            "id": "cli.Note.transitive-note-backed-mind-map-generation-final-contribution",
+            "keys": [
+              "mind_map",
+              "note_id",
+              "kind"
+            ],
+            "mode": "transitive-note-backed-mind-map-generation-final-contribution",
+            "model_contribution_keys": [
+              "id"
+            ],
+            "projection_condition": "note-backed mind-map generation returns a present leaf and successfully creates a public Note",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
           {
             "evidence": [
               "notebooklm/cli/note_cmd.py:note_list"
@@ -1547,6 +1953,7 @@
       "notebooklm.types.NotebookDescription": {
         "projections": [
           {
+            "contribution_semantics": "NotebookDescription.summary populates the summary value; when description is None the CLI emits the same root keys with summary null and no public-model contribution",
             "evidence": [
               "notebooklm/cli/notebook_cmd.py:summary_cmd"
             ],
@@ -1559,9 +1966,14 @@
               "summary"
             ],
             "mode": "manual-summary-projection",
+            "model_contribution_keys": [
+              "summary"
+            ],
+            "projection_condition": "execute_notebook_describe returns a NotebookDescription",
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "NotebookDescription supplies summary and the suggested_topics collection; description None still emits summary null and an empty topics list without a public-model contribution",
             "evidence": [
               "notebooklm/cli/notebook_cmd.py:suggested_topics"
             ],
@@ -1575,6 +1987,11 @@
               "suggested_topics"
             ],
             "mode": "manual-summary-with-topics-projection",
+            "model_contribution_keys": [
+              "summary",
+              "suggested_topics"
+            ],
+            "projection_condition": "--topics is requested and execute_notebook_describe returns a NotebookDescription",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -1600,6 +2017,10 @@
               "sources"
             ],
             "mode": "manual-to-dict-projection",
+            "model_contribution_keys": [
+              "notebook",
+              "sources"
+            ],
             "nested_keys": {
               "sources": [
                 "type",
@@ -1660,11 +2081,16 @@
       "notebooklm.types.ResearchSource": {
         "projections": [
           {
+            "contribution_semantics": "ResearchSource.to_public_dict supplies required url/title/result_type plus its conditional compatibility fields to emitted sources rows",
             "evidence": [
-              "notebooklm/_types/research.py:to_public_dict"
+              "notebooklm/_types/research.py:to_public_dict",
+              "notebooklm/cli/research_cmd.py:result.sources",
+              "notebooklm/cli/_source_render.py:completed_payload"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_types/research.py:to_public_dict": "sha256:2335064266a200eb4fa556087780e2b703a9f09b4e114d9e634b18028fd6990d"
+              "notebooklm/_types/research.py:to_public_dict": "sha256:2335064266a200eb4fa556087780e2b703a9f09b4e114d9e634b18028fd6990d",
+              "notebooklm/cli/_source_render.py:completed_payload": "sha256:d6458d18e34c2c0b59fce7ec504b4f32063b789e9e63d3157e95ac98fa33eb0d",
+              "notebooklm/cli/research_cmd.py:result.sources": "sha256:d5512b00afcc71fec2393d5ef1523ef4648dc37f8e06efce429a85fe3fd3cc7c"
             },
             "id": "cli.ResearchSource.nested-to-public-dict-projection",
             "keys": [
@@ -1673,13 +2099,174 @@
               "result_type"
             ],
             "mode": "nested-to-public-dict-projection",
+            "model_contribution_keys": [
+              "url",
+              "title",
+              "result_type",
+              "research_task_id",
+              "report_markdown",
+              "source_ordinal",
+              "hint"
+            ],
             "optional_keys": [
               "research_task_id",
               "report_markdown",
               "source_ordinal",
               "hint"
             ],
+            "projection_condition": "a research status/wait/source-add result contains at least one ResearchSource",
             "shape_derivation": "runtime:research-source-public-dict"
+          },
+          {
+            "contribution_semantics": "Every ResearchSource public-dict field reaches sources[]; membership also supplies sources_found",
+            "evidence": [
+              "notebooklm/_app/research.py:sources=[src.to_public_dict() for src in status.sources]",
+              "notebooklm/cli/research_cmd.py:_completed_wait_payload"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_app/research.py:sources=[src.to_public_dict() for src in status.sources]": "sha256:bbb2a65fd3920fbf9b1467f443383e3e1685780db76f6a0a85e8996df9398c54",
+              "notebooklm/cli/research_cmd.py:_completed_wait_payload": "sha256:11b67f9b93d0da80567df8c65556dfd95982554040aee1cd207a6706da6845ab"
+            },
+            "id": "cli.ResearchSource.transitive-wait-completed-final-wrapper",
+            "keys": [
+              "status",
+              "query",
+              "sources_found",
+              "sources",
+              "report"
+            ],
+            "mode": "transitive-wait-completed-final-wrapper",
+            "model_contribution_keys": [
+              "url",
+              "title",
+              "result_type",
+              "research_task_id",
+              "report_markdown",
+              "source_ordinal",
+              "hint"
+            ],
+            "nested_keys": {
+              "sources": [
+                "url",
+                "title",
+                "result_type"
+              ]
+            },
+            "nested_optional_keys": {
+              "sources": [
+                "research_task_id",
+                "report_markdown",
+                "source_ordinal",
+                "hint"
+              ]
+            },
+            "optional_keys": [
+              "cited_only",
+              "cited_sources_selected",
+              "cited_only_fallback",
+              "imported",
+              "imported_sources"
+            ],
+            "projection_condition": "completed research wait contains at least one ResearchSource",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "contribution_semantics": "A nonempty ResearchSource collection adds sources/sources_found to the failed envelope and each source public-dict field reaches sources[]",
+            "evidence": [
+              "notebooklm/_app/research.py:sources=[src.to_public_dict() for src in status.sources]",
+              "notebooklm/cli/research_cmd.py:failed_payload"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_app/research.py:sources=[src.to_public_dict() for src in status.sources]": "sha256:bbb2a65fd3920fbf9b1467f443383e3e1685780db76f6a0a85e8996df9398c54",
+              "notebooklm/cli/research_cmd.py:failed_payload": "sha256:46d64cbbacd8b563c52c8a5720a12370a553bbf431b59a4a70fc64ad5b4567dd"
+            },
+            "id": "cli.ResearchSource.transitive-wait-failed-final-wrapper",
+            "keys": [
+              "status",
+              "error"
+            ],
+            "mode": "transitive-wait-failed-final-wrapper",
+            "model_contribution_keys": [
+              "url",
+              "title",
+              "result_type",
+              "research_task_id",
+              "report_markdown",
+              "source_ordinal",
+              "hint"
+            ],
+            "nested_keys": {
+              "sources": [
+                "url",
+                "title",
+                "result_type"
+              ]
+            },
+            "nested_optional_keys": {
+              "sources": [
+                "research_task_id",
+                "report_markdown",
+                "source_ordinal",
+                "hint"
+              ]
+            },
+            "optional_keys": [
+              "query",
+              "sources",
+              "sources_found",
+              "report",
+              "reason_message",
+              "hint"
+            ],
+            "projection_condition": "failed research wait contains at least one ResearchSource",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "contribution_semantics": "ResearchSource membership supplies sources_found/sources_selected; url, result_type, and report_markdown select cited sources and fallback behavior",
+            "evidence": [
+              "notebooklm/_app/research.py:sources=[src.to_public_dict() for src in status.sources]",
+              "notebooklm/cli/research_cmd.py:selected, cited_selection = _select_research_sources_for_import(",
+              "notebooklm/cli/research_cmd.py:_render_import_result"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_app/research.py:sources=[src.to_public_dict() for src in status.sources]": "sha256:bbb2a65fd3920fbf9b1467f443383e3e1685780db76f6a0a85e8996df9398c54",
+              "notebooklm/cli/research_cmd.py:_render_import_result": "sha256:14404f549856f1a4329b1d7e60fe722e5fb3fe8468795732829dddd8a1901680",
+              "notebooklm/cli/research_cmd.py:selected, cited_selection = _select_research_sources_for_import(": "sha256:6265646c11863b5ba36c0f0deef4c5b915feef4f1325117e3adbc8dda5ba852b"
+            },
+            "id": "cli.ResearchSource.transitive-import-selection-final-contribution",
+            "keys": [
+              "status",
+              "run_id",
+              "sources_found",
+              "sources_selected",
+              "imported",
+              "imported_sources",
+              "already_present",
+              "already_present_sources"
+            ],
+            "mode": "transitive-import-selection-final-contribution",
+            "model_contribution_keys": [
+              "url",
+              "result_type",
+              "report_markdown"
+            ],
+            "nested_keys": {
+              "already_present_sources": [
+                "id",
+                "title",
+                "url"
+              ],
+              "imported_sources": [
+                "id",
+                "title"
+              ]
+            },
+            "optional_keys": [
+              "cited_only",
+              "cited_only_fallback"
+            ],
+            "projection_condition": "research import has at least one ResearchSource; field selection applies when cited-only mode is requested",
+            "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
       },
@@ -1700,6 +2287,10 @@
               "task_id"
             ],
             "mode": "transitive-source-add-research-no-wait-projection",
+            "model_contribution_keys": [
+              "task_id",
+              "report_id"
+            ],
             "optional_keys": [
               "poll_task_id"
             ],
@@ -1723,6 +2314,10 @@
               "report"
             ],
             "mode": "transitive-source-add-research-completed-projection",
+            "model_contribution_keys": [
+              "task_id",
+              "report_id"
+            ],
             "optional_keys": [
               "cited_only",
               "cited_sources_selected",
@@ -1807,6 +2402,13 @@
               "report"
             ],
             "mode": "transitive-wait-completed-final-projection",
+            "model_contribution_keys": [
+              "task_id",
+              "status",
+              "query",
+              "sources",
+              "report"
+            ],
             "nested_keys": {
               "imported_sources": [
                 "id",
@@ -1835,6 +2437,14 @@
               "error"
             ],
             "mode": "transitive-wait-failed-final-projection",
+            "model_contribution_keys": [
+              "status",
+              "status_code",
+              "source_type",
+              "query",
+              "sources",
+              "report"
+            ],
             "optional_keys": [
               "query",
               "sources",
@@ -1868,6 +2478,86 @@
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "ResearchTask fields select and populate the ValidationError message; completed-empty uses only source-list membership and no ResearchSource field is projected",
+            "evidence": [
+              "notebooklm/cli/research_cmd.py:resolved_run_id = run_id or status.task_id",
+              "notebooklm/cli/research_cmd.py:sources, report = classify_importable_research",
+              "notebooklm/_app/research.py:def classify_importable_research",
+              "notebooklm/cli/error_handler.py:response: dict ="
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_app/research.py:def classify_importable_research": "sha256:cb2c1159613f22dd79bd906beed7b88e9b5622533e26cf377fd311c9f8e6f809",
+              "notebooklm/cli/error_handler.py:response: dict =": "sha256:d623ef4856089a3c252977001ef2f47c0a9ce47faa7fa6f99ff5597c4577ec88",
+              "notebooklm/cli/research_cmd.py:resolved_run_id = run_id or status.task_id": "sha256:ca38b1d634a80d034b0ad83ffee193bcebbc278ab9162d84fd3d63d531eff6d9",
+              "notebooklm/cli/research_cmd.py:sources, report = classify_importable_research": "sha256:054e82c8f58700dd7e731077c60b13bf14946d8a106447f2745a4b5fbad623a9"
+            },
+            "id": "cli.ResearchTask.transitive-import-refusal-error-contribution",
+            "keys": [
+              "error",
+              "code",
+              "message"
+            ],
+            "mode": "transitive-import-refusal-error-contribution",
+            "model_contribution_keys": [
+              "task_id",
+              "status",
+              "status_code",
+              "source_type",
+              "query",
+              "sources"
+            ],
+            "projection_condition": "omitted run-id with an absent task_id, or import classification refuses not_found, failed, noncompleted, or completed-without-sources ResearchTask state",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "contribution_semantics": "task_id supplies run_id when --run-id is omitted, status selects success, source membership supplies counts, and report affects cited-only selection",
+            "evidence": [
+              "notebooklm/cli/research_cmd.py:resolved_run_id = run_id or status.task_id",
+              "notebooklm/cli/research_cmd.py:sources, report = classify_importable_research",
+              "notebooklm/cli/research_cmd.py:_render_import_result"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/cli/research_cmd.py:_render_import_result": "sha256:14404f549856f1a4329b1d7e60fe722e5fb3fe8468795732829dddd8a1901680",
+              "notebooklm/cli/research_cmd.py:resolved_run_id = run_id or status.task_id": "sha256:ca38b1d634a80d034b0ad83ffee193bcebbc278ab9162d84fd3d63d531eff6d9",
+              "notebooklm/cli/research_cmd.py:sources, report = classify_importable_research": "sha256:054e82c8f58700dd7e731077c60b13bf14946d8a106447f2745a4b5fbad623a9"
+            },
+            "id": "cli.ResearchTask.transitive-import-success-final-wrapper",
+            "keys": [
+              "status",
+              "run_id",
+              "sources_found",
+              "sources_selected",
+              "imported",
+              "imported_sources",
+              "already_present",
+              "already_present_sources"
+            ],
+            "mode": "transitive-import-success-final-wrapper",
+            "model_contribution_keys": [
+              "task_id",
+              "status",
+              "sources",
+              "report"
+            ],
+            "nested_keys": {
+              "already_present_sources": [
+                "id",
+                "title",
+                "url"
+              ],
+              "imported_sources": [
+                "id",
+                "title"
+              ]
+            },
+            "optional_keys": [
+              "cited_only",
+              "cited_only_fallback"
+            ],
+            "projection_condition": "research import classifies a public ResearchTask as importable",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
             "evidence": [
               "notebooklm/_app/source_research.py:sources = [src.to_public_dict()",
               "notebooklm/cli/_source_render.py:completed_payload"
@@ -1885,6 +2575,11 @@
               "report"
             ],
             "mode": "transitive-source-add-research-completed-final-projection",
+            "model_contribution_keys": [
+              "status",
+              "sources",
+              "report"
+            ],
             "nested_keys": {
               "imported_sources": [
                 "id",
@@ -1915,6 +2610,13 @@
               "error"
             ],
             "mode": "transitive-source-add-research-failure-final-projection",
+            "model_contribution_keys": [
+              "status",
+              "status_code",
+              "source_type",
+              "query",
+              "sources"
+            ],
             "optional_keys": [
               "reason_message",
               "hint",
@@ -2629,6 +3331,45 @@
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "Each Source title/url and kind (backed by _type_code) constructs a public SourceSummary whose to_dict projection reaches NotebookMetadata.sources; the zero-source envelope has no Source contribution",
+            "evidence": [
+              "notebooklm/_notebook_metadata.py:SourceSummary(",
+              "notebooklm/_types/notebooks.py:class SourceSummary",
+              "notebooklm/cli/notebook_cmd.py:data = metadata.to_dict()"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_notebook_metadata.py:SourceSummary(": "sha256:6ce076c367664dd191b70cd58cfb286d9306dbe251d08bd036e1bb6c6e5a2b6f",
+              "notebooklm/_types/notebooks.py:class SourceSummary": "sha256:d9a9d43720f96120fe65c045e2d43e914560c27a8705f6c3ec6a9979852d1a4c",
+              "notebooklm/cli/notebook_cmd.py:data = metadata.to_dict()": "sha256:cef87951ab114ba963266efb27010d3aad1b0054ee255b1471b670d4edd7afbc"
+            },
+            "id": "cli.Source.transitive-notebook-metadata-source-summary-final-wrapper",
+            "keys": [
+              "id",
+              "title",
+              "created_at",
+              "last_viewed_at",
+              "modified_at",
+              "is_owner",
+              "role",
+              "sources"
+            ],
+            "mode": "transitive-notebook-metadata-source-summary-final-wrapper",
+            "model_contribution_keys": [
+              "title",
+              "url",
+              "_type_code"
+            ],
+            "nested_keys": {
+              "sources": [
+                "type",
+                "title",
+                "url"
+              ]
+            },
+            "projection_condition": "Notebook metadata includes at least one listed public Source",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
             "evidence": [
               "notebooklm/cli/resolve.py:async def resolve_source_id",
               "notebooklm/cli/resolve.py:list_fn=lambda: client.sources.list(notebook_id)"
@@ -2665,6 +3406,14 @@
               "char_count"
             ],
             "mode": "manual-field-projection",
+            "model_contribution_keys": [
+              "source_id",
+              "title",
+              "content",
+              "_type_code",
+              "url",
+              "char_count"
+            ],
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
@@ -2683,6 +3432,12 @@
               "kind"
             ],
             "mode": "manual-file-output-projection",
+            "model_contribution_keys": [
+              "source_id",
+              "title",
+              "content",
+              "_type_code"
+            ],
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -2703,6 +3458,10 @@
               "keywords"
             ],
             "mode": "manual-guide-projection",
+            "model_contribution_keys": [
+              "summary",
+              "keywords"
+            ],
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -2723,6 +3482,11 @@
               "url"
             ],
             "mode": "nested-manual-to-dict-projection",
+            "model_contribution_keys": [
+              "kind",
+              "title",
+              "url"
+            ],
             "shape_derivation": "runtime:cli-notebook-metadata-source"
           }
         ]
@@ -2730,6 +3494,7 @@
       "notebooklm.types.SuggestedTopic": {
         "projections": [
           {
+            "contribution_semantics": "Each SuggestedTopic.question becomes one suggested_topics string; an empty topics collection emits an empty list without a SuggestedTopic instance",
             "evidence": [
               "notebooklm/cli/notebook_cmd.py:topic.question"
             ],
@@ -2741,12 +3506,432 @@
               "question"
             ],
             "mode": "nested-scalar-field-projection",
+            "model_contribution_keys": [
+              "question"
+            ],
+            "projection_condition": "--topics is requested and NotebookDescription contains at least one SuggestedTopic",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
       }
     },
     "mcp tool result": {
+      "notebooklm._types.documents.DocumentAnnotation": {
+        "projections": [
+          {
+            "contribution_semantics": "DocumentAnnotation object_id joins the citation and its offsets become answer_anchor_start/end",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)": "sha256:3c81926f628e07b7b2ad79589012f2b9fe384fc4e9dbb53480c0dabc1da5317b"
+            },
+            "id": "mcp.DocumentAnnotation.transitive-chat-reference-full-contribution",
+            "keys": [
+              "notebook_id",
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-full-contribution",
+            "model_contribution_keys": [
+              "object_id",
+              "start_index",
+              "end_index"
+            ],
+            "nested_keys": {
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text",
+                "start_char",
+                "end_char",
+                "chunk_id",
+                "passage_id",
+                "answer_start_char",
+                "answer_end_char",
+                "score",
+                "fragment_start_char",
+                "fragment_end_char",
+                "answer_anchor_start",
+                "answer_anchor_end"
+              ],
+              "suggested_prompts": [
+                "title",
+                "prompt"
+              ]
+            },
+            "optional_keys": [
+              "history",
+              "suggested_prompts",
+              "source_ids"
+            ],
+            "projection_condition": "references=full and an in-range DocumentAnnotation.object_id matches a surviving ChatReference.chunk_id",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
+      "notebooklm._types.documents.DocumentBlock": {
+        "projections": [
+          {
+            "contribution_semantics": "DocumentBlock ranges/text produce cited_text and fragment ranges, while answer-document blocks also bound anchor validity",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def extract_text_passages",
+              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)": "sha256:3c81926f628e07b7b2ad79589012f2b9fe384fc4e9dbb53480c0dabc1da5317b"
+            },
+            "id": "mcp.DocumentBlock.transitive-chat-reference-full-contribution",
+            "keys": [
+              "notebook_id",
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-full-contribution",
+            "model_contribution_keys": [
+              "start_index",
+              "end_index",
+              "spans"
+            ],
+            "nested_keys": {
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text",
+                "start_char",
+                "end_char",
+                "chunk_id",
+                "passage_id",
+                "answer_start_char",
+                "answer_end_char",
+                "score",
+                "fragment_start_char",
+                "fragment_end_char",
+                "answer_anchor_start",
+                "answer_anchor_end"
+              ],
+              "suggested_prompts": [
+                "title",
+                "prompt"
+              ]
+            },
+            "optional_keys": [
+              "history",
+              "suggested_prompts",
+              "source_ids"
+            ],
+            "projection_condition": "references=full and a decoded citation fragment contains a usable DocumentBlock, or an accepted answer anchor depends on an answer block",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "contribution_semantics": "DocumentBlock span-derived text may survive as optional cited_text; all block range and answer-anchor fields are trimmed from lite references",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def extract_text_passages",
+              "notebooklm/mcp/tools/chat.py:_LITE_REFERENCE_FIELDS"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/mcp/tools/chat.py:_LITE_REFERENCE_FIELDS": "sha256:685b3c5bed6d45d9d771b63785b518163e52a9591bf2f01a741ccc0501fa6efc"
+            },
+            "id": "mcp.DocumentBlock.transitive-chat-reference-lite-fragment-contribution",
+            "keys": [
+              "notebook_id",
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-lite-fragment-contribution",
+            "model_contribution_keys": [
+              "start_index",
+              "end_index",
+              "spans"
+            ],
+            "nested_keys": {
+              "references": [],
+              "suggested_prompts": [
+                "title",
+                "prompt"
+              ]
+            },
+            "nested_optional_keys": {
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text"
+              ]
+            },
+            "optional_keys": [
+              "history",
+              "suggested_prompts",
+              "source_ids"
+            ],
+            "projection_condition": "references=lite and a decoded citation fragment contains at least one usable DocumentBlock",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
+      "notebooklm._types.documents.StructuredDocument": {
+        "projections": [
+          {
+            "contribution_semantics": "StructuredDocument annotations and block-derived text/extent produce answer_anchor_start/end; answer_document itself is removed from the tool result",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)": "sha256:3c81926f628e07b7b2ad79589012f2b9fe384fc4e9dbb53480c0dabc1da5317b"
+            },
+            "id": "mcp.StructuredDocument.transitive-chat-reference-full-contribution",
+            "keys": [
+              "notebook_id",
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-full-contribution",
+            "model_contribution_keys": [
+              "blocks",
+              "annotations"
+            ],
+            "nested_keys": {
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text",
+                "start_char",
+                "end_char",
+                "chunk_id",
+                "passage_id",
+                "answer_start_char",
+                "answer_end_char",
+                "score",
+                "fragment_start_char",
+                "fragment_end_char",
+                "answer_anchor_start",
+                "answer_anchor_end"
+              ],
+              "suggested_prompts": [
+                "title",
+                "prompt"
+              ]
+            },
+            "optional_keys": [
+              "history",
+              "suggested_prompts",
+              "source_ids"
+            ],
+            "projection_condition": "references=full and the answer document contains an in-range annotation whose object_id matches a surviving ChatReference.chunk_id",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
+      "notebooklm._types.documents.TextSpan": {
+        "projections": [
+          {
+            "contribution_semantics": "TextSpan offsets/text build cited_text/ranges or answer-document text used to validate answer anchors",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def extract_text_passages",
+              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)": "sha256:3c81926f628e07b7b2ad79589012f2b9fe384fc4e9dbb53480c0dabc1da5317b"
+            },
+            "id": "mcp.TextSpan.transitive-chat-reference-full-contribution",
+            "keys": [
+              "notebook_id",
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-full-contribution",
+            "model_contribution_keys": [
+              "start_index",
+              "end_index",
+              "text"
+            ],
+            "nested_keys": {
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text",
+                "start_char",
+                "end_char",
+                "chunk_id",
+                "passage_id",
+                "answer_start_char",
+                "answer_end_char",
+                "score",
+                "fragment_start_char",
+                "fragment_end_char",
+                "answer_anchor_start",
+                "answer_anchor_end"
+              ],
+              "suggested_prompts": [
+                "title",
+                "prompt"
+              ]
+            },
+            "optional_keys": [
+              "history",
+              "suggested_prompts",
+              "source_ids"
+            ],
+            "projection_condition": "references=full and a decoded citation fragment contains a usable TextSpan, or an accepted anchor depends on answer-document text built from a TextSpan",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "contribution_semantics": "TextSpan text builds optional cited_text; span offsets and answer-anchor fields are trimmed from lite references",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def extract_text_passages",
+              "notebooklm/mcp/tools/chat.py:_LITE_REFERENCE_FIELDS"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/mcp/tools/chat.py:_LITE_REFERENCE_FIELDS": "sha256:685b3c5bed6d45d9d771b63785b518163e52a9591bf2f01a741ccc0501fa6efc"
+            },
+            "id": "mcp.TextSpan.transitive-chat-reference-lite-fragment-contribution",
+            "keys": [
+              "notebook_id",
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-lite-fragment-contribution",
+            "model_contribution_keys": [
+              "start_index",
+              "end_index",
+              "text"
+            ],
+            "nested_keys": {
+              "references": [],
+              "suggested_prompts": [
+                "title",
+                "prompt"
+              ]
+            },
+            "nested_optional_keys": {
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text"
+              ]
+            },
+            "optional_keys": [
+              "history",
+              "suggested_prompts",
+              "source_ids"
+            ],
+            "projection_condition": "references=lite and a decoded citation fragment contains at least one usable TextSpan",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
+      "notebooklm.auth.AuthTokens": {
+        "projections": [
+          {
+            "adapter_surface": "MCP explicitly redacted safe-field identity contribution",
+            "contribution_semantics": "Only AuthTokens.authuser and account_email may supply emitted account values; storage_path and _profile_session_generation only select persisted/cache/live fallback behavior, and the account unions expose no credential-bearing fields",
+            "evidence": [
+              "notebooklm/client.py:return self._auth.authuser",
+              "notebooklm/client.py:auth=self._auth",
+              "notebooklm/_auth/account_email.py:def _session_key",
+              "notebooklm/_auth/account_email.py:storage_path = auth.storage_path",
+              "notebooklm/mcp/tools/meta.py:async def _account_block",
+              "notebooklm/mcp/tools/meta.py:info[\"account\"] = await _account_block"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_auth/account_email.py:def _session_key": "sha256:4a8c584cfbe8e0317591941b563ff5930e6e3a927fa870a3e26dfcddb84516cc",
+              "notebooklm/_auth/account_email.py:storage_path = auth.storage_path": "sha256:2f14eca1db9edefb384b09c6484fdb775cb6d43718acc949ee68eababbd32b48",
+              "notebooklm/client.py:auth=self._auth": "sha256:b0071596967c8f878caa6a03efc07a422b7bb59b8c9585c58b39985cf96f9655",
+              "notebooklm/client.py:return self._auth.authuser": "sha256:b2f93a49e3b22c4c42cfc21b41a6bef065e938ab7aee83d1990c96507f4be96b",
+              "notebooklm/mcp/tools/meta.py:async def _account_block": "sha256:3ee79936cfbe3f25dad89886211ed825803961d40d03d9dba2e7e273c2953513",
+              "notebooklm/mcp/tools/meta.py:info[\"account\"] = await _account_block": "sha256:1a79f675be39f0a31d317756ce05a74848d07229ff37c05a3145b06bde3043b1"
+            },
+            "id": "mcp.AuthTokens.redacted-server-info-account-identity-contribution",
+            "keys": [
+              "server",
+              "version",
+              "auth",
+              "account"
+            ],
+            "mode": "redacted-server-info-account-identity-contribution",
+            "model_contribution_keys": [
+              "authuser",
+              "account_email",
+              "storage_path",
+              "_profile_session_generation"
+            ],
+            "nested_keys": {
+              "auth": [
+                "authenticated",
+                "storage_exists",
+                "json_valid",
+                "cookies_present",
+                "sid_cookie",
+                "profile"
+              ]
+            },
+            "nested_union_keys": {
+              "account": {
+                "success": [
+                  "email",
+                  "authuser",
+                  "available",
+                  "notebook_limit",
+                  "source_limit",
+                  "tier",
+                  "output_language",
+                  "output_language_is_default"
+                ],
+                "unavailable": [
+                  "email",
+                  "authuser",
+                  "available",
+                  "reason"
+                ]
+              }
+            },
+            "projection_condition": "server_info include_account is true; authuser always comes from the in-memory AuthTokens, while account_email contributes only when that in-memory/cached identity wins before persisted or live fallback",
+            "redacted_projection": "safe-field-contribution",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
       "notebooklm.types.AccountLimits": {
         "projections": [
           {
@@ -2762,7 +3947,8 @@
             "keys": [
               "server",
               "version",
-              "auth"
+              "auth",
+              "account"
             ],
             "mode": "transitive-server-info-account-success-wrapper",
             "model_contribution_keys": [
@@ -2790,9 +3976,7 @@
                 "profile"
               ]
             },
-            "optional_keys": [
-              "account"
-            ],
+            "projection_condition": "server_info include_account has a bound authenticated client and get_user_settings succeeds",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -2993,6 +4177,33 @@
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "Artifact.id constructs MindMap.id and is emitted as mind_map_id; the raw create-id fallback emits the same wrapper without a public Artifact contribution",
+            "evidence": [
+              "notebooklm/_mind_maps_api.py:art = await self._find_interactive",
+              "notebooklm/_mind_maps_api.py:if art is not None:",
+              "notebooklm/mcp/tools/_studio_payloads.py:_mind_map_id"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_mind_maps_api.py:art = await self._find_interactive": "sha256:fd45e90d1f73d51441d32a7e668efdda978a888ea2f554d86d0ddc56130e213a",
+              "notebooklm/_mind_maps_api.py:if art is not None:": "sha256:a62bc298c074a817d110f83e82cbe60393e4a0bbd435a98f1247ba80420280cc",
+              "notebooklm/mcp/tools/_studio_payloads.py:_mind_map_id": "sha256:19790ad71c4f564641f76c3b54b161e34a5834edf5b7329e32b028a397787668"
+            },
+            "id": "mcp.Artifact.transitive-interactive-mind-map-generation-final-contribution",
+            "keys": [
+              "notebook_id",
+              "kind",
+              "mind_map",
+              "mind_map_id"
+            ],
+            "mode": "transitive-interactive-mind-map-generation-final-contribution",
+            "model_contribution_keys": [
+              "id"
+            ],
+            "projection_condition": "interactive mind-map generation finds the newly created public Artifact",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "contribution_semantics": "Artifact.id becomes item_id and Artifact.kind (backed by _artifact_type and _variant) becomes type on the resolved-artifact branch; the full-UUID resolver-miss branch uses the same helper without a public Artifact",
             "evidence": [
               "notebooklm/mcp/tools/_studio_payloads.py:_artifact_rename_payload"
             ],
@@ -3009,6 +4220,40 @@
               "is_mind_map"
             ],
             "mode": "transitive-studio-rename-final-projection",
+            "model_contribution_keys": [
+              "id",
+              "_artifact_type",
+              "_variant"
+            ],
+            "projection_condition": "resolve_studio_item returns a listed public Artifact",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "contribution_semantics": "Artifact id and interactive kind (backed by _artifact_type/_variant) construct the matching MindMap whose membership sets is_mind_map and the fallback type; this scan can contribute on the full-UUID resolver-miss branch as well as the resolved-Artifact branch",
+            "evidence": [
+              "notebooklm/_mind_maps_api.py:art.is_interactive_mind_map",
+              "notebooklm/mcp/tools/studio.py:is_mind_map"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_mind_maps_api.py:art.is_interactive_mind_map": "sha256:b5c7d38ef4c28c6aef3f3eb738823d23cd16cc381aa2cfacde09be5d6893baac",
+              "notebooklm/mcp/tools/studio.py:is_mind_map": "sha256:1613f8faaa2b14a386d826d5fd7ec417693f9b403c8e7639a21ac436a8af13ab"
+            },
+            "id": "mcp.Artifact.transitive-mind-map-rename-membership-final-contribution",
+            "keys": [
+              "status",
+              "notebook_id",
+              "item_id",
+              "type",
+              "new_title",
+              "is_mind_map"
+            ],
+            "mode": "transitive-mind-map-rename-membership-final-contribution",
+            "model_contribution_keys": [
+              "id",
+              "_artifact_type",
+              "_variant"
+            ],
+            "projection_condition": "mind_maps.list converts a listed interactive Artifact whose id matches the target",
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
@@ -3180,6 +4425,7 @@
             "shape_derivation": "runtime:artifact-download-mcp-root-selected"
           },
           {
+            "contribution_semantics": "Artifact identity/title/created_at drive selection and error details while kind and completion are backed by _artifact_type, _variant, and status; the NO_ARTIFACTS alternative produced by a truly empty listing has no public Artifact contribution",
             "evidence": [
               "notebooklm/_app/download.py:outcome=DownloadOutcome.ERROR",
               "notebooklm/mcp/tools/studio.py:return {**to_jsonable(result)"
@@ -3207,6 +4453,14 @@
               "notebook_id"
             ],
             "mode": "transitive-mcp-stdio-download-error-wrapper",
+            "model_contribution_keys": [
+              "id",
+              "title",
+              "_artifact_type",
+              "status",
+              "created_at",
+              "_variant"
+            ],
             "nested_keys": {
               "artifact": [
                 "id",
@@ -3214,6 +4468,7 @@
                 "created_at"
               ]
             },
+            "projection_condition": "at least one public Artifact participates in type/completion filtering, selection, conflict handling, or a selected-artifact download failure",
             "shape_derivation": "runtime:artifact-download-mcp-root-error"
           },
           {
@@ -3309,6 +4564,7 @@
                 ]
               }
             ],
+            "contribution_semantics": "Artifact fields validate membership/type/completion, supply the selected id and title, and choose the latest inline-text artifact; artifact_type without artifact_id for a non-inline kind mints the broker envelope without listing or reading any public Artifact and is non-public",
             "evidence": [
               "notebooklm/mcp/tools/studio.py:resolved_title",
               "notebooklm/mcp/tools/_studio_download.py:structured: dict[str, Any] ="
@@ -3329,9 +4585,18 @@
               "expires_at"
             ],
             "mode": "transitive-mcp-remote-download-broker-wrapper",
+            "model_contribution_keys": [
+              "id",
+              "title",
+              "_artifact_type",
+              "status",
+              "created_at",
+              "_variant"
+            ],
             "optional_keys": [
               "artifact_id"
             ],
+            "projection_condition": "the artifact-ref branch, explicit artifact-id prevalidation, or inline-text selection reads at least one public Artifact",
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
@@ -3651,6 +4916,7 @@
       "notebooklm.types.CitedSourceSelection": {
         "projections": [
           {
+            "contribution_semantics": "len(CitedSourceSelection.sources) becomes sources_selected and used_fallback becomes cited_only_fallback; diagnostic URL counts do not reach the tool result",
             "evidence": [
               "notebooklm/mcp/tools/research.py:selection = select_cited_sources",
               "notebooklm/mcp/tools/research.py:result: dict[str, Any] ="
@@ -3674,10 +4940,15 @@
               "sources_selected"
             ],
             "mode": "transitive-research-import-final-projection",
+            "model_contribution_keys": [
+              "sources",
+              "used_fallback"
+            ],
             "optional_keys": [
               "cited_only_fallback",
               "deprecation"
             ],
+            "projection_condition": "research_import performs cited-source selection",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -3829,6 +5100,7 @@
             "shape_derivation": "runtime:mind-map-mcp-final"
           },
           {
+            "contribution_semantics": "MindMap.id membership determines is_mind_map and the MCP full-UUID fallback type; MindMap.kind routes the mutation but is not projected as a model field",
             "evidence": [
               "notebooklm/_app/artifacts.py:async def rename_artifact",
               "notebooklm/mcp/tools/_studio_payloads.py:_artifact_rename_payload"
@@ -3847,9 +5119,14 @@
               "is_mind_map"
             ],
             "mode": "transitive-resolver-rename-final-wrapper",
+            "model_contribution_keys": [
+              "id"
+            ],
+            "projection_condition": "mind_maps.list returns a MindMap whose id matches the target",
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "MindMap.id membership selects the note-backed path and determines type and was_note_backed; regular or missing full-id artifacts use the terminal without it",
             "evidence": [
               "notebooklm/_app/artifacts.py:async def delete_artifact",
               "notebooklm/mcp/tools/studio.py:was_note_backed = await artifact_core.delete_artifact"
@@ -3867,6 +5144,10 @@
               "was_note_backed"
             ],
             "mode": "transitive-resolver-delete-final-wrapper",
+            "model_contribution_keys": [
+              "id"
+            ],
+            "projection_condition": "list_note_backed returns a MindMap whose id matches the target",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -3920,6 +5201,32 @@
       },
       "notebooklm.types.Note": {
         "projections": [
+          {
+            "contribution_semantics": "The created Note.id is copied into MindMapResult.note_id and emitted as mind_map_id; interactive or absent-leaf paths have no Note contribution",
+            "evidence": [
+              "notebooklm/_artifact/generation.py:note = await self._note_service.create_note",
+              "notebooklm/mcp/tools/_studio_payloads.py:return result_obj.note_id",
+              "notebooklm/mcp/tools/studio.py:payload = _generation_payload"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_artifact/generation.py:note = await self._note_service.create_note": "sha256:b6b2ecef2a307a60bcc4ea9ca7627c9789a1e0786de9e682704bc40f8caf205e",
+              "notebooklm/mcp/tools/_studio_payloads.py:return result_obj.note_id": "sha256:552c998cf06815432427f8b06c8f4d6959211cc27fb15878e9d2626d8e33dbdb",
+              "notebooklm/mcp/tools/studio.py:payload = _generation_payload": "sha256:cdee6e7e603b8ac8088b1bde652b3b6958d984555437e395911775965df3f98c"
+            },
+            "id": "mcp.Note.transitive-note-backed-mind-map-generation-final-contribution",
+            "keys": [
+              "notebook_id",
+              "kind",
+              "mind_map",
+              "mind_map_id"
+            ],
+            "mode": "transitive-note-backed-mind-map-generation-final-contribution",
+            "model_contribution_keys": [
+              "id"
+            ],
+            "projection_condition": "note-backed mind-map generation returns a present leaf and successfully creates a public Note",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
           {
             "evidence": [
               "notebooklm/mcp/tools/_studio_items.py:studio_items"
@@ -4456,6 +5763,7 @@
       "notebooklm.types.NotebookDescription": {
         "projections": [
           {
+            "contribution_semantics": "NotebookDescription is recursively serialized under description; when the field is None the same root carries description null without a public NotebookDescription instance",
             "evidence": [
               "notebooklm/mcp/tools/notebooks.py:output = to_jsonable(result)"
             ],
@@ -4468,6 +5776,10 @@
               "description"
             ],
             "mode": "nested-notebook-describe-final",
+            "model_contribution_keys": [
+              "summary",
+              "suggested_topics"
+            ],
             "nested_keys": {
               "description": [
                 "summary",
@@ -4477,6 +5789,7 @@
             "optional_keys": [
               "metadata"
             ],
+            "projection_condition": "NotebookDescribeResult.description is not None",
             "shape_derivation": "runtime:mcp-notebook-describe"
           }
         ]
@@ -4501,6 +5814,10 @@
               "metadata"
             ],
             "mode": "transitive-notebook-describe-final-with-metadata",
+            "model_contribution_keys": [
+              "notebook",
+              "sources"
+            ],
             "nested_keys": {
               "description": [
                 "summary",
@@ -4527,7 +5844,56 @@
                 "url"
               ]
             },
+            "projection_condition": "notebook_describe include_metadata is true and description is a populated NotebookDescription",
             "shape_derivation": "runtime:mcp-notebook-describe-with-metadata"
+          },
+          {
+            "contribution_semantics": "NotebookMetadata still supplies the complete metadata block while the required description root key is null and has no nested description shape",
+            "evidence": [
+              "notebooklm/mcp/tools/notebooks.py:output = to_jsonable(result)",
+              "notebooklm/mcp/tools/notebooks.py:metadata_block = to_jsonable",
+              "notebooklm/mcp/tools/notebooks.py:output[\"metadata\"] = metadata_block"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/mcp/tools/notebooks.py:metadata_block = to_jsonable": "sha256:19fcbb56d06ccea43185d6a7b167e8867946c9d0f7128d863869a60841e102c7",
+              "notebooklm/mcp/tools/notebooks.py:output = to_jsonable(result)": "sha256:dcb6070d5b2c426071c509748112ff1ae326a44867feb40c74df4bd58233ffb7",
+              "notebooklm/mcp/tools/notebooks.py:output[\"metadata\"] = metadata_block": "sha256:d6e591510864f8424a6597d6ca800948bb7395e839a2be39c83707b873ab8797"
+            },
+            "id": "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata-null-description",
+            "keys": [
+              "notebook_id",
+              "description",
+              "metadata"
+            ],
+            "mode": "transitive-notebook-describe-final-with-metadata-null-description",
+            "model_contribution_keys": [
+              "notebook",
+              "sources"
+            ],
+            "nested_keys": {
+              "metadata": [
+                "notebook",
+                "sources"
+              ],
+              "metadata.notebook": [
+                "id",
+                "title",
+                "created_at",
+                "sources_count",
+                "is_owner",
+                "modified_at",
+                "role",
+                "last_viewed_at",
+                "role_label"
+              ],
+              "metadata.sources": [
+                "kind",
+                "title",
+                "url"
+              ]
+            },
+            "projection_condition": "notebook_describe include_metadata is true and description is None",
+            "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
       },
@@ -4656,7 +6022,7 @@
             "shape_derivation": "runtime:research-source-public-dict"
           },
           {
-            "contribution_semantics": "ResearchSource list membership contributes only to sources_found; no source field envelope is serialized on this path",
+            "contribution_semantics": "ResearchSource membership contributes sources_found/sources_selected; url, result_type, and report_markdown select cited sources and fallback behavior, while no ResearchSource field envelope is serialized",
             "evidence": [
               "notebooklm/_app/research.py:sources=[src.to_public_dict() for src in status.sources]",
               "notebooklm/mcp/tools/research.py:\"sources_found\": len(sources)"
@@ -4667,9 +6033,44 @@
             },
             "id": "mcp.ResearchSource.transitive-import-source-count-contribution",
             "keys": [
-              "sources_found"
+              "status",
+              "notebook_id",
+              "poll_task_id",
+              "task_id",
+              "imported",
+              "newly_imported",
+              "newly_imported_count",
+              "already_present",
+              "already_present_count",
+              "sources_found",
+              "sources_selected"
             ],
             "mode": "transitive-import-source-count-contribution",
+            "model_contribution_keys": [
+              "url",
+              "result_type",
+              "report_markdown"
+            ],
+            "nested_keys": {
+              "already_present": [
+                "id",
+                "title",
+                "url"
+              ],
+              "imported": [
+                "id",
+                "title"
+              ],
+              "newly_imported": [
+                "id",
+                "title"
+              ]
+            },
+            "optional_keys": [
+              "cited_only_fallback",
+              "deprecation"
+            ],
+            "projection_condition": "an importable ResearchTask contains at least one ResearchSource; field selection applies when cited-only mode is requested",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -4691,6 +6092,38 @@
               "poll_task_id"
             ],
             "mode": "manual-start-projection",
+            "model_contribution_keys": [
+              "task_id",
+              "report_id",
+              "notebook_id",
+              "query",
+              "mode"
+            ],
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "adapter_surface": "MCP ToolError flat message",
+            "contribution_semantics": "ResearchStart.report_id emptiness selects the ValidationError and task_id is interpolated as the unpollable session identifier",
+            "evidence": [
+              "notebooklm/mcp/tools/research.py:if not result.report_id",
+              "notebooklm/mcp/tools/research.py:f\"{result.task_id!r}",
+              "notebooklm/mcp/_errors.py:def to_tool_error"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/mcp/_errors.py:def to_tool_error": "sha256:302e9e00b6f2aba750aba9afd81f87a65f41b77299ed43151424731d1d5ac734",
+              "notebooklm/mcp/tools/research.py:f\"{result.task_id!r}": "sha256:605aa1f56a19572317289d6015b0cde33e7dc525a314519406ca74365448c4b4",
+              "notebooklm/mcp/tools/research.py:if not result.report_id": "sha256:605aa1f56a19572317289d6015b0cde33e7dc525a314519406ca74365448c4b4"
+            },
+            "id": "mcp.ResearchStart.transitive-start-missing-report-id-error-contribution",
+            "keys": [
+              "message"
+            ],
+            "mode": "transitive-start-missing-report-id-error-contribution",
+            "model_contribution_keys": [
+              "task_id",
+              "report_id"
+            ],
+            "projection_condition": "deep research start returns no report_id",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -4728,6 +6161,19 @@
               "report_truncated"
             ],
             "mode": "manual-status-projection",
+            "model_contribution_keys": [
+              "task_id",
+              "status",
+              "query",
+              "sources",
+              "summary",
+              "report",
+              "status_code",
+              "source_type",
+              "discovery_mode",
+              "created_at",
+              "updated_at"
+            ],
             "optional_keys": [
               "reason_message",
               "hint",
@@ -4790,6 +6236,7 @@
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "status selects the success terminal, source membership supplies sources_found, and report affects cited-only selection",
             "evidence": [
               "notebooklm/_app/research.py:status = await client.research.poll",
               "notebooklm/mcp/tools/research.py:\"sources_found\": len(sources)"
@@ -4814,7 +6261,9 @@
             ],
             "mode": "transitive-import-final-wrapper",
             "model_contribution_keys": [
-              "sources"
+              "status",
+              "sources",
+              "report"
             ],
             "nested_keys": {
               "already_present": [
@@ -4835,6 +6284,35 @@
               "cited_only_fallback",
               "deprecation"
             ],
+            "projection_condition": "ResearchTask is completed and classified as importable",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "adapter_surface": "MCP ToolError flat message",
+            "contribution_semantics": "ResearchTask fields select and populate the ValidationError message; completed-empty uses only source-list membership and no ResearchSource field is projected",
+            "evidence": [
+              "notebooklm/_app/research.py:def classify_importable_research",
+              "notebooklm/mcp/tools/research.py:sources, report = await research_core.poll_importable_research",
+              "notebooklm/mcp/_errors.py:def to_tool_error"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_app/research.py:def classify_importable_research": "sha256:cb2c1159613f22dd79bd906beed7b88e9b5622533e26cf377fd311c9f8e6f809",
+              "notebooklm/mcp/_errors.py:def to_tool_error": "sha256:302e9e00b6f2aba750aba9afd81f87a65f41b77299ed43151424731d1d5ac734",
+              "notebooklm/mcp/tools/research.py:sources, report = await research_core.poll_importable_research": "sha256:03e986c85583037602a489213c43019c6364fb49df8a09c3e94feaccfbc184a1"
+            },
+            "id": "mcp.ResearchTask.transitive-import-refusal-error-contribution",
+            "keys": [
+              "message"
+            ],
+            "mode": "transitive-import-refusal-error-contribution",
+            "model_contribution_keys": [
+              "status",
+              "status_code",
+              "source_type",
+              "query",
+              "sources"
+            ],
+            "projection_condition": "import classification refuses not_found, failed, noncompleted, or completed-without-sources ResearchTask state",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -4862,28 +6340,6 @@
               "shared_users"
             ],
             "mode": "app-view:share_status_view",
-            "shape_derivation": "manual-reviewed+fingerprint"
-          },
-          {
-            "evidence": [
-              "notebooklm/mcp/tools/sharing.py:view_level"
-            ],
-            "evidence_shape_fingerprints": {
-              "notebooklm/mcp/tools/sharing.py:view_level": "sha256:7e035e6e49e07424bf0b5606671961d948467e112776f66d03faf3aa7f8ed793"
-            },
-            "id": "mcp.ShareStatus.app-view-share-status-view-view-level",
-            "keys": [
-              "notebook_id",
-              "is_public",
-              "access",
-              "share_url",
-              "max_individuals_share_limit",
-              "is_public_sharing_allowed",
-              "is_public_sharing_denied",
-              "shared_users",
-              "view_level"
-            ],
-            "mode": "app-view:share_status_view+view_level",
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
@@ -5294,13 +6750,16 @@
             "shape_derivation": "runtime:source-view-mcp-read-full"
           },
           {
+            "contribution_semantics": "Ready rows use the full Source view; error buckets may carry only a Source-derived id, and source_add wait may contribute only its top-level source_id. An explicit canonical-id wait whose outcomes are all timeout, failure, or not-found is non-public",
             "evidence": [
               "notebooklm/mcp/tools/_waitagg.py:def _aggregate_wait_outcomes",
-              "notebooklm/mcp/tools/sources.py:def _wait_after_add"
+              "notebooklm/mcp/tools/sources.py:def _wait_after_add",
+              "notebooklm/mcp/tools/sources.py:src_ids = list(dict.fromkeys(await resolve_sources"
             ],
             "evidence_shape_fingerprints": {
               "notebooklm/mcp/tools/_waitagg.py:def _aggregate_wait_outcomes": "sha256:0bca9dd5a37208f8c2e30fd093ea9df0317a81b08efd9286b038d920a8c1b8d6",
-              "notebooklm/mcp/tools/sources.py:def _wait_after_add": "sha256:65dcaea3124c23524a8be3fb2a77b791754ea37a2c766fcb8489d333233d6f14"
+              "notebooklm/mcp/tools/sources.py:def _wait_after_add": "sha256:65dcaea3124c23524a8be3fb2a77b791754ea37a2c766fcb8489d333233d6f14",
+              "notebooklm/mcp/tools/sources.py:src_ids = list(dict.fromkeys(await resolve_sources": "sha256:1f30d75231b23e9b366ab26c1c477389dee879dcc404522f1dc3b4baffc0f6c0"
             },
             "id": "mcp.Source.app-view-source-wait-final-wrapper",
             "keys": [
@@ -5317,6 +6776,16 @@
               "total_count"
             ],
             "mode": "app-view:source-wait-final-wrapper",
+            "model_contribution_keys": [
+              "id",
+              "title",
+              "url",
+              "_type_code",
+              "created_at",
+              "status",
+              "drive_document_id",
+              "drive_status"
+            ],
             "nested_keys": {
               "failed": [
                 "source_id",
@@ -5355,6 +6824,7 @@
               "title_override_applied",
               "warning"
             ],
+            "projection_condition": "at least one ready Source, a listed/noncanonical-resolved Source id reaches an error bucket, or source_add wait carries the freshly added Source.id",
             "shape_derivation": "runtime:source-view-mcp-wait"
           },
           {
@@ -5476,6 +6946,44 @@
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "Each Source title/url and kind (backed by _type_code) constructs a public SourceSummary recursively serialized under metadata.sources; an empty metadata source list has no Source contribution",
+            "evidence": [
+              "notebooklm/_notebook_metadata.py:SourceSummary(",
+              "notebooklm/mcp/tools/notebooks.py:metadata_block = to_jsonable",
+              "notebooklm/mcp/tools/notebooks.py:output[\"metadata\"] = metadata_block"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_notebook_metadata.py:SourceSummary(": "sha256:6ce076c367664dd191b70cd58cfb286d9306dbe251d08bd036e1bb6c6e5a2b6f",
+              "notebooklm/mcp/tools/notebooks.py:metadata_block = to_jsonable": "sha256:19fcbb56d06ccea43185d6a7b167e8867946c9d0f7128d863869a60841e102c7",
+              "notebooklm/mcp/tools/notebooks.py:output[\"metadata\"] = metadata_block": "sha256:d6e591510864f8424a6597d6ca800948bb7395e839a2be39c83707b873ab8797"
+            },
+            "id": "mcp.Source.transitive-notebook-describe-metadata-source-summary-final-wrapper",
+            "keys": [
+              "notebook_id",
+              "description",
+              "metadata"
+            ],
+            "mode": "transitive-notebook-describe-metadata-source-summary-final-wrapper",
+            "model_contribution_keys": [
+              "title",
+              "url",
+              "_type_code"
+            ],
+            "nested_keys": {
+              "metadata": [
+                "notebook",
+                "sources"
+              ],
+              "metadata.sources": [
+                "kind",
+                "title",
+                "url"
+              ]
+            },
+            "projection_condition": "notebook_describe is called with include_metadata and metadata contains at least one listed public Source",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
             "adapter_surface": "MCP await_upload tool result",
             "evidence": [
               "notebooklm/mcp/_fileroutes.py:source_id = str(result.source.id)",
@@ -5591,6 +7099,10 @@
               "output_format"
             ],
             "mode": "manual-content-projection",
+            "model_contribution_keys": [
+              "content",
+              "char_count"
+            ],
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -5612,6 +7124,10 @@
               "keywords"
             ],
             "mode": "manual-guide-projection",
+            "model_contribution_keys": [
+              "summary",
+              "keywords"
+            ],
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -5635,6 +7151,7 @@
       "notebooklm.types.SuggestedTopic": {
         "projections": [
           {
+            "contribution_semantics": "Each SuggestedTopic is recursively serialized in description.suggested_topics; an empty collection has no SuggestedTopic instance",
             "evidence": [
               "nested-via:notebooklm.types.NotebookDescription.suggested_topics"
             ],
@@ -5643,7 +7160,12 @@
               "question",
               "prompt"
             ],
-            "mode": "nested-dataclass"
+            "mode": "nested-dataclass",
+            "model_contribution_keys": [
+              "question",
+              "prompt"
+            ],
+            "projection_condition": "NotebookDescribeResult.description is not None and contains at least one SuggestedTopic"
           }
         ]
       },
@@ -5662,15 +7184,13 @@
             "keys": [
               "server",
               "version",
-              "auth"
+              "auth",
+              "account"
             ],
             "mode": "transitive-server-info-account-success-wrapper",
             "model_contribution_keys": [
-              "notebook_limit",
-              "source_limit",
-              "tier",
-              "output_language",
-              "output_language_is_default"
+              "limits",
+              "output_language"
             ],
             "nested_keys": {
               "account": [
@@ -5692,15 +7212,291 @@
                 "profile"
               ]
             },
-            "optional_keys": [
-              "account"
-            ],
+            "projection_condition": "server_info include_account has a bound authenticated client and get_user_settings succeeds",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
       }
     },
     "rest response": {
+      "notebooklm._types.documents.DocumentAnnotation": {
+        "projections": [
+          {
+            "contribution_semantics": "DocumentAnnotation object_id joins the citation and its offsets become answer_anchor_start/end",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/server/routes/chat.py:return ask_result_view(result)"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/server/routes/chat.py:return ask_result_view(result)": "sha256:4e173952813e28db9e75e22e7e46ad0982c6620c4a03323fd8e74530b02517c4"
+            },
+            "id": "rest.DocumentAnnotation.transitive-chat-reference-full-contribution",
+            "keys": [
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-full-contribution",
+            "model_contribution_keys": [
+              "object_id",
+              "start_index",
+              "end_index"
+            ],
+            "nested_keys": {
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text",
+                "start_char",
+                "end_char",
+                "chunk_id",
+                "passage_id",
+                "answer_start_char",
+                "answer_end_char",
+                "score",
+                "fragment_start_char",
+                "fragment_end_char",
+                "answer_anchor_start",
+                "answer_anchor_end"
+              ]
+            },
+            "projection_condition": "an in-range DocumentAnnotation.object_id matches a surviving ChatReference.chunk_id",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
+      "notebooklm._types.documents.DocumentBlock": {
+        "projections": [
+          {
+            "contribution_semantics": "DocumentBlock ranges/text produce cited_text and fragment ranges, while answer-document blocks also bound anchor validity",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def extract_text_passages",
+              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/server/routes/chat.py:return ask_result_view(result)"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/server/routes/chat.py:return ask_result_view(result)": "sha256:4e173952813e28db9e75e22e7e46ad0982c6620c4a03323fd8e74530b02517c4"
+            },
+            "id": "rest.DocumentBlock.transitive-chat-reference-full-contribution",
+            "keys": [
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-full-contribution",
+            "model_contribution_keys": [
+              "start_index",
+              "end_index",
+              "spans"
+            ],
+            "nested_keys": {
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text",
+                "start_char",
+                "end_char",
+                "chunk_id",
+                "passage_id",
+                "answer_start_char",
+                "answer_end_char",
+                "score",
+                "fragment_start_char",
+                "fragment_end_char",
+                "answer_anchor_start",
+                "answer_anchor_end"
+              ]
+            },
+            "projection_condition": "a decoded citation fragment contains a usable DocumentBlock, or an accepted answer anchor depends on the answer document's block extent/text",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
+      "notebooklm._types.documents.StructuredDocument": {
+        "projections": [
+          {
+            "contribution_semantics": "StructuredDocument annotations and block-derived text/extent produce answer_anchor_start/end; answer_document itself is removed from the REST response",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/server/routes/chat.py:return ask_result_view(result)"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/server/routes/chat.py:return ask_result_view(result)": "sha256:4e173952813e28db9e75e22e7e46ad0982c6620c4a03323fd8e74530b02517c4"
+            },
+            "id": "rest.StructuredDocument.transitive-chat-reference-full-contribution",
+            "keys": [
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-full-contribution",
+            "model_contribution_keys": [
+              "blocks",
+              "annotations"
+            ],
+            "nested_keys": {
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text",
+                "start_char",
+                "end_char",
+                "chunk_id",
+                "passage_id",
+                "answer_start_char",
+                "answer_end_char",
+                "score",
+                "fragment_start_char",
+                "fragment_end_char",
+                "answer_anchor_start",
+                "answer_anchor_end"
+              ]
+            },
+            "projection_condition": "the answer document contains an in-range annotation whose object_id matches a surviving ChatReference.chunk_id",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
+      "notebooklm._types.documents.TextSpan": {
+        "projections": [
+          {
+            "contribution_semantics": "TextSpan offsets/text build cited_text/ranges or answer-document text used to validate answer anchors",
+            "evidence": [
+              "notebooklm/_chat/wire.py:def extract_text_passages",
+              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/server/routes/chat.py:return ask_result_view(result)"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/server/routes/chat.py:return ask_result_view(result)": "sha256:4e173952813e28db9e75e22e7e46ad0982c6620c4a03323fd8e74530b02517c4"
+            },
+            "id": "rest.TextSpan.transitive-chat-reference-full-contribution",
+            "keys": [
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "transitive-chat-reference-full-contribution",
+            "model_contribution_keys": [
+              "start_index",
+              "end_index",
+              "text"
+            ],
+            "nested_keys": {
+              "references": [
+                "source_id",
+                "citation_number",
+                "cited_text",
+                "start_char",
+                "end_char",
+                "chunk_id",
+                "passage_id",
+                "answer_start_char",
+                "answer_end_char",
+                "score",
+                "fragment_start_char",
+                "fragment_end_char",
+                "answer_anchor_start",
+                "answer_anchor_end"
+              ]
+            },
+            "projection_condition": "a decoded citation fragment contains a usable TextSpan, or an accepted answer anchor depends on answer-document text built from a TextSpan",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
+      "notebooklm.auth.AuthTokens": {
+        "projections": [
+          {
+            "adapter_surface": "REST explicitly redacted safe-field identity contribution",
+            "contribution_semantics": "Only AuthTokens.authuser and account_email may supply emitted account values; storage_path and _profile_session_generation only select persisted/cache/live fallback behavior. The startup-error persisted-identity branch has no AuthTokens contribution, and no credential-bearing field reaches either account union",
+            "evidence": [
+              "notebooklm/client.py:return self._auth.authuser",
+              "notebooklm/client.py:auth=self._auth",
+              "notebooklm/_auth/account_email.py:def _session_key",
+              "notebooklm/_auth/account_email.py:storage_path = auth.storage_path",
+              "notebooklm/server/routes/meta.py:async def _account_block",
+              "notebooklm/server/routes/meta.py:info[\"account\"] = await _account_block"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_auth/account_email.py:def _session_key": "sha256:4a8c584cfbe8e0317591941b563ff5930e6e3a927fa870a3e26dfcddb84516cc",
+              "notebooklm/_auth/account_email.py:storage_path = auth.storage_path": "sha256:2f14eca1db9edefb384b09c6484fdb775cb6d43718acc949ee68eababbd32b48",
+              "notebooklm/client.py:auth=self._auth": "sha256:b0071596967c8f878caa6a03efc07a422b7bb59b8c9585c58b39985cf96f9655",
+              "notebooklm/client.py:return self._auth.authuser": "sha256:b2f93a49e3b22c4c42cfc21b41a6bef065e938ab7aee83d1990c96507f4be96b",
+              "notebooklm/server/routes/meta.py:async def _account_block": "sha256:3af98592b3247210845fc5b8a68458e68b4ea0d0a1ebf74b93354137fd99c29b",
+              "notebooklm/server/routes/meta.py:info[\"account\"] = await _account_block": "sha256:3e18ff89f18491718e328965738a7ef84ed0b64f7410a9c71d68a30b66d57c4d"
+            },
+            "id": "rest.AuthTokens.redacted-server-info-account-identity-contribution",
+            "keys": [
+              "server",
+              "version",
+              "auth",
+              "account"
+            ],
+            "mode": "redacted-server-info-account-identity-contribution",
+            "model_contribution_keys": [
+              "authuser",
+              "account_email",
+              "storage_path",
+              "_profile_session_generation"
+            ],
+            "nested_keys": {
+              "auth": [
+                "authenticated",
+                "storage_exists",
+                "json_valid",
+                "cookies_present",
+                "sid_cookie",
+                "profile"
+              ]
+            },
+            "nested_union_keys": {
+              "account": {
+                "success": [
+                  "email",
+                  "authuser",
+                  "available",
+                  "notebook_limit",
+                  "source_limit",
+                  "tier",
+                  "output_language",
+                  "output_language_is_default"
+                ],
+                "unavailable": [
+                  "email",
+                  "authuser",
+                  "available",
+                  "reason"
+                ]
+              }
+            },
+            "projection_condition": "server_info include_account is true and a bound client exists with no startup error",
+            "redacted_projection": "safe-field-contribution",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          }
+        ]
+      },
       "notebooklm.types.AccountLimits": {
         "projections": [
           {
@@ -5716,7 +7512,8 @@
             "keys": [
               "server",
               "version",
-              "auth"
+              "auth",
+              "account"
             ],
             "mode": "transitive-server-info-account-success-wrapper",
             "model_contribution_keys": [
@@ -5744,14 +7541,7 @@
                 "profile"
               ]
             },
-            "nested_optional_keys": {
-              "auth": [
-                "startup_error"
-              ]
-            },
-            "optional_keys": [
-              "account"
-            ],
+            "projection_condition": "server_info include_account has a bound authenticated client and get_user_settings succeeds",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -5870,6 +7660,105 @@
               ]
             },
             "shape_derivation": "runtime:list-wrapper-rest-artifact-paged"
+          },
+          {
+            "contribution_semantics": "Artifact kind (backed by _artifact_type/_variant) and completion (backed by status) select the NO_ARTIFACTS 409 conflict envelope; a truly empty list is non-public and successful downloads return binary FileResponse data",
+            "evidence": [
+              "notebooklm/_app/download.py:typed = [",
+              "notebooklm/_app/download.py:if not type_artifacts",
+              "notebooklm/server/routes/artifacts.py:if result.outcome != download_core.DownloadOutcome.SINGLE_DOWNLOADED",
+              "notebooklm/server/_errors.py:_STATUS_LABEL"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_app/download.py:if not type_artifacts": "sha256:11271030f1db787a811496df7deaf2a14b2ba053945595399d54e34310508995",
+              "notebooklm/_app/download.py:typed = [": "sha256:6556d12cb78ba42707394c100a7cb4450b414c88b775d24e8ac4b0f51b4c9fb5",
+              "notebooklm/server/_errors.py:_STATUS_LABEL": "sha256:b5dacd111b1e3ef8c2aaaf576ec6b7604c71f8334f5e959e9e7da2e86af052dd",
+              "notebooklm/server/routes/artifacts.py:if result.outcome != download_core.DownloadOutcome.SINGLE_DOWNLOADED": "sha256:12c44ca73a003b20eacdd5ed9b3d7eab1682199c393803e963fa05461dd23706"
+            },
+            "id": "rest.Artifact.transitive-download-no-artifacts-409-error-contribution",
+            "keys": [
+              "error"
+            ],
+            "mode": "transitive-download-no-artifacts-409-error-contribution",
+            "model_contribution_keys": [
+              "_artifact_type",
+              "status",
+              "_variant"
+            ],
+            "nested_keys": {
+              "error": [
+                "category",
+                "message"
+              ]
+            },
+            "projection_condition": "REST artifact download lists at least one public Artifact, but every row is excluded by requested kind or completion state",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "contribution_semantics": "Artifact id/title/created_at construct the recursively emitted MindMap while _artifact_type/_variant qualify the row as interactive (or the known-id unclassified settling case); the raw create-id fallback has no Artifact",
+            "evidence": [
+              "notebooklm/_mind_maps_api.py:art = await self._find_interactive",
+              "notebooklm/_mind_maps_api.py:if art is not None:",
+              "notebooklm/server/routes/artifacts.py:payload[\"mind_map\"] = to_jsonable"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_mind_maps_api.py:art = await self._find_interactive": "sha256:fd45e90d1f73d51441d32a7e668efdda978a888ea2f554d86d0ddc56130e213a",
+              "notebooklm/_mind_maps_api.py:if art is not None:": "sha256:a62bc298c074a817d110f83e82cbe60393e4a0bbd435a98f1247ba80420280cc",
+              "notebooklm/server/routes/artifacts.py:payload[\"mind_map\"] = to_jsonable": "sha256:cb093a06a8e0c9c0d5735d14adbb4d815a3c23613382f7b1926cd49e714127ca"
+            },
+            "id": "rest.Artifact.transitive-interactive-mind-map-generation-final-contribution",
+            "keys": [
+              "notebook_id",
+              "kind",
+              "mind_map"
+            ],
+            "mode": "transitive-interactive-mind-map-generation-final-contribution",
+            "model_contribution_keys": [
+              "id",
+              "title",
+              "_artifact_type",
+              "created_at",
+              "_variant"
+            ],
+            "nested_keys": {
+              "mind_map": [
+                "id",
+                "notebook_id",
+                "title",
+                "kind",
+                "created_at",
+                "tree"
+              ]
+            },
+            "projection_condition": "interactive mind-map generation finds the newly created public Artifact",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "contribution_semantics": "Artifact id and interactive kind (backed by _artifact_type/_variant) construct the matching MindMap whose membership sets is_mind_map; unmatched regular artifacts use the same terminal without this contribution",
+            "evidence": [
+              "notebooklm/_mind_maps_api.py:art.is_interactive_mind_map",
+              "notebooklm/server/routes/artifacts.py:is_mind_map"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_mind_maps_api.py:art.is_interactive_mind_map": "sha256:b5c7d38ef4c28c6aef3f3eb738823d23cd16cc381aa2cfacde09be5d6893baac",
+              "notebooklm/server/routes/artifacts.py:is_mind_map": "sha256:b325dc19b1490f4c5aa90d0c0ddffb769995013c2dd7622f7935cc2bb51808b3"
+            },
+            "id": "rest.Artifact.transitive-mind-map-rename-membership-final-contribution",
+            "keys": [
+              "status",
+              "notebook_id",
+              "artifact_id",
+              "new_title",
+              "is_mind_map"
+            ],
+            "mode": "transitive-mind-map-rename-membership-final-contribution",
+            "model_contribution_keys": [
+              "id",
+              "_artifact_type",
+              "_variant"
+            ],
+            "projection_condition": "mind_maps.list converts a listed interactive Artifact whose id matches the target",
+            "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
       },
@@ -6167,6 +8056,7 @@
             "shape_derivation": "runtime:mind-map-rest-final"
           },
           {
+            "contribution_semantics": "MindMap.id membership determines is_mind_map; MindMap.kind routes the mutation but is not projected, and an unmatched artifact uses the terminal without a MindMap",
             "evidence": [
               "notebooklm/_app/artifacts.py:async def rename_artifact",
               "notebooklm/server/routes/artifacts.py:async def rename"
@@ -6184,6 +8074,10 @@
               "is_mind_map"
             ],
             "mode": "transitive-artifact-rename-final-wrapper",
+            "model_contribution_keys": [
+              "id"
+            ],
+            "projection_condition": "mind_maps.list returns a MindMap whose id matches the target",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -6232,6 +8126,37 @@
       },
       "notebooklm.types.Note": {
         "projections": [
+          {
+            "contribution_semantics": "The created Note.id and Note.created_at are copied into MindMapResult and recursively emitted as mind_map.note_id/created_at; interactive or absent-leaf paths have no Note contribution",
+            "evidence": [
+              "notebooklm/_artifact/generation.py:note = await self._note_service.create_note",
+              "notebooklm/server/routes/artifacts.py:payload[\"mind_map\"] = to_jsonable"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_artifact/generation.py:note = await self._note_service.create_note": "sha256:b6b2ecef2a307a60bcc4ea9ca7627c9789a1e0786de9e682704bc40f8caf205e",
+              "notebooklm/server/routes/artifacts.py:payload[\"mind_map\"] = to_jsonable": "sha256:cb093a06a8e0c9c0d5735d14adbb4d815a3c23613382f7b1926cd49e714127ca"
+            },
+            "id": "rest.Note.transitive-note-backed-mind-map-generation-final-contribution",
+            "keys": [
+              "notebook_id",
+              "kind",
+              "mind_map"
+            ],
+            "mode": "transitive-note-backed-mind-map-generation-final-contribution",
+            "model_contribution_keys": [
+              "id",
+              "created_at"
+            ],
+            "nested_keys": {
+              "mind_map": [
+                "mind_map",
+                "note_id",
+                "created_at"
+              ]
+            },
+            "projection_condition": "note-backed mind-map generation returns a present leaf and successfully creates a public Note",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
           {
             "evidence": [
               "notebooklm/server/routes/notes.py:to_jsonable"
@@ -6467,9 +8392,14 @@
             },
             "id": "rest.ResearchSource.transitive-import-source-count-contribution",
             "keys": [
+              "status",
+              "notebook_id",
+              "run_id",
+              "imported",
               "sources_found"
             ],
             "mode": "transitive-import-source-count-contribution",
+            "projection_condition": "an importable ResearchTask contains at least one ResearchSource",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -6493,6 +8423,43 @@
               "poll_id"
             ],
             "mode": "dataclass-full-with-poll-id",
+            "model_contribution_keys": [
+              "task_id",
+              "report_id",
+              "query",
+              "mode"
+            ],
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "contribution_semantics": "ResearchStart field emptiness selects the fixed DecodingError variant; field values are not copied into the REST error message",
+            "evidence": [
+              "notebooklm/server/routes/research.py:if not result.report_id",
+              "notebooklm/server/routes/research.py:if not result.task_id",
+              "notebooklm/server/_errors.py:async def _handle_library"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/server/_errors.py:async def _handle_library": "sha256:a4e3457082f7861a35159f26a1ff54c0cfd34d3c219d64c6d8f164b878fb9748",
+              "notebooklm/server/routes/research.py:if not result.report_id": "sha256:72fe12ed775e48d79348a2dbc5498f9cf8d916419a72ac678e65180fad004b65",
+              "notebooklm/server/routes/research.py:if not result.task_id": "sha256:72fe12ed775e48d79348a2dbc5498f9cf8d916419a72ac678e65180fad004b65"
+            },
+            "id": "rest.ResearchStart.transitive-start-missing-poll-id-error-contribution",
+            "keys": [
+              "error"
+            ],
+            "mode": "transitive-start-missing-poll-id-error-contribution",
+            "model_contribution_keys": [
+              "task_id",
+              "report_id"
+            ],
+            "nested_keys": {
+              "error": [
+                "category",
+                "message",
+                "retriable"
+              ]
+            },
+            "projection_condition": "deep start has no report_id or fast start has no task_id, so no poll_id can be formed",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -6527,9 +8494,23 @@
               "report"
             ],
             "mode": "manual-status-projection",
+            "model_contribution_keys": [
+              "task_id",
+              "status",
+              "query",
+              "sources",
+              "summary",
+              "report",
+              "status_code",
+              "source_type",
+              "discovery_mode",
+              "created_at",
+              "updated_at"
+            ],
             "shape_derivation": "manual-reviewed+fingerprint"
           },
           {
+            "contribution_semantics": "status selects the import success terminal and source membership supplies sources_found",
             "evidence": [
               "notebooklm/_app/research.py:status = await client.research.poll",
               "notebooklm/server/routes/research.py:\"sources_found\": len(sources)"
@@ -6548,8 +8529,44 @@
             ],
             "mode": "transitive-import-final-wrapper",
             "model_contribution_keys": [
+              "status",
               "sources"
             ],
+            "projection_condition": "ResearchTask is completed and classified as importable",
+            "shape_derivation": "manual-reviewed+fingerprint"
+          },
+          {
+            "contribution_semantics": "ResearchTask fields select and populate the ValidationError body; completed-empty uses only source-list membership and no ResearchSource field is projected",
+            "evidence": [
+              "notebooklm/_app/research.py:def classify_importable_research",
+              "notebooklm/server/routes/research.py:sources = await research_core.poll_sources_for_import",
+              "notebooklm/server/_errors.py:async def _handle_library"
+            ],
+            "evidence_shape_fingerprints": {
+              "notebooklm/_app/research.py:def classify_importable_research": "sha256:cb2c1159613f22dd79bd906beed7b88e9b5622533e26cf377fd311c9f8e6f809",
+              "notebooklm/server/_errors.py:async def _handle_library": "sha256:a4e3457082f7861a35159f26a1ff54c0cfd34d3c219d64c6d8f164b878fb9748",
+              "notebooklm/server/routes/research.py:sources = await research_core.poll_sources_for_import": "sha256:0c66e926e2ccb00eac64b723d1622e88fafedb6983f797b652d32161deee43fb"
+            },
+            "id": "rest.ResearchTask.transitive-import-refusal-error-contribution",
+            "keys": [
+              "error"
+            ],
+            "mode": "transitive-import-refusal-error-contribution",
+            "model_contribution_keys": [
+              "status",
+              "status_code",
+              "source_type",
+              "query",
+              "sources"
+            ],
+            "nested_keys": {
+              "error": [
+                "category",
+                "message",
+                "retriable"
+              ]
+            },
+            "projection_condition": "import classification refuses not_found, failed, noncompleted, or completed-without-sources ResearchTask state",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -6727,13 +8744,16 @@
             "shape_derivation": "runtime:list-wrapper-rest-source-paged"
           },
           {
+            "contribution_semantics": "Ready rows use the full Source view; wait-all error buckets may carry only a Source-derived id. An explicit canonical-id wait whose outcomes are all timeout, failure, or not-found is non-public, as is an empty wait-all result",
             "evidence": [
               "notebooklm/server/routes/sources.py:def _aggregate_wait_outcomes",
-              "notebooklm/_app/views.py:source_view"
+              "notebooklm/_app/views.py:source_view",
+              "notebooklm/server/routes/sources.py:ids = _dedupe_source_ids([s.id for s in await client.sources.list"
             ],
             "evidence_shape_fingerprints": {
               "notebooklm/_app/views.py:source_view": "sha256:4f63eba4a2f8baff02d4bd2c1753ee0debb0491150878a278a11987fc251c785",
-              "notebooklm/server/routes/sources.py:def _aggregate_wait_outcomes": "sha256:cbb053996c960c964663bef37be94c734580b7a79d03aec3e1d797ba2d91e0ab"
+              "notebooklm/server/routes/sources.py:def _aggregate_wait_outcomes": "sha256:cbb053996c960c964663bef37be94c734580b7a79d03aec3e1d797ba2d91e0ab",
+              "notebooklm/server/routes/sources.py:ids = _dedupe_source_ids([s.id for s in await client.sources.list": "sha256:118bd5660115af52296787bbf9ca859852db36eaa1d49412632b525fc1f7907d"
             },
             "id": "rest.Source.app-view-source-wait-final-wrapper",
             "keys": [
@@ -6750,6 +8770,16 @@
               "total_count"
             ],
             "mode": "app-view:source-wait-final-wrapper",
+            "model_contribution_keys": [
+              "id",
+              "title",
+              "url",
+              "_type_code",
+              "created_at",
+              "status",
+              "drive_document_id",
+              "drive_status"
+            ],
             "nested_keys": {
               "failed": [
                 "source_id",
@@ -6778,6 +8808,7 @@
                 "error"
               ]
             },
+            "projection_condition": "at least one ready Source or wait-all lists a Source whose id reaches an error bucket",
             "shape_derivation": "runtime:source-view-rest-wait"
           },
           {
@@ -6882,6 +8913,10 @@
               "output_format"
             ],
             "mode": "manual-content-projection",
+            "model_contribution_keys": [
+              "content",
+              "char_count"
+            ],
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -6903,6 +8938,10 @@
               "keywords"
             ],
             "mode": "manual-guide-projection",
+            "model_contribution_keys": [
+              "summary",
+              "keywords"
+            ],
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -6936,15 +8975,13 @@
             "keys": [
               "server",
               "version",
-              "auth"
+              "auth",
+              "account"
             ],
             "mode": "transitive-server-info-account-success-wrapper",
             "model_contribution_keys": [
-              "notebook_limit",
-              "source_limit",
-              "tier",
-              "output_language",
-              "output_language_is_default"
+              "limits",
+              "output_language"
             ],
             "nested_keys": {
               "account": [
@@ -6966,14 +9003,7 @@
                 "profile"
               ]
             },
-            "nested_optional_keys": {
-              "auth": [
-                "startup_error"
-              ]
-            },
-            "optional_keys": [
-              "account"
-            ],
+            "projection_condition": "server_info include_account has a bound authenticated client and get_user_settings succeeds",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
         ]
@@ -8087,8 +10117,29 @@
   "schema_version": 1,
   "secret_bearing_exclusions": {
     "notebooklm.auth.AuthTokens": {
-      "adapter_reachable": false,
-      "policy": "requires an explicit redacted projection; credential fields are not envelopes"
+      "adapter_reachable": true,
+      "allowed_emitted_value_fields": [
+        "account_email",
+        "authuser"
+      ],
+      "allowed_model_contribution_keys": [
+        "authuser",
+        "account_email",
+        "storage_path",
+        "_profile_session_generation"
+      ],
+      "allowed_projections": [
+        {
+          "channel": "mcp tool result",
+          "projection_id": "mcp.AuthTokens.redacted-server-info-account-identity-contribution"
+        },
+        {
+          "channel": "rest response",
+          "projection_id": "rest.AuthTokens.redacted-server-info-account-identity-contribution"
+        }
+      ],
+      "policy": "excluded from exported/to_jsonable inventory; only an explicitly marked safe-field contribution may expose values from authuser/account_email; storage_path/profile-generation may only select cache/fallback control flow, and credentials are never adapter keys",
+      "recursive_serialization_allowed": false
     }
   },
   "supplemental_import_references": {

@@ -32,6 +32,37 @@ def _valid_dataclass_sample(cls: type[Any]) -> Any:
 
 
 _SECRET_BEARING_PUBLIC_MODELS = frozenset({"notebooklm.auth.AuthTokens"})
+_AUTH_TOKENS_ALLOWED_PROJECTIONS = (
+    (
+        "mcp tool result",
+        "mcp.AuthTokens.redacted-server-info-account-identity-contribution",
+    ),
+    (
+        "rest response",
+        "rest.AuthTokens.redacted-server-info-account-identity-contribution",
+    ),
+)
+_AUTH_TOKENS_ALLOWED_PROJECTION_IDS = frozenset(
+    projection_id for _channel, projection_id in _AUTH_TOKENS_ALLOWED_PROJECTIONS
+)
+_AUTH_TOKENS_SAFE_CONTRIBUTION_FIELDS = frozenset(
+    {"authuser", "account_email", "storage_path", "_profile_session_generation"}
+)
+_AUTH_TOKENS_SAFE_EMITTED_VALUE_FIELDS = frozenset({"authuser", "account_email"})
+_AUTH_TOKENS_CREDENTIAL_OUTPUT_FIELDS = frozenset(
+    {
+        "cookies",
+        "csrf_token",
+        "session_id",
+        "storage_path",
+        "cookie_jar",
+        "cookie_snapshot",
+        "_profile_session_generation",
+        "headers",
+        "authorization_header",
+        "bearer_token",
+    }
+)
 _CHANNEL_ROOTS = {
     "cli --json": "cli",
     "mcp tool result": "mcp",
@@ -1134,16 +1165,75 @@ def _normalize_conditional_key_groups(value: object) -> list[dict[str, object]]:
     return normalized
 
 
+def _projection_declared_keys(projection: typing.Mapping[str, object]) -> set[str]:
+    """Return every explicitly declared adapter key in a projection shape."""
+    keys: set[str] = set()
+    for field in ("keys", "optional_keys"):
+        keys.update(typing.cast(tuple[str, ...] | list[str], projection.get(field, ())))
+    for field in ("nested_keys", "nested_optional_keys"):
+        values = typing.cast(
+            dict[str, tuple[str, ...] | list[str]], projection.get(field, {})
+        ).values()
+        for value in values:
+            keys.update(value)
+    for variants in typing.cast(
+        dict[str, dict[str, tuple[str, ...] | list[str]]],
+        projection.get("nested_union_keys", {}),
+    ).values():
+        for value in variants.values():
+            keys.update(value)
+    for group in typing.cast(
+        tuple[dict[str, object], ...] | list[dict[str, object]],
+        projection.get("conditional_key_groups", ()),
+    ):
+        keys.update(typing.cast(tuple[str, ...] | list[str], group.get("keys", ())))
+    return keys
+
+
+def _validate_secret_projection(model_key: str, projection: typing.Mapping[str, object]) -> None:
+    """Permit only the explicit non-credential AuthTokens identity contribution."""
+    if model_key not in _SECRET_BEARING_PUBLIC_MODELS:
+        return
+    if projection.get("redacted_projection") != "safe-field-contribution":
+        raise ValueError(
+            f"secret-bearing models require a redacted adapter projection: {model_key}"
+        )
+    if projection.get("id") not in _AUTH_TOKENS_ALLOWED_PROJECTION_IDS:
+        raise ValueError(
+            "AuthTokens redacted projection must use one of the reviewed projection ids: "
+            f"{sorted(_AUTH_TOKENS_ALLOWED_PROJECTION_IDS)}"
+        )
+    if "keys" not in projection or projection.get("nested_fields") is not None:
+        raise ValueError(f"secret projection cannot recursively serialize {model_key}")
+    contribution_keys = set(
+        typing.cast(
+            tuple[str, ...] | list[str],
+            projection.get("model_contribution_keys", ()),
+        )
+    )
+    if not contribution_keys or not contribution_keys <= _AUTH_TOKENS_SAFE_CONTRIBUTION_FIELDS:
+        raise ValueError(
+            "AuthTokens redacted projection contribution fields must be limited to "
+            f"{sorted(_AUTH_TOKENS_SAFE_CONTRIBUTION_FIELDS)}"
+        )
+    credential_keys = _projection_declared_keys(projection) & _AUTH_TOKENS_CREDENTIAL_OUTPUT_FIELDS
+    if credential_keys:
+        raise ValueError(
+            f"AuthTokens redacted projection exposes credential-bearing keys: "
+            f"{sorted(credential_keys)}"
+        )
+
+
 def _exact_channel_projections(exported_inventory: dict[str, object]) -> dict[str, object]:
     """Build reviewed sink-backed projections and their transitive model shapes."""
     import notebooklm
 
     model_classes = {
-        _model_key(cls): cls
-        for cls in _public_model_exports()
-        if dataclasses.is_dataclass(cls) and _model_key(cls) not in _SECRET_BEARING_PUBLIC_MODELS
+        _model_key(cls): cls for cls in _public_model_exports() if dataclasses.is_dataclass(cls)
     }
-    public_dataclasses = set(model_classes.values())
+    public_dataclasses = {
+        cls for key, cls in model_classes.items() if key not in _SECRET_BEARING_PUBLIC_MODELS
+    }
     source_root = Path(notebooklm.__file__).resolve().parents[1]
     channels: dict[str, object] = {}
 
@@ -1162,6 +1252,7 @@ def _exact_channel_projections(exported_inventory: dict[str, object]) -> dict[st
             model_key = str(spec["model"])
             if model_key not in model_classes:
                 raise ValueError(f"unknown public projection model: {model_key}")
+            _validate_secret_projection(model_key, spec)
             cls = model_classes[model_key]
             evidence = typing.cast(tuple[str, ...], spec["evidence"])
             evidence_fingerprints = _validate_projection_evidence(evidence, source_root)
@@ -1237,6 +1328,9 @@ def _exact_channel_projections(exported_inventory: dict[str, object]) -> dict[st
             contribution_semantics = spec.get("contribution_semantics")
             if contribution_semantics is not None:
                 projection["contribution_semantics"] = str(contribution_semantics)
+            redacted_projection = spec.get("redacted_projection")
+            if redacted_projection is not None:
+                projection["redacted_projection"] = str(redacted_projection)
             _add_channel_projection(
                 rows,
                 model_key,
@@ -1260,29 +1354,70 @@ def _exact_channel_projections(exported_inventory: dict[str, object]) -> dict[st
                     hints.get(field_name), public_dataclasses, seen={cls}
                 ):
                     nested_key = _model_key(nested)
+                    nested_projection: dict[str, object] = {
+                        "id": (
+                            f"{str(spec['id'])}.nested-{field_name}-{nested_key.rsplit('.', 1)[-1]}"
+                        ),
+                        "mode": "nested-dataclass",
+                        "keys": list(exported_inventory[nested_key]["to_jsonable_keys"]),
+                        "evidence": [f"nested-via:{model_key}.{field_name}"],
+                    }
+                    metadata_by_field = typing.cast(
+                        dict[str, dict[str, object]],
+                        spec.get("nested_projection_metadata", {}),
+                    )
+                    metadata = metadata_by_field.get(field_name, {})
+                    for metadata_key in (
+                        "model_contribution_keys",
+                        "projection_condition",
+                        "contribution_semantics",
+                    ):
+                        if metadata_key not in metadata:
+                            continue
+                        metadata_value = metadata[metadata_key]
+                        nested_projection[metadata_key] = (
+                            list(
+                                typing.cast(
+                                    tuple[str, ...] | list[str],
+                                    metadata_value,
+                                )
+                            )
+                            if metadata_key == "model_contribution_keys"
+                            else str(metadata_value)
+                        )
                     _add_channel_projection(
                         rows,
                         nested_key,
-                        {
-                            "id": (
-                                f"{str(spec['id'])}.nested-"
-                                f"{field_name}-{nested_key.rsplit('.', 1)[-1]}"
-                            ),
-                            "mode": "nested-dataclass",
-                            "keys": list(exported_inventory[nested_key]["to_jsonable_keys"]),
-                            "evidence": [f"nested-via:{model_key}.{field_name}"],
-                        },
+                        nested_projection,
                     )
         channels[channel] = {model: rows[model] for model in sorted(rows)}
     return channels
 
 
-def _validate_no_secret_channel_models(channel_models: dict[str, set[str]]) -> None:
-    violations = {
-        channel: sorted(models & _SECRET_BEARING_PUBLIC_MODELS)
-        for channel, models in channel_models.items()
-        if models & _SECRET_BEARING_PUBLIC_MODELS
-    }
+def _validate_no_secret_channel_models(channel_models: dict[str, object]) -> None:
+    violations: dict[str, list[str]] = {}
+    allowed_sites: list[tuple[str, str]] = []
+    for channel, models_value in channel_models.items():
+        if isinstance(models_value, set):
+            secret_models = models_value & _SECRET_BEARING_PUBLIC_MODELS
+            if secret_models:
+                violations[channel] = sorted(secret_models)
+            continue
+        models = typing.cast(dict[str, dict[str, list[dict[str, object]]]], models_value)
+        for model_key in sorted(set(models) & _SECRET_BEARING_PUBLIC_MODELS):
+            for projection in models[model_key]["projections"]:
+                _validate_secret_projection(model_key, projection)
+                projection_id = str(projection["id"])
+                if (channel, projection_id) not in _AUTH_TOKENS_ALLOWED_PROJECTIONS:
+                    raise ValueError(
+                        "AuthTokens redacted projection is allowed only at the reviewed "
+                        f"channel/id pairs, not {(channel, projection_id)}"
+                    )
+                allowed_sites.append((channel, projection_id))
+    if allowed_sites and sorted(allowed_sites) != sorted(_AUTH_TOKENS_ALLOWED_PROJECTIONS):
+        raise ValueError(
+            f"AuthTokens requires exactly the two reviewed adapter projections; got {allowed_sites}"
+        )
     if violations:
         raise ValueError(
             f"secret-bearing models require a redacted adapter projection: {violations}"
@@ -1328,10 +1463,7 @@ def derive_json_envelope_contract() -> dict[str, object]:
         }
 
     channels = _exact_channel_projections(exported_inventory)
-    channel_model_keys = {
-        channel: set(typing.cast(dict[str, object], models)) for channel, models in channels.items()
-    }
-    _validate_no_secret_channel_models(channel_model_keys)
+    _validate_no_secret_channel_models(channels)
     adapter_sink_reachability = derive_adapter_sink_reachability_contract(
         Path(notebooklm.__file__).resolve().parents[1],
         known_projection_ids=_all_channel_projection_ids(channels),
@@ -1354,13 +1486,31 @@ def derive_json_envelope_contract() -> dict[str, object]:
         "supplemental_import_references": _supplemental_channel_import_references(),
         "secret_bearing_exclusions": {
             "notebooklm.auth.AuthTokens": {
-                "adapter_reachable": False,
-                "policy": "requires an explicit redacted projection; credential fields are not envelopes",
+                "adapter_reachable": True,
+                "allowed_projections": [
+                    {"channel": channel, "projection_id": projection_id}
+                    for channel, projection_id in _AUTH_TOKENS_ALLOWED_PROJECTIONS
+                ],
+                "allowed_model_contribution_keys": [
+                    "authuser",
+                    "account_email",
+                    "storage_path",
+                    "_profile_session_generation",
+                ],
+                "allowed_emitted_value_fields": sorted(_AUTH_TOKENS_SAFE_EMITTED_VALUE_FIELDS),
+                "recursive_serialization_allowed": False,
+                "policy": (
+                    "excluded from exported/to_jsonable inventory; only an explicitly marked "
+                    "safe-field contribution may expose values from authuser/account_email; "
+                    "storage_path/profile-generation may only select cache/fallback control "
+                    "flow, and credentials are never adapter keys"
+                ),
             }
         },
     }
 
 
 __all__ = [
+    "_validate_secret_projection",
     "derive_json_envelope_contract",
 ]

@@ -2,12 +2,37 @@
 
 from __future__ import annotations
 
+_ASK_ROOT_KEYS = (
+    "answer",
+    "conversation_id",
+    "turn_number",
+    "is_follow_up",
+    "references",
+    "turn_key",
+    "next_steps",
+)
+_FULL_REFERENCE_KEYS = (
+    "source_id",
+    "citation_number",
+    "cited_text",
+    "start_char",
+    "end_char",
+    "chunk_id",
+    "passage_id",
+    "answer_start_char",
+    "answer_end_char",
+    "score",
+    "fragment_start_char",
+    "fragment_end_char",
+    "answer_anchor_start",
+    "answer_anchor_end",
+)
+
 REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
     {
         "model": "notebooklm.types.AccountLimits",
         "mode": "transitive-server-info-account-success-wrapper",
-        "keys": ("server", "version", "auth"),
-        "optional_keys": ("account",),
+        "keys": ("server", "version", "auth", "account"),
         "nested_keys": {
             "auth": (
                 "authenticated",
@@ -28,11 +53,69 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
                 "output_language_is_default",
             ),
         },
-        "nested_optional_keys": {"auth": ("startup_error",)},
         "model_contribution_keys": ("notebook_limit", "source_limit", "tier"),
+        "projection_condition": (
+            "server_info include_account has a bound authenticated client and "
+            "get_user_settings succeeds"
+        ),
         "evidence": (
             "notebooklm/server/routes/meta.py:async def _account_block",
             "notebooklm/server/routes/meta.py:async def server_info",
+        ),
+    },
+    {
+        "model": "notebooklm.auth.AuthTokens",
+        "mode": "redacted-server-info-account-identity-contribution",
+        "keys": ("server", "version", "auth", "account"),
+        "nested_keys": {
+            "auth": (
+                "authenticated",
+                "storage_exists",
+                "json_valid",
+                "cookies_present",
+                "sid_cookie",
+                "profile",
+            )
+        },
+        "nested_union_keys": {
+            "account": {
+                "success": (
+                    "email",
+                    "authuser",
+                    "available",
+                    "notebook_limit",
+                    "source_limit",
+                    "tier",
+                    "output_language",
+                    "output_language_is_default",
+                ),
+                "unavailable": ("email", "authuser", "available", "reason"),
+            }
+        },
+        "model_contribution_keys": (
+            "authuser",
+            "account_email",
+            "storage_path",
+            "_profile_session_generation",
+        ),
+        "projection_condition": (
+            "server_info include_account is true and a bound client exists with no startup error"
+        ),
+        "adapter_surface": "REST explicitly redacted safe-field identity contribution",
+        "contribution_semantics": (
+            "Only AuthTokens.authuser and account_email may supply emitted account values; "
+            "storage_path and _profile_session_generation only select persisted/cache/live "
+            "fallback behavior. The startup-error persisted-identity branch has no AuthTokens "
+            "contribution, and no credential-bearing field reaches either account union"
+        ),
+        "redacted_projection": "safe-field-contribution",
+        "evidence": (
+            "notebooklm/client.py:return self._auth.authuser",
+            "notebooklm/client.py:auth=self._auth",
+            "notebooklm/_auth/account_email.py:def _session_key",
+            "notebooklm/_auth/account_email.py:storage_path = auth.storage_path",
+            "notebooklm/server/routes/meta.py:async def _account_block",
+            'notebooklm/server/routes/meta.py:info["account"] = await _account_block',
         ),
     },
     {
@@ -107,6 +190,28 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
         "derive": "runtime:list-wrapper-rest-artifact-paged",
     },
     {
+        "model": "notebooklm.types.Artifact",
+        "mode": "transitive-download-no-artifacts-409-error-contribution",
+        "keys": ("error",),
+        "nested_keys": {"error": ("category", "message")},
+        "model_contribution_keys": ("_artifact_type", "status", "_variant"),
+        "projection_condition": (
+            "REST artifact download lists at least one public Artifact, but every row is "
+            "excluded by requested kind or completion state"
+        ),
+        "contribution_semantics": (
+            "Artifact kind (backed by _artifact_type/_variant) and completion (backed by "
+            "status) select the NO_ARTIFACTS 409 conflict envelope; a truly empty list is "
+            "non-public and successful downloads return binary FileResponse data"
+        ),
+        "evidence": (
+            "notebooklm/_app/download.py:typed = [",
+            "notebooklm/_app/download.py:if not type_artifacts",
+            "notebooklm/server/routes/artifacts.py:if result.outcome != download_core.DownloadOutcome.SINGLE_DOWNLOADED",
+            "notebooklm/server/_errors.py:_STATUS_LABEL",
+        ),
+    },
+    {
         "model": "notebooklm.types.GenerationStatus",
         "mode": "app-status-view-projection",
         "evidence": (
@@ -161,6 +266,103 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
         "nested_fields": ("references", "turn_key", "next_steps"),
     },
     {
+        "model": "notebooklm._types.documents.StructuredDocument",
+        "mode": "transitive-chat-reference-full-contribution",
+        "keys": _ASK_ROOT_KEYS,
+        "nested_keys": {"references": _FULL_REFERENCE_KEYS},
+        "model_contribution_keys": ("blocks", "annotations"),
+        "projection_condition": (
+            "the answer document contains an in-range annotation whose object_id matches "
+            "a surviving ChatReference.chunk_id"
+        ),
+        "contribution_semantics": (
+            "StructuredDocument annotations and block-derived text/extent produce "
+            "answer_anchor_start/end; answer_document itself is removed from the REST response"
+        ),
+        "evidence": (
+            "notebooklm/_chat/wire.py:def attach_answer_anchors",
+            "notebooklm/server/routes/chat.py:return ask_result_view(result)",
+        ),
+    },
+    {
+        "model": "notebooklm._types.documents.DocumentAnnotation",
+        "mode": "transitive-chat-reference-full-contribution",
+        "keys": _ASK_ROOT_KEYS,
+        "nested_keys": {"references": _FULL_REFERENCE_KEYS},
+        "model_contribution_keys": ("object_id", "start_index", "end_index"),
+        "projection_condition": (
+            "an in-range DocumentAnnotation.object_id matches a surviving ChatReference.chunk_id"
+        ),
+        "contribution_semantics": (
+            "DocumentAnnotation object_id joins the citation and its offsets become "
+            "answer_anchor_start/end"
+        ),
+        "evidence": (
+            "notebooklm/_chat/wire.py:def attach_answer_anchors",
+            "notebooklm/server/routes/chat.py:return ask_result_view(result)",
+        ),
+    },
+    {
+        "model": "notebooklm._types.documents.DocumentBlock",
+        "mode": "transitive-chat-reference-full-contribution",
+        "keys": _ASK_ROOT_KEYS,
+        "nested_keys": {"references": _FULL_REFERENCE_KEYS},
+        "model_contribution_keys": ("start_index", "end_index", "spans"),
+        "projection_condition": (
+            "a decoded citation fragment contains a usable DocumentBlock, or an accepted "
+            "answer anchor depends on the answer document's block extent/text"
+        ),
+        "contribution_semantics": (
+            "DocumentBlock ranges/text produce cited_text and fragment ranges, while "
+            "answer-document blocks also bound anchor validity"
+        ),
+        "evidence": (
+            "notebooklm/_chat/wire.py:def extract_text_passages",
+            "notebooklm/_chat/wire.py:def attach_answer_anchors",
+            "notebooklm/server/routes/chat.py:return ask_result_view(result)",
+        ),
+    },
+    {
+        "model": "notebooklm._types.documents.TextSpan",
+        "mode": "transitive-chat-reference-full-contribution",
+        "keys": _ASK_ROOT_KEYS,
+        "nested_keys": {"references": _FULL_REFERENCE_KEYS},
+        "model_contribution_keys": ("start_index", "end_index", "text"),
+        "projection_condition": (
+            "a decoded citation fragment contains a usable TextSpan, or an accepted answer "
+            "anchor depends on answer-document text built from a TextSpan"
+        ),
+        "contribution_semantics": (
+            "TextSpan offsets/text build cited_text/ranges or answer-document text used to "
+            "validate answer anchors"
+        ),
+        "evidence": (
+            "notebooklm/_chat/wire.py:def extract_text_passages",
+            "notebooklm/_chat/wire.py:def attach_answer_anchors",
+            "notebooklm/server/routes/chat.py:return ask_result_view(result)",
+        ),
+    },
+    {
+        "model": "notebooklm.types.Artifact",
+        "mode": "transitive-interactive-mind-map-generation-final-contribution",
+        "keys": ("notebook_id", "kind", "mind_map"),
+        "nested_keys": {"mind_map": ("id", "notebook_id", "title", "kind", "created_at", "tree")},
+        "model_contribution_keys": ("id", "title", "_artifact_type", "created_at", "_variant"),
+        "projection_condition": (
+            "interactive mind-map generation finds the newly created public Artifact"
+        ),
+        "contribution_semantics": (
+            "Artifact id/title/created_at construct the recursively emitted MindMap while "
+            "_artifact_type/_variant qualify the row as interactive (or the known-id "
+            "unclassified settling case); the raw create-id fallback has no Artifact"
+        ),
+        "evidence": (
+            "notebooklm/_mind_maps_api.py:art = await self._find_interactive",
+            "notebooklm/_mind_maps_api.py:if art is not None:",
+            'notebooklm/server/routes/artifacts.py:payload["mind_map"] = to_jsonable',
+        ),
+    },
+    {
         "model": "notebooklm.types.MindMap",
         "mode": "dataclass-full-nested-in-generation-wrapper",
         "evidence": ('notebooklm/server/routes/artifacts.py:payload["mind_map"]',),
@@ -173,6 +375,50 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
         "derive": "runtime:mind-map-rest-final",
     },
     {
+        "model": "notebooklm.types.Note",
+        "mode": "transitive-note-backed-mind-map-generation-final-contribution",
+        "keys": ("notebook_id", "kind", "mind_map"),
+        "nested_keys": {"mind_map": ("mind_map", "note_id", "created_at")},
+        "model_contribution_keys": ("id", "created_at"),
+        "projection_condition": (
+            "note-backed mind-map generation returns a present leaf and successfully "
+            "creates a public Note"
+        ),
+        "contribution_semantics": (
+            "The created Note.id and Note.created_at are copied into MindMapResult and "
+            "recursively emitted as mind_map.note_id/created_at; interactive or absent-leaf "
+            "paths have no Note contribution"
+        ),
+        "evidence": (
+            "notebooklm/_artifact/generation.py:note = await self._note_service.create_note",
+            'notebooklm/server/routes/artifacts.py:payload["mind_map"] = to_jsonable',
+        ),
+    },
+    {
+        "model": "notebooklm.types.Artifact",
+        "mode": "transitive-mind-map-rename-membership-final-contribution",
+        "keys": (
+            "status",
+            "notebook_id",
+            "artifact_id",
+            "new_title",
+            "is_mind_map",
+        ),
+        "model_contribution_keys": ("id", "_artifact_type", "_variant"),
+        "projection_condition": (
+            "mind_maps.list converts a listed interactive Artifact whose id matches the target"
+        ),
+        "contribution_semantics": (
+            "Artifact id and interactive kind (backed by _artifact_type/_variant) construct "
+            "the matching MindMap whose membership sets is_mind_map; unmatched regular "
+            "artifacts use the same terminal without this contribution"
+        ),
+        "evidence": (
+            "notebooklm/_mind_maps_api.py:art.is_interactive_mind_map",
+            "notebooklm/server/routes/artifacts.py:is_mind_map",
+        ),
+    },
+    {
         "model": "notebooklm.types.MindMap",
         "mode": "transitive-artifact-rename-final-wrapper",
         "keys": (
@@ -181,6 +427,12 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "artifact_id",
             "new_title",
             "is_mind_map",
+        ),
+        "model_contribution_keys": ("id",),
+        "projection_condition": "mind_maps.list returns a MindMap whose id matches the target",
+        "contribution_semantics": (
+            "MindMap.id membership determines is_mind_map; MindMap.kind routes the mutation but "
+            "is not projected, and an unmatched artifact uses the terminal without a MindMap"
         ),
         "evidence": (
             "notebooklm/_app/artifacts.py:async def rename_artifact",
@@ -254,7 +506,27 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
         "model": "notebooklm.types.ResearchStart",
         "mode": "dataclass-full-with-poll-id",
         "keys": ("task_id", "report_id", "notebook_id", "query", "mode", "poll_id"),
+        "model_contribution_keys": ("task_id", "report_id", "query", "mode"),
         "evidence": ("notebooklm/server/routes/research.py:to_jsonable(result)",),
+    },
+    {
+        "model": "notebooklm.types.ResearchStart",
+        "mode": "transitive-start-missing-poll-id-error-contribution",
+        "keys": ("error",),
+        "nested_keys": {"error": ("category", "message", "retriable")},
+        "model_contribution_keys": ("task_id", "report_id"),
+        "projection_condition": (
+            "deep start has no report_id or fast start has no task_id, so no poll_id can be formed"
+        ),
+        "contribution_semantics": (
+            "ResearchStart field emptiness selects the fixed DecodingError variant; field values "
+            "are not copied into the REST error message"
+        ),
+        "evidence": (
+            "notebooklm/server/routes/research.py:if not result.report_id",
+            "notebooklm/server/routes/research.py:if not result.task_id",
+            "notebooklm/server/_errors.py:async def _handle_library",
+        ),
     },
     {
         "model": "notebooklm.types.ResearchTask",
@@ -278,16 +550,60 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "summary",
             "report",
         ),
+        "model_contribution_keys": (
+            "task_id",
+            "status",
+            "query",
+            "sources",
+            "summary",
+            "report",
+            "status_code",
+            "source_type",
+            "discovery_mode",
+            "created_at",
+            "updated_at",
+        ),
         "evidence": ("notebooklm/server/routes/research.py:research_status",),
     },
     {
         "model": "notebooklm.types.ResearchTask",
         "mode": "transitive-import-final-wrapper",
         "keys": ("status", "notebook_id", "run_id", "imported", "sources_found"),
-        "model_contribution_keys": ("sources",),
+        "model_contribution_keys": ("status", "sources"),
+        "projection_condition": "ResearchTask is completed and classified as importable",
+        "contribution_semantics": (
+            "status selects the import success terminal and source membership supplies "
+            "sources_found"
+        ),
         "evidence": (
             "notebooklm/_app/research.py:status = await client.research.poll",
             'notebooklm/server/routes/research.py:"sources_found": len(sources)',
+        ),
+    },
+    {
+        "model": "notebooklm.types.ResearchTask",
+        "mode": "transitive-import-refusal-error-contribution",
+        "keys": ("error",),
+        "nested_keys": {"error": ("category", "message", "retriable")},
+        "model_contribution_keys": (
+            "status",
+            "status_code",
+            "source_type",
+            "query",
+            "sources",
+        ),
+        "projection_condition": (
+            "import classification refuses not_found, failed, noncompleted, or "
+            "completed-without-sources ResearchTask state"
+        ),
+        "contribution_semantics": (
+            "ResearchTask fields select and populate the ValidationError body; completed-empty "
+            "uses only source-list membership and no ResearchSource field is projected"
+        ),
+        "evidence": (
+            "notebooklm/_app/research.py:def classify_importable_research",
+            "notebooklm/server/routes/research.py:sources = await research_core.poll_sources_for_import",
+            "notebooklm/server/_errors.py:async def _handle_library",
         ),
     },
     {
@@ -302,7 +618,8 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
     {
         "model": "notebooklm.types.ResearchSource",
         "mode": "transitive-import-source-count-contribution",
-        "keys": ("sources_found",),
+        "keys": ("status", "notebook_id", "run_id", "imported", "sources_found"),
+        "projection_condition": ("an importable ResearchTask contains at least one ResearchSource"),
         "contribution_semantics": (
             "ResearchSource list membership contributes only to sources_found; no source "
             "field envelope is serialized on this path"
@@ -360,9 +677,28 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
     {
         "model": "notebooklm.types.Source",
         "mode": "app-view:source-wait-final-wrapper",
+        "model_contribution_keys": (
+            "id",
+            "title",
+            "url",
+            "_type_code",
+            "created_at",
+            "status",
+            "drive_document_id",
+            "drive_status",
+        ),
+        "projection_condition": (
+            "at least one ready Source or wait-all lists a Source whose id reaches an error bucket"
+        ),
+        "contribution_semantics": (
+            "Ready rows use the full Source view; wait-all error buckets may carry only a "
+            "Source-derived id. An explicit canonical-id wait whose outcomes are all timeout, "
+            "failure, or not-found is non-public, as is an empty wait-all result"
+        ),
         "evidence": (
             "notebooklm/server/routes/sources.py:def _aggregate_wait_outcomes",
             "notebooklm/_app/views.py:source_view",
+            "notebooklm/server/routes/sources.py:ids = _dedupe_source_ids([s.id for s in await client.sources.list",
         ),
         "derive": "runtime:source-view-rest-wait",
     },
@@ -420,19 +756,20 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "truncated",
             "output_format",
         ),
+        "model_contribution_keys": ("content", "char_count"),
         "evidence": ("notebooklm/server/routes/sources.py:get_source_content",),
     },
     {
         "model": "notebooklm.types.SourceGuide",
         "mode": "manual-guide-projection",
         "keys": ("notebook_id", "source_id", "summary", "keywords"),
+        "model_contribution_keys": ("summary", "keywords"),
         "evidence": ('notebooklm/server/routes/sources.py:detail == "summary"',),
     },
     {
         "model": "notebooklm.types.UserSettings",
         "mode": "transitive-server-info-account-success-wrapper",
-        "keys": ("server", "version", "auth"),
-        "optional_keys": ("account",),
+        "keys": ("server", "version", "auth", "account"),
         "nested_keys": {
             "auth": (
                 "authenticated",
@@ -453,13 +790,10 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
                 "output_language_is_default",
             ),
         },
-        "nested_optional_keys": {"auth": ("startup_error",)},
-        "model_contribution_keys": (
-            "notebook_limit",
-            "source_limit",
-            "tier",
-            "output_language",
-            "output_language_is_default",
+        "model_contribution_keys": ("limits", "output_language"),
+        "projection_condition": (
+            "server_info include_account has a bound authenticated client and "
+            "get_user_settings succeeds"
         ),
         "evidence": (
             "notebooklm/server/routes/meta.py:async def _account_block",
