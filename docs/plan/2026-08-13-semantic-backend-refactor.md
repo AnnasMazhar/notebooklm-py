@@ -819,13 +819,15 @@ P0 operation inventory + ADR
   relationship to ADR-0005/0009/0013/0014/0021.
 - Build an equality-pinned inventory of every currently supported semantic operation. Include:
   - semantic operation key and owner;
-  - current public methods and `_app` callers;
-  - native web RPC ID or query/upload path;
+  - every current namespace method, public root-client member, and `_app` caller;
+  - each exact execution authority as transport kind, native/web binding, source site, and semantic
+    discriminator;
   - operation variant;
   - current idempotency classification;
   - read/stateful-start/mutation/stream policy;
   - required notebook route context;
-  - response decoder/projector;
+  - variant-specific response decoder/projector and golden scope/disposition;
+  - per-binding override source-dataflow and runtime-test proof;
   - composite/reconciliation behavior;
   - evidence source and cassette coverage; and
   - current omissions relative to the full product surface.
@@ -833,15 +835,16 @@ P0 operation inventory + ADR
   sharing, prompt/report suggestions, generic artifact actions, retry, mind maps, data tables, and
   supported exports/download formats.
 - The catalog is an **ADR-0022 baseline** registered in `tests/_baselines/registry.py`, not a new
-  bespoke audit. Its `derive()` reads `rpc/types.py`, `_idempotency_policy`, `GOLDEN_COVERAGE`, and
-  an AST walk of `_app/`; `scripts/capture_rpc_registry.py` supplies the omissions column. Only
-  policy, owner, route context, composite behavior, and disposition are hand-authored. Hand-pinning
-  ~200 rows x 11 columns in one PR is not reviewable, and six of those columns are already derivable.
-- The catalog records, per operation, **every existing execution authority, including `_app/`
-  orchestrators**. Two already exist for artifact wait/retry (`_app/generate_retry.py` and
-  `ArtifactsAPI.wait_for_completion`), so migration rule 2's counter starts non-zero. An operation
-  with more than one pre-existing authority is a known-divergence row naming the phase that
-  collapses it.
+  bespoke audit. Focused specification, authority, AST-inventory, and evidence modules feed one
+  build/audit CLI. The projection derives native identity/idempotency, exact direct transport sites,
+  public/app callers, codec/golden evidence, override proof, and captured product omissions. Owner,
+  semantic policy, route context, composite behavior, discriminators, and migration disposition are
+  reviewed. Copying those derived columns into a hand-pinned table is not reviewable.
+- The catalog records, per operation, **every existing execution authority**, including RPC,
+  streaming query, resumable upload, HTTPS download, and `_app` orchestration. The P0 projection
+  allocates 159 exact authority rows; 41 of 86 semantic operations have more than one. Twelve are
+  reviewed authority divergences with a named collapse phase, and `source.refresh` is the one
+  additional policy divergence.
 - Add `"collections"` to `CLIENT_NAMESPACE_ATTRIBUTES` in `scripts/audit_public_api_compat.py` and
   absorb the baseline delta. `docs/stability.md` lists `NotebookLMClient.collections` as stable, but
   the audit records only a bare instance-attribute -- its nine methods are invisible, so "audit
@@ -849,6 +852,10 @@ P0 operation inventory + ADR
 - Extend the named-owner rule from "every public client method" to **every public method on every
   namespace sub-client** -- `chat.set_bound_loop` and `chat.reset_after_open` are audit-visible and
   are exactly what a P7 loop-affinity simplification would delete.
+- Give every public `NotebookLMClient` method/property/classmethod its own fail-closed disposition.
+  P0 records ten root members across auth, lifecycle, observability, and raw behavior;
+  `rpc_call()` remains the explicit web-only raw escape hatch rather than disappearing from the
+  audit.
 - Register a `public_model_contract` ADR-0022 baseline for **every exported dataclass and enum**,
   recording module/qualname, dataclass flags, slots, constructor/field order, equality/hash/repr
   policy, first-party pickle-state hooks, and a structured valid-instance pickle outcome. A real
@@ -865,8 +872,8 @@ P0 operation inventory + ADR
   transport-error, and decode-error paths. Direct non-RPC middleware probes are supplemental. P7
   promises an equality-pin against a "pre-P7 baseline"; captured at P7 that baseline is already six
   phases of code motion late and pins nothing.
-- Add an audit that fails when an active `RPCMethod`/variant or public feature call has no semantic
-  disposition.
+- Add an audit that fails when an active `RPCMethod`/variant, namespace method, root-client member,
+  or transport-reaching authority has no reviewed disposition/allocation.
 
 #### Expected files
 
@@ -881,8 +888,11 @@ Exact names may change in the ADR; ownership may not.
 #### Acceptance criteria
 
 - Every active web RPC method and registered variant is classified or explicitly private/excluded.
-- Every current public feature method maps to one or more semantic operations or a local-only
-  helper.
+- Every current namespace method maps to one or more semantic operations or a local-only helper;
+  every public root-client member has an explicit non-feature disposition.
+- Every operation authority is allocated exactly once with a transport kind, binding, site, and
+  semantic discriminator. Every native binding has a codec/golden disposition and per-binding
+  override proof; uncovered goldens remain explicit rather than fabricated.
 - There is one authoritative operation catalog and one generated/audited projection.
 - No production call path changes.
 - The full required test suite and public API audit remain green.
@@ -1577,8 +1587,12 @@ comparable ratchet ships `frozenset()` (`test_no_raw_positional_rpc_indexing.py`
 - new feature code may not call `RpcCaller` when an operation exists;
 - semantic service modules may not import `BackendKind` or branch on a backend's type, enforced by
   an AST guardrail rather than review (migration rule 5 is otherwise unenforced);
-- every migrated web binding resolves its method id through `resolve_rpc_id`;
-- every supported operation has one binding and every binding has codec evidence; and
+- every migrated web binding retains both static dataflow and parameterized runtime proof that its
+  method id reaches URL, body, dispatch, and decoder through `resolve_rpc_id`;
+- every operation has exact allocated execution authorities, with one authority after its migrated
+  slice unless a reviewed divergence still names the collapse phase;
+- every native method/variant has variant-scoped codec/golden evidence or an explicit
+  `not_recorded` disposition; and
 - temporary bridge modules list their removal phase.
 
 Ratchets expand as each domain migrates. They must not force an all-at-once rewrite.
@@ -1610,7 +1624,8 @@ Record a baseline at P0 and update it at every phase boundary.
 | Production calls to public `from_api_response()`/`from_row()` | Down to zero for migrated resources, counted over the P3 scope only (excludes `_app/`, `mcp/`) |
 | Test files referencing `build_client_shell_for_tests` / `compose_client_internals` (39 at P0) | Down; semantic tests use fake backend |
 | Test-only post-construction mutation seams in production runtime | Down after P7 |
-| `Operation` keys with more than one non-test call site reaching transport | Zero per *migrated* operation; starts non-zero repo-wide (see P0) |
+| Semantic operation rows with more than one exact allocated execution authority | Down to one authority per *migrated* operation; starts at 41 of 86 operations |
+| Native method/variant rows with more than one direct non-test execution site | Track separately from semantic authority allocation; starts at 14 of 56 native rows |
 | Existing cassette rewrites caused only by code motion | Zero |
 | Public API compatibility audit failures | Zero, with **no new entry in `scripts/api-compat-allowlist.json`** |
 | `metrics_snapshot()` / `RpcTelemetryEvent` field or emission drift | Zero |
@@ -1631,7 +1646,8 @@ phase reports rerun the same commands and record their base commit.
 | Production calls to public `from_api_response()` / `from_row()` in P3 scope | **17** calls in **13** modules |
 | Test files referencing `build_client_shell_for_tests` / `compose_client_internals` | **39** files |
 | Test-only post-construction mutation seams in production runtime | **7** test-observed live-rebind targets: `ClientSeams.is_auth_error`, refresh delegate, chain, chain terminal, and three retry-budget attributes |
-| Native rows with more than one direct non-test transport call site | **14** rows; the inert P0 `Operation` vocabulary itself reaches transport **0** times. Catalog review records **4** authority/orchestrator divergences and one additional policy divergence. |
+| Semantic operation rows with more than one exact allocated execution authority | **41 of 86** operations; the catalog allocates **159** total RPC/stream/upload/download/orchestrator authority rows and records **12** authority divergences plus one policy divergence |
+| Native method/variant rows with more than one direct non-test execution site | **14 of 56** native rows; this direct-callsite measure is intentionally distinct from per-operation authority allocation |
 | Existing cassette rewrites caused only by code motion | **0** changed cassette files |
 | Public API compatibility audit failures / allowlist entries | **0 / 0** |
 | `metrics_snapshot()` / `RpcTelemetryEvent` field or emission drift | **0** baseline mismatches; 14 snapshot fields and five event fields are observed through composed public `rpc_call()` / `metrics_snapshot()` success, transport-error, and decode-error scenarios; direct non-RPC middleware probes are supplemental |
@@ -1643,15 +1659,18 @@ The model/adapter contracts cover 86 public identities (50 dataclasses and 36 en
 constructor samples produce 85 successful structured pickle probes, zero mismatches, and one
 truthful `AuthTokens` dumps failure (`TypeError`, `unpickleable-thread-lock`); the baseline also
 pins first-party state-hook ownership and successful `Notebook` / `ChatReference` legacy-state
-restores. The JSON baseline's primary channel inventory contains 18 model identities / 30
-projections for CLI, 14 / 22 for MCP, and 20 / 21 for REST. Its 49-dataclass non-secret full-key
+restores. The JSON baseline's primary channel inventory contains 26 model identities / 46
+projections for CLI, 25 / 34 for MCP, and 27 / 30 for REST. Its 49-dataclass non-secret full-key
 inventory and import-reference counts (9 / 4 / 0 respectively) are supplemental.
 
-The catalog also records the context behind the authority count: 86 semantic specs, 47
-`RPCMethod` members, 56 active native rows (47 defaults plus nine variants), 146 public namespace
-methods, eight local-only methods, and one deliberate `legacy_private` native row. Every active
-native row proves the centralized runtime `resolve_rpc_id` path; the raw public `rpc_call()` escape
-hatch remains explicitly excluded.
+The catalog also records 86 semantic operations, 47 RPC ids, 56 native rows, 146 public namespace
+methods (eight local-only), and ten public root-client members. It carries 13 reviewed divergences:
+12 authority and one policy. Golden evidence scope is `variant`, `method_family`, or
+`method_contract`; four native rows are honestly `not_recorded`:
+`ADD_SOURCE:<default>`, `ADD_SOURCE:drive`, `CREATE_NOTE:<default>`, and
+`CREATE_NOTE:saved_from_chat`. Every native row has source-dataflow plus parameterized runtime
+override proof. The raw public `rpc_call()` escape hatch remains explicitly classified as
+web-only/raw.
 
 #### Reproduction
 
@@ -1706,11 +1725,16 @@ PY
 The registered projections and compatibility gates reproduce the remaining values:
 
 ```bash
-# Catalog totals: 86 specs, 47 RPC members, 56 native rows, 146 public
-# methods, eight local-only methods, 14 multi-authority native rows, four
-# reviewed authority divergences, and 56/56 rows honoring overrides.
+# Catalog totals: 86 operations, 47 RPC ids, 56 native rows, 146 namespace
+# methods (eight local-only), ten root-client members, 159 allocated authority
+# rows, 41 multi-authority operations, 14 multi-site native rows, 12 authority
+# plus one policy divergence, four honest golden gaps, and 56/56 override proof.
 uv run python scripts/audit_operation_catalog.py --json | uv run python -c \
-  'import json,sys; c=json.load(sys.stdin); print({"specs": len(c["operations"]), "rpc_members": len({r["rpc_method"] for r in c["native_bindings"]}), "native_rows": len(c["native_bindings"]), "public_methods": len(c["public_methods"]), "local_only": sum(r["disposition"] == "local_only" for r in c["public_methods"].values()), "multi_authority_native_rows": sum(len(r["execution_authorities"]) > 1 for r in c["native_bindings"]), "authority_divergences": sum(r["kind"] == "authority" for r in c["known_divergences"]), "override_honored": sum(r["override_honored"] for r in c["native_bindings"])})'
+  'import json,sys; c=json.load(sys.stdin); print({"operations": len(c["operations"]), "rpc_ids": len({r["rpc_method"] for r in c["native_bindings"]}), "native_rows": len(c["native_bindings"]), "namespace_methods": len(c["public_methods"]), "namespace_local_only": sum(r["disposition"] == "local_only" for r in c["public_methods"].values()), "root_client_members": len(c["client_members"]), "allocated_authority_rows": sum(len(r["execution_authorities"]) for r in c["operations"]), "multi_authority_operations": sum(len(r["execution_authorities"]) > 1 for r in c["operations"]), "multi_site_native_rows": sum(len(r["execution_authorities"]) > 1 for r in c["native_bindings"]), "authority_divergences": sum(r["kind"] == "authority" for r in c["known_divergences"]), "policy_divergences": sum(r["kind"] == "policy" for r in c["known_divergences"]), "golden_not_recorded": sum(r["golden_disposition"] == "not_recorded" for r in c["native_bindings"]), "override_honored": sum(r["override_honored"] for r in c["native_bindings"])})'
+# JSON envelope totals: CLI 26/46, MCP 25/34, REST 27/30; 49 full-key
+# inventory rows; supplemental imports 9/4/0.
+uv run python -c \
+  'import json; c=json.load(open("tests/fixtures/baselines/json_envelope.json")); print({"channels": {k: {"identities": len(v), "projections": sum(len(r["projections"]) for r in v.values())} for k,v in c["channels"].items()}, "exported_inventory": len(c["exported_dataclass_key_inventory"]), "supplemental_imports": {k: len(v) for k,v in c["supplemental_import_references"].items()}})'
 uv run python scripts/audit_public_api_compat.py --baseline-ref origin/main
 uv run pytest \
   'tests/_guardrails/test_public_surface_manifest.py::test_baseline_matches_committed_file[public_model_contract]' \

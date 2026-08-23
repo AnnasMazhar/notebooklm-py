@@ -114,11 +114,18 @@ composition and passes a scalar budget through a public facade parameter.
 
 P0 establishes evidence before runtime delegation:
 
-- `operation_catalog` is the one ADR-0022 baseline for active RPC methods, registered variants,
-  public feature methods, and `_app` execution authorities. RPC identity, idempotency, codec
-  evidence, and `_app` callers are derived; semantic owner, policy, route context, composite
-  behavior, and migration disposition are reviewed metadata. Missing and duplicate authorities
-  fail the audit rather than becoming silent omissions.
+- `operation_catalog` is the one ADR-0022 baseline for all 86 semantic operations, active RPC
+  methods/variants, every public namespace method, every public `NotebookLMClient` member, and
+  `_app` orchestrators. Each operation owns exact authority rows with `transport_kind` (`rpc`,
+  `stream`, `upload`, `download`, or `orchestrator`), binding, source site, and semantic
+  discriminator. Each native binding carries variant-specific decoder/golden evidence with an
+  explicit scope/disposition and its own override proof: source dataflow plus a parameterized
+  runtime test. Semantic owner, policy, route context, composite behavior, and migration
+  disposition remain reviewed metadata. Missing, duplicate, or unallocated authorities and public
+  members fail the audit rather than becoming silent omissions. P0 allocates 159 authority rows;
+  41 operations have more than one, with 12 reviewed authority divergences and one policy
+  divergence. Four native golden rows remain explicitly `not_recorded` rather than claiming
+  evidence that does not exist.
 - `public_model_contract` freezes every dataclass and enum reachable through the `__all__` of a
   public module discovered by the public API audit, deduplicated by class identity and keyed by
   canonical module plus qualname while retaining every export path. It records constructor and
@@ -136,9 +143,9 @@ P0 establishes evidence before runtime delegation:
   middleware and `RpcExecutor`, then read public `metrics_snapshot()` and the event callback for
   success, transport-error, and decode-error outcomes. Direct non-RPC middleware scenarios remain
   supplemental.
-- The public API audit covers `collections` and assigns an owner to every public client and
-  namespace-subclient method. An unmatched public feature method or active RPC/variant is an
-  error.
+- The public API audit covers `collections`; the catalog assigns a semantic/local disposition to
+  all 146 namespace methods and an auth/lifecycle/observability/raw disposition to all ten
+  public root-client members. An unmatched public member or active RPC/variant is an error.
 
 These baselines are derived/store/compare artifacts under ADR-0022. Architecture PRs may update
 their derivation when ownership moves, but may not regenerate a compatibility baseline merely to

@@ -102,9 +102,9 @@ P0 adds four ADR-0022 contract baselines before runtime delegation:
 
 | Baseline | Freezes |
 | --- | --- |
-| `operation_catalog` | Active native methods/variants, public feature methods, application orchestrators, semantic owners/policies, evidence, and migration dispositions |
+| `operation_catalog` | 86 operations with 159 exact authority rows (41 multi-authority); 56 native rows (14 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; 146 namespace methods (eight local-only), ten root-client members, and 12 authority/one policy divergence |
 | `public_model_contract` | The 86 exported identities (50 dataclasses, 36 enums): construction, field/member order, behavior flags, export paths, structured pickle success/failure, first-party state hooks, and `Notebook` / `ChatReference` legacy-state restore invariants |
-| `json_envelope` | Exact sink/view-backed projection modes and keys per channel: CLI 18 model identities/30 projections, MCP 14/22, REST 20/21; plus a supplemental 49-dataclass non-secret full-key inventory and fail-closed secret reachability |
+| `json_envelope` | Exact sink/view-backed projection modes and keys per channel: CLI 26 model identities/46 projections, MCP 25/34, REST 27/30; plus a supplemental 49-dataclass non-secret full-key inventory and fail-closed secret reachability |
 | `metrics_contract` | The 14 snapshot and five event fields plus normalized success/transport-error/decode-error observations through composed public `rpc_call()` / `metrics_snapshot()`; direct non-RPC middleware probes are supplemental |
 
 `_app/` remains governed by ADR-0021 and never imports the private backend or deadline type.
@@ -1013,8 +1013,12 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_runtime/transport.py` | `RuntimeTransport` — authed-POST transport wrapper that drives the middleware chain and typed transport response handling |
 | `_rpc_executor.py` | RPC dispatch executor. Takes its `Kernel`, `RuntimeTransport`, `AuthRefreshCoordinator`, and `ClientMetrics` collaborators directly via keyword-only constructor parameters (ADR-0014 Rule 5). Defines a single local `DecodeResponse` Protocol. |
 | `_operations.py` | Inert P0 semantic vocabulary: closed `Operation` / `CallPolicy` enums and frozen, slotted, typed `OperationDef`; runtime backend types begin in P1. |
-| `scripts/audit_operation_catalog.py` | Authoritative operation-catalog specification and deterministic ADR-0022 projection; derives RPC variants, policy, codec evidence, public/app callers, override evidence, omissions, and known divergences. |
-| `tests/_guardrails/test_operation_catalog.py` | Fails closed on missing/duplicate active native dispositions, public namespace methods, override evidence, unsupported variants, schema drift, and committed-baseline mismatch. |
+| `scripts/audit_operation_catalog.py` | Single build/audit CLI for the deterministic ADR-0022 projection: exact semantic authorities, native bindings, public/root-client dispositions, evidence, omissions, and divergences. |
+| `scripts/_operation_catalog_specs.py` | Reviewed semantic operation specifications, owners/policies/routes, native/web bindings, public methods, and dispositions. |
+| `scripts/_operation_catalog_authorities.py` | Exact RPC/stream/upload/download/orchestrator authority allocations, semantic discriminators, and recency contracts. |
+| `scripts/_operation_catalog_ast.py` | AST-derived public API, direct transport authority, application-caller, and recency audits. |
+| `scripts/_operation_catalog_evidence.py` | Per-variant decoder/golden scope and disposition, runtime-override dataflow/test proof, idempotency, and captured live-RPC evidence. |
+| `tests/_guardrails/test_operation_catalog.py` | Fails closed on missing/duplicate/unallocated authorities, namespace/root-client dispositions, codec/golden evidence, override proof, unsupported variants, schema drift, and committed-baseline mismatch. |
 | `_request_types.py` | Shared authed POST request construction types: `AuthSnapshot`, `BuildRequest`, `PostBody`, and materialization helpers. |
 | `_transport_errors.py` | Transport exceptions, `Retry-After` parsing, and terminal `Kernel.post` error mapping for retry/auth middleware. |
 | `_streaming_post.py` | Size-capped streaming POST helper used by `Kernel.post`. |
