@@ -103,9 +103,9 @@ P0 adds four ADR-0022 contract baselines before runtime delegation:
 | Baseline | Freezes |
 | --- | --- |
 | `operation_catalog` | Active native methods/variants, public feature methods, application orchestrators, semantic owners/policies, evidence, and migration dispositions |
-| `public_model_contract` | Exported dataclass/enum construction, field/member order, behavior flags, and pickle identity/equality |
-| `json_envelope` | Ordered serialized keys for the conservative superset of public dataclasses reaching CLI JSON, MCP, or REST results |
-| `metrics_contract` | Metrics/telemetry field types plus per-RPC success/error cardinality and counter-delta semantics |
+| `public_model_contract` | The 86 dataclass/enum identities exported from audit-discovered public modules: construction, field/member order, behavior flags, export paths, and pickle identity/equality |
+| `json_envelope` | Ordered serialized keys for all 50 exported public dataclasses, the conservative superset for CLI JSON, MCP, and REST results |
+| `metrics_contract` | Metrics/telemetry field types plus normalized snapshots, event cardinality, and counter deltas for RPC/non-RPC success and error scenarios |
 
 `_app/` remains governed by ADR-0021 and never imports the private backend or deadline type.
 Generation retry/poll execution moves behind an artifact facade in P4 while `_app` retains planning,
@@ -1012,6 +1012,9 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_runtime/lifecycle.py` | `ClientLifecycle` — loop-affinity guard + keepalive task |
 | `_runtime/transport.py` | `RuntimeTransport` — authed-POST transport wrapper that drives the middleware chain and typed transport response handling |
 | `_rpc_executor.py` | RPC dispatch executor. Takes its `Kernel`, `RuntimeTransport`, `AuthRefreshCoordinator`, and `ClientMetrics` collaborators directly via keyword-only constructor parameters (ADR-0014 Rule 5). Defines a single local `DecodeResponse` Protocol. |
+| `_operations.py` | Inert P0 semantic vocabulary: closed `Operation` / `CallPolicy` enums and frozen, slotted, typed `OperationDef`; runtime backend types begin in P1. |
+| `scripts/audit_operation_catalog.py` | Authoritative operation-catalog specification and deterministic ADR-0022 projection; derives RPC variants, policy, codec evidence, public/app callers, override evidence, omissions, and known divergences. |
+| `tests/_guardrails/test_operation_catalog.py` | Fails closed on missing/duplicate active native dispositions, public namespace methods, override evidence, unsupported variants, schema drift, and committed-baseline mismatch. |
 | `_request_types.py` | Shared authed POST request construction types: `AuthSnapshot`, `BuildRequest`, `PostBody`, and materialization helpers. |
 | `_transport_errors.py` | Transport exceptions, `Retry-After` parsing, and terminal `Kernel.post` error mapping for retry/auth middleware. |
 | `_streaming_post.py` | Size-capped streaming POST helper used by `Kernel.post`. |
@@ -1173,6 +1176,7 @@ src/notebooklm/
 ├── _mind_map.py                 # NoteBackedMindMapService
 ├── _mind_maps_api.py            # MindMapsAPI — unified mind-map surface over both backends (#1256)
 ├── _notebook_metadata.py        # Metadata protocols
+├── _operations.py               # Inert closed semantic operation/call-policy vocabulary (P0)
 ├── _url_utils.py                # URL validation helpers
 ├── _sharing_manager.py          # Sharing management logic
 ├── _version_check.py            # Deprecation version guard

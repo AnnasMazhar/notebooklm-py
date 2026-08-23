@@ -119,15 +119,16 @@ P0 establishes evidence before runtime delegation:
   evidence, and `_app` callers are derived; semantic owner, policy, route context, composite
   behavior, and migration disposition are reviewed metadata. Missing and duplicate authorities
   fail the audit rather than becoming silent omissions.
-- `public_model_contract` freezes every dataclass and enum exported by
-  `notebooklm.types.__all__`, including constructor and field order, dataclass flags, declared
-  slots, equality/hash/repr policy, enum members, and an actual pickle equality/identity
-  round-trip.
-- `json_envelope` freezes the ordered `to_jsonable` key set of the conservative superset of
-  exported dataclasses, with CLI JSON, MCP, and REST reachability recorded as metadata.
+- `public_model_contract` freezes every dataclass and enum reachable through the `__all__` of a
+  public module discovered by the public API audit, deduplicated by class identity and keyed by
+  canonical module plus qualname while retaining every export path. It records constructor and
+  field order, dataclass flags, declared slots, equality/hash/repr policy, enum members, and an
+  actual pickle equality/identity round-trip.
+- `json_envelope` freezes the ordered `to_jsonable` key set of every exported public dataclass in
+  that same audit-discovered scope: a conservative superset for CLI JSON, MCP, and REST results.
 - `metrics_contract` freezes `ClientMetricsSnapshot` and `RpcTelemetryEvent` ordered field/type
-  maps plus runtime-characterized success/error cardinality and counter-delta semantics before
-  backend delegation begins.
+  maps plus normalized full snapshots, event cardinality, and counter deltas for RPC/non-RPC
+  success and error scenarios before backend delegation begins.
 - The public API audit covers `collections` and assigns an owner to every public client and
   namespace-subclient method. An unmatched public feature method or active RPC/variant is an
   error.

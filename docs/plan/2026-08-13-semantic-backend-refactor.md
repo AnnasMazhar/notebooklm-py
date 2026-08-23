@@ -418,7 +418,7 @@ The findings below are design inputs, not criticisms of the behavior they curren
 
 | Finding | Current evidence | Refactoring consequence |
 |---|---|---|
-| Feature APIs are coupled to the web wire vocabulary | 435 direct `RPCMethod` references in `src/notebooklm` (256 outside `rpc/`, `_idempotency*`, `_row_adapters/`) and many `list[Any]` request/response shapes. The figure that actually governs P6/P7 effort is the **1,740 references in `tests/`** | Add a semantic operation port below feature behavior; migrated services must not import `RPCMethod` |
+| Feature APIs are coupled to the web wire vocabulary | 435 source lines mention `RPCMethod`; the reproducible P0 measure below finds 170 direct `RPCMethod.<member>` expressions outside `rpc/`, `_idempotency*`, and `_row_adapters/`, plus many `list[Any]` request/response shapes. The figure that actually governs P6/P7 effort is the **1,740 references in `tests/`** | Add a semantic operation port below feature behavior; migrated services must not import `RPCMethod` |
 | The current neutral layer is neutral only across frontends | `_app/` shares application workflows, while `RpcCaller` remains explicitly `batchexecute`-shaped | Preserve `_app/`; add backend-neutral services below it |
 | Public models participate in decoding | `Notebook`, `Source`, `Artifact`, `Label`, `Collection`, and sharing types expose or use `from_api_response()` / `from_row()` paths | Move live decoding to a private web codec and project private records into models |
 | Composition has accumulated mutable holders and test seams | `NotebookLMClient`, `_client_assembly.py`, `ClientComposed`, `RuntimeCollaborators`, `RpcExecutor`, `MiddlewareChainHost`, and seven middleware objects participate in one web runtime | Do not simplify this graph first; isolate it behind `WebRpcBackend`, then collapse it after feature callers leave it |
@@ -1578,10 +1578,10 @@ Record a baseline at P0 and update it at every phase boundary.
 
 | Measure | Direction |
 |---|---|
-| Direct `RPCMethod` references outside web protocol/binding code | Down to zero for migrated domains |
+| Direct `RPCMethod.<member>` references outside web protocol/binding code | Down to zero for migrated domains |
 | Modules under `src/notebooklm/` (excl. `rpc/`, `_web/`, `_idempotency*`) importing `RPCMethod` | Down from its P0 count to zero |
 | Production calls to public `from_api_response()`/`from_row()` | Down to zero for migrated resources, counted over the P3 scope only (excludes `_app/`, `mcp/`) |
-| Test files referencing `build_client_shell_for_tests` / `compose_client_internals` (35 today) | Down; semantic tests use fake backend |
+| Test files referencing `build_client_shell_for_tests` / `compose_client_internals` (39 at P0) | Down; semantic tests use fake backend |
 | Test-only post-construction mutation seams in production runtime | Down after P7 |
 | `Operation` keys with more than one non-test call site reaching transport | Zero per *migrated* operation; starts non-zero repo-wide (see P0) |
 | Existing cassette rewrites caused only by code motion | Zero |
@@ -1590,6 +1590,113 @@ Record a baseline at P0 and update it at every phase boundary.
 | Exception mixin-lattice (`isinstance`) regressions | Zero |
 | Secret-bearing repr/log/exception regressions | Zero |
 | Coverage | At or above global `--cov-fail-under=90` **and** every `[tool.notebooklm.per_file_coverage_floors]` entry (five CLI files, enforced by `scripts/check_coverage_thresholds.py`) -- P6's CLI-adjacent churn trips the per-file floors long before the global gate |
+
+### P0 baseline record
+
+Captured on 2026-08-23 at P0's merge base, `3bb0c185`. The catalog/contract rows include the
+additive P0 projections derived from that tree; those files do not change a runtime path. Later
+phase reports rerun the same commands and record their base commit.
+
+| Measure | P0 value |
+| --- | --- |
+| Direct `RPCMethod.<member>` references outside current protocol/binding homes (`rpc/`, `_idempotency*`, `_row_adapters/`) | **170** expressions |
+| Modules importing `RPCMethod`, excluding `rpc/`, future `_web/`, and `_idempotency*` | **36** modules |
+| Production calls to public `from_api_response()` / `from_row()` in P3 scope | **17** calls in **13** modules |
+| Test files referencing `build_client_shell_for_tests` / `compose_client_internals` | **39** files |
+| Test-only post-construction mutation seams in production runtime | **7** test-observed live-rebind targets: `ClientSeams.is_auth_error`, refresh delegate, chain, chain terminal, and three retry-budget attributes |
+| Native rows with more than one direct non-test transport call site | **14** rows; the inert P0 `Operation` vocabulary itself reaches transport **0** times. Catalog review records **4** authority/orchestrator divergences and one additional policy divergence. |
+| Existing cassette rewrites caused only by code motion | **0** changed cassette files |
+| Public API compatibility audit failures / allowlist entries | **0 / 0** |
+| `metrics_snapshot()` / `RpcTelemetryEvent` field or emission drift | **0** baseline mismatches; the normalized runtime contract includes RPC success/error and non-RPC success/error scenarios |
+| Exception mixin-lattice regressions | **0** failures (**105 passed**) |
+| Secret-bearing repr/log/exception regressions | **0** failures (**103 passed**) |
+| Coverage | **96.69%** global; all five floors pass: `__main__.py` 0.00% / 0%, `cli/_firefox_containers.py` 97.44% / 95%, `doctor_cmd.py` 89.91% / 63%, `profile_cmd.py` 90.95% / 74%, `session_cmd.py` 97.44% / 83% |
+
+The catalog also records the context behind the authority count: 86 semantic specs, 47
+`RPCMethod` members, 56 active native rows (47 defaults plus nine variants), 146 public namespace
+methods, eight local-only methods, and one deliberate `legacy_private` native row. Every active
+native row proves the centralized runtime `resolve_rpc_id` path; the raw public `rpc_call()` escape
+hatch remains explicitly excluded.
+
+#### Reproduction
+
+The first inventory is deliberately an expression count, not a count of lines that happen to
+mention the type. The import count uses the AST so parenthesized imports are not missed.
+
+```bash
+# 170 direct member expressions.
+rg -o 'RPCMethod\.[A-Z][A-Z0-9_]*' src/notebooklm -g '*.py' \
+  -g '!src/notebooklm/rpc/**' -g '!src/notebooklm/_idempotency*.py' \
+  -g '!src/notebooklm/_row_adapters/**' | wc -l
+
+# 17 production decode calls; 39 factory/composition test files.
+rg -n '\.(from_api_response|from_row)\(' src/notebooklm -g '*.py' \
+  -g '!src/notebooklm/_app/**' -g '!src/notebooklm/mcp/**' | wc -l
+rg -l 'build_client_shell_for_tests|compose_client_internals' tests -g '*.py' | wc -l
+
+# Seven documented/test-observed post-construction live-rebind targets.
+rg -o 'ClientSeams\.is_auth_error|seams\.is_auth_error|chain_host\._auth_refresh\.await_refresh|chain_host\._(rate_limit_max_retries|server_error_max_retries|refresh_retry_delay|authed_post_chain_terminal|authed_post_chain)' tests -g '*.py' \
+  | sed 's/^[^:]*://' | sed 's/^ClientSeams\./seams./' | sort -u | wc -l
+
+# Zero code-motion cassette rewrites in the P0 stack.
+git diff --name-only "$(git merge-base origin/main HEAD)"..HEAD -- tests/cassettes | wc -l
+```
+
+```bash
+# 36 importing modules (AST, so multiline imports count).
+uv run python - <<'PY'
+import ast
+from pathlib import Path
+
+root = Path("src/notebooklm")
+found = []
+for path in sorted(root.rglob("*.py")):
+    if (
+        path.is_relative_to(root / "rpc")
+        or path.is_relative_to(root / "_web")
+        or path.name.startswith("_idempotency")
+    ):
+        continue
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    if any(
+        isinstance(node, ast.ImportFrom)
+        and any(alias.name == "RPCMethod" for alias in node.names)
+        for node in ast.walk(tree)
+    ):
+        found.append(path)
+print(len(found))
+PY
+```
+
+The registered projections and compatibility gates reproduce the remaining values:
+
+```bash
+# Catalog totals: 86 specs, 47 RPC members, 56 native rows, 146 public
+# methods, eight local-only methods, 14 multi-authority native rows, four
+# reviewed authority divergences, and 56/56 rows honoring overrides.
+uv run python scripts/audit_operation_catalog.py --json | uv run python -c \
+  'import json,sys; c=json.load(sys.stdin); print({"specs": len(c["operations"]), "rpc_members": len({r["rpc_method"] for r in c["native_bindings"]}), "native_rows": len(c["native_bindings"]), "public_methods": len(c["public_methods"]), "local_only": sum(r["disposition"] == "local_only" for r in c["public_methods"].values()), "multi_authority_native_rows": sum(len(r["execution_authorities"]) > 1 for r in c["native_bindings"]), "authority_divergences": sum(r["kind"] == "authority" for r in c["known_divergences"]), "override_honored": sum(r["override_honored"] for r in c["native_bindings"])})'
+uv run python scripts/audit_public_api_compat.py --baseline-ref origin/main
+uv run pytest \
+  'tests/_guardrails/test_public_surface_manifest.py::test_baseline_matches_committed_file[public_model_contract]' \
+  'tests/_guardrails/test_public_surface_manifest.py::test_baseline_matches_committed_file[metrics_contract]' \
+  'tests/_guardrails/test_public_surface_manifest.py::test_baseline_matches_committed_file[json_envelope]' -q
+uv run pytest tests/unit/test_exceptions.py \
+  tests/_guardrails/test_error_contract_catch_ordering.py -q
+uv run pytest tests/unit/test_auth_repr_redaction.py tests/unit/test_logging.py \
+  tests/unit/test_cookie_redaction.py tests/_guardrails/test_runtime_secret_registry_parity.py -q
+```
+
+Coverage must use CI's complete optional-adapter install. The contributor-only install skips MCP
+and REST tests while coverage still measures those packages, producing a misleading 85.14%.
+
+```bash
+uv sync --frozen --extra browser --extra dev --extra markdown --extra mcp \
+  --extra server --extra impersonate --extra cookies
+uv run pytest -n auto --dist loadgroup --cov=src/notebooklm \
+  --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=90
+uv run python scripts/check_coverage_thresholds.py --coverage-json coverage.json
+```
 
 Line-count reduction is a useful P7 outcome but not the primary P1-P6 goal. Early phases may add
 temporary translation code. The stop/go reviews must ensure those bridges are shrinking on schedule
