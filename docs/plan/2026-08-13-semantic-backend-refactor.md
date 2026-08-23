@@ -284,23 +284,30 @@ Two constraints the diagram cannot show, both load-bearing:
 
 ## Impact of the refactor
 
-### 1. The blast radius nobody sees: four surfaces are one surface
+### 1. The blast radius nobody sees: four related surfaces, several projections
 
 This is the highest-risk consequence of P3 and the reason its projector step needs the tightest
 specification in the plan.
 
 ```mermaid
 flowchart TB
-    subgraph one["ONE ungated definition"]
-        M["Public model dataclass<br/>(Notebook, Source, Artifact...)"]
-        TJ["_app/serialize.py::to_jsonable<br/>Rule 4 = dataclasses.fields(obj)"]
-        M --> TJ
-    end
+    M["Public model dataclass<br/>(Notebook, Source, AskResult...)"]
+    TJ["to_jsonable<br/>full dataclass conversion"]
+    V["_app views / adapter sinks<br/>allowlist, trim, enrich, hand-build"]
 
-    TJ --> CLI["CLI --json payload"]
-    TJ --> MCP["MCP tool result<br/>(no outputSchema)"]
-    TJ --> REST["REST response body<br/>(no response_model)"]
+    M --> TJ
+    TJ --> V
+    M --> V
     M --> PY["Python API return value"]
+
+    subgraph channels["Channel-specific contracts"]
+        CLI["CLI --json payload"]
+        MCP["MCP tool result<br/>(no outputSchema)"]
+        REST["REST response body<br/>(no response_model)"]
+    end
+    V --> CLI
+    V --> MCP
+    V --> REST
 
     P3["P3 rewrites how these<br/>models are constructed"] -.->|touches| M
 
@@ -310,12 +317,16 @@ flowchart TB
 
     style M fill:#c0392b,color:#fff
     style P3 fill:#e67e22,color:#fff
-    style one fill:#2c3e50,color:#fff
+    style channels fill:#2c3e50,color:#fff
 ```
 
-Dashed crossed edges are gates that **do not** cover the payload. Changing one field on one public
-dataclass changes the Python API, the CLI `--json` output, the MCP tool result, and the REST body
-simultaneously — and no existing test fails. P0's `json_envelope` baseline is what closes this.
+Dashed crossed edges are gates that **do not** cover the payload. A model-field change always
+changes the Python contract and the full `to_jsonable` conversion, but it reaches a frontend only
+where that channel's sink selects it. `Source` and `Notebook` use allowlisted views, `AskResult`
+trims `raw_response` and `answer_document`, and `ShareStatus` and mind-map results have manual or
+enriched shapes. P0's `json_envelope` closes the real hole by pinning the exact projection mode,
+keys, nested keys, and evidence for each CLI/MCP/REST sink. Its full exported-dataclass inventory
+is supplemental, not a claim that every model reaches every channel.
 
 ### 2. Error diagnostics: what P4.3 would have deleted
 
@@ -613,13 +624,15 @@ below exist to prevent.
 - CLI JSON envelopes, exit codes, MCP tool contracts, REST routes, profile formats, environment
   variables, and logger namespaces remain unchanged unless a separate product change authorizes
   them.
-- **A public model's field set IS the CLI `--json`, MCP tool-result, and REST response schema.**
-  `_app/serialize.py::to_jsonable` emits `dataclasses.fields()` only, and REST declares no
-  `response_model`, so the Python API and all three adapters share one ungated definition. No phase
-  may convert a public dataclass field into a property, rename one, or drop one -- including the
-  runway-bound aliases `Notebook.modified_at` and `ChatReference.answer_start_char` /
-  `answer_end_char`, which must keep appearing as JSON keys through v1.0. This is why two prior
-  renames had to ship as docs-only deprecations.
+- A public model's field set defines its Python contract and its **full** `to_jsonable` conversion;
+  it does not by itself define every CLI, MCP, or REST result. Channel sinks may serialize the full
+  model, select an allowlisted view (`Source`, `Notebook`), trim it (`AskResult`), enrich it, or
+  build a different shape (`ShareStatus`, mind maps). No phase may convert a public dataclass field
+  into a property, rename one, or drop one. Separately, each existing adapter projection retains
+  its exact keys. That includes `Notebook.modified_at` wherever `notebook_view` /
+  `notebook_viewed_keys` emits the compatibility alias and `ChatReference.answer_start_char` /
+  `answer_end_char` in the `AskResult` projections that include references. `AuthTokens` aliases
+  remain Python compatibility only: credential-bearing objects are not JSON envelopes.
 - Observability types are part of the public surface and are equality-pinned, not merely "kept
   working": `ClientMetricsSnapshot`, `RpcTelemetryEvent`, `ConnectionLimits`, and
   `NotebookLMClient.metrics_snapshot()` retain their current field names, types, population rules,
@@ -684,7 +697,7 @@ Four runways intersect these phases. ADR-0018 governs them and
 | MCP `research_status(task_id=)` / `research_import(task_id=)` / `research_cancel(run_id=)` -> `poll_task_id` | **v0.9.0** -- the next minor | P6.2's own domain. It also adds a `deprecation` key to the tool result, so removal changes an MCP response payload. Land it as its own product PR before or after the research migration, never inside it (migration rule 3) |
 | `await NotebookLMClient.from_storage(...)` | v1.0 | P8 -- see below |
 | Pre-profiles home-root read fallback (`paths.py::_legacy_fallback`), per-read `DeprecationWarning` | v1.0 | P8's "keep paths unchanged" list enumerates *mechanisms* and misses this *behavior* |
-| Eight docs-only public aliases (`AuthTokens.cookies`/`.cookie_jar`/`.jar`/`.cookie_header`/`.cookie_header_for`, `ChatReference.answer_start_char`/`.answer_end_char`, `Notebook.modified_at`) | v1.0 | P3, P6.1, P8. They are docs-only *because* a runtime warning would fire from `repr()`, `__eq__`, `replace()`, and `to_jsonable` |
+| Eight docs-only public aliases (`AuthTokens.cookies`/`.cookie_jar`/`.jar`/`.cookie_header`/`.cookie_header_for`, `ChatReference.answer_start_char`/`.answer_end_char`, `Notebook.modified_at`) | v1.0 | P3, P6.1, P8. They are docs-only because a runtime warning would fire from ordinary model operations. The reference/notebook aliases also remain in the channel projections that already emit them; `AuthTokens` stays unreachable from JSON sinks. |
 
 **P8 must not leak a provider on the deprecated await path.** `from_storage()` has two terminal
 paths and the "a convenience factory closes only providers it creates" rule is written for one:
@@ -838,13 +851,20 @@ P0 operation inventory + ADR
   are exactly what a P7 loop-affinity simplification would delete.
 - Register a `public_model_contract` ADR-0022 baseline for **every exported dataclass and enum**,
   recording module/qualname, dataclass flags, slots, constructor/field order, equality/hash/repr
-  policy, and pickle round-trip. `scripts/audit_public_api_compat.py` records signatures, fields,
-  members, and enum values but **not** these, and the existing pickle/module tests cover only a
-  representative subset. Architecture PRs may not regenerate this baseline to acknowledge drift.
+  policy, first-party pickle-state hooks, and a structured valid-instance pickle outcome. A real
+  failure is recorded by stage/type/category rather than replaced by a fabricated instance or
+  treated as an audit crash; current P0 truth is 85 successes and one `AuthTokens` dumps failure.
+  `Notebook` and `ChatReference` additionally exercise their supported legacy-state restores and
+  current-state round trips. `scripts/audit_public_api_compat.py` records signatures, fields,
+  members, and enum values but **not** these. Architecture PRs may not regenerate this baseline to
+  acknowledge drift.
 - Register a `metrics_contract` baseline -- `ClientMetricsSnapshot` field names/types plus per-RPC
-  `RpcTelemetryEvent` emission points -- **before P1 lands**. P7 promises an equality-pin against a
-  "pre-P7 baseline"; captured at P7 that baseline is already six phases of code motion late and pins
-  nothing.
+  `RpcTelemetryEvent` emission points -- **before P1 lands**. The primary characterization calls
+  public `NotebookLMClient.rpc_call()` through the production-composed middleware and
+  `RpcExecutor`, reads public `metrics_snapshot()`, and observes the callback on success,
+  transport-error, and decode-error paths. Direct non-RPC middleware probes are supplemental. P7
+  promises an equality-pin against a "pre-P7 baseline"; captured at P7 that baseline is already six
+  phases of code motion late and pins nothing.
 - Add an audit that fails when an active `RPCMethod`/variant or public feature call has no semantic
   disposition.
 
@@ -1514,17 +1534,24 @@ precisely matters, because believing the payloads are guarded is worse than know
 - `test_cli_json_output_coverage.py` — pins `--json` **presence**, not content.
 - `tests/unit/mcp/test_manifest.py` — pins the 33 **tool names** and annotations.
 
-**No gate pins a success-response payload.** REST declares no `response_model` (zero occurrences
-under `server/routes/`) and MCP declares no `outputSchema` (zero occurrences). All three adapters
-serialize public dataclasses through `_app/serialize.py::to_jsonable`, whose Rule 4 is literally
-`{field.name: ... for field in dataclasses.fields(obj)}` — so **the public model's field set is the
-only definition of all three payloads**, and P3 is the phase that rewrites how those models are
-built.
+**No existing gate pins a success-response payload.** REST declares no `response_model` (zero
+occurrences under `server/routes/`) and MCP declares no `outputSchema` (zero occurrences), but
+there is still executable projection policy. Some sinks use the full `_app/serialize.py::to_jsonable`
+field conversion; `_app/views.py` allowlists `Source` / `Notebook`, trims `AskResult`, and hand-builds
+or enriches `ShareStatus`; mind-map and other adapter paths also build channel-specific shapes.
+Consequently, neither the public dataclass field set nor an import-reference scan alone describes a
+frontend contract. Existing compatibility aliases remain pinned only in projections that actually
+emit them.
 
-**P0 therefore registers a `json_envelope` ADR-0022 baseline** in `tests/_baselines/registry.py`,
-capturing the `to_jsonable` key set of every public model reachable from a CLI `--json` payload, an
-MCP tool result, or a REST response body. Until it exists, migration rule 3's "no public result
-change" is **unverifiable for all three adapters**.
+**P0 therefore registers a `json_envelope` ADR-0022 baseline** in `tests/_baselines/registry.py`.
+Its primary `channels` section is reviewed sink/view evidence: projection mode plus exact top-level
+and nested keys for each reachable model or shape in CLI JSON, MCP results, and REST bodies. A
+separate `exported_dataclass_key_inventory` captures the full `to_jsonable` behavior of all 49
+non-secret exported dataclasses, and import-only references remain explicitly supplemental.
+`AuthTokens` is excluded; direct, aliased, annotated, client-property, and nested container flows to
+a serializer fail the derivation unless an explicit redacted projection intervenes. Until this
+baseline exists, migration rule 3's "no public result change" is unverifiable for all three
+adapters.
 
 No phase may weaken any gate above without shipping the equivalent replacement in the same PR
 (migration rule 9).
@@ -1607,10 +1634,18 @@ phase reports rerun the same commands and record their base commit.
 | Native rows with more than one direct non-test transport call site | **14** rows; the inert P0 `Operation` vocabulary itself reaches transport **0** times. Catalog review records **4** authority/orchestrator divergences and one additional policy divergence. |
 | Existing cassette rewrites caused only by code motion | **0** changed cassette files |
 | Public API compatibility audit failures / allowlist entries | **0 / 0** |
-| `metrics_snapshot()` / `RpcTelemetryEvent` field or emission drift | **0** baseline mismatches; the normalized runtime contract includes RPC success/error and non-RPC success/error scenarios |
+| `metrics_snapshot()` / `RpcTelemetryEvent` field or emission drift | **0** baseline mismatches; 14 snapshot fields and five event fields are observed through composed public `rpc_call()` / `metrics_snapshot()` success, transport-error, and decode-error scenarios; direct non-RPC middleware probes are supplemental |
 | Exception mixin-lattice regressions | **0** failures (**105 passed**) |
 | Secret-bearing repr/log/exception regressions | **0** failures (**103 passed**) |
 | Coverage | **96.69%** global; all five floors pass: `__main__.py` 0.00% / 0%, `cli/_firefox_containers.py` 97.44% / 95%, `doctor_cmd.py` 89.91% / 63%, `profile_cmd.py` 90.95% / 74%, `session_cmd.py` 97.44% / 83% |
+
+The model/adapter contracts cover 86 public identities (50 dataclasses and 36 enums). Valid
+constructor samples produce 85 successful structured pickle probes, zero mismatches, and one
+truthful `AuthTokens` dumps failure (`TypeError`, `unpickleable-thread-lock`); the baseline also
+pins first-party state-hook ownership and successful `Notebook` / `ChatReference` legacy-state
+restores. The JSON baseline's primary channel inventory contains 18 model identities / 30
+projections for CLI, 14 / 22 for MCP, and 20 / 21 for REST. Its 49-dataclass non-secret full-key
+inventory and import-reference counts (9 / 4 / 0 respectively) are supplemental.
 
 The catalog also records the context behind the authority count: 86 semantic specs, 47
 `RPCMethod` members, 56 active native rows (47 defaults plus nine variants), 146 public namespace

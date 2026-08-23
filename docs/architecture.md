@@ -103,9 +103,9 @@ P0 adds four ADR-0022 contract baselines before runtime delegation:
 | Baseline | Freezes |
 | --- | --- |
 | `operation_catalog` | Active native methods/variants, public feature methods, application orchestrators, semantic owners/policies, evidence, and migration dispositions |
-| `public_model_contract` | The 86 dataclass/enum identities exported from audit-discovered public modules: construction, field/member order, behavior flags, export paths, and pickle identity/equality |
-| `json_envelope` | Ordered serialized keys for all 50 exported public dataclasses, the conservative superset for CLI JSON, MCP, and REST results |
-| `metrics_contract` | Metrics/telemetry field types plus normalized snapshots, event cardinality, and counter deltas for RPC/non-RPC success and error scenarios |
+| `public_model_contract` | The 86 exported identities (50 dataclasses, 36 enums): construction, field/member order, behavior flags, export paths, structured pickle success/failure, first-party state hooks, and `Notebook` / `ChatReference` legacy-state restore invariants |
+| `json_envelope` | Exact sink/view-backed projection modes and keys per channel: CLI 18 model identities/30 projections, MCP 14/22, REST 20/21; plus a supplemental 49-dataclass non-secret full-key inventory and fail-closed secret reachability |
+| `metrics_contract` | The 14 snapshot and five event fields plus normalized success/transport-error/decode-error observations through composed public `rpc_call()` / `metrics_snapshot()`; direct non-RPC middleware probes are supplemental |
 
 `_app/` remains governed by ADR-0021 and never imports the private backend or deadline type.
 Generation retry/poll execution moves behind an artifact facade in P4 while `_app` retains planning,

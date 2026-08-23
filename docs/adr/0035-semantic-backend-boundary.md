@@ -122,13 +122,20 @@ P0 establishes evidence before runtime delegation:
 - `public_model_contract` freezes every dataclass and enum reachable through the `__all__` of a
   public module discovered by the public API audit, deduplicated by class identity and keyed by
   canonical module plus qualname while retaining every export path. It records constructor and
-  field order, dataclass flags, declared slots, equality/hash/repr policy, enum members, and an
-  actual pickle equality/identity round-trip.
-- `json_envelope` freezes the ordered `to_jsonable` key set of every exported public dataclass in
-  that same audit-discovered scope: a conservative superset for CLI JSON, MCP, and REST results.
+  field order, dataclass flags, declared slots, equality/hash/repr policy, enum members, and the
+  structured outcome of a valid-instance pickle probe: success, mismatch, or failure stage/type.
+  First-party pickle-state hook ownership is explicit, and `Notebook` / `ChatReference` exercise
+  their legacy-state restore invariants as well as current-state round trips.
+- `json_envelope` freezes reviewed, sink/view-backed projections separately for CLI JSON, MCP, and
+  REST: projection mode, exact top-level and nested keys, and reachability evidence. A supplemental
+  inventory records full `to_jsonable` keys for every non-secret exported dataclass, but an import
+  alone does not make a model channel-reachable. Secret-bearing models such as `AuthTokens` are
+  excluded and fail the audit if they reach a serializer without an explicit redacted projection.
 - `metrics_contract` freezes `ClientMetricsSnapshot` and `RpcTelemetryEvent` ordered field/type
-  maps plus normalized full snapshots, event cardinality, and counter deltas for RPC/non-RPC
-  success and error scenarios before backend delegation begins.
+  maps. Its primary scenarios drive public `NotebookLMClient.rpc_call()` through the composed
+  middleware and `RpcExecutor`, then read public `metrics_snapshot()` and the event callback for
+  success, transport-error, and decode-error outcomes. Direct non-RPC middleware scenarios remain
+  supplemental.
 - The public API audit covers `collections` and assigns an owner to every public client and
   namespace-subclient method. An unmatched public feature method or active RPC/variant is an
   error.
