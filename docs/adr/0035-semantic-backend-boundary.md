@@ -6,7 +6,8 @@ Accepted.
 
 The phase order is approved as P0 through P8 with P7 running after P6. The P3
 codec/model separation and P8 cookie-provider extraction are approved within the constraints
-below. P9 public-API work and a mobile backend are separate decisions.
+below. P0's catalog and compatibility evidence are implemented and frozen; this status does not
+claim that P1-P8 are complete. P9 public-API work and a mobile backend are separate decisions.
 
 ## Context
 
@@ -123,8 +124,8 @@ P0 establishes evidence before runtime delegation:
   runtime test. Semantic owner, policy, route context, composite behavior, and migration
   disposition remain reviewed metadata. Missing, duplicate, or unallocated authorities and public
   members fail the audit rather than becoming silent omissions. P0 allocates 159 authority rows;
-  41 operations have more than one, with 12 reviewed authority divergences and one policy
-  divergence. Four native golden rows remain explicitly `not_recorded` rather than claiming
+  41 operations have more than one, with 13 reviewed divergences (12 authority and one policy).
+  Four native golden rows remain explicitly `not_recorded` rather than claiming
   evidence that does not exist.
 - `public_model_contract` freezes every dataclass and enum reachable through the `__all__` of a
   public module discovered by the public API audit, deduplicated by class identity and keyed by
@@ -134,10 +135,28 @@ P0 establishes evidence before runtime delegation:
   First-party pickle-state hook ownership is explicit, and `Notebook` / `ChatReference` exercise
   their legacy-state restore invariants as well as current-state round trips.
 - `json_envelope` freezes reviewed, sink/view-backed projections separately for CLI JSON, MCP, and
-  REST: projection mode, exact top-level and nested keys, and reachability evidence. A supplemental
+  REST: projection mode, exact top-level and nested keys, causal public-model fields, and
+  reachability evidence. The frozen primary inventory has 31 model identities / 133 projections
+  for CLI, 32 / 123 for MCP, and 32 / 57 for REST: 313 unique projection ids. A supplemental
   inventory records full `to_jsonable` keys for every non-secret exported dataclass, but an import
-  alone does not make a model channel-reachable. Secret-bearing models such as `AuthTokens` are
-  excluded and fail the audit if they reach a serializer without an explicit redacted projection.
+  alone does not make a model channel-reachable.
+- The baseline's closed-world `adapter_sink_reachability` section discovers all 349 reviewed
+  terminal/error sites: 225 have public-projection dispositions, 116 are reviewed non-public, and
+  eight are forwarding infrastructure. It includes CLI JSON success/error/direct emissions, MCP
+  tool returns and error funnels plus auxiliary connector/file-route responses, and REST
+  route/app/error terminals. Fifteen mixed terminals also pin conditional non-public variants.
+  Every one of the 313 live projection ids has a terminal allocation; new adapter registrations or
+  direct JSON bypasses fail closed. Sixteen delegated-helper fingerprints cover the bounded helper
+  call graph. Nineteen private DTO -> public dataclass paths are exact: 18 link to live projections,
+  while `SourceRefreshResult.result` is the sole public-valued arm proven production-dead by a
+  semantic AST fingerprint and mutation test.
+- `AuthTokens` remains excluded from the exported/full-`to_jsonable` inventory and recursive
+  credential serialization remains forbidden. It is adapter-reachable only through exactly two
+  explicitly marked redacted contributions: MCP `server_info` and REST `server_info`.
+  `authuser` / `account_email` may supply emitted account identity; `storage_path` and profile
+  session generation may only select cache/fallback control flow. Cookie, token, header, storage,
+  and generation values may not become adapter keys, and any third or relocated projection fails
+  the derivation.
 - `metrics_contract` freezes `ClientMetricsSnapshot` and `RpcTelemetryEvent` ordered field/type
   maps. Its primary scenarios drive public `NotebookLMClient.rpc_call()` through the composed
   middleware and `RpcExecutor`, then read public `metrics_snapshot()` and the event callback for

@@ -96,15 +96,17 @@ or protocol knowledge and owns the shared UTF-16 offset/rendering invariants.
 The migration runs P0 through P8, with the runtime collapse in P7 after feature domains have moved
 and the web cookie-provider extraction in P8 after P7. P3's codec/model separation is approved;
 it reuses the current strict row-adapter and wire-contract evidence rather than renaming it for its
-own sake. P9 public-surface work and a mobile backend require separate decisions.
+own sake. P0's catalog and contract evidence are implemented and frozen; the remaining phase
+descriptions are sequencing decisions, not a claim that P1-P8 are complete. P9 public-surface work
+and a mobile backend require separate decisions.
 
 P0 adds four ADR-0022 contract baselines before runtime delegation:
 
 | Baseline | Freezes |
 | --- | --- |
-| `operation_catalog` | 86 operations with 159 exact authority rows (41 multi-authority); 56 native rows (14 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; 146 namespace methods (eight local-only), ten root-client members, and 12 authority/one policy divergence |
+| `operation_catalog` | 86 operations with 159 exact authority rows (41 multi-authority); 56 native rows (14 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; 146 namespace methods (eight local-only), ten root-client members, and 13 divergences (12 authority, one policy) |
 | `public_model_contract` | The 86 exported identities (50 dataclasses, 36 enums): construction, field/member order, behavior flags, export paths, structured pickle success/failure, first-party state hooks, and `Notebook` / `ChatReference` legacy-state restore invariants |
-| `json_envelope` | Exact sink/view-backed projection modes and keys per channel: CLI 26 model identities/46 projections, MCP 25/34, REST 27/30; plus a supplemental 49-dataclass non-secret full-key inventory and fail-closed secret reachability |
+| `json_envelope` | Exact sink/view-backed projection modes, keys, causal fields, and conditional variants: CLI 31 model identities/133 projections, MCP 32/123, REST 32/57 (313 unique ids). Its closed-world sink inventory covers 349 terminal/error sites: 225 public-projection, 116 reviewed non-public, eight forwarding infrastructure, and 15 conditional non-public variants. Every live id has a terminal allocation; registrations/direct JSON bypasses fail closed. It also pins 19 private DTO -> public dataclass paths (18 linked; one `SourceRefreshResult.result` arm mutation-proven production-dead) and 16 delegated-helper fingerprints. The supplemental 49-dataclass inventory excludes `AuthTokens`; only the exact redacted MCP/REST `server_info` identity contributions are allowed. `authuser` / `account_email` may emit, while storage path/profile generation only select control flow; recursive credentials and any extra projection fail closed. |
 | `metrics_contract` | The 14 snapshot and five event fields plus normalized success/transport-error/decode-error observations through composed public `rpc_call()` / `metrics_snapshot()`; direct non-RPC middleware probes are supplemental |
 
 `_app/` remains governed by ADR-0021 and never imports the private backend or deadline type.

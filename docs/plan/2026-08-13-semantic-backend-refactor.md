@@ -1,6 +1,8 @@
 # Semantic backend refactoring plan
 
 **Status:** Accepted for P0-P8; P7-last, P3, and P8 approved by owner decision
+**Implementation status:** P0's catalog and compatibility-contract evidence are complete and
+frozen; this plan does not mark P1-P8 complete.
 **Planning date:** 2026-08-13
 **Planning base:** `main` at `3bb0c185` (re-pinned; the original `dd710a09` base had drifted).
 P0's inventory is measured at the merge-base of its own PR, not against this commit.
@@ -632,7 +634,10 @@ below exist to prevent.
   its exact keys. That includes `Notebook.modified_at` wherever `notebook_view` /
   `notebook_viewed_keys` emits the compatibility alias and `ChatReference.answer_start_char` /
   `answer_end_char` in the `AskResult` projections that include references. `AuthTokens` aliases
-  remain Python compatibility only: credential-bearing objects are not JSON envelopes.
+  remain Python compatibility only. The object is excluded from the exported/full-`to_jsonable`
+  inventory and recursive serialization is forbidden; only the exact redacted MCP/REST
+  `server_info` identity contributions may emit `authuser` / `account_email`. `storage_path` and
+  profile-session generation may influence cache/fallback selection but may not be emitted.
 - Observability types are part of the public surface and are equality-pinned, not merely "kept
   working": `ClientMetricsSnapshot`, `RpcTelemetryEvent`, `ConnectionLimits`, and
   `NotebookLMClient.metrics_snapshot()` retain their current field names, types, population rules,
@@ -697,7 +702,7 @@ Four runways intersect these phases. ADR-0018 governs them and
 | MCP `research_status(task_id=)` / `research_import(task_id=)` / `research_cancel(run_id=)` -> `poll_task_id` | **v0.9.0** -- the next minor | P6.2's own domain. It also adds a `deprecation` key to the tool result, so removal changes an MCP response payload. Land it as its own product PR before or after the research migration, never inside it (migration rule 3) |
 | `await NotebookLMClient.from_storage(...)` | v1.0 | P8 -- see below |
 | Pre-profiles home-root read fallback (`paths.py::_legacy_fallback`), per-read `DeprecationWarning` | v1.0 | P8's "keep paths unchanged" list enumerates *mechanisms* and misses this *behavior* |
-| Eight docs-only public aliases (`AuthTokens.cookies`/`.cookie_jar`/`.jar`/`.cookie_header`/`.cookie_header_for`, `ChatReference.answer_start_char`/`.answer_end_char`, `Notebook.modified_at`) | v1.0 | P3, P6.1, P8. They are docs-only because a runtime warning would fire from ordinary model operations. The reference/notebook aliases also remain in the channel projections that already emit them; `AuthTokens` stays unreachable from JSON sinks. |
+| Eight docs-only public aliases (`AuthTokens.cookies`/`.cookie_jar`/`.jar`/`.cookie_header`/`.cookie_header_for`, `ChatReference.answer_start_char`/`.answer_end_char`, `Notebook.modified_at`) | v1.0 | P3, P6.1, P8. They are docs-only because a runtime warning would fire from ordinary model operations. The reference/notebook aliases remain in the channel projections that already emit them. `AuthTokens` itself is never recursively serialized; only two explicitly redacted `server_info` identity contributions are adapter-reachable, and none of these aliases may become an adapter key. |
 
 **P8 must not leak a provider on the deprecated await path.** `from_storage()` has two terminal
 paths and the "a convenience factory closes only providers it creates" rule is written for one:
@@ -842,9 +847,9 @@ P0 operation inventory + ADR
   reviewed. Copying those derived columns into a hand-pinned table is not reviewable.
 - The catalog records, per operation, **every existing execution authority**, including RPC,
   streaming query, resumable upload, HTTPS download, and `_app` orchestration. The P0 projection
-  allocates 159 exact authority rows; 41 of 86 semantic operations have more than one. Twelve are
-  reviewed authority divergences with a named collapse phase, and `source.refresh` is the one
-  additional policy divergence.
+  allocates 159 exact authority rows; 41 of 86 semantic operations have more than one. It records
+  13 divergences: 12 authority divergences with a named collapse phase, plus `source.refresh` as
+  the one policy divergence.
 - Add `"collections"` to `CLIENT_NAMESPACE_ATTRIBUTES` in `scripts/audit_public_api_compat.py` and
   absorb the baseline delta. `docs/stability.md` lists `NotebookLMClient.collections` as stable, but
   the audit records only a bare instance-attribute -- its nine methods are invisible, so "audit
@@ -865,6 +870,16 @@ P0 operation inventory + ADR
   current-state round trips. `scripts/audit_public_api_compat.py` records signatures, fields,
   members, and enum values but **not** these. Architecture PRs may not regenerate this baseline to
   acknowledge drift.
+- Register `json_envelope` as the closed-world adapter-shape contract. Its primary channel rows
+  freeze 31 model identities / 133 projections for CLI, 32 / 123 for MCP, and 32 / 57 for REST:
+  313 unique ids. `adapter_sink_reachability` discovers 349 terminal/error sites and assigns 225
+  public-projection, 116 reviewed non-public, and eight forwarding-infrastructure dispositions,
+  including 15 mixed-site non-public variants. Every live projection id has a terminal allocation;
+  adapter registrations and direct JSON bypasses fail closed. It also pins 19 private DTO -> public
+  dataclass paths and 16 delegated-helper fingerprints. Eighteen paths link to live projections;
+  the `SourceRefreshResult.result` public-valued arm is proven production-dead by AST fingerprint
+  plus mutation test. `AuthTokens` is excluded from the exported/full-key inventory and admitted
+  only through the two exact redacted MCP/REST `server_info` contributions described above.
 - Register a `metrics_contract` baseline -- `ClientMetricsSnapshot` field names/types plus per-RPC
   `RpcTelemetryEvent` emission points -- **before P1 lands**. The primary characterization calls
   public `NotebookLMClient.rpc_call()` through the production-composed middleware and
@@ -1555,13 +1570,28 @@ emit them.
 
 **P0 therefore registers a `json_envelope` ADR-0022 baseline** in `tests/_baselines/registry.py`.
 Its primary `channels` section is reviewed sink/view evidence: projection mode plus exact top-level
-and nested keys for each reachable model or shape in CLI JSON, MCP results, and REST bodies. A
-separate `exported_dataclass_key_inventory` captures the full `to_jsonable` behavior of all 49
-non-secret exported dataclasses, and import-only references remain explicitly supplemental.
-`AuthTokens` is excluded; direct, aliased, annotated, client-property, and nested container flows to
-a serializer fail the derivation unless an explicit redacted projection intervenes. Until this
-baseline exists, migration rule 3's "no public result change" is unverifiable for all three
-adapters.
+and nested keys plus causal public-model fields for each reachable shape in CLI JSON, MCP results,
+and REST bodies. The frozen totals are CLI 31 model identities / 133 projections, MCP 32 / 123, and
+REST 32 / 57: 313 unique ids. A separate `exported_dataclass_key_inventory` captures the full
+`to_jsonable` behavior of all 49 non-secret exported dataclasses, and import-only references remain
+explicitly supplemental.
+
+The baseline also embeds `adapter_sink_reachability`, a closed-world allocation of all 349
+terminal/error sites: 225 public-projection, 116 reviewed non-public, and eight forwarding
+infrastructure, with 15 conditional non-public variants on mixed terminals. Discovery includes CLI
+JSON success/error/direct emissions, MCP tool/error funnels and auxiliary connector routes, and REST
+route/app/error sites. Every live projection id is terminal-allocated; a new registration or direct
+JSON bypass fails closed. Nineteen private DTO -> public dataclass paths and 16 delegated-helper
+fingerprints close the transitive/helper gap; 18 paths are linked, while the single public-valued
+`SourceRefreshResult.result` arm is AST-fingerprinted and mutation-proven production-dead.
+
+`AuthTokens` remains excluded from the exported/full-`to_jsonable` inventory. Direct, aliased,
+annotated, client-property, and nested-container recursive serialization fails the derivation. The
+only exceptions are exactly two marked redacted contributions, MCP and REST `server_info`:
+`authuser` / `account_email` may emit, while `storage_path` and profile-session generation are
+control-flow/cache selectors only. Credential fields and any third or relocated projection fail
+closed. Before this baseline, migration rule 3's "no public result change" was unverifiable for all
+three adapters.
 
 No phase may weaken any gate above without shipping the equivalent replacement in the same PR
 (migration rule 9).
@@ -1646,7 +1676,7 @@ phase reports rerun the same commands and record their base commit.
 | Production calls to public `from_api_response()` / `from_row()` in P3 scope | **17** calls in **13** modules |
 | Test files referencing `build_client_shell_for_tests` / `compose_client_internals` | **39** files |
 | Test-only post-construction mutation seams in production runtime | **7** test-observed live-rebind targets: `ClientSeams.is_auth_error`, refresh delegate, chain, chain terminal, and three retry-budget attributes |
-| Semantic operation rows with more than one exact allocated execution authority | **41 of 86** operations; the catalog allocates **159** total RPC/stream/upload/download/orchestrator authority rows and records **12** authority divergences plus one policy divergence |
+| Semantic operation rows with more than one exact allocated execution authority | **41 of 86** operations; the catalog allocates **159** total RPC/stream/upload/download/orchestrator authority rows and records **13** divergences (**12** authority plus one policy) |
 | Native method/variant rows with more than one direct non-test execution site | **14 of 56** native rows; this direct-callsite measure is intentionally distinct from per-operation authority allocation |
 | Existing cassette rewrites caused only by code motion | **0** changed cassette files |
 | Public API compatibility audit failures / allowlist entries | **0 / 0** |
@@ -1659,9 +1689,17 @@ The model/adapter contracts cover 86 public identities (50 dataclasses and 36 en
 constructor samples produce 85 successful structured pickle probes, zero mismatches, and one
 truthful `AuthTokens` dumps failure (`TypeError`, `unpickleable-thread-lock`); the baseline also
 pins first-party state-hook ownership and successful `Notebook` / `ChatReference` legacy-state
-restores. The JSON baseline's primary channel inventory contains 26 model identities / 46
-projections for CLI, 25 / 34 for MCP, and 27 / 30 for REST. Its 49-dataclass non-secret full-key
-inventory and import-reference counts (9 / 4 / 0 respectively) are supplemental.
+restores. The JSON baseline's primary channel inventory contains 31 model identities / 133
+projections for CLI, 32 / 123 for MCP, and 32 / 57 for REST: 313 unique projection ids. Its
+49-dataclass non-secret full-key inventory and import-reference counts (9 / 4 / 0 respectively) are
+supplemental. `adapter_sink_reachability` closes the adapter graph over 349 exact terminal/error
+sites: 225 carry public projections, 116 are reviewed non-public, and eight are forwarding
+infrastructure; 15 mixed sites carry conditional non-public variants. All 313 live ids are
+allocated. It also records 19 private DTO -> public dataclass paths (18 linked and one
+production-dead public-valued arm) and 16 delegated-helper fingerprints. Adapter registrations and
+direct JSON emissions are fail-closed. `AuthTokens` remains out of the full-key inventory and is
+reachable only through the exact redacted MCP/REST `server_info` identity projections; credential
+serialization remains forbidden.
 
 The catalog also records 86 semantic operations, 47 RPC ids, 56 native rows, 146 public namespace
 methods (eight local-only), and ten public root-client members. It carries 13 reviewed divergences:
@@ -1727,14 +1765,71 @@ The registered projections and compatibility gates reproduce the remaining value
 ```bash
 # Catalog totals: 86 operations, 47 RPC ids, 56 native rows, 146 namespace
 # methods (eight local-only), ten root-client members, 159 allocated authority
-# rows, 41 multi-authority operations, 14 multi-site native rows, 12 authority
-# plus one policy divergence, four honest golden gaps, and 56/56 override proof.
+# rows, 41 multi-authority operations, 14 multi-site native rows, 13 divergences
+# (12 authority plus one policy), four honest golden gaps, and 56/56 override proof.
 uv run python scripts/audit_operation_catalog.py --json | uv run python -c \
   'import json,sys; c=json.load(sys.stdin); print({"operations": len(c["operations"]), "rpc_ids": len({r["rpc_method"] for r in c["native_bindings"]}), "native_rows": len(c["native_bindings"]), "namespace_methods": len(c["public_methods"]), "namespace_local_only": sum(r["disposition"] == "local_only" for r in c["public_methods"].values()), "root_client_members": len(c["client_members"]), "allocated_authority_rows": sum(len(r["execution_authorities"]) for r in c["operations"]), "multi_authority_operations": sum(len(r["execution_authorities"]) > 1 for r in c["operations"]), "multi_site_native_rows": sum(len(r["execution_authorities"]) > 1 for r in c["native_bindings"]), "authority_divergences": sum(r["kind"] == "authority" for r in c["known_divergences"]), "policy_divergences": sum(r["kind"] == "policy" for r in c["known_divergences"]), "golden_not_recorded": sum(r["golden_disposition"] == "not_recorded" for r in c["native_bindings"]), "override_honored": sum(r["override_honored"] for r in c["native_bindings"])})'
-# JSON envelope totals: CLI 26/46, MCP 25/34, REST 27/30; 49 full-key
-# inventory rows; supplemental imports 9/4/0.
-uv run python -c \
-  'import json; c=json.load(open("tests/fixtures/baselines/json_envelope.json")); print({"channels": {k: {"identities": len(v), "projections": sum(len(r["projections"]) for r in v.values())} for k,v in c["channels"].items()}, "exported_inventory": len(c["exported_dataclass_key_inventory"]), "supplemental_imports": {k: len(v) for k,v in c["supplemental_import_references"].items()}})'
+# JSON envelope totals: CLI 31 models/133 projections, MCP 32/123, REST 32/57;
+# 313 unique ids. Sink totals: 349 = 225 projection + 116 reviewed non-public
+# + 8 infrastructure; 15 conditional non-public variants, 19 private paths,
+# and 16 delegated-helper fingerprints.
+uv run python - <<'PY'
+import json
+from collections import Counter
+
+with open("tests/fixtures/baselines/json_envelope.json", encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+projection_ids = {
+    projection["id"]
+    for models in contract["channels"].values()
+    for row in models.values()
+    for projection in row["projections"]
+}
+reachability = contract["adapter_sink_reachability"]
+dispositions = Counter(
+    "projection"
+    if "projection_ids" in site["allocation"]
+    else "non_public"
+    if "non_public_category" in site["allocation"]
+    else "infrastructure"
+    for site in reachability["sites"]
+)
+private_paths = reachability["private_dataclass_projection_paths"]
+print(
+    {
+        "channels": {
+            channel: {
+                "models": len(models),
+                "projections": sum(len(row["projections"]) for row in models.values()),
+            }
+            for channel, models in contract["channels"].items()
+        },
+        "unique_projection_ids": len(projection_ids),
+        "exported_inventory": len(contract["exported_dataclass_key_inventory"]),
+        "supplemental_imports": {
+            channel: len(rows)
+            for channel, rows in contract["supplemental_import_references"].items()
+        },
+        "adapter_sink_reachability": {
+            "sites": reachability["site_count"],
+            **dispositions,
+            "conditional_non_public_variants": sum(
+                len(site["allocation"].get("non_public_variants", []))
+                for site in reachability["sites"]
+            ),
+            "private_paths": len(private_paths),
+            "linked_private_paths": sum(
+                "projection_ids" in row["allocation"] for row in private_paths
+            ),
+            "production_dead_private_paths": sum(
+                "unreachable_category" in row["allocation"] for row in private_paths
+            ),
+            "helper_fingerprints": len(reachability["delegated_helper_fingerprints"]),
+        },
+    }
+)
+PY
 uv run python scripts/audit_public_api_compat.py --baseline-ref origin/main
 uv run pytest \
   'tests/_guardrails/test_public_surface_manifest.py::test_baseline_matches_committed_file[public_model_contract]' \
