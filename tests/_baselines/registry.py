@@ -269,7 +269,7 @@ BASELINES: list[Baseline] = [
         path=_BASELINES_DIR / "json_envelope.json",
         derive=_derive_json_envelope_contract,
         sort_keys=True,
-        description="Shared to_jsonable key schema for CLI, MCP, and REST public models.",
+        description="Per-channel to_jsonable key schemas for CLI, MCP, and REST public models.",
     ),
     Baseline(
         name="cli_contract",

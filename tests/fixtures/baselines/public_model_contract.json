@@ -57,7 +57,19 @@
         }
       ],
       "module": "notebooklm._types.documents",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm._types.documents.BlockKind",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "BlockKind",
       "repr": {
         "policy": "custom"
@@ -120,7 +132,19 @@
         }
       ],
       "module": "notebooklm._types.documents",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm._types.documents.BlockStyle",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "BlockStyle",
       "repr": {
         "owner": "enum.Enum",
@@ -185,13 +209,26 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "object_id",
         "start_index",
         "end_index"
       ],
       "module": "notebooklm._types.documents",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm._types.documents.DocumentAnnotation",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "DocumentAnnotation",
       "repr": {
         "policy": "dataclass-generated"
@@ -296,6 +333,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "start_index",
         "end_index",
@@ -306,7 +344,19 @@
         "table_rows"
       ],
       "module": "notebooklm._types.documents",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm._types.documents.DocumentBlock",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "DocumentBlock",
       "repr": {
         "policy": "dataclass-generated"
@@ -381,6 +431,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "style",
         "nesting_level",
@@ -388,7 +439,19 @@
         "ordinal"
       ],
       "module": "notebooklm._types.documents",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm._types.documents.ListInfo",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ListInfo",
       "repr": {
         "policy": "dataclass-generated"
@@ -424,7 +487,19 @@
         }
       ],
       "module": "notebooklm._types.documents",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm._types.documents.ListStyle",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ListStyle",
       "repr": {
         "owner": "enum.Enum",
@@ -479,12 +554,25 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "blocks",
         "annotations"
       ],
       "module": "notebooklm._types.documents",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm._types.documents.StructuredDocument",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "StructuredDocument",
       "repr": {
         "policy": "dataclass-generated"
@@ -539,12 +627,25 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "start_index",
         "end_index"
       ],
       "module": "notebooklm._types.documents",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm._types.documents.TableCell",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "TableCell",
       "repr": {
         "policy": "dataclass-generated"
@@ -649,6 +750,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "start_index",
         "end_index",
@@ -659,7 +761,19 @@
         "url"
       ],
       "module": "notebooklm._types.documents",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm._types.documents.TextSpan",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "TextSpan",
       "repr": {
         "policy": "dataclass-generated"
@@ -753,6 +867,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "result",
         "next_attempt_number",
@@ -762,7 +877,19 @@
         "delay"
       ],
       "module": "notebooklm.artifacts",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.artifacts.RateLimitRetryEvent",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "RateLimitRetryEvent",
       "repr": {
         "policy": "dataclass-generated"
@@ -886,6 +1013,7 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "cookies",
         "csrf_token",
@@ -897,7 +1025,20 @@
         "account_email"
       ],
       "module": "notebooklm.auth",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "error_category": "unpickleable-thread-lock",
+        "error_type": "TypeError",
+        "stage": "dumps",
+        "status": "failure"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "AuthTokens",
       "repr": {
         "policy": "custom"
@@ -948,7 +1089,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ArtifactStatus",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ArtifactStatus",
       "repr": {
         "policy": "custom"
@@ -987,7 +1140,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.AudioFormat",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "AudioFormat",
       "repr": {
         "policy": "custom"
@@ -1022,7 +1187,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.AudioLength",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "AudioLength",
       "repr": {
         "policy": "custom"
@@ -1057,7 +1234,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ChatGoal",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ChatGoal",
       "repr": {
         "policy": "custom"
@@ -1092,7 +1281,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ChatResponseLength",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ChatResponseLength",
       "repr": {
         "policy": "custom"
@@ -1143,7 +1344,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.DiscoveryMode",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "DiscoveryMode",
       "repr": {
         "policy": "custom"
@@ -1182,7 +1395,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.DriveMimeType",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "DriveMimeType",
       "repr": {
         "policy": "custom"
@@ -1229,7 +1454,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.DriveSourceStatus",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "DriveSourceStatus",
       "repr": {
         "policy": "custom"
@@ -1260,7 +1497,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ExportType",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ExportType",
       "repr": {
         "policy": "custom"
@@ -1295,7 +1544,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.InfographicDetail",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "InfographicDetail",
       "repr": {
         "policy": "custom"
@@ -1330,7 +1591,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.InfographicOrientation",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "InfographicOrientation",
       "repr": {
         "policy": "custom"
@@ -1397,7 +1670,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.InfographicStyle",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "InfographicStyle",
       "repr": {
         "policy": "custom"
@@ -1484,7 +1769,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.MagicArtifactType",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "MagicArtifactType",
       "repr": {
         "policy": "custom"
@@ -1519,7 +1816,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.QuizDifficulty",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "QuizDifficulty",
       "repr": {
         "policy": "custom"
@@ -1554,7 +1863,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.QuizQuantity",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "QuizQuantity",
       "repr": {
         "policy": "custom"
@@ -1764,7 +2085,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.RPCMethod",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "RPCMethod",
       "repr": {
         "policy": "custom"
@@ -1807,7 +2140,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ReportFormat",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ReportFormat",
       "repr": {
         "policy": "custom"
@@ -1838,7 +2183,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ShareAccess",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ShareAccess",
       "repr": {
         "policy": "custom"
@@ -1877,7 +2234,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.SharePermission",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "SharePermission",
       "repr": {
         "policy": "custom"
@@ -1908,7 +2277,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ShareViewLevel",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ShareViewLevel",
       "repr": {
         "policy": "custom"
@@ -1939,7 +2320,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.SlideDeckFormat",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "SlideDeckFormat",
       "repr": {
         "policy": "custom"
@@ -1970,7 +2363,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.SlideDeckLength",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "SlideDeckLength",
       "repr": {
         "policy": "custom"
@@ -2013,7 +2418,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.SourceStatus",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "SourceStatus",
       "repr": {
         "policy": "custom"
@@ -2052,7 +2469,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.VideoFormat",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "VideoFormat",
       "repr": {
         "policy": "custom"
@@ -2115,7 +2544,19 @@
         }
       ],
       "module": "notebooklm.rpc.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.VideoStyle",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "VideoStyle",
       "repr": {
         "policy": "custom"
@@ -2189,6 +2630,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "notebook_limit",
         "source_limit",
@@ -2196,7 +2638,19 @@
         "tier"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.AccountLimits",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "AccountLimits",
       "repr": {
         "policy": "dataclass-generated"
@@ -2401,6 +2855,7 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "id",
         "title",
@@ -2421,7 +2876,19 @@
         "user_state"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.Artifact",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "Artifact",
       "repr": {
         "policy": "dataclass-generated"
@@ -2516,6 +2983,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "title",
         "image_url",
@@ -2525,7 +2993,19 @@
         "text"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ArtifactInfographic",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ArtifactInfographic",
       "repr": {
         "policy": "dataclass-generated"
@@ -2600,6 +3080,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "url",
         "kind",
@@ -2607,7 +3088,19 @@
         "mime_type"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ArtifactMedia",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ArtifactMedia",
       "repr": {
         "policy": "dataclass-generated"
@@ -2651,7 +3144,19 @@
         }
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.ArtifactMediaType",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ArtifactMediaType",
       "repr": {
         "policy": "custom"
@@ -2735,6 +3240,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "image_url",
         "width",
@@ -2743,7 +3249,19 @@
         "text"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ArtifactSlide",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ArtifactSlide",
       "repr": {
         "policy": "dataclass-generated"
@@ -2815,7 +3333,19 @@
         }
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.ArtifactType",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ArtifactType",
       "repr": {
         "policy": "custom"
@@ -2939,6 +3469,7 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "answer",
         "conversation_id",
@@ -2951,7 +3482,19 @@
         "next_steps"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.AskResult",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "AskResult",
       "repr": {
         "policy": "dataclass-generated"
@@ -2996,11 +3539,24 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "playback_position_seconds"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.AudioArtifactUserState",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "AudioArtifactUserState",
       "repr": {
         "policy": "dataclass-generated"
@@ -3040,7 +3596,19 @@
         }
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.ChatMode",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ChatMode",
       "repr": {
         "owner": "enum.Enum",
@@ -3215,6 +3783,20 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": {
+        "current_after_legacy_restore": {
+          "comparison": "equality",
+          "restored_type": "notebooklm.types.ChatReference",
+          "status": "success"
+        },
+        "invariants": {
+          "answer_end_char_mirrored": true,
+          "answer_start_char_mirrored": true,
+          "fragment_end_char_restored": true,
+          "fragment_start_char_restored": true
+        },
+        "status": "success"
+      },
       "match_args": [
         "source_id",
         "citation_number",
@@ -3232,7 +3814,20 @@
         "answer_anchor_end"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ChatReference",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "owner": "notebooklm.types.ChatReference",
+          "present": true
+        }
+      },
       "qualname": "ChatReference",
       "repr": {
         "policy": "dataclass-generated"
@@ -3277,11 +3872,24 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "id"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ChatSession",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ChatSession",
       "repr": {
         "policy": "dataclass-generated"
@@ -3345,13 +3953,26 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "goal",
         "response_length",
         "custom_prompt"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ChatSettings",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ChatSettings",
       "repr": {
         "policy": "dataclass-generated"
@@ -3426,6 +4047,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "sources",
         "cited_url_count",
@@ -3433,7 +4055,19 @@
         "used_fallback"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.CitedSourceSelection",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "CitedSourceSelection",
       "repr": {
         "policy": "dataclass-generated"
@@ -3608,6 +4242,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "rpc_calls_started",
         "rpc_calls_succeeded",
@@ -3625,7 +4260,19 @@
         "rpc_decode_errors"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ClientMetricsSnapshot",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ClientMetricsSnapshot",
       "repr": {
         "policy": "dataclass-generated"
@@ -3700,6 +4347,7 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "id",
         "name",
@@ -3707,7 +4355,19 @@
         "notebook_ids"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.Collection",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "Collection",
       "repr": {
         "policy": "dataclass-generated"
@@ -3772,13 +4432,26 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "max_connections",
         "max_keepalive_connections",
         "keepalive_expiry"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ConnectionLimits",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ConnectionLimits",
       "repr": {
         "policy": "dataclass-generated"
@@ -3843,13 +4516,26 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "query",
         "answer",
         "turn_number"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ConversationTurn",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ConversationTurn",
       "repr": {
         "policy": "dataclass-generated"
@@ -3914,13 +4600,26 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "session_id",
         "turn_id",
         "turn_code"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ConversationTurnKey",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ConversationTurnKey",
       "repr": {
         "policy": "dataclass-generated"
@@ -4005,6 +4704,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "card_acquisitions",
         "current_card_index",
@@ -4013,7 +4713,19 @@
         "current_view"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.FlashcardArtifactUserState",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "FlashcardArtifactUserState",
       "repr": {
         "policy": "dataclass-generated"
@@ -4073,7 +4785,19 @@
         }
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.GenerationState",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "GenerationState",
       "repr": {
         "policy": "custom"
@@ -4167,6 +4891,7 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "task_id",
         "status",
@@ -4176,7 +4901,19 @@
         "metadata"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.GenerationStatus",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "GenerationStatus",
       "repr": {
         "policy": "dataclass-generated"
@@ -4261,6 +4998,7 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "id",
         "name",
@@ -4269,7 +5007,19 @@
         "source_ids"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.Label",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "Label",
       "repr": {
         "policy": "dataclass-generated"
@@ -4364,6 +5114,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "id",
         "notebook_id",
@@ -4373,7 +5124,19 @@
         "tree"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.MindMap",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "MindMap",
       "repr": {
         "policy": "dataclass-generated"
@@ -4405,7 +5168,19 @@
         }
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.MindMapKind",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "MindMapKind",
       "repr": {
         "policy": "custom"
@@ -4469,13 +5244,26 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "mind_map",
         "note_id",
         "created_at"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.MindMapResult",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "MindMapResult",
       "repr": {
         "policy": "dataclass-generated"
@@ -4530,12 +5318,25 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "question",
         "type_code"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.NextStepSuggestion",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "NextStepSuggestion",
       "repr": {
         "policy": "dataclass-generated"
@@ -4620,6 +5421,7 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "id",
         "notebook_id",
@@ -4628,7 +5430,19 @@
         "created_at"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.Note",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "Note",
       "repr": {
         "policy": "dataclass-generated"
@@ -4783,6 +5597,18 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": {
+        "current_after_legacy_restore": {
+          "comparison": "equality",
+          "restored_type": "notebooklm.types.Notebook",
+          "status": "success"
+        },
+        "invariants": {
+          "chat_sessions_restored": true,
+          "last_viewed_at_restored": true
+        },
+        "status": "success"
+      },
       "match_args": [
         "id",
         "title",
@@ -4798,7 +5624,20 @@
         "chat_settings"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.Notebook",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "owner": "notebooklm.types.Notebook",
+          "present": true
+        }
+      },
       "qualname": "Notebook",
       "repr": {
         "policy": "dataclass-generated"
@@ -4853,12 +5692,25 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "summary",
         "suggested_topics"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.NotebookDescription",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "NotebookDescription",
       "repr": {
         "policy": "dataclass-generated"
@@ -4913,12 +5765,25 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "notebook",
         "sources"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.NotebookMetadata",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "NotebookMetadata",
       "repr": {
         "policy": "dataclass-generated"
@@ -4983,13 +5848,26 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "can_edit_advanced_settings",
         "can_edit_guidebook_config",
         "can_view_analytics"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.PremiumFeatureInfo",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "PremiumFeatureInfo",
       "repr": {
         "policy": "dataclass-generated"
@@ -5044,12 +5922,25 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "title",
         "prompt"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.PromptSuggestion",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "PromptSuggestion",
       "repr": {
         "policy": "dataclass-generated"
@@ -5124,6 +6015,7 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "title",
         "description",
@@ -5131,7 +6023,19 @@
         "audience_level"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ReportSuggestion",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ReportSuggestion",
       "repr": {
         "policy": "dataclass-generated"
@@ -5236,6 +6140,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "url",
         "title",
@@ -5246,7 +6151,19 @@
         "hint"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ResearchSource",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ResearchSource",
       "repr": {
         "policy": "dataclass-generated"
@@ -5331,6 +6248,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "task_id",
         "report_id",
@@ -5339,7 +6257,19 @@
         "mode"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ResearchStart",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ResearchStart",
       "repr": {
         "policy": "dataclass-generated"
@@ -5383,7 +6313,19 @@
         }
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.ResearchStatus",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ResearchStatus",
       "repr": {
         "policy": "custom"
@@ -5547,6 +6489,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "task_id",
         "status",
@@ -5563,7 +6506,19 @@
         "account_id"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ResearchTask",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ResearchTask",
       "repr": {
         "policy": "dataclass-generated"
@@ -5607,7 +6562,19 @@
         }
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.ResearchTerminationReason",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ResearchTerminationReason",
       "repr": {
         "policy": "custom"
@@ -5691,6 +6658,7 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "method",
         "status",
@@ -5699,7 +6667,19 @@
         "error_type"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.RpcTelemetryEvent",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "RpcTelemetryEvent",
       "repr": {
         "policy": "dataclass-generated"
@@ -5814,6 +6794,7 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "notebook_id",
         "is_public",
@@ -5825,7 +6806,19 @@
         "is_public_sharing_allowed"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ShareStatus",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "ShareStatus",
       "repr": {
         "policy": "dataclass-generated"
@@ -5900,6 +6893,7 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "email",
         "permission",
@@ -5907,7 +6901,19 @@
         "avatar_url"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.SharedUser",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "SharedUser",
       "repr": {
         "policy": "dataclass-generated"
@@ -6092,6 +7098,7 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "id",
         "title",
@@ -6110,7 +7117,19 @@
         "last_modified_at"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.Source",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "Source",
       "repr": {
         "policy": "dataclass-generated"
@@ -6215,6 +7234,7 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "source_id",
         "title",
@@ -6225,7 +7245,19 @@
         "document"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.SourceFulltext",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "SourceFulltext",
       "repr": {
         "policy": "dataclass-generated"
@@ -6280,12 +7312,25 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "summary",
         "keywords"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.SourceGuide",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "SourceGuide",
       "repr": {
         "policy": "dataclass-generated"
@@ -6350,13 +7395,26 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "kind",
         "title",
         "url"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.SourceSummary",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "SourceSummary",
       "repr": {
         "policy": "dataclass-generated"
@@ -6448,7 +7506,19 @@
         }
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.SourceType",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "SourceType",
       "repr": {
         "policy": "custom"
@@ -6502,12 +7572,25 @@
         "policy": "disabled"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "question",
         "prompt"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.SuggestedTopic",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "SuggestedTopic",
       "repr": {
         "policy": "dataclass-generated"
@@ -6552,11 +7635,24 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "raw"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.UnknownArtifactUserState",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "UnknownArtifactUserState",
       "repr": {
         "policy": "dataclass-generated"
@@ -6611,12 +7707,25 @@
         "policy": "dataclass-generated"
       },
       "kind": "dataclass",
+      "legacy_state_round_trip": null,
       "match_args": [
         "limits",
         "output_language"
       ],
       "module": "notebooklm.types",
-      "pickle_round_trip": true,
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.UserSettings",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
       "qualname": "UserSettings",
       "repr": {
         "policy": "dataclass-generated"

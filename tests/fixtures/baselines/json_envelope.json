@@ -1,5 +1,1239 @@
 {
-  "models": {
+  "channels": {
+    "cli --json": {
+      "notebooklm.types.Artifact": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/artifact_cmd.py:artifact_list"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "type",
+              "type_id",
+              "status",
+              "status_id",
+              "created_at"
+            ],
+            "mode": "manual-list-row-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/cli/artifact_cmd.py:artifact_get"
+            ],
+            "keys": [
+              "notebook_id",
+              "id",
+              "title",
+              "type",
+              "type_id",
+              "status",
+              "status_id",
+              "created_at",
+              "found"
+            ],
+            "mode": "manual-get-projection"
+          }
+        ]
+      },
+      "notebooklm.types.AskResult": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/_app/views.py:ask_result_view",
+              "notebooklm/cli/chat_cmd.py:ask_result_view"
+            ],
+            "keys": [
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "app-view:ask_result_view"
+          }
+        ]
+      },
+      "notebooklm.types.ChatReference": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.AskResult.references"
+            ],
+            "keys": [
+              "source_id",
+              "citation_number",
+              "cited_text",
+              "start_char",
+              "end_char",
+              "chunk_id",
+              "passage_id",
+              "answer_start_char",
+              "answer_end_char",
+              "score",
+              "fragment_start_char",
+              "fragment_end_char",
+              "answer_anchor_start",
+              "answer_anchor_end"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.CitedSourceSelection": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/research_cmd.py:_completed_wait_payload"
+            ],
+            "keys": [
+              "cited_only",
+              "cited_sources_selected",
+              "cited_only_fallback"
+            ],
+            "mode": "manual-completed-wait-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/cli/research_cmd.py:_render_import_result"
+            ],
+            "keys": [
+              "cited_only",
+              "cited_only_fallback"
+            ],
+            "mode": "manual-direct-import-projection"
+          }
+        ]
+      },
+      "notebooklm.types.Collection": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/collection_cmd.py:_collection_payload"
+            ],
+            "keys": [
+              "id",
+              "name",
+              "emoji",
+              "notebook_ids"
+            ],
+            "mode": "manual-mutation-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/cli/collection_cmd.py:collection_list"
+            ],
+            "keys": [
+              "id",
+              "name",
+              "emoji",
+              "notebook_count"
+            ],
+            "mode": "manual-list-row-projection"
+          }
+        ]
+      },
+      "notebooklm.types.ConversationTurnKey": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.AskResult.turn_key"
+            ],
+            "keys": [
+              "session_id",
+              "turn_id",
+              "turn_code"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.Label": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/services/label_listing.py:_label_serialize"
+            ],
+            "keys": [
+              "id",
+              "name",
+              "emoji",
+              "source_ids",
+              "sources"
+            ],
+            "mode": "manual-field-projection"
+          }
+        ]
+      },
+      "notebooklm.types.MindMap": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/generate_cmd.py:_output_mind_map_result"
+            ],
+            "keys": [
+              "mind_map",
+              "note_id",
+              "kind"
+            ],
+            "mode": "manual-tree/id-projection"
+          }
+        ]
+      },
+      "notebooklm.types.MindMapResult": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/generate_cmd.py:_output_mind_map_result"
+            ],
+            "keys": [
+              "mind_map",
+              "note_id",
+              "kind"
+            ],
+            "mode": "manual-tree/id-projection"
+          }
+        ]
+      },
+      "notebooklm.types.NextStepSuggestion": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.AskResult.next_steps"
+            ],
+            "keys": [
+              "question",
+              "type_code"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.Note": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/note_cmd.py:note_list"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "preview"
+            ],
+            "mode": "manual-list-row-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/cli/note_cmd.py:payload = asdict"
+            ],
+            "keys": [
+              "id",
+              "notebook_id",
+              "title",
+              "content",
+              "created_at",
+              "found"
+            ],
+            "mode": "dataclass-get-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/cli/note_cmd.py:note_create"
+            ],
+            "keys": [
+              "id",
+              "notebook_id",
+              "title",
+              "created"
+            ],
+            "mode": "manual-create-projection"
+          }
+        ]
+      },
+      "notebooklm.types.Notebook": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/notebook_cmd.py:notebook_viewed_keys"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "is_owner",
+              "role",
+              "created_at",
+              "last_viewed_at",
+              "modified_at"
+            ],
+            "mode": "manual-list-row-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/cli/notebook_cmd.py:create_cmd"
+            ],
+            "keys": [
+              "notebook"
+            ],
+            "mode": "manual-create-projection",
+            "nested_keys": {
+              "notebook": [
+                "id",
+                "title",
+                "role",
+                "created_at",
+                "last_viewed_at",
+                "modified_at"
+              ]
+            }
+          },
+          {
+            "evidence": [
+              "notebooklm/cli/notebook_cmd.py:active_notebook_id"
+            ],
+            "keys": [
+              "notebook",
+              "active_notebook_id"
+            ],
+            "mode": "manual-create-and-use-projection",
+            "nested_keys": {
+              "notebook": [
+                "id",
+                "title",
+                "role",
+                "created_at",
+                "last_viewed_at",
+                "modified_at"
+              ]
+            }
+          },
+          {
+            "evidence": [
+              "notebooklm/cli/collection_cmd.py:collection_notebooks"
+            ],
+            "keys": [
+              "id",
+              "title"
+            ],
+            "mode": "manual-collection-member-projection"
+          }
+        ]
+      },
+      "notebooklm.types.PromptSuggestion": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/chat_cmd.py:suggest_prompts_cmd"
+            ],
+            "keys": [
+              "title",
+              "prompt"
+            ],
+            "mode": "manual-field-projection"
+          }
+        ]
+      },
+      "notebooklm.types.ReportSuggestion": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/artifact_cmd.py:artifact_suggestions"
+            ],
+            "keys": [
+              "title",
+              "description",
+              "prompt"
+            ],
+            "mode": "manual-field-projection"
+          }
+        ]
+      },
+      "notebooklm.types.ShareStatus": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/share_cmd.py:share_status"
+            ],
+            "keys": [
+              "notebook_id",
+              "is_public",
+              "access",
+              "view_level",
+              "share_url",
+              "max_individuals_share_limit",
+              "is_public_sharing_allowed",
+              "is_public_sharing_denied",
+              "shared_users"
+            ],
+            "mode": "manual-status-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/cli/share_cmd.py:share_public"
+            ],
+            "keys": [
+              "notebook_id",
+              "is_public",
+              "share_url"
+            ],
+            "mode": "manual-public-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/cli/share_cmd.py:share_view_level"
+            ],
+            "keys": [
+              "notebook_id",
+              "view_level"
+            ],
+            "mode": "manual-view-level-projection"
+          }
+        ]
+      },
+      "notebooklm.types.SharedUser": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/share_cmd.py:shared_users"
+            ],
+            "keys": [
+              "email",
+              "permission",
+              "display_name"
+            ],
+            "mode": "nested-manual-field-projection"
+          }
+        ]
+      },
+      "notebooklm.types.Source": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/services/source_serializers.py:source_summary_payload"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "type",
+              "url"
+            ],
+            "mode": "manual-summary-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/cli/services/source_serializers.py:source_row_payload"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "type",
+              "url",
+              "status",
+              "status_id",
+              "created_at",
+              "drive_document_id",
+              "drive_status",
+              "is_drive_degraded"
+            ],
+            "mode": "manual-row-projection"
+          }
+        ]
+      },
+      "notebooklm.types.SourceFulltext": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/cli/services/source_serializers.py:source_fulltext_payload"
+            ],
+            "keys": [
+              "source_id",
+              "title",
+              "kind",
+              "content",
+              "url",
+              "char_count"
+            ],
+            "mode": "manual-field-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/cli/_source_render.py:content_bytes"
+            ],
+            "keys": [
+              "path",
+              "bytes",
+              "source_id",
+              "title",
+              "kind"
+            ],
+            "mode": "manual-file-output-projection"
+          }
+        ]
+      }
+    },
+    "mcp tool result": {
+      "notebooklm.types.Artifact": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/_studio_items.py:studio_items"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "type",
+              "status_label",
+              "url"
+            ],
+            "mode": "manual-studio-full-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/_studio_items.py:compact_studio_item"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "type",
+              "status_label",
+              "created_at"
+            ],
+            "mode": "manual-studio-compact-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/_studio_items.py:summarize_studio_item"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "type",
+              "status_label",
+              "url",
+              "created_at",
+              "generation_prompt"
+            ],
+            "mode": "manual-studio-summary-projection"
+          }
+        ]
+      },
+      "notebooklm.types.AskResult": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/_app/views.py:ask_result_view",
+              "notebooklm/mcp/tools/chat.py:ask_result_view"
+            ],
+            "keys": [
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "app-view:ask_result_view"
+          }
+        ]
+      },
+      "notebooklm.types.ChatReference": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.AskResult.references"
+            ],
+            "keys": [
+              "source_id",
+              "citation_number",
+              "cited_text",
+              "start_char",
+              "end_char",
+              "chunk_id",
+              "passage_id",
+              "answer_start_char",
+              "answer_end_char",
+              "score",
+              "fragment_start_char",
+              "fragment_end_char",
+              "answer_anchor_start",
+              "answer_anchor_end"
+            ],
+            "mode": "nested-dataclass"
+          },
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/chat.py:_LITE_REFERENCE_FIELDS"
+            ],
+            "keys": [
+              "source_id",
+              "citation_number",
+              "cited_text"
+            ],
+            "mode": "nested-lite-projection"
+          }
+        ]
+      },
+      "notebooklm.types.ConversationTurnKey": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.AskResult.turn_key"
+            ],
+            "keys": [
+              "session_id",
+              "turn_id",
+              "turn_code"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.MindMap": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/_studio_payloads.py:_generation_payload"
+            ],
+            "keys": [
+              "notebook_id",
+              "kind",
+              "mind_map",
+              "mind_map_id"
+            ],
+            "mode": "manual-tree/id-projection"
+          }
+        ]
+      },
+      "notebooklm.types.MindMapResult": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/_studio_payloads.py:_generation_payload"
+            ],
+            "keys": [
+              "notebook_id",
+              "kind",
+              "mind_map",
+              "mind_map_id"
+            ],
+            "mode": "manual-tree/id-projection"
+          }
+        ]
+      },
+      "notebooklm.types.NextStepSuggestion": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.AskResult.next_steps"
+            ],
+            "keys": [
+              "question",
+              "type_code"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.Note": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/_studio_items.py:studio_items"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "type",
+              "content"
+            ],
+            "mode": "manual-studio-full-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/_studio_items.py:compact_studio_item"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "type",
+              "status_label",
+              "created_at"
+            ],
+            "mode": "manual-studio-compact-projection"
+          },
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/_studio_items.py:summarize_studio_item"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "type",
+              "created_at",
+              "content_preview",
+              "char_count"
+            ],
+            "mode": "manual-studio-summary-projection"
+          }
+        ]
+      },
+      "notebooklm.types.Notebook": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/_app/views.py:notebook_view",
+              "notebooklm/mcp/tools/notebooks.py:_notebook_view"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "created_at",
+              "sources_count",
+              "is_owner",
+              "modified_at",
+              "role",
+              "last_viewed_at",
+              "role_label"
+            ],
+            "mode": "app-view:notebook_view"
+          }
+        ]
+      },
+      "notebooklm.types.PromptSuggestion": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/chat.py:suggested_prompts"
+            ],
+            "keys": [
+              "title",
+              "prompt"
+            ],
+            "mode": "manual-field-projection"
+          }
+        ]
+      },
+      "notebooklm.types.ResearchStart": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/research.py:start_fields"
+            ],
+            "keys": [
+              "task_id",
+              "report_id",
+              "notebook_id",
+              "query",
+              "mode"
+            ],
+            "mode": "dataclass-full"
+          }
+        ]
+      },
+      "notebooklm.types.ShareStatus": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/_app/views.py:share_status_view",
+              "notebooklm/mcp/tools/sharing.py:_status_payload"
+            ],
+            "keys": [
+              "notebook_id",
+              "is_public",
+              "access",
+              "share_url",
+              "max_individuals_share_limit",
+              "is_public_sharing_allowed",
+              "is_public_sharing_denied",
+              "shared_users"
+            ],
+            "mode": "app-view:share_status_view"
+          },
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/sharing.py:view_level"
+            ],
+            "keys": [
+              "notebook_id",
+              "is_public",
+              "access",
+              "share_url",
+              "max_individuals_share_limit",
+              "is_public_sharing_allowed",
+              "is_public_sharing_denied",
+              "shared_users",
+              "view_level"
+            ],
+            "mode": "app-view:share_status_view+view_level"
+          }
+        ]
+      },
+      "notebooklm.types.SharedUser": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/_app/views.py:shared_users"
+            ],
+            "keys": [
+              "email",
+              "permission",
+              "display_name",
+              "avatar_url"
+            ],
+            "mode": "nested-manual-field-projection"
+          }
+        ]
+      },
+      "notebooklm.types.Source": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/_app/views.py:source_view",
+              "notebooklm/mcp/tools/sources.py:_source_view"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "url",
+              "_type_code",
+              "created_at",
+              "status",
+              "drive_document_id",
+              "drive_status",
+              "kind",
+              "status_label",
+              "drive_status_label",
+              "is_drive_degraded"
+            ],
+            "mode": "app-view:source_view"
+          },
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/notebooks.py:metadata_block = to_jsonable"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "url",
+              "_type_code",
+              "created_at",
+              "status",
+              "drive_document_id",
+              "drive_status",
+              "download_url",
+              "viewer_url",
+              "content_mime",
+              "word_count",
+              "revision_id",
+              "revision_timestamp",
+              "last_modified_at"
+            ],
+            "mode": "dataclass-full"
+          },
+          {
+            "evidence": [
+              "notebooklm/mcp/tools/sources.py:_source_compact"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "kind",
+              "status_label",
+              "is_drive_degraded"
+            ],
+            "mode": "manual-compact-projection"
+          }
+        ]
+      }
+    },
+    "rest response": {
+      "notebooklm.types.Artifact": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/server/routes/artifacts.py:to_jsonable(artifacts)"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "_artifact_type",
+              "status",
+              "created_at",
+              "url",
+              "_variant",
+              "generation_prompt",
+              "media_urls",
+              "duration_seconds",
+              "slides",
+              "infographics",
+              "report_kind",
+              "source_ids",
+              "last_modified_at",
+              "etag",
+              "user_state"
+            ],
+            "mode": "dataclass-full"
+          }
+        ]
+      },
+      "notebooklm.types.ArtifactInfographic": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.Artifact.infographics"
+            ],
+            "keys": [
+              "title",
+              "image_url",
+              "width",
+              "height",
+              "alt_text",
+              "text"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.ArtifactMedia": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.Artifact.media_urls"
+            ],
+            "keys": [
+              "url",
+              "kind",
+              "type_code",
+              "mime_type"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.ArtifactSlide": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.Artifact.slides"
+            ],
+            "keys": [
+              "image_url",
+              "width",
+              "height",
+              "alt_text",
+              "text"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.AskResult": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/_app/views.py:ask_result_view",
+              "notebooklm/server/routes/chat.py:ask_result_view"
+            ],
+            "keys": [
+              "answer",
+              "conversation_id",
+              "turn_number",
+              "is_follow_up",
+              "references",
+              "turn_key",
+              "next_steps"
+            ],
+            "mode": "app-view:ask_result_view"
+          }
+        ]
+      },
+      "notebooklm.types.AudioArtifactUserState": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.Artifact.user_state"
+            ],
+            "keys": [
+              "playback_position_seconds"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.ChatReference": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.AskResult.references"
+            ],
+            "keys": [
+              "source_id",
+              "citation_number",
+              "cited_text",
+              "start_char",
+              "end_char",
+              "chunk_id",
+              "passage_id",
+              "answer_start_char",
+              "answer_end_char",
+              "score",
+              "fragment_start_char",
+              "fragment_end_char",
+              "answer_anchor_start",
+              "answer_anchor_end"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.ConversationTurnKey": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.AskResult.turn_key"
+            ],
+            "keys": [
+              "session_id",
+              "turn_id",
+              "turn_code"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.FlashcardArtifactUserState": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.Artifact.user_state"
+            ],
+            "keys": [
+              "card_acquisitions",
+              "current_card_index",
+              "hidden_card_indices",
+              "last_shown_order",
+              "current_view"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.MindMap": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/server/routes/artifacts.py:to_jsonable(result.mind_map)"
+            ],
+            "keys": [
+              "id",
+              "notebook_id",
+              "title",
+              "kind",
+              "created_at",
+              "tree"
+            ],
+            "mode": "dataclass-full"
+          }
+        ]
+      },
+      "notebooklm.types.MindMapResult": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/server/routes/artifacts.py:to_jsonable(result.mind_map)"
+            ],
+            "keys": [
+              "mind_map",
+              "note_id",
+              "created_at"
+            ],
+            "mode": "dataclass-full"
+          }
+        ]
+      },
+      "notebooklm.types.NextStepSuggestion": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.AskResult.next_steps"
+            ],
+            "keys": [
+              "question",
+              "type_code"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      },
+      "notebooklm.types.Note": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/server/routes/notes.py:to_jsonable"
+            ],
+            "keys": [
+              "id",
+              "notebook_id",
+              "title",
+              "content",
+              "created_at"
+            ],
+            "mode": "dataclass-full"
+          }
+        ]
+      },
+      "notebooklm.types.Notebook": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/_app/views.py:notebook_view",
+              "notebooklm/server/routes/notebooks.py:notebook_view"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "created_at",
+              "sources_count",
+              "is_owner",
+              "modified_at",
+              "role",
+              "last_viewed_at",
+              "role_label"
+            ],
+            "mode": "app-view:notebook_view"
+          }
+        ]
+      },
+      "notebooklm.types.PromptSuggestion": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/server/routes/notebooks.py:suggestions"
+            ],
+            "keys": [
+              "title",
+              "prompt"
+            ],
+            "mode": "manual-field-projection"
+          }
+        ]
+      },
+      "notebooklm.types.ResearchStart": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/server/routes/research.py:to_jsonable(result)"
+            ],
+            "keys": [
+              "task_id",
+              "report_id",
+              "notebook_id",
+              "query",
+              "mode"
+            ],
+            "mode": "dataclass-full"
+          }
+        ]
+      },
+      "notebooklm.types.ShareStatus": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/_app/views.py:share_status_view",
+              "notebooklm/server/routes/share.py:share_status_view"
+            ],
+            "keys": [
+              "notebook_id",
+              "is_public",
+              "access",
+              "share_url",
+              "max_individuals_share_limit",
+              "is_public_sharing_allowed",
+              "is_public_sharing_denied",
+              "shared_users"
+            ],
+            "mode": "app-view:share_status_view"
+          },
+          {
+            "evidence": [
+              "notebooklm/server/routes/share.py:include_view_level=True"
+            ],
+            "keys": [
+              "notebook_id",
+              "is_public",
+              "access",
+              "share_url",
+              "max_individuals_share_limit",
+              "is_public_sharing_allowed",
+              "is_public_sharing_denied",
+              "shared_users",
+              "view_level"
+            ],
+            "mode": "app-view:share_status_view+view_level"
+          }
+        ]
+      },
+      "notebooklm.types.SharedUser": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/_app/views.py:shared_users"
+            ],
+            "keys": [
+              "email",
+              "permission",
+              "display_name",
+              "avatar_url"
+            ],
+            "mode": "nested-manual-field-projection"
+          }
+        ]
+      },
+      "notebooklm.types.Source": {
+        "projections": [
+          {
+            "evidence": [
+              "notebooklm/_app/views.py:source_view",
+              "notebooklm/server/routes/sources.py:source_view"
+            ],
+            "keys": [
+              "id",
+              "title",
+              "url",
+              "_type_code",
+              "created_at",
+              "status",
+              "drive_document_id",
+              "drive_status",
+              "kind",
+              "status_label",
+              "drive_status_label",
+              "is_drive_degraded"
+            ],
+            "mode": "app-view:source_view"
+          }
+        ]
+      },
+      "notebooklm.types.UnknownArtifactUserState": {
+        "projections": [
+          {
+            "evidence": [
+              "nested-via:notebooklm.types.Artifact.user_state"
+            ],
+            "keys": [
+              "raw"
+            ],
+            "mode": "nested-dataclass"
+          }
+        ]
+      }
+    }
+  },
+  "channels_selection": "reviewed serializer sinks and projection helpers; each projection pins its actual keys and preserves only transitively serialized public dataclass fields",
+  "exported_dataclass_key_inventory": {
     "notebooklm._types.documents.DocumentAnnotation": {
       "dataclass_fields": [
         "object_id",
@@ -143,36 +1377,6 @@
         "retry_number",
         "max_retries",
         "delay"
-      ]
-    },
-    "notebooklm.auth.AuthTokens": {
-      "dataclass_fields": [
-        "cookies",
-        "csrf_token",
-        "session_id",
-        "storage_path",
-        "cookie_jar",
-        "authuser",
-        "cookie_snapshot",
-        "account_email",
-        "_profile_session_generation"
-      ],
-      "exports": [
-        "notebooklm.AuthTokens",
-        "notebooklm.auth.AuthTokens"
-      ],
-      "module": "notebooklm.auth",
-      "qualname": "AuthTokens",
-      "to_jsonable_keys": [
-        "cookies",
-        "csrf_token",
-        "session_id",
-        "storage_path",
-        "cookie_jar",
-        "authuser",
-        "cookie_snapshot",
-        "account_email",
-        "_profile_session_generation"
       ]
     },
     "notebooklm.types.AccountLimits": {
@@ -1131,11 +2335,68 @@
       ]
     }
   },
-  "reachability_categories": [
-    "cli --json",
-    "mcp tool result",
-    "rest response"
-  ],
+  "exported_inventory_selection": "non-secret dataclasses in __all__ of every audit-discovered public module",
   "schema_version": 1,
-  "selection": "conservative superset: every dataclass in __all__ of every audit-discovered public module; public models are shared by CLI --json, MCP results, and REST responses"
+  "secret_bearing_exclusions": {
+    "notebooklm.auth.AuthTokens": {
+      "adapter_reachable": false,
+      "policy": "requires an explicit redacted projection; credential fields are not envelopes"
+    }
+  },
+  "supplemental_import_references": {
+    "cli --json": {
+      "notebooklm.types.Artifact": [
+        "model-import:notebooklm/cli/helpers.py:Artifact",
+        "model-import:notebooklm/cli/rendering.py:Artifact",
+        "model-import:notebooklm/cli/services/download.py:Artifact"
+      ],
+      "notebooklm.types.CitedSourceSelection": [
+        "model-import:notebooklm/cli/research_import.py:CitedSourceSelection"
+      ],
+      "notebooklm.types.Collection": [
+        "model-import:notebooklm/cli/collection_cmd.py:Collection"
+      ],
+      "notebooklm.types.Label": [
+        "model-import:notebooklm/cli/label_cmd.py:Label",
+        "model-import:notebooklm/cli/services/label_listing.py:Label"
+      ],
+      "notebooklm.types.MindMap": [
+        "model-import:notebooklm/cli/generate_cmd.py:MindMap"
+      ],
+      "notebooklm.types.MindMapResult": [
+        "model-import:notebooklm/cli/generate_cmd.py:MindMapResult"
+      ],
+      "notebooklm.types.Note": [
+        "model-import:notebooklm/cli/note_cmd.py:Note"
+      ],
+      "notebooklm.types.Source": [
+        "model-import:notebooklm/cli/_source_render.py:Source",
+        "model-import:notebooklm/cli/services/label_listing.py:Source",
+        "model-import:notebooklm/cli/services/source_listing.py:Source",
+        "model-import:notebooklm/cli/services/source_serializers.py:Source",
+        "model-import:notebooklm/cli/source_cmd.py:Source"
+      ],
+      "notebooklm.types.SourceFulltext": [
+        "model-import:notebooklm/cli/services/source_serializers.py:SourceFulltext"
+      ]
+    },
+    "mcp tool result": {
+      "notebooklm.types.MindMap": [
+        "model-import:notebooklm/mcp/tools/_studio_payloads.py:MindMap"
+      ],
+      "notebooklm.types.MindMapResult": [
+        "model-import:notebooklm/mcp/tools/_studio_payloads.py:MindMapResult"
+      ],
+      "notebooklm.types.ShareStatus": [
+        "model-import:notebooklm/mcp/tools/sharing.py:ShareStatus"
+      ],
+      "notebooklm.types.Source": [
+        "model-import:notebooklm/mcp/tools/_content_sanity.py:Source",
+        "model-import:notebooklm/mcp/tools/_fileupload.py:Source",
+        "model-import:notebooklm/mcp/tools/_waitagg.py:Source",
+        "model-import:notebooklm/mcp/tools/sources.py:Source"
+      ]
+    },
+    "rest response": {}
+  }
 }
