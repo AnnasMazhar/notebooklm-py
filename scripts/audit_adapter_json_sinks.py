@@ -392,8 +392,16 @@ class _McpErrorFunnelVisitor(_OwnedNodeVisitor):
 class _JsonResponseSinkVisitor(_ReturnSinkVisitor):
     """Collect only JSONResponse terminals inside an MCP auxiliary HTTP route."""
 
-    def __init__(self, *args: object, site_role: SiteRole = "projection", **kwargs: object) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        owner: ast.FunctionDef | ast.AsyncFunctionDef,
+        *,
+        channel: Channel,
+        path: str,
+        qualname: str,
+        site_role: SiteRole = "projection",
+    ) -> None:
+        super().__init__(owner, channel=channel, path=path, qualname=qualname)
         self._site_role = site_role
 
     def visit_Return(self, node: ast.Return) -> None:
@@ -500,6 +508,7 @@ def _discover_candidates(source_root: Path) -> list[_Candidate]:
             functions.visit(tree)
             relative_path = _relative_source_path(path, source_root)
             for qualname, function in functions.rows:
+                visitor: _CliSinkVisitor | _ReturnSinkVisitor
                 if channel == "cli --json":
                     visitor = _CliSinkVisitor(
                         function,
