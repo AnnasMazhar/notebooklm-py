@@ -51,6 +51,7 @@ class _SourceClass:
     fields: tuple[tuple[str, ast.expr], ...]
     bases: tuple[ast.expr, ...]
     aliases: Mapping[str, str]
+    type_aliases: Mapping[str, ast.expr]
     declared_symbols: frozenset[str]
 
 
@@ -166,10 +167,36 @@ def _resolve_import(node: ast.ImportFrom, package: str) -> str:
         ) from exc
 
 
-def _is_dataclass_decorator(node: ast.expr) -> bool:
+def _dataclass_decorator_aliases(tree: ast.Module) -> frozenset[str]:
+    aliases = {"dataclass"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "dataclasses":
+            aliases.update(
+                alias.asname or alias.name for alias in node.names if alias.name == "dataclass"
+            )
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Name)
+                and node.value.id in aliases
+            ):
+                continue
+            target = node.targets[0].id
+            if target not in aliases:
+                aliases.add(target)
+                changed = True
+    return frozenset(aliases)
+
+
+def _is_dataclass_decorator(node: ast.expr, aliases: frozenset[str]) -> bool:
     target = node.func if isinstance(node, ast.Call) else node
     if isinstance(target, ast.Name):
-        return target.id == "dataclass"
+        return target.id in aliases
     return isinstance(target, ast.Attribute) and target.attr == "dataclass"
 
 
@@ -203,8 +230,10 @@ def _source_classes(source_root: Path, relative_roots: tuple[str, ...]) -> dict[
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             module, package = _module_name(path, source_root)
             aliases: dict[str, str] = {}
+            type_aliases: dict[str, ast.expr] = {}
             declared_symbols = set(_BUILTIN_ANNOTATIONS)
             module_statements = _module_statements(tree.body)
+            dataclass_aliases = _dataclass_decorator_aliases(tree)
             for node in module_statements:
                 if isinstance(node, ast.ImportFrom):
                     imported_module = _resolve_import(node, package)
@@ -224,9 +253,46 @@ def _source_classes(source_root: Path, relative_roots: tuple[str, ...]) -> dict[
                 elif isinstance(node, ast.Assign | ast.AnnAssign):
                     declared_symbols.update(_assigned_names(node))
 
-            for node in tree.body:
-                if not isinstance(node, ast.ClassDef):
+            for node in module_statements:
+                target: ast.expr | None = None
+                value: ast.expr | None = None
+                explicit_type_alias = False
+                if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                    target = node.targets[0]
+                    value = node.value
+                elif isinstance(node, ast.AnnAssign):
+                    target = node.target
+                    value = node.value
+                    annotation_name = _dotted_name(node.annotation)
+                    explicit_type_alias = (
+                        annotation_name is not None
+                        and annotation_name.rpartition(".")[2] == "TypeAlias"
+                    )
+                if not isinstance(target, ast.Name) or value is None:
                     continue
+                if explicit_type_alias or isinstance(
+                    value, ast.Name | ast.Attribute | ast.Subscript | ast.BinOp
+                ):
+                    type_aliases[target.id] = value
+
+            module_classes = [node for node in module_statements if isinstance(node, ast.ClassDef)]
+            module_class_ids = {id(node) for node in module_classes}
+            nested_dataclasses = [
+                node.name
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ClassDef)
+                and id(node) not in module_class_ids
+                and any(
+                    _is_dataclass_decorator(decorator, dataclass_aliases)
+                    for decorator in node.decorator_list
+                )
+            ]
+            if nested_dataclasses:
+                raise ValueError(
+                    f"nested dataclasses are unsupported in {module}: {sorted(nested_dataclasses)}"
+                )
+
+            for node in module_classes:
                 fields = tuple(
                     (statement.target.id, statement.annotation)
                     for statement in node.body
@@ -238,10 +304,14 @@ def _source_classes(source_root: Path, relative_roots: tuple[str, ...]) -> dict[
                     key=key,
                     module=module,
                     name=node.name,
-                    is_dataclass=any(_is_dataclass_decorator(item) for item in node.decorator_list),
+                    is_dataclass=any(
+                        _is_dataclass_decorator(item, dataclass_aliases)
+                        for item in node.decorator_list
+                    ),
                     fields=fields,
                     bases=tuple(node.bases),
                     aliases=aliases,
+                    type_aliases=type_aliases,
                     declared_symbols=frozenset(declared_symbols),
                 )
     return classes
@@ -270,7 +340,9 @@ def _resolve_name(name: str, owner: _SourceClass) -> str:
     raise ValueError(f"unresolved annotation name {name!r} in {owner.key}")
 
 
-def _annotation_refs(node: ast.expr, owner: _SourceClass) -> list[_TypeRef]:
+def _annotation_refs(
+    node: ast.expr, owner: _SourceClass, *, alias_seen: frozenset[str] = frozenset()
+) -> list[_TypeRef]:
     if isinstance(node, ast.Constant):
         if node.value is None:
             return []
@@ -280,9 +352,12 @@ def _annotation_refs(node: ast.expr, owner: _SourceClass) -> list[_TypeRef]:
             parsed = ast.parse(node.value, mode="eval").body
         except SyntaxError as exc:
             raise ValueError(f"unparseable annotation {node.value!r} in {owner.key}") from exc
-        return _annotation_refs(parsed, owner)
+        return _annotation_refs(parsed, owner, alias_seen=alias_seen)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
-        return [*_annotation_refs(node.left, owner), *_annotation_refs(node.right, owner)]
+        return [
+            *_annotation_refs(node.left, owner, alias_seen=alias_seen),
+            *_annotation_refs(node.right, owner, alias_seen=alias_seen),
+        ]
     if isinstance(node, ast.Subscript):
         container = _dotted_name(node.value)
         container_name = container.rpartition(".")[2] if container is not None else ""
@@ -297,25 +372,29 @@ def _annotation_refs(node: ast.expr, owner: _SourceClass) -> list[_TypeRef]:
             elements = elements[:1] if container_name == "Annotated" else elements
             suffixes = [""] * len(elements)
         else:
-            refs = _annotation_refs(node.value, owner)
+            refs = _annotation_refs(node.value, owner, alias_seen=alias_seen)
             suffixes = [""] * len(elements)
             return [
                 *refs,
                 *[
                     _TypeRef(ref.name, f"{suffix}{ref.suffix}")
                     for element, suffix in zip(elements, suffixes, strict=True)
-                    for ref in _annotation_refs(element, owner)
+                    for ref in _annotation_refs(element, owner, alias_seen=alias_seen)
                 ],
             ]
         return [
             _TypeRef(ref.name, f"{suffix}{ref.suffix}")
             for element, suffix in zip(elements, suffixes, strict=False)
-            for ref in _annotation_refs(element, owner)
+            for ref in _annotation_refs(element, owner, alias_seen=alias_seen)
         ]
     name = _dotted_name(node)
     if name is not None:
         if name in _BUILTIN_ANNOTATIONS or name.rpartition(".")[2] in _BUILTIN_ANNOTATIONS:
             return []
+        if not name.partition(".")[1] and name in owner.type_aliases:
+            if name in alias_seen:
+                raise ValueError(f"cyclic annotation alias {name!r} in {owner.key}")
+            return _annotation_refs(owner.type_aliases[name], owner, alias_seen=alias_seen | {name})
         return [_TypeRef(_resolve_name(name, owner))]
     raise ValueError(f"unsupported annotation AST {type(node).__name__} in {owner.key}")
 

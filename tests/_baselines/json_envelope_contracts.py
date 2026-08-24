@@ -67,6 +67,12 @@ _AUTH_TOKENS_CREDENTIAL_OUTPUT_FIELDS = frozenset(
         "bearer_token",
     }
 )
+_REVIEWED_AUTH_TOKEN_RETURN_DELEGATIONS = frozenset(
+    {
+        ("notebooklm/cli/auth_runtime.py", "get_auth_tokens", "AuthTokens"),
+        ("notebooklm/cli/auth_runtime.py", "with_client.wrapper.body", "f"),
+    }
+)
 _CHANNEL_ROOTS = {
     "cli --json": "cli",
     "mcp tool result": "mcp",
@@ -211,15 +217,67 @@ def _secret_serialization_violations(source: str, *, filename: str) -> list[str]
             if node is self.root:
                 self.generic_visit(node)
 
-    scopes: list[ast.AST] = [
-        node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    scope_types = ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
+    scopes: list[ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda] = [
+        node for node in ast.walk(tree) if isinstance(node, scope_types)
     ]
+
+    def enclosing_scope(node: ast.AST) -> ast.AST | None:
+        parent = parents.get(node)
+        while parent is not None and not isinstance(parent, scope_types):
+            parent = parents.get(parent)
+        return parent
+
+    def scope_qualname(node: ast.AST) -> str:
+        names: list[str] = []
+        cursor: ast.AST | None = node
+        while cursor is not None:
+            if isinstance(cursor, ast.FunctionDef | ast.AsyncFunctionDef):
+                names.append(cursor.name)
+            elif isinstance(cursor, ast.Lambda):
+                names.append(f"<lambda@{cursor.lineno}>")
+            cursor = enclosing_scope(cursor)
+        return ".".join(reversed(names))
+
+    def scope_depth(node: ast.AST) -> int:
+        depth = 0
+        cursor = enclosing_scope(node)
+        while cursor is not None:
+            depth += 1
+            cursor = enclosing_scope(cursor)
+        return depth
+
+    scopes.sort(key=lambda node: (scope_depth(node), node.lineno, node.col_offset))
+    completed_scope_origins: dict[ast.AST, dict[str, set[str]]] = {}
+    used_reviewed_delegations: set[tuple[str, str, str]] = set()
     violations: list[str] = []
     for scope in scopes:
         collector = _ScopeNodes(scope)
         collector.visit(scope)
         nodes = collector.rows
-        secret_origins: dict[str, set[str]] = {}
+        parent_scope = enclosing_scope(scope)
+        inherited_origins = completed_scope_origins.get(parent_scope, {})
+        locally_bound = {
+            node.id
+            for node in nodes
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+        }
+        args = (
+            scope.args.args
+            if isinstance(scope, ast.Lambda)
+            else [
+                *scope.args.posonlyargs,
+                *scope.args.args,
+                *scope.args.kwonlyargs,
+            ]
+        )
+        locally_bound.update(argument.arg for argument in args)
+        secret_origins: dict[str, set[str]] = {
+            name: set(origins)
+            for name, origins in inherited_origins.items()
+            if name not in locally_bound
+        }
         for node in nodes:
             if isinstance(node, ast.arg) and _annotation_is_secret_value(
                 node.annotation, secret_aliases
@@ -328,7 +386,20 @@ def _secret_serialization_violations(source: str, *, filename: str) -> list[str]
                 if (
                     isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)
-                    and node.func.attr in {"add", "append", "extend", "insert", "update"}
+                    and node.func.attr
+                    in {
+                        "__setattr__",
+                        "__setitem__",
+                        "add",
+                        "append",
+                        "appendleft",
+                        "extend",
+                        "extendleft",
+                        "insert",
+                        "put",
+                        "setdefault",
+                        "update",
+                    }
                 ):
                     mutation_origins = {
                         field
@@ -339,6 +410,22 @@ def _secret_serialization_violations(source: str, *, filename: str) -> list[str]
                         for field in origin_fields(value)
                     }
                     changed = merge_target(node.func.value, mutation_origins) or changed
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "setattr"
+                    and len(node.args) >= 3
+                ):
+                    mutation_origins = {
+                        field
+                        for value in [*node.args[1:], *(keyword.value for keyword in node.keywords)]
+                        for field in origin_fields(value)
+                    }
+                    changed = merge_target(node.args[0], mutation_origins) or changed
+
+        completed_scope_origins[scope] = {
+            name: set(origins) for name, origins in secret_origins.items()
+        }
 
         for node in nodes:
             emitted_expressions: list[ast.expr]
@@ -371,10 +458,15 @@ def _secret_serialization_violations(source: str, *, filename: str) -> list[str]
                     "tuple",
                     "to_jsonable",
                 }:
-                    # A generic call return is an internal delegation, not proof that its
-                    # AuthTokens-valued argument is itself emitted. Reviewed serializers and
-                    # container constructors remain recursively checked above and here.
-                    continue
+                    origins = origin_fields(node.value)
+                    delegation = (
+                        filename,
+                        scope_qualname(scope),
+                        _serializer_name(node.value) or "",
+                    )
+                    if origins and delegation in _REVIEWED_AUTH_TOKEN_RETURN_DELEGATIONS:
+                        used_reviewed_delegations.add(delegation)
+                        continue
                 emitted_expressions = [node.value]
             else:
                 continue
@@ -383,6 +475,20 @@ def _secret_serialization_violations(source: str, *, filename: str) -> list[str]
             }
             if "*" in origins or origins - _AUTH_TOKENS_SAFE_EMITTED_VALUE_FIELDS:
                 violations.append(f"{filename}:{node.lineno}")
+        if isinstance(scope, ast.Lambda):
+            origins = origin_fields(scope.body)
+            if "*" in origins or origins - _AUTH_TOKENS_SAFE_EMITTED_VALUE_FIELDS:
+                violations.append(f"{filename}:{scope.lineno}")
+    expected_reviewed_delegations = {
+        delegation
+        for delegation in _REVIEWED_AUTH_TOKEN_RETURN_DELEGATIONS
+        if delegation[0] == filename
+    }
+    if expected_reviewed_delegations != used_reviewed_delegations:
+        raise ValueError(
+            "stale reviewed AuthTokens return delegations: "
+            f"{sorted(expected_reviewed_delegations - used_reviewed_delegations)}"
+        )
     return sorted(set(violations))
 
 

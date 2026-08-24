@@ -249,6 +249,93 @@ class Result:
         )
 
 
+def test_private_dto_catalog_resolves_decorator_and_type_alias_chains(tmp_path: Path) -> None:
+    _write_adapter_source(
+        tmp_path,
+        "_app/results.py",
+        """
+from dataclasses import dataclass as record
+from typing import TypeAlias
+from notebooklm.types import Public
+
+dto = record
+PublicAlias = Public
+PublicRows: TypeAlias = list[PublicAlias]
+
+@dto
+class Result:
+    direct: PublicAlias
+    rows: PublicRows
+""",
+    )
+
+    rows = discover_private_dataclass_projection_paths(
+        tmp_path,
+        relative_roots=("notebooklm/_app",),
+        public_model_aliases={"notebooklm.types.Public": "notebooklm.types.Public"},
+    )
+    assert [row.to_dict() for row in rows] == [
+        {
+            "private_model": "notebooklm._app.results.Result",
+            "field_path": "direct",
+            "public_model": "notebooklm.types.Public",
+        },
+        {
+            "private_model": "notebooklm._app.results.Result",
+            "field_path": "rows[]",
+            "public_model": "notebooklm.types.Public",
+        },
+    ]
+
+
+def test_private_dto_catalog_rejects_nested_dataclass_aliases(tmp_path: Path) -> None:
+    _write_adapter_source(
+        tmp_path,
+        "_app/results.py",
+        """
+from notebooklm.types import Public
+
+def build():
+    from dataclasses import dataclass as record
+    @record
+    class Result:
+        value: Public
+    return Result
+""",
+    )
+
+    with pytest.raises(ValueError, match="nested dataclasses are unsupported"):
+        discover_private_dataclass_projection_paths(
+            tmp_path,
+            relative_roots=("notebooklm/_app",),
+            public_model_aliases={"notebooklm.types.Public": "notebooklm.types.Public"},
+        )
+
+
+def test_private_dto_catalog_rejects_unresolved_type_aliases(tmp_path: Path) -> None:
+    _write_adapter_source(
+        tmp_path,
+        "_app/results.py",
+        """
+from dataclasses import dataclass
+from typing import TypeAlias
+
+MissingAlias: TypeAlias = MissingType
+
+@dataclass
+class Result:
+    missing: MissingAlias
+""",
+    )
+
+    with pytest.raises(ValueError, match="unresolved annotation name 'MissingType'"):
+        discover_private_dataclass_projection_paths(
+            tmp_path,
+            relative_roots=("notebooklm/_app",),
+            public_model_aliases={"notebooklm.types.Public": "notebooklm.types.Public"},
+        )
+
+
 def test_private_dto_catalog_does_not_import_optional_adapter_modules(tmp_path: Path) -> None:
     _write_adapter_source(
         tmp_path,
@@ -385,6 +472,52 @@ def test_nonpublic_delegated_helper_mutation_changes_reachability_contract(
     assert (
         before["delegated_helper_fingerprints"][symbol]
         != after["delegated_helper_fingerprints"][symbol]
+    )
+
+
+def test_transitive_public_error_helper_mutation_changes_reachability_contract(
+    tmp_path: Path,
+) -> None:
+    known_projection_ids = _allocation_projection_ids()
+    before = reachability.derive_adapter_sink_reachability_contract(
+        _source_root(), known_projection_ids=known_projection_ids
+    )
+    copied_source_root = tmp_path / "src"
+    shutil.copytree(_source_root(), copied_source_root)
+    helper_path = copied_source_root / "notebooklm" / "_app" / "source_add.py"
+    source = helper_path.read_text(encoding="utf-8")
+    old = """    src = await add_source(
+        client.sources,
+        notebook_id=plan.notebook_id,
+        plan=plan.plan,
+    )
+    return SourceAddResult(source=src)
+"""
+    new = """    src = await add_source(
+        client.sources,
+        notebook_id=plan.notebook_id,
+        plan=plan.plan,
+    )
+    if src.status:
+        raise SourceAddValidationError(
+            f"source {src.id} failed with status {src.status}"
+        )
+    return SourceAddResult(source=src)
+"""
+    assert old in source
+    helper_path.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+    after = reachability.derive_adapter_sink_reachability_contract(
+        copied_source_root, known_projection_ids=known_projection_ids
+    )
+    assert before["site_count"] == after["site_count"] == 350
+    assert (
+        before["private_dataclass_projection_paths"] == after["private_dataclass_projection_paths"]
+    )
+    assert before["transitive_helper_graph"]["node_count"] == 519
+    assert (
+        before["transitive_helper_graph"]["aggregate_fingerprint"]
+        != after["transitive_helper_graph"]["aggregate_fingerprint"]
     )
 
 
@@ -581,6 +714,24 @@ registry.mount(child_server)
 """,
             "registry.mount",
         ),
+        (
+            "server/middleware.py",
+            """
+from fastapi import FastAPI
+service = FastAPI()
+service.add_middleware(JsonMiddleware)
+""",
+            "service.add_middleware",
+        ),
+        (
+            "mcp/middleware.py",
+            """
+from fastmcp import FastMCP
+registry = FastMCP()
+registry.add_middleware(JsonResultMiddleware())
+""",
+            "registry.add_middleware",
+        ),
     ],
 )
 def test_unsupported_framework_registration_forms_are_rejected(
@@ -696,6 +847,31 @@ def command(payload):
     encoded = serialize(payload)
     click.echo(encoded)
 """,
+        """
+import json
+import click
+
+def command(payload):
+    encoded = json.JSONEncoder().encode(payload)
+    click.echo(encoded)
+""",
+        """
+import json
+import click
+
+def command(payload):
+    serialize = getattr(json, "dumps")
+    click.echo(serialize(payload))
+""",
+        """
+from json import JSONEncoder as Encoder
+import click
+
+def command(payload):
+    encoder = Encoder()
+    serialize = getattr(encoder, "iterencode")
+    click.echo("".join(serialize(payload)))
+""",
     ],
 )
 def test_cli_json_serialization_cannot_be_separated_from_stdout_sink(
@@ -705,6 +881,54 @@ def test_cli_json_serialization_cannot_be_separated_from_stdout_sink(
 
     with pytest.raises(ValueError, match="notebooklm/cli/example.py"):
         assert_no_unreviewed_cli_json_serialization(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "source", "channel"),
+    [
+        (
+            "server/routes/dotted.py",
+            """
+from fastapi import FastAPI
+holder.api = FastAPI()
+@holder.api.get("/hidden")
+def hidden():
+    return {"visible": True}
+""",
+            "rest response",
+        ),
+        (
+            "server/routes/subscript.py",
+            """
+from fastapi import APIRouter
+holders["router"] = APIRouter()
+@holders["router"].post("/hidden")
+def hidden():
+    return {"visible": True}
+""",
+            "rest response",
+        ),
+        (
+            "mcp/tools/dotted.py",
+            """
+from fastmcp import FastMCP
+holder.server = FastMCP()
+@holder.server.tool
+def hidden():
+    return {"visible": True}
+""",
+            "mcp tool result",
+        ),
+    ],
+)
+def test_dotted_and_subscript_framework_owner_aliases_are_discovered(
+    tmp_path: Path, relative_path: str, source: str, channel: str
+) -> None:
+    _write_adapter_source(tmp_path, relative_path, source)
+
+    assert_supported_adapter_registrations(tmp_path)
+    sinks = discover_adapter_json_sinks(tmp_path)
+    assert [(sink.channel, sink.owner) for sink in sinks] == [(channel, "hidden")]
 
 
 @pytest.mark.parametrize(
@@ -1068,6 +1292,14 @@ def test_checked_in_reachability_allocations_are_exact() -> None:
     )
     assert contract["site_count"] == 350
     assert len(contract["private_dataclass_projection_paths"]) == 36
+    assert contract["transitive_helper_graph"] == {
+        "schema_version": 1,
+        "root_count": 210,
+        "node_count": 519,
+        "edge_count": 1242,
+        "aggregate_fingerprint": contract["transitive_helper_graph"]["aggregate_fingerprint"],
+    }
+    assert str(contract["transitive_helper_graph"]["aggregate_fingerprint"]).startswith("sha256:")
 
 
 def test_mcp_mind_map_union_projections_are_on_value_carrying_branches() -> None:

@@ -883,7 +883,9 @@ P0 operation inventory + ADR
   including 15 non-public variants across 14 mixed sites. Every live projection id has a terminal
   allocation;
   adapter registrations and direct JSON bypasses fail closed. It also pins 36 private DTO -> public
-  dataclass paths and 16 delegated-helper fingerprints. Thirty-four paths link to live projections;
+  dataclass paths, 16 explicit helper fingerprints, and a compact aggregate digest for the bounded
+  519-node / 1,242-edge transitive helper graph (520 unique helpers overall). Thirty-four paths link
+  to live projections;
   `SourceRefreshResult.result` is production-dead and `ValidatedSessionConfig.limits` is confined
   to internal runtime configuration. `AuthTokens` is excluded from the exported/full-key inventory
   and admitted only through the two exact redacted MCP/REST `server_info` contributions described
@@ -1591,7 +1593,9 @@ infrastructure, with 15 conditional non-public variants across 14 mixed terminal
 includes CLI JSON success/error/direct emissions, MCP tool/error funnels and auxiliary connector
 routes, and REST route/app/error sites. Every live projection id is terminal-allocated; a new
 registration or direct JSON bypass fails closed. Thirty-six private DTO -> public dataclass paths
-and 16 delegated-helper fingerprints close the transitive/helper gap; 34 paths are linked, while
+and a compact digest for the 519-node / 1,242-edge bounded transitive helper graph closes the
+helper gap alongside 16 explicit fingerprints (520 unique helpers overall); 34 paths are linked,
+while
 `SourceRefreshResult.result` is mutation-proven production-dead and
 `ValidatedSessionConfig.limits` is source-proven internal-runtime-only. Thirty-seven declarations
 across 28 literal final-dict sites derive their top-level shape from the AST; 168 explicit rows
@@ -1708,8 +1712,9 @@ supplemental. `adapter_sink_reachability` closes the adapter graph over 350 exac
 sites: 225 carry public projections, 117 are reviewed non-public, and eight are forwarding
 infrastructure. Fifteen conditional non-public variants are pinned across 14 mixed sites. All 313
 live ids are allocated. It also records 36 private DTO -> public dataclass paths (34 linked, one
-production-dead public-valued arm, and one internal-runtime-only path) and 16 delegated-helper
-fingerprints. Adapter registrations and direct JSON emissions are fail-closed. `AuthTokens` remains
+production-dead public-valued arm, and one internal-runtime-only path), 16 delegated-helper
+fingerprints, and the aggregate 519-node / 1,242-edge transitive-helper graph digest. Adapter
+registrations and direct JSON emissions are fail-closed. `AuthTokens` remains
 out of the full-key inventory and is reachable only through the exact redacted MCP/REST
 `server_info` identity projections; credential serialization remains forbidden.
 
@@ -1784,7 +1789,7 @@ uv run python scripts/audit_operation_catalog.py --json | uv run python -c \
 # JSON envelope totals: CLI 31 models/133 projections, MCP 32/123, REST 32/57;
 # 313 unique ids. Sink totals: 350 = 225 projection + 117 reviewed non-public
 # + 8 infrastructure; 15 conditional non-public variants, 36 private paths,
-# and 16 delegated-helper fingerprints.
+# 16 explicit helper fingerprints, and a 519-node / 1,242-edge helper-graph digest.
 uv run python - <<'PY'
 import json
 from collections import Counter

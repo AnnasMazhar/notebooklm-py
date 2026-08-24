@@ -16,6 +16,7 @@ from scripts.audit_adapter_json_sinks import (
     discover_adapter_json_sinks,
     fingerprint_adapter_evidence,
     fingerprint_adapter_helpers,
+    fingerprint_adapter_transitive_graph,
 )
 from scripts.audit_adapter_projection_paths import (
     PrivateDataclassProjectionPath,
@@ -372,6 +373,7 @@ def derive_adapter_sink_reachability_contract(
     assert_no_unreviewed_cli_json_serialization(source_root)
     assert_supported_adapter_registrations(source_root)
     discovered = _site_locators(sinks)
+    transitive_helper_graph = fingerprint_adapter_transitive_graph(source_root, sinks)
     reviewed = _load_reviewed_allocations()
     missing = sorted(set(discovered) - set(reviewed))
     stale = sorted(set(reviewed) - set(discovered))
@@ -403,7 +405,10 @@ def derive_adapter_sink_reachability_contract(
         ):
             raise ValueError(f"invalid helper_symbols at adapter sink {locator}")
         resolved_helper_symbols = sorted(
-            {*helper_rows, *_STRUCTURAL_HELPER_SYMBOLS.get(sink.kind, ())}
+            {
+                *helper_rows,
+                *_STRUCTURAL_HELPER_SYMBOLS.get(sink.kind, ()),
+            }
         )
         helper_symbols.update(resolved_helper_symbols)
 
@@ -493,6 +498,7 @@ def derive_adapter_sink_reachability_contract(
         "site_count": len(serialized_sites),
         "sites": serialized_sites,
         "delegated_helper_fingerprints": helper_fingerprints,
+        "transitive_helper_graph": transitive_helper_graph,
         "private_dataclass_projection_paths": private_paths,
     }
 

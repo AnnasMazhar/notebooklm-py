@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import importlib.util
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import asdict, dataclass
@@ -37,6 +38,7 @@ _REST_REGISTRATION_NAMES = frozenset(
         "add_api_route",
         "add_api_websocket_route",
         "add_exception_handler",
+        "add_middleware",
         "add_route",
         "add_websocket_route",
         "exception_handler",
@@ -52,6 +54,7 @@ _MCP_REGISTRATION_NAMES = frozenset(
     {
         *_MCP_SUPPORTED_DECORATORS,
         "add_custom_route",
+        "add_middleware",
         "add_prompt",
         "add_resource",
         "add_tool",
@@ -184,6 +187,27 @@ def _call_owner_name(node: ast.Call) -> str | None:
     return None
 
 
+def _expression_identity(node: ast.expr) -> str | None:
+    """Return a stable identity for name/attribute/subscript owner expressions."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        owner = _expression_identity(node.value)
+        return f"{owner}.{node.attr}" if owner is not None else None
+    if isinstance(node, ast.Subscript):
+        owner = _expression_identity(node.value)
+        if owner is None:
+            return None
+        return f"{owner}[{ast.dump(node.slice, include_attributes=False)}]"
+    return None
+
+
+def _call_owner_identity(node: ast.Call) -> str | None:
+    if isinstance(node.func, ast.Attribute):
+        return _expression_identity(node.func.value)
+    return None
+
+
 def _dotted_name(node: ast.expr) -> str | None:
     if isinstance(node, ast.Name):
         return node.id
@@ -237,8 +261,8 @@ def _decorator_name(node: ast.expr) -> str | None:
 
 def _decorator_owner(node: ast.expr) -> str | None:
     target = node.func if isinstance(node, ast.Call) else node
-    if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
-        return target.value.id
+    if isinstance(target, ast.Attribute):
+        return _expression_identity(target.value)
     return None
 
 
@@ -305,32 +329,37 @@ def _adapter_owner_kinds(tree: ast.Module) -> dict[str, AdapterOwnerKind]:
             annotation_kind = constructors.get(_annotation_leaf_name(node.annotation) or "")
             if annotation_kind is not None:
                 owners[node.arg] = annotation_kind
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        elif isinstance(node, ast.AnnAssign):
             annotation_kind = constructors.get(_annotation_leaf_name(node.annotation) or "")
-            if annotation_kind is not None:
-                owners[node.target.id] = annotation_kind
+            target_identity = _expression_identity(node.target)
+            if annotation_kind is not None and target_identity is not None:
+                owners[target_identity] = annotation_kind
 
     changed = True
     while changed:
         changed = False
         for node in ast.walk(tree):
-            target: ast.Name | None = None
+            target: ast.expr | None = None
             value: ast.expr | None = None
             if isinstance(node, ast.Assign) and len(node.targets) == 1:
-                target = node.targets[0] if isinstance(node.targets[0], ast.Name) else None
+                target = node.targets[0]
                 value = node.value
-            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            elif isinstance(node, ast.AnnAssign):
                 target = node.target
                 value = node.value
             if target is None or value is None:
                 continue
+            target_identity = _expression_identity(target)
+            if target_identity is None:
+                continue
             resolved_kind: AdapterOwnerKind | None = None
-            if isinstance(value, ast.Name):
-                resolved_kind = owners.get(value.id)
+            value_identity = _expression_identity(value)
+            if value_identity is not None:
+                resolved_kind = owners.get(value_identity)
             elif isinstance(value, ast.Call):
                 resolved_kind = constructors.get(_call_name(value) or "")
-            if resolved_kind is not None and owners.get(target.id) != resolved_kind:
-                owners[target.id] = resolved_kind
+            if resolved_kind is not None and owners.get(target_identity) != resolved_kind:
+                owners[target_identity] = resolved_kind
                 changed = True
     return owners
 
@@ -414,6 +443,29 @@ class _FunctionCollector(ast.NodeVisitor):
         self._scope.append(node.name)
         self.generic_visit(node)
         self._scope.pop()
+
+
+class _FunctionCallCollector(ast.NodeVisitor):
+    """Collect calls in one function without attributing nested function bodies."""
+
+    def __init__(self, owner: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        self.owner = owner
+        self.calls: list[ast.Call] = []
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        if node is self.owner:
+            self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        if node is self.owner:
+            self.generic_visit(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        return
+
+    def visit_Call(self, node: ast.Call) -> None:
+        self.calls.append(node)
+        self.generic_visit(node)
 
 
 class _OwnedNodeVisitor(ast.NodeVisitor):
@@ -656,6 +708,21 @@ def _error_extra_expression(node: ast.Call, call_name: str) -> ast.expr | None:
     return None
 
 
+def _static_getattr_name(node: ast.expr, owners: Iterable[str]) -> str | None:
+    if not (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[0], ast.Name)
+        and node.args[0].id in owners
+        and isinstance(node.args[1], ast.Constant)
+        and isinstance(node.args[1].value, str)
+    ):
+        return None
+    return node.args[1].value
+
+
 def _json_import_aliases(
     tree: ast.Module,
 ) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
@@ -696,12 +763,17 @@ def _json_import_aliases(
                 else None
             )
             value_attr = value.attr if isinstance(value, ast.Attribute) else None
+            getattr_name = _static_getattr_name(value, modules)
             destination: set[str] | None = None
             if value_name in modules:
                 destination = modules
             elif value_name in dump or (value_owner in modules and value_attr == "dump"):
                 destination = dump
             elif value_name in dumps or (value_owner in modules and value_attr == "dumps"):
+                destination = dumps
+            elif getattr_name == "dump":
+                destination = dump
+            elif getattr_name == "dumps":
                 destination = dumps
             elif any(
                 isinstance(child, ast.Name)
@@ -729,13 +801,89 @@ def _json_import_aliases(
     return frozenset(modules), frozenset(dump), frozenset(dumps)
 
 
+def _json_encoder_aliases(
+    tree: ast.Module, module_aliases: frozenset[str]
+) -> tuple[frozenset[str], frozenset[str], frozenset[str], frozenset[str]]:
+    classes: set[str] = set()
+    instances: set[str] = set()
+    encode: set[str] = set()
+    iterencode: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == "json":
+            for alias in node.names:
+                if alias.name in {"JSONEncoder", "*"}:
+                    classes.add(alias.asname or "JSONEncoder")
+
+    def encoder_constructor(expression: ast.expr) -> bool:
+        if isinstance(expression, ast.Name):
+            return expression.id in classes
+        if isinstance(expression, ast.Attribute) and isinstance(expression.value, ast.Name):
+            return expression.value.id in module_aliases and expression.attr == "JSONEncoder"
+        return _static_getattr_name(expression, module_aliases) == "JSONEncoder"
+
+    def encoder_instance(expression: ast.expr) -> bool:
+        return (
+            isinstance(expression, ast.Name)
+            and expression.id in instances
+            or isinstance(expression, ast.Call)
+            and encoder_constructor(expression.func)
+        )
+
+    changed = True
+    while changed:
+        changed = False
+        for assignment_node in ast.walk(tree):
+            target: ast.expr | None = None
+            value: ast.expr | None = None
+            if isinstance(assignment_node, ast.Assign) and len(assignment_node.targets) == 1:
+                target = assignment_node.targets[0]
+                value = assignment_node.value
+            elif isinstance(assignment_node, ast.AnnAssign):
+                target = assignment_node.target
+                value = assignment_node.value
+            if not isinstance(target, ast.Name) or value is None:
+                continue
+            destination: set[str] | None = None
+            if encoder_constructor(value) or isinstance(value, ast.Name) and value.id in classes:
+                destination = classes
+            elif (
+                isinstance(value, ast.Call)
+                and encoder_constructor(value.func)
+                or isinstance(value, ast.Name)
+                and value.id in instances
+            ):
+                destination = instances
+            elif isinstance(value, ast.Attribute):
+                if encoder_instance(value.value) and value.attr == "encode":
+                    destination = encode
+                elif encoder_instance(value.value) and value.attr == "iterencode":
+                    destination = iterencode
+            elif _static_getattr_name(value, instances) == "encode":
+                destination = encode
+            elif _static_getattr_name(value, instances) == "iterencode":
+                destination = iterencode
+            if destination is not None and target.id not in destination:
+                destination.add(target.id)
+                changed = True
+    return (
+        frozenset(classes),
+        frozenset(instances),
+        frozenset(encode),
+        frozenset(iterencode),
+    )
+
+
 def _json_serializer_kind(
     node: ast.Call,
     *,
     module_aliases: frozenset[str],
     dump_aliases: frozenset[str],
     dumps_aliases: frozenset[str],
-) -> Literal["dump", "dumps"] | None:
+    encoder_classes: frozenset[str],
+    encoder_instances: frozenset[str],
+    encode_aliases: frozenset[str],
+    iterencode_aliases: frozenset[str],
+) -> Literal["dump", "dumps", "encode", "iterencode"] | None:
     call_name = _call_name(node)
     owner_name = _call_owner_name(node)
     if owner_name in module_aliases and call_name in {"dump", "dumps"}:
@@ -745,6 +893,33 @@ def _json_serializer_kind(
             return "dump"
         if node.func.id in dumps_aliases:
             return "dumps"
+        if node.func.id in encode_aliases:
+            return "encode"
+        if node.func.id in iterencode_aliases:
+            return "iterencode"
+    getattr_name = _static_getattr_name(node.func, module_aliases)
+    if getattr_name in {"dump", "dumps"}:
+        return cast(Literal["dump", "dumps"], getattr_name)
+    if isinstance(node.func, ast.Attribute) and node.func.attr in {"encode", "iterencode"}:
+        owner = node.func.value
+        known_instance = isinstance(owner, ast.Name) and owner.id in encoder_instances
+        immediate_instance = isinstance(owner, ast.Call) and (
+            isinstance(owner.func, ast.Name)
+            and owner.func.id in encoder_classes
+            or isinstance(owner.func, ast.Attribute)
+            and isinstance(owner.func.value, ast.Name)
+            and owner.func.value.id in module_aliases
+            and owner.func.attr == "JSONEncoder"
+            or _static_getattr_name(owner.func, module_aliases) == "JSONEncoder"
+        )
+        if known_instance or immediate_instance:
+            return cast(Literal["encode", "iterencode"], node.func.attr)
+    if isinstance(node.func, ast.Call):
+        owner_getattr = node.func
+        if len(owner_getattr.args) >= 1 and isinstance(owner_getattr.args[0], ast.Name):
+            getattr_name = _static_getattr_name(owner_getattr, encoder_instances)
+            if getattr_name in {"encode", "iterencode"}:
+                return cast(Literal["encode", "iterencode"], getattr_name)
     return None
 
 
@@ -755,12 +930,20 @@ class _QualifiedJsonSerializerCollector(ast.NodeVisitor):
         module_aliases: frozenset[str],
         dump_aliases: frozenset[str],
         dumps_aliases: frozenset[str],
+        encoder_classes: frozenset[str],
+        encoder_instances: frozenset[str],
+        encode_aliases: frozenset[str],
+        iterencode_aliases: frozenset[str],
     ) -> None:
         self.module_aliases = module_aliases
         self.dump_aliases = dump_aliases
         self.dumps_aliases = dumps_aliases
+        self.encoder_classes = encoder_classes
+        self.encoder_instances = encoder_instances
+        self.encode_aliases = encode_aliases
+        self.iterencode_aliases = iterencode_aliases
         self.scope: list[str] = []
-        self.rows: list[tuple[str, Literal["dump", "dumps"], int]] = []
+        self.rows: list[tuple[str, Literal["dump", "dumps", "encode", "iterencode"], int]] = []
 
     def _visit_scope(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> None:
         self.scope.append(node.name)
@@ -777,6 +960,10 @@ class _QualifiedJsonSerializerCollector(ast.NodeVisitor):
             module_aliases=self.module_aliases,
             dump_aliases=self.dump_aliases,
             dumps_aliases=self.dumps_aliases,
+            encoder_classes=self.encoder_classes,
+            encoder_instances=self.encoder_instances,
+            encode_aliases=self.encode_aliases,
+            iterencode_aliases=self.iterencode_aliases,
         )
         if kind is not None:
             self.rows.append((".".join(self.scope) or "<module>", kind, node.lineno))
@@ -790,10 +977,17 @@ def assert_no_unreviewed_cli_json_serialization(source_root: Path) -> None:
     for path in _python_files(source_root / "notebooklm" / "cli"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         module_aliases, dump_aliases, dumps_aliases = _json_import_aliases(tree)
+        encoder_classes, encoder_instances, encode_aliases, iterencode_aliases = (
+            _json_encoder_aliases(tree, module_aliases)
+        )
         collector = _QualifiedJsonSerializerCollector(
             module_aliases=module_aliases,
             dump_aliases=dump_aliases,
             dumps_aliases=dumps_aliases,
+            encoder_classes=encoder_classes,
+            encoder_instances=encoder_instances,
+            encode_aliases=encode_aliases,
+            iterencode_aliases=iterencode_aliases,
         )
         collector.visit(tree)
         relative = _relative_source_path(path, source_root)
@@ -957,6 +1151,250 @@ def discover_adapter_json_sinks(source_root: Path) -> list[AdapterJsonSink]:
     return rows
 
 
+def _source_module(path: Path, source_root: Path) -> tuple[str, str]:
+    relative = path.relative_to(source_root).with_suffix("")
+    parts = list(relative.parts)
+    is_package = parts[-1] == "__init__"
+    if is_package:
+        parts.pop()
+    module = ".".join(parts)
+    package = module if is_package else module.rpartition(".")[0]
+    return module, package
+
+
+def _module_import_bindings(tree: ast.Module, package: str) -> dict[str, str]:
+    bindings: dict[str, str] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                bindings[alias.asname or alias.name.partition(".")[0]] = alias.name
+        elif isinstance(node, ast.ImportFrom):
+            relative = "." * node.level + (node.module or "")
+            try:
+                imported_module = (
+                    importlib.util.resolve_name(relative, package) if node.level else node.module
+                )
+            except (ImportError, ValueError):
+                continue
+            if imported_module is None:
+                continue
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                bindings[alias.asname or alias.name] = f"{imported_module}.{alias.name}"
+    return bindings
+
+
+def _adapter_function_call_graph(
+    source_root: Path,
+) -> tuple[dict[str, set[str]], dict[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
+    """Build a finite static call graph over source-declared in-package functions."""
+    functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+    function_modules: dict[str, tuple[str, str]] = {}
+    module_bindings: dict[str, dict[str, str]] = {}
+    for path in _python_files(source_root / "notebooklm"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        module, package = _source_module(path, source_root)
+        module_bindings[module] = _module_import_bindings(tree, package)
+        collector = _FunctionCollector()
+        collector.visit(tree)
+        for qualname, function in collector.rows:
+            symbol = f"{module}.{qualname}"
+            functions[symbol] = function
+            function_modules[symbol] = (module, qualname)
+
+    def imported_target(candidate: str) -> str | None:
+        seen: set[str] = set()
+        current = candidate
+        while current not in seen:
+            seen.add(current)
+            if current in functions:
+                return current
+            owner, separator, name = current.rpartition(".")
+            if not separator:
+                return None
+            target = module_bindings.get(owner, {}).get(name)
+            if target is None:
+                return None
+            current = target
+        return None
+
+    def lexical_target(module: str, qualname: str, name: str) -> str | None:
+        scope = qualname.split(".")[:-1]
+        for index in range(len(scope), -1, -1):
+            prefix = ".".join(scope[:index])
+            candidate = f"{module}.{prefix + '.' if prefix else ''}{name}"
+            target = imported_target(candidate)
+            if target is not None:
+                return target
+        imported = module_bindings[module].get(name)
+        return imported_target(imported) if imported is not None else None
+
+    def expression_target(
+        expression: ast.expr,
+        *,
+        module: str,
+        qualname: str,
+        local_aliases: Mapping[str, str],
+    ) -> str | None:
+        if isinstance(expression, ast.Name):
+            return local_aliases.get(expression.id) or lexical_target(
+                module, qualname, expression.id
+            )
+        dotted = _dotted_name(expression)
+        if dotted is None:
+            return None
+        head, separator, tail = dotted.partition(".")
+        if head in {"self", "cls"} and separator:
+            scope = qualname.split(".")[:-1]
+            for index in range(len(scope), 0, -1):
+                candidate = f"{module}.{'.'.join(scope[:index])}.{tail}"
+                target = imported_target(candidate)
+                if target is not None:
+                    return target
+        binding = module_bindings[module].get(head)
+        if binding is not None:
+            candidate = f"{binding}.{tail}" if separator else binding
+            return imported_target(candidate)
+        return imported_target(f"{module}.{dotted}")
+
+    graph: dict[str, set[str]] = {symbol: set() for symbol in functions}
+    for symbol, function in functions.items():
+        module, qualname = function_modules[symbol]
+        local_aliases: dict[str, str] = {}
+        changed = True
+        while changed:
+            changed = False
+            for node in ast.walk(function):
+                if not (
+                    isinstance(node, ast.Assign)
+                    and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)
+                ):
+                    continue
+                value = node.value
+                target = expression_target(
+                    value,
+                    module=module,
+                    qualname=qualname,
+                    local_aliases=local_aliases,
+                )
+                if (
+                    target is None
+                    and isinstance(value, ast.Call)
+                    and _call_name(value) == "partial"
+                    and value.args
+                ):
+                    target = expression_target(
+                        value.args[0],
+                        module=module,
+                        qualname=qualname,
+                        local_aliases=local_aliases,
+                    )
+                alias_name = node.targets[0].id
+                if target is not None and local_aliases.get(alias_name) != target:
+                    local_aliases[alias_name] = target
+                    changed = True
+
+        calls = _FunctionCallCollector(function)
+        calls.visit(function)
+        for call in calls.calls:
+            target = expression_target(
+                call.func,
+                module=module,
+                qualname=qualname,
+                local_aliases=local_aliases,
+            )
+            if target is not None and target != symbol:
+                graph[symbol].add(target)
+        nested_prefix = f"{symbol}."
+        graph[symbol].update(
+            candidate
+            for candidate in functions
+            if candidate.startswith(nested_prefix)
+            and "." not in candidate.removeprefix(nested_prefix)
+        )
+    return graph, functions
+
+
+def discover_adapter_transitive_helpers(
+    source_root: Path, sinks: Iterable[AdapterJsonSink]
+) -> dict[tuple[str, str], tuple[str, ...]]:
+    """Return the closed finite in-package helper graph reachable from each sink owner."""
+    graph, functions = _adapter_function_call_graph(source_root)
+    rows: dict[tuple[str, str], tuple[str, ...]] = {}
+    for sink in sinks:
+        key = (sink.path, sink.owner)
+        if key in rows:
+            continue
+        path = source_root / sink.path
+        module, _package = _source_module(path, source_root)
+        owner_symbol = f"{module}.{sink.owner}"
+        if owner_symbol not in functions:
+            raise ValueError(f"unresolved adapter sink owner function: {owner_symbol}")
+        pending = list(graph[owner_symbol])
+        reachable: set[str] = set()
+        while pending:
+            symbol = pending.pop()
+            if symbol == owner_symbol or symbol in reachable:
+                continue
+            reachable.add(symbol)
+            pending.extend(graph[symbol] - reachable)
+        rows[key] = tuple(sorted(reachable))
+    return rows
+
+
+def fingerprint_adapter_transitive_graph(
+    source_root: Path, sinks: Iterable[AdapterJsonSink]
+) -> dict[str, object]:
+    """Summarize the exact reachable helper graph without serializing every node."""
+    sink_rows = list(sinks)
+    graph, functions = _adapter_function_call_graph(source_root)
+    roots: dict[tuple[str, str], str] = {}
+    reachable_helpers: set[str] = set()
+    for sink in sink_rows:
+        key = (sink.path, sink.owner)
+        if key in roots:
+            continue
+        module, _package = _source_module(source_root / sink.path, source_root)
+        owner_symbol = f"{module}.{sink.owner}"
+        if owner_symbol not in functions:
+            raise ValueError(f"unresolved adapter sink owner function: {owner_symbol}")
+        roots[key] = owner_symbol
+        pending = list(graph[owner_symbol])
+        while pending:
+            symbol = pending.pop()
+            if symbol == owner_symbol or symbol in reachable_helpers:
+                continue
+            reachable_helpers.add(symbol)
+            pending.extend(graph[symbol] - reachable_helpers)
+
+    graph_sources = set(roots.values()) | reachable_helpers
+    edges = {
+        (source, target)
+        for source in graph_sources
+        for target in graph[source]
+        if target in reachable_helpers
+    }
+    node_fingerprints = tuple(
+        (symbol, _fingerprint(functions[symbol])) for symbol in sorted(reachable_helpers)
+    )
+    payload = repr(
+        (
+            tuple(sorted((path, owner, symbol) for (path, owner), symbol in roots.items())),
+            tuple(sorted(edges)),
+            node_fingerprints,
+        )
+    ).encode("utf-8")
+    return {
+        "schema_version": 1,
+        "root_count": len(roots),
+        "node_count": len(reachable_helpers),
+        "edge_count": len(edges),
+        "aggregate_fingerprint": f"sha256:{hashlib.sha256(payload).hexdigest()}",
+    }
+
+
 def fingerprint_adapter_helpers(source_root: Path, helper_symbols: Iterable[str]) -> dict[str, str]:
     """Fingerprint explicitly delegated helper functions by qualified symbol."""
     requested = set(helper_symbols)
@@ -1068,13 +1506,15 @@ def assert_supported_adapter_registrations(source_root: Path) -> None:
             owner_kinds = _adapter_owner_kinds(tree)
             relative = _relative_source_path(path, source_root)
             for assignment in (node for node in ast.walk(tree) if isinstance(node, ast.Assign)):
-                if not isinstance(assignment.value, ast.Attribute) or not isinstance(
-                    assignment.value.value, ast.Name
-                ):
+                if not isinstance(assignment.value, ast.Attribute):
                     continue
-                bound_owner = assignment.value.value.id
+                bound_owner = _expression_identity(assignment.value.value)
                 bound_name = assignment.value.attr
-                if owner_kinds.get(bound_owner) == owner_kind and bound_name in registration_names:
+                if (
+                    bound_owner is not None
+                    and owner_kinds.get(bound_owner) == owner_kind
+                    and bound_name in registration_names
+                ):
                     violations.append(
                         f"{relative}:{assignment.lineno}:{bound_owner}.{bound_name}-alias"
                     )
@@ -1093,14 +1533,13 @@ def assert_supported_adapter_registrations(source_root: Path) -> None:
                 for decorator in function.decorator_list:
                     if isinstance(decorator, ast.Call):
                         continue
-                    if not isinstance(decorator, ast.Attribute) or not isinstance(
-                        decorator.value, ast.Name
-                    ):
+                    if not isinstance(decorator, ast.Attribute):
                         continue
-                    decorator_owner = decorator.value.id
+                    decorator_owner = _expression_identity(decorator.value)
                     decorator_name = decorator.attr
                     if (
-                        owner_kinds.get(decorator_owner) == owner_kind
+                        decorator_owner is not None
+                        and owner_kinds.get(decorator_owner) == owner_kind
                         and decorator_name in registration_names
                     ):
                         if owner_kind == "mcp" and decorator_name in _MCP_SUPPORTED_DECORATORS:
@@ -1111,7 +1550,7 @@ def assert_supported_adapter_registrations(source_root: Path) -> None:
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
-                owner_name = _call_owner_name(node)
+                owner_name = _call_owner_identity(node)
                 call_name = _call_name(node)
                 if (
                     owner_name is None
@@ -1262,7 +1701,9 @@ __all__ = [
     "assert_no_unreviewed_cli_json_serialization",
     "assert_no_unreviewed_direct_json_emissions",
     "assert_supported_adapter_registrations",
+    "discover_adapter_transitive_helpers",
     "discover_adapter_json_sinks",
     "fingerprint_adapter_evidence",
     "fingerprint_adapter_helpers",
+    "fingerprint_adapter_transitive_graph",
 ]

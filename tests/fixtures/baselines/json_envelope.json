@@ -7107,7 +7107,14 @@
         "resolved_helper_symbols": [],
         "site_role": "projection"
       }
-    ]
+    ],
+    "transitive_helper_graph": {
+      "aggregate_fingerprint": "sha256:ae5fe3cd9fa6e736b04df4200fadfbaff95bf324163d44190f93b55fba1308dd",
+      "edge_count": 1242,
+      "node_count": 519,
+      "root_count": 210,
+      "schema_version": 1
+    }
   },
   "channels": {
     "cli --json": {

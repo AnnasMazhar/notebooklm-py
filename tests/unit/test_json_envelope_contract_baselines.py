@@ -1760,6 +1760,47 @@ def leak(tokens: AuthTokens):
         "assigned.py:9"
     ]
 
+    generic_return_source = """
+from notebooklm.auth import AuthTokens
+
+def identity(value):
+    return value
+
+def leak(tokens: AuthTokens):
+    return identity(tokens.cookies)
+"""
+    assert _secret_serialization_violations(
+        generic_return_source, filename="generic-return.py"
+    ) == ["generic-return.py:8"]
+
+    closure_source = """
+from notebooklm.auth import AuthTokens
+
+def register(tokens: AuthTokens):
+    def handler():
+        return {"renamed": tokens.cookies}
+    return handler
+"""
+    assert _secret_serialization_violations(closure_source, filename="closure.py") == [
+        "closure.py:6"
+    ]
+
+    mutator_source = """
+from notebooklm.auth import AuthTokens
+
+def leak(tokens: AuthTokens):
+    first = {}
+    first.setdefault("renamed", tokens.cookies)
+    second = {}
+    second.__setitem__("renamed", tokens.csrf_token)
+    holder = object()
+    setattr(holder, "renamed", tokens.session_id)
+    return {"first": first, "second": second, "holder": holder.renamed}
+"""
+    assert _secret_serialization_violations(mutator_source, filename="mutators.py") == [
+        "mutators.py:11"
+    ]
+
 
 def test_json_envelope_rejects_invalid_model_contribution_keys() -> None:
     from notebooklm.types import Artifact
