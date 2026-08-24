@@ -17,6 +17,7 @@ from notebooklm._backend import (
     BackendKind,
     UnsupportedOperationError,
 )
+from notebooklm._backend_compat import project_backend_error
 from notebooklm._deadline import RuntimeDeadline
 from notebooklm._notebook_payloads import (
     build_create_notebook_params,
@@ -41,6 +42,8 @@ from notebooklm._records import (
     NotebookListResult,
     NotebookUpdateInput,
     SourceAddCommitState,
+    SourceAddFailureKind,
+    SourceAddFailureRecord,
     SourceAddTitleState,
     SourceAddUrlInput,
     SourceAddUrlReceipt,
@@ -58,7 +61,9 @@ from notebooklm.exceptions import (
     AuthError,
     ClientError,
     DecodingError,
+    IdempotencyVariantError,
     NetworkError,
+    NotebookLMError,
     RateLimitError,
     RPCError,
     RPCResponseTooLargeError,
@@ -517,6 +522,7 @@ async def test_url_handler_fails_closed_when_reconciliation_is_ambiguous_or_unan
         )
 
     assert caught.value.outcome_unknown is True
+    assert caught.value.reason is BackendErrorReason.SOURCE_ADD
     assert caught.value.diagnostics is not None
     assert caught.value.diagnostics["receipt"] == SourceAddUrlReceipt(
         SourceAddCommitState.UNKNOWN,
@@ -551,6 +557,32 @@ async def test_url_handler_title_failure_is_best_effort_and_never_reposts() -> N
         RPCMethod.ADD_SOURCE,
         RPCMethod.UPDATE_SOURCE,
     ]
+
+
+@pytest.mark.asyncio
+async def test_notebook_create_marks_neutral_probe_failure_unconfirmed() -> None:
+    probe_error = BackendError(
+        "probe deadline",
+        operation=Operation.NOTEBOOK_CREATE,
+        reason=BackendErrorReason.TIMEOUT,
+        diagnostics={"timeout_seconds": 3.0},
+    )
+    executor = _RecordingExecutor(
+        [],
+        ServerError("create response lost", status_code=502),
+        probe_error,
+    )
+
+    with pytest.raises(BackendError) as caught:
+        await _backend(executor).invoke(
+            NOTEBOOK_CREATE_DEF,
+            NotebookCreateInput("Daily News"),
+            deadline=None,
+        )
+
+    assert caught.value is not probe_error
+    assert caught.value.reason is BackendErrorReason.TIMEOUT
+    assert caught.value.outcome_unknown is True
 
 
 @pytest.mark.asyncio
@@ -604,7 +636,11 @@ async def test_expired_deadline_fails_before_executor() -> None:
 
     assert caught.value.operation is Operation.NOTEBOOK_LIST
     assert caught.value.reason is BackendErrorReason.TIMEOUT
-    assert caught.value.diagnostics == {"timeout": 2.0, "remaining": 0.0}
+    assert caught.value.diagnostics == {
+        "timeout": 2.0,
+        "remaining": 0.0,
+        "timeout_seconds": 2.0,
+    }
     assert executor.calls == []
 
 
@@ -630,12 +666,17 @@ async def test_rpc_error_is_translated_with_scrubbed_diagnostics() -> None:
     assert caught.value.operation is Operation.NOTEBOOK_LIST
     assert caught.value.outcome_unknown is False
     assert caught.value.reason is BackendErrorReason.RPC
-    assert caught.value.diagnostics == {
+    assert caught.value.diagnostics is not None
+    assert {
+        name: caught.value.diagnostics[name]
+        for name in ("method_id", "rpc_code", "found_ids", "raw_response")
+    } == {
         "method_id": RPCMethod.LIST_NOTEBOOKS.value,
         "rpc_code": 13,
         "found_ids": ["other"],
         "raw_response": "already-scrubbed",
     }
+    assert caught.value.diagnostics["public_error_failure"].kind is SourceAddFailureKind.RPC
     assert caught.value.diagnostics["found_ids"] is error.found_ids
     assert isinstance(caught.value.diagnostics["found_ids"], list)
 
@@ -712,6 +753,7 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
         BackendErrorReason.AUTH,
         BackendErrorReason.CLIENT,
         BackendErrorReason.DECODING,
+        BackendErrorReason.IDEMPOTENCY_VARIANT,
         BackendErrorReason.NETWORK,
         BackendErrorReason.NOTEBOOK_LIMIT,
         BackendErrorReason.NOTEBOOK_NOT_FOUND,
@@ -719,6 +761,7 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
         BackendErrorReason.RESPONSE_TOO_LARGE,
         BackendErrorReason.RPC,
         BackendErrorReason.SERVER,
+        BackendErrorReason.SOURCE_ADD,
         BackendErrorReason.TIMEOUT,
         BackendErrorReason.UNKNOWN_RPC_METHOD,
     }
@@ -726,6 +769,28 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
     assert {
         name: translated.diagnostics[name] for name in specific_diagnostics
     } == specific_diagnostics
+    assert isinstance(translated.diagnostics["public_error_failure"], SourceAddFailureRecord)
+
+
+@pytest.mark.asyncio
+async def test_reviewed_idempotency_variant_error_round_trips_as_typed_caller_error() -> None:
+    executor = _RecordingExecutor(IdempotencyVariantError("unknown variant"))
+
+    with pytest.raises(BackendError) as caught:
+        await _backend(executor).invoke(NOTEBOOK_LIST_DEF, NotebookListInput(), deadline=None)
+
+    assert caught.value.reason is BackendErrorReason.IDEMPOTENCY_VARIANT
+    projected = project_backend_error(caught.value)
+    assert type(projected) is IdempotencyVariantError
+    assert str(projected) == "unknown variant"
+
+
+@pytest.mark.asyncio
+async def test_unreviewed_non_rpc_library_error_remains_a_closed_contract_failure() -> None:
+    executor = _RecordingExecutor(NotebookLMError("unreviewed semantic error"))
+
+    with pytest.raises(BackendContractError, match="unclassified web error type"):
+        await _backend(executor).invoke(NOTEBOOK_LIST_DEF, NotebookListInput(), deadline=None)
 
 
 def test_unreviewed_rpc_error_subclass_fails_closed() -> None:
@@ -757,13 +822,20 @@ async def test_nonexpired_transport_timeout_remains_a_typed_backend_timeout() ->
     assert type(caught.value) is BackendError
     assert caught.value.reason is BackendErrorReason.TIMEOUT
     assert caught.value.__cause__ is timeout
-    assert caught.value.diagnostics == {
+    assert caught.value.diagnostics is not None
+    assert {
+        name: caught.value.diagnostics[name]
+        for name in ("method_id", "rpc_code", "found_ids", "raw_response", "timeout_seconds")
+    } == {
         "method_id": RPCMethod.LIST_NOTEBOOKS.value,
         "rpc_code": None,
         "found_ids": None,
         "raw_response": None,
         "timeout_seconds": 3.0,
     }
+    assert caught.value.diagnostics["public_error_failure"].kind is (
+        SourceAddFailureKind.RPC_TIMEOUT
+    )
 
 
 @pytest.mark.asyncio

@@ -13,7 +13,7 @@ This suite pins:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from types import MappingProxyType
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -57,6 +57,10 @@ from notebooklm._records import (
     SourceRecord,
 )
 from notebooklm._web.backend import WebRpcBackend
+from notebooklm._web.policy import (
+    WEB_CALL_POLICY_BINDINGS,
+    audit_web_call_policy_bindings,
+)
 from notebooklm._web.registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 from notebooklm.exceptions import (
     ArtifactError,
@@ -118,12 +122,12 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
     """Every migrated operation definition carries its canonical CallPolicy."""
     expected_migrated: dict[OperationDef[Any, Any], tuple[Operation, CallPolicy]] = {
         NOTEBOOK_LIST_DEF: (Operation.NOTEBOOK_LIST, CallPolicy.READ),
-        NOTEBOOK_GET_DEF: (Operation.NOTEBOOK_GET, CallPolicy.READ),
+        NOTEBOOK_GET_DEF: (Operation.NOTEBOOK_GET, CallPolicy.MUTATION),
         NOTEBOOK_CREATE_DEF: (Operation.NOTEBOOK_CREATE, CallPolicy.MUTATION),
         NOTEBOOK_UPDATE_DEF: (Operation.NOTEBOOK_UPDATE, CallPolicy.MUTATION),
         NOTEBOOK_DELETE_DEF: (Operation.NOTEBOOK_DELETE, CallPolicy.MUTATION),
-        SOURCE_LIST_DEF: (Operation.SOURCE_LIST, CallPolicy.READ),
-        SOURCE_GET_DEF: (Operation.SOURCE_GET, CallPolicy.READ),
+        SOURCE_LIST_DEF: (Operation.SOURCE_LIST, CallPolicy.MUTATION),
+        SOURCE_GET_DEF: (Operation.SOURCE_GET, CallPolicy.MUTATION),
         SOURCE_ADD_URL_DEF: (Operation.SOURCE_ADD_URL, CallPolicy.MUTATION),
     }
 
@@ -152,8 +156,16 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         ),
         (
             NOTEBOOK_CREATE_DEF,
-            [(RPCMethod.CREATE_NOTEBOOK, None)],
-            [IdempotencyPolicy.PROBE_THEN_CREATE],
+            [
+                (RPCMethod.LIST_NOTEBOOKS, None),
+                (RPCMethod.CREATE_NOTEBOOK, None),
+                (RPCMethod.GET_USER_SETTINGS, None),
+            ],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.PROBE_THEN_CREATE,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
         ),
         (
             NOTEBOOK_UPDATE_DEF,
@@ -178,13 +190,13 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         (
             SOURCE_ADD_URL_DEF,
             [
-                (RPCMethod.ADD_SOURCE, "url"),
                 (RPCMethod.GET_NOTEBOOK, None),
+                (RPCMethod.ADD_SOURCE, "url"),
                 (RPCMethod.UPDATE_SOURCE, None),
             ],
             [
-                IdempotencyPolicy.PROBE_THEN_CREATE,
                 IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.PROBE_THEN_CREATE,
                 IdempotencyPolicy.IDEMPOTENT_SET_OP,
             ],
         ),
@@ -201,11 +213,44 @@ def test_migrated_operation_defs_match_web_binding_and_native_idempotency(
     assert binding.definition == operation_def
     assert binding.handler_name is not None
 
+    policy_binding = WEB_CALL_POLICY_BINDINGS[operation_def.key]
+    assert policy_binding.policy is operation_def.policy
+    assert [(item.method, item.variant) for item in policy_binding.native_bindings] == (
+        expected_native_rpcs
+    )
+    assert [item.expected_policy for item in policy_binding.native_bindings] == (
+        expected_idempotency_policies
+    )
     for (rpc_method, variant), expected_policy in zip(
         expected_native_rpcs, expected_idempotency_policies, strict=True
     ):
         entry = IDEMPOTENCY_REGISTRY.get_entry(rpc_method, operation_variant=variant)
         assert entry.policy is expected_policy
+
+
+def test_active_policy_binding_audit_fails_closed_on_semantic_or_native_drift() -> None:
+    definitions = {
+        operation: binding.definition
+        for operation, binding in WEB_OPERATION_REGISTRY.items()
+        if binding.is_supported and binding.definition is not None
+    }
+    assert audit_web_call_policy_bindings(definitions) == ()
+
+    notebook_get = WEB_CALL_POLICY_BINDINGS[Operation.NOTEBOOK_GET]
+    drifted = dict(WEB_CALL_POLICY_BINDINGS)
+    drifted[Operation.NOTEBOOK_GET] = replace(
+        notebook_get,
+        policy=CallPolicy.READ,
+        native_bindings=(
+            replace(
+                notebook_get.native_bindings[0],
+                expected_policy=IdempotencyPolicy.PROBE_THEN_CREATE,
+            ),
+        ),
+    )
+    errors = audit_web_call_policy_bindings(definitions, bindings=drifted)
+    assert any("semantic policy" in error for error in errors)
+    assert any("idempotency is" in error for error in errors)
 
 
 def test_call_policy_does_not_control_transport_retries() -> None:
@@ -339,7 +384,6 @@ def test_unacknowledged_divergence_fails_catalog_audit(monkeypatch: pytest.Monke
     assert described_divergences != set(mutated_kinds)
 
 
-
 # =============================================================================
 # 3. RuntimeDeadline Identity, No Nested Reset, and Shared-Poll Exception
 # =============================================================================
@@ -464,6 +508,9 @@ async def test_web_rpc_backend_rejects_expired_deadline_immediately() -> None:
     assert exc_info.value.diagnostics is not None
     assert exc_info.value.diagnostics["timeout"] == 10.0
     assert exc_info.value.diagnostics["remaining"] == 0.0
+    projected = project_backend_error(exc_info.value)
+    assert type(projected) is RPCTimeoutError
+    assert projected.timeout_seconds == 10.0
     executor.rpc_call.assert_not_awaited()
 
 
@@ -475,6 +522,7 @@ async def test_shared_poll_follower_exception_is_preserved() -> None:
     own deadline, while followers await the shared future. A follower timeout or cancellation
     does not cancel or reset the leader's poll task.
     """
+
     class DummyLoopGuard:
         def assert_bound_loop(self) -> None:
             pass

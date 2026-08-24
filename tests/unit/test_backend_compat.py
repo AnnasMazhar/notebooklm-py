@@ -13,6 +13,7 @@ from notebooklm._backend import (
 )
 from notebooklm._backend_compat import project_backend_error
 from notebooklm._operations import Operation
+from notebooklm._records import SourceAddFailureKind, SourceAddFailureRecord
 from notebooklm._web.backend import WebRpcBackend
 from notebooklm.exceptions import (
     AuthError,
@@ -218,6 +219,30 @@ def test_unknown_mutation_outcome_marker_survives_public_reconstruction() -> Non
     )
 
     assert isinstance(projected, NetworkError)
+    assert getattr(projected, "unconfirmed", False) is True
+
+
+def test_url_source_failure_uses_closed_reason_and_generic_projector() -> None:
+    projected = project_backend_error(
+        BackendError(
+            "response lost",
+            operation=Operation.SOURCE_ADD_URL,
+            reason=BackendErrorReason.SOURCE_ADD,
+            diagnostics={
+                "source_add_failure": SourceAddFailureRecord(
+                    SourceAddFailureKind.RPC,
+                    "response lost",
+                    method_id="add-source",
+                    rpc_code=14,
+                )
+            },
+            outcome_unknown=True,
+        )
+    )
+
+    assert type(projected) is RPCError
+    assert projected.method_id == "add-source"
+    assert projected.rpc_code == 14
     assert getattr(projected, "unconfirmed", False) is True
 
 

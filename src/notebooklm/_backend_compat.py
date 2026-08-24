@@ -13,6 +13,7 @@ from .exceptions import (
     AuthError,
     ClientError,
     DecodingError,
+    IdempotencyVariantError,
     NetworkError,
     NotebookLimitError,
     NotebookNotFoundError,
@@ -30,6 +31,44 @@ from .exceptions import (
 
 
 def _preserve_outcome(error: BackendError, projected: Exception) -> Exception:
+    diagnostics = error.diagnostics or {}
+    public_failure = diagnostics.get("public_error_failure")
+    if public_failure is not None:
+        if not isinstance(public_failure, SourceAddFailureRecord):
+            raise BackendContractError(
+                "backend compatibility public-error evidence has invalid type",
+                operation=error.operation,
+            )
+        reason = error.reason
+        expected_kind = (
+            {
+                BackendErrorReason.AUTH: SourceAddFailureKind.AUTH,
+                BackendErrorReason.CLIENT: SourceAddFailureKind.CLIENT,
+                BackendErrorReason.DECODING: SourceAddFailureKind.DECODING,
+                BackendErrorReason.NETWORK: SourceAddFailureKind.NETWORK,
+                BackendErrorReason.RATE_LIMIT: SourceAddFailureKind.RATE_LIMIT,
+                BackendErrorReason.RESPONSE_TOO_LARGE: SourceAddFailureKind.RESPONSE_TOO_LARGE,
+                BackendErrorReason.RPC: SourceAddFailureKind.RPC,
+                BackendErrorReason.SERVER: SourceAddFailureKind.SERVER,
+                BackendErrorReason.TIMEOUT: SourceAddFailureKind.RPC_TIMEOUT,
+                BackendErrorReason.UNKNOWN_RPC_METHOD: SourceAddFailureKind.UNKNOWN_RPC_METHOD,
+            }.get(reason)
+            if reason is not None
+            else None
+        )
+        if public_failure.kind is not expected_kind:
+            raise BackendContractError(
+                "backend compatibility public-error evidence disagrees with its reason",
+                operation=error.operation,
+            )
+        replayed = _project_source_add_record(public_failure)
+        if isinstance(projected, (NetworkError, RPCTimeoutError)) and isinstance(
+            replayed, (NetworkError, RPCTimeoutError)
+        ):
+            projected.original_error = replayed.original_error
+        projected.__cause__ = replayed.__cause__
+        projected.__context__ = replayed.__context__
+        projected.__suppress_context__ = replayed.__suppress_context__
     if error.outcome_unknown:
         projected.unconfirmed = True  # type: ignore[attr-defined]
     return projected
@@ -106,6 +145,18 @@ def project_backend_error(error: BackendError) -> Exception:
             operation=error.operation,
         )
     diagnostics = _diagnostics(error)
+
+    if reason is BackendErrorReason.SOURCE_ADD:
+        record = diagnostics.get("source_add_failure")
+        if not isinstance(record, SourceAddFailureRecord):
+            raise BackendContractError(
+                "source.add_url backend failure lacks SourceAddFailureRecord",
+                operation=error.operation,
+            )
+        return _preserve_outcome(error, _project_source_add_record(record))
+
+    if reason is BackendErrorReason.IDEMPOTENCY_VARIANT:
+        return _preserve_outcome(error, IdempotencyVariantError(error.message))
 
     if reason is BackendErrorReason.NETWORK:
         return _preserve_outcome(
@@ -439,15 +490,13 @@ def _project_source_add_record(record: SourceAddFailureRecord) -> Exception:
 
 
 def project_source_add_error(error: BackendError) -> Exception:
-    """Reconstruct a bounded URL-source public failure outside the catch frame."""
-    diagnostics = _diagnostics(error)
-    record = diagnostics.get("source_add_failure")
-    if not isinstance(record, SourceAddFailureRecord):
+    """Compatibility alias for the closed generic backend-error projector."""
+    if error.reason is not BackendErrorReason.SOURCE_ADD:
         raise BackendContractError(
-            "source.add_url backend failure lacks SourceAddFailureRecord",
+            "source-add projector requires BackendErrorReason.SOURCE_ADD",
             operation=error.operation,
         )
-    return _project_source_add_record(record)
+    return project_backend_error(error)
 
 
 __all__ = ["project_backend_error", "project_source_add_error"]

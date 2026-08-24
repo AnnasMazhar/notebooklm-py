@@ -95,14 +95,34 @@ def test_read_slice_records_are_frozen_slotted_values_with_typed_definitions() -
         notebook.__setattr__("title", "changed")
 
     definitions = {
-        NOTEBOOK_LIST_DEF: (Operation.NOTEBOOK_LIST, NotebookListInput, NotebookListResult),
-        NOTEBOOK_GET_DEF: (Operation.NOTEBOOK_GET, NotebookGetInput, NotebookGetResult),
-        SOURCE_LIST_DEF: (Operation.SOURCE_LIST, SourceListInput, SourceListResult),
-        SOURCE_GET_DEF: (Operation.SOURCE_GET, SourceGetInput, SourceGetResult),
+        NOTEBOOK_LIST_DEF: (
+            Operation.NOTEBOOK_LIST,
+            CallPolicy.READ,
+            NotebookListInput,
+            NotebookListResult,
+        ),
+        NOTEBOOK_GET_DEF: (
+            Operation.NOTEBOOK_GET,
+            CallPolicy.MUTATION,
+            NotebookGetInput,
+            NotebookGetResult,
+        ),
+        SOURCE_LIST_DEF: (
+            Operation.SOURCE_LIST,
+            CallPolicy.MUTATION,
+            SourceListInput,
+            SourceListResult,
+        ),
+        SOURCE_GET_DEF: (
+            Operation.SOURCE_GET,
+            CallPolicy.MUTATION,
+            SourceGetInput,
+            SourceGetResult,
+        ),
     }
-    for definition, (key, input_type, output_type) in definitions.items():
+    for definition, (key, policy, input_type, output_type) in definitions.items():
         assert definition.key is key
-        assert definition.policy is CallPolicy.READ
+        assert definition.policy is policy
         assert definition.input_type is input_type
         assert definition.output_type is output_type
 

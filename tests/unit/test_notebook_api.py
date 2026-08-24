@@ -442,8 +442,8 @@ async def test_create_baseline_failure_makes_a_match_ambiguous(
     # The message names what broke the baseline — otherwise nothing reaching the
     # caller can explain why the snapshot was unavailable.
     assert type(baseline_failure).__name__ in str(raised.value)
-    # The public boundary reconstructs exceptions from neutral backend evidence;
-    # exception identity and ``__context__`` deliberately do not cross it.
+    # The public boundary reconstructs exceptions from bounded neutral evidence;
+    # object identity does not cross it, while the reviewed cause/context graph does.
     # The action survives the 300-char truncation the MCP/REST surfaces apply.
     assert "check your notebook list before retrying" in str(raised.value)[:300].lower()
     # An ambiguity IS an unconfirmed create (#2220): nothing threw inside the
@@ -732,7 +732,10 @@ class TestCreateNotebookQuotaDetection:
         _assert_equivalent_rpc_error(exc_info.value, original)
 
     @pytest.mark.asyncio
-    async def test_account_limit_failure_preserves_original_create_error_without_listing(self):
+    async def test_account_limit_failure_preserves_original_create_error_without_listing(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ):
         original = _create_invalid_argument_error()
         rpc_call = _create_rpc(
             create_error=original,
@@ -741,7 +744,10 @@ class TestCreateNotebookQuotaDetection:
         )
         api = _make_api(rpc_call=rpc_call)
 
-        with pytest.raises(RPCError) as exc_info:
+        with (
+            caplog.at_level(logging.DEBUG, logger="notebooklm._notebooks"),
+            pytest.raises(RPCError) as exc_info,
+        ):
             await api.create("Settings Fails")
 
         _assert_equivalent_rpc_error(exc_info.value, original)
@@ -750,6 +756,10 @@ class TestCreateNotebookQuotaDetection:
         assert [item.args[0] for item in rpc_call.await_args_list].count(
             RPCMethod.LIST_NOTEBOOKS
         ) == 1
+        record = next(
+            item for item in caplog.records if "Could not fetch account limits" in item.message
+        )
+        assert record.exc_info is not None
 
     @pytest.mark.asyncio
     async def test_account_limit_rpc_error_preserves_original_create_error_without_listing(self):
@@ -790,7 +800,10 @@ class TestCreateNotebookQuotaDetection:
         ) == 1
 
     @pytest.mark.asyncio
-    async def test_list_failure_preserves_original_create_error(self):
+    async def test_list_failure_preserves_original_create_error(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ):
         original = _create_invalid_argument_error()
         rpc_call = _create_rpc(
             create_error=original,
@@ -799,10 +812,15 @@ class TestCreateNotebookQuotaDetection:
         )
         api = _make_api(rpc_call=rpc_call)
 
-        with pytest.raises(RPCError) as exc_info:
+        with (
+            caplog.at_level(logging.DEBUG, logger="notebooklm._notebooks"),
+            pytest.raises(RPCError) as exc_info,
+        ):
             await api.create("List Fails")
 
         _assert_equivalent_rpc_error(exc_info.value, original)
+        record = next(item for item in caplog.records if "Could not list notebooks" in item.message)
+        assert record.exc_info is not None
 
     @pytest.mark.asyncio
     async def test_list_parse_bug_preserves_original_create_error(self):

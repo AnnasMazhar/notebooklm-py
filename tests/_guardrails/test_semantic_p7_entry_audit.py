@@ -21,6 +21,9 @@ from typing import Any
 
 import pytest
 
+from notebooklm._operations import Operation
+from notebooklm._web.registry import WEB_SUPPORTED_OPERATIONS
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src" / "notebooklm"
 TESTS_ROOT = REPO_ROOT / "tests"
@@ -30,6 +33,22 @@ pytestmark = pytest.mark.repo_lint
 
 # Maximum allowed legacy_exception catalog rows per ADR-0035 / Plan line 1385.
 MAX_ALLOWED_LEGACY_EXCEPTIONS = 5
+
+# P4's exact active semantic surface is a P7 input.  New migrations must update
+# this baseline rather than silently changing which operations the future
+# runtime collapse has to preserve.
+KNOWN_ACTIVE_SEMANTIC_OPERATIONS: frozenset[Operation] = frozenset(
+    {
+        Operation.NOTEBOOK_LIST,
+        Operation.NOTEBOOK_GET,
+        Operation.NOTEBOOK_CREATE,
+        Operation.NOTEBOOK_UPDATE,
+        Operation.NOTEBOOK_DELETE,
+        Operation.SOURCE_LIST,
+        Operation.SOURCE_GET,
+        Operation.SOURCE_ADD_URL,
+    }
+)
 
 # Exact inventory of classes/functions in src/notebooklm/ taking RpcCaller.
 # These represent the remaining semantic services/facades that must migrate in P2-P6
@@ -105,6 +124,7 @@ class P7EntryReport:
     error_injection_blocked: bool
     chain_composed_test_files: list[str]
     chain_host_test_files: list[str]
+    active_semantic_operations: list[str]
     blockers: list[str]
 
 
@@ -202,6 +222,13 @@ def evaluate_p7_entry_readiness(
 
     blockers: list[str] = []
 
+    active_operation_drift = set(WEB_SUPPORTED_OPERATIONS) ^ set(KNOWN_ACTIVE_SEMANTIC_OPERATIONS)
+    if active_operation_drift:
+        blockers.append(
+            "active semantic operation baseline drifted: "
+            + ", ".join(sorted(operation.value for operation in active_operation_drift))
+        )
+
     if rpc_consumers:
         blockers.append(
             f"{len(rpc_consumers)} semantic-service call sites still consume RpcCaller directly"
@@ -241,6 +268,9 @@ def evaluate_p7_entry_readiness(
         error_injection_blocked=ei_blocked,
         chain_composed_test_files=sorted(composed_tests),
         chain_host_test_files=sorted(chain_host_tests),
+        active_semantic_operations=sorted(
+            operation.value for operation in WEB_SUPPORTED_OPERATIONS
+        ),
         blockers=blockers,
     )
 
@@ -278,6 +308,11 @@ def test_rpccaller_consumer_inventory_is_exact_and_fails_closed() -> None:
         "Migrated RpcCaller consumers must be removed from KNOWN_RPC_CALLER_CONSUMERS:\n  "
         + "\n  ".join(f"{p}:{fn}({arg})" for p, fn, arg in sorted(removed))
     )
+
+
+def test_active_semantic_operation_inventory_is_exact_for_p7() -> None:
+    """P7's runtime-collapse input is the exact P4-supported operation set."""
+    assert WEB_SUPPORTED_OPERATIONS == KNOWN_ACTIVE_SEMANTIC_OPERATIONS
 
 
 def test_legacy_exception_policy_and_ceiling() -> None:
