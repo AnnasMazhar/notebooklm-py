@@ -242,9 +242,13 @@ def _capture_public_failure(
         ConnectionRefusedError: SourceAddFailureKind.BUILTIN_CONNECTION_REFUSED,
         ConnectionResetError: SourceAddFailureKind.BUILTIN_CONNECTION_RESET,
         OSError: SourceAddFailureKind.BUILTIN_OS,
+        IndexError: SourceAddFailureKind.BUILTIN_INDEX,
+        KeyError: SourceAddFailureKind.BUILTIN_KEY,
         RuntimeError: SourceAddFailureKind.BUILTIN_RUNTIME,
         TimeoutError: SourceAddFailureKind.BUILTIN_TIMEOUT,
+        TypeError: SourceAddFailureKind.BUILTIN_TYPE,
         ValueError: SourceAddFailureKind.BUILTIN_VALUE,
+        httpx.HTTPStatusError: SourceAddFailureKind.HTTPX_STATUS,
         httpx.RequestError: SourceAddFailureKind.HTTPX_REQUEST,
         httpx.TransportError: SourceAddFailureKind.HTTPX_TRANSPORT,
         httpx.TimeoutException: SourceAddFailureKind.HTTPX_TIMEOUT,
@@ -317,7 +321,7 @@ def _capture_public_failure(
     if data_at_failure is not None and not isinstance(data_at_failure, str):
         data_at_failure = repr(data_at_failure)
     request: httpx.Request | None = None
-    if isinstance(exc, httpx.RequestError):
+    if isinstance(exc, (httpx.HTTPStatusError, httpx.RequestError)):
         try:
             request = exc.request
         except RuntimeError:
@@ -342,7 +346,7 @@ def _capture_public_failure(
         status_code=(
             getattr(exc, "status_code", None)
             if isinstance(exc, (ClientError, ServerError))
-            else None
+            else (exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None)
         ),
         timeout_seconds=(exc.timeout_seconds if isinstance(exc, RPCTimeoutError) else None),
         limit_bytes=(exc.limit_bytes if isinstance(exc, RPCResponseTooLargeError) else None),

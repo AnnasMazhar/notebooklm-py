@@ -483,6 +483,22 @@ def _project_source_add_record(record: SourceAddFailureRecord) -> Exception:
             rpc_code=record.rpc_code,
         )
     else:
+        status_projected: Exception | None
+        if kind is SourceAddFailureKind.HTTPX_STATUS:
+            if (
+                record.request_method is None
+                or record.request_url is None
+                or record.status_code is None
+            ):
+                raise BackendContractError("httpx status failure has incomplete response evidence")
+            status_request = httpx.Request(record.request_method, record.request_url)
+            status_projected = httpx.HTTPStatusError(
+                record.message,
+                request=status_request,
+                response=httpx.Response(record.status_code, request=status_request),
+            )
+        else:
+            status_projected = None
         httpx_types: dict[SourceAddFailureKind, type[httpx.RequestError]] = {
             SourceAddFailureKind.HTTPX_REQUEST: httpx.RequestError,
             SourceAddFailureKind.HTTPX_TRANSPORT: httpx.TransportError,
@@ -505,7 +521,9 @@ def _project_source_add_record(record: SourceAddFailureRecord) -> Exception:
             SourceAddFailureKind.HTTPX_DECODING: httpx.DecodingError,
         }
         httpx_type = httpx_types.get(kind)
-        if httpx_type is not None:
+        if status_projected is not None:
+            projected = status_projected
+        elif httpx_type is not None:
             if (record.request_method is None) != (record.request_url is None):
                 raise BackendContractError("httpx failure has incomplete request evidence")
             request = (
@@ -522,8 +540,11 @@ def _project_source_add_record(record: SourceAddFailureRecord) -> Exception:
                 SourceAddFailureKind.BUILTIN_CONNECTION_REFUSED: ConnectionRefusedError,
                 SourceAddFailureKind.BUILTIN_CONNECTION_RESET: ConnectionResetError,
                 SourceAddFailureKind.BUILTIN_OS: OSError,
+                SourceAddFailureKind.BUILTIN_INDEX: IndexError,
+                SourceAddFailureKind.BUILTIN_KEY: KeyError,
                 SourceAddFailureKind.BUILTIN_RUNTIME: RuntimeError,
                 SourceAddFailureKind.BUILTIN_TIMEOUT: TimeoutError,
+                SourceAddFailureKind.BUILTIN_TYPE: TypeError,
                 SourceAddFailureKind.BUILTIN_VALUE: ValueError,
             }
             builtin = builtin_types.get(kind)

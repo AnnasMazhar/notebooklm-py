@@ -1034,6 +1034,62 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
     assert isinstance(translated.diagnostics["public_error_failure"], SourceAddFailureRecord)
 
 
+def test_translated_server_error_preserves_http_status_cause() -> None:
+    request = httpx.Request(
+        "POST", "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute"
+    )
+    response = httpx.Response(503, request=request)
+    cause = httpx.HTTPStatusError("service unavailable", request=request, response=response)
+    error = ServerError(
+        "server",
+        status_code=503,
+        method_id=RPCMethod.LIST_NOTEBOOKS.value,
+    )
+    error.__cause__ = cause
+    error.__context__ = cause
+    error.__suppress_context__ = True
+
+    translated = WebRpcBackend._translate_error(Operation.NOTEBOOK_LIST, error)
+    projected = project_backend_error(translated)
+
+    assert isinstance(projected, ServerError)
+    assert isinstance(projected.__cause__, httpx.HTTPStatusError)
+    assert projected.__context__ is projected.__cause__
+    assert projected.__cause__.response.status_code == 503
+    assert projected.__cause__.request.method == "POST"
+    assert str(projected.__cause__.request.url) == str(request.url)
+    assert projected.__suppress_context__ is True
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [
+        IndexError("row index"),
+        KeyError("field"),
+        TypeError("not indexable"),
+    ],
+)
+def test_translated_decode_drift_preserves_reviewed_builtin_cause(cause: Exception) -> None:
+    error = UnknownRPCMethodError(
+        "shape drift",
+        method_id=RPCMethod.GET_NOTEBOOK.value,
+        path=(0, 2),
+        source="test",
+    )
+    error.__cause__ = cause
+    error.__context__ = cause
+    error.__suppress_context__ = True
+
+    translated = WebRpcBackend._translate_error(Operation.NOTEBOOK_GET, error)
+    projected = project_backend_error(translated)
+
+    assert isinstance(projected, UnknownRPCMethodError)
+    assert type(projected.__cause__) is type(cause)
+    assert projected.__cause__.args == cause.args
+    assert projected.__context__ is projected.__cause__
+    assert projected.__suppress_context__ is True
+
+
 @pytest.mark.asyncio
 async def test_reviewed_idempotency_variant_error_round_trips_as_typed_caller_error() -> None:
     executor = _RecordingExecutor(IdempotencyVariantError("unknown variant"))
