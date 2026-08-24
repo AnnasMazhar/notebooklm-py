@@ -35,15 +35,7 @@ from __future__ import annotations
 import time
 
 from .._rpc_semaphore import RpcSemaphore
-from .context import RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS
 from .core import NextCall, RpcRequest, RpcResponse
-
-# ``RpcRequest.context`` key used to communicate the per-call queue-wait
-# duration from this middleware up to ``RuntimeTransport.perform_authed_post``
-# (which forwards it to ``ClientMetrics.record_rpc_queue_wait``). Kept as a
-# compatibility alias for older internal imports; new code should use the
-# centralized ``RPC_CONTEXT_*`` vocabulary from ``_middleware.context``.
-RPC_QUEUE_WAIT_CONTEXT_KEY = RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS
 
 
 class SemaphoreMiddleware:
@@ -58,9 +50,9 @@ class SemaphoreMiddleware:
     - ``rpc_semaphore``: focused owner of the lazy, loop-bound RPC gate. Its
       context is entered once around ``next_call`` for each logical request.
 
-    Side effect: writes the per-call queue-wait duration to
-    ``request.context[RPC_QUEUE_WAIT_CONTEXT_KEY]`` so the host can forward
-    it to ``ClientMetrics.record_rpc_queue_wait`` without giving the
+    Side effect: records the per-call queue-wait duration on the request's
+    typed state so the host can forward it to ``ClientMetrics.record_rpc_queue_wait``
+    without giving the
     middleware a direct ``ClientMetrics`` reference (keeps the middleware
     opinion-free about metric naming).
     """
@@ -80,22 +72,16 @@ class SemaphoreMiddleware:
         queue_wait_recorded = False
         try:
             async with self._rpc_semaphore.get():
-                request.context[RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS] = (
-                    time.perf_counter() - queue_wait_start
-                )
+                request.state.record_queue_wait(time.perf_counter() - queue_wait_start)
                 queue_wait_recorded = True
                 return await next_call(request)
         finally:
             # Cancellation or a loop-affinity failure can abort acquisition.
             # Preserve the queue-wait observation for the outer metrics layer.
             if not queue_wait_recorded:
-                request.context[RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS] = (
-                    time.perf_counter() - queue_wait_start
-                )
+                request.state.record_queue_wait(time.perf_counter() - queue_wait_start)
 
 
 __all__ = [
-    "RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS",
-    "RPC_QUEUE_WAIT_CONTEXT_KEY",
     "SemaphoreMiddleware",
 ]

@@ -20,7 +20,7 @@ from . import (
 from .auth_refresh import AuthRefreshMiddleware
 from .chain import MiddlewareChainBuilder
 from .chain_host import MiddlewareChainHost
-from .context import RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS, RpcCallState
+from .context import RpcCallState
 from .core import (
     Middleware,
     NextCall,
@@ -32,7 +32,7 @@ from .core import (
 from .drain import DrainMiddleware
 from .metrics import MetricsMiddleware
 from .retry import RetryMiddleware
-from .semaphore import RPC_QUEUE_WAIT_CONTEXT_KEY, SemaphoreMiddleware
+from .semaphore import SemaphoreMiddleware
 from .tracing import TracingMiddleware
 
 __all__ = [
@@ -49,7 +49,6 @@ __all__ = [
     "AuthRefreshMiddleware",
     "MiddlewareChainBuilder",
     "MiddlewareChainHost",
-    "RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS",
     "RpcCallState",
     "Middleware",
     "NextCall",
@@ -60,7 +59,6 @@ __all__ = [
     "DrainMiddleware",
     "MetricsMiddleware",
     "RetryMiddleware",
-    "RPC_QUEUE_WAIT_CONTEXT_KEY",
     "SemaphoreMiddleware",
     "TracingMiddleware",
 ]

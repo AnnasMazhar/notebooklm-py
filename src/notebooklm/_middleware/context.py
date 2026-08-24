@@ -3,18 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 from .._request_types import AuthSnapshot, BuildRequest
 
 if TYPE_CHECKING:
     from .._auth_refresh_retry import RefreshBudget
     from .._deadline import RuntimeDeadline
-
-
-# Temporary compatibility key for SemaphoreMiddleware. The producer is owned
-# by the adjacent P7 runtime stream; all consumers use ``RpcCallState``.
-RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS: Final = "rpc_queue_wait_seconds"
 
 
 @dataclass(slots=True)
@@ -133,4 +128,4 @@ class RpcCallState:
         self._progress.response_error_type = type(exc).__qualname__
 
 
-__all__ = ["RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS", "RpcCallState"]
+__all__ = ["RpcCallState"]

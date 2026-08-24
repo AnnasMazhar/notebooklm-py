@@ -33,25 +33,11 @@ from typing import Protocol
 import httpx
 
 from .._request_types import AuthSnapshot, BuildRequest, materialize_build_request
-from .context import RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS, RpcCallState
+from .context import RpcCallState
 
 # ---------------------------------------------------------------------------
 # Chain envelope types.
 # ---------------------------------------------------------------------------
-
-
-class _QueueWaitContext:
-    """Narrow compatibility bridge until the semaphore producer migrates."""
-
-    __slots__ = ("_state",)
-
-    def __init__(self, state: RpcCallState) -> None:
-        self._state = state
-
-    def __setitem__(self, key: str, value: float) -> None:
-        if key != RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS:
-            raise KeyError(f"unsupported request context key: {key!r}")
-        self._state.record_queue_wait(value)
 
 
 @dataclass(frozen=True)
@@ -95,17 +81,6 @@ class RpcRequest:
 
     state: RpcCallState = field(default_factory=RpcCallState)
     """Closed typed state for this logical call."""
-
-    @property
-    def context(self) -> _QueueWaitContext:
-        """Temporary queue-wait producer bridge for SemaphoreMiddleware.
-
-        The producer is owned by the adjacent P7 stream. This object accepts
-        only the one historical queue-wait write and cannot carry arbitrary
-        metadata; all consumers use :attr:`state`.
-        """
-        return _QueueWaitContext(self.state)
-
 
 @dataclass(frozen=True)
 class RpcResponse:

@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from notebooklm._middleware.auth_refresh import AuthRefreshMiddleware
-from notebooklm._middleware.context import RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS
 from notebooklm._middleware.drain import DrainMiddleware
 from notebooklm._middleware.metrics import MetricsMiddleware
 from notebooklm._middleware.retry import RetryMiddleware
@@ -61,7 +60,8 @@ async def test_semaphore_records_queue_wait_when_inner_call_fails() -> None:
     with pytest.raises(RuntimeError, match="inner failed"):
         await middleware(request, inner)
 
-    assert request.context[RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS] >= 0.0
+    assert request.state.queue_wait_seconds is not None
+    assert request.state.queue_wait_seconds >= 0.0
     inner.assert_awaited_once_with(request)
 
 
@@ -78,5 +78,6 @@ async def test_semaphore_records_queue_wait_when_acquisition_fails() -> None:
     with pytest.raises(RuntimeError, match="acquisition failed"):
         await middleware(request, inner)
 
-    assert request.context[RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS] >= 0.0
+    assert request.state.queue_wait_seconds is not None
+    assert request.state.queue_wait_seconds >= 0.0
     inner.assert_not_awaited()
