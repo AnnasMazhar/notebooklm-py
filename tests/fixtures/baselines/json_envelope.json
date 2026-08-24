@@ -11088,7 +11088,7 @@
             "evidence_shape_fingerprints": {
               "notebooklm/_auth/account_email.py:def _session_key": "sha256:4a8c584cfbe8e0317591941b563ff5930e6e3a927fa870a3e26dfcddb84516cc",
               "notebooklm/_auth/account_email.py:storage_path = auth.storage_path": "sha256:2f14eca1db9edefb384b09c6484fdb775cb6d43718acc949ee68eababbd32b48",
-              "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth": "sha256:dbac29745a01c8a15c6a2504241272f1c08a6534ef3b70cb9f7b1f3c296e75e4",
+              "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth": "sha256:fb86dcf1c8f20d952e49c3a16a2c0cac792242b4f967562441af9772a641e75c",
               "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser": "sha256:a26b114eb717b50883330be98192b0a051aad0bda61bd543b3a75fbb789a0c1b",
               "notebooklm/client.py:return self._provider.get_account_authuser()": "sha256:56aa85d73e113eeee6d211a2aa3979fffaa44af7479b16a555b614bf8cff78a8",
               "notebooklm/mcp/tools/meta.py:async def _account_block": "sha256:3ee79936cfbe3f25dad89886211ed825803961d40d03d9dba2e7e273c2953513",
@@ -14663,7 +14663,7 @@
             "evidence_shape_fingerprints": {
               "notebooklm/_auth/account_email.py:def _session_key": "sha256:4a8c584cfbe8e0317591941b563ff5930e6e3a927fa870a3e26dfcddb84516cc",
               "notebooklm/_auth/account_email.py:storage_path = auth.storage_path": "sha256:2f14eca1db9edefb384b09c6484fdb775cb6d43718acc949ee68eababbd32b48",
-              "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth": "sha256:dbac29745a01c8a15c6a2504241272f1c08a6534ef3b70cb9f7b1f3c296e75e4",
+              "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth": "sha256:fb86dcf1c8f20d952e49c3a16a2c0cac792242b4f967562441af9772a641e75c",
               "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser": "sha256:a26b114eb717b50883330be98192b0a051aad0bda61bd543b3a75fbb789a0c1b",
               "notebooklm/client.py:return self._provider.get_account_authuser()": "sha256:56aa85d73e113eeee6d211a2aa3979fffaa44af7479b16a555b614bf8cff78a8",
               "notebooklm/server/routes/meta.py:async def _account_block": "sha256:3af98592b3247210845fc5b8a68458e68b4ea0d0a1ebf74b93354137fd99c29b",

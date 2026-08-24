@@ -631,9 +631,9 @@ async def test_bound_loop_get_returns_running_loop_after_open() -> None:
 def test_bound_loop_mismatch_via_session_raises_runtime_error() -> None:
     """Cross-loop reuse of a single NotebookLMClient raises cleanly.
 
-    The ``RuntimeError`` appears on the second loop's first authed POST. The
-    test runs two separate ``asyncio.run`` invocations to materialise two
-    distinct loops.
+    The private backend session now rejects the second loop while client entry
+    verifies its already-open session.  The test runs two separate
+    ``asyncio.run`` invocations to materialise two distinct loops.
     """
 
     auth = AuthTokens(csrf_token="CSRF", session_id="SID", cookies={"SID": "v1"})
@@ -647,32 +647,17 @@ def test_bound_loop_mismatch_via_session_raises_runtime_error() -> None:
         # _bound_loop is set from a different loop and a request is attempted
         # without an intervening close().
 
-    def _build_request_stub(snapshot: Any) -> tuple[httpx.Request, Any]:
-        return (
-            httpx.Request(
-                "POST",
-                "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute",
-            ),
-            None,
-        )
-
-    async def _attempt_post_on_loop_b() -> Exception | None:
-        # ``open()`` is idempotent — since loop A left ``_http_client``
-        # populated, this is a no-op and ``_bound_loop`` stays bound to loop A.
-        await core.__aenter__()
+    async def _attempt_enter_on_loop_b() -> Exception | None:
         try:
-            await core._backend._runtime._transport.perform_authed_post(
-                build_request=_build_request_stub,
-                log_label="test.cross_loop",
-            )
+            await core.__aenter__()
         except RuntimeError as exc:
             return exc
         return None
 
     asyncio.run(_open_on_loop_a())
-    exc = asyncio.run(_attempt_post_on_loop_b())
+    exc = asyncio.run(_attempt_enter_on_loop_b())
     assert isinstance(exc, RuntimeError), (
-        f"Cross-loop authed POST must raise RuntimeError; got {exc!r}"
+        f"Cross-loop client entry must raise RuntimeError; got {exc!r}"
     )
     # The guard's message mentions the loop affinity invariant — match a
     # stable substring rather than the exact phrasing.

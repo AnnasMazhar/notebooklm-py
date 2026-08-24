@@ -476,7 +476,7 @@ async def test_auth_refresh_coordinator_single_flight() -> None:
 
 
 def test_adr0016_auth_instance_invariant_is_provider_owned() -> None:
-    """The provider owns the auth alias; upload receives only its generation port."""
+    """The provider owns auth; upload receives its reconciled direct-leg port."""
     auth = _make_auth()
     client = NotebookLMClient(auth)
 
@@ -486,7 +486,10 @@ def test_adr0016_auth_instance_invariant_is_provider_owned() -> None:
     generation_provider = client._source_uploader._generation_provider
     assert generation_provider is not None
     assert getattr(generation_provider, "__self__", None) is client._provider
-    assert getattr(generation_provider, "__func__", None) is type(client._provider).generation
+    assert (
+        getattr(generation_provider, "__func__", None)
+        is type(client._provider).reconciled_generation
+    )
 
     # ADR-0016's in-place identity remains exact at the public/provider owner;
     # the uploader cannot observe the mutable AuthTokens capability directly.
