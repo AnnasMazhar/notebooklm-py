@@ -28,7 +28,6 @@ from notebooklm.exceptions import (  # noqa: E402 - after importorskip guard
     SourceNotFoundError,
     SourceProcessingError,
     SourceTimeoutError,
-    ValidationError,
 )
 from notebooklm.mcp._errors import tool_error_payload  # noqa: E402 - after importorskip guard
 from notebooklm.mcp.tools._content_sanity import (  # noqa: E402 - after importorskip guard
@@ -906,9 +905,7 @@ async def test_source_delete_bulk_comma_string_parsed_like_source_wait(
     mock_client.sources.delete.assert_not_called()
 
 
-async def test_source_delete_bulk_confirm_returns_per_id_buckets(
-    mcp_call, mock_client
-) -> None:
+async def test_source_delete_bulk_confirm_returns_per_id_buckets(mcp_call, mock_client) -> None:
     """Mixed outcome (success + RPC error + not-found) lands each id in
     exactly ONE bucket — partial failures must NOT discard successes."""
     mock_client.sources.list = AsyncMock(
@@ -952,9 +949,7 @@ async def test_source_delete_bulk_all_sources_when_neither_source_nor_sources(
         ]
     )
     mock_client.sources.delete = AsyncMock(return_value=None)
-    result = await mcp_call(
-        "source_delete", {"notebook": NB_ID, "confirm": True}
-    )
+    result = await mcp_call("source_delete", {"notebook": NB_ID, "confirm": True})
     sc = result.structured_content
     assert sc["status"] == "deleted"
     assert sc["total_count"] == 2
@@ -984,9 +979,7 @@ async def test_source_delete_bulk_empty_sources_rejected(mcp_call, mock_client) 
     """An explicit empty ``sources=[]`` must NOT be coerced to "delete every
     source" — that path needs an explicit "no arg" call, matching source_wait."""
     with pytest.raises(ToolError) as ei:
-        await mcp_call(
-            "source_delete", {"notebook": NB_ID, "sources": []}
-        )
+        await mcp_call("source_delete", {"notebook": NB_ID, "sources": []})
     assert "empty" in str(ei.value).lower()
     mock_client.sources.list.assert_not_called()
 
@@ -1000,9 +993,7 @@ async def test_source_delete_bulk_over_cap_rejected_before_resolution(
 
     over_cap_ids = [f"fake-{i:04d}" for i in range(MAX_WAIT_SOURCE_IDS + 1)]
     with pytest.raises(ToolError) as ei:
-        await mcp_call(
-            "source_delete", {"notebook": NB_ID, "sources": over_cap_ids}
-        )
+        await mcp_call("source_delete", {"notebook": NB_ID, "sources": over_cap_ids})
     assert str(MAX_WAIT_SOURCE_IDS) in str(ei.value)
     mock_client.sources.list.assert_not_called()
 
