@@ -91,10 +91,10 @@ def test_scope_duplicate_self_and_scc_rules(audit, tmp_path):
 def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
-        "modules": 41,
-        "total_lines": 16174,
-        "unique_edges": 142,
-        "module_edges": 130,
+        "modules": 43,
+        "total_lines": 16319,
+        "unique_edges": 147,
+        "module_edges": 135,
         "function_local_edges": 12,
     }
     assert result["sccs"] == {
@@ -220,6 +220,7 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("psidts_recovery", "profile_store", "module"),
         ("storage", "profile_store", "module"),
         ("tokens", "profile_store", "module"),
+        ("web_provider_storage", "profile_store", "module"),
     }
     assert {edge for edge in edges if "master_token_bootstrap" in edge[:2]} == {
         ("master_token", "master_token_bootstrap", "module"),
@@ -255,6 +256,15 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("tokens", "psidts_recovery", "module"),
         ("tokens", "refresh", "module"),
         ("tokens", "storage", "module"),
+        ("web_provider_refresh", "tokens", "module"),
+        ("web_provider_storage", "tokens", "module"),
+    }
+    assert {edge for edge in edges if "web_provider_" in edge[0]} == {
+        ("web_provider_refresh", "session", "module"),
+        ("web_provider_refresh", "tokens", "module"),
+        ("web_provider_storage", "cookie_types", "module"),
+        ("web_provider_storage", "profile_store", "module"),
+        ("web_provider_storage", "tokens", "module"),
     }
     assert {edge for edge in edges if "recovery" in edge[:2]} == {
         ("recovery", "cookie_types", "module"),

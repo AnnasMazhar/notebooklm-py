@@ -116,8 +116,9 @@ the active bindings: whole-workflow `CallPolicy` values, exact native idempotenc
 caller-owned absolute deadline identity, and closed public-error projection are audited together
 without moving retry authority out of the native registry. Future operation migrations must extend
 that same ledger; P5.1 through P5.8, P6.1–P6.7, and the final P7 notebook/share entry slice extend
-it to all 82 active handlers. P0–P7 are complete; P8 remains the approved cookie-provider
-extraction. P9 public-surface work and a mobile backend require separate decisions.
+it to all 82 active handlers. P0–P8 are complete. P8 places an immutable
+`WebCookieGeneration`/`WebCookieProvider` port between the web session and the existing auth
+owners; P9 public-surface work and a mobile backend require separate decisions.
 
 The operation-catalog audit classifies only the shared generic web RPC forwarder as inert. The four
 notebook/source read handlers, three notebook-mutation handlers, URL-source composite, two Studio
@@ -514,17 +515,24 @@ behaviorless name.
 
 ```text
 NotebookLMClient
-  | owns feature facades + one _backend reference
+  | owns feature facades + one _backend + one _provider reference
+  |                    |
+  |                    -> RuntimeWebCookieProvider
+  |                       -> provider Kernel + ClientLifecycle
+  |                       -> existing auth storage/refresh/recovery/persistence owners
+  |                       -> immutable WebCookieGeneration
   v
-WebRpcBackend
-  | owns AuthTokens, WebExecutionRuntime, lifecycle, drain, metrics,
-  | auth coordinator, request-id counter, RPC semaphore, RuntimeTransport,
-  | Kernel, CookiePersistence, and the internal MiddlewareChainHost
+WebRpcBackend (receives the provider port, never profile storage)
+  | owns WebExecutionRuntime, WebCookieSession, drain, metrics,
+  | request-id counter, RPC semaphore, RuntimeTransport,
+  | and the internal MiddlewareChainHost
+  | -> WebBackendSession -> a distinct private backend Kernel
   v
 WebExecutionRuntime.rpc_call
   -> RuntimeTransport.perform_authed_post
+  -> provider.generation -> backend Kernel.install_generation (private clone)
   -> Drain -> Metrics -> Semaphore -> Retry -> AuthRefresh -> Tracing
-  -> RuntimeTransport.terminal -> Kernel.post -> httpx
+  -> RuntimeTransport.terminal -> backend Kernel.post -> httpx
 ```
 
 `compose_client_internals()` creates every leaf in dependency order and returns a frozen
@@ -535,26 +543,30 @@ post-construction mutation replacement.
 
 | Collaborator | Module | Responsibility |
 |--------------|--------|----------------|
-| `NotebookLMClient` | [`client.py`](../src/notebooklm/client.py) | Public shell. Owns `_backend`, constructor-only seams, and the eleven feature facade attributes. `auth`, `__aenter__`, `close`, `drain`, `is_connected`, `metrics_snapshot`, raw `rpc_call`, refresh, and account metadata delegate to backend-owned leaves. It does not retain auth/protocol/runtime duplicates. |
-| `WebRpcBackend` | [`_web/backend.py`](../src/notebooklm/_web/backend.py) | One web semantic backend and owner of the client runtime leaves. Owns typed operation dispatch plus the public raw-RPC/auth/lifecycle/metrics/account delegates; it does not retain a `ClientInternals` receipt, chain builder, or middleware list. |
-| `WebExecutionRuntime` | [`_web/runtime.py`](../src/notebooklm/_web/runtime.py) | Sole logical batchexecute encode/dispatch/decode authority. Owns request-id/started-metric bracketing, idempotency lookup, method-ID resolution, encoding, decode/error mapping, and decoded-auth retry. |
+| `NotebookLMClient` | [`client.py`](../src/notebooklm/client.py) | Public shell. Owns `_backend`, `_provider`, constructor-only seams, and the eleven feature facade attributes. Auth, refresh, and account methods delegate to the provider; lifecycle, metrics, and raw RPC delegate to the backend. It retains no credential implementation or protocol-runtime duplicate. |
+| `WebCookieGeneration` / `WebCookieProvider` | [`_web_cookie_provider.py`](../src/notebooklm/_web_cookie_provider.py) | Frozen cookie/token/account-route value and the narrow provider port. The value copies its immutable `CookieJar` and redacts every credential field from repr; the port exposes whole generation/refresh/account/lifecycle transactions, never profile paths, lock primitives, or browser drivers. |
+| `RuntimeWebCookieProvider` | [`_runtime/web_cookie_provider.py`](../src/notebooklm/_runtime/web_cookie_provider.py) | Concrete compatibility adapter and generation authority. It owns the existing acquisition `Kernel`/`ClientLifecycle`, refresh coordinator, persistence, and typed load-time baseline; serializes whole refresh transactions; publishes immutable success epochs; and reconciles only a generation-matching detached backend jar before persistence. Policy-keyed identity tasks survive an individual waiter cancellation; close cancels live probes before the credential lock while preserving offline post-close lookup. It neither reads profile files nor implements recovery rungs. |
+| `WebCookieSession` / `WebBackendSession` | [`_web_cookie_provider.py`](../src/notebooklm/_web_cookie_provider.py), [`_runtime/web_backend_session.py`](../src/notebooklm/_runtime/web_backend_session.py) | Narrow private-session port and concrete backend-session owner. The session clones a provider generation into a second `Kernel`, exposes only a redacted detached value for reconciliation, and closes without acquiring or persisting credentials. Provider and backend jars never alias. |
+| `WebRpcBackend` | [`_web/backend.py`](../src/notebooklm/_web/backend.py) | One web semantic backend. Owns typed operation dispatch plus raw-RPC/session/metrics delegates; it receives `WebCookieProvider` and `WebCookieSession` as ports and closes the provider only when construction explicitly transferred ownership. It does not import or retain auth tokens, auth coordination, persistence, acquisition lifecycle, profile storage, recovery, a `ClientInternals` receipt, chain builder, or middleware list. |
+| `WebExecutionRuntime` | [`_web/runtime.py`](../src/notebooklm/_web/runtime.py) | Sole logical batchexecute encode/dispatch/decode authority. Owns request-id/started-metric bracketing, idempotency lookup, method-ID resolution, encoding, decode/error mapping, and decoded-auth retry through narrow injected callables. Credential-to-wire materialization is delegated to `_web_request_auth.py`. |
 | `RpcExecutor` | [`_rpc_executor.py`](../src/notebooklm/_rpc_executor.py) | Behaviorless compatibility subclass of `WebExecutionRuntime` for retained private/raw construction imports; it owns no method implementation. |
-| `RuntimeTransport` | [`_runtime/transport.py`](../src/notebooklm/_runtime/transport.py) | Authed POST collaborator. Owns loop guard, auth snapshot/materialization, ordered chain dispatch, queue-wait recording, final freshness rebuild, and the `Kernel.post` terminal. |
+| `RuntimeTransport` | [`_runtime/transport.py`](../src/notebooklm/_runtime/transport.py) | Authed POST collaborator. Owns loop guard, immutable generation materialization, ordered chain dispatch, queue-wait recording, final freshness rebuild, synchronous private-session generation install, and the `Kernel.post` terminal. |
 | `RpcCallState` | [`_middleware/context.py`](../src/notebooklm/_middleware/context.py) | Frozen typed call configuration plus a bounded progress record shared by exact identity across retries. Replaces the deleted mutable string-key context protocol. |
 | `MiddlewareChainHost` | [`_middleware/chain_host.py`](../src/notebooklm/_middleware/chain_host.py) | Internal backend-owned leaf containing the wired chain, terminal delegate, and immutable-at-public-boundary retry configuration. No public/client mutation seam remains. |
-| `AuthRefreshCoordinator` | [`_runtime/auth.py`](../src/notebooklm/_runtime/auth.py) | Owns the auth-snapshot lock and refresh task. Canonical implementation for `AuthRefreshCoordinator.snapshot(auth=...)`, `update_auth_tokens(auth=..., csrf=..., session_id=...)`, and `update_auth_headers(auth=..., kernel=...)`; callers pass explicit collaborators rather than a host object. |
-| `ClientLifecycle` | [`_runtime/lifecycle.py`](../src/notebooklm/_runtime/lifecycle.py) | HTTP-client open/close, keepalive, loop binding/reopen reset, and typed-versus-legacy cookie-save routing. |
+| `AuthRefreshCoordinator` | [`_runtime/auth.py`](../src/notebooklm/_runtime/auth.py) | Provider-side owner of the auth-snapshot lock and established refresh task. Token/profile installs serialize against its lock; the provider's transaction lock publishes the resulting cookie/token/route value as one immutable epoch. The refresh-task single-flight remains distinct. |
+| `ClientLifecycle` | [`_runtime/lifecycle.py`](../src/notebooklm/_runtime/lifecycle.py) | Provider-side acquisition-session open/close, keepalive, loop binding/reopen reset, and typed-versus-legacy cookie-save routing. It never owns the backend-private session. |
 | `MiddlewareChainBuilder` | [`_middleware/chain.py`](../src/notebooklm/_middleware/chain.py) | Construction-only builder for the canonical ADR-0009 order; not retained after assembly. |
 | `TransportDrainTracker` | [`_transport_drain.py`](../src/notebooklm/_transport_drain.py) | Tracks in-flight transport operations + the drain condition variable. Gates graceful shutdown. |
 | `ClientMetrics` | [`_client_metrics.py`](../src/notebooklm/_client_metrics.py) | Per-instance counters (`ClientMetricsSnapshot`) + the `on_rpc_event` user callback. |
 | `ReqidCounter` | [`_reqid_counter.py`](../src/notebooklm/_reqid_counter.py) | Monotonic `_reqid` for the chat backend; lock-protected `next_reqid(...)`. |
-| `CookiePersistence` | [`_cookie_persistence.py`](../src/notebooklm/_cookie_persistence.py) | Per-canonical-path typed baseline state, ordered `ProfileStore` cookie merges, `__Secure-1PSIDTS` rotation, and the concrete v0.x snapshot adapter. First-party `_from_store` instances retain no `AuthTokens`; public-constructor instances preserve legacy save compatibility. |
+| `CookiePersistence` | [`_cookie_persistence.py`](../src/notebooklm/_cookie_persistence.py) | Provider-side per-canonical-path typed baseline state, ordered `ProfileStore` cookie merges, `__Secure-1PSIDTS` rotation, and the concrete v0.x snapshot adapter. First-party `_from_store` instances retain no `AuthTokens`; public-constructor instances preserve legacy save compatibility. |
 | `IdempotencyRegistry` | [`_idempotency.py`](../src/notebooklm/_idempotency.py) | Policy/classification registry keyed by `(RPCMethod, operation_variant)`. `WebExecutionRuntime._execute_once()` consults it once per call. |
-| `_request_types` | [`_request_types.py`](../src/notebooklm/_request_types.py) | Owns `AuthSnapshot`, `BuildRequest`, and request materialization shapes shared by RPC, chat, auth refresh, and the chain terminal. |
+| `_request_types` | [`_request_types.py`](../src/notebooklm/_request_types.py) | Retains `AuthSnapshot` as a compatibility alias of `WebCookieGeneration`, plus `BuildRequest` and request materialization shapes shared by RPC, chat, auth refresh, and the chain terminal. |
+| `_web_request_auth` | [`_web_request_auth.py`](../src/notebooklm/_web_request_auth.py) | Sole ordinary-RPC credential-to-wire adapter. It formats an already-acquired immutable generation into URL/body values outside `_web`; it has no storage, refresh, recovery, browser, or mutable-session capability. |
 | `_transport_errors` | [`_transport_errors.py`](../src/notebooklm/_transport_errors.py) | Owns transport-level exceptions, `Retry-After` parsing, and raw `Kernel.post` error mapping consumed by `RetryMiddleware` and `AuthRefreshMiddleware`. |
 | `_streaming_post` | [`_streaming_post.py`](../src/notebooklm/_streaming_post.py) | Low-level streaming POST helper with the response-size cap used by `Kernel.post`. |
-| `Kernel` | [`_kernel.py`](../src/notebooklm/_kernel.py) | Pure transport core. Owns the `httpx.AsyncClient` and cookie jar; the close path shields `aclose()` through `ClientLifecycle`. |
-| `_runtime/init` | [`_runtime/init.py`](../src/notebooklm/_runtime/init.py) | Atomically validates options, constructs runtime leaves, wires the chain, and returns the frozen construction-only `ClientInternals` receipt consumed immediately by `_client_assembly.py`/`WebRpcBackend`. |
+| `Kernel` | [`_kernel.py`](../src/notebooklm/_kernel.py) | Pure transport core used in two non-aliasing instances. The provider kernel owns acquisition/refresh; the backend kernel owns execution. `install_generation()` copies only a newer provider generation and never replays an equal/stale generation over response mutations. |
+| `_runtime/init` | [`_runtime/init.py`](../src/notebooklm/_runtime/init.py) | Atomically validates options, constructs the provider kernel/lifecycle and distinct backend kernel/session, wires the provider/session ports and chain, and returns the frozen construction-only `ClientInternals` receipt consumed immediately by `_client_assembly.py`/`WebRpcBackend`. |
 | `_loop_affinity` | [`_loop_affinity.py`](../src/notebooklm/_loop_affinity.py) | Tiny free-function `assert_bound_loop(bound_loop)` shared by every helper that captures a loop reference at `open()` time (`TransportDrainTracker`, `ReqidCounter`, `AuthRefreshCoordinator`, `ArtifactPollingService`, `ChatAPI`). Enforces ADR-0004 without coupling those helpers to the public client. |
 
 ### Shipped runtime invariants
@@ -563,7 +575,7 @@ post-construction mutation replacement.
 pins two compatibility-sensitive details that survive the session-elimination
 work:
 
-- `WebRpcBackend.auth` is the authoritative mutable `AuthTokens` instance.
+- `RuntimeWebCookieProvider.auth` is the authoritative mutable `AuthTokens` instance.
   `NotebookLMClient.auth` delegates to it; refresh paths mutate that object in place, and
   collaborators that observe auth alias it rather than holding detached copies.
 - `CORE_LOGGER_NAME` intentionally remains the literal
@@ -627,7 +639,9 @@ the default dependency.
 
 | Module | Responsibility |
 |--------|----------------|
-| [`_auth/tokens.py`](../src/notebooklm/_auth/tokens.py) | `AuthTokens` plus the typed stored-auth application boundary. `StoredAuthLoader` keeps inline/file source, paired seed, final-attempt route, acquisition baseline, initial store merge, and closed `InlineLoadedAuth | FileLoadedAuth` result together. `TokenAcquirer` is its sole structural seam; blocking source/account/merge work is offloaded. The v0.x classmethod and client share the call-time `_load_stored_auth` composition function. |
+| [`_auth/tokens.py`](../src/notebooklm/_auth/tokens.py) | `AuthTokens` plus the typed stored-auth application boundary. `StoredAuthLoader` keeps inline/file source, paired seed, final-attempt route, acquisition baseline, initial store merge, and closed `InlineLoadedAuth | FileLoadedAuth` result together. `TokenAcquirer` is its sole structural seam; blocking source/account/merge work is offloaded. The v0.x classmethod and provider-storage adapter share the call-time `_load_stored_auth` composition function. |
+| [`_auth/web_provider_storage.py`](../src/notebooklm/_auth/web_provider_storage.py) | P8 construction adapter over the whole `_load_stored_auth` transaction. It projects the existing inline/file result into a redacted frozen `WebProviderBootstrap`, preserving the exact `ProfileStore`/persistence-baseline pair without reading a document or recreating paths, locks, CAS, atomic writes, or permissions. |
+| [`_auth/web_provider_refresh.py`](../src/notebooklm/_auth/web_provider_refresh.py) | P8 refresh adapter over the whole `refresh_auth_session` transaction. It preserves the base-policy direct path and the wider-policy join-then-rerun rule; only the established exhausted-base `ValueError` starts the headless-enabled rerun. Recovery and master-token rungs remain in their existing owners. |
 | [`_auth/paths.py`](../src/notebooklm/_auth/paths.py) | Storage paths and filesystem helpers, including the **single** derivation behind all four credential lock files (`.lock`, `.rotate.lock`, `.refresh.lock`, `.lock.bootstrap` — the last folded in from `master_token.py` by ADR-0033 PR 1.3, which kept every path byte-identical and every lock mechanism untouched). |
 | [`_auth/storage_lock.py`](../src/notebooklm/_auth/storage_lock.py) | Dependency-bottom `StorageLockManager`: process-default exact-raw-path thread-lock identity, POSIX/Windows OS gateway, bounded synchronous retry, and manager-lifecycle cookie warning claim. Imports stdlib only; `storage`, `profile_store`, and `keepalive` share its process default. |
 | [`_auth/credential_io.py`](../src/notebooklm/_auth/credential_io.py) | Sealed commit capability: the sole unchecked-atomic importer, with distinct private wrappers for complete profile and arbitrary-path master-token documents. |
@@ -659,7 +673,7 @@ the default dependency.
 | [`_auth/account_repair.py`](../src/notebooklm/_auth/account_repair.py) | One-operation `AccountRepairService` over six exact collaborators. It claims synchronously before its first await, offloads only cookie loading, performs typed write/clear synchronously, maps only the frozen handled exception set to the legacy result, and scrubs all collaborator references on success, error, cancellation, or an unlisted exception. |
 | [`_auth/account.py`](../src/notebooklm/_auth/account.py) | Account network adapter: probing `?authuser=N`, extracting the active email, formatting the wire value, and composing one `AccountRepairService` with call-time legacy seams. Typed in-band writes live in `ProfileStore`; legacy file policy lives in `_auth/profile_migration.py`; raw compatibility remains in `_auth/storage.py`. |
 | [`_auth/account_email.py`](../src/notebooklm/_auth/account_email.py) | Generation-safe account-email resolution: match persisted identity to the authoritative live cookie route, probe through an injected callback when needed, and self-heal with exact-document CAS without crossing profile-session generations. |
-| [`_auth/session.py`](../src/notebooklm/_auth/session.py) | `refresh_auth_session(auth=..., kernel=..., auth_coord=..., lifecycle=..., cookie_persistence=...)` implementation called by `AuthRefreshCoordinator`. Takes five explicit keyword-only collaborators instead of a Session-shaped owner Protocol; the previous `RefreshAuthCore` Protocol and the `update_auth_tokens` / `update_auth_headers` Session-level forwards have been removed. |
+| [`_auth/session.py`](../src/notebooklm/_auth/session.py) | `refresh_auth_session(auth=..., kernel=..., auth_coord=..., lifecycle=..., cookie_persistence=...)` implementation called as one whole transaction by `WebProviderRefresh`. Takes five explicit keyword-only collaborators instead of a Session-shaped owner Protocol; the previous `RefreshAuthCore` Protocol and the `update_auth_tokens` / `update_auth_headers` Session-level forwards have been removed. |
 | [`_auth/refresh.py`](../src/notebooklm/_auth/refresh.py) | Token refresh driver, sole `ColdRecoveryCoordinator` production adapter, and typed `fetch_tokens_with_domains` persistence boundary. `_cold_fallbacks` supplies late-bound L2.5, cold-delegation, route, final-fetch, and jar-replacement closures while preserving exact logs and raw caller / canonical L2.5 / raw caller route timing. L2.5 remains outside the cold single-flight. The domain fetch consumes one paired live/SameSite-preserving baseline sample, carries the selected initial/L2.5/L3/L4 baseline, captures an immutable final observation, and offloads one concrete `ProfileStore` merge. `HARD_FAILURE`, the sole non-advancing result, retains the exact selected baseline; advancing outcomes return the exact next baseline. Caller cancellation during worker offload propagates immediately, without preventing an already-dispatched merge from finishing. The frozen `RefreshDeps` and v0.x compatibility ladder remain. |
 | [`_auth/keepalive.py`](../src/notebooklm/_auth/keepalive.py) | Cookie keepalive and `__Secure-1PSIDTS` rotation policy. `RotationState` owns per-loop/per-canonical-path locks and monotonic attempt stamps behind one short-held threading lock; claims are stamped before POST, so failure and cancellation consume the 60-second slot. Historical raw state names are non-owning identity views into the process-default owner, and the raw RotateCookies wire remains an exact `mint_service.py` re-export. |
 | [`_auth/psidts_recovery.py`](../src/notebooklm/_auth/psidts_recovery.py) | Inline PSIDTS recovery plus the generic load→validate→heal→retry composition over injected pure loaders. It owns typed raw-document observation/CAS and `ProfileStore` persistence, not cookie-module or storage-facade policy. Sentinel/contended/acquired paths preserve their distinct rereads and narrow caught-error sets; success means the post-save disk state is live, including a sibling winner. Also owns the captured-cookie `validate`/`heal` compatibility seam. |
@@ -1245,6 +1259,8 @@ src/notebooklm/
 ├── _loop_bound.py               # LoopBoundPrimitive mixin — template-method set_bound_loop + _on_loop_rebind hook for the loop-bound collaborators
 ├── _error_injection.py          # Synthetic-error env-var resolver + startup guard
 ├── _request_types.py            # AuthSnapshot, BuildRequest, PostBody, request materialization helpers
+├── _web_cookie_provider.py      # Frozen generation/session values + provider/session ports (P8)
+├── _web_request_auth.py         # Credential-to-wire adapter over immutable web generations (P8)
 ├── _transport_errors.py         # Transport exceptions, Retry-After parsing, Kernel.post error mapping
 ├── _streaming_post.py           # Size-capped streaming POST helper
 ├── _curl_cffi_transport.py      # Opt-in curl_cffi browser-impersonation transport (NOTEBOOKLM_TRANSPORT=curl_cffi)
@@ -1393,6 +1409,8 @@ src/notebooklm/
 │   ├── helpers.py               # is_auth_error / AUTH_ERROR_PATTERNS / keepalive helpers
 │   ├── init.py                  # Runtime collaborator construction + validation
 │   ├── lifecycle.py             # Open/close lifecycle seam (loop affinity + keepalive task)
+│   ├── web_backend_session.py   # Detached private backend session over its own Kernel (P8)
+│   ├── web_cookie_provider.py   # Existing-auth compatibility adapter behind the provider port (P8)
 │   └── transport.py             # Middleware-chain transport wrapper
 ├── _middleware/                 # Middleware subpackage (promoted from flat _middleware*.py, #1328)
 │   ├── __init__.py              # Re-exports the cluster's public names
@@ -1475,6 +1493,8 @@ src/notebooklm/
 │   ├── account.py               # Account network probing/selection + compatibility repair adapter
 │   ├── account_email.py         # Generation-safe account-email matching, probing, caching, and CAS self-heal
 │   ├── session.py               # Auth-session refresh implementation via `refresh_auth_session()` and explicit collaborators
+│   ├── web_provider_storage.py  # Whole stored-auth transaction adapter + provider bootstrap (P8)
+│   ├── web_provider_refresh.py  # Whole refresh-policy transaction adapter (P8)
 │   ├── storage.py               # v0.x facade; raw adapters + minted snapshot/error + token policy
 │   ├── storage_writer.py        # Shim: re-exports the writer API from storage.py (removed at next major)
 │   ├── storage_transaction.py   # Shim: re-exports transaction aliases through storage.py (removed at next major)

@@ -19,6 +19,7 @@ from notebooklm._auth.web_provider_storage import (
     WebProviderBootstrap,
     load_web_provider_bootstrap,
 )
+from notebooklm.client import NotebookLMClient
 
 
 def _auth() -> AuthTokens:
@@ -105,6 +106,39 @@ def test_storage_bootstrap_is_frozen_and_requires_store_baseline_pair() -> None:
     bootstrap = WebProviderBootstrap(auth=auth)
     with pytest.raises(FrozenInstanceError):
         bootstrap.store = ProfileStore(Path("other.json"))  # type: ignore[misc]
+
+
+@pytest.mark.asyncio
+async def test_from_storage_preserves_custom_constructor_without_provider_assembly(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A legacy subclass may intentionally omit the standard provider graph."""
+    import notebooklm.client as client_module
+
+    auth = _auth()
+    store = ProfileStore(tmp_path / "storage_state.json")
+    load = AsyncMock(
+        return_value=WebProviderBootstrap(
+            auth=auth,
+            store=store,
+            persistence_baseline=_baseline(),
+        )
+    )
+    monkeypatch.setattr(client_module, "load_web_provider_bootstrap", load)
+
+    class _BareClient:
+        def __init__(self, loaded_auth: AuthTokens, **_kwargs: object) -> None:
+            self.auth = loaded_auth
+
+    context = NotebookLMClient.from_storage()
+    context._cls = cast(Any, _BareClient)
+
+    built = await context._build()
+
+    assert built.auth is auth
+    assert not hasattr(built, "_provider")
+    load.assert_awaited_once()
 
 
 def _refresh_adapter(

@@ -1497,9 +1497,10 @@ MCP_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "_profile_session_generation",
         ),
         "projection_condition": (
-            "server_info include_account is true; authuser always comes from the in-memory "
-            "AuthTokens, while account_email contributes only when that in-memory/cached "
-            "identity wins before persisted or live fallback"
+            "server_info include_account is true; authuser always comes from the provider's "
+            "immutable generation captured from the in-memory AuthTokens, while account_email "
+            "contributes only when that in-memory/cached identity wins before persisted or live "
+            "fallback"
         ),
         "adapter_surface": "MCP explicitly redacted safe-field identity contribution",
         "contribution_semantics": (
@@ -1509,8 +1510,9 @@ MCP_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
         ),
         "redacted_projection": "safe-field-contribution",
         "evidence": (
-            "notebooklm/client.py:return self._auth.authuser",
-            "notebooklm/client.py:auth=self._auth",
+            "notebooklm/client.py:return self._provider.get_account_authuser()",
+            "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser",
+            "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth",
             "notebooklm/_auth/account_email.py:def _session_key",
             "notebooklm/_auth/account_email.py:storage_path = auth.storage_path",
             "notebooklm/mcp/tools/meta.py:async def _account_block",

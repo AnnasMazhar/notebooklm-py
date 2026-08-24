@@ -230,9 +230,9 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src/notebooklm/_auth")
     projection = script.build_projection(sites)
     assert projection["summary"]["TOTAL"] == {
-        "public": 135,
-        "private": 161,
-        "total": 296,
+        "public": 148,
+        "private": 164,
+        "total": 312,
     }
     relevant = {
         (row["module"], row["attribute"], row["idiom"]): row["count"]
@@ -277,6 +277,7 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
             ("storage", "get_account_email_for_storage"),
             ("tokens", "_load_stored_auth"),
             ("tokens", "resolve_auth_json_env"),
+            ("web_provider_refresh", "refresh_auth_session"),
         }
     }
     assert relevant == {
@@ -329,8 +330,9 @@ def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
         ("recovery", "coalesced_cold_recovery", "monkeypatch.setattr"): 2,
         ("refresh", "_fetch_tokens_with_exact_baseline", "monkeypatch.setattr"): 6,
         ("storage", "get_account_email_for_storage", "monkeypatch.setattr"): 1,
-        ("tokens", "_load_stored_auth", "monkeypatch.setattr"): 6,
+        ("tokens", "_load_stored_auth", "monkeypatch.setattr"): 9,
         ("tokens", "resolve_auth_json_env", "monkeypatch.setattr"): 1,
+        ("web_provider_refresh", "refresh_auth_session", "monkeypatch.setattr"): 13,
     }
     grouped = {(row["module"], row["attribute"], row["idiom"]) for row in projection["sites"]}
     assert not any(

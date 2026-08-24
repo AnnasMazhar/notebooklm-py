@@ -208,6 +208,44 @@
       "terminal_locators": ["mcp tool result|notebooklm/mcp/tools/meta.py|register.server_info|return|1", "rest response|notebooklm/server/routes/meta.py|server_info|return|1"]
     },
     {
+      "private_model": "notebooklm._auth.web_provider_refresh.WebProviderRefresh",
+      "field_path": "auth",
+      "public_model": "notebooklm.auth.AuthTokens",
+      "unreachable_category": "internal-runtime-auth-capability",
+      "review_note": "WebProviderRefresh carries AuthTokens only into the canonical provider-side refresh transaction; neither this frozen adapter nor its auth field is passed to an adapter serializer.",
+      "source_evidence": [
+        {
+          "symbol": "notebooklm._auth.web_provider_refresh.WebProviderRefresh._refresh_session",
+          "required_ast_fragments": ["auth=self.auth", "return await self.transaction(work)"],
+          "semantic_fingerprint": "sha256:e7fc406b7dc50dfd71dd501d934d3a309598ad87bb60b6948f52590c2f763025"
+        },
+        {
+          "symbol": "notebooklm._runtime.init.compose_client_internals",
+          "required_ast_fragments": ["refresh_adapter = WebProviderRefresh", "refresh_session=refresh_adapter.refresh"],
+          "semantic_fingerprint": "sha256:01a38d89ddf3dad99a7ee1f8c67a3a73de2394c5d43db5c4b0d397ff4d8b3c35"
+        }
+      ]
+    },
+    {
+      "private_model": "notebooklm._auth.web_provider_storage.WebProviderBootstrap",
+      "field_path": "auth",
+      "public_model": "notebooklm.auth.AuthTokens",
+      "unreachable_category": "internal-runtime-auth-capability",
+      "review_note": "WebProviderBootstrap carries the canonical stored-auth result only through private client/provider construction; the bootstrap DTO itself never reaches a JSON adapter terminal.",
+      "source_evidence": [
+        {
+          "symbol": "notebooklm._auth.web_provider_storage.load_web_provider_bootstrap",
+          "required_ast_fragments": ["_load_stored_auth", "return WebProviderBootstrap"],
+          "semantic_fingerprint": "sha256:9433327b437a5195e36fdc7a3031b6426266630cd4cf8b8b285a3f2a9286bf44"
+        },
+        {
+          "symbol": "notebooklm.client._FromStorageContext._build",
+          "required_ast_fragments": ["auth = bootstrap.auth", "client = self._cls"],
+          "semantic_fingerprint": "sha256:5575e919f8a580f0b3db19d7af68b376856792ab553b0246a2927415c3067059"
+        }
+      ]
+    },
+    {
     "private_model": "notebooklm._chat_records.ChatAskResultRecord",
       "field_path": "answer_document",
       "public_model": "notebooklm._types.documents.StructuredDocument",
@@ -297,9 +335,9 @@
           "semantic_fingerprint": "sha256:a8795d7865f25119bd13a5a429685f4637f192b84fdc32cc07407edccd03254b"
         },
         {
-          "symbol": "notebooklm._runtime.init.build_collaborators",
+          "symbol": "notebooklm._runtime.init._build_runtime_leaves",
           "required_ast_fragments": ["limits=config.limits"],
-          "semantic_fingerprint": "sha256:a085a87225d40d131bf2dd6cee975d4759970779193682796d5d28f14258195a"
+          "semantic_fingerprint": "sha256:b811d06561a91f1686a997542a47094d7563ff8cbda35b82f8a4d6b1bdbe4ef1"
         }
       ]
     },

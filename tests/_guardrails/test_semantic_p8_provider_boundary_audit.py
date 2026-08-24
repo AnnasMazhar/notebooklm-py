@@ -16,11 +16,10 @@ session and behind a ``WebCookieProvider``. Its acceptance criteria are
   behind the provider, never duplicated.
 
 Every one of those is an inventory claim about who owns what today, so this
-module pins those inventories and fails closed when they drift. It does NOT
-demand P8 be implemented now: ``test_p8_provider_is_not_defined_yet`` asserts the
-provider is still absent, so the first PR that introduces ``WebCookieProvider``
-is forced to revisit this file deliberately instead of inheriting stale
-baselines.
+module pins the post-P8 inventories and fails closed when they drift. The
+former ``test_p8_provider_is_not_defined_yet`` tripwire fired when the port was
+introduced; its replacement below requires the exact provider/generation
+definitions and re-derived backend/auth ownership sets.
 
 Runtime behaviour that P8 must equality-preserve is characterized separately in
 ``tests/unit/test_semantic_p8_provider_characterization.py``.
@@ -38,31 +37,62 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src" / "notebooklm"
 WEB_ROOT = SRC_ROOT / "_web"
 CHAT_STREAM_REQUEST_PATH = SRC_ROOT / "_chat" / "stream_request.py"
+WEB_REQUEST_AUTH_PATH = SRC_ROOT / "_web_request_auth.py"
+SOURCE_UPLOAD_PATH = SRC_ROOT / "_source" / "upload.py"
+DRIVE_IMPORT_PATH = SRC_ROOT / "_source" / "drive_import.py"
+PROVIDER_PATH = SRC_ROOT / "_web_cookie_provider.py"
+RUNTIME_PROVIDER_PATH = SRC_ROOT / "_runtime" / "web_cookie_provider.py"
+BACKEND_SESSION_PATH = SRC_ROOT / "_runtime" / "web_backend_session.py"
+STORAGE_ADAPTER_PATH = SRC_ROOT / "_auth" / "web_provider_storage.py"
+REFRESH_ADAPTER_PATH = SRC_ROOT / "_auth" / "web_provider_refresh.py"
 
 pytestmark = pytest.mark.repo_lint
 
-# --- P8 target symbols (absent until P8 lands) -------------------------------
+# --- P8 target symbols -------------------------------------------------------
 
-#: The provider type P8 introduces. Absent today; see the module docstring.
-P8_PROVIDER_SYMBOLS: frozenset[str] = frozenset({"WebCookieProvider"})
+#: The exact provider types P8 introduced; duplicate definitions are forbidden.
+P8_PROVIDER_SYMBOLS: frozenset[str] = frozenset(
+    {
+        "RuntimeWebCookieProvider",
+        "WebBackendSession",
+        "WebCookieGeneration",
+        "WebCookieProvider",
+        "WebCookieSession",
+        "WebCookieSessionState",
+    }
+)
+EXPECTED_P8_PROVIDER_DEFINITIONS: frozenset[str] = frozenset(
+    {
+        "_runtime/web_backend_session.py::WebBackendSession",
+        "_runtime/web_cookie_provider.py::RuntimeWebCookieProvider",
+        "_web_cookie_provider.py::WebCookieGeneration",
+        "_web_cookie_provider.py::WebCookieProvider",
+        "_web_cookie_provider.py::WebCookieSession",
+        "_web_cookie_provider.py::WebCookieSessionState",
+    }
+)
 
 # --- Backend package inventory ----------------------------------------------
 
 #: Exact set of first-party ``notebooklm.*`` modules the web backend package
-#: imports today, as dotted names relative to ``notebooklm``. P8 adds the
-#: provider to this set and nothing else: every name below is a wire/record/
-#: policy dependency, not a credential dependency.
+#: imports today, as dotted names relative to ``notebooklm``. Every name below
+#: is a wire/record/policy dependency or one of the two provider ports; none is
+#: a credential-acquisition dependency.
 KNOWN_WEB_PACKAGE_FIRST_PARTY_IMPORTS: frozenset[str] = frozenset(
     {
         "_artifact.formatters",
         "_artifact.payloads",
+        "_auth_refresh_retry",
         "_backend",
+        "_chat",
         "_chat.stream_decode",
         "_chat.stream_request",
+        "_client_metrics",
         "_deadline",
         "_env",
         "_idempotency",
         "_logging",
+        "_middleware.chain_host",
         "_mind_map",
         "_note_service",
         "_notebook_payloads",
@@ -81,19 +111,21 @@ KNOWN_WEB_PACKAGE_FIRST_PARTY_IMPORTS: frozenset[str] = frozenset(
         "_row_adapters.research",
         "_row_adapters.sources",
         "_runtime.config",
+        "_runtime.contracts",
         "_runtime.transport",
-        "_rpc_executor",
         "_source.add",
         "_source.batch",
         "_source.markdown",
+        "_source.upload",
+        "_transport_drain",
+        "_transport_errors",
         "_types.documents",
         "_types.sources",
-        "_transport_errors",
         "_url_utils",
         "_web.backend",
-        "_web.codec",
         "_web.chat",
         "_web.chat_transport",
+        "_web.codec",
         "_web.codec.artifacts",
         "_web.codec.chat",
         "_web.codec.chat_saved_note",
@@ -110,11 +142,14 @@ KNOWN_WEB_PACKAGE_FIRST_PARTY_IMPORTS: frozenset[str] = frozenset(
         "_web.codec.sources",
         "_web.codec.studio_documents",
         "_web.codec.suggestions",
+        "_web.deadline_rpc",
+        "_web.deadlines",
         "_web.error_policy",
         "_web.labels",
         "_web.policy",
         "_web.registry",
         "_web.research",
+        "_web.runtime",
         "_web.sharing",
         "_web.settings_suggestions",
         "_web.source_variants",
@@ -122,6 +157,8 @@ KNOWN_WEB_PACKAGE_FIRST_PARTY_IMPORTS: frozenset[str] = frozenset(
         "_web.studio_documents",
         "_web.studio_facade",
         "_web.studio_media",
+        "_web_cookie_provider",
+        "_web_request_auth",
         "exceptions",
         "rpc",
         "rpc._safe_index",
@@ -132,14 +169,20 @@ KNOWN_WEB_PACKAGE_FIRST_PARTY_IMPORTS: frozenset[str] = frozenset(
 )
 
 #: Import prefixes that would mean the backend acquires or persists credentials
-#: itself. P8's first acceptance criterion is that none of these ever appear
-#: under ``src/notebooklm/_web/``; the provider is injected, not imported.
+#: itself. Even pure account-route formatting is materialized outside ``_web``;
+#: every ``_auth`` owner and both concrete runtime adapters must stay behind
+#: the injected provider/session ports.
 FORBIDDEN_WEB_IMPORT_PREFIXES: tuple[str, ...] = (
     "_app",
     "_atomic_io",
     "_auth",
     "_cookie_persistence",
     "_kernel",
+    "_runtime.auth",
+    "_runtime.init",
+    "_runtime.lifecycle",
+    "_runtime.web_backend_session",
+    "_runtime.web_cookie_provider",
     "auth",
     "cli",
     "io",
@@ -165,6 +208,58 @@ CREDENTIAL_IDENTIFIERS: frozenset[str] = frozenset(
     }
 )
 
+#: Credential materialization lives outside ``_web``. The backend consumes the
+#: opaque builder and provider ports, so no module in the package needs to name
+#: a credential field.
+EXPECTED_WEB_CREDENTIAL_IDENTIFIERS: dict[str, frozenset[str]] = {}
+
+#: Existing auth/persistence owners must not be retained as backend attributes
+#: or types. A provider composes these accepted owners; merely renaming an
+#: import while keeping the capability inside ``_web`` must still fail.
+FORBIDDEN_WEB_OWNER_ATTRIBUTES: frozenset[str] = frozenset(
+    {"_auth", "_auth_coord", "_auth_refresh", "_cookie_persistence", "_lifecycle", "auth"}
+)
+FORBIDDEN_WEB_OWNER_TYPES: frozenset[str] = frozenset(
+    {"AuthRefreshCoordinator", "AuthTokens", "ClientLifecycle", "CookiePersistence"}
+)
+
+#: Ordinary RPC credential-to-wire materialization is one narrow transitive
+#: adapter outside ``_web``. It may format an account route but may not acquire,
+#: refresh, persist, or interactively re-mint credentials.
+KNOWN_WEB_REQUEST_AUTH_IMPORTS: frozenset[str] = frozenset(
+    {"_auth.account", "_env", "_web_cookie_provider", "rpc"}
+)
+KNOWN_WEB_REQUEST_AUTH_CREDENTIAL_IDENTIFIERS: frozenset[str] = frozenset(
+    {"account_email", "authuser", "csrf_token", "session_id"}
+)
+
+#: Upload and Drive have direct HTTP legs outside the RPC backend. Their exact
+#: credential surface is limited to immutable provider values, pure account
+#: formatting, and value-copying the immutable ``CookieJar`` compatibility
+#: fallback. They may not import any credential acquisition owner.
+DIRECT_LEG_CREDENTIAL_IMPORT_PREFIXES: tuple[str, ...] = (
+    "_app",
+    "_auth",
+    "_cookie_persistence",
+    "_kernel",
+    "_runtime.auth",
+    "_runtime.lifecycle",
+    "_web_cookie_provider",
+    "auth",
+    "cli",
+    "paths",
+)
+KNOWN_DIRECT_LEG_CREDENTIAL_IMPORTS: dict[str, frozenset[str]] = {
+    "_source/drive_import.py": frozenset({"_auth.account", "_web_cookie_provider"}),
+    "_source/upload.py": frozenset({"_auth.account", "_auth.cookie_types", "_web_cookie_provider"}),
+}
+KNOWN_DIRECT_LEG_CREDENTIAL_IDENTIFIERS: dict[str, frozenset[str]] = {
+    "_source/drive_import.py": frozenset({"account_email", "authuser", "cookies"}),
+    "_source/upload.py": frozenset(
+        {"account_email", "authuser", "cookies", "csrf_token", "session_id"}
+    ),
+}
+
 #: Streamed Chat must materialize four already-acquired route/token values into
 #: its request. The builder deliberately sits outside ``_web`` until P8 adds a
 #: provider-owned private session, so this exact transitive boundary is audited
@@ -189,15 +284,12 @@ KNOWN_CHAT_STREAM_CREDENTIAL_IDENTIFIERS: frozenset[str] = frozenset(
 #: must never join this list.
 KNOWN_PROFILE_DOCUMENT_OWNERS: frozenset[str] = frozenset(
     {
-        "_atomic_io.py",
         "_auth/account_email.py",
         "_auth/account_repair.py",
         "_auth/browser_capture.py",
-        "_auth/cookies.py",
+        "_auth/credential_io.py",
         "_auth/master_token.py",
         "_auth/master_token_bootstrap.py",
-        "_auth/master_token_file.py",
-        "_auth/paths.py",
         "_auth/profile_migration.py",
         "_auth/profile_store.py",
         "_auth/psidts_recovery.py",
@@ -206,11 +298,41 @@ KNOWN_PROFILE_DOCUMENT_OWNERS: frozenset[str] = frozenset(
         "_auth/tokens.py",
         "_cookie_persistence.py",
         "_runtime/init.py",
-        "_runtime/lifecycle.py",
-        "auth.py",
-        "client.py",
     }
 )
+
+#: Concrete profile-document operation calls. Unlike a source-substring scan,
+#: this deliberately ignores annotations and frozen adapter values that merely
+#: carry a ``ProfileStore`` capability to its existing owner.
+PROFILE_DOCUMENT_CALLS: frozenset[str] = frozenset(
+    {
+        "ProfileStore",
+        "_commit_json_unchecked",
+        "_commit_profile_json",
+        "_read_account_document",
+        "_read_cookie_document",
+        "_update_account_if_document_unchanged",
+        "clear_account",
+        "merge_cookie_observation",
+        "merge_legacy_cookie_observation",
+        "read_account",
+        "read_document",
+        "read_master_token",
+        "read_session",
+        "replace_from_login",
+        "replace_from_remint",
+        "replace_minted_session",
+        "update_account",
+        "write_master_token",
+    }
+)
+
+#: Whole-transaction facade calls that share an operation name with a concrete
+#: ``ProfileStore`` method. They do not receive a store/document capability and
+#: therefore remain adapters rather than document owners.
+PROFILE_DOCUMENT_ADAPTER_CALLS: dict[str, frozenset[str]] = {
+    "_app/master_token.py": frozenset({"read_master_token", "write_master_token"}),
+}
 
 #: Modules that can drive a browser (interactive login, browser-cookie capture,
 #: headless re-mint, doctor). P8 keeps every one of them OUTSIDE the backend.
@@ -260,6 +382,10 @@ EXPECTED_AUTH_TOKENS_REPR_SUPPRESSED: frozenset[str] = frozenset(
         "_profile_session_generation",
     }
 )
+EXPECTED_GENERATION_REPR_SUPPRESSED: frozenset[str] = frozenset(
+    {"cookies", "csrf_token", "session_id"}
+)
+EXPECTED_SESSION_STATE_REPR_SUPPRESSED: frozenset[str] = frozenset({"cookies"})
 
 #: Whole audited master-token TRANSACTIONS the CLI/app layer invokes through the
 #: ``notebooklm.auth`` facade. P8 reuses these; it does not re-derive minting.
@@ -339,6 +465,18 @@ def credential_imports(imports: set[str]) -> set[str]:
     }
 
 
+def direct_leg_credential_imports(imports: set[str]) -> set[str]:
+    """Select imports that participate in direct-leg credential handling."""
+    return {
+        name
+        for name in imports
+        if any(
+            name == prefix or name.startswith(f"{prefix}.")
+            for prefix in DIRECT_LEG_CREDENTIAL_IMPORT_PREFIXES
+        )
+    }
+
+
 def collect_named_identifiers(package_root: Path) -> set[str]:
     """Collect attribute and bare-name identifiers used anywhere in a package."""
     names: set[str] = set()
@@ -354,6 +492,44 @@ def collect_named_identifiers(package_root: Path) -> set[str]:
     return names
 
 
+def collect_credential_identifiers_by_module(package_root: Path) -> dict[str, frozenset[str]]:
+    """Return credential-shaped identifiers grouped by package-relative module."""
+    grouped: dict[str, frozenset[str]] = {}
+    for path in _python_files(package_root):
+        found = collect_named_identifiers(path) & CREDENTIAL_IDENTIFIERS
+        if found:
+            grouped[path.relative_to(package_root).as_posix()] = frozenset(found)
+    return grouped
+
+
+def collect_forbidden_owner_names_by_module(
+    package_root: Path,
+) -> dict[str, frozenset[str]]:
+    """Return credential-owner attributes/types retained under a package."""
+    grouped: dict[str, frozenset[str]] = {}
+    for path in _python_files(package_root):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        found: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr in FORBIDDEN_WEB_OWNER_ATTRIBUTES:
+                found.add(node.attr)
+            elif isinstance(node, ast.Name) and node.id in FORBIDDEN_WEB_OWNER_TYPES:
+                found.add(node.id)
+        if found:
+            grouped[path.relative_to(package_root).as_posix()] = frozenset(found)
+    return grouped
+
+
+def unexpected_credential_identifiers(package_root: Path) -> set[str]:
+    """Return module-qualified identifiers outside the one materializer."""
+    grouped = collect_credential_identifiers_by_module(package_root)
+    unexpected: set[str] = set()
+    for module, names in grouped.items():
+        allowed = EXPECTED_WEB_CREDENTIAL_IDENTIFIERS.get(module, frozenset())
+        unexpected.update(f"{module}::{name}" for name in names - allowed)
+    return unexpected
+
+
 def collect_modules_matching(
     needles: frozenset[str],
     src_root: Path = SRC_ROOT,
@@ -365,6 +541,24 @@ def collect_modules_matching(
         if any(needle in content for needle in needles):
             found.add(path.relative_to(src_root).as_posix())
     return found
+
+
+def collect_profile_document_owners(src_root: Path = SRC_ROOT) -> set[str]:
+    """Return modules that call a concrete profile-document operation.
+
+    Type annotations, dataclass fields, imports, and capability forwarding are
+    intentionally not ownership. This keeps the provider adapters visible as
+    adapters while the existing store/commit implementations remain the only
+    document owners.
+    """
+    owners: set[str] = set()
+    for path in sorted(src_root.rglob("*.py")):
+        module = path.relative_to(src_root).as_posix()
+        calls = set(collect_call_names(path))
+        calls -= PROFILE_DOCUMENT_ADAPTER_CALLS.get(module, frozenset())
+        if PROFILE_DOCUMENT_CALLS.intersection(calls):
+            owners.add(module)
+    return owners
 
 
 def collect_symbol_definitions(symbols: frozenset[str], src_root: Path = SRC_ROOT) -> set[str]:
@@ -381,6 +575,20 @@ def collect_symbol_definitions(symbols: frozenset[str], src_root: Path = SRC_ROO
     return defined
 
 
+def collect_call_names(path: Path) -> list[str]:
+    """Return the final identifier of every call in one module."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            names.append(node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            names.append(node.func.attr)
+    return names
+
+
 def evaluate_p8_boundary(
     src_root: Path = SRC_ROOT,
     web_root: Path = WEB_ROOT,
@@ -388,7 +596,7 @@ def evaluate_p8_boundary(
     """Inventory the P8 provider boundary as it stands today."""
     backend_imports = collect_first_party_imports(web_root, src_root=src_root)
     forbidden = credential_imports(backend_imports)
-    identifiers = collect_named_identifiers(web_root) & CREDENTIAL_IDENTIFIERS
+    identifiers = unexpected_credential_identifiers(web_root)
     provider = collect_symbol_definitions(P8_PROVIDER_SYMBOLS, src_root=src_root)
 
     notes: list[str] = []
@@ -404,7 +612,8 @@ def evaluate_p8_boundary(
         )
     if identifiers:
         notes.append(
-            "web backend package names credential identifiers: " + ", ".join(sorted(identifiers))
+            "web backend package names unexpected credential identifiers: "
+            + ", ".join(sorted(identifiers))
         )
 
     return P8EntryReport(
@@ -412,14 +621,7 @@ def evaluate_p8_boundary(
         backend_first_party_imports=sorted(backend_imports),
         backend_credential_imports=sorted(forbidden),
         backend_credential_identifiers=sorted(identifiers),
-        profile_document_owners=sorted(
-            collect_modules_matching(
-                frozenset(
-                    {"ProfileStore", "credential_io", "_load_stored_auth", "_load_storage_state"}
-                ),
-                src_root=src_root,
-            )
-        ),
+        profile_document_owners=sorted(collect_profile_document_owners(src_root=src_root)),
         interactive_auth_owners=sorted(
             collect_modules_matching(frozenset({"playwright"}), src_root=src_root)
         ),
@@ -430,19 +632,13 @@ def evaluate_p8_boundary(
 # --- Test suite --------------------------------------------------------------
 
 
-def test_p8_provider_is_not_defined_yet() -> None:
-    """P8 has not started; the provider symbol must not exist in production yet.
-
-    When P8 lands this fails on purpose. Updating it is the checkpoint that
-    forces every baseline in this module to be re-derived deliberately rather
-    than inherited stale.
-    """
+def test_p8_provider_definitions_are_exact_and_fail_closed() -> None:
+    """P8 has exactly one provider/session port family and runtime adapters."""
     report = evaluate_p8_boundary()
-    assert not report.provider_defined, (
-        "WebCookieProvider now exists — re-derive every inventory in this module "
-        "against the new provider boundary before relaxing this assertion."
-    )
-    assert any("not defined yet" in note for note in report.notes)
+    actual = collect_symbol_definitions(P8_PROVIDER_SYMBOLS)
+    assert actual == EXPECTED_P8_PROVIDER_DEFINITIONS
+    assert report.provider_defined
+    assert not any("not defined yet" in note for note in report.notes)
 
 
 def test_web_backend_first_party_imports_are_exact_and_fail_closed() -> None:
@@ -471,13 +667,35 @@ def test_web_backend_does_not_reach_credential_acquisition() -> None:
     )
 
 
-def test_web_backend_names_no_credential_identifiers() -> None:
-    """The backend never names cookie, token, route, or profile-path material."""
+def test_web_backend_credential_materializer_is_exact() -> None:
+    """Only the RPC runtime names already-acquired token/route values."""
     report = evaluate_p8_boundary()
     assert not report.backend_credential_identifiers, (
-        "src/notebooklm/_web/ names credential identifiers directly:\n  "
-        + "\n  ".join(report.backend_credential_identifiers)
+        "src/notebooklm/_web/ names credential identifiers outside the exact "
+        "generation materializer:\n  " + "\n  ".join(report.backend_credential_identifiers)
     )
+    assert collect_credential_identifiers_by_module(WEB_ROOT) == (
+        EXPECTED_WEB_CREDENTIAL_IDENTIFIERS
+    )
+
+
+def test_web_backend_retains_no_auth_persistence_owner_attributes_or_types() -> None:
+    """Credential owners stay composed behind the provider port."""
+    retained = collect_forbidden_owner_names_by_module(WEB_ROOT)
+    assert retained == {}, (
+        "src/notebooklm/_web/ retained credential-owner attributes/types instead of "
+        f"the provider port: {retained}"
+    )
+
+
+def test_web_rpc_request_materializer_is_exact_and_cannot_acquire_credentials() -> None:
+    """The opaque-generation RPC encoder is the one reviewed transitive seam."""
+    imports = collect_first_party_imports(WEB_REQUEST_AUTH_PATH)
+    identifiers = collect_named_identifiers(WEB_REQUEST_AUTH_PATH) & CREDENTIAL_IDENTIFIERS
+
+    assert imports == KNOWN_WEB_REQUEST_AUTH_IMPORTS
+    assert identifiers == KNOWN_WEB_REQUEST_AUTH_CREDENTIAL_IDENTIFIERS
+    assert credential_imports(imports) == {"_auth.account"}
 
 
 def test_streamed_chat_credential_materializer_is_exact_and_cannot_acquire_credentials() -> None:
@@ -490,11 +708,40 @@ def test_streamed_chat_credential_materializer_is_exact_and_cannot_acquire_crede
     assert credential_imports(imports) == {"_auth.account"}
 
 
+@pytest.mark.parametrize(
+    "path",
+    [SOURCE_UPLOAD_PATH, DRIVE_IMPORT_PATH],
+    ids=["source-upload", "drive-import"],
+)
+def test_direct_http_leg_credential_materializers_are_exact(path: Path) -> None:
+    """Upload/Drive receive immutable generations and no acquisition owner."""
+    module = path.relative_to(SRC_ROOT).as_posix()
+    imports = collect_first_party_imports(path)
+    identifiers = collect_named_identifiers(path) & CREDENTIAL_IDENTIFIERS
+
+    assert direct_leg_credential_imports(imports) == KNOWN_DIRECT_LEG_CREDENTIAL_IMPORTS[module]
+    assert identifiers == KNOWN_DIRECT_LEG_CREDENTIAL_IDENTIFIERS[module]
+
+    duplicated_owner_calls = {
+        "ProfileStore",
+        "StorageLockManager",
+        "_commit_profile_json",
+        "_load_stored_auth",
+        "attempt_headless_reauth",
+        "mint_cookies",
+        "refresh_auth_session",
+        "remint_from_stored_token",
+        "try_headless_reauth",
+        "try_master_token_reauth",
+        "try_refresh_cmd_reauth",
+        "try_storage_cookie_reload",
+    }
+    assert not duplicated_owner_calls.intersection(collect_call_names(path))
+
+
 def test_profile_document_owner_inventory_is_exact_and_excludes_the_backend() -> None:
     """Profile-document owners are baselined; P8 adapts them, never duplicates."""
-    actual = collect_modules_matching(
-        frozenset({"ProfileStore", "credential_io", "_load_stored_auth", "_load_storage_state"})
-    )
+    actual = collect_profile_document_owners()
     added = actual - KNOWN_PROFILE_DOCUMENT_OWNERS
     removed = KNOWN_PROFILE_DOCUMENT_OWNERS - actual
 
@@ -598,6 +845,94 @@ def test_auth_tokens_credential_fields_are_repr_suppressed() -> None:
     assert "__repr__" in vars(AuthTokens), "AuthTokens must keep its redacting __repr__"
 
 
+def test_provider_generation_and_detached_session_values_redact_credentials() -> None:
+    """Every provider/session value suppresses credential-equivalent fields."""
+    from notebooklm._web_cookie_provider import WebCookieGeneration, WebCookieSessionState
+
+    generation_suppressed = {field.name for field in fields(WebCookieGeneration) if not field.repr}
+    session_suppressed = {field.name for field in fields(WebCookieSessionState) if not field.repr}
+    assert generation_suppressed == EXPECTED_GENERATION_REPR_SUPPRESSED
+    assert session_suppressed == EXPECTED_SESSION_STATE_REPR_SUPPRESSED
+
+
+def test_provider_storage_adapter_delegates_one_whole_load_transaction() -> None:
+    """The provider names the stored-auth owner without copying its mechanics."""
+    calls = collect_call_names(STORAGE_ADAPTER_PATH)
+    assert calls.count("_load_stored_auth") == 1
+    duplicated_storage_mechanics = {
+        "ProfileStore",
+        "StorageLockManager",
+        "_atomic_write_json_unchecked",
+        "_commit_json_unchecked",
+        "_commit_profile_json",
+        "_lock_sibling",
+        "_load_storage_state",
+        "atomic_write_json",
+        "merge_cookie_observation",
+        "save_cookies_to_storage",
+    }
+    assert not duplicated_storage_mechanics.intersection(calls)
+
+
+def test_provider_refresh_adapter_delegates_one_whole_refresh_transaction() -> None:
+    """The provider keeps policy joining but never copies a recovery rung."""
+    calls = collect_call_names(REFRESH_ADAPTER_PATH)
+    assert calls.count("refresh_auth_session") == 1
+    assert calls.count("await_refresh") == 1
+    duplicated_refresh_mechanics = {
+        "attempt_headless_reauth",
+        "coalesced_cold_recovery",
+        "mint_cookies",
+        "remint_from_stored_token",
+        "try_headless_reauth",
+        "try_master_token_reauth",
+        "try_refresh_cmd_reauth",
+        "try_storage_cookie_reload",
+    }
+    assert not duplicated_refresh_mechanics.intersection(calls)
+
+
+def test_runtime_provider_composes_transactions_without_reimplementing_them() -> None:
+    """The concrete provider orchestrates owners but implements no auth rung/store."""
+    calls = collect_call_names(RUNTIME_PROVIDER_PATH)
+    duplicated_owner_calls = {
+        "ProfileStore",
+        "StorageLockManager",
+        "_atomic_write_json_unchecked",
+        "_commit_profile_json",
+        "_load_stored_auth",
+        "_load_storage_state",
+        "attempt_headless_reauth",
+        "atomic_write_json",
+        "mint_cookies",
+        "refresh_auth_session",
+        "remint_from_stored_token",
+        "try_headless_reauth",
+        "try_master_token_reauth",
+        "try_refresh_cmd_reauth",
+        "try_storage_cookie_reload",
+    }
+    assert not duplicated_owner_calls.intersection(calls)
+
+
+def test_backend_private_session_has_no_acquisition_or_persistence_capability() -> None:
+    """The mutable backend session only clones, detaches, opens, and closes."""
+    imports = collect_first_party_imports(BACKEND_SESSION_PATH)
+    assert not {
+        name
+        for name in imports
+        if name
+        in {
+            "_auth.profile_store",
+            "_auth.session",
+            "_auth.tokens",
+            "_cookie_persistence",
+            "auth",
+            "paths",
+        }
+    }
+
+
 def test_master_token_transactions_are_reused_not_reimplemented() -> None:
     """P8 adapts the audited master-token transactions behind the provider."""
     from notebooklm import auth as auth_facade
@@ -643,8 +978,75 @@ def test_detector_flags_a_backend_that_names_credentials(tmp_path: Path) -> None
         encoding="utf-8",
     )
     report = evaluate_p8_boundary(src_root=src, web_root=web)
-    assert report.backend_credential_identifiers == ["cookie_jar", "csrf_token"]
-    assert any("names credential identifiers" in note for note in report.notes)
+    assert report.backend_credential_identifiers == [
+        "backend.py::cookie_jar",
+        "backend.py::csrf_token",
+    ]
+    assert any("unexpected credential identifiers" in note for note in report.notes)
+
+
+def test_detector_distinguishes_store_adapter_types_from_document_owners(
+    tmp_path: Path,
+) -> None:
+    """Carrying a store type is not ownership; invoking it is."""
+    src = tmp_path / "notebooklm"
+    auth_root = src / "_auth"
+    auth_root.mkdir(parents=True)
+    (auth_root / "adapter.py").write_text(
+        "from .profile_store import ProfileStore\n"
+        "def carry(store: ProfileStore) -> ProfileStore:\n"
+        "    return store\n",
+        encoding="utf-8",
+    )
+    (auth_root / "owner.py").write_text(
+        "from .profile_store import ProfileStore\n"
+        "def read(path):\n"
+        "    return ProfileStore(path).read_document()\n",
+        encoding="utf-8",
+    )
+
+    assert collect_profile_document_owners(src_root=src) == {"_auth/owner.py"}
+
+
+def test_detector_flags_backend_credential_owner_attributes_and_types(tmp_path: Path) -> None:
+    """A backend cannot hide an auth owner behind a private attribute."""
+    web = tmp_path / "_web"
+    web.mkdir()
+    (web / "backend.py").write_text(
+        "class Backend:\n"
+        "    def __init__(self, lifecycle: ClientLifecycle):\n"
+        "        self._lifecycle = lifecycle\n"
+        "        self._auth_coord = None\n",
+        encoding="utf-8",
+    )
+
+    assert collect_forbidden_owner_names_by_module(web) == {
+        "backend.py": frozenset({"ClientLifecycle", "_auth_coord", "_lifecycle"})
+    }
+
+
+def test_detector_flags_acquisition_moved_into_a_direct_http_leg(tmp_path: Path) -> None:
+    """An upload adapter cannot hide profile/refresh work outside ``_web``."""
+    src = tmp_path / "notebooklm"
+    upload = src / "_source" / "upload.py"
+    upload.parent.mkdir(parents=True)
+    upload.write_text(
+        "from .._auth.account import format_authuser_value\n"
+        "from .._auth.storage import load_auth_from_storage\n"
+        "from .._web_cookie_provider import WebCookieGeneration\n"
+        "def build(generation):\n"
+        "    return generation.cookies, generation.authuser, load_auth_from_storage()\n",
+        encoding="utf-8",
+    )
+
+    imports = collect_first_party_imports(upload, src_root=src)
+    credential_surface = direct_leg_credential_imports(imports)
+    assert credential_surface == {
+        "_auth.account",
+        "_auth.storage",
+        "_web_cookie_provider",
+    }
+    assert "_auth.storage" not in KNOWN_DIRECT_LEG_CREDENTIAL_IMPORTS["_source/upload.py"]
 
 
 def test_detector_flags_credential_acquisition_moved_behind_chat_stream_import(

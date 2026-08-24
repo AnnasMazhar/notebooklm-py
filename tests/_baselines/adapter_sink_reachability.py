@@ -70,6 +70,10 @@ _INFRASTRUCTURE_CATEGORIES = {
     )
 }
 _UNREACHABLE_PRIVATE_PATH_CATEGORIES = {
+    "internal-runtime-auth-capability": (
+        "reviewed private DTO carries AuthTokens only between internal auth/provider owners; "
+        "the DTO itself never reaches an adapter serializer or JSON terminal"
+    ),
     "internal-runtime-configuration": (
         "reviewed private DTO carries a public configuration dataclass only through internal "
         "client construction; neither the DTO nor the field reaches an adapter serializer"

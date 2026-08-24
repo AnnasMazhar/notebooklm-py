@@ -709,6 +709,31 @@
       "scope": "module",
       "source": "tokens",
       "target": "storage"
+    },
+    {
+      "scope": "module",
+      "source": "web_provider_refresh",
+      "target": "session"
+    },
+    {
+      "scope": "module",
+      "source": "web_provider_refresh",
+      "target": "tokens"
+    },
+    {
+      "scope": "module",
+      "source": "web_provider_storage",
+      "target": "cookie_types"
+    },
+    {
+      "scope": "module",
+      "source": "web_provider_storage",
+      "target": "profile_store"
+    },
+    {
+      "scope": "module",
+      "source": "web_provider_storage",
+      "target": "tokens"
     }
   ],
   "modules": [
@@ -916,6 +941,16 @@
       "lines": 894,
       "name": "tokens",
       "path": "src/notebooklm/_auth/tokens.py"
+    },
+    {
+      "lines": 71,
+      "name": "web_provider_refresh",
+      "path": "src/notebooklm/_auth/web_provider_refresh.py"
+    },
+    {
+      "lines": 74,
+      "name": "web_provider_storage",
+      "path": "src/notebooklm/_auth/web_provider_storage.py"
     }
   ],
   "sccs": {
@@ -924,10 +959,10 @@
   },
   "summary": {
     "function_local_edges": 12,
-    "module_edges": 130,
-    "modules": 41,
-    "total_lines": 16174,
-    "unique_edges": 142
+    "module_edges": 135,
+    "modules": 43,
+    "total_lines": 16319,
+    "unique_edges": 147
   },
   "version": 1
 }

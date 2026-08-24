@@ -979,7 +979,7 @@ def test_canonical_stored_load_callers_are_exact_and_capability_never_escapes() 
         violations.update(rejected)
     assert calls == {
         ("tokens.py", "AuthTokens.from_storage"),
-        ("client.py", "_FromStorageContext._build"),
+        ("web_provider_storage.py", "load_web_provider_bootstrap"),
     }
     assert violations == set()
 
@@ -1109,7 +1109,7 @@ def test_public_classmethod_is_only_an_adapter_and_passes_runtime_cls() -> None:
     } == set()
 
 
-def test_client_has_no_direct_authtokens_loader_and_uses_late_module_provider() -> None:
+def test_client_uses_provider_storage_adapter_and_has_no_direct_token_loader() -> None:
     tree = _tree(CLIENT_PATH)
     build = _find_method(tree, "_FromStorageContext", "_build")
     assert not any(
@@ -1118,20 +1118,23 @@ def test_client_has_no_direct_authtokens_loader_and_uses_late_module_provider() 
         and node.func.attr == "from_storage"
         for node in ast.walk(build)
     )
-    load_calls = [
+    bootstrap_calls = [
         node
         for node in ast.walk(build)
         if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == _LOAD
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "load_web_provider_bootstrap"
     ]
-    assert len(load_calls) == 1
-    assert isinstance(load_calls[0].func.value, ast.Name)
-    assert load_calls[0].func.value.id == "_auth_tokens"
+    assert len(bootstrap_calls) == 1
     assert any(
         isinstance(node, ast.ImportFrom)
-        and _resolved_module(CLIENT_PATH, node) == "notebooklm._auth"
-        and any(item.name == "tokens" and item.asname == "_auth_tokens" for item in node.names)
+        and _resolved_module(CLIENT_PATH, node) == "notebooklm._auth.web_provider_storage"
+        and any(item.name == "load_web_provider_bootstrap" for item in node.names)
+        for node in tree.body
+    )
+    assert not any(
+        isinstance(node, ast.ImportFrom | ast.Import)
+        and "_auth_tokens" in {item.asname for item in node.names}
         for node in tree.body
     )
 

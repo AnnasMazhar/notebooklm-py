@@ -121,7 +121,7 @@ def test_inventory_covers_every_current_terminal_adapter_site() -> None:
 def test_private_dto_catalog_covers_every_annotation_proven_public_model_path() -> None:
     rows = discover_private_dataclass_projection_paths()
 
-    assert len(rows) == 36
+    assert len(rows) == 38
     triples = {(row.private_model, row.field_path, row.public_model) for row in rows}
     assert (
         "notebooklm._app.source_mutations.SourceRenameResult",
@@ -143,6 +143,18 @@ def test_private_dto_catalog_covers_every_annotation_proven_public_model_path() 
         "labels[]",
         "notebooklm.types.Label",
     ) in triples
+    assert {
+        (
+            "notebooklm._auth.web_provider_refresh.WebProviderRefresh",
+            "auth",
+            "notebooklm.auth.AuthTokens",
+        ),
+        (
+            "notebooklm._auth.web_provider_storage.WebProviderBootstrap",
+            "auth",
+            "notebooklm.auth.AuthTokens",
+        ),
+    } <= triples
     assert (
         "notebooklm._chat_records.ChatAskResultRecord",
         "answer_document",
@@ -1320,7 +1332,19 @@ def test_checked_in_reachability_allocations_are_exact() -> None:
         _source_root(), known_projection_ids=_allocation_projection_ids()
     )
     assert contract["site_count"] == 350
-    assert len(contract["private_dataclass_projection_paths"]) == 36
+    private_paths = contract["private_dataclass_projection_paths"]
+    assert len(private_paths) == 38
+    provider_auth_paths = [
+        path
+        for path in private_paths
+        if str(path["private_model"]).startswith("notebooklm._auth.web_provider_")
+    ]
+    assert len(provider_auth_paths) == 2
+    assert {path["allocation"]["unreachable_category"] for path in provider_auth_paths} == {
+        "internal-runtime-auth-capability"
+    }
+    assert all("projection_ids" not in path["allocation"] for path in provider_auth_paths)
+    assert all("terminal_locators" not in path["allocation"] for path in provider_auth_paths)
     assert contract["transitive_helper_graph"] == {
         "schema_version": 1,
         "root_count": 210,

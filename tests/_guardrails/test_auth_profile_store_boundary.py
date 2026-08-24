@@ -501,7 +501,7 @@ def test_importer_detector_bites_at_every_scope(source: str) -> None:
     assert _imports_profile_store(AUTH_ROOT / "synthetic.py", ast.parse(source))
 
 
-def test_production_importers_are_exactly_approved_store_owners_and_loader() -> None:
+def test_production_importers_are_exactly_approved_owners_and_typed_adapters() -> None:
     actual = {
         _source_label(path)
         for path in SRC_ROOT.rglob("*.py")
@@ -514,6 +514,8 @@ def test_production_importers_are_exactly_approved_store_owners_and_loader() -> 
     assert actual == {
         "_cookie_persistence.py",
         "_runtime/init.py",
+        "_runtime/web_cookie_provider.py",
+        "_web_cookie_provider.py",
         "account_email.py",
         "account_repair.py",
         "auth.py",
@@ -525,6 +527,7 @@ def test_production_importers_are_exactly_approved_store_owners_and_loader() -> 
         "refresh.py",
         "storage.py",
         "tokens.py",
+        "web_provider_storage.py",
     }
 
 
@@ -1557,7 +1560,7 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
             "CookiePersistence._save_canonical",
             "merge_cookie_observation",
         ),
-        ("_runtime/init.py", "build_collaborators", "ProfileStore"),
+        ("_runtime/init.py", "_build_runtime_leaves", "ProfileStore"),
         ("account_email.py", "_read_matching_account_heal_document", "ProfileStore"),
         ("account_email.py", "_read_matching_account_heal_document", "read_document"),
         (
@@ -1638,6 +1641,11 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
         ("tokens.py", "FileLoadedAuth.__post_init__", _CAPABILITY_ESCAPE),
         ("tokens.py", "StoredAuthLoader._merge_observation", "merge_cookie_observation"),
         ("tokens.py", "StoredAuthLoader._resolve_source", "ProfileStore"),
+        (
+            "web_provider_storage.py",
+            "WebProviderBootstrap.__post_init__",
+            _CAPABILITY_ESCAPE,
+        ),
     }
 
 

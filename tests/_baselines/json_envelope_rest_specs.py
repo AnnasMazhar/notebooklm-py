@@ -115,8 +115,9 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
         ),
         "redacted_projection": "safe-field-contribution",
         "evidence": (
-            "notebooklm/client.py:return self._auth.authuser",
-            "notebooklm/client.py:auth=self._auth",
+            "notebooklm/client.py:return self._provider.get_account_authuser()",
+            "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser",
+            "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth",
             "notebooklm/_auth/account_email.py:def _session_key",
             "notebooklm/_auth/account_email.py:storage_path = auth.storage_path",
             "notebooklm/server/routes/meta.py:async def _account_block",

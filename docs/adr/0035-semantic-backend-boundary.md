@@ -4,13 +4,11 @@
 
 Accepted.
 
-The phase order is approved as P0 through P8 with P7 running after P6. The P3
-codec/model separation and P8 cookie-provider extraction are approved within the constraints
-below. P0's catalog and compatibility evidence are implemented and frozen; this status does not
-claim that P1-P3 or P5-P8 are complete. P4 convergence is implemented for every currently active
-semantic operation: the initial eight-operation P2 slice established the gates, and the integrated
-P5.1/P6.3 handlers extend the same policy/deadline/error ledger to 15. Each later migration must
-extend it again. P9 public-API work and a mobile backend are separate decisions.
+The approved P0-through-P8 sequence is complete, with P7 run after P6 and the P8 cookie-provider
+extraction run after the runtime interface froze. P0's catalog and compatibility evidence remain
+frozen; all 82 active semantic handlers now share the P4 policy/deadline/error ledger. P8 composes,
+rather than replaces, the accepted authentication owners through an immutable generation and a
+narrow provider port. P9 public-API work and a mobile backend remain separate decisions.
 
 ## Context
 
@@ -108,16 +106,22 @@ chain internals. P7 may then replace the composition holders and generic middlew
 but must equality-preserve loop affinity, drain/close, retry, auth refresh, errors, metrics,
 telemetry, and every public client member and constructor option.
 
-P8 is approved after P7. `WebCookieProvider` composes the accepted auth owners from ADR-0016 and
-ADR-0029 through ADR-0034; it does not absorb profile storage, interactive login, recovery,
-locking, persistence, or account routing. The deprecated awaited `from_storage()` path must not
-leak a provider. A second backend remains out of scope.
+P8 ran after P7. `WebCookieProvider` composes the accepted auth owners from ADR-0016 and ADR-0029
+through ADR-0034; it does not absorb profile storage, interactive login, recovery, locking,
+persistence, or account routing. `WebCookieGeneration` atomically carries cookies, token pair,
+account route, and the generation fence. The provider owns the existing acquisition/refresh kernel
+and lifecycle; `WebBackendSession` owns a distinct execution kernel and clones only a newer immutable
+value into it. A matching detached backend result is reconciled through the provider before
+persistence, without aliasing either mutable jar. The deprecated awaited `from_storage()` path
+transfers the constructed provider to the returned client's close lifecycle and does not leak it.
+A second backend remains out of scope.
 
 Those constraints are inventory claims about who owns what today, so they are gated by
-`tests/_guardrails/test_semantic_p8_provider_boundary_audit.py` (fail-closed ownership
-inventories, and a tripwire that fires the moment `WebCookieProvider` is defined) and
-`tests/unit/test_semantic_p8_provider_characterization.py` (the generation-fence, ownership,
-locking, single-flight, routing, and redaction behaviour P8 must equality-preserve).
+`tests/_guardrails/test_semantic_p8_provider_boundary_audit.py` (fail-closed post-extraction
+provider/import/ownership inventories), `tests/unit/test_semantic_p8_provider_characterization.py`
+(generation fencing, ownership, and private-session cloning), and
+`tests/unit/test_semantic_p8_auth_adapters.py` (whole storage/refresh transaction delegation).
+The existing storage, locking, single-flight, routing, and redaction suites remain unchanged.
 
 ### `_app/` orchestration and budgets
 

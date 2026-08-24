@@ -338,6 +338,60 @@
       },
       {
         "allocation": {
+          "review_note": "WebProviderRefresh carries AuthTokens only into the canonical provider-side refresh transaction; neither this frozen adapter nor its auth field is passed to an adapter serializer.",
+          "source_evidence": [
+            {
+              "required_ast_fragments": [
+                "auth=self.auth",
+                "return await self.transaction(work)"
+              ],
+              "semantic_fingerprint": "sha256:e7fc406b7dc50dfd71dd501d934d3a309598ad87bb60b6948f52590c2f763025",
+              "symbol": "notebooklm._auth.web_provider_refresh.WebProviderRefresh._refresh_session"
+            },
+            {
+              "required_ast_fragments": [
+                "refresh_adapter = WebProviderRefresh",
+                "refresh_session=refresh_adapter.refresh"
+              ],
+              "semantic_fingerprint": "sha256:01a38d89ddf3dad99a7ee1f8c67a3a73de2394c5d43db5c4b0d397ff4d8b3c35",
+              "symbol": "notebooklm._runtime.init.compose_client_internals"
+            }
+          ],
+          "unreachable_category": "internal-runtime-auth-capability"
+        },
+        "field_path": "auth",
+        "private_model": "notebooklm._auth.web_provider_refresh.WebProviderRefresh",
+        "public_model": "notebooklm.auth.AuthTokens"
+      },
+      {
+        "allocation": {
+          "review_note": "WebProviderBootstrap carries the canonical stored-auth result only through private client/provider construction; the bootstrap DTO itself never reaches a JSON adapter terminal.",
+          "source_evidence": [
+            {
+              "required_ast_fragments": [
+                "_load_stored_auth",
+                "return WebProviderBootstrap"
+              ],
+              "semantic_fingerprint": "sha256:9433327b437a5195e36fdc7a3031b6426266630cd4cf8b8b285a3f2a9286bf44",
+              "symbol": "notebooklm._auth.web_provider_storage.load_web_provider_bootstrap"
+            },
+            {
+              "required_ast_fragments": [
+                "auth = bootstrap.auth",
+                "client = self._cls"
+              ],
+              "semantic_fingerprint": "sha256:5575e919f8a580f0b3db19d7af68b376856792ab553b0246a2927415c3067059",
+              "symbol": "notebooklm.client._FromStorageContext._build"
+            }
+          ],
+          "unreachable_category": "internal-runtime-auth-capability"
+        },
+        "field_path": "auth",
+        "private_model": "notebooklm._auth.web_provider_storage.WebProviderBootstrap",
+        "public_model": "notebooklm.auth.AuthTokens"
+      },
+      {
+        "allocation": {
           "projection_ids": [
             "cli.StructuredDocument.transitive-chat-reference-full-contribution",
             "mcp.StructuredDocument.transitive-chat-reference-full-contribution",
@@ -403,8 +457,8 @@
               "required_ast_fragments": [
                 "limits=config.limits"
               ],
-              "semantic_fingerprint": "sha256:a085a87225d40d131bf2dd6cee975d4759970779193682796d5d28f14258195a",
-              "symbol": "notebooklm._runtime.init.build_collaborators"
+              "semantic_fingerprint": "sha256:b811d06561a91f1686a997542a47094d7563ff8cbda35b82f8a4d6b1bdbe4ef1",
+              "symbol": "notebooklm._runtime.init._build_runtime_leaves"
             }
           ],
           "unreachable_category": "internal-runtime-configuration"
@@ -10486,7 +10540,7 @@
               "notebooklm/cli/notebook_cmd.py:data = metadata.to_dict()"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_notebook_metadata.py:SourceSummary(": "sha256:6ce076c367664dd191b70cd58cfb286d9306dbe251d08bd036e1bb6c6e5a2b6f",
+              "notebooklm/_notebook_metadata.py:SourceSummary(": "sha256:b6c89fb6cb63491800327f2ed3b9def3f9116f45ed15de2d5a5869211a0c2039",
               "notebooklm/_types/notebooks.py:class SourceSummary": "sha256:d9a9d43720f96120fe65c045e2d43e914560c27a8705f6c3ec6a9979852d1a4c",
               "notebooklm/cli/notebook_cmd.py:data = metadata.to_dict()": "sha256:cef87951ab114ba963266efb27010d3aad1b0054ee255b1471b670d4edd7afbc"
             },
@@ -11023,8 +11077,9 @@
               "account_email"
             ],
             "evidence": [
-              "notebooklm/client.py:return self._auth.authuser",
-              "notebooklm/client.py:auth=self._auth",
+              "notebooklm/client.py:return self._provider.get_account_authuser()",
+              "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser",
+              "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth",
               "notebooklm/_auth/account_email.py:def _session_key",
               "notebooklm/_auth/account_email.py:storage_path = auth.storage_path",
               "notebooklm/mcp/tools/meta.py:async def _account_block",
@@ -11033,8 +11088,9 @@
             "evidence_shape_fingerprints": {
               "notebooklm/_auth/account_email.py:def _session_key": "sha256:4a8c584cfbe8e0317591941b563ff5930e6e3a927fa870a3e26dfcddb84516cc",
               "notebooklm/_auth/account_email.py:storage_path = auth.storage_path": "sha256:2f14eca1db9edefb384b09c6484fdb775cb6d43718acc949ee68eababbd32b48",
-              "notebooklm/client.py:auth=self._auth": "sha256:b0071596967c8f878caa6a03efc07a422b7bb59b8c9585c58b39985cf96f9655",
-              "notebooklm/client.py:return self._auth.authuser": "sha256:b2f93a49e3b22c4c42cfc21b41a6bef065e938ab7aee83d1990c96507f4be96b",
+              "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth": "sha256:c009c740052bb9a3edf2fa5d58467235bf4f24c53aa3867f4c76cb7aca0086b5",
+              "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser": "sha256:a26b114eb717b50883330be98192b0a051aad0bda61bd543b3a75fbb789a0c1b",
+              "notebooklm/client.py:return self._provider.get_account_authuser()": "sha256:56aa85d73e113eeee6d211a2aa3979fffaa44af7479b16a555b614bf8cff78a8",
               "notebooklm/mcp/tools/meta.py:async def _account_block": "sha256:3ee79936cfbe3f25dad89886211ed825803961d40d03d9dba2e7e273c2953513",
               "notebooklm/mcp/tools/meta.py:info[\"account\"] = await _account_block": "sha256:1a79f675be39f0a31d317756ce05a74848d07229ff37c05a3145b06bde3043b1"
             },
@@ -11082,7 +11138,7 @@
                 ]
               }
             },
-            "projection_condition": "server_info include_account is true; authuser always comes from the in-memory AuthTokens, while account_email contributes only when that in-memory/cached identity wins before persisted or live fallback",
+            "projection_condition": "server_info include_account is true; authuser always comes from the provider's immutable generation captured from the in-memory AuthTokens, while account_email contributes only when that in-memory/cached identity wins before persisted or live fallback",
             "redacted_projection": "safe-field-contribution",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
@@ -14109,7 +14165,7 @@
               "notebooklm/mcp/tools/notebooks.py:output[\"metadata\"] = metadata_block"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_notebook_metadata.py:SourceSummary(": "sha256:6ce076c367664dd191b70cd58cfb286d9306dbe251d08bd036e1bb6c6e5a2b6f",
+              "notebooklm/_notebook_metadata.py:SourceSummary(": "sha256:b6c89fb6cb63491800327f2ed3b9def3f9116f45ed15de2d5a5869211a0c2039",
               "notebooklm/mcp/tools/notebooks.py:metadata_block = to_jsonable": "sha256:19fcbb56d06ccea43185d6a7b167e8867946c9d0f7128d863869a60841e102c7",
               "notebooklm/mcp/tools/notebooks.py:output[\"metadata\"] = metadata_block": "sha256:d6e591510864f8424a6597d6ca800948bb7395e839a2be39c83707b873ab8797"
             },
@@ -14596,8 +14652,9 @@
               "account_email"
             ],
             "evidence": [
-              "notebooklm/client.py:return self._auth.authuser",
-              "notebooklm/client.py:auth=self._auth",
+              "notebooklm/client.py:return self._provider.get_account_authuser()",
+              "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser",
+              "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth",
               "notebooklm/_auth/account_email.py:def _session_key",
               "notebooklm/_auth/account_email.py:storage_path = auth.storage_path",
               "notebooklm/server/routes/meta.py:async def _account_block",
@@ -14606,8 +14663,9 @@
             "evidence_shape_fingerprints": {
               "notebooklm/_auth/account_email.py:def _session_key": "sha256:4a8c584cfbe8e0317591941b563ff5930e6e3a927fa870a3e26dfcddb84516cc",
               "notebooklm/_auth/account_email.py:storage_path = auth.storage_path": "sha256:2f14eca1db9edefb384b09c6484fdb775cb6d43718acc949ee68eababbd32b48",
-              "notebooklm/client.py:auth=self._auth": "sha256:b0071596967c8f878caa6a03efc07a422b7bb59b8c9585c58b39985cf96f9655",
-              "notebooklm/client.py:return self._auth.authuser": "sha256:b2f93a49e3b22c4c42cfc21b41a6bef065e938ab7aee83d1990c96507f4be96b",
+              "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth": "sha256:c009c740052bb9a3edf2fa5d58467235bf4f24c53aa3867f4c76cb7aca0086b5",
+              "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser": "sha256:a26b114eb717b50883330be98192b0a051aad0bda61bd543b3a75fbb789a0c1b",
+              "notebooklm/client.py:return self._provider.get_account_authuser()": "sha256:56aa85d73e113eeee6d211a2aa3979fffaa44af7479b16a555b614bf8cff78a8",
               "notebooklm/server/routes/meta.py:async def _account_block": "sha256:3af98592b3247210845fc5b8a68458e68b4ea0d0a1ebf74b93354137fd99c29b",
               "notebooklm/server/routes/meta.py:info[\"account\"] = await _account_block": "sha256:3e18ff89f18491718e328965738a7ef84ed0b64f7410a9c71d68a30b66d57c4d"
             },

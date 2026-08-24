@@ -1524,8 +1524,9 @@ def test_json_envelope_covers_exported_models_and_exact_adapter_variants() -> No
             "mode": "redacted-server-info-account-identity-contribution",
             "keys": ["server", "version", "auth", "account"],
             "evidence": [
-                "notebooklm/client.py:return self._auth.authuser",
-                "notebooklm/client.py:auth=self._auth",
+                "notebooklm/client.py:return self._provider.get_account_authuser()",
+                "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser",
+                "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth",
                 "notebooklm/_auth/account_email.py:def _session_key",
                 "notebooklm/_auth/account_email.py:storage_path = auth.storage_path",
                 "notebooklm/mcp/tools/meta.py:async def _account_block",
@@ -1570,9 +1571,10 @@ def test_json_envelope_covers_exported_models_and_exact_adapter_variants() -> No
                 "_profile_session_generation",
             ],
             "projection_condition": (
-                "server_info include_account is true; authuser always comes from the "
-                "in-memory AuthTokens, while account_email contributes only when that "
-                "in-memory/cached identity wins before persisted or live fallback"
+                "server_info include_account is true; authuser always comes from the provider's "
+                "immutable generation captured from the in-memory AuthTokens, while account_email "
+                "contributes only when that in-memory/cached identity wins before persisted or "
+                "live fallback"
             ),
             "adapter_surface": "MCP explicitly redacted safe-field identity contribution",
             "contribution_semantics": (
@@ -1886,4 +1888,29 @@ def test_json_envelope_allocates_every_live_projection_to_an_exact_terminal() ->
 
     assert allocated_projection_ids == live_projection_ids
     assert reachability["site_count"] == 350
-    assert len(reachability["private_dataclass_projection_paths"]) == 36
+    private_paths = reachability["private_dataclass_projection_paths"]
+    assert len(private_paths) == 38
+    provider_auth_paths = {
+        (path["private_model"], path["field_path"], path["public_model"])
+        for path in private_paths
+        if str(path["private_model"]).startswith("notebooklm._auth.web_provider_")
+    }
+    assert provider_auth_paths == {
+        (
+            "notebooklm._auth.web_provider_refresh.WebProviderRefresh",
+            "auth",
+            "notebooklm.auth.AuthTokens",
+        ),
+        (
+            "notebooklm._auth.web_provider_storage.WebProviderBootstrap",
+            "auth",
+            "notebooklm.auth.AuthTokens",
+        ),
+    }
+    assert all(
+        path["allocation"]["unreachable_category"] == "internal-runtime-auth-capability"
+        and "projection_ids" not in path["allocation"]
+        and "terminal_locators" not in path["allocation"]
+        for path in private_paths
+        if str(path["private_model"]).startswith("notebooklm._auth.web_provider_")
+    )

@@ -1682,10 +1682,47 @@ ownership-first.
 | **P8.6** | Account routing & secret redaction | `_auth.account.format_authuser_value` / `authuser_query`, `AuthTokens.__repr__`, `_secrets` registry | `test_auth_repr_redaction.py`, `test_runtime_secret_registry_parity.py`; email-over-index precedence |
 | **P8.7** | Out-of-backend surfaces stay out | `cli/services/playwright_login.py`, `_auth.browser_capture`, `cli/doctor_cmd.py`, `_app/profile.py` | Interactive-auth inventory in the P8 audit stays disjoint from `src/notebooklm/_web/` |
 
-The audit's `test_p8_provider_is_not_defined_yet` fails on purpose the moment
-`WebCookieProvider` is introduced. That failure is the checkpoint: re-derive every
-inventory in that module against the new boundary rather than inheriting a stale
-baseline.
+The audit's former `test_p8_provider_is_not_defined_yet` fired when
+`WebCookieProvider` was introduced, as intended. P8 replaces that entry tripwire with exact
+post-extraction provider definitions and re-derived ownership/import inventories; it does not
+inherit the pre-P8 baseline.
+
+#### P8 completion evidence
+
+- `WebCookieGeneration` is the frozen cookie/token/account-route value and `AuthSnapshot` is its
+  compatibility alias. `RuntimeWebCookieProvider` owns the acquisition/refresh kernel and publishes
+  cached immutable success epochs under its transaction lock. `WebBackendSession` owns a distinct
+  execution kernel; transport materialization copies only a newer generation into that private jar
+  before dispatch. A monotonic fence rejects stale/equal installs so a late attempt cannot overwrite
+  a newer generation or response `Set-Cookie` mutations. The two mutable jars never alias.
+- `WebCookieProvider` is the only credential-facing port seen by `WebRpcBackend`.
+  `RuntimeWebCookieProvider` composes the existing auth/account/lifecycle/persistence collaborators;
+  it does not read a profile, derive a lock path, drive a browser, or implement a recovery rung. A
+  generation-matching detached backend state is reconciled through that provider before persistence;
+  the backend session itself has no acquisition or persistence capability.
+- Ordinary RPC, streamed Chat, source upload, and Drive-download direct HTTP legs materialize only an
+  already-acquired immutable generation through their existing wire adapters. Their exact imports
+  and credential identifiers are audited; none can reach profile, refresh, persistence, master-token,
+  or interactive-login owners.
+- `_auth.web_provider_storage` delegates the complete `_load_stored_auth` transaction and carries
+  its existing `ProfileStore`/persistence-baseline pair. `_auth.web_provider_refresh` delegates the
+  complete `refresh_auth_session` transaction and preserves the base-flight/wider-policy
+  join-then-rerun rule. Profile paths, four lock siblings, CAS, atomic `0o600` writes,
+  single-flight success epochs, recovery/master-token order, account routing, and redaction retain
+  their existing owners and gates.
+- Directly injected providers remain caller-owned. Client construction transfers ownership of the
+  provider it creates; provider acquisition and backend-session close are independently idempotent
+  and cancellation-safe. Provider-owned account-identity tasks coalesce by live-fallback policy;
+  teardown cancels live probes before waiting for the credential transaction lock, while the
+  network-free post-close lookup remains available. The deprecated awaited `from_storage()` path
+  returns a built client whose own close owns that provider, so it does not leak a
+  built-but-unentered provider. Custom subclasses whose constructor intentionally omits standard
+  provider assembly retain the legacy build behavior.
+- `tests/unit/test_semantic_p8_provider_characterization.py`,
+  `tests/unit/test_semantic_p8_auth_adapters.py`, and
+  `tests/_guardrails/test_semantic_p8_provider_boundary_audit.py` replace the P8 entry tripwire
+  with fail-closed post-extraction ownership, import, storage, refresh, interactive-auth, and
+  secret-boundary evidence.
 
 ### Deliberately out of scope
 

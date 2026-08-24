@@ -482,7 +482,7 @@
     },
     {
       "attribute": "_load_stored_auth",
-      "count": 6,
+      "count": 9,
       "idiom": "monkeypatch.setattr",
       "module": "tokens"
     },
@@ -491,13 +491,19 @@
       "count": 1,
       "idiom": "monkeypatch.setattr",
       "module": "tokens"
+    },
+    {
+      "attribute": "refresh_auth_session",
+      "count": 13,
+      "idiom": "monkeypatch.setattr",
+      "module": "web_provider_refresh"
     }
   ],
   "summary": {
     "TOTAL": {
-      "private": 161,
-      "public": 135,
-      "total": 296
+      "private": 164,
+      "public": 148,
+      "total": 312
     },
     "account": {
       "private": 2,
@@ -595,9 +601,14 @@
       "total": 1
     },
     "tokens": {
-      "private": 6,
+      "private": 9,
       "public": 1,
-      "total": 7
+      "total": 10
+    },
+    "web_provider_refresh": {
+      "private": 0,
+      "public": 13,
+      "total": 13
     }
   },
   "version": 1
