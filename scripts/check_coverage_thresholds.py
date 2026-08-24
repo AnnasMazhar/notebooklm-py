@@ -1,4 +1,4 @@
-"""Assert pyproject.toml `fail_under` matches `.github/workflows/test.yml` `--cov-fail-under`.
+"""Assert pyproject.toml `fail_under` matches nightly CI's `--cov-fail-under`.
 
 Prevents the two values from drifting (e.g. CI passing at 70% while pyproject
 demands 90%, or vice versa) by failing CI whenever they disagree.
@@ -10,7 +10,7 @@ files that lag the project-wide 90% are guarded by this script.
 
 Usage:
     python scripts/check_coverage_thresholds.py
-    python scripts/check_coverage_thresholds.py --pyproject custom/pyproject.toml --workflow custom/test.yml
+    python scripts/check_coverage_thresholds.py --pyproject custom/pyproject.toml --workflow custom/nightly.yml
     python scripts/check_coverage_thresholds.py --coverage-json coverage.json
 
 Exit codes:
@@ -198,7 +198,7 @@ def _check_per_file_floors(pyproject_path: str, coverage_json_path: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pyproject", default="pyproject.toml")
-    ap.add_argument("--workflow", default=".github/workflows/test.yml")
+    ap.add_argument("--workflow", default=".github/workflows/nightly.yml")
     ap.add_argument(
         "--coverage-json",
         default=None,
