@@ -1395,6 +1395,64 @@ Each domain migration must:
 | **P6.3.2** | Semantic NoteService migration & reconciliation | `src/notebooklm/_note_service.py` -> `_notes/` | Backend-neutral NoteService consuming BackendAdapter; cancellation cleanup & creation timestamp preservation |
 | **P6.3.3** | MindMapsAPI dual-service delegation & retirement | `src/notebooklm/_mind_maps_api.py`, `_mind_map.py` | MindMapsAPI delegating note-backed operations to semantic NoteService and interactive operations to Studio family service; exact MindMap return shape & auto-detect preservation |
 
+#### P6.1 addendum — chat operation and wire-site map
+
+Prep landed ahead of the migration PRs: no production behavior changed, and the six chat contracts
+above are pinned executably in `tests/unit/test_semantic_chat_slice_characterization.py`. That file
+is P6.1's gate alongside `tests/unit/test_citation_alignment.py`; a migration PR that changes any
+row below without changing it is out of contract.
+
+Six operations carry the domain. "Wire sites" are the files a migration must move or leave in place
+deliberately -- not a list of files it may touch freely.
+
+| Operation | Public methods | Native bindings | Wire and workflow sites |
+|---|---|---|---|
+| `chat.ask` (`stream`) | `chat.ask` | `GET_NOTEBOOK`, `GET_LAST_CONVERSATION_ID`, streamed `GenerateFreeFormStreamed` POST | `_chat/api.py:ChatAPI.ask` (two-phase orchestration, locks, cache), `_chat/wire.py` (`build_streaming_chat_request`, `parse_streaming_chat_response`, `attach_answer_anchors`), `_chat/transport.py:chat_aware_authed_post`, `_streaming_post.py:stream_post_with_size_cap`, `_kernel.py:Kernel.post`, `_chat/history.py:count_prior_server_turns`, `_notebooks.py:NotebooksAPI.get_raw`, `_conversation_cache.py`, `_chat/deleted_tracker.py` |
+| `chat.get_conversation` (`read`) | `chat.get_conversation_id` | `GET_LAST_CONVERSATION_ID` | `_chat/api.py:ChatAPI.get_conversation_id`, `_row_adapters/chat.py:unwrap_last_conversation_id` |
+| `chat.get_history` (`read`) | `chat.get_conversation_turns`, `chat.get_history` | `GET_CONVERSATION_TURNS`, `GET_LAST_CONVERSATION_ID` | `_chat/api.py` (`get_conversation_turns`, `get_history`, `_parse_turns_to_qa_pairs`), `_row_adapters/chat.py` (`unwrap_conversation_turns`, `ConversationTurnRow`) |
+| `chat.delete_history` (`mutation`) | `chat.delete_conversation` | `DELETE_CONVERSATION` | `_chat/api.py:ChatAPI.delete_conversation`, `_conversation_cache.py`, `_chat/deleted_tracker.py` |
+| `chat.configure` (`mutation`) | `chat.configure`, `chat.set_mode`, `chat.get_settings` | `RENAME_NOTEBOOK`, `GET_NOTEBOOK` | `_chat/api.py` (`configure`, `set_mode`, `get_settings`), `_row_adapters/chat.py:unwrap_chat_settings`, `_notebook_payloads.py:build_get_notebook_params` |
+| `chat.save_note` (`mutation`) | `chat.save_answer_as_note` | `CREATE_NOTE:saved_from_chat` | `_chat/notes.py:save_chat_answer_as_note`, `_chat/wire.py` passage resolution |
+
+`clear_cache()` / `cache_size()` / `get_cached_turns()` are the "clear" half of the domain title and
+stay **client-local**: they have no wire site, get no operation row, and must not acquire one.
+
+**Recency, exactly.** `chat.ask` issues one `GET_NOTEBOOK` when `source_ids` is omitted and zero
+when it is pinned; `chat.get_settings` issues exactly one; every other chat public call issues zero.
+`ask`'s read comes from `NotebooksAPI.get_raw`, which is *not* the migrated `notebook.get` backend
+path -- so P6.1 inherits a second notebook read and must keep it. Routing `ask` through a cached or
+de-duplicated notebook record is the ordering regression the plan warns about.
+
+**Ephemeral handles** needing backend affinity in a future dual-backend API: the per-conversation and
+per-notebook `asyncio.Lock` maps and their loop binding, `RecentlyDeletedConversations`, the
+`ConversationCache` turn lineage, the discarded per-stream conversation id, and
+`ConversationTurnKey.session_id` (a raw wire value that is not a conversation id).
+
+**Correction to the prose above.** `ask`'s docstring and this plan both say the full answer is logged
+before the phase-2 `ChatError`. The code logs the character count plus `answer_text[:500]`. The
+sentinel pins the code. Widening it to the full answer is a product decision, not part of P6.1.
+
+**Patch sequence.** Each step is independently green and reversible; none merges with a second
+execution authority live.
+
+1. **Prep (this PR).** Sentinels plus this addendum. No production change.
+2. **Four pure-RPC operations.** Add records/`OperationDef`s to `_records.py` and handlers to
+   `_web/backend.py`, register them in `_web/registry.py` (`_EXPECTED_SUPPORTED_COUNT` 7 -> 11), and
+   delegate `get_conversation_id`, `get_conversation_turns`/`get_history`, `delete_conversation`, and
+   `configure`/`set_mode`/`get_settings`. `get_settings` binds its own `GET_NOTEBOOK` handler rather
+   than reusing `notebook.get`'s, so its recency count cannot be collapsed into a shared read.
+3. **`chat.save_note`.** Independent of the rest; the seven-element `saved_from_chat` variant moves
+   into the codec unchanged.
+4. **`chat.ask` last, as an adapter-owned workflow** -- the P2.3 shape, not a per-chunk record
+   protocol. The backend owns both phases and returns one completed result; the byte cap stays in
+   `_streaming_post` (pre-decode, `bytes_read > limit_bytes`, `RPCResponseTooLargeError`), and the
+   loop-affinity guard, the two lock maps, and the deleted-conversation tracker stay **above** the
+   backend in the facade/service, because they are loop-affinity state rather than wire knowledge.
+   `CallPolicy.STREAM` gets its first executable binding here.
+5. **Cleanup.** Delete the superseded direct `RpcCaller` implementations, drop `RPCMethod` from the
+   chat facade, and re-run the catalog audit so the chat rows' `execution_authorities` name the
+   backend sites.
+
 #### Acceptance criteria
 
 - No migrated feature API imports `RPCMethod` or constructs positional RPC arrays.
