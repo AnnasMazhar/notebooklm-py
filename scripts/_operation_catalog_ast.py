@@ -2161,9 +2161,9 @@ def audit_recency_contracts() -> list[str]:
                 gather_shapes.append(
                     (
                         [
-                            (arg.value.id,)
-                            if isinstance(arg, ast.Starred) and isinstance(arg.value, ast.Name)
-                            else _attribute_parts(arg.func)
+                            _attribute_parts(arg.func)
+                            if isinstance(arg, ast.Call)
+                            else ((arg.value.id,) if isinstance(arg.value, ast.Name) else ())
                             for arg in call.args
                             if isinstance(arg, (ast.Call, ast.Starred))
                         ],
