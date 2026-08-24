@@ -160,7 +160,10 @@ def test_every_active_binding_honors_runtime_rpc_overrides() -> None:
     assert all(row["override_honored"] for row in rows)
     evidence = rows[0]["override_evidence"]
     assert all(row["override_evidence"] == evidence for row in rows)
-    assert evidence["source_contract"] == "_web/runtime.py:WebExecutionRuntime._execute_once"
+    assert evidence["source_contract"] == (
+        "_web/runtime.py:WebExecutionRuntime._execute_once -> "
+        "_web_request_auth.py:build_web_rpc_request"
+    )
     assert all(evidence["dataflow"].values())
     assert "test_runtime_rpc_override" in evidence["behavior_test"]
 
