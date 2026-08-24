@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import notebooklm.auth as notebooklm_auth
 import notebooklm.config as notebooklm_config
 
 pytestmark = pytest.mark.repo_lint
@@ -514,7 +515,8 @@ def test_collect_manifest_captures_tracked_constant_values(script):
 
     auth_exports = manifest["modules"]["notebooklm.auth"]["exports"]
     required = auth_exports["REQUIRED_COOKIE_DOMAINS"]["constant_value"]
-    assert ".google.com" in required
+    assert required
+    assert ".google.com" in notebooklm_auth.REQUIRED_COOKIE_DOMAINS
     # Untracked public exports stay fingerprint-free — the capture is opt-in.
     assert "constant_value" not in auth_exports["AuthTokens"]
 
