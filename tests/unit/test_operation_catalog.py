@@ -239,6 +239,7 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
         "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
         "_web/backend.py:WebRpcBackend._source_list",
+        "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids",
     ]
     assert any("_row_adapters/" in site for site in references[RPCMethod.GET_NOTEBOOK]["decoders"])
     assert all("_row_adapters/" not in site for site in sites[(RPCMethod.GET_NOTEBOOK, None)])

@@ -122,11 +122,25 @@ _GENERATION_OPERATIONS = {
     Operation.ARTIFACT_GENERATE_DATA_TABLE: "artifact_type=data-table",
 }
 for _operation, _discriminator in _GENERATION_OPERATIONS.items():
+    _document_handler = _operation in {
+        Operation.ARTIFACT_GENERATE_REPORT,
+        Operation.ARTIFACT_GENERATE_VIDEO,
+    }
+    _create_site = (
+        "_web/studio_documents.py:StudioDocumentWebHandlers._document_generate"
+        if _document_handler
+        else "_artifact/generation.py:ArtifactGenerationService._call_generate"
+    )
+    _source_site = (
+        "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids"
+        if _document_handler
+        else "_notebooks.py:NotebooksAPI.get_raw"
+    )
     SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.CREATE_ARTIFACT))] = _rules(
-        ("_artifact/generation.py:ArtifactGenerationService._call_generate", _discriminator)
+        (_create_site, _discriminator)
     )
     SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.GET_NOTEBOOK))] = _rules(
-        ("_notebooks.py:NotebooksAPI.get_raw", "source_ids is None")
+        (_source_site, "source_ids is None")
     )
 
 SHARED_RPC_AUTHORITY_RULES.update(
@@ -431,6 +445,11 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
 }
 
 for _operation in (*_GENERATION_OPERATIONS, Operation.ARTIFACT_GENERATE_MIND_MAP):
+    _source_site = (
+        "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids"
+        if _operation in {Operation.ARTIFACT_GENERATE_REPORT, Operation.ARTIFACT_GENERATE_VIDEO}
+        else _GET_RAW
+    )
     RECENCY_CONTRACTS[_operation] = (
         RecencyRule(
             next(spec.public_methods for spec in OPERATION_SPECS if spec.operation is _operation),
@@ -438,7 +457,7 @@ for _operation in (*_GENERATION_OPERATIONS, Operation.ARTIFACT_GENERATE_MIND_MAP
             1,
             "public_call",
             "one only when source_ids is omitted",
-            (_GET_RAW,),
+            (_source_site,),
         ),
     )
 for _operation, _kind in (

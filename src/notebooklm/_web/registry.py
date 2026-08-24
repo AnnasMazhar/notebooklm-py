@@ -16,6 +16,8 @@ from typing import Any, Final
 
 from .._operations import Operation, OperationDef
 from .._records import (
+    ARTIFACT_GENERATE_REPORT_DEF,
+    ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
     NOTE_CREATE_DEF,
@@ -79,6 +81,8 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.NOTE_DELETE: NOTE_DELETE_DEF,
         Operation.ARTIFACT_LIST: ARTIFACT_LIST_DEF,
         Operation.ARTIFACT_GET: ARTIFACT_GET_DEF,
+        Operation.ARTIFACT_GENERATE_REPORT: ARTIFACT_GENERATE_REPORT_DEF,
+        Operation.ARTIFACT_GENERATE_VIDEO: ARTIFACT_GENERATE_VIDEO_DEF,
     }
 )
 
@@ -99,6 +103,8 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.NOTE_DELETE: "_note_delete",
         Operation.ARTIFACT_LIST: "_artifact_list",
         Operation.ARTIFACT_GET: "_artifact_get",
+        Operation.ARTIFACT_GENERATE_REPORT: "_report_generate",
+        Operation.ARTIFACT_GENERATE_VIDEO: "_video_generate",
     }
 )
 
@@ -110,7 +116,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 15
+_EXPECTED_SUPPORTED_COUNT: Final = 17
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

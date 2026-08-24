@@ -500,6 +500,85 @@ class ArtifactGetResult:
     artifact: ArtifactRecord | None
 
 
+@dataclass(frozen=True, slots=True)
+class GenerationStatusRecord:
+    """Transport-neutral artifact generation task state."""
+
+    task_id: str
+    status: str
+    url: str | None = field(default=None, repr=False)
+    error: str | None = field(default=None, repr=False)
+    error_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class VideoGenerateInput:
+    """Video generation options without web enum or payload vocabulary."""
+
+    notebook_id: str
+    source_ids: tuple[str, ...] | None = None
+    language: str | None = "en"
+    instructions: str | None = field(default=None, repr=False)
+    video_format: str | None = None
+    video_style: str | None = None
+    style_prompt: str | None = field(default=None, repr=False)
+    cinematic_route: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class VideoGenerateResult:
+    """Video generation kickoff result."""
+
+    status: GenerationStatusRecord
+
+
+@dataclass(frozen=True, slots=True)
+class ReportGenerateInput:
+    """Report generation options without web enum or payload vocabulary."""
+
+    notebook_id: str
+    report_format: str = "briefing_doc"
+    source_ids: tuple[str, ...] | None = None
+    language: str | None = "en"
+    custom_prompt: str | None = field(default=None, repr=False)
+    extra_instructions: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ReportGenerateResult:
+    """Report generation kickoff result."""
+
+    status: GenerationStatusRecord
+
+
+@dataclass(frozen=True, slots=True)
+class VideoMetadataRecord:
+    """Video readiness and representation metadata derived from one catalog row."""
+
+    artifact_id: str
+    lifecycle_status: str
+    usable: bool
+    preferred_url: str | None = field(default=None, repr=False)
+    media_urls: tuple[ArtifactMediaRecord, ...] = field(default=(), repr=False)
+    duration_seconds: float | None = None
+    generation_prompt: str | None = field(default=None, repr=False)
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReportMetadataRecord:
+    """Report readiness and format metadata derived from one catalog row."""
+
+    artifact_id: str
+    lifecycle_status: str
+    usable: bool
+    report_kind: str | None = None
+    report_format: str | None = None
+    generation_prompt: str | None = field(default=None, repr=False)
+    source_ids: tuple[str, ...] = ()
+    created_at: datetime | None = None
+
+
 NOTEBOOK_LIST_DEF: OperationDef[NotebookListInput, NotebookListResult] = OperationDef(
     Operation.NOTEBOOK_LIST,
     CallPolicy.READ,
@@ -550,6 +629,20 @@ ARTIFACT_GET_DEF: OperationDef[ArtifactGetInput, ArtifactGetResult] = OperationD
     ArtifactGetInput,
     ArtifactGetResult,
 )
+ARTIFACT_GENERATE_VIDEO_DEF: OperationDef[VideoGenerateInput, VideoGenerateResult] = OperationDef(
+    Operation.ARTIFACT_GENERATE_VIDEO,
+    CallPolicy.STATEFUL_START,
+    VideoGenerateInput,
+    VideoGenerateResult,
+)
+ARTIFACT_GENERATE_REPORT_DEF: OperationDef[ReportGenerateInput, ReportGenerateResult] = (
+    OperationDef(
+        Operation.ARTIFACT_GENERATE_REPORT,
+        CallPolicy.STATEFUL_START,
+        ReportGenerateInput,
+        ReportGenerateResult,
+    )
+)
 SOURCE_GET_DEF: OperationDef[SourceGetInput, SourceGetResult] = OperationDef(
     Operation.SOURCE_GET,
     CallPolicy.MUTATION,
@@ -596,6 +689,8 @@ NOTE_DELETE_DEF: OperationDef[NoteDeleteInput, NoteDeleteResult] = OperationDef(
 
 __all__ = [
     "ARTIFACT_GET_DEF",
+    "ARTIFACT_GENERATE_REPORT_DEF",
+    "ARTIFACT_GENERATE_VIDEO_DEF",
     "ARTIFACT_LIST_DEF",
     "NOTEBOOK_GET_DEF",
     "NOTEBOOK_LIST_DEF",
@@ -619,6 +714,7 @@ __all__ = [
     "ArtifactRecord",
     "ArtifactSlideRecord",
     "ArtifactUserStateRecord",
+    "GenerationStatusRecord",
     "NotebookChatSessionRecord",
     "NotebookChatSettingsRecord",
     "NotebookCreateInput",
@@ -644,6 +740,9 @@ __all__ = [
     "NoteRecord",
     "NoteUpdateInput",
     "NoteUpdateResult",
+    "ReportGenerateInput",
+    "ReportGenerateResult",
+    "ReportMetadataRecord",
     "SourceGetInput",
     "SourceGetResult",
     "SourceAddCommitState",
@@ -656,4 +755,7 @@ __all__ = [
     "SourceListInput",
     "SourceListResult",
     "SourceRecord",
+    "VideoGenerateInput",
+    "VideoGenerateResult",
+    "VideoMetadataRecord",
 ]

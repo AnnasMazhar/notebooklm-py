@@ -2,8 +2,8 @@
 
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
 P2.2 routes three notebook mutation handlers; P2.3 routes the live URL/YouTube
-source composite; P5.1 routes Studio catalog list/get; and P6.3 routes plain-note
-CRUD. These bindings intentionally reuse
+source composite; P5.1 routes Studio catalog list/get; P5.4 routes report/video
+generation; and P6.3 routes plain-note CRUD. These bindings intentionally reuse
 the current request builders, strict row adapters, and public-model decoders
 until the P3 codec split.
 Removal: P3 replaces the compatibility model-to-record projections below with
@@ -146,6 +146,7 @@ from ..types import (
 from .codec.notes import decode_created_note, decode_note, decode_notes
 from .policy import WEB_CALL_POLICY_BINDINGS
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
+from .studio_documents import StudioDocumentWebHandlers
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
 source_logger = logging.getLogger("notebooklm").getChild("_sources")
@@ -594,7 +595,7 @@ class _DeadlineRpcCaller:
         raise timeout_error
 
 
-class WebRpcBackend:
+class WebRpcBackend(StudioDocumentWebHandlers):
     """Typed semantic binding over the existing shared :class:`RpcExecutor`."""
 
     def __init__(

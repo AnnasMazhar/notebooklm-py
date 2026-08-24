@@ -12,6 +12,7 @@ from .._records import (
     ARTIFACT_LIST_DEF,
     ArtifactGetInput,
     ArtifactListInput,
+    ArtifactRecord,
 )
 from .classifiers import matches_artifact_family
 
@@ -34,16 +35,26 @@ class StudioCatalog:
         *,
         deadline: RuntimeDeadline | None = None,
     ) -> list[Artifact]:
+        records = await self.list_records(notebook_id, family, deadline=deadline)
+        return [project_artifact(record) for record in records]
+
+    async def list_records(
+        self,
+        notebook_id: str,
+        family: str | None = None,
+        *,
+        deadline: RuntimeDeadline | None = None,
+    ) -> tuple[ArtifactRecord, ...]:
+        """Return neutral catalog records without a second fetch."""
+
         result = await self._backend.invoke(
             ARTIFACT_LIST_DEF,
             ArtifactListInput(notebook_id, family),
             deadline=deadline,
         )
-        return [
-            project_artifact(record)
-            for record in result.artifacts
-            if matches_artifact_family(record, family)
-        ]
+        return tuple(
+            record for record in result.artifacts if matches_artifact_family(record, family)
+        )
 
     async def get_or_none(
         self,
@@ -52,12 +63,24 @@ class StudioCatalog:
         *,
         deadline: RuntimeDeadline | None = None,
     ) -> Artifact | None:
+        record = await self.get_record(notebook_id, artifact_id, deadline=deadline)
+        return None if record is None else project_artifact(record)
+
+    async def get_record(
+        self,
+        notebook_id: str,
+        artifact_id: str,
+        *,
+        deadline: RuntimeDeadline | None = None,
+    ) -> ArtifactRecord | None:
+        """Return one neutral catalog record without public-model projection."""
+
         result = await self._backend.invoke(
             ARTIFACT_GET_DEF,
             ArtifactGetInput(notebook_id, artifact_id),
             deadline=deadline,
         )
-        return None if result.artifact is None else project_artifact(result.artifact)
+        return result.artifact
 
 
 __all__ = ["StudioCatalog"]

@@ -1357,6 +1357,14 @@ existing `client.artifacts` API stable.
 | **P5.7** | Byte retrieval & serialization clients | `src/notebooklm/_studio/downloads.py`, `src/notebooklm/_studio/serialization.py` | `test_curl_cffi_redirect_guard.py`, `test_artifact_downloads.py`, factory & redirect security parity |
 | **P5.8** | Facade projection & legacy verb retirement | `src/notebooklm/_artifacts.py` -> `_studio/` | Full artifacts test suite; public signatures and `wait_for_completion` lifecycle-terminal return parity |
 
+P5.4 is live as a bounded slice: report, study-guide, standard-video, and cinematic-video
+generation now cross typed `OperationDef` records through `ReportFamilyService` /
+`VideoFamilyService` and `WebRpcBackend`. The web codec reuses the characterized payload builders,
+preserves the caller's absolute deadline, and projects the existing `GenerationStatus` without
+changing public signatures. Report/video catalog filtering and metadata availability also live in
+the family services. Other Studio families, polling, retry, revision, downloads, and serialization
+remain in their existing owners until their named P5 slices; this evidence does not mark P5 complete.
+
 
 ### P6 — Migrate remaining feature domains
 

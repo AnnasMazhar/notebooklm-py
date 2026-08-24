@@ -30,6 +30,7 @@ from notebooklm.rpc import (
     VideoFormat,
     VideoStyle,
 )
+from tests._fixtures.web_backend import build_web_backend
 
 
 @pytest.fixture
@@ -433,6 +434,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
 
@@ -472,6 +474,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
         mock_core.rpc_call.return_value = [["artifact_456", "Video", 3, None, 1]]
@@ -498,6 +501,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
         mock_core.rpc_call.return_value = [["artifact_456", "Video", 3, None, 1]]
@@ -523,6 +527,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
 
@@ -542,6 +547,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
 
@@ -562,6 +568,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
 
@@ -582,6 +589,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
 
@@ -602,6 +610,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
 
@@ -621,6 +630,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
 
@@ -658,6 +668,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
         mock_core.rpc_call.return_value = [["artifact_789", "Report", 2, None, 1]]
@@ -687,6 +698,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
         mock_core.rpc_call.return_value = [["artifact_789", "Report", 2, None, 1]]
@@ -1096,6 +1108,7 @@ class TestArtifactValidationFootguns:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
 

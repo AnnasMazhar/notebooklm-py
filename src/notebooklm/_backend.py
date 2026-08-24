@@ -33,6 +33,7 @@ class BackendErrorReason(str, Enum):
     """Closed neutral reasons emitted by the P1 web read bindings."""
 
     AUTH = "auth"
+    ARTIFACT_FEATURE_UNAVAILABLE = "artifact_feature_unavailable"
     CLIENT = "client"
     DECODING = "decoding"
     IDEMPOTENCY_VARIANT = "idempotency_variant"

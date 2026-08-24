@@ -54,6 +54,11 @@ def _native(
 _IDEMPOTENT = IdempotencyPolicy.IDEMPOTENT_SET_OP
 _PROBE_CREATE = IdempotencyPolicy.PROBE_THEN_CREATE
 _NO_RETRY = IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY
+_APP_GENERATION_DIVERGENCE = (
+    "The exported notebooklm.artifacts.with_rate_limit_retry helper re-invokes the internal "
+    "facade operation after rate limiting. P4.2 removes that internal use while preserving the "
+    "public helper and adapter-neutral retry presentation policy."
+)
 
 
 WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = MappingProxyType(
@@ -127,6 +132,22 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
                     "note-backed mind-map identity scan",
                 ),
             ),
+        ),
+        Operation.ARTIFACT_GENERATE_VIDEO: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "optional all-source resolution"),
+                _native(RPCMethod.CREATE_ARTIFACT, _PROBE_CREATE, "guarded video kickoff"),
+            ),
+            known_divergence=_APP_GENERATION_DIVERGENCE,
+        ),
+        Operation.ARTIFACT_GENERATE_REPORT: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "optional all-source resolution"),
+                _native(RPCMethod.CREATE_ARTIFACT, _PROBE_CREATE, "guarded report kickoff"),
+            ),
+            known_divergence=_APP_GENERATION_DIVERGENCE,
         ),
         Operation.NOTE_LIST: WebCallPolicyBinding(
             CallPolicy.READ,
@@ -227,6 +248,11 @@ def audit_web_call_policy_bindings(
 
 def web_call_policy_report() -> dict[str, object]:
     """Return the stable catalog projection of active semantic/native parity."""
+
+    def operation_value(item: tuple[Operation, WebCallPolicyBinding]) -> str:
+        operation, _binding = item
+        return operation.value
+
     return {
         operation.value: {
             "call_policy": binding.policy.value,
@@ -241,9 +267,7 @@ def web_call_policy_report() -> dict[str, object]:
                 for native in binding.native_bindings
             ],
         }
-        for operation, binding in sorted(
-            WEB_CALL_POLICY_BINDINGS.items(), key=lambda item: item[0].value
-        )
+        for operation, binding in sorted(WEB_CALL_POLICY_BINDINGS.items(), key=operation_value)
     }
 
 
