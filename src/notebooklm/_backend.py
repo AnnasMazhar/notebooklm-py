@@ -35,6 +35,7 @@ class BackendErrorReason(str, Enum):
     AUTH = "auth"
     CLIENT = "client"
     DECODING = "decoding"
+    IDEMPOTENCY_VARIANT = "idempotency_variant"
     NETWORK = "network"
     NOTEBOOK_LIMIT = "notebook_limit"
     NOTEBOOK_NOT_FOUND = "notebook_not_found"
@@ -42,6 +43,7 @@ class BackendErrorReason(str, Enum):
     RESPONSE_TOO_LARGE = "response_too_large"
     RPC = "rpc"
     SERVER = "server"
+    SOURCE_ADD = "source_add"
     TIMEOUT = "timeout"
     UNKNOWN_RPC_METHOD = "unknown_rpc_method"
 
@@ -158,6 +160,19 @@ class BackendDeadlineExceededError(BackendError):
         )
 
 
+def mark_backend_outcome_unknown(error: BackendError) -> BackendError:
+    """Return closed neutral evidence for a write whose outcome is unconfirmed."""
+    if error.outcome_unknown:
+        return error
+    return BackendError(
+        message=error.message,
+        operation=error.operation,
+        outcome_unknown=True,
+        diagnostics=error.diagnostics,
+        reason=error.reason,
+    )
+
+
 __all__ = [
     "BackendAdapter",
     "BackendCapabilities",
@@ -166,5 +181,6 @@ __all__ = [
     "BackendError",
     "BackendErrorReason",
     "BackendKind",
+    "mark_backend_outcome_unknown",
     "UnsupportedOperationError",
 ]

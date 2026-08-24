@@ -130,17 +130,22 @@ def test_read_slice_records_are_frozen_slotted_values_with_typed_definitions() -
         ),
         NOTEBOOK_GET_DEF: (
             Operation.NOTEBOOK_GET,
-            CallPolicy.READ,
+            CallPolicy.MUTATION,
             NotebookGetInput,
             NotebookGetResult,
         ),
         SOURCE_LIST_DEF: (
             Operation.SOURCE_LIST,
-            CallPolicy.READ,
+            CallPolicy.MUTATION,
             SourceListInput,
             SourceListResult,
         ),
-        SOURCE_GET_DEF: (Operation.SOURCE_GET, CallPolicy.READ, SourceGetInput, SourceGetResult),
+        SOURCE_GET_DEF: (
+            Operation.SOURCE_GET,
+            CallPolicy.MUTATION,
+            SourceGetInput,
+            SourceGetResult,
+        ),
         NOTE_LIST_DEF: (Operation.NOTE_LIST, CallPolicy.READ, NoteListInput, NoteListResult),
         NOTE_GET_DEF: (Operation.NOTE_GET, CallPolicy.READ, NoteGetInput, NoteGetResult),
         NOTE_CREATE_DEF: (

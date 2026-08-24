@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ._backend import BackendAdapter, BackendError
-from ._backend_compat import project_backend_error, project_source_add_error
+from ._backend_compat import project_backend_error
 from ._lookup import unwrap_or_raise
 from ._mutation_services import SourceUrlMutationService
 from ._projectors import project_source
@@ -502,10 +502,7 @@ class SourcesAPI:
                 deadline=None,
             )
         except BackendError as error:
-            if error.diagnostics is not None and "source_add_failure" in error.diagnostics:
-                public_error = project_source_add_error(error)
-            else:
-                public_error = project_backend_error(error)
+            public_error = project_backend_error(error)
         else:
             return project_source(result.source)
         # Raise outside the BackendError catch frame so the reconstructed public

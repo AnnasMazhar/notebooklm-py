@@ -18,7 +18,13 @@ from notebooklm._notebook_payloads import (
 )
 from notebooklm._notebooks import NotebooksAPI
 from notebooklm._web.backend import WebRpcBackend
-from notebooklm.exceptions import ServerError, ValidationError
+from notebooklm.exceptions import (
+    DecodingError,
+    NetworkError,
+    RPCError,
+    ServerError,
+    ValidationError,
+)
 from notebooklm.rpc import RPCMethod
 
 
@@ -95,6 +101,49 @@ async def test_create_transport_failure_adopts_one_new_baseline_diff_without_rep
         RPCMethod.LIST_NOTEBOOKS,
     ]
     assert sum(item.args[0] is RPCMethod.CREATE_NOTEBOOK for item in rpc_call.await_args_list) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_probe_failure_preserves_bounded_public_error_graph() -> None:
+    create_error = ServerError(
+        "create response lost",
+        status_code=502,
+        method_id=RPCMethod.CREATE_NOTEBOOK.value,
+    )
+    probe_error = NetworkError(
+        "probe unavailable",
+        method_id=RPCMethod.LIST_NOTEBOOKS.value,
+    )
+    rpc_call = AsyncMock(side_effect=[[], create_error, probe_error])
+    api = _api(rpc_call)
+
+    with pytest.raises(NetworkError) as caught:
+        await api.create("Daily News")
+
+    assert caught.value is not probe_error
+    assert caught.value.method_id == RPCMethod.LIST_NOTEBOOKS.value
+    assert getattr(caught.value, "unconfirmed", False) is True
+    assert type(caught.value.__context__) is ServerError
+    assert caught.value.__context__.args == create_error.args
+    assert caught.value.__context__.status_code == 502
+    assert caught.value.__context__.method_id == RPCMethod.CREATE_NOTEBOOK.value
+    assert sum(item.args[0] is RPCMethod.CREATE_NOTEBOOK for item in rpc_call.await_args_list) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_wrapped_probe_failure_preserves_cause_and_create_context() -> None:
+    create_error = ServerError("create response lost", status_code=502)
+    probe_error = DecodingError("probe payload drift", method_id=RPCMethod.LIST_NOTEBOOKS.value)
+    api = _api(AsyncMock(side_effect=[[], create_error, probe_error]))
+
+    with pytest.raises(RPCError) as caught:
+        await api.create("Daily News")
+
+    assert getattr(caught.value, "unconfirmed", False) is True
+    assert type(caught.value.__cause__) is DecodingError
+    assert caught.value.__context__ is caught.value.__cause__
+    assert type(caught.value.__cause__.__context__) is ServerError
+    assert caught.value.__cause__.__context__.args == create_error.args
 
 
 @pytest.mark.asyncio

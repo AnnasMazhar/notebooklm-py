@@ -32,6 +32,7 @@ from .._records import (
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
 )
+from .policy import audit_web_call_policy_bindings
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +134,8 @@ def _build_web_operation_registry() -> Mapping[Operation, WebOperationBinding]:
         raise RuntimeError(
             "the staged web handler set changed; update the reviewed staged-operation count"
         )
+    if policy_errors := audit_web_call_policy_bindings(_SUPPORTED_DEFINITIONS):
+        raise RuntimeError("web call-policy binding drift:\n- " + "\n- ".join(policy_errors))
 
     registry: dict[Operation, WebOperationBinding] = {}
     for operation in Operation:

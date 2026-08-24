@@ -29,6 +29,7 @@ from .._backend import (
     BackendErrorReason,
     BackendKind,
     UnsupportedOperationError,
+    mark_backend_outcome_unknown,
 )
 from .._deadline import RuntimeDeadline
 from .._idempotency import (
@@ -99,6 +100,7 @@ from ..exceptions import (
     AuthError,
     ClientError,
     DecodingError,
+    IdempotencyVariantError,
     NetworkError,
     NotebookLMError,
     RateLimitError,
@@ -125,6 +127,7 @@ from .codec.artifacts import decode_artifact, decode_mind_map_artifact
 from .codec.notebooks import decode_notebook
 from .codec.notes import decode_created_note, decode_note, decode_notes
 from .codec.sources import decode_source
+from .policy import WEB_CALL_POLICY_BINDINGS
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
@@ -137,6 +140,7 @@ _WEB_ERROR_REASONS: dict[type[object], BackendErrorReason] = {
     AuthError: BackendErrorReason.AUTH,
     ClientError: BackendErrorReason.CLIENT,
     DecodingError: BackendErrorReason.DECODING,
+    IdempotencyVariantError: BackendErrorReason.IDEMPOTENCY_VARIANT,
     NetworkError: BackendErrorReason.NETWORK,
     RateLimitError: BackendErrorReason.RATE_LIMIT,
     RPCResponseTooLargeError: BackendErrorReason.RESPONSE_TOO_LARGE,
@@ -150,6 +154,7 @@ _SAFE_REASON_DIAGNOSTICS: dict[BackendErrorReason, tuple[str, ...]] = {
     BackendErrorReason.AUTH: ("recoverable",),
     BackendErrorReason.CLIENT: ("status_code",),
     BackendErrorReason.DECODING: (),
+    BackendErrorReason.IDEMPOTENCY_VARIANT: (),
     BackendErrorReason.NETWORK: (),
     BackendErrorReason.RATE_LIMIT: ("retry_after",),
     BackendErrorReason.RESPONSE_TOO_LARGE: ("limit_bytes", "bytes_read"),
@@ -195,16 +200,17 @@ def _source_record(source: Source) -> SourceRecord:
     )
 
 
-def _capture_source_add_failure(
+def _capture_public_failure(
     exc: Exception,
     *,
+    operation: Operation,
     _seen: frozenset[int] = frozenset(),
 ) -> SourceAddFailureRecord:
-    """Capture the bounded, serializable public error graph for URL registration."""
+    """Capture the bounded, serializable public library-error graph."""
     if id(exc) in _seen or len(_seen) >= 8:
         raise BackendContractError(
-            "source.add_url failure graph is cyclic or exceeds eight nodes",
-            operation=Operation.SOURCE_ADD_URL,
+            "public failure graph is cyclic or exceeds eight nodes",
+            operation=operation,
         ) from exc
     seen = _seen | {id(exc)}
 
@@ -255,15 +261,15 @@ def _capture_source_add_failure(
     kind = kind_by_type.get(type(exc))
     if kind is None:
         raise BackendContractError(
-            f"unsupported source.add_url failure type {type(exc).__module__}.{type(exc).__qualname__}",
-            operation=Operation.SOURCE_ADD_URL,
+            f"unsupported public failure type {type(exc).__module__}.{type(exc).__qualname__}",
+            operation=operation,
         ) from exc
 
     scalar_args = tuple(exc.args)
     if not all(isinstance(item, (str, int, float, bool, type(None))) for item in scalar_args):
         raise BackendContractError(
-            "source.add_url failure args are not scalar",
-            operation=Operation.SOURCE_ADD_URL,
+            "public failure args are not scalar",
+            operation=operation,
         ) from exc
 
     # Preserve the public library graph.  Builtin/httpx leaf internals can
@@ -276,15 +282,15 @@ def _capture_source_add_failure(
     source_add_cause = exc.cause if isinstance(exc, SourceAddError) else None
     if source_add_cause is not None and explicit is not None and source_add_cause is not explicit:
         raise BackendContractError(
-            "source.add_url SourceAddError has different cause attribute and explicit cause",
-            operation=Operation.SOURCE_ADD_URL,
+            "SourceAddError has different cause attribute and explicit cause",
+            operation=operation,
         ) from exc
     cause = source_add_cause or explicit
     original_error = getattr(exc, "original_error", None)
     if original_error is not None and not isinstance(original_error, Exception):
         raise BackendContractError(
-            "source.add_url original_error is not an exception",
-            operation=Operation.SOURCE_ADD_URL,
+            "public failure original_error is not an exception",
+            operation=operation,
         ) from exc
     cause_is_original = cause is not None and cause is original_error
     context_is_cause = context is not None and context is cause
@@ -293,8 +299,8 @@ def _capture_source_add_failure(
     found_ids = tuple(getattr(exc, "found_ids", ()) or ())
     if not all(isinstance(item, (str, int)) for item in found_ids):
         raise BackendContractError(
-            "source.add_url found_ids are not strings or integers",
-            operation=Operation.SOURCE_ADD_URL,
+            "public failure found_ids are not strings or integers",
+            operation=operation,
         ) from exc
 
     raw_response = getattr(exc, "raw_response", None)
@@ -343,17 +349,17 @@ def _capture_source_add_failure(
         request_method=request.method if request is not None else None,
         request_url=str(request.url) if request is not None else None,
         original_error=(
-            _capture_source_add_failure(original_error, _seen=seen)
+            _capture_public_failure(original_error, operation=operation, _seen=seen)
             if isinstance(original_error, Exception)
             else None
         ),
         cause=(
-            _capture_source_add_failure(cause, _seen=seen)
+            _capture_public_failure(cause, operation=operation, _seen=seen)
             if isinstance(cause, Exception) and not cause_is_original
             else None
         ),
         context=(
-            _capture_source_add_failure(context, _seen=seen)
+            _capture_public_failure(context, operation=operation, _seen=seen)
             if isinstance(context, Exception) and not context_is_cause and not context_is_original
             else None
         ),
@@ -475,7 +481,11 @@ class WebRpcBackend:
             raise BackendDeadlineExceededError(
                 operation.key,
                 diagnostics=MappingProxyType(
-                    {"timeout": deadline.timeout, "remaining": deadline.remaining()}
+                    {
+                        "timeout": deadline.timeout,
+                        "remaining": deadline.remaining(),
+                        "timeout_seconds": deadline.timeout,
+                    }
                 ),
             )
 
@@ -502,7 +512,7 @@ class WebRpcBackend:
             # Catch the closed library family rather than a broad ``RPCError``
             # wrap.  ``_translate_error`` still accepts only the exact reviewed
             # transport types and fails closed for any semantic exception.
-            if not isinstance(exc, (RPCError, NetworkError)):
+            if not isinstance(exc, (RPCError, NetworkError, IdempotencyVariantError)):
                 raise BackendContractError(
                     f"unclassified web error type {type(exc).__module__}.{type(exc).__qualname__}",
                     operation=operation.key,
@@ -541,8 +551,16 @@ class WebRpcBackend:
             if read_timeout <= 0.0:
                 raise BackendDeadlineExceededError(
                     operation,
+                    outcome_unknown=(
+                        WEB_CALL_POLICY_BINDINGS[operation].policy is not CallPolicy.READ
+                    ),
                     diagnostics=MappingProxyType(
-                        {"timeout": deadline.timeout, "remaining": read_timeout}
+                        {
+                            "timeout": deadline.timeout,
+                            "remaining": read_timeout,
+                            "timeout_seconds": deadline.timeout,
+                            "method_id": method.value,
+                        }
                     ),
                 )
         return await self._executor.rpc_call(
@@ -647,8 +665,8 @@ class WebRpcBackend:
                 )
                 mark_unconfirmed(exc)
                 raise
-            except BackendError:
-                raise
+            except BackendError as exc:
+                raise mark_backend_outcome_unknown(exc) from exc
             except Exception as exc:
                 notebook_logger.warning(
                     "create: probe list() failed with a non-transport error (%s); the "
@@ -722,12 +740,22 @@ class WebRpcBackend:
             )
             limit = extract_account_limits(settings).notebook_limit
         except Exception:
+            notebook_logger.debug(
+                "Could not fetch account limits after CREATE_NOTEBOOK failure; "
+                "leaving original RPC error unchanged",
+                exc_info=True,
+            )
             return None
         if limit is None:
             return None
         try:
             listed = await self._notebook_list(NotebookListInput(), deadline=deadline)
         except Exception:
+            notebook_logger.debug(
+                "Could not list notebooks after CREATE_NOTEBOOK failure; "
+                "leaving original RPC error unchanged",
+                exc_info=True,
+            )
             return None
         owned_count = sum(1 for notebook in listed.notebooks if notebook.is_owner)
         if owned_count < max(limit - 1, 0):
@@ -1187,9 +1215,13 @@ class WebRpcBackend:
                 diagnostics=MappingProxyType(
                     {
                         "receipt": receipt,
-                        "source_add_failure": _capture_source_add_failure(exc),
+                        "source_add_failure": _capture_public_failure(
+                            exc,
+                            operation=Operation.SOURCE_ADD_URL,
+                        ),
                     }
                 ),
+                reason=BackendErrorReason.SOURCE_ADD,
             ) from exc
 
         source_before_title = create_result.value
@@ -1226,7 +1258,7 @@ class WebRpcBackend:
 
     @staticmethod
     def _error_diagnostics(
-        exc: RPCError | NetworkError,
+        exc: RPCError | NetworkError | IdempotencyVariantError,
         reason: BackendErrorReason,
     ) -> MappingProxyType[str, object]:
         diagnostics = {
@@ -1239,13 +1271,23 @@ class WebRpcBackend:
         return MappingProxyType(diagnostics)
 
     @classmethod
-    def _translate_error(cls, operation: Operation, exc: RPCError | NetworkError) -> BackendError:
+    def _translate_error(
+        cls,
+        operation: Operation,
+        exc: RPCError | NetworkError | IdempotencyVariantError,
+    ) -> BackendError:
         reason = _WEB_ERROR_REASONS.get(type(exc))
         if reason is None:
             raise BackendContractError(
                 f"unclassified web error type {type(exc).__module__}.{type(exc).__qualname__}",
                 operation=operation,
             ) from exc
+        diagnostics = dict(cls._error_diagnostics(exc, reason))
+        if isinstance(exc, (RPCError, NetworkError)):
+            diagnostics["public_error_failure"] = _capture_public_failure(
+                exc,
+                operation=operation,
+            )
         return BackendError(
             # Structured subclasses such as UnknownRPCMethodError append their
             # diagnostic fields in ``__str__``. Store only the base message so
@@ -1254,7 +1296,7 @@ class WebRpcBackend:
             message=str(exc.args[0]) if exc.args else "",
             operation=operation,
             outcome_unknown=bool(getattr(exc, "unconfirmed", False)),
-            diagnostics=cls._error_diagnostics(exc, reason),
+            diagnostics=MappingProxyType(diagnostics),
             reason=reason,
         )
 
