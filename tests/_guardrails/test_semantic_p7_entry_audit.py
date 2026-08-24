@@ -64,6 +64,10 @@ KNOWN_ACTIVE_SEMANTIC_OPERATIONS: frozenset[Operation] = frozenset(
         Operation.NOTE_CREATE,
         Operation.NOTE_UPDATE,
         Operation.NOTE_DELETE,
+        Operation.RESEARCH_START,
+        Operation.RESEARCH_POLL,
+        Operation.RESEARCH_CANCEL,
+        Operation.RESEARCH_IMPORT,
     }
 )
 
