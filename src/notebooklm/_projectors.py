@@ -19,7 +19,11 @@ from ._records import (
     NotebookRecord,
     NoteRecord,
     ReportSuggestionRecord,
+    ShareAccessLevel,
+    SharedUserRecord,
+    SharePermissionLevel,
     ShareStatusRecord,
+    ShareViewScope,
     SourceRecord,
 )
 from .types import (
@@ -428,10 +432,30 @@ def project_collection(record: LabelRecord | CollectionRecord) -> Collection:
 
 
 _SHARE_PERMISSIONS = {
-    "owner": SharePermission.OWNER,
-    "editor": SharePermission.EDITOR,
-    "viewer": SharePermission.VIEWER,
+    SharePermissionLevel.OWNER: SharePermission.OWNER,
+    SharePermissionLevel.EDITOR: SharePermission.EDITOR,
+    SharePermissionLevel.VIEWER: SharePermission.VIEWER,
+    SharePermissionLevel.REMOVE: SharePermission._REMOVE,
 }
+_SHARE_ACCESS = {
+    ShareAccessLevel.RESTRICTED: ShareAccess.RESTRICTED,
+    ShareAccessLevel.ANYONE_WITH_LINK: ShareAccess.ANYONE_WITH_LINK,
+}
+_SHARE_VIEW_LEVELS = {
+    ShareViewScope.FULL_NOTEBOOK: ShareViewLevel.FULL_NOTEBOOK,
+    ShareViewScope.CHAT_ONLY: ShareViewLevel.CHAT_ONLY,
+}
+
+
+def project_shared_user(record: SharedUserRecord) -> SharedUser:
+    """Construct one public collaborator from a neutral record."""
+
+    return SharedUser(
+        email=record.email,
+        permission=_SHARE_PERMISSIONS[record.permission],
+        display_name=record.display_name,
+        avatar_url=record.avatar_url,
+    )
 
 
 def project_share_status(record: ShareStatusRecord) -> ShareStatus:
@@ -440,21 +464,17 @@ def project_share_status(record: ShareStatusRecord) -> ShareStatus:
     return ShareStatus(
         notebook_id=record.notebook_id,
         is_public=record.is_public,
-        access=(ShareAccess.ANYONE_WITH_LINK if record.is_public else ShareAccess.RESTRICTED),
-        view_level=ShareViewLevel.FULL_NOTEBOOK,
-        shared_users=[
-            SharedUser(
-                email=user.email,
-                permission=_SHARE_PERMISSIONS.get(user.permission, SharePermission.VIEWER),
-                display_name=user.display_name,
-                avatar_url=user.avatar_url,
-            )
-            for user in record.shared_users
-        ],
+        access=_SHARE_ACCESS[record.access],
+        view_level=_SHARE_VIEW_LEVELS[record.view_level],
+        shared_users=[project_shared_user(user) for user in record.shared_users],
         share_url=(
-            f"{get_base_url()}/notebook/{quote(record.notebook_id, safe='')}"
-            if record.is_public
-            else None
+            record.share_url
+            if record.share_url is not None
+            else (
+                f"{get_base_url()}/notebook/{quote(record.notebook_id, safe='')}"
+                if record.is_public
+                else None
+            )
         ),
         max_individuals_share_limit=record.max_individuals_share_limit,
         is_public_sharing_allowed=record.is_public_sharing_allowed,
@@ -472,5 +492,6 @@ __all__ = [
     "project_notebook_description",
     "project_report_suggestion",
     "project_share_status",
+    "project_shared_user",
     "project_source",
 ]

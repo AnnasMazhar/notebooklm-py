@@ -424,6 +424,31 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
             CallPolicy.MUTATION,
             (_native(RPCMethod.DELETE_ARTIFACT, _IDEMPOTENT, "idempotent interactive delete"),),
         ),
+        Operation.SHARING_GET: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (_native(RPCMethod.GET_SHARE_STATUS, _IDEMPOTENT, "sharing status read"),),
+        ),
+        Operation.SHARING_SET_PUBLIC: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(RPCMethod.SHARE_NOTEBOOK, _PROBE_CREATE, "guarded link mutation"),
+                _native(RPCMethod.GET_SHARE_STATUS, _IDEMPOTENT, "post-mutation read"),
+            ),
+        ),
+        Operation.SHARING_SET_VIEW_LEVEL: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(RPCMethod.RENAME_NOTEBOOK, _IDEMPOTENT, "viewer-scope set-op"),
+                _native(RPCMethod.GET_SHARE_STATUS, _IDEMPOTENT, "post-mutation read"),
+            ),
+        ),
+        Operation.SHARING_UPDATE_USERS: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(RPCMethod.SHARE_NOTEBOOK, _PROBE_CREATE, "guarded ACL mutation"),
+                _native(RPCMethod.GET_SHARE_STATUS, _IDEMPOTENT, "post-mutation read"),
+            ),
+        ),
     }
 )
 

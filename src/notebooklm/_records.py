@@ -7,6 +7,26 @@ from datetime import datetime
 from enum import Enum, unique
 
 from ._operations import CallPolicy, Operation, OperationDef
+from ._sharing_records import (
+    SHARING_GET_DEF,
+    SHARING_SET_PUBLIC_DEF,
+    SHARING_SET_VIEW_LEVEL_DEF,
+    SHARING_UPDATE_USERS_DEF,
+    ShareAccessLevel,
+    SharedUserRecord,
+    SharePermissionLevel,
+    ShareStatusRecord,
+    ShareViewScope,
+    SharingGetInput,
+    SharingGetResult,
+    SharingSetPublicInput,
+    SharingSetPublicResult,
+    SharingSetViewLevelInput,
+    SharingSetViewLevelResult,
+    SharingUpdateUsersInput,
+    SharingUpdateUsersResult,
+    SharingUserGrant,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,27 +196,6 @@ class CollectionRecord:
     name: str
     emoji: str | None = None
     notebook_ids: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class SharedUserRecord:
-    """Neutral collaborator row."""
-
-    email: str
-    permission: str
-    display_name: str | None = None
-    avatar_url: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ShareStatusRecord:
-    """Neutral decoded sharing configuration."""
-
-    notebook_id: str
-    is_public: bool
-    shared_users: tuple[SharedUserRecord, ...] = ()
-    max_individuals_share_limit: int | None = None
-    is_public_sharing_allowed: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1359,6 +1358,10 @@ __all__ = [
     "SOURCE_GET_DEF",
     "SOURCE_LIST_DEF",
     "SOURCE_ADD_URL_DEF",
+    "SHARING_GET_DEF",
+    "SHARING_SET_PUBLIC_DEF",
+    "SHARING_SET_VIEW_LEVEL_DEF",
+    "SHARING_UPDATE_USERS_DEF",
     "NOTE_CREATE_DEF",
     "NOTE_DELETE_DEF",
     "NOTE_GET_DEF",
@@ -1464,8 +1467,20 @@ __all__ = [
     "SourceRecord",
     "SlideDeckGenerateInput",
     "ReportSuggestionRecord",
+    "ShareAccessLevel",
+    "SharePermissionLevel",
     "ShareStatusRecord",
+    "ShareViewScope",
     "SharedUserRecord",
+    "SharingGetInput",
+    "SharingGetResult",
+    "SharingSetPublicInput",
+    "SharingSetPublicResult",
+    "SharingSetViewLevelInput",
+    "SharingSetViewLevelResult",
+    "SharingUpdateUsersInput",
+    "SharingUpdateUsersResult",
+    "SharingUserGrant",
     "SuggestedTopicRecord",
     "VideoGenerateInput",
     "VideoGenerateResult",

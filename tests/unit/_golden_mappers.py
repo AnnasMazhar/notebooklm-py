@@ -124,8 +124,9 @@ def list_labels(decoded: Any) -> list[Label]:
 def get_share_status(decoded: Any) -> ShareStatus:
     """``GET_SHARE_STATUS`` -> a :class:`ShareStatus`.
 
-    Mirrors ``SharingAPI`` (``_sharing.py``): the decoded payload and the
-    notebook id are handed to :meth:`ShareStatus.from_api_response`.
+    Produces the public value used for the golden comparison. Production owns
+    the same projection through ``_web/codec/sharing.py`` plus
+    ``_projectors.py`` without calling this public parsing factory.
     """
     return ShareStatus.from_api_response(decoded, _NOTEBOOK_ID)
 

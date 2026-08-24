@@ -639,14 +639,19 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_chat/api.py:ChatAPI.configure", "chat settings mutation payload")
         ),
         (Operation.SHARING_SET_VIEW_LEVEL, _b(RPCMethod.RENAME_NOTEBOOK)): _rules(
-            ("_sharing.py:SharingAPI.set_view_level", "share-view-level payload")
+            (
+                "_web/sharing.py:SharingWebHandlers._sharing_set_view_level",
+                "share-view-level payload",
+            )
         ),
         (Operation.SHARING_SET_PUBLIC, _b(RPCMethod.SHARE_NOTEBOOK)): _rules(
-            ("_sharing.py:SharingAPI.set_public", "visibility entry")
+            ("_web/sharing.py:SharingWebHandlers._sharing_set_public", "visibility entry")
         ),
         (Operation.SHARING_UPDATE_USERS, _b(RPCMethod.SHARE_NOTEBOOK)): _rules(
-            ("_sharing.py:SharingAPI.set_users", "user grant/upsert entries"),
-            ("_sharing.py:SharingAPI.remove_user", "user removal entry"),
+            (
+                "_web/sharing.py:SharingWebHandlers._sharing_update_users",
+                "user grant/upsert and removal entries",
+            ),
         ),
         (Operation.NOTEBOOK_SUMMARIZE, _b(RPCMethod.SUMMARIZE)): _rules(
             ("_notebooks.py:NotebooksAPI.get_summary", "summary projection")
@@ -772,16 +777,16 @@ SHARED_RPC_AUTHORITY_RULES.update(
             )
         ),
         (Operation.SHARING_GET, _b(RPCMethod.GET_SHARE_STATUS)): _rules(
-            ("_sharing.py:SharingAPI.get_status", "public=sharing.get_status")
+            ("_web/sharing.py:SharingWebHandlers._sharing_status", "public=sharing.get_status")
         ),
         (Operation.SHARING_SET_PUBLIC, _b(RPCMethod.GET_SHARE_STATUS)): _rules(
-            ("_sharing.py:SharingAPI.get_status", "post-public-mutation read")
+            ("_web/sharing.py:SharingWebHandlers._sharing_status", "post-public-mutation read")
         ),
         (Operation.SHARING_SET_VIEW_LEVEL, _b(RPCMethod.GET_SHARE_STATUS)): _rules(
-            ("_sharing.py:SharingAPI.get_status", "post-view-level-mutation read")
+            ("_web/sharing.py:SharingWebHandlers._sharing_status", "post-view-level-mutation read")
         ),
         (Operation.SHARING_UPDATE_USERS, _b(RPCMethod.GET_SHARE_STATUS)): _rules(
-            ("_sharing.py:SharingAPI.get_status", "post-user-grant mutation read")
+            ("_web/sharing.py:SharingWebHandlers._sharing_status", "post-user-grant mutation read")
         ),
         (Operation.NOTEBOOK_CREATE, _b(RPCMethod.GET_USER_SETTINGS)): _rules(
             ("_web/backend.py:WebRpcBackend._notebook_limit_error", "quota-error diagnosis only")

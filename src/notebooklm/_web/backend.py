@@ -3,7 +3,8 @@
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
 P2.2 routes three notebook mutation handlers; P2.3 routes the live URL/YouTube
 source composite; P5.1–P5.7 route Studio workflows; P6.3 routes note/mind-map
-workflows; and P6.4 routes labels/collections through a dedicated mixin. These bindings reuse
+workflows; P6.4 routes labels/collections through a dedicated mixin; and P6.5 routes Sharing.
+These bindings reuse
 current request builders and strict row adapters; P3 web codecs terminate
 response grammar in neutral records before public compatibility projection.
 """
@@ -157,8 +158,8 @@ from .codec.notes import (
     decode_notes,
 )
 from .codec.sources import decode_source
-from .labels import LabelSetWebHandlers
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
+from .sharing import SharingWebHandlers
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
 source_logger = logging.getLogger("notebooklm").getChild("_sources")
@@ -463,7 +464,7 @@ class _DeadlineRpcCaller:
         raise timeout_error
 
 
-class WebRpcBackend(LabelSetWebHandlers):
+class WebRpcBackend(SharingWebHandlers):
     """Typed semantic binding over the existing shared :class:`RpcExecutor`."""
 
     def __init__(

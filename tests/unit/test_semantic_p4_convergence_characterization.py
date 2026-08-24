@@ -77,6 +77,10 @@ from notebooklm._records import (
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
     NOTEBOOK_UPDATE_DEF,
+    SHARING_GET_DEF,
+    SHARING_SET_PUBLIC_DEF,
+    SHARING_SET_VIEW_LEVEL_DEF,
+    SHARING_UPDATE_USERS_DEF,
     SOURCE_ADD_URL_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
@@ -163,6 +167,13 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         SOURCE_LIST_DEF: (Operation.SOURCE_LIST, CallPolicy.MUTATION),
         SOURCE_GET_DEF: (Operation.SOURCE_GET, CallPolicy.MUTATION),
         SOURCE_ADD_URL_DEF: (Operation.SOURCE_ADD_URL, CallPolicy.MUTATION),
+        SHARING_GET_DEF: (Operation.SHARING_GET, CallPolicy.READ),
+        SHARING_SET_PUBLIC_DEF: (Operation.SHARING_SET_PUBLIC, CallPolicy.MUTATION),
+        SHARING_SET_VIEW_LEVEL_DEF: (
+            Operation.SHARING_SET_VIEW_LEVEL,
+            CallPolicy.MUTATION,
+        ),
+        SHARING_UPDATE_USERS_DEF: (Operation.SHARING_UPDATE_USERS, CallPolicy.MUTATION),
         ARTIFACT_LIST_DEF: (Operation.ARTIFACT_LIST, CallPolicy.READ),
         ARTIFACT_GET_DEF: (Operation.ARTIFACT_GET, CallPolicy.READ),
         ARTIFACT_GENERATE_AUDIO_DEF: (
@@ -541,6 +552,35 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             COLLECTION_DELETE_DEF,
             [(RPCMethod.DELETE_LABEL, None)],
             [IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY],
+        ),
+        (
+            SHARING_GET_DEF,
+            [(RPCMethod.GET_SHARE_STATUS, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            SHARING_SET_PUBLIC_DEF,
+            [(RPCMethod.SHARE_NOTEBOOK, None), (RPCMethod.GET_SHARE_STATUS, None)],
+            [
+                IdempotencyPolicy.PROBE_THEN_CREATE,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
+        ),
+        (
+            SHARING_SET_VIEW_LEVEL_DEF,
+            [(RPCMethod.RENAME_NOTEBOOK, None), (RPCMethod.GET_SHARE_STATUS, None)],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
+        ),
+        (
+            SHARING_UPDATE_USERS_DEF,
+            [(RPCMethod.SHARE_NOTEBOOK, None), (RPCMethod.GET_SHARE_STATUS, None)],
+            [
+                IdempotencyPolicy.PROBE_THEN_CREATE,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
         ),
     ],
 )
