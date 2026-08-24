@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CLIENT_PATH = REPO_ROOT / "src" / "notebooklm" / "client.py"
 ASSEMBLY_PATH = REPO_ROOT / "src" / "notebooklm" / "_client_assembly.py"
 RUNTIME_INIT_PATH = REPO_ROOT / "src" / "notebooklm" / "_runtime" / "init.py"
+EXECUTABLE_ROOTS = (REPO_ROOT / "tests", REPO_ROOT / "scripts")
 
 # Both composition-root files: ``client.py`` (the thin ``__init__``
 # delegate) and ``_client_assembly.py`` (the shared assembly seam the
@@ -46,6 +47,21 @@ INLINE_CLIENT_ATTRS = {
     "_middlewares",
     "_rpc_semaphore",
     "_max_concurrent_rpcs",
+}
+
+RETIRED_CLIENT_RUNTIME_ATTRS = {
+    "_collaborators",
+    "_composed",
+    "_rpc_executor",
+}
+
+# These two focused lifecycle harnesses define their own tiny host objects with
+# an executor field; neither object is a NotebookLMClient. Keep the exemption
+# exact to ``self._rpc_executor`` so a client-shaped local in the same file
+# still fails the audit.
+NON_CLIENT_EXECUTOR_HOST_FILES = {
+    "tests/unit/concurrency/test_session_close_refresh_race.py",
+    "tests/unit/test_runtime_lifecycle.py",
 }
 
 
@@ -97,6 +113,33 @@ def test_mutable_client_composed_holder_is_retired() -> None:
     assert not (REPO_ROOT / "src" / "notebooklm" / "_client_composed.py").exists()
     for path in COMPOSITION_ROOT_PATHS:
         assert "ClientComposed" not in path.read_text(encoding="utf-8")
+
+
+def test_executable_tests_and_scripts_use_backend_owned_runtime_leaves() -> None:
+    """Retired client aliases cannot survive as executable test/diagnostic seams."""
+    violations: list[str] = []
+    for root in EXECUTABLE_ROOTS:
+        for path in root.rglob("*.py"):
+            relative = path.relative_to(REPO_ROOT).as_posix()
+            tree = _tree(path)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Attribute):
+                    continue
+                if node.attr not in RETIRED_CLIENT_RUNTIME_ATTRS:
+                    continue
+                if (
+                    node.attr == "_rpc_executor"
+                    and relative in NON_CLIENT_EXECUTOR_HOST_FILES
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id == "self"
+                ):
+                    continue
+                violations.append(f"{relative}:{node.lineno}: {ast.unparse(node)}")
+
+    assert not violations, (
+        "Executable tests/scripts must reach runtime seams through backend-owned leaves:\n  "
+        + "\n  ".join(violations)
+    )
 
 
 def test_client_internals_is_a_frozen_complete_runtime_record() -> None:

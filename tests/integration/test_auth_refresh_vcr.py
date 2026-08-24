@@ -129,7 +129,7 @@ async def test_stale_csrf_triggers_refresh_and_retry(
 
     # The refresh callback is reached through the auth coordinator; patch it on
     # the coordinator so the wrapper is what the retry loop sees.
-    client._collaborators.auth_coord._refresh_callback = tracking_refresh
+    client._backend._auth_coord._refresh_callback = tracking_refresh
 
     with notebooklm_vcr.use_cassette(CASSETTE_NAME) as cassette:
         async with client:
@@ -141,10 +141,10 @@ async def test_stale_csrf_triggers_refresh_and_retry(
             # header set. Wave 3 of plan ``host-protocol-removal`` deleted
             # the Session-level ``update_auth_headers`` forward; call the
             # canonical coordinator method directly with explicit kwargs.
-            client._auth.csrf_token = "INVALID_CSRF_FOR_TEST"
-            client._collaborators.auth_coord.update_auth_headers(
-                auth=client._auth,
-                kernel=client._collaborators.kernel,
+            client.auth.csrf_token = "INVALID_CSRF_FOR_TEST"
+            client._backend._auth_coord.update_auth_headers(
+                auth=client.auth,
+                kernel=client._backend._kernel,
             )
 
             # This call's first attempt MUST 400; the rpc_call layer
@@ -157,7 +157,7 @@ async def test_stale_csrf_triggers_refresh_and_retry(
             # the corrupted value. Asserting the change makes this
             # test fail loudly if a future refactor accidentally
             # short-circuits the retry to "return the 400 unchanged".
-            assert client._auth.csrf_token != "INVALID_CSRF_FOR_TEST", (
+            assert client.auth.csrf_token != "INVALID_CSRF_FOR_TEST", (
                 "csrf_token should have been refreshed mid-call"
             )
 

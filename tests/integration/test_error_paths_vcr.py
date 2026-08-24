@@ -181,7 +181,7 @@ class TestErrorPaths:
         attempt. The exact post-refresh exception type is incidental
         (``ClientError`` because 400 is not 401/403, 5xx, or 429); what
         matters is that the auth-refresh hook fired, observed via a spy
-        installed on ``client._collaborators.auth_coord._refresh_callback`` and corroborated by the
+        installed on ``client._backend._auth_coord._refresh_callback`` and corroborated by the
         ``play_count == 2`` assertion on the cassette.
         """
         client = build_client_shell_for_tests(_synthetic_auth(), refresh_retry_delay=0)
@@ -205,18 +205,18 @@ class TestErrorPaths:
             # request-side body would carry the refreshed value if VCR
             # matched on body (it doesn't; the default matcher uses
             # method/path/rpcids).
-            client._auth.csrf_token = "refreshed_csrf_token"
+            client.auth.csrf_token = "refreshed_csrf_token"
             # Wave 3 of plan ``host-protocol-removal`` deleted the
             # Session-level ``update_auth_headers`` forward; call the
             # canonical coordinator method directly with the explicit
             # collaborator kwargs.
-            client._collaborators.auth_coord.update_auth_headers(
-                auth=client._auth,
-                kernel=client._collaborators.kernel,
+            client._backend._auth_coord.update_auth_headers(
+                auth=client.auth,
+                kernel=client._backend._kernel,
             )
-            return client._auth
+            return client.auth
 
-        client._collaborators.auth_coord._refresh_callback = stub_refresh
+        client._backend._auth_coord._refresh_callback = stub_refresh
 
         with notebooklm_vcr.use_cassette("error_synthetic_stale_csrf.yaml") as cassette:
             async with client:

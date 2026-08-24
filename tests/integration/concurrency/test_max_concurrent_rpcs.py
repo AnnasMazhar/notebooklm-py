@@ -106,11 +106,11 @@ async def _open_core_with_transport(
         rate_limit_max_retries=rate_limit_max_retries,
     )
     await core.__aenter__()
-    assert core._collaborators.kernel.http_client is not None
-    prior_cookies = core._collaborators.kernel.get_http_client().cookies
-    await core._collaborators.kernel.get_http_client().aclose()
+    assert core._backend._kernel.http_client is not None
+    prior_cookies = core._backend._kernel.get_http_client().cookies
+    await core._backend._kernel.get_http_client().aclose()
     install_http_client_for_test(
-        core._collaborators.kernel,
+        core._backend._kernel,
         httpx.AsyncClient(
             cookies=prior_cookies,
             transport=transport,
@@ -137,7 +137,7 @@ async def test_default_16_caps_peak_inflight_at_16_under_100_way_fanout(
     core = await _open_core_with_transport(transport, max_concurrent_rpcs=16)
     try:
         results = await asyncio.gather(
-            *[core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(100)]
+            *[core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(100)]
         )
     finally:
         await core.close()
@@ -187,7 +187,7 @@ async def test_cap_of_one_fully_serializes_fanout(
     core = await _open_core_with_transport(transport, max_concurrent_rpcs=1)
     try:
         results = await asyncio.gather(
-            *[core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(10)]
+            *[core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(10)]
         )
     finally:
         await core.close()
@@ -219,7 +219,7 @@ async def test_none_disables_cap_and_allows_full_fanout(
     core = await _open_core_with_transport(transport, max_concurrent_rpcs=None)
     try:
         results = await asyncio.gather(
-            *[core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(50)]
+            *[core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(50)]
         )
     finally:
         await core.close()
@@ -293,7 +293,7 @@ async def test_slot_held_across_retry_middleware_retries(
 
     try:
         results = await asyncio.gather(
-            *[core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(2)]
+            *[core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(2)]
         )
     finally:
         await core.close()

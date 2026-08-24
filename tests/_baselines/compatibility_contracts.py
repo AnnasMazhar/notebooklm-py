@@ -474,11 +474,11 @@ async def _logical_rpc_scenario(
         authed_post_terminal=fake_terminal,
     )
     install_http_client_for_test(
-        client._collaborators.kernel,
+        client._backend._kernel,
         AsyncMock(spec=httpx.AsyncClient),
     )
     if disconnect_executor_metrics:
-        client._rpc_executor._metrics = ClientMetrics(on_rpc_event=events.append)
+        client._backend._runtime._metrics = ClientMetrics(on_rpc_event=events.append)
 
     raised: str | None = None
     result: object = None

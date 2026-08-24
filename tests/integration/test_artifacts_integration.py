@@ -628,7 +628,7 @@ class TestArtifactsAPI:
         """A transport failure during hydration propagates, not ArtifactNotFoundError."""
         async with NotebookLMClient(auth_tokens) as client:
             rpc = AsyncMock(side_effect=[None, RPCError("boom during hydrate")])
-            client._rpc_executor.rpc_call = rpc
+            client._backend._runtime.rpc_call = rpc
             with pytest.raises(RPCError):
                 await client.artifacts.rename("nb_123", "art_001", "New Title")
 
@@ -642,7 +642,7 @@ class TestArtifactsAPI:
         """
         async with NotebookLMClient(auth_tokens) as client:
             rpc = AsyncMock(return_value=None)
-            client._rpc_executor.rpc_call = rpc
+            client._backend._runtime.rpc_call = rpc
             with pytest.raises(ArtifactNotFoundError):
                 await client.artifacts.rename("nb_123", "art_001", "New Title", return_object=False)
 
@@ -1607,7 +1607,7 @@ class TestListMindMapErrorHandling:
 
         async with NotebookLMClient(auth_tokens) as client:
             with patch.object(
-                client._rpc_executor,
+                client._backend._runtime,
                 "rpc_call",
                 new=AsyncMock(
                     side_effect=[
@@ -1633,7 +1633,7 @@ class TestListMindMapErrorHandling:
 
         async with NotebookLMClient(auth_tokens) as client:
             with patch.object(
-                client._rpc_executor,
+                client._backend._runtime,
                 "rpc_call",
                 new=AsyncMock(
                     side_effect=[
@@ -1748,7 +1748,7 @@ class TestReviseSlide:
             # Patch the composition-owned executor below the semantic backend.
             with (
                 patch.object(
-                    client._rpc_executor,
+                    client._backend._runtime,
                     "rpc_call",
                     AsyncMock(side_effect=err),
                 ),
@@ -1775,7 +1775,7 @@ class TestReviseSlide:
             # See sibling test above for the executor patch-target rationale.
             with (
                 patch.object(
-                    client._rpc_executor,
+                    client._backend._runtime,
                     "rpc_call",
                     AsyncMock(side_effect=err),
                 ),
@@ -1883,7 +1883,7 @@ class TestRetryFailedArtifact:
         async with NotebookLMClient(auth_tokens) as client:
             with (
                 patch.object(
-                    client._rpc_executor,
+                    client._backend._runtime,
                     "rpc_call",
                     AsyncMock(side_effect=err),
                 ),
@@ -1908,7 +1908,7 @@ class TestRetryFailedArtifact:
         async with NotebookLMClient(auth_tokens) as client:
             with (
                 patch.object(
-                    client._rpc_executor,
+                    client._backend._runtime,
                     "rpc_call",
                     AsyncMock(side_effect=err),
                 ),
@@ -2396,7 +2396,7 @@ class TestGenerateErrorHandling:
             # Patch the composition-owned executor so CREATE_ARTIFACT raises.
             with (
                 patch.object(
-                    client._rpc_executor,
+                    client._backend._runtime,
                     "rpc_call",
                     AsyncMock(side_effect=err),
                 ),
@@ -2419,7 +2419,7 @@ class TestGenerateErrorHandling:
             # Patch the composition-owned executor so CREATE_ARTIFACT raises.
             with (
                 patch.object(
-                    client._rpc_executor,
+                    client._backend._runtime,
                     "rpc_call",
                     AsyncMock(side_effect=err),
                 ),

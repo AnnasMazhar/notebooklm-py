@@ -104,7 +104,7 @@ async def test_waiter_cancellation_does_not_kill_shared_refresh():
             session_id="SID_REFRESHED",
             cookies={"SID": "post_refresh"},
         )
-        # Mirror the production callback contract: update core._auth
+        # Mirror the production callback contract: update core.auth
         # in place so the freshly-refreshed values are observable on
         # the shared core after the task completes.
         core_ref[0].auth.csrf_token = tokens.csrf_token
@@ -120,13 +120,13 @@ async def test_waiter_cancellation_does_not_kill_shared_refresh():
         # we never release until both callers are joined, so #1 is
         # guaranteed to time out.
         async def cancelled_waiter():
-            await asyncio.wait_for(core._composed.chain_host.await_refresh(), timeout=0.01)
+            await asyncio.wait_for(core._backend._chain_host.await_refresh(), timeout=0.01)
 
         # Caller #2: plain await — represents a parallel 401 retry path
         # that should observe a successful shared refresh regardless of
         # what happens to caller #1.
         async def surviving_waiter():
-            return await core._composed.chain_host.await_refresh()
+            return await core._backend._chain_host.await_refresh()
 
         task1 = asyncio.create_task(cancelled_waiter())
         task2 = asyncio.create_task(surviving_waiter())
@@ -149,10 +149,8 @@ async def test_waiter_cancellation_does_not_kill_shared_refresh():
         # The shared task must still be alive — caller #1's cancellation
         # should not have cancelled it. This is the load-bearing
         # invariant the shield protects.
-        assert core._collaborators.auth_coord._refresh_task is not None, (
-            "shared refresh task vanished"
-        )
-        assert not core._collaborators.auth_coord._refresh_task.done(), (
+        assert core._backend._auth_coord._refresh_task is not None, "shared refresh task vanished"
+        assert not core._backend._auth_coord._refresh_task.done(), (
             "Shared refresh task completed/cancelled before release — "
             "Shield regression: waiter cancellation propagated into the "
             "shared task."
@@ -174,10 +172,10 @@ async def test_waiter_cancellation_does_not_kill_shared_refresh():
             "Dedupe semantics broken — the shield should preserve the "
             "single in-flight task, not trigger a respawn."
         )
-        # The in-place core._auth update from the callback is observable,
+        # The in-place core.auth update from the callback is observable,
         # proving the shared task ran to completion despite the
         # cancellation of caller #1.
-        assert core._auth.csrf_token == "CSRF_REFRESHED"
+        assert core.auth.csrf_token == "CSRF_REFRESHED"
 
 
 @pytest.mark.asyncio
@@ -210,20 +208,20 @@ async def test_refresh_task_slot_not_cleared_on_waiter_cancellation():
     async with _opened_core(refresh_callback=cb) as core:
 
         async def cancelled_waiter():
-            await asyncio.wait_for(core._composed.chain_host.await_refresh(), timeout=0.01)
+            await asyncio.wait_for(core._backend._chain_host.await_refresh(), timeout=0.01)
 
         task = asyncio.create_task(cancelled_waiter())
         await asyncio.wait_for(callback_entered.wait(), EVENT_TIMEOUT_S)
 
         # Snapshot the task identity before the cancellation lands.
-        in_flight = core._collaborators.auth_coord._refresh_task
+        in_flight = core._backend._auth_coord._refresh_task
         assert in_flight is not None
 
         with pytest.raises((TimeoutError, asyncio.TimeoutError)):
             await task
 
         # Slot still points at the same task — not cleared, not replaced.
-        assert core._collaborators.auth_coord._refresh_task is in_flight, (
+        assert core._backend._auth_coord._refresh_task is in_flight, (
             "Refresh slot mutated by waiter cancellation — invariant "
             "broken: the slot must persist until the task completes."
         )

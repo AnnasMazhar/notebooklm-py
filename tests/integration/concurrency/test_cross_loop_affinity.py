@@ -13,7 +13,7 @@ a dead loop.
 
 Post-fix: ``NotebookLMClient.__aenter__()`` calls ``ClientLifecycle.open()``,
 which captures ``asyncio.get_running_loop()`` on the lifecycle (read via
-``core._collaborators.lifecycle.get_bound_loop()``), and
+``core._backend._lifecycle.get_bound_loop()``), and
 ``RuntimeTransport.perform_authed_post`` asserts the running loop matches
 via a cheap ``is`` comparison through ``assert_bound_loop``. On mismatch
 we raise an actionable ``RuntimeError`` at the call site instead of
@@ -32,7 +32,7 @@ The test exercises the surgical contract:
    ``is`` comparison).
 3. **No binding before open()** — a freshly-constructed ``NotebookLMClient``
    that has never entered its context has
-   ``core._collaborators.lifecycle.get_bound_loop() is None``.
+   ``core._backend._lifecycle.get_bound_loop() is None``.
    ``RuntimeTransport.perform_authed_post``'s loop check is a no-op while
    unbound; the later kernel access raises the existing not-open error, not
    the loop guard.
@@ -88,16 +88,16 @@ async def _open_core_with_transport(transport: ConcurrentMockTransport) -> Noteb
     normally — which is the moment the loop affinity is captured —
     then close-and-replace the underlying client with one that routes
     through our recording transport. The replacement keeps
-    ``core._collaborators.lifecycle.get_bound_loop()`` unchanged because we
+    ``core._backend._lifecycle.get_bound_loop()`` unchanged because we
     don't enter the client again.
     """
     core = build_client_shell_for_tests(auth=_make_auth())
     await core.__aenter__()
-    assert core._collaborators.kernel.http_client is not None
-    prior_cookies = core._collaborators.kernel.get_http_client().cookies
-    await core._collaborators.kernel.get_http_client().aclose()
+    assert core._backend._kernel.http_client is not None
+    prior_cookies = core._backend._kernel.get_http_client().cookies
+    await core._backend._kernel.get_http_client().aclose()
     install_http_client_for_test(
-        core._collaborators.kernel,
+        core._backend._kernel,
         httpx.AsyncClient(
             cookies=prior_cookies,
             transport=transport,
@@ -146,12 +146,12 @@ def test_cross_loop_use_raises_actionable_runtime_error(
         # but our ``RuntimeError`` is not a transport error, so it
         # propagates unchanged.
         with pytest.raises(RuntimeError, match="bound to a different event loop"):
-            await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+            await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
 
         # Confirm the actionable second sentence is in the message so
         # users know what to do — not just that *something* went wrong.
         try:
-            await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+            await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
         except RuntimeError as exc:
             assert "create a new client in the target loop" in str(exc), (
                 f"loop-affinity RuntimeError should tell users how to fix it; got message: {exc!s}"
@@ -170,9 +170,9 @@ def test_cross_loop_use_raises_actionable_runtime_error(
         # don't leak the transport. We deliberately go around
         # ``core.close()`` because that path also touches asyncio
         # primitives bound to loop A.
-        if core._collaborators.kernel.http_client is not None:
-            await core._collaborators.kernel.get_http_client().aclose()
-            install_http_client_for_test(core._collaborators.kernel, None)
+        if core._backend._kernel.http_client is not None:
+            await core._backend._kernel.get_http_client().aclose()
+            install_http_client_for_test(core._backend._kernel, None)
 
     asyncio.run(call_under_loop_b())
 
@@ -193,7 +193,7 @@ async def test_same_loop_use_unaffected(
     core = await _open_core_with_transport(transport)
     try:
         results = await asyncio.gather(
-            *[core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(100)]
+            *[core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(100)]
         )
     finally:
         await core.close()
@@ -228,10 +228,10 @@ def test_capped_client_reopen_on_new_loop_rebinds_semaphore(
 
     async def _open_swap_and_close_under_loop_a() -> None:
         await core.__aenter__()
-        prior_cookies = core._collaborators.kernel.get_http_client().cookies
-        await core._collaborators.kernel.get_http_client().aclose()
+        prior_cookies = core._backend._kernel.get_http_client().cookies
+        await core._backend._kernel.get_http_client().aclose()
         install_http_client_for_test(
-            core._collaborators.kernel,
+            core._backend._kernel,
             httpx.AsyncClient(
                 cookies=prior_cookies,
                 transport=transport,
@@ -240,23 +240,23 @@ def test_capped_client_reopen_on_new_loop_rebinds_semaphore(
         )
         # One dispatch on loop A so the semaphore is actually constructed and
         # bound to loop A — that is the stale primitive a naive reopen reuses.
-        await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+        await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
         await core.close()
 
     asyncio.run(_open_swap_and_close_under_loop_a())
     # The reset happens on open(), not close(): the stale semaphore is still
     # cached here, bound to the now-dead loop A.
-    assert core._composed.rpc_semaphore._semaphore is not None
+    assert core._backend._rpc_semaphore._semaphore is not None
 
     async def _reopen_and_dispatch_under_loop_b() -> None:
         await core.__aenter__()
         # reset_after_open() must have discarded the loop-A semaphore so the
         # next get_rpc_semaphore() rebuilds it on loop B.
-        assert core._composed.rpc_semaphore._semaphore is None
-        prior_cookies = core._collaborators.kernel.get_http_client().cookies
-        await core._collaborators.kernel.get_http_client().aclose()
+        assert core._backend._rpc_semaphore._semaphore is None
+        prior_cookies = core._backend._kernel.get_http_client().cookies
+        await core._backend._kernel.get_http_client().aclose()
         install_http_client_for_test(
-            core._collaborators.kernel,
+            core._backend._kernel,
             httpx.AsyncClient(
                 cookies=prior_cookies,
                 transport=transport,
@@ -268,7 +268,7 @@ def test_capped_client_reopen_on_new_loop_rebinds_semaphore(
             # RuntimeError (3.10/3.11) when acquiring the stale slot; post-fix
             # the semaphore is fresh and bound to loop B, so all calls succeed.
             results = await asyncio.gather(
-                *[core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(8)]
+                *[core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(8)]
             )
         finally:
             await core.close()
@@ -336,10 +336,10 @@ def test_upload_pipeline_reopen_on_new_loop_rebinds_semaphore(
 
     async def _open_force_semaphore_and_close_under_loop_a() -> None:
         await core.__aenter__()
-        prior_cookies = core._collaborators.kernel.get_http_client().cookies
-        await core._collaborators.kernel.get_http_client().aclose()
+        prior_cookies = core._backend._kernel.get_http_client().cookies
+        await core._backend._kernel.get_http_client().aclose()
         install_http_client_for_test(
-            core._collaborators.kernel,
+            core._backend._kernel,
             httpx.AsyncClient(
                 cookies=prior_cookies,
                 transport=transport,
@@ -362,10 +362,10 @@ def test_upload_pipeline_reopen_on_new_loop_rebinds_semaphore(
         # reset_after_open() must have discarded the loop-A semaphore so the
         # next get_upload_semaphore() rebuilds it on loop B.
         assert uploader._upload_semaphore is None
-        prior_cookies = core._collaborators.kernel.get_http_client().cookies
-        await core._collaborators.kernel.get_http_client().aclose()
+        prior_cookies = core._backend._kernel.get_http_client().cookies
+        await core._backend._kernel.get_http_client().aclose()
         install_http_client_for_test(
-            core._collaborators.kernel,
+            core._backend._kernel,
             httpx.AsyncClient(
                 cookies=prior_cookies,
                 transport=transport,
@@ -425,8 +425,8 @@ def test_reqid_and_auth_locks_reopen_on_new_loop_rebind(
     transport.set_delay(0.0)
 
     core = build_client_shell_for_tests(auth=_make_auth())
-    reqid = core._collaborators.reqid
-    auth_coord = core._collaborators.auth_coord
+    reqid = core._backend._reqid
+    auth_coord = core._backend._auth_coord
 
     async def _force_contended_acquire(lock: asyncio.Lock) -> None:
         """Drive the blocked-waiter path so ``lock`` binds to the running loop.
@@ -447,10 +447,10 @@ def test_reqid_and_auth_locks_reopen_on_new_loop_rebind(
 
     async def _open_force_locks_and_close_under_loop_a() -> None:
         await core.__aenter__()
-        prior_cookies = core._collaborators.kernel.get_http_client().cookies
-        await core._collaborators.kernel.get_http_client().aclose()
+        prior_cookies = core._backend._kernel.get_http_client().cookies
+        await core._backend._kernel.get_http_client().aclose()
         install_http_client_for_test(
-            core._collaborators.kernel,
+            core._backend._kernel,
             httpx.AsyncClient(
                 cookies=prior_cookies,
                 transport=transport,
@@ -484,10 +484,10 @@ def test_reqid_and_auth_locks_reopen_on_new_loop_rebind(
         assert auth_coord._refresh_lock is None
         assert auth_coord._auth_snapshot_lock is None
         assert reqid.value == value_after_loop_a
-        prior_cookies = core._collaborators.kernel.get_http_client().cookies
-        await core._collaborators.kernel.get_http_client().aclose()
+        prior_cookies = core._backend._kernel.get_http_client().cookies
+        await core._backend._kernel.get_http_client().aclose()
         install_http_client_for_test(
-            core._collaborators.kernel,
+            core._backend._kernel,
             httpx.AsyncClient(
                 cookies=prior_cookies,
                 transport=transport,
@@ -566,10 +566,10 @@ def test_chat_locks_reopen_on_new_loop_rebind(
 
     async def _open_force_lock_and_close_under_loop_a() -> asyncio.Lock:
         await core.__aenter__()
-        prior_cookies = core._collaborators.kernel.get_http_client().cookies
-        await core._collaborators.kernel.get_http_client().aclose()
+        prior_cookies = core._backend._kernel.get_http_client().cookies
+        await core._backend._kernel.get_http_client().aclose()
         install_http_client_for_test(
-            core._collaborators.kernel,
+            core._backend._kernel,
             httpx.AsyncClient(
                 cookies=prior_cookies,
                 transport=transport,
@@ -601,10 +601,10 @@ def test_chat_locks_reopen_on_new_loop_rebind(
         # _get_conversation_lock() rebuilds a fresh lock on loop B (even though
         # ``pinned_lock`` still holds a strong ref to the old one).
         assert chat._conversation_locks.get(conv_id) is None
-        prior_cookies = core._collaborators.kernel.get_http_client().cookies
-        await core._collaborators.kernel.get_http_client().aclose()
+        prior_cookies = core._backend._kernel.get_http_client().cookies
+        await core._backend._kernel.get_http_client().aclose()
         install_http_client_for_test(
-            core._collaborators.kernel,
+            core._backend._kernel,
             httpx.AsyncClient(
                 cookies=prior_cookies,
                 transport=transport,
@@ -636,13 +636,13 @@ async def test_bound_loop_captured_on_open(
     construction-time loop may not be the dispatch-time loop.
     """
     core = build_client_shell_for_tests(auth=_make_auth())
-    assert core._collaborators.lifecycle.get_bound_loop() is None, (
+    assert core._backend._lifecycle.get_bound_loop() is None, (
         "NotebookLMClient must not bind to a loop at construction time — open() is the binding moment."
     )
 
     await core.__aenter__()
     try:
-        assert core._collaborators.lifecycle.get_bound_loop() is asyncio.get_running_loop(), (
+        assert core._backend._lifecycle.get_bound_loop() is asyncio.get_running_loop(), (
             "open() must capture the *running* loop, not a stored or module-level reference."
         )
 
@@ -650,11 +650,11 @@ async def test_bound_loop_captured_on_open(
         # requests for cookie persistence (auth has no storage_path so
         # save_cookies is already a no-op, but route everything through
         # the recorder to keep the test deterministic).
-        assert core._collaborators.kernel.http_client is not None
-        prior_cookies = core._collaborators.kernel.get_http_client().cookies
-        await core._collaborators.kernel.get_http_client().aclose()
+        assert core._backend._kernel.http_client is not None
+        prior_cookies = core._backend._kernel.get_http_client().cookies
+        await core._backend._kernel.get_http_client().aclose()
         install_http_client_for_test(
-            core._collaborators.kernel,
+            core._backend._kernel,
             httpx.AsyncClient(
                 cookies=prior_cookies,
                 transport=mock_transport_concurrent,

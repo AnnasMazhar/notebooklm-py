@@ -225,10 +225,10 @@ class TestGetSource:
         )
 
         async with NotebookLMClient(auth_tokens) as client:
-            client._rpc_executor.rpc_call = first_rpc
+            client._backend._runtime.rpc_call = first_rpc
             assert await client.sources.list("nb_123") == []
 
-            client._rpc_executor.rpc_call = second_rpc
+            client._backend._runtime.rpc_call = second_rpc
             sources = await client.sources.list("nb_123")
 
         first_rpc.assert_awaited_once()
@@ -791,7 +791,7 @@ class TestSourcesAPI:
         async with NotebookLMClient(auth_tokens) as client:
             # UPDATE_SOURCE echoes null, then the hydrate fetch blows up.
             rpc = AsyncMock(side_effect=[None, RPCError("boom during hydrate")])
-            client._rpc_executor.rpc_call = rpc
+            client._backend._runtime.rpc_call = rpc
             with pytest.raises(RPCError):
                 await client.sources.rename("nb_123", "src_001", "New Title")
 
@@ -805,7 +805,7 @@ class TestSourcesAPI:
         """
         async with NotebookLMClient(auth_tokens) as client:
             rpc = AsyncMock(side_effect=[None, [["Notebook", []]]])
-            client._rpc_executor.rpc_call = rpc
+            client._backend._runtime.rpc_call = rpc
             with pytest.raises(SourceNotFoundError):
                 await client.sources.rename("nb_123", "src_001", "New Title", return_object=False)
 
@@ -3027,7 +3027,7 @@ class TestWaitUntilReadyErrorPaths:
 
         async with NotebookLMClient(auth_tokens) as client:
             with patch.object(
-                client._rpc_executor,
+                client._backend._runtime,
                 "rpc_call",
                 new_callable=AsyncMock,
                 return_value=snapshot,
@@ -3078,7 +3078,7 @@ class TestWaitUntilReadyMidLoopTimeout:
 
         async with NotebookLMClient(auth_tokens) as client:
             with patch.object(
-                client._rpc_executor,
+                client._backend._runtime,
                 "rpc_call",
                 new_callable=AsyncMock,
                 return_value=snapshot,

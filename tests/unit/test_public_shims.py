@@ -222,11 +222,11 @@ async def test_client_rpc_call_forwards_supported_kwargs() -> None:
     )
     # ADR-0007 constructor injection: substitute the whole executor
     # collaborator with the seam fixture's fake instead of mutating
-    # ``client._rpc_executor.rpc_call`` after the fact. The public
-    # ``rpc_call`` wrapper reads ``self._rpc_executor``, so swapping the
+    # ``client._backend._runtime.rpc_call`` after the fact. The public
+    # ``rpc_call`` wrapper reads ``self._backend._runtime``, so swapping the
     # executor exercises the same forwarding path.
     fake = make_fake_core(rpc_call=AsyncMock(return_value={"ok": True}))
-    client._rpc_executor = fake.rpc_executor
+    client._backend._runtime = fake.rpc_executor
 
     result = await client.rpc_call(
         RPCMethod.CREATE_NOTEBOOK,
@@ -267,7 +267,7 @@ async def test_client_rpc_call_forwards_default_arguments() -> None:
     # whole executor collaborator for the seam fixture's fake before any
     # real transport initialization can be required.
     fake = make_fake_core(rpc_call=AsyncMock(return_value=[]))
-    client._rpc_executor = fake.rpc_executor
+    client._backend._runtime = fake.rpc_executor
 
     result = await client.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
 

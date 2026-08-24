@@ -245,12 +245,12 @@ def _make_client(transport: httpx.AsyncBaseTransport, auth_tokens) -> NotebookLM
     """Build a ``NotebookLMClient`` wired to ``transport``.
 
     Mirrors ``test_idempotency_create._make_client_with_transport``: stub
-    ``client._collaborators.kernel.http_client`` with a pre-built ``AsyncClient`` so the chat
+    ``client._backend._kernel.http_client`` with a pre-built ``AsyncClient`` so the chat
     POSTs route through the mock instead of opening a real socket.
     """
     client = NotebookLMClient(auth_tokens)
     install_http_client_for_test(
-        client._collaborators.kernel,
+        client._backend._kernel,
         httpx.AsyncClient(
             transport=transport,
             headers={
@@ -308,7 +308,7 @@ async def test_concurrent_follow_ups_serialize_on_conversation_id(auth_tokens) -
             return_exceptions=False,
         )
     finally:
-        await client._collaborators.kernel.get_http_client().aclose()
+        await client._backend._kernel.get_http_client().aclose()
 
     # Sanity: both calls returned their respective answers.
     answers = sorted(r.answer for r in results)
@@ -391,7 +391,7 @@ async def test_different_conversation_ids_run_in_parallel(auth_tokens) -> None:
             client.chat.ask(notebook_id, "qB", source_ids=["src_001"], conversation_id=cid_b),
         )
     finally:
-        await client._collaborators.kernel.get_http_client().aclose()
+        await client._backend._kernel.get_http_client().aclose()
 
     assert transport.peak_chat_inflight() == 2, (
         f"different-conversation follow-ups must run in parallel, "
@@ -429,7 +429,7 @@ async def test_same_notebook_new_conversation_asks_serialize_until_id_exists(
             client.chat.ask(notebook_id, "q-new-2", source_ids=["src_001"]),
         )
     finally:
-        await client._collaborators.kernel.get_http_client().aclose()
+        await client._backend._kernel.get_http_client().aclose()
 
     assert {result.conversation_id for result in results} == {conversation_id}
     assert transport.peak_chat_inflight() == 1, (
@@ -482,7 +482,7 @@ async def test_different_notebook_new_conversation_asks_run_in_parallel(auth_tok
             client.chat.ask(notebook_b, "q-new-b", source_ids=["src_001"]),
         )
     finally:
-        await client._collaborators.kernel.get_http_client().aclose()
+        await client._backend._kernel.get_http_client().aclose()
 
     assert {result.conversation_id for result in results} == {conversation_a, conversation_b}
     assert transport.peak_chat_inflight() == 2, (
@@ -540,7 +540,7 @@ async def test_new_conversation_cache_update_waits_for_resolved_conversation_loc
             ),
         )
     finally:
-        await client._collaborators.kernel.get_http_client().aclose()
+        await client._backend._kernel.get_http_client().aclose()
 
     # Both asks serialize on the resolved conversation's lock: peak in-flight 1.
     assert transport.peak_chat_inflight() == 1, (
@@ -591,7 +591,7 @@ async def test_null_ask_serializes_with_explicit_current_conversation(auth_token
             ),
         )
     finally:
-        await client._collaborators.kernel.get_http_client().aclose()
+        await client._backend._kernel.get_http_client().aclose()
 
     assert transport.peak_chat_inflight() == 1, (
         "a null ask and an explicit follow-up on the notebook's current "
@@ -639,7 +639,7 @@ async def test_null_ask_parallel_with_followup_on_other_conversation(auth_tokens
             ),
         )
     finally:
-        await client._collaborators.kernel.get_http_client().aclose()
+        await client._backend._kernel.get_http_client().aclose()
 
     assert transport.peak_chat_inflight() == 2, (
         "a null ask resolving to convX must not serialize with a follow-up on "
@@ -742,7 +742,7 @@ async def test_null_ask_recovers_when_current_conversation_deleted_mid_flight(
             client.chat.ask(notebook_id, "q-after-delete", source_ids=["src_001"]),
         )
     finally:
-        await client._collaborators.kernel.get_http_client().aclose()
+        await client._backend._kernel.get_http_client().aclose()
 
     # The turn is reported and cached under the FRESH id, never the deleted one.
     assert result.conversation_id == fresh_id, (
