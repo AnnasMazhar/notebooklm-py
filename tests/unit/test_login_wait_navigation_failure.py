@@ -301,12 +301,21 @@ def test_the_budget_shrinks_and_is_never_restarted() -> None:
 
     An unbounded reset would turn a page that fails in a loop into a wait that
     never ends.
+
+    Asserts NON-INCREASING, not strictly decreasing. A strict `<` is not a
+    property of the code but of the clock: on Python 3.10 for Windows
+    ``time.monotonic()`` is backed by ``GetTickCount64`` (~15.6ms granularity,
+    3.11+ moved to ``QueryPerformanceCounter``), so a re-arm that happens inside
+    one tick legitimately measures zero elapsed time and hands back the same
+    budget. That is harmless — real time still advances and the streak cap still
+    bounds the loop — but it made this test fail on windows/3.10 alone.
     """
     page = _FakePage([_playwright_error(ABORTED), _playwright_error(ABORTED), LANDED])
     wait_for_login_landing(page, timeout_s=300)
-    assert page.timeouts == sorted(page.timeouts, reverse=True)
-    assert page.timeouts[0] <= 300 * 1000
-    assert page.timeouts[-1] < page.timeouts[0]
+    assert page.timeouts == sorted(page.timeouts, reverse=True), "budget must never grow"
+    # The verbatim contract on the first call, and never a restart after that.
+    assert page.timeouts[0] == 300 * 1000
+    assert all(t <= 300 * 1000 for t in page.timeouts)
 
 
 def test_a_page_failing_in_a_loop_is_bounded_not_spun_on() -> None:
@@ -417,6 +426,31 @@ def test_the_cap_leaves_room_for_an_ordinary_racy_sign_in() -> None:
     """A handful of aborts is normal; the cap must not clip a real login."""
     page = _FakePage([_playwright_error(ABORTED)] * 5 + [LANDED])
     assert wait_for_login_landing(page, timeout_s=300) == 5
+
+
+def test_a_coarse_monotonic_clock_still_terminates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the windows/3.10 clock behaviour instead of only tolerating it.
+
+    ``time.monotonic()`` there advances in ~15.6ms steps, so several reads
+    inside one tick return the SAME value and a re-arm can measure zero elapsed
+    time. The wait must still terminate, must never hand back more budget than
+    it started with, and must not mistake a coarse clock for a stalled one.
+    """
+    reads = {"n": 0}
+    tick = 0.0156
+
+    def coarse_monotonic() -> float:
+        # Four reads per tick: the clock is stationary within a tick.
+        reads["n"] += 1
+        return (reads["n"] // 4) * tick
+
+    monkeypatch.setattr("time.monotonic", coarse_monotonic)
+
+    page = _FakePage([_playwright_error(ABORTED)] * 3 + [LANDED])
+    assert wait_for_login_landing(page, timeout_s=300) == 3
+    assert page.timeouts[0] == 300 * 1000
+    assert all(t <= 300 * 1000 for t in page.timeouts), "budget must never grow"
+    assert page.timeouts == sorted(page.timeouts, reverse=True)
 
 
 def test_an_exhausted_budget_raises_rather_than_looping() -> None:
