@@ -35,7 +35,6 @@ if __package__:
         _p,
         native_key_text,
     )
-    from .audit_public_api_compat import CLIENT_NAMESPACE_ATTRIBUTES
 else:  # pragma: no cover - direct script execution
     from _operation_catalog_authorities import (
         _GET_SOURCES,
@@ -57,6 +56,12 @@ else:  # pragma: no cover - direct script execution
         _p,
         native_key_text,
     )
+
+if typing.TYPE_CHECKING:
+    from scripts.audit_public_api_compat import CLIENT_NAMESPACE_ATTRIBUTES
+elif __package__:
+    from .audit_public_api_compat import CLIENT_NAMESPACE_ATTRIBUTES
+else:  # pragma: no cover - direct script execution
     from audit_public_api_compat import CLIENT_NAMESPACE_ATTRIBUTES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -509,6 +514,33 @@ def collect_function_sites() -> set[str]:
     return sites
 
 
+_IGNORED_SEMANTIC_AST_FIELDS = frozenset({"ctx", "kind", "type_comment", "type_params"})
+
+
+def _semantic_ast_value(value: object) -> object:
+    if isinstance(value, ast.AST):
+        return _semantic_ast_shape(value)
+    if isinstance(value, (list, tuple)):
+        return tuple(_semantic_ast_value(item) for item in value)
+    return value
+
+
+def _semantic_ast_shape(node: ast.AST) -> tuple[object, ...]:
+    """Return a Python-version-neutral semantic representation of an AST node."""
+
+    fields = tuple(
+        (name, _semantic_ast_value(value))
+        for name, value in ast.iter_fields(node)
+        if name not in _IGNORED_SEMANTIC_AST_FIELDS
+    )
+    return type(node).__name__, fields
+
+
+def _semantic_ast_fingerprint(node: ast.AST) -> str:
+    normalized = repr(_semantic_ast_shape(node)).encode("utf-8")
+    return f"sha256:{hashlib.sha256(normalized).hexdigest()}"
+
+
 def collect_function_ast_fingerprints() -> dict[str, str]:
     """Return stable AST fingerprints for every production function/method."""
 
@@ -527,8 +559,7 @@ def collect_function_ast_fingerprints() -> dict[str, str]:
         def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
             self.stack.append(node.name)
             site = f"{self.relative}:{_qualname(self.stack)}"
-            normalized = ast.dump(node, annotate_fields=True, include_attributes=False)
-            fingerprints[site] = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+            fingerprints[site] = _semantic_ast_fingerprint(node)
             self.generic_visit(node)
             self.stack.pop()
 

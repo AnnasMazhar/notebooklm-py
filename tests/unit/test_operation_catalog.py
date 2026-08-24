@@ -458,7 +458,8 @@ def test_app_authority_source_contract_and_fingerprint_fail_closed(
     site = "artifacts.py:with_rate_limit_retry"
     evidence = catalog.collect_app_authority_source_evidence()[site]
 
-    assert len(evidence["function_ast_sha256"]) == 64
+    assert evidence["function_ast_sha256"].startswith("sha256:")
+    assert len(evidence["function_ast_sha256"]) == 71
     assert evidence["public_export"] == "with_rate_limit_retry"
     assert evidence["observed_required_calls"] == [
         "calculate_backoff_delay",
@@ -469,7 +470,8 @@ def test_app_authority_source_contract_and_fingerprint_fail_closed(
     edge = evidence["internal_call_edges"][0]
     assert edge["caller"] == "_app/generate_retry.py:generate_with_retry"
     assert edge["target"] == "artifact_retry.with_rate_limit_retry"
-    assert len(edge["caller_ast_sha256"]) == 64
+    assert edge["caller_ast_sha256"].startswith("sha256:")
+    assert len(edge["caller_ast_sha256"]) == 71
 
     contracts = dict(catalog_ast.APP_AUTHORITY_SOURCE_CONTRACTS)
     contracts[site] = dataclasses.replace(
@@ -486,14 +488,57 @@ def test_app_authority_source_contract_and_fingerprint_fail_closed(
     monkeypatch.setattr(
         catalog_ast,
         "collect_function_ast_fingerprints",
-        lambda: {**fingerprints, site: "0" * 64},
+        lambda: {**fingerprints, site: "sha256:" + "0" * 64},
     )
     assert (
         catalog.build_operation_catalog()["app_authority_source_evidence"][site][
             "function_ast_sha256"
         ]
-        == "0" * 64
+        == "sha256:" + "0" * 64
     )
+
+
+def test_semantic_ast_fingerprint_ignores_cross_version_shape_noise() -> None:
+    class VersionedNode(ast.AST):
+        _fields = ("payload", "ctx", "kind", "type_comment", "type_params")
+
+        def __init__(
+            self,
+            *,
+            payload: list[ast.AST] | tuple[ast.AST, ...],
+            ctx: ast.expr_context,
+            kind: str | None,
+            type_comment: str | None,
+            type_params: list[ast.AST],
+        ) -> None:
+            self.payload = payload
+            self.ctx = ctx
+            self.kind = kind
+            self.type_comment = type_comment
+            self.type_params = type_params
+
+    older_shape = VersionedNode(
+        payload=[ast.Constant(value="value")],
+        ctx=ast.Load(),
+        kind="u",
+        type_comment="str",
+        type_params=[],
+    )
+    newer_shape = VersionedNode(
+        payload=(ast.Constant(value="value"),),
+        ctx=ast.Store(),
+        kind=None,
+        type_comment=None,
+        type_params=[ast.Name(id="T")],
+    )
+
+    assert catalog_ast._semantic_ast_shape(older_shape) == catalog_ast._semantic_ast_shape(
+        newer_shape
+    )
+    fingerprint = catalog_ast._semantic_ast_fingerprint(older_shape)
+    assert fingerprint == catalog_ast._semantic_ast_fingerprint(newer_shape)
+    assert fingerprint.startswith("sha256:")
+    assert len(fingerprint) == 71
 
 
 def test_known_divergences_remain_reported_but_do_not_fail_audit() -> None:

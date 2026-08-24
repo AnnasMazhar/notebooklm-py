@@ -88,13 +88,15 @@ def test_generation_retry_authority_has_live_helper_and_call_edge_evidence() -> 
     catalog = build_operation_catalog()
     evidence = catalog["app_authority_source_evidence"]["artifacts.py:with_rate_limit_retry"]
 
-    assert len(evidence["function_ast_sha256"]) == 64
+    assert evidence["function_ast_sha256"].startswith("sha256:")
+    assert len(evidence["function_ast_sha256"]) == 71
     assert evidence["public_export"] == "with_rate_limit_retry"
     assert len(evidence["internal_call_edges"]) == 1
     edge = evidence["internal_call_edges"][0]
     assert edge["caller"] == "_app/generate_retry.py:generate_with_retry"
     assert edge["target"] == "artifact_retry.with_rate_limit_retry"
-    assert len(edge["caller_ast_sha256"]) == 64
+    assert edge["caller_ast_sha256"].startswith("sha256:")
+    assert len(edge["caller_ast_sha256"]) == 71
 
 
 def test_every_active_binding_honors_runtime_rpc_overrides() -> None:

@@ -1835,7 +1835,14 @@ print(
                 "projection_ids" in row["allocation"] for row in private_paths
             ),
             "production_dead_private_paths": sum(
-                "unreachable_category" in row["allocation"] for row in private_paths
+                row["allocation"].get("unreachable_category")
+                == "production-dead-public-branch"
+                for row in private_paths
+            ),
+            "internal_runtime_configuration_private_paths": sum(
+                row["allocation"].get("unreachable_category")
+                == "internal-runtime-configuration"
+                for row in private_paths
             ),
             "helper_fingerprints": len(reachability["delegated_helper_fingerprints"]),
         },
