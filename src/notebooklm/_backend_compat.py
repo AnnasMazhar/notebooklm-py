@@ -214,14 +214,18 @@ def project_backend_error(error: BackendError) -> Exception:
                 "notebook-limit original evidence does not reconstruct RPCError",
                 operation=error.operation,
             )
-        return _preserve_outcome(
-            error,
-            NotebookLimitError(
-                current_count,
-                limit=_required_int(error, diagnostics, "limit"),
-                original_error=original,
-            ),
+        limit_projected = NotebookLimitError(
+            current_count,
+            limit=_required_int(error, diagnostics, "limit"),
+            original_error=original,
         )
+        # Legacy quota diagnosis raised the domain error directly from the
+        # rejected CREATE_NOTEBOOK RPC. Preserve both the structured field and
+        # the traceback relationship without replaying any arbitrary exception.
+        limit_projected.__cause__ = original
+        limit_projected.__context__ = original
+        limit_projected.__suppress_context__ = True
+        return _preserve_outcome(error, limit_projected)
 
     rpc = _rpc_diagnostics(error)
     if reason is BackendErrorReason.AUTH:

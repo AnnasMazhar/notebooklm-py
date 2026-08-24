@@ -201,6 +201,9 @@ def test_notebook_mutation_specific_errors_reconstruct_from_neutral_evidence() -
     assert isinstance(limit.original_error, RPCError)
     assert limit.original_error.method_id == "rpc-create"
     assert limit.original_error.rpc_code == 3
+    assert limit.__cause__ is limit.original_error
+    assert limit.__context__ is limit.original_error
+    assert limit.__suppress_context__ is True
 
 
 def test_unknown_mutation_outcome_marker_survives_public_reconstruction() -> None:

@@ -52,8 +52,6 @@ class NotebookMutationService:
     ) -> Notebook:
         if title is None and emoji is None:
             raise ValidationError("At least one of title or emoji must be provided")
-        if title == "":
-            raise ValidationError("Notebook title must not be empty")
         result = await self._backend.invoke(
             NOTEBOOK_UPDATE_DEF,
             NotebookUpdateInput(notebook_id, title=title, emoji=emoji),

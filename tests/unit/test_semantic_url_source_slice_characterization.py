@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, call
 import httpx
 import pytest
 
+from notebooklm._deadline import RuntimeDeadline
 from notebooklm._records import (
     SourceAddCommitState,
     SourceAddTitleState,
@@ -24,7 +25,13 @@ from notebooklm._records import (
 from notebooklm._source.add import SourceAddService
 from notebooklm._source.upload_payloads import build_template_block
 from notebooklm._sources import SourcesAPI
-from notebooklm.exceptions import NetworkError, RPCError, ServerError, SourceAddError
+from notebooklm.exceptions import (
+    NetworkError,
+    RPCError,
+    RPCTimeoutError,
+    ServerError,
+    SourceAddError,
+)
 from notebooklm.rpc import RPCMethod
 from tests._fixtures.web_backend import build_web_backend
 
@@ -242,3 +249,36 @@ async def test_live_url_facade_preserves_uncertain_leaf_fields_and_context() -> 
     assert isinstance(public.__context__, ServerError)
     assert public.__context__.args == create_error.args
     assert public.__cause__ is None
+
+
+@pytest.mark.asyncio
+async def test_live_url_probe_deadline_projects_to_bounded_public_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    times = iter([0.0, 0.0, 0.0, 2.0, 2.0, 2.0])
+    deadline = RuntimeDeadline(timeout=1.0, started_at=0.0, monotonic=lambda: next(times))
+    create_error = ServerError("create response lost", status_code=503)
+    rpc_call = AsyncMock(side_effect=[[["Notebook", [], "nb-1"]], create_error])
+    rpc = MagicMock(rpc_call=rpc_call)
+    api = SourcesAPI(
+        rpc,
+        uploader=MagicMock(),
+        _backend=build_web_backend(rpc),
+    )
+    monkeypatch.setattr(RuntimeDeadline, "start", lambda _timeout: deadline)
+
+    with pytest.raises(RPCTimeoutError) as caught:
+        await api.add_url(
+            "nb-1",
+            "https://example.com/article",
+            wait=True,
+            wait_timeout=1.0,
+        )
+
+    public = caught.value
+    assert public.method_id == RPCMethod.GET_NOTEBOOK.value
+    assert public.timeout_seconds == 1.0
+    assert public.unconfirmed is True  # type: ignore[attr-defined]
+    assert isinstance(public.__context__, ServerError)
+    assert public.__context__.args == create_error.args
+    assert sum(call.args[0] is RPCMethod.ADD_SOURCE for call in rpc_call.await_args_list) == 1

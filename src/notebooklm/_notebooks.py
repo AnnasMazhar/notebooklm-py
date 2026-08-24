@@ -513,14 +513,20 @@ class NotebooksAPI:
             docs/python-api.md#idempotency.
         """
         logger.debug("Creating notebook: %s", title)
+        public_error: Exception | None = None
         try:
             notebook = await self._require_mutation_service().create(title)
         except BackendError as error:
-            raise project_backend_error(error) from None
-        if notebook.id and notebook.chat_sessions:
-            self._created_chat_session_ids[notebook.id] = notebook.chat_sessions[0].id
-        logger.debug("Created notebook: %s", notebook.id)
-        return notebook
+            public_error = project_backend_error(error)
+        else:
+            if notebook.id and notebook.chat_sessions:
+                self._created_chat_session_ids[notebook.id] = notebook.chat_sessions[0].id
+            logger.debug("Created notebook: %s", notebook.id)
+            return notebook
+        # Raise outside the private BackendError catch frame so a reviewed
+        # reconstructed quota cause/context graph remains the public graph.
+        assert public_error is not None
+        raise public_error
 
     async def get(self, notebook_id: str) -> Notebook:
         """Get notebook details.

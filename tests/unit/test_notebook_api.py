@@ -529,6 +529,9 @@ class TestCreateNotebookQuotaDetection:
         assert exc_info.value.current_count == 499
         assert exc_info.value.limit == 500
         _assert_equivalent_rpc_error(exc_info.value.original_error, original)
+        assert exc_info.value.__cause__ is exc_info.value.original_error
+        assert exc_info.value.__context__ is exc_info.value.original_error
+        assert exc_info.value.__suppress_context__ is True
         assert "499/500" in str(exc_info.value)
         assert [call.args[0] for call in rpc_call.await_args_list].count(
             RPCMethod.GET_USER_SETTINGS
@@ -841,13 +844,22 @@ class TestCreateNotebookQuotaDetection:
 
 class TestUpdateNotebook:
     @pytest.mark.asyncio
-    async def test_rename_rejects_empty_title_before_rpc(self) -> None:
-        api = _make_api()
+    async def test_rename_preserves_legacy_empty_title_wire_behavior(self) -> None:
+        rpc_call = AsyncMock(
+            side_effect=[
+                None,
+                [["", None, "nb-1", "", None, None, None, None]],
+            ]
+        )
+        api = _make_api(rpc_call=rpc_call)
 
-        with pytest.raises(ValidationError, match="must not be empty"):
-            await api.rename("nb-1", "")
+        renamed = await api.rename("nb-1", "")
 
-        api._rpc.rpc_call.assert_not_awaited()
+        assert renamed.title == ""
+        assert rpc_call.await_args_list[0].args[1] == [
+            "nb-1",
+            [[None, None, None, [None, ""]]],
+        ]
 
     @pytest.mark.asyncio
     async def test_rename_preserves_title_only_wire_shape(self) -> None:
