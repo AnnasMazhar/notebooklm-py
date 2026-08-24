@@ -6,8 +6,8 @@
 > [Revision history](#revision-history) → "2026-05-28 — Session elimination"),
 > and the former `_session_*` / `_runtime_*` collaborators now live under the
 > `_runtime/` package (for example `_runtime/init.py`,
-> `_runtime/transport.py`; the `SessionTransport` / `SessionCollaborators`
-> classes are now `RuntimeTransport` / `RuntimeCollaborators`). The
+> `_runtime/transport.py`; the transport leaf is now `RuntimeTransport`, and
+> no runtime-collaborator bundle is retained after construction). The
 > feature-local composite Protocols and adapter dataclasses discussed below
 > were also retired when direct keyword-only collaborator injection proved
 > clearer for their single consumers. Treat in-body references to `Session`,
@@ -15,10 +15,18 @@
 > historical; the
 > live runtime shape is documented in
 > [`docs/architecture.md`](../architecture.md).
+>
+> **P7 amendment (2026-08-24).** The direct-collaborator principle remains accepted, but P7
+> supersedes this ADR's `ClientComposed`/client-owned `RpcExecutor`/mutable chain-host test-seam
+> outcome. Semantic services use `BackendAdapter`; `WebRpcBackend` owns `WebExecutionRuntime` and
+> the runtime leaves. `ClientInternals` is a frozen construction-only receipt, and
+> `_rpc_executor.py::RpcExecutor` is a behaviorless compatibility subclass. Tests vary explicit
+> construction leaves rather than mutating a published runtime graph.
 
 ## Status
 
-Accepted (#1082; Stage-B issue #1084; MiddlewareChainHost issue #1085).
+Accepted for direct focused collaborators; runtime ownership superseded in part by P7.
+Original close-out: #1082; Stage-B issue #1084; MiddlewareChainHost issue #1085.
 Rule 3 Stage B closed by the post-refactoring plan 2026-05-27 Stage B1
 (#1086 / #1089 / #1091). Rule 4 deepening closed by the same plan's
 Stage B2 (#1090 / #1092 / this PR) — the chain ownership carve-out is
@@ -514,14 +522,26 @@ already did on the feature constructors.
 
 ### 2026-05-28 — Session elimination (plan `session-elimination-plan`)
 
-`NotebookLMClient` now owns the final runtime graph directly: `ClientComposed`,
-the `SessionCollaborators` bundle, the `RpcExecutor`, and the public feature
-APIs. The concrete `Session` class and its module were deleted, along with the
+At this historical stage, `NotebookLMClient` owned the runtime graph directly: `ClientComposed`,
+the collaborator bundle, the `RpcExecutor`, and the public feature APIs. The concrete `Session`
+class and its module were deleted, along with the
 session-method retention document and helper factory. Lifecycle entry points
 (`__aenter__`, `__aexit__`, `close`, `drain`, and `is_connected`) call
 `ClientLifecycle` and `TransportDrainTracker` directly. Static lints now enforce
 that the deleted module, deleted helper names, deleted client attribute, and
-`ClientComposed.collaborators` alias cannot return.
+`ClientComposed.collaborators` alias cannot return. P7 subsequently superseded that intermediate
+client-owned holder/executor graph as described below.
+
+### 2026-08-24 — P7 backend-owned runtime collapse
+
+`ClientComposed` and `RuntimeCollaborators` were deleted. `_runtime/init.py` now returns one frozen
+`ClientInternals` construction receipt; `_client_assembly.py` immediately unpacks it into
+`WebRpcBackend` and does not publish the receipt, chain builder, or middleware list. The public
+client retains one `_backend` reference rather than `_auth`, `_collaborators`, `_composed`, and
+`_rpc_executor` duplicates. `WebExecutionRuntime` owns encode/dispatch/decode;
+`RpcExecutor(WebExecutionRuntime)` adds no behavior. Mutable string-key request context was replaced
+by typed `RpcCallState`, while chain order and all retry/auth/metrics/drain/semaphore behaviors remain
+characterization-pinned.
 
 ## Related decisions
 
@@ -533,6 +553,6 @@ that the deleted module, deleted helper names, deleted client attribute, and
 - Closes the deferred goal in [ADR-0003](./0003-auth-facade-write-through.md)
   by example — `auth.py` follows the same delegate-to-private-module pattern
   Rule 1 applies to collaborators.
-- Supersedes the former "Session as facade" and lifecycle-root framing in
-  [`docs/architecture.md`](../architecture.md); the current architecture is
-  "NotebookLMClient as composition root".
+- Supersedes the former "Session as facade" framing. P7 further narrows the public client to a
+  shell over one backend-owned runtime; [`docs/architecture.md`](../architecture.md) is the current
+  owner map.

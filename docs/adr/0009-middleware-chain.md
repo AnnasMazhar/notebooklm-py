@@ -2,13 +2,20 @@
 
 ## Status
 
-Accepted (Tier 12 PR 12.1; closed by PR 12.9); context refined by [ADR-0013](0013-composable-session-capabilities.md) (#866).
-Amended (arc-1, closes the `[arc-1-formalized-as-deferred-permanent]`
-item on the v0.6 architecture-deepening backlog, §6.1): the
-`RpcRequest.context: dict[str, Any]` shape is the **long-term**
-chain-metadata carrier — see §"Decision: `RpcRequest.context: dict[str,
-Any]` is the long-term shape" below for the rationale and the policy
-governing additions to the vocabulary table.
+Accepted for middleware ordering and transport behavior; **superseded in part by P7** of the
+[semantic-backend refactor plan](../plan/2026-08-13-semantic-backend-refactor.md). P7 replaces the
+former `RpcRequest.context: dict[str, Any]` decision with the closed typed `RpcCallState` in
+`_middleware/context.py`, deletes the `ClientComposed` semaphore holder, and makes
+`WebRpcBackend`/`WebExecutionRuntime` the execution owner. All later sections that prescribe a
+string-key context vocabulary, `RPC_CONTEXT_*` constants, mutable-context sharing, or
+`ClientComposed` are historical rationale and are no longer normative.
+
+The still-normative chain order is Drain → Metrics → Semaphore → Retry → AuthRefresh → Tracing.
+One `RpcCallState` object is retained by exact identity across retry/auth-refresh attempts; its
+immutable configuration holds the build recipe, operation label, retry flags, read/response limits,
+refresh budget, and deadline, while a bounded progress record publishes auth snapshot/refresh,
+retry count, queue wait, and terminal diagnostics. The original context decision was refined by
+[ADR-0013](0013-composable-session-capabilities.md) (#866) before P7 superseded it.
 Amended by the semantic-backend pre-P7 prerequisite: the production
 `ErrorInjectionMiddleware` was permanently pass-through and is deleted. Tests
 inject semantic failures through `RecordingBackend`; VCR response substitution
@@ -23,12 +30,11 @@ concern into a dedicated middleware. **PR 12.9 closes the tier** — the
 historical seven-middleware chain `[Drain, Metrics, Semaphore, Retry,
 AuthRefresh, ErrorInjection, Tracing]` was fully wired, the leaf
 is a pure POST, and the underscore-prefixed compatibility aliases were
-removed. Later architecture cleanup retired the interim authed-transport
-Adapter; the current terminal path is
-`MiddlewareChainHost._authed_post_chain_terminal ->
-RuntimeTransport.terminal -> Kernel.post`. The chain ordering, the
-`RpcRequest.context` key vocabulary, and the Protocol shape pinned below
-are the load-bearing contract.
+removed. Later architecture cleanup retired the interim authed-transport Adapter. The current path
+is `WebExecutionRuntime -> RuntimeTransport ->` the ordered chain `->
+RuntimeTransport.terminal -> Kernel.post`; `WebRpcBackend` owns those leaves. The chain ordering
+and observable retry, auth-refresh, drain, semaphore, metrics, and tracing behavior remain
+load-bearing. The historical context vocabulary and holder shape below do not.
 
 Two implementation realities diverged from the original PR-12.1 pin and
 are documented in the "PR 12.9 close-out notes" section at the bottom of
@@ -197,7 +203,7 @@ Per-position rationale:
   per logical call regardless of retries, losing the per-attempt
   visibility the original transport debug logging provided.
 
-### `RpcRequest.context` keys (the chain's metadata vocabulary)
+### Historical `RpcRequest.context` keys (superseded by `RpcCallState`)
 
 | Key | Type | Set by | Read by |
 |---|---|---|---|
@@ -217,7 +223,7 @@ Per-position rationale:
 Middlewares are forbidden from inventing new keys without an ADR update.
 The dict is mutable by reference (deliberately) but read-mostly in
 practice. See
-§"Decision: `RpcRequest.context: dict[str, Any]` is the long-term shape"
+§"Historical decision: `RpcRequest.context: dict[str, Any]` (superseded by P7)"
 below for the rationale and the policy that governs additions.
 
 > **Note on `operation_variant`.** Idempotency policy is resolved
@@ -228,7 +234,10 @@ below for the rationale and the policy that governs additions.
 > per-request `operation_variant` selector, so it is intentionally
 > absent from this vocabulary.
 
-### Decision: `RpcRequest.context: dict[str, Any]` is the long-term shape
+### Historical decision: `RpcRequest.context: dict[str, Any]` (superseded by P7)
+
+> The following rationale records the decision at the time it was made. It is not the current
+> contract; `RpcCallState` and `test_middleware_context_contract.py` are authoritative.
 
 The stringly-keyed `dict[str, Any]` on `RpcRequest.context` is the
 **permanent** chain-metadata carrier. It will **not** be replaced with a
@@ -517,11 +526,10 @@ cut of PR 12.9):
    bounds the whole retry-and-refresh cohort to one slot per logical
    RPC.
 
-The middleware takes a zero-arg async-context-manager factory rather
-than a raw `asyncio.Semaphore`, so production wires
-`ClientComposed.get_rpc_semaphore`. The holder returns a
-`contextlib.nullcontext` when `max_concurrent_rpcs is None` (unbounded
-opt-out) — the `async with` collapses to a no-op for that case.
+The middleware takes the focused `RpcSemaphore` owner rather than a raw
+`asyncio.Semaphore`. `RpcSemaphore.get()` returns a `contextlib.nullcontext`
+when `max_concurrent_rpcs is None` (unbounded opt-out), owns loop binding/reopen reset, and is
+entered once around the complete retry/auth-refresh cohort.
 
 History: the first cut of PR 12.9 audit-find #1 wrapped the semaphore
 around `Session._perform_authed_post` directly (outside the chain).

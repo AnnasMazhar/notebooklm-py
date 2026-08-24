@@ -1556,7 +1556,7 @@ shape.
 
 - [x] **P0 through P6 operations migrated:** All operations in the catalog are migrated, or carry a `legacy_exception` catalog row naming an approver and an open removal issue. The catalog audit fails above **5** such rows -- otherwise this criterion is a paragraph the author writes and approves. The current catalog has 82 active semantic operations, five composites, and no legacy exceptions.
 - [x] **Zero semantic-service `RpcCaller` consumers:** No semantic service consumes `RpcCaller` (audited by `tests/_guardrails/test_semantic_p7_entry_audit.py`). The sole physical consumer is the explicitly authorized `LegacyNoteBackedService` compatibility implementation.
-- [ ] **Suites green:** Backend contract, codec golden, compatibility, VCR, concurrency, cancellation, and auth-refresh suites are green.
+- [x] **Suites green:** Backend contract, codec golden, compatibility, VCR, concurrency, cancellation, and auth-refresh suites are green.
 - [x] **`ErrorInjectionMiddleware` isolated:** the permanently pass-through production middleware
   was deleted in the dedicated pre-P7 prerequisite. Synthetic semantic failures now use
   `tests._fixtures.RecordingBackend.set_error`, while cassette recording keeps its test-suite VCR
@@ -1564,7 +1564,7 @@ shape.
   imports the chain's `NextCall`, `RpcRequest`, or `RpcResponse`;
   `tests/_guardrails/test_semantic_p7_entry_audit.py` fails closed on regression.
 - [x] **Test seams migrated:** No test outside `tests/_guardrails/` constructs or mutates `ClientComposed`, `MiddlewareChainHost`, or `RpcRequest.context`. `tests/_guardrails/test_semantic_p7_entry_audit.py` fails closed if any of those retired mutation seams return.
-- [ ] **Runtime invariants equality-preserved:** Characterization tests (`tests/unit/test_semantic_p7_runtime_characterization.py`) pass, verifying `ClientComposed`/`RpcExecutor`/middleware holder parity, constructor `vars()` parity and option routing, loop affinity, drain/close lifecycle, retry/auth-refresh single-flight, error lattice, and metrics/telemetry snapshot/event invariants.
+- [x] **Runtime invariants equality-preserved:** Characterization tests (`tests/unit/test_semantic_p7_runtime_characterization.py`) pass, verifying the retired holder/executor baseline against `WebRpcBackend`/`WebExecutionRuntime`, constructor option routing, loop affinity, drain/close lifecycle, retry/auth-refresh single-flight, error lattice, and metrics/telemetry snapshot/event invariants.
 
 #### Changes
 
@@ -1619,6 +1619,22 @@ shape.
 - Production construction has one path; tests vary only explicit leaf seams.
 - Source/module size decreases are measured but not achieved by moving code into unreviewable large
   files.
+
+#### P7 completion evidence
+
+- `WebExecutionRuntime` is the sole encode/dispatch/decode implementation;
+  `_rpc_executor.py::RpcExecutor` is a behaviorless compatibility subclass and semantic dispatch
+  enters through `WebRpcBackend`.
+- `ClientComposed`, `RuntimeCollaborators`, and the client `_rpc_executor`/`_collaborators` fields
+  are deleted. `ClientInternals` is a frozen construction receipt that is unpacked immediately and
+  not retained; public runtime/account/auth methods delegate to backend-owned leaves.
+- `RpcCallState` replaces mutable string-key request context. The exact middleware order remains
+  Drain → Metrics → Semaphore → Retry → AuthRefresh → Tracing, with one semaphore permit per
+  logical call and exact deadline/refresh-budget/state identity across attempts.
+- `tests/_guardrails/test_semantic_p7_entry_audit.py`,
+  `tests/_guardrails/test_middleware_context_contract.py`, operation-catalog ownership evidence,
+  module-size guards, pre-P7 observability equality, and focused lifecycle/concurrency suites fail
+  closed on regression.
 
 ### P8 — Extract the web cookie-provider boundary
 

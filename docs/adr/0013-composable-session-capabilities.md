@@ -18,10 +18,17 @@
 > `RpcCaller`, and `LoopGuard` in `_runtime/contracts.py`; `AuthMetadata` is
 > local to `_source/upload.py`, `OperationScopeProvider` is local to
 > `_artifact/polling.py`, and `AsyncWorkRuntime` was deleted.
+>
+> **P7 amendment (2026-08-24).** The capability-pattern decision remains accepted, but P7
+> supersedes this ADR's remaining client-owned runtime graph. `ClientComposed`,
+> `RuntimeCollaborators`, and the client `_rpc_executor`/`_collaborators` fields are deleted.
+> Semantic services depend on `BackendAdapter`; `WebRpcBackend` owns `WebExecutionRuntime` and the
+> auth/lifecycle/metrics/transport leaves. The frozen `ClientInternals` value is construction-only
+> and is unpacked immediately rather than retained as a runtime facade.
 
 ## Status
 
-Accepted.
+Accepted for the narrow-capability rule; runtime ownership superseded in part by P7.
 
 This ADR ratifies the capability-composition model originally proposed
 in `docs/refactor-history.md` (revision 5, dated 2026-05-20). It supersedes
@@ -253,8 +260,8 @@ narrative of how the cutover landed.
 - **C-Y. Inline `__Secure-1PSIDTS` cold-start recovery** — introduced by PR [#872](https://github.com/teng-lin/notebooklm-py/pull/872) / issue #865 (`6d8b5f4`). Production utilizes `_recover_psidts_inline` in `_auth/psidts_recovery.py` to run a preflight healing check. If preconditions are met (e.g. not bypassing credentials in environment-driven auth, and utilizing a flock-based cross-process lock), the system proactively mints a valid `__Secure-1PSIDTS` cookie before initializing the session facade to prevent cold-start failures.
 - **C-Z. AST-based delegate-surface regression guard** *(historical)* — introduced by PR [#885](https://github.com/teng-lin/notebooklm-py/pull/885) (`f48d4b9`). It used AST analysis to pin simple delegate forwards on the now-deleted `Session` facade. Current guardrails instead prevent the deleted session/runtime-boundary surfaces from returning.
 - **C-AA. Drain-hook registration is owned by the transport drain tracker** — The standalone `DrainHookRegistration` Protocol from the Session/Kernel split was retired. *Current state (2026-06):* `DrainHookRegistration` is not a Protocol local to an `ArtifactsRuntime` (that composite no longer exists). The registration surface collapsed onto `TransportDrainTracker.register_drain_hook(...)` in `src/notebooklm/_transport_drain.py`. Feature code that owns long-running async work — artifact polling in `_artifact/polling.py` — registers its close-time hook there, and `ClientLifecycle.close` fires the registered hooks. See ADR-0014.
-- **C-AB. Narrow executor host Protocols after bridge retirement** *(historical)* — The session-shrink arc narrowed the former `RpcOwner` host Protocol after the legacy `Session` private-attribute shims were retired, dropping `_timeout`, `_refresh_callback`, `_refresh_retry_delay`, and `_http_client`. *Current state (2026-06):* `RpcOwner` was deleted entirely (session-decoupling Wave 4, #1068); `RpcExecutor` (`_rpc_executor.py`) now takes its `Kernel`, `RuntimeTransport`, `AuthRefreshCoordinator`, and `ClientMetrics` collaborators directly via keyword-only constructor parameters and keeps only a local `DecodeResponse` Protocol.
-- **C-AC. Retire the legacy transport Adapter** — The middleware chain terminal now calls `Kernel.post` through `MiddlewareChainHost._authed_post_chain_terminal -> RuntimeTransport.terminal`. Request construction lives in `_request_types.py`, transport exceptions and `Retry-After` parsing live in `_transport_errors.py`, and size-capped streaming lives in `_streaming_post.py`. This removed the last legacy host Protocol and the shallow Adapter seam.
+- **C-AB. Narrow executor host Protocols after bridge retirement** *(historical)* — The session-shrink arc deleted `RpcOwner`; P7 then moved the implementation to backend-owned `WebExecutionRuntime`. `_rpc_executor.py::RpcExecutor` is now only a behaviorless compatibility subclass.
+- **C-AC. Retire the legacy transport Adapter** — The backend-owned path is `WebExecutionRuntime -> RuntimeTransport ->` the ordered middleware chain `-> RuntimeTransport.terminal -> Kernel.post`. Request construction lives in `_request_types.py`, typed call state in `_middleware/context.py`, transport exceptions and `Retry-After` parsing in `_transport_errors.py`, and size-capped streaming in `_streaming_post.py`.
 
 ## Alternatives considered
 
