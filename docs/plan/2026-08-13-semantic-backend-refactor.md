@@ -1177,6 +1177,18 @@ authority are unchanged. Chat answer/citation construction remains assigned to P
 **Purpose:** make safety a property of semantic operations and adapter bindings rather than flags
 reconstructed at feature call sites.
 
+**Implemented scope (2026-08-23):** the eight active notebook/source operations use one
+fail-closed web policy ledger. `notebook.get`, `source.list`, and `source.get` are truthfully
+classified as semantic mutations because `GET_NOTEBOOK` updates recency; the native registry
+remains the sole retry authority. When an existing facade/service starts a `RuntimeDeadline`,
+every nested native call receives that identity; this convergence does not add a second budget.
+All active failures now select a closed `BackendErrorReason`, including bounded URL-source error
+graphs, before the single compatibility projector restores public diagnostics, aliases,
+`unconfirmed`, and catch-lattice behavior. The operation catalog still reports 11 reviewed
+repository-wide divergences (10 authority, one policy); none belongs to the eight active bindings.
+The subsequent P5.1/P6.3 integration extends that same fail-closed ledger to all 15 current web
+handlers without changing the original P4 retry/deadline/error decisions.
+
 #### P4.1 — call policy parity
 
 - Attach `CallPolicy` to each migrated `OperationDef`.

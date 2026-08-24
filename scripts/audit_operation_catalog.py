@@ -18,6 +18,12 @@ from typing import Any
 
 from notebooklm._idempotency import IDEMPOTENCY_REGISTRY
 from notebooklm._operations import CallPolicy, Operation
+from notebooklm._web.policy import (
+    WEB_CALL_POLICY_BINDINGS,
+    audit_web_call_policy_bindings,
+    web_call_policy_report,
+)
+from notebooklm._web.registry import WEB_OPERATION_REGISTRY
 
 if __package__:
     from ._operation_catalog_ast import (
@@ -160,6 +166,33 @@ def audit_operation_catalog() -> list[str]:
         errors.append(f"Operation members missing specs: {missing_operations}")
     if stale_operations:
         errors.append(f"specs for unknown Operation members: {stale_operations}")
+
+    active_definitions = {
+        operation: binding.definition
+        for operation, binding in WEB_OPERATION_REGISTRY.items()
+        if binding.is_supported and binding.definition is not None
+    }
+    errors.extend(audit_web_call_policy_bindings(active_definitions))
+    for operation, binding in WEB_CALL_POLICY_BINDINGS.items():
+        spec = specs_by_operation.get(operation)
+        if spec is None:
+            continue
+        if spec.policy is not binding.policy:
+            errors.append(
+                f"{operation.value}: operation catalog policy is {spec.policy.value}, "
+                f"active web binding is {binding.policy.value}"
+            )
+        active_native = {(item.method, item.variant) for item in binding.native_bindings}
+        missing_from_catalog = active_native - set(spec.native_bindings)
+        if missing_from_catalog:
+            errors.append(
+                f"{operation.value}: active web native bindings absent from catalog: "
+                f"{sorted(_native_key_text(item) for item in missing_from_catalog)}"
+            )
+        if binding.known_divergence != spec.known_divergence:
+            errors.append(
+                f"{operation.value}: active web/catalog known-divergence descriptions disagree"
+            )
 
     used_policies = {spec.policy for spec in OPERATION_SPECS}
     if unused_policies := sorted(policy.value for policy in set(CallPolicy) - used_policies):
@@ -381,6 +414,7 @@ def build_operation_catalog(
     ]
     return {
         "schema_version": SCHEMA_VERSION,
+        "active_web_policy_bindings": web_call_policy_report(),
         "operations": operation_rows,
         "native_bindings": native_rows,
         "public_methods": public_rows,

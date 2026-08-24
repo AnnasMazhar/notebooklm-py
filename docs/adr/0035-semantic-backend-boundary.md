@@ -7,7 +7,10 @@ Accepted.
 The phase order is approved as P0 through P8 with P7 running after P6. The P3
 codec/model separation and P8 cookie-provider extraction are approved within the constraints
 below. P0's catalog and compatibility evidence are implemented and frozen; this status does not
-claim that P1-P8 are complete. P9 public-API work and a mobile backend are separate decisions.
+claim that P1-P3 or P5-P8 are complete. P4 convergence is implemented for every currently active
+semantic operation: the initial eight-operation P2 slice established the gates, and the integrated
+P5.1/P6.3 handlers extend the same policy/deadline/error ledger to 15. Each later migration must
+extend it again. P9 public-API work and a mobile backend are separate decisions.
 
 ## Context
 
@@ -202,7 +205,7 @@ accept drift. P0 measurements are taken at this PR's merge base.
 | ADR | Disposition |
 | --- | --- |
 | ADR-0004 | Preserved. Backend and provider objects remain loop-affine with the client lifecycle. |
-| ADR-0005 | Preserved as the web retry authority. `CallPolicy` is a derived semantic view, never a second idempotency registry; P4 proves parity before moving any enforcement. |
+| ADR-0005 | Preserved as the web retry authority. `CallPolicy` is a derived semantic view, never a second idempotency registry; P4's active-binding ledger audits exact parity and reports divergences without moving enforcement. |
 | ADR-0008 | Preserved. Every code-motion PR retightens a reduced module ceiling. |
 | ADR-0009 | Preserved through P6. P7 may supersede the generic chain structure only when equivalent behavioral gates land in the same PR. |
 | ADR-0011 | Preserved. P3 moves/extends sanctioned strict-decode homes and the positional-index guard together. |

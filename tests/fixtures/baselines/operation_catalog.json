@@ -1,4 +1,228 @@
 {
+  "active_web_policy_bindings": {
+    "artifact.get": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "catalog identity scan",
+          "rpc_method": "LIST_ARTIFACTS",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "note-backed mind-map identity scan",
+          "rpc_method": "GET_NOTES_AND_MIND_MAPS",
+          "variant": null
+        }
+      ]
+    },
+    "artifact.list": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "studio catalog read",
+          "rpc_method": "LIST_ARTIFACTS",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "conditional note-backed mind-map merge",
+          "rpc_method": "GET_NOTES_AND_MIND_MAPS",
+          "variant": null
+        }
+      ]
+    },
+    "note.create": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "non-idempotent plain-note allocation",
+          "rpc_method": "CREATE_NOTE",
+          "variant": "plain"
+        }
+      ]
+    },
+    "note.delete": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "idempotent note delete",
+          "rpc_method": "DELETE_NOTE",
+          "variant": null
+        }
+      ]
+    },
+    "note.get": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "plain-note identity scan",
+          "rpc_method": "GET_NOTES_AND_MIND_MAPS",
+          "variant": null
+        }
+      ]
+    },
+    "note.list": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "plain-note collection read",
+          "rpc_method": "GET_NOTES_AND_MIND_MAPS",
+          "variant": null
+        }
+      ]
+    },
+    "note.update": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "note content/title set-op",
+          "rpc_method": "UPDATE_NOTE",
+          "variant": null
+        }
+      ]
+    },
+    "notebook.create": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "baseline/probe/quota read",
+          "rpc_method": "LIST_NOTEBOOKS",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "probe_then_create",
+          "role": "guarded create",
+          "rpc_method": "CREATE_NOTEBOOK",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "quota diagnosis",
+          "rpc_method": "GET_USER_SETTINGS",
+          "variant": null
+        }
+      ]
+    },
+    "notebook.delete": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "idempotent delete",
+          "rpc_method": "DELETE_NOTEBOOK",
+          "variant": null
+        }
+      ]
+    },
+    "notebook.get": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "read with recency side effect",
+          "rpc_method": "GET_NOTEBOOK",
+          "variant": null
+        }
+      ]
+    },
+    "notebook.list": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "ordered collection read",
+          "rpc_method": "LIST_NOTEBOOKS",
+          "variant": null
+        }
+      ]
+    },
+    "notebook.update": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "property mutation",
+          "rpc_method": "RENAME_NOTEBOOK",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "post-mutation readback",
+          "rpc_method": "GET_NOTEBOOK",
+          "variant": null
+        }
+      ]
+    },
+    "source.add_url": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "baseline/probe/wait read",
+          "rpc_method": "GET_NOTEBOOK",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "probe_then_create",
+          "role": "guarded generic/YouTube create",
+          "rpc_method": "ADD_SOURCE",
+          "variant": "url"
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "optional title readback",
+          "rpc_method": "UPDATE_SOURCE",
+          "variant": null
+        }
+      ]
+    },
+    "source.get": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "read with recency side effect",
+          "rpc_method": "GET_NOTEBOOK",
+          "variant": null
+        }
+      ]
+    },
+    "source.list": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "read with recency side effect",
+          "rpc_method": "GET_NOTEBOOK",
+          "variant": null
+        }
+      ]
+    }
+  },
   "app_authority_source_evidence": {
     "artifacts.py:with_rate_limit_retry": {
       "function_ast_sha256": "sha256:d5517704ba0c43416721a674670bafdbd5dc56bcfeba132696a05c62ecb662bf",

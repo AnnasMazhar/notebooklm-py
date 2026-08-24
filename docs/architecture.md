@@ -104,9 +104,13 @@ semantic services and that client-owned backend. The URL-source handler owns ord
 YouTube dispatch, exact pre-create reconciliation, and best-effort title mutation. It honors one
 caller-supplied absolute semantic deadline when present; the public `wait_timeout` remains the
 readiness-poll budget and starts after creation. P3's first live codec routes GET_SOURCE structured
-documents through the strict web codec boundary. The remaining phase descriptions are sequencing
-decisions, not a claim that the rest of P3-P8 are complete. P9 public-surface work and a mobile
-backend require separate decisions.
+documents through the strict web codec boundary. P4 now converges the eight active P2 bindings: their
+whole-workflow `CallPolicy` values, exact native idempotency expectations, caller-owned absolute
+deadline identity, and closed public-error projection are audited together without moving retry
+authority out of the native registry. Future operation migrations must extend that same ledger. The
+P5.1 and P6.3 integrations already extend it to all 15 current handlers. The remaining phase
+descriptions are sequencing decisions, not a claim that the rest of P3-P8 are complete. P9
+public-surface work and a mobile backend require separate decisions.
 
 The operation-catalog audit classifies only the shared generic web RPC forwarder as inert. The four
 notebook/source read handlers, three notebook-mutation handlers, URL-source composite, two Studio
@@ -119,7 +123,7 @@ P0 adds four ADR-0022 contract baselines before runtime delegation:
 
 | Baseline | Freezes |
 | --- | --- |
-| `operation_catalog` | 86 operations with 163 exact authority rows (42 multi-authority); 56 native rows (14 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; 146 namespace methods (eight local-only), ten root-client members, and 11 divergences (10 authority, one policy) |
+| `operation_catalog` | 86 operations with 163 exact authority rows (42 multi-authority); 56 native rows (14 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; the exact 15-operation active web policy/native-idempotency ledger; 146 namespace methods (eight local-only), ten root-client members, and 11 divergences (10 authority, one policy) |
 | `public_model_contract` | The 86 exported identities (50 dataclasses, 36 enums): construction, field/member order, behavior flags, export paths, structured pickle success/failure, first-party state hooks, and `Notebook` / `ChatReference` legacy-state restore invariants |
 | `json_envelope` | Exact sink/view-backed projection modes, keys, causal fields, and conditional variants: CLI 31 model identities/133 projections, MCP 32/123, REST 32/57 (313 unique ids). Its closed-world sink inventory covers 350 terminal/error sites: 225 public-projection, 117 reviewed non-public, eight forwarding infrastructure, and 15 conditional non-public variants across 14 sites. Every live id has a terminal allocation; registrations/direct JSON bypasses fail closed. It also pins 36 private DTO -> public dataclass paths (34 linked; `SourceRefreshResult.result` production-dead; `ValidatedSessionConfig.limits` internal-runtime-only), 16 explicit helper fingerprints, and a compact aggregate digest for the bounded 519-node / 1,242-edge transitive helper graph (520 unique helpers overall). Thirty-seven declarations across 28 literal final-dict sites are AST-derived, while 168 explicit declarations remain manually reviewed. The supplemental 49-dataclass inventory excludes `AuthTokens`; only the exact redacted MCP/REST `server_info` identity contributions are allowed. `authuser` / `account_email` may emit, while storage path/profile generation only select control flow; recursive credentials and any extra projection fail closed. |
 | `metrics_contract` | The 14 snapshot and five event fields plus normalized success/transport-error/decode-error observations through composed public `rpc_call()` / `metrics_snapshot()`; direct non-RPC middleware probes are supplemental |
@@ -1056,6 +1060,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
 | `_studio/` | Private P5.1 transport-neutral heterogeneous Studio catalog and closed family classifier for artifact list/get. |
 | `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; 15 active handlers cover P2 notebook/source operations, P5.1 Studio catalog reads, and P6.3 plain-note CRUD. |
+| `_web/policy.py` | Exact P4 ledger, extended to all 15 active web workflows: semantic policy, every reachable native method/variant, reviewed native idempotency, and optional reported divergence. It audits parity but never controls retry execution. |
 | `_web/registry.py` | Closed web disposition registry over every `Operation`: 15 executable typed handlers and an unsupported disposition for every other operation. |
 | `_web/codec/documents.py` | First live P3 codec boundary: decodes the GET_SOURCE document body through the strict document row adapter into the exported, transport-neutral `StructuredDocument` value exemption. It owns no backend invocation or HTTP/RPC dispatch; chat and citation callers remain deferred to P6. |
 | `_web/codec/notes.py` | P6.3 mixed note-row codec: normalizes flat/wrapped envelopes, classifies deleted and note-backed mind-map rows, preserves exact-id selection, and emits only neutral `NoteRecord` values. |
@@ -1245,6 +1250,7 @@ src/notebooklm/
 ├── _web/                        # Private web implementation of the semantic backend port
 │   ├── __init__.py              # Private WebRpcBackend re-export
 │   ├── backend.py               # RpcExecutor-backed P2/P5.1/P6.3 handlers
+│   ├── policy.py                # P4 semantic/native policy parity ledger (reporting only)
 │   ├── registry.py              # Closed active/unsupported web dispositions
 │   └── codec/                   # P3 web response codecs producing neutral records/value exemptions
 │       ├── __init__.py          # Private codec re-exports

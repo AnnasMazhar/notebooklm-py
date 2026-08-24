@@ -508,7 +508,8 @@ NOTEBOOK_LIST_DEF: OperationDef[NotebookListInput, NotebookListResult] = Operati
 )
 NOTEBOOK_GET_DEF: OperationDef[NotebookGetInput, NotebookGetResult] = OperationDef(
     Operation.NOTEBOOK_GET,
-    CallPolicy.READ,
+    # GET_NOTEBOOK updates lastViewedTime even though its result is read-shaped.
+    CallPolicy.MUTATION,
     NotebookGetInput,
     NotebookGetResult,
 )
@@ -532,7 +533,8 @@ NOTEBOOK_DELETE_DEF: OperationDef[NotebookDeleteInput, NotebookDeleteResult] = O
 )
 SOURCE_LIST_DEF: OperationDef[SourceListInput, SourceListResult] = OperationDef(
     Operation.SOURCE_LIST,
-    CallPolicy.READ,
+    # Both source reads use GET_NOTEBOOK and therefore update notebook recency.
+    CallPolicy.MUTATION,
     SourceListInput,
     SourceListResult,
 )
@@ -550,7 +552,7 @@ ARTIFACT_GET_DEF: OperationDef[ArtifactGetInput, ArtifactGetResult] = OperationD
 )
 SOURCE_GET_DEF: OperationDef[SourceGetInput, SourceGetResult] = OperationDef(
     Operation.SOURCE_GET,
-    CallPolicy.READ,
+    CallPolicy.MUTATION,
     SourceGetInput,
     SourceGetResult,
 )
