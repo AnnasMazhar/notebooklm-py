@@ -303,12 +303,16 @@ def test_the_budget_shrinks_and_is_never_restarted() -> None:
     never ends.
 
     Asserts NON-INCREASING, not strictly decreasing. A strict `<` is not a
-    property of the code but of the clock: on Python 3.10 for Windows
-    ``time.monotonic()`` is backed by ``GetTickCount64`` (~15.6ms granularity,
-    3.11+ moved to ``QueryPerformanceCounter``), so a re-arm that happens inside
-    one tick legitimately measures zero elapsed time and hands back the same
-    budget. That is harmless — real time still advances and the streak cap still
-    bounds the loop — but it made this test fail on windows/3.10 alone.
+    property of the code but of the clock: on Windows through Python 3.12,
+    ``time.monotonic()`` is backed by ``GetTickCount64`` (~15.6ms granularity);
+    CPython moved it to ``QueryPerformanceCounter`` in 3.13 (gh-88494). A re-arm
+    inside one tick legitimately measures zero elapsed time and hands back an
+    identical budget — harmless, since real time still advances and the
+    consecutive-immediate-failure cap bounds the loop.
+
+    It is a RACE, not a per-version certainty: you lose only when the re-arm
+    lands inside a tick. CI bore that out — windows/3.10 and windows/3.11 failed
+    the strict assertion while windows/3.12, on the same coarse clock, passed.
     """
     page = _FakePage([_playwright_error(ABORTED), _playwright_error(ABORTED), LANDED])
     wait_for_login_landing(page, timeout_s=300)
@@ -431,10 +435,11 @@ def test_the_cap_leaves_room_for_an_ordinary_racy_sign_in() -> None:
 def test_a_coarse_monotonic_clock_still_terminates(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the windows/3.10 clock behaviour instead of only tolerating it.
 
-    ``time.monotonic()`` there advances in ~15.6ms steps, so several reads
-    inside one tick return the SAME value and a re-arm can measure zero elapsed
-    time. The wait must still terminate, must never hand back more budget than
-    it started with, and must not mistake a coarse clock for a stalled one.
+    On Windows through Python 3.12, ``time.monotonic()`` advances in ~15.6ms
+    steps, so several reads inside one tick return the SAME value and a re-arm
+    can measure zero elapsed time. The wait must still terminate, must never hand
+    back more budget than it started with, and must not mistake a coarse clock
+    for a stalled one.
     """
     reads = {"n": 0}
     tick = 0.0156
