@@ -1,4 +1,4 @@
-"""Unit tests for the private ``NoteService`` primitives.
+"""Unit tests for the deferred note-backed wire compatibility service.
 
 ``NoteService`` owns the raw note-row fetch + classify + CRUD
 primitives shared by ``NotesAPI`` (Phase 6 retypes it) and
@@ -20,7 +20,8 @@ from unittest.mock import AsyncMock, call
 
 import pytest
 
-from notebooklm._note_service import NoteRowKind, NoteService
+from notebooklm._note_service import LegacyNoteBackedService as NoteService
+from notebooklm._note_service import NoteRowKind
 from notebooklm.exceptions import DecodingError, RPCError
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import Note

@@ -22,10 +22,16 @@ from .._auth.cookies import load_httpx_cookies
 from .._curl_cffi_transport import resolve_transport_factory
 from .._mind_maps_api import extract_interactive_tree_leaf
 from .._projectors import project_artifact
+from .._row_adapters.artifacts import unwrap_artifact_rows
 from .._row_adapters.notes import NoteRow
 from .._web.codec.artifacts import decode_artifact
-from ..exceptions import UnknownRPCMethodError, ValidationError
-from ..rpc import ArtifactTypeCode, RPCMethod, safe_index
+from ..exceptions import DecodingError, UnknownRPCMethodError, ValidationError
+from ..rpc import (
+    ARTIFACT_STATUS_SUGGESTED_WIRE_NAME,
+    ArtifactTypeCode,
+    RPCMethod,
+    safe_index,
+)
 from ..types import (
     Artifact,
     ArtifactDownloadError,
@@ -169,8 +175,30 @@ class ArtifactDownloadService:
         self._storage_path, self._cookie_loader = storage_path, cookie_loader
 
     async def _list_raw(self, notebook_id: str) -> list[Any]:
-        """List raw artifacts through the injected listing service."""
-        return await self._listing.list_raw(notebook_id, rpc=self._rpc)
+        """List raw artifacts for the not-yet-migrated download families."""
+        result = await self._rpc.rpc_call(
+            RPCMethod.LIST_ARTIFACTS,
+            [
+                [2],
+                notebook_id,
+                f'NOT artifact.status = "{ARTIFACT_STATUS_SUGGESTED_WIRE_NAME}"',
+            ],
+            source_path=f"/notebook/{notebook_id}",
+            allow_null=True,
+        )
+        if isinstance(result, list):
+            return unwrap_artifact_rows(
+                result,
+                method_id=RPCMethod.LIST_ARTIFACTS.value,
+                source="ArtifactDownloadService._list_raw",
+            )
+        if not result:
+            return []
+        raise DecodingError(
+            "Unrecognized LIST_ARTIFACTS payload shape",
+            raw_response=repr(result),
+            method_id=RPCMethod.LIST_ARTIFACTS.value,
+        )
 
     async def _list_mind_maps(self, notebook_id: str) -> list[Any]:
         """List mind-map artifacts through the injected mind-map service."""

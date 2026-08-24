@@ -12,10 +12,7 @@ from ..._records import (
     ArtifactRecord,
     ArtifactSlideRecord,
     ArtifactUserStateRecord,
-    AudioArtifactUserStateRecord,
-    FlashcardArtifactUserStateRecord,
     ReportSuggestionRecord,
-    UnknownArtifactUserStateRecord,
 )
 from ..._row_adapters.artifacts import (
     ArtifactRow,
@@ -27,16 +24,34 @@ from ..._row_adapters.artifacts import (
 )
 from ..._row_adapters.notes import NoteRow
 from ...exceptions import UnknownRPCMethodError
-from ...rpc.types import ArtifactStatus, ArtifactTypeCode
+from ...rpc.types import ArtifactStatus, ArtifactTypeCode, artifact_status_to_str
 
 logger = logging.getLogger("notebooklm._types.artifacts")
+
+_ARTIFACT_FAMILIES = {
+    1: "audio",
+    2: "report",
+    3: "video",
+    5: "mind_map",
+    6: "fantasy_map",
+    7: "infographic",
+    8: "slide_deck",
+    9: "data_table",
+    10: "file",
+}
+_ARTIFACT_VARIANTS = {1: "flashcards", 2: "quiz", 4: "interactive_mind_map"}
+_MEDIA_KINDS = {1: "progressive", 2: "hls", 3: "dash", 4: "download"}
 
 
 def _decode_user_state(value: _ArtifactUserStateValue) -> ArtifactUserStateRecord:
     if isinstance(value, _AudioUserStateValue):
-        return AudioArtifactUserStateRecord(float(value.playback_position_seconds))
+        return ArtifactUserStateRecord(
+            kind="audio",
+            playback_position_seconds=float(value.playback_position_seconds),
+        )
     if isinstance(value, _FlashcardUserStateValue):
-        return FlashcardArtifactUserStateRecord(
+        return ArtifactUserStateRecord(
+            kind="flashcards",
             card_acquisitions=value.card_acquisitions,
             current_card_index=value.current_card_index,
             hidden_card_indices=value.hidden_card_indices,
@@ -44,7 +59,25 @@ def _decode_user_state(value: _ArtifactUserStateValue) -> ArtifactUserStateRecor
             current_view=value.current_view,
         )
     assert isinstance(value, _UnknownUserStateValue)
-    return UnknownArtifactUserStateRecord(value.raw)
+    return ArtifactUserStateRecord(kind="unknown", raw=value.raw)
+
+
+def _artifact_identity(
+    type_code: int, variant_code: int | None
+) -> tuple[str, int | str | None, str | None, int | str | None]:
+    variant = None if variant_code is None else _ARTIFACT_VARIANTS.get(variant_code)
+    if type_code == ArtifactTypeCode.QUIZ.value and variant is not None:
+        family = "mind_map" if variant == "interactive_mind_map" else variant
+        unrecognized_family: int | str | None = None
+    else:
+        family = _ARTIFACT_FAMILIES.get(type_code, "unknown")
+        unrecognized_family = type_code if type_code not in _ARTIFACT_FAMILIES else None
+    unrecognized_variant = (
+        variant_code
+        if type_code == ArtifactTypeCode.QUIZ.value and variant_code is not None and variant is None
+        else None
+    )
+    return family, unrecognized_family, variant, unrecognized_variant
 
 
 def decode_artifact(data: list[Any]) -> ArtifactRecord:
@@ -52,6 +85,11 @@ def decode_artifact(data: list[Any]) -> ArtifactRecord:
 
     row = ArtifactRow(data)
     type_code = row.type_code
+    variant_code = row.variant
+    family, unrecognized_family, variant, unrecognized_variant = _artifact_identity(
+        type_code, variant_code
+    )
+    status = artifact_status_to_str(row.status)
     try:
         generation_prompt = row.generation_prompt
     except UnknownRPCMethodError:
@@ -60,17 +98,24 @@ def decode_artifact(data: list[Any]) -> ArtifactRecord:
     return ArtifactRecord(
         id=row.id,
         title=row.title,
-        artifact_type=type_code,
-        status=row.status,
+        family=family,
+        status=status,
+        unrecognized_family=unrecognized_family,
+        variant=variant,
+        unrecognized_variant=unrecognized_variant,
+        unrecognized_status=(row.status if status == "unknown" and row.status != 0 else None),
         created_at=row.created_at,
         url=row.artifact_url(type_code, suppress_drift=True),
-        variant=row.variant,
         generation_prompt=generation_prompt,
         media_urls=tuple(
             ArtifactMediaRecord(
                 url=item.url,
                 kind=item.kind,
-                type_code=item.type_code,
+                unrecognized_kind=(
+                    item.type_code
+                    if item.type_code is not None and item.type_code not in _MEDIA_KINDS
+                    else None
+                ),
                 mime_type=item.mime_type,
             )
             for item in row.media_values
@@ -124,8 +169,8 @@ def decode_mind_map_artifact(data: list[Any]) -> ArtifactRecord | None:
     return ArtifactRecord(
         id=row.id,
         title=row.title,
-        artifact_type=ArtifactTypeCode.MIND_MAP.value,
-        status=ArtifactStatus.COMPLETED.value,
+        family="mind_map",
+        status=artifact_status_to_str(ArtifactStatus.COMPLETED.value),
         created_at=row.created_at,
     )
 

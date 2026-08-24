@@ -1,12 +1,11 @@
 """Web implementation of the private semantic backend port.
 
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
-P2.2 routes three notebook mutation handlers; and P2.3 routes the live
-URL/YouTube source composite. These bindings intentionally reuse
-the current request builders, strict row adapters, and public-model decoders
-until the P3 codec split.
-Removal: P3 replaces the compatibility model-to-record projections below with
-direct wire-to-record codecs; the backend and its semantic port remain.
+P2.2 routes three notebook mutation handlers; P2.3 routes the live URL/YouTube
+source composite; P5.1 routes Studio catalog list/get; and P6.3 routes plain-note
+CRUD. These bindings reuse current request builders and strict row adapters;
+P3 web codecs terminate response grammar in neutral records before public
+compatibility projection.
 """
 
 from __future__ import annotations
@@ -38,6 +37,8 @@ from .._idempotency import (
     idempotent_create,
     mark_unconfirmed,
 )
+from .._mind_map import NoteBackedMindMapService
+from .._note_service import LegacyNoteBackedService
 from .._notebook_payloads import (
     build_create_notebook_params,
     build_get_notebook_params,
@@ -46,6 +47,11 @@ from .._notebook_payloads import (
 from .._operations import CallPolicy, Operation, OperationDef
 from .._projectors import project_source
 from .._records import (
+    ArtifactGetInput,
+    ArtifactGetResult,
+    ArtifactListInput,
+    ArtifactListResult,
+    ArtifactRecord,
     NotebookCreateInput,
     NotebookCreateResult,
     NotebookDeleteInput,
@@ -57,6 +63,16 @@ from .._records import (
     NotebookRecord,
     NotebookUpdateInput,
     NotebookUpdateResult,
+    NoteCreateInput,
+    NoteCreateResult,
+    NoteDeleteInput,
+    NoteDeleteResult,
+    NoteGetInput,
+    NoteGetResult,
+    NoteListInput,
+    NoteListResult,
+    NoteUpdateInput,
+    NoteUpdateResult,
     SourceAddCommitState,
     SourceAddFailureKind,
     SourceAddFailureRecord,
@@ -70,6 +86,7 @@ from .._records import (
     SourceListResult,
     SourceRecord,
 )
+from .._row_adapters.artifacts import unwrap_artifact_rows
 from .._rpc_executor import RpcExecutor
 from .._settings import build_get_user_settings_params, extract_account_limits
 from .._source.add import SourceAddService, honor_requested_title_if_fresh
@@ -95,15 +112,18 @@ from ..exceptions import (
     SourceTimeoutError,
     UnknownRPCMethodError,
 )
-from ..rpc import RPCMethod, safe_index
+from ..rpc import ARTIFACT_STATUS_SUGGESTED_WIRE_NAME, RPCMethod, safe_index
 from ..rpc.types import drive_source_status_to_str, source_status_to_str
 from ..types import Source
+from .codec.artifacts import decode_artifact, decode_mind_map_artifact
 from .codec.notebooks import decode_notebook
+from .codec.notes import decode_created_note, decode_note, decode_notes
 from .codec.sources import decode_source
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
 source_logger = logging.getLogger("notebooklm").getChild("_sources")
+artifact_logger = logging.getLogger("notebooklm._artifact.listing")
 
 _CREATE_NOTEBOOK_QUOTA_RPC_CODE = 3
 
@@ -857,6 +877,88 @@ class WebRpcBackend:
             records = tuple(record for record in records if record.kind in value.kinds)
         return SourceListResult(sources=records)
 
+    async def _artifact_catalog_records(
+        self,
+        notebook_id: str,
+        *,
+        operation: Operation,
+        deadline: RuntimeDeadline | None,
+        include_mind_maps: bool,
+    ) -> tuple[ArtifactRecord, ...]:
+        result = await self._rpc_call(
+            RPCMethod.LIST_ARTIFACTS,
+            [
+                [2],
+                notebook_id,
+                f'NOT artifact.status = "{ARTIFACT_STATUS_SUGGESTED_WIRE_NAME}"',
+            ],
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{notebook_id}",
+            allow_null=True,
+        )
+        if isinstance(result, list):
+            rows = unwrap_artifact_rows(
+                result,
+                method_id=RPCMethod.LIST_ARTIFACTS.value,
+                source="WebRpcBackend._artifact_catalog_records",
+            )
+        elif not result:
+            rows = []
+        else:
+            raise DecodingError(
+                "Unrecognized LIST_ARTIFACTS payload shape",
+                raw_response=reprlib.repr(result),
+                method_id=RPCMethod.LIST_ARTIFACTS.value,
+            )
+
+        artifacts = [decode_artifact(row) for row in rows if isinstance(row, list)]
+        if include_mind_maps:
+            caller = _DeadlineRpcCaller(self, deadline, operation)
+            mind_maps = NoteBackedMindMapService(LegacyNoteBackedService(cast(Any, caller)))
+            try:
+                mind_map_rows = await mind_maps.list_mind_maps(notebook_id)
+                artifacts.extend(
+                    artifact
+                    for row in mind_map_rows
+                    if (artifact := decode_mind_map_artifact(row)) is not None
+                )
+            except DecodingError:
+                raise
+            except (RPCError, NetworkError) as exc:
+                artifact_logger.warning("Failed to fetch mind maps: %s", exc)
+        return tuple(artifacts)
+
+    async def _artifact_list(
+        self,
+        value: ArtifactListInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> ArtifactListResult:
+        records = await self._artifact_catalog_records(
+            value.notebook_id,
+            operation=Operation.ARTIFACT_LIST,
+            deadline=deadline,
+            include_mind_maps=value.family in {None, "mind_map"},
+        )
+        return ArtifactListResult(artifacts=records)
+
+    async def _artifact_get(
+        self,
+        value: ArtifactGetInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> ArtifactGetResult:
+        records = await self._artifact_catalog_records(
+            value.notebook_id,
+            operation=Operation.ARTIFACT_GET,
+            deadline=deadline,
+            include_mind_maps=True,
+        )
+        return ArtifactGetResult(
+            artifact=next((item for item in records if item.id == value.artifact_id), None)
+        )
+
     async def _source_get(
         self,
         value: SourceGetInput,
@@ -874,6 +976,88 @@ class WebRpcBackend:
         return SourceGetResult(
             source=next((source for source in records if source.id == value.source_id), None)
         )
+
+    async def _note_list(
+        self,
+        value: NoteListInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NoteListResult:
+        result = await self._rpc_call(
+            RPCMethod.GET_NOTES_AND_MIND_MAPS,
+            [value.notebook_id],
+            operation=Operation.NOTE_LIST,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return NoteListResult(decode_notes(result, value.notebook_id))
+
+    async def _note_get(
+        self,
+        value: NoteGetInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NoteGetResult:
+        result = await self._rpc_call(
+            RPCMethod.GET_NOTES_AND_MIND_MAPS,
+            [value.notebook_id],
+            operation=Operation.NOTE_GET,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return NoteGetResult(decode_note(result, value.notebook_id, value.note_id))
+
+    async def _note_create(
+        self,
+        value: NoteCreateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NoteCreateResult:
+        result = await self._rpc_call(
+            RPCMethod.CREATE_NOTE,
+            [value.notebook_id, "", [1], None, value.title],
+            operation=Operation.NOTE_CREATE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            operation_variant="plain",
+        )
+        return NoteCreateResult(
+            decode_created_note(result, value.notebook_id, value.title, value.content)
+        )
+
+    async def _note_update(
+        self,
+        value: NoteUpdateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NoteUpdateResult:
+        await self._rpc_call(
+            RPCMethod.UPDATE_NOTE,
+            [value.notebook_id, value.note_id, [[[value.content, value.title, [], 0]]]],
+            operation=Operation.NOTE_UPDATE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return NoteUpdateResult()
+
+    async def _note_delete(
+        self,
+        value: NoteDeleteInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NoteDeleteResult:
+        await self._rpc_call(
+            RPCMethod.DELETE_NOTE,
+            [value.notebook_id, None, [value.note_id]],
+            operation=Operation.NOTE_DELETE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return NoteDeleteResult()
 
     async def _source_add_url(
         self,

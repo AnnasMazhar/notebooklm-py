@@ -8,16 +8,15 @@ from urllib.parse import quote
 from ._env import get_base_url
 from ._records import (
     ArtifactRecord,
-    AudioArtifactUserStateRecord,
+    ArtifactUserStateRecord,
     CollectionRecord,
-    FlashcardArtifactUserStateRecord,
     LabelRecord,
     NotebookDescriptionRecord,
     NotebookRecord,
+    NoteRecord,
     ReportSuggestionRecord,
     ShareStatusRecord,
     SourceRecord,
-    UnknownArtifactUserStateRecord,
 )
 from .types import (
     Artifact,
@@ -25,7 +24,6 @@ from .types import (
     ArtifactMedia,
     ArtifactMediaType,
     ArtifactSlide,
-    ArtifactUserState,
     AudioArtifactUserState,
     ChatGoal,
     ChatResponseLength,
@@ -35,6 +33,7 @@ from .types import (
     DriveSourceStatus,
     FlashcardArtifactUserState,
     Label,
+    Note,
     Notebook,
     NotebookDescription,
     PremiumFeatureInfo,
@@ -102,6 +101,40 @@ _DRIVE_STATUSES = {
     "active": DriveSourceStatus.ACTIVE,
     "deleted": DriveSourceStatus.DELETED,
     "gen_ai_access_denied": DriveSourceStatus.GEN_AI_ACCESS_DENIED,
+}
+
+_ARTIFACT_FAMILY_CODES = {
+    "unknown": 0,
+    "audio": 1,
+    "report": 2,
+    "video": 3,
+    "mind_map": 5,
+    "fantasy_map": 6,
+    "infographic": 7,
+    "slide_deck": 8,
+    "data_table": 9,
+    "file": 10,
+}
+_ARTIFACT_VARIANT_CODES = {
+    "flashcards": 1,
+    "quiz": 2,
+    "interactive_mind_map": 4,
+}
+_ARTIFACT_STATUS_CODES = {
+    "unknown": 0,
+    "pending": 1,
+    "in_progress": 2,
+    "completed": 3,
+    "failed": 4,
+    "suggested": 5,
+    "pending_review": 6,
+}
+_ARTIFACT_MEDIA_TYPES = {
+    "progressive": ArtifactMediaType.PROGRESSIVE,
+    "hls": ArtifactMediaType.HLS,
+    "dash": ArtifactMediaType.DASH,
+    "download": ArtifactMediaType.DOWNLOAD,
+    "unknown": ArtifactMediaType.UNKNOWN,
 }
 
 
@@ -201,71 +234,106 @@ def project_notebook_description(record: NotebookDescriptionRecord) -> NotebookD
     )
 
 
-def project_artifact(record: ArtifactRecord) -> Artifact:
-    """Construct one public artifact through its normal initializer."""
+def project_note(record: NoteRecord) -> Note:
+    """Construct one public :class:`Note` from a neutral record."""
 
-    media_kind = {member.value: member for member in ArtifactMediaType}
-    user_state = record.user_state
-    projected_state: ArtifactUserState | None
-    if isinstance(user_state, AudioArtifactUserStateRecord):
-        projected_state = AudioArtifactUserState(user_state.playback_position_seconds)
-    elif isinstance(user_state, FlashcardArtifactUserStateRecord):
-        projected_state = FlashcardArtifactUserState(
-            card_acquisitions=dict(user_state.card_acquisitions),
-            current_card_index=user_state.current_card_index,
-            hidden_card_indices=user_state.hidden_card_indices,
-            last_shown_order=user_state.last_shown_order,
-            current_view=user_state.current_view,
+    return Note(
+        id=record.id,
+        notebook_id=record.notebook_id,
+        title=record.title,
+        content=record.content,
+        created_at=record.created_at,
+    )
+
+
+def _project_artifact_user_state(
+    record: ArtifactUserStateRecord | None,
+) -> AudioArtifactUserState | FlashcardArtifactUserState | UnknownArtifactUserState | None:
+    if record is None:
+        return None
+    if record.kind == "audio":
+        return AudioArtifactUserState(record.playback_position_seconds or 0.0)
+    if record.kind == "flashcards":
+        return FlashcardArtifactUserState(
+            card_acquisitions=dict(record.card_acquisitions),
+            current_card_index=record.current_card_index,
+            hidden_card_indices=record.hidden_card_indices,
+            last_shown_order=record.last_shown_order,
+            current_view=record.current_view,
         )
-    elif isinstance(user_state, UnknownArtifactUserStateRecord):
-        projected_state = UnknownArtifactUserState(user_state.raw)
-    else:
-        projected_state = None
+    return UnknownArtifactUserState(raw=record.raw)
+
+
+def _artifact_type_code(record: ArtifactRecord) -> int:
+    if record.unrecognized_family is not None:
+        return cast(int, record.unrecognized_family)
+    if record.family in {"quiz", "flashcards"} or record.variant == "interactive_mind_map":
+        return 4
+    return _ARTIFACT_FAMILY_CODES.get(record.family, 0)
+
+
+def project_artifact(record: ArtifactRecord) -> Artifact:
+    """Construct a public :class:`Artifact` without losing catalog fields."""
+
+    variant = (
+        cast(int | None, record.unrecognized_variant)
+        if record.unrecognized_variant is not None
+        else _ARTIFACT_VARIANT_CODES.get(record.variant or "")
+    )
+    status = (
+        cast(int, record.unrecognized_status)
+        if record.unrecognized_status is not None
+        else _ARTIFACT_STATUS_CODES.get(record.status, 0)
+    )
     return Artifact(
         id=record.id,
         title=record.title,
-        _artifact_type=record.artifact_type,
-        status=record.status,
+        _artifact_type=_artifact_type_code(record),
+        status=status,
         created_at=record.created_at,
         url=record.url,
-        _variant=record.variant,
+        _variant=variant,
         generation_prompt=record.generation_prompt,
         media_urls=tuple(
             ArtifactMedia(
-                url=item.url,
-                kind=media_kind.get(item.kind, ArtifactMediaType.UNKNOWN),
-                type_code=item.type_code,
-                mime_type=item.mime_type,
+                url=media.url,
+                kind=_ARTIFACT_MEDIA_TYPES.get(media.kind, ArtifactMediaType.UNKNOWN),
+                type_code=(
+                    cast(int, media.unrecognized_kind)
+                    if media.unrecognized_kind is not None
+                    else {"progressive": 1, "hls": 2, "dash": 3, "download": 4}.get(media.kind)
+                ),
+                mime_type=media.mime_type,
             )
-            for item in record.media_urls
+            for media in record.media_urls
         ),
         duration_seconds=record.duration_seconds,
         slides=tuple(
             ArtifactSlide(
-                item.image_url,
-                item.width,
-                item.height,
-                item.alt_text,
-                item.text,
+                slide.image_url,
+                slide.width,
+                slide.height,
+                slide.alt_text,
+                slide.text,
             )
-            for item in record.slides
+            for slide in record.slides
         ),
         infographics=tuple(
             ArtifactInfographic(
-                item.title,
-                item.image_url,
-                item.width,
-                item.height,
-                item.alt_text,
-                item.text,
+                infographic.title,
+                infographic.image_url,
+                infographic.width,
+                infographic.height,
+                infographic.alt_text,
+                infographic.text,
             )
-            for item in record.infographics
+            for infographic in record.infographics
         ),
         report_kind=record.report_kind,
         source_ids=record.source_ids,
         last_modified_at=record.last_modified_at,
         etag=record.etag,
-        user_state=projected_state,
+        user_state=_project_artifact_user_state(record.user_state),
     )
 
 
@@ -343,6 +411,7 @@ __all__ = [
     "project_label",
     "project_notebook",
     "project_notebook_description",
+    "project_note",
     "project_report_suggestion",
     "project_share_status",
     "project_source",

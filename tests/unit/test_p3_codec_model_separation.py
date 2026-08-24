@@ -36,6 +36,7 @@ from notebooklm.types import (
     Notebook,
     NotebookDescription,
     ReportSuggestion,
+    SharedUser,
     ShareStatus,
     Source,
     UnknownTypeWarning,
@@ -97,7 +98,12 @@ def test_unknown_wire_enums_remain_lossless_until_public_projection() -> None:
     with pytest.warns(UnknownTypeWarning, match="991337"):
         assert source.kind.value == "unknown"
 
-    artifact = project_artifact(decode_artifact(["art", "Artifact", 991_338, None, 991_339]))
+    artifact_record = decode_artifact(["art", "Artifact", 991_338, None, 991_339])
+    assert artifact_record.family == "unknown"
+    assert artifact_record.unrecognized_family == 991_338
+    assert artifact_record.status == "unknown"
+    assert artifact_record.unrecognized_status == 991_339
+    artifact = project_artifact(artifact_record)
     assert artifact._artifact_type == 991_338
     assert artifact.status == 991_339
     with pytest.warns(UnknownTypeWarning, match="991338"):
@@ -140,6 +146,7 @@ def test_projectors_preserve_field_order_pickle_deepcopy_and_assignment_invarian
         (Artifact, "from_mind_map"),
         (Label, "from_api_response"),
         (Collection, "from_api_response"),
+        (SharedUser, "from_api_response"),
         (ShareStatus, "from_api_response"),
         (NotebookDescription, "from_api_response"),
         (ReportSuggestion, "from_api_response"),

@@ -21,6 +21,11 @@ from notebooklm._backend import (
 from notebooklm._deadline import RuntimeDeadline
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._records import (
+    NOTE_CREATE_DEF,
+    NOTE_DELETE_DEF,
+    NOTE_GET_DEF,
+    NOTE_LIST_DEF,
+    NOTE_UPDATE_DEF,
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
     SOURCE_GET_DEF,
@@ -33,6 +38,17 @@ from notebooklm._records import (
     NotebookListResult,
     NotebookPremiumFeaturesRecord,
     NotebookRecord,
+    NoteCreateInput,
+    NoteCreateResult,
+    NoteDeleteInput,
+    NoteDeleteResult,
+    NoteGetInput,
+    NoteGetResult,
+    NoteListInput,
+    NoteListResult,
+    NoteRecord,
+    NoteUpdateInput,
+    NoteUpdateResult,
     SourceGetInput,
     SourceGetResult,
     SourceListInput,
@@ -72,6 +88,7 @@ def test_read_slice_records_are_frozen_slotted_values_with_typed_definitions() -
         status="ready",
         created_at=timestamp,
     )
+    note = NoteRecord("note-id", "notebook-id", "Note", "Body", timestamp)
     values = (
         NotebookListInput(),
         NotebookListResult((notebook,)),
@@ -86,6 +103,16 @@ def test_read_slice_records_are_frozen_slotted_values_with_typed_definitions() -
         SourceListResult((source,)),
         SourceGetInput("notebook-id", "source-id"),
         SourceGetResult(source),
+        NoteListInput("notebook-id"),
+        NoteListResult((note,)),
+        NoteGetInput("notebook-id", "note-id"),
+        NoteGetResult(note),
+        NoteCreateInput("notebook-id", "Note", "Body"),
+        NoteCreateResult(note),
+        NoteUpdateInput("notebook-id", "note-id", "New body", "New title"),
+        NoteUpdateResult(),
+        NoteDeleteInput("notebook-id", "note-id"),
+        NoteDeleteResult(),
     )
 
     assert all(not hasattr(value, "__dict__") for value in values)
@@ -95,14 +122,49 @@ def test_read_slice_records_are_frozen_slotted_values_with_typed_definitions() -
         notebook.__setattr__("title", "changed")
 
     definitions = {
-        NOTEBOOK_LIST_DEF: (Operation.NOTEBOOK_LIST, NotebookListInput, NotebookListResult),
-        NOTEBOOK_GET_DEF: (Operation.NOTEBOOK_GET, NotebookGetInput, NotebookGetResult),
-        SOURCE_LIST_DEF: (Operation.SOURCE_LIST, SourceListInput, SourceListResult),
-        SOURCE_GET_DEF: (Operation.SOURCE_GET, SourceGetInput, SourceGetResult),
+        NOTEBOOK_LIST_DEF: (
+            Operation.NOTEBOOK_LIST,
+            CallPolicy.READ,
+            NotebookListInput,
+            NotebookListResult,
+        ),
+        NOTEBOOK_GET_DEF: (
+            Operation.NOTEBOOK_GET,
+            CallPolicy.READ,
+            NotebookGetInput,
+            NotebookGetResult,
+        ),
+        SOURCE_LIST_DEF: (
+            Operation.SOURCE_LIST,
+            CallPolicy.READ,
+            SourceListInput,
+            SourceListResult,
+        ),
+        SOURCE_GET_DEF: (Operation.SOURCE_GET, CallPolicy.READ, SourceGetInput, SourceGetResult),
+        NOTE_LIST_DEF: (Operation.NOTE_LIST, CallPolicy.READ, NoteListInput, NoteListResult),
+        NOTE_GET_DEF: (Operation.NOTE_GET, CallPolicy.READ, NoteGetInput, NoteGetResult),
+        NOTE_CREATE_DEF: (
+            Operation.NOTE_CREATE,
+            CallPolicy.MUTATION,
+            NoteCreateInput,
+            NoteCreateResult,
+        ),
+        NOTE_UPDATE_DEF: (
+            Operation.NOTE_UPDATE,
+            CallPolicy.MUTATION,
+            NoteUpdateInput,
+            NoteUpdateResult,
+        ),
+        NOTE_DELETE_DEF: (
+            Operation.NOTE_DELETE,
+            CallPolicy.MUTATION,
+            NoteDeleteInput,
+            NoteDeleteResult,
+        ),
     }
-    for definition, (key, input_type, output_type) in definitions.items():
+    for definition, (key, policy, input_type, output_type) in definitions.items():
         assert definition.key is key
-        assert definition.policy is CallPolicy.READ
+        assert definition.policy is policy
         assert definition.input_type is input_type
         assert definition.output_type is output_type
 

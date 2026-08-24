@@ -1,11 +1,9 @@
-"""Private note-row primitives — classifier + CRUD.
+"""Semantic plain-note service plus deferred note-backed compatibility.
 
-This module owns the backend note-row operations shared by ``NotesAPI``
-(plain notes + saved-from-chat notes) and ``ArtifactsAPI`` (mind maps,
-which the server stores in the same note collection). It deliberately
-sits *below* both feature facades so neither has to import the other,
-and so the mind-map adapter (``_mind_map.NoteBackedMindMapService``)
-has a single seam to delegate through.
+``NoteService`` owns the migrated NOTE_* semantic workflow used by
+``NotesAPI``. ``LegacyNoteBackedService`` temporarily retains the direct web
+RPC implementation used only by note-backed mind-map and artifact callers;
+that compatibility class retires with the later MIND_MAP_* slice.
 
 ``NoteRowKind`` is a private classification of the raw row shapes
 returned by the ``GET_NOTES_AND_MIND_MAPS`` RPC. It is intentionally
@@ -27,6 +25,20 @@ import logging
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from ._backend import BackendAdapter
+from ._projectors import project_note
+from ._records import (
+    NOTE_CREATE_DEF,
+    NOTE_DELETE_DEF,
+    NOTE_GET_DEF,
+    NOTE_LIST_DEF,
+    NOTE_UPDATE_DEF,
+    NoteCreateInput,
+    NoteDeleteInput,
+    NoteGetInput,
+    NoteListInput,
+    NoteUpdateInput,
+)
 from ._row_adapters.notes import NoteRow
 from .exceptions import DecodingError, RPCError
 from .rpc import safe_index
@@ -73,13 +85,13 @@ class NoteRowKind(Enum):
     UNKNOWN = "unknown"
 
 
-class NoteService:
-    """Backend note-row primitives — fetch + classify + CRUD.
+class LegacyNoteBackedService:
+    """Deferred raw note-row implementation for note-backed mind maps only.
 
     Owns the ``GET_NOTES_AND_MIND_MAPS`` / ``CREATE_NOTE`` /
     ``UPDATE_NOTE`` / ``DELETE_NOTE`` RPC family. Shared by
-    ``NotesAPI`` and by ``NoteBackedMindMapService`` (the adapter
-    that powers ``ArtifactsAPI`` mind-map paths).
+    ``NoteBackedMindMapService`` and artifact mind-map persistence use this
+    service until the MIND_MAP_* semantic slice. ``NotesAPI`` must never use it.
 
     Takes the narrow :class:`RpcCaller` capability — note CRUD only
     needs ``rpc_call(...)``; everything else (drain hooks, transport,
@@ -450,4 +462,118 @@ class NoteService:
             params,
             source_path=f"/notebook/{notebook_id}",
             allow_null=True,
+        )
+
+
+class NoteService:
+    """Backend-neutral NOTE_* workflow consumed exclusively by ``NotesAPI``."""
+
+    __slots__ = ("_backend",)
+
+    def __init__(self, backend: BackendAdapter) -> None:
+        self._backend = backend
+
+    async def list_notes(self, notebook_id: str) -> list[Note]:
+        """Return active non-mind-map notes in backend order."""
+
+        result = await self._backend.invoke(
+            NOTE_LIST_DEF,
+            NoteListInput(notebook_id),
+            deadline=None,
+        )
+        return [project_note(record) for record in result.notes]
+
+    async def get_note_or_none(self, notebook_id: str, note_id: str) -> Note | None:
+        """Select the first exact note identity, or return a genuine miss."""
+
+        result = await self._backend.invoke(
+            NOTE_GET_DEF,
+            NoteGetInput(notebook_id, note_id),
+            deadline=None,
+        )
+        return None if result.note is None else project_note(result.note)
+
+    async def create_note(
+        self,
+        notebook_id: str,
+        title: str = "New Note",
+        content: str = "",
+        *,
+        operation_variant: str = "plain",
+    ) -> Note:
+        """Create and finalize a note with cancellation-safe orphan cleanup."""
+
+        if operation_variant != "plain":
+            raise ValueError("semantic NoteService supports only the plain note variant")
+        created = await self._backend.invoke(
+            NOTE_CREATE_DEF,
+            NoteCreateInput(notebook_id, title, content),
+            deadline=None,
+        )
+        note_id = created.note.id
+        update_task = asyncio.create_task(
+            self._backend.invoke(
+                NOTE_UPDATE_DEF,
+                NoteUpdateInput(notebook_id, note_id, content, title),
+                deadline=None,
+            )
+        )
+        try:
+            await asyncio.shield(update_task)
+        except asyncio.CancelledError:
+
+            async def _finalize_then_cleanup() -> None:
+                try:
+                    try:
+                        await update_task
+                    except Exception:  # noqa: BLE001 - cleanup must still run
+                        logger.debug(
+                            "Shielded semantic note update failed before cleanup for %s in %s",
+                            note_id,
+                            notebook_id,
+                            exc_info=True,
+                        )
+                finally:
+                    try:
+                        await self._backend.invoke(
+                            NOTE_DELETE_DEF,
+                            NoteDeleteInput(notebook_id, note_id),
+                            deadline=None,
+                        )
+                    except Exception:  # noqa: BLE001 - best-effort cleanup
+                        logger.warning(
+                            "Best-effort semantic note cleanup failed for %s in %s",
+                            note_id,
+                            notebook_id,
+                            exc_info=True,
+                        )
+
+            cleanup_task = asyncio.create_task(_finalize_then_cleanup())
+            _cleanup_tasks.add(cleanup_task)
+            cleanup_task.add_done_callback(_cleanup_tasks.discard)
+            raise
+        return project_note(created.note)
+
+    async def update_note(
+        self,
+        notebook_id: str,
+        note_id: str,
+        content: str,
+        title: str,
+    ) -> None:
+        """Update an existing note after the facade's existence preflight."""
+
+        await self._backend.invoke(
+            NOTE_UPDATE_DEF,
+            NoteUpdateInput(notebook_id, note_id, content, title),
+            deadline=None,
+        )
+
+    async def delete_note(self, notebook_id: str, note_id: str) -> None:
+        """Soft-delete one note idempotently."""
+
+        await self._backend.invoke(
+            NOTE_DELETE_DEF,
+            NoteDeleteInput(notebook_id, note_id),
+            deadline=None,
         )

@@ -298,7 +298,7 @@ def test_artifacts_constructible_without_notes_api(mock_auth: AuthTokens) -> Non
     explicit ``mind_maps`` + ``note_service`` (Phase 5). The mind-map
     decoupling is now structural."""
     from notebooklm._mind_map import NoteBackedMindMapService
-    from notebooklm._note_service import NoteService
+    from notebooklm._note_service import LegacyNoteBackedService
 
     core = MagicMock()
     api = ArtifactsAPI(
@@ -307,7 +307,7 @@ def test_artifacts_constructible_without_notes_api(mock_auth: AuthTokens) -> Non
         lifecycle=core,
         notebooks=MagicMock(),
         mind_maps=MagicMock(spec=NoteBackedMindMapService),
-        note_service=MagicMock(spec=NoteService),
+        note_service=MagicMock(spec=LegacyNoteBackedService),
     )
     assert api is not None
     # The legacy private attribute must not leak back: code that depends on
@@ -319,7 +319,7 @@ def test_artifacts_rejects_legacy_notes_api_kwarg(mock_auth: AuthTokens) -> None
     """The legacy ``notes_api=`` kwarg was removed in Phase 3
     (docs/refactor-history.md Step 4). Passing it must raise ``TypeError``."""
     from notebooklm._mind_map import NoteBackedMindMapService
-    from notebooklm._note_service import NoteService
+    from notebooklm._note_service import LegacyNoteBackedService, NoteService
 
     core = MagicMock()
     notes = NotesAPI(
@@ -332,7 +332,7 @@ def test_artifacts_rejects_legacy_notes_api_kwarg(mock_auth: AuthTokens) -> None
             notes_api=notes,
             notebooks=MagicMock(),
             mind_maps=MagicMock(spec=NoteBackedMindMapService),
-            note_service=MagicMock(spec=NoteService),
+            note_service=MagicMock(spec=LegacyNoteBackedService),
         )
 
 
@@ -344,7 +344,7 @@ def test_artifacts_before_notes_construction_order(mock_auth: AuthTokens) -> Non
     first still yields working APIs.
     """
     from notebooklm._mind_map import NoteBackedMindMapService
-    from notebooklm._note_service import NoteService
+    from notebooklm._note_service import LegacyNoteBackedService, NoteService
 
     core = MagicMock()
 
@@ -355,7 +355,7 @@ def test_artifacts_before_notes_construction_order(mock_auth: AuthTokens) -> Non
             lifecycle=core,
             notebooks=MagicMock(),
             mind_maps=MagicMock(spec=NoteBackedMindMapService),
-            note_service=MagicMock(spec=NoteService),
+            note_service=MagicMock(spec=LegacyNoteBackedService),
         )
 
     def _make_notes() -> NotesAPI:
@@ -435,9 +435,9 @@ def _build_artifacts_with_real_mind_map_service(core: FakeSession) -> ArtifactsA
     exercises the live RPC callbacks against the canned executor.
     """
     from notebooklm._mind_map import NoteBackedMindMapService
-    from notebooklm._note_service import NoteService
+    from notebooklm._note_service import LegacyNoteBackedService
 
-    note_service = NoteService(core.rpc_executor)
+    note_service = LegacyNoteBackedService(core.rpc_executor)
     mind_maps = NoteBackedMindMapService(note_service)
     return ArtifactsAPI(
         rpc=core.rpc_executor,

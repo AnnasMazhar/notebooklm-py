@@ -20,22 +20,26 @@ from ._artifact.downloads import ArtifactDownloadService, DownloadResult
 from ._artifact.generation import ArtifactGenerationService
 from ._artifact.listing import ArtifactListingService
 from ._artifact.payloads import build_suggest_reports_params
+from ._backend import BackendAdapter, BackendError
+from ._backend_compat import project_backend_error
 from ._lookup import unwrap_or_raise
 from ._mind_map import NoteBackedMindMapService
-from ._note_service import NoteService
+from ._note_service import LegacyNoteBackedService
 from ._notebook_metadata import NotebookSourceIdProvider
 from ._polling_registry import PollRegistry
 from ._projectors import project_report_suggestion
 from ._row_adapters import artifacts as _artifact_rows
 from ._runtime.contracts import RpcCaller
+from ._studio import StudioCatalog
 from ._types.research import MindMapResult
 from ._web.codec.artifacts import decode_report_suggestion
-from .exceptions import ArtifactNotFoundError
+from .exceptions import ArtifactNotFoundError, DecodingError
 
 if TYPE_CHECKING:
     from ._runtime.lifecycle import ClientLifecycle
     from ._transport_drain import TransportDrainTracker
 from .rpc import (
+    ARTIFACT_STATUS_SUGGESTED_WIRE_NAME,
     ArtifactTypeCode,
     AudioFormat,
     AudioLength,
@@ -86,8 +90,9 @@ class ArtifactsAPI:
         lifecycle: "ClientLifecycle",
         notebooks: NotebookSourceIdProvider,
         mind_maps: NoteBackedMindMapService,
-        note_service: NoteService,
+        note_service: LegacyNoteBackedService,
         storage_path: Path | None = None,
+        _backend: BackendAdapter | None = None,
     ) -> None:
         """Initialize the artifacts API.
 
@@ -117,6 +122,7 @@ class ArtifactsAPI:
         self._notebooks = notebooks
         self._mind_maps = mind_maps
         self._note_service = note_service
+        self._catalog = StudioCatalog(_backend) if _backend is not None else None
         self._poll_registry = PollRegistry()
         self._listing = ArtifactListingService()
         self._downloads = ArtifactDownloadService(
@@ -153,12 +159,15 @@ class ArtifactsAPI:
         ``ArtifactType.MIND_MAP`` for mind maps only).
         """
         logger.debug("Listing artifacts in notebook %s", notebook_id)
-        return await self._listing.list_artifacts(
-            notebook_id,
-            artifact_type,
-            list_raw=self._list_raw,
-            list_mind_maps=self._list_mind_maps,
-        )
+        if self._catalog is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            return await self._catalog.list(
+                notebook_id,
+                None if artifact_type is None else artifact_type.value,
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def _list_for_download(
         self, notebook_id: str, artifact_type: ArtifactType | None = None
@@ -201,7 +210,12 @@ class ArtifactsAPI:
         studio-artifact listing propagate unchanged.
         """
         logger.debug("Getting artifact %s from notebook %s", artifact_id, notebook_id)
-        return await self._listing.get(notebook_id, artifact_id, list_artifacts=self.list)
+        if self._catalog is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            return await self._catalog.get_or_none(notebook_id, artifact_id)
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     # Internal optional-lookup alias: stable private name for the ``None``-on-miss lookup (vs. raising ``get()``).
     _get_or_none = get_or_none
@@ -903,9 +917,30 @@ class ArtifactsAPI:
 
     async def _list_raw(self, notebook_id: str) -> builtins.list[Any]:
         """Get raw artifact list data."""
-        # Keep this facade hop so callers/tests that patch ``api._list_raw``
-        # still affect public listing paths that delegate into the service.
-        return await self._listing.list_raw(notebook_id, rpc=self._rpc)
+        params = [
+            [2],
+            notebook_id,
+            f'NOT artifact.status = "{ARTIFACT_STATUS_SUGGESTED_WIRE_NAME}"',
+        ]
+        result = await self._rpc.rpc_call(
+            RPCMethod.LIST_ARTIFACTS,
+            params,
+            source_path=f"/notebook/{notebook_id}",
+            allow_null=True,
+        )
+        if isinstance(result, list):
+            return _artifact_rows.unwrap_artifact_rows(
+                result,
+                method_id=RPCMethod.LIST_ARTIFACTS.value,
+                source="ArtifactsAPI._list_raw",
+            )
+        if not result:
+            return []
+        raise DecodingError(
+            "Unrecognized LIST_ARTIFACTS payload shape",
+            raw_response=repr(result),
+            method_id=RPCMethod.LIST_ARTIFACTS.value,
+        )
 
     def _select_artifact(
         self,

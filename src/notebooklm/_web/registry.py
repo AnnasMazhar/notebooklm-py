@@ -1,7 +1,8 @@
 """Closed web dispositions for the semantic operation vocabulary.
 
-P2.1 reads, the P2.2 notebook mutations, and P2.3 URL/YouTube registration have
-executable bindings. Every other P0 operation has an unsupported disposition, and
+P2.1 reads, P2.2 notebook mutations, P2.3 URL/YouTube registration, P5.1 Studio
+catalog reads, and P6.3 plain-note CRUD have executable bindings. Every other P0
+operation has an unsupported disposition, and
 the count assertions force a deliberate registry update when the closed
 :class:`Operation` enum changes.
 """
@@ -15,6 +16,13 @@ from typing import Any, Final
 
 from .._operations import Operation, OperationDef
 from .._records import (
+    ARTIFACT_GET_DEF,
+    ARTIFACT_LIST_DEF,
+    NOTE_CREATE_DEF,
+    NOTE_DELETE_DEF,
+    NOTE_GET_DEF,
+    NOTE_LIST_DEF,
+    NOTE_UPDATE_DEF,
     NOTEBOOK_CREATE_DEF,
     NOTEBOOK_DELETE_DEF,
     NOTEBOOK_GET_DEF,
@@ -63,6 +71,13 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.SOURCE_ADD_URL: SOURCE_ADD_URL_DEF,
         Operation.SOURCE_LIST: SOURCE_LIST_DEF,
         Operation.SOURCE_GET: SOURCE_GET_DEF,
+        Operation.NOTE_LIST: NOTE_LIST_DEF,
+        Operation.NOTE_GET: NOTE_GET_DEF,
+        Operation.NOTE_CREATE: NOTE_CREATE_DEF,
+        Operation.NOTE_UPDATE: NOTE_UPDATE_DEF,
+        Operation.NOTE_DELETE: NOTE_DELETE_DEF,
+        Operation.ARTIFACT_LIST: ARTIFACT_LIST_DEF,
+        Operation.ARTIFACT_GET: ARTIFACT_GET_DEF,
     }
 )
 
@@ -76,6 +91,13 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.SOURCE_ADD_URL: "_source_add_url",
         Operation.SOURCE_LIST: "_source_list",
         Operation.SOURCE_GET: "_source_get",
+        Operation.NOTE_LIST: "_note_list",
+        Operation.NOTE_GET: "_note_get",
+        Operation.NOTE_CREATE: "_note_create",
+        Operation.NOTE_UPDATE: "_note_update",
+        Operation.NOTE_DELETE: "_note_delete",
+        Operation.ARTIFACT_LIST: "_artifact_list",
+        Operation.ARTIFACT_GET: "_artifact_get",
     }
 )
 
@@ -87,7 +109,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 8
+_EXPECTED_SUPPORTED_COUNT: Final = 15
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

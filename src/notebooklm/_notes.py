@@ -18,9 +18,11 @@ import builtins
 import logging
 from typing import Any
 
+from ._backend import BackendError
+from ._backend_compat import project_backend_error
 from ._lookup import unwrap_or_raise
 from ._mind_map import NoteBackedMindMapService
-from ._note_service import NoteRowKind, NoteService
+from ._note_service import NoteService
 from ._row_adapters.notes import NoteRow
 from .exceptions import NoteNotFoundError
 from .types import Note
@@ -78,16 +80,21 @@ class NotesAPI:
             List of Note objects.
         """
         logger.debug("Listing notes in notebook: %s", notebook_id)
-        all_items = await self._get_all_notes_and_mind_maps(notebook_id)
-        notes: list[Note] = []
-
-        for item in all_items:
-            kind = self._notes.classify_row(item)
-            if kind in (NoteRowKind.DELETED, NoteRowKind.MIND_MAP):
-                continue
-            notes.append(self._parse_note(item, notebook_id))
-
-        return notes
+        raw_lookup = self._get_all_notes_and_mind_maps
+        if getattr(raw_lookup, "__func__", None) is not _ORIGINAL_NOTES_RAW_LOOKUP:
+            notes: list[Note] = []
+            for item in await raw_lookup(notebook_id):
+                if self._is_deleted(item):
+                    continue
+                content = self._extract_content(item)
+                if NoteRow.is_mind_map_content(content):
+                    continue
+                notes.append(self._parse_note(item, notebook_id))
+            return notes
+        try:
+            return await self._notes.list_notes(notebook_id)
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def get(self, notebook_id: str, note_id: str) -> Note:
         """Get a specific note by ID.
@@ -129,16 +136,16 @@ class NotesAPI:
         Returns:
             The :class:`~notebooklm.types.Note`, or ``None`` if not found.
         """
-        all_items = await self._get_all_notes_and_mind_maps(notebook_id)
-        for item in all_items:
-            # The id-slot read goes through ``NoteRow.id`` so the position
-            # knowledge stays in the adapter (``NoteRow`` stringifies the raw
-            # slot, matching the unified ``SourceRow.id`` convention) instead
-            # of an open-coded ``item[0]`` that silently flips found →
-            # not-found if the id slot ever moves.
-            if isinstance(item, list) and len(item) > 0 and NoteRow(item).id == note_id:
-                return self._parse_note(item, notebook_id)
-        return None
+        raw_lookup = self._get_all_notes_and_mind_maps
+        if getattr(raw_lookup, "__func__", None) is not _ORIGINAL_NOTES_RAW_LOOKUP:
+            for item in await raw_lookup(notebook_id):
+                if isinstance(item, list) and item and NoteRow(item).id == note_id:
+                    return self._parse_note(item, notebook_id)
+            return None
+        try:
+            return await self._notes.get_note_or_none(notebook_id, note_id)
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     # Internal optional-lookup alias: a stable private name so internal call
     # sites and tests use the ``None``-on-miss lookup rather than the raising get().
@@ -160,11 +167,14 @@ class NotesAPI:
         Returns:
             The created Note object.
         """
-        return await self._notes.create_note(
-            notebook_id,
-            title=title,
-            content=content,
-        )
+        try:
+            return await self._notes.create_note(
+                notebook_id,
+                title=title,
+                content=content,
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def update(
         self,
@@ -199,7 +209,10 @@ class NotesAPI:
         # yields ``None`` (transport/auth/decode faults propagate).
         if await self.get_or_none(notebook_id, note_id) is None:
             raise NoteNotFoundError(note_id)
-        await self._notes.update_note(notebook_id, note_id, content, title)
+        try:
+            await self._notes.update_note(notebook_id, note_id, content, title)
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def delete(self, notebook_id: str, note_id: str) -> None:
         """Delete a note from the notebook.
@@ -221,7 +234,10 @@ class NotesAPI:
             no longer enters its block.
         """
         logger.debug("Deleting note %s from notebook %s", note_id, notebook_id)
-        await self._notes.delete_note(notebook_id, note_id)
+        try:
+            await self._notes.delete_note(notebook_id, note_id)
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def list_mind_maps(self, notebook_id: str) -> builtins.list[Any]:
         """List all mind maps in the notebook.
@@ -265,7 +281,7 @@ class NotesAPI:
 
     async def _get_all_notes_and_mind_maps(self, notebook_id: str) -> builtins.list[Any]:
         """Fetch all notes and mind maps from the API."""
-        return await self._notes.fetch_note_rows(notebook_id)
+        return await self._mind_maps._fetch_all_rows(notebook_id)
 
     def _is_deleted(self, item: builtins.list[Any]) -> bool:
         """Check if a note/mind map item is deleted (status=2).
@@ -283,11 +299,15 @@ class NotesAPI:
         Returns:
             True if the item is deleted (soft-deleted with status=2).
         """
-        return self._notes.classify_row(item) == NoteRowKind.DELETED
+        if not isinstance(item, list) or not item:
+            return False
+        return NoteRow(item).is_deleted
 
     def _extract_content(self, item: builtins.list[Any]) -> str | None:
         """Extract content string from note/mind map item."""
-        return self._notes.extract_content(item)
+        if not isinstance(item, list):
+            return None
+        return NoteRow(item).content
 
     def _parse_note(self, item: builtins.list[Any], notebook_id: str) -> Note:
         """Parse a raw note item into a Note object.
@@ -308,3 +328,6 @@ class NotesAPI:
             content=row.content or "",
             created_at=row.created_at,
         )
+
+
+_ORIGINAL_NOTES_RAW_LOOKUP = NotesAPI._get_all_notes_and_mind_maps

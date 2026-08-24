@@ -467,8 +467,8 @@ GENERIC_RPC_FORWARDERS = frozenset(
 
 # P1 constructed the semantic web backend with every handler inert. P2 removes
 # each handler from this set in the same slice that delegates its facade. The
-# notebook/source read and notebook mutation handlers are live. The shared
-# forwarder remains inert until every registered operation delegates.
+# notebook/source read and mutation handlers plus plain-note CRUD are live. The
+# shared forwarder remains inert until every registered operation delegates.
 INERT_P1_WEB_FORWARDERS = frozenset(
     {
         "_web/backend.py:WebRpcBackend._rpc_call",
@@ -477,19 +477,30 @@ INERT_P1_WEB_FORWARDERS = frozenset(
 INERT_P1_WEB_HANDLERS: frozenset[str] = frozenset()
 INERT_P1_WEB_SITES = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
 
-# P2/P3 admit each reviewed semantic service, codec, record, and projector
-# import in the same bounded slice. These exact imports are the complete
-# production backend/record dataflow; additions require an explicit audit.
+# Each live slice deletes one handler exemption and admits the corresponding
+# service/codec/record/projector imports in the same bounded delegation slice.
+# These exact imports are the complete production semantic-backend dataflow.
 REVIEWED_BACKEND_IMPORTS = frozenset(
     {
         ("_artifact/downloads.py", "_projectors", "project_artifact"),
+        ("_artifact/generation.py", "_note_service", "LegacyNoteBackedService"),
         ("_artifact/listing.py", "_projectors", "project_artifact"),
+        ("_artifacts.py", "_backend", "BackendAdapter"),
+        ("_artifacts.py", "_backend", "BackendError"),
+        ("_artifacts.py", "_backend_compat", "project_backend_error"),
+        ("_artifacts.py", "_note_service", "LegacyNoteBackedService"),
         ("_artifacts.py", "_projectors", "project_report_suggestion"),
+        ("_artifacts.py", "_studio", "StudioCatalog"),
         ("_backend_compat.py", "_backend", "BackendContractError"),
         ("_backend_compat.py", "_backend", "BackendError"),
         ("_backend_compat.py", "_backend", "BackendErrorReason"),
         ("_backend_compat.py", "_records", "SourceAddFailureKind"),
         ("_backend_compat.py", "_records", "SourceAddFailureRecord"),
+        ("_client_assembly.py", "_note_service", "LegacyNoteBackedService"),
+        ("_client_assembly.py", "_note_service", "NoteService"),
+        ("_client_assembly.py", "_web.backend", "WebRpcBackend"),
+        ("_mind_map.py", "_note_service", "LegacyNoteBackedService"),
+        ("_mind_map.py", "_note_service", "NoteRowKind"),
         ("_notebook_mutation_service.py", "_backend", "BackendAdapter"),
         ("_notebook_mutation_service.py", "_projectors", "project_notebook"),
         ("_notebook_mutation_service.py", "_records", "NOTEBOOK_CREATE_DEF"),
@@ -498,10 +509,10 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_notebook_mutation_service.py", "_records", "NotebookCreateInput"),
         ("_notebook_mutation_service.py", "_records", "NotebookDeleteInput"),
         ("_notebook_mutation_service.py", "_records", "NotebookUpdateInput"),
-        ("_client_assembly.py", "_web.backend", "WebRpcBackend"),
         ("_collections.py", "_projectors", "project_collection"),
         ("_labels.py", "_projectors", "project_label"),
         ("client.py", "_backend", "BackendAdapter"),
+        ("client.py", "_note_service", "NoteService"),
         ("_notebooks.py", "_backend", "BackendAdapter"),
         ("_notebooks.py", "_backend", "BackendError"),
         ("_notebooks.py", "_backend_compat", "project_backend_error"),
@@ -512,17 +523,31 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_mutation_services.py", "_records", "SOURCE_ADD_URL_DEF"),
         ("_mutation_services.py", "_records", "SourceAddUrlInput"),
         ("_mutation_services.py", "_records", "SourceAddUrlResult"),
+        ("_note_service.py", "_backend", "BackendAdapter"),
+        ("_note_service.py", "_projectors", "project_note"),
+        ("_note_service.py", "_records", "NOTE_CREATE_DEF"),
+        ("_note_service.py", "_records", "NOTE_DELETE_DEF"),
+        ("_note_service.py", "_records", "NOTE_GET_DEF"),
+        ("_note_service.py", "_records", "NOTE_LIST_DEF"),
+        ("_note_service.py", "_records", "NOTE_UPDATE_DEF"),
+        ("_note_service.py", "_records", "NoteCreateInput"),
+        ("_note_service.py", "_records", "NoteDeleteInput"),
+        ("_note_service.py", "_records", "NoteGetInput"),
+        ("_note_service.py", "_records", "NoteListInput"),
+        ("_note_service.py", "_records", "NoteUpdateInput"),
+        ("_notes.py", "_backend", "BackendError"),
+        ("_notes.py", "_backend_compat", "project_backend_error"),
+        ("_notes.py", "_note_service", "NoteService"),
         ("_projectors.py", "_records", "ArtifactRecord"),
-        ("_projectors.py", "_records", "AudioArtifactUserStateRecord"),
+        ("_projectors.py", "_records", "ArtifactUserStateRecord"),
         ("_projectors.py", "_records", "CollectionRecord"),
-        ("_projectors.py", "_records", "FlashcardArtifactUserStateRecord"),
         ("_projectors.py", "_records", "LabelRecord"),
         ("_projectors.py", "_records", "NotebookDescriptionRecord"),
         ("_projectors.py", "_records", "NotebookRecord"),
+        ("_projectors.py", "_records", "NoteRecord"),
         ("_projectors.py", "_records", "ReportSuggestionRecord"),
         ("_projectors.py", "_records", "ShareStatusRecord"),
         ("_projectors.py", "_records", "SourceRecord"),
-        ("_projectors.py", "_records", "UnknownArtifactUserStateRecord"),
         ("_read_services.py", "_backend", "BackendAdapter"),
         ("_read_services.py", "_projectors", "project_notebook"),
         ("_read_services.py", "_projectors", "project_source"),
@@ -547,6 +572,13 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_sources.py", "_mutation_services", "SourceUrlMutationService"),
         ("_sources.py", "_projectors", "project_source"),
         ("_sources.py", "_read_services", "SourceReadService"),
+        ("_studio/catalog.py", "_backend", "BackendAdapter"),
+        ("_studio/catalog.py", "_projectors", "project_artifact"),
+        ("_studio/catalog.py", "_records", "ARTIFACT_GET_DEF"),
+        ("_studio/catalog.py", "_records", "ARTIFACT_LIST_DEF"),
+        ("_studio/catalog.py", "_records", "ArtifactGetInput"),
+        ("_studio/catalog.py", "_records", "ArtifactListInput"),
+        ("_studio/classifiers.py", "_records", "ArtifactRecord"),
         ("_web/__init__.py", "backend", "WebRpcBackend"),
         ("_web/backend.py", "_backend", "BackendCapabilities"),
         ("_web/backend.py", "_backend", "BackendContractError"),
@@ -556,6 +588,12 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/backend.py", "_backend", "BackendKind"),
         ("_web/backend.py", "_backend", "UnsupportedOperationError"),
         ("_web/backend.py", "_projectors", "project_source"),
+        ("_web/backend.py", "_note_service", "LegacyNoteBackedService"),
+        ("_web/backend.py", "_records", "ArtifactGetInput"),
+        ("_web/backend.py", "_records", "ArtifactGetResult"),
+        ("_web/backend.py", "_records", "ArtifactListInput"),
+        ("_web/backend.py", "_records", "ArtifactListResult"),
+        ("_web/backend.py", "_records", "ArtifactRecord"),
         ("_web/backend.py", "_records", "NotebookCreateInput"),
         ("_web/backend.py", "_records", "NotebookCreateResult"),
         ("_web/backend.py", "_records", "NotebookDeleteInput"),
@@ -567,6 +605,22 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/backend.py", "_records", "NotebookRecord"),
         ("_web/backend.py", "_records", "NotebookUpdateInput"),
         ("_web/backend.py", "_records", "NotebookUpdateResult"),
+        ("_web/backend.py", "_records", "NoteCreateInput"),
+        ("_web/backend.py", "_records", "NoteCreateResult"),
+        ("_web/backend.py", "_records", "NoteDeleteInput"),
+        ("_web/backend.py", "_records", "NoteDeleteResult"),
+        ("_web/backend.py", "_records", "NoteGetInput"),
+        ("_web/backend.py", "_records", "NoteGetResult"),
+        ("_web/backend.py", "_records", "NoteListInput"),
+        ("_web/backend.py", "_records", "NoteListResult"),
+        ("_web/backend.py", "_records", "NoteUpdateInput"),
+        ("_web/backend.py", "_records", "NoteUpdateResult"),
+        ("_web/codec/notes.py", "_records", "NoteRecord"),
+        ("_web/registry.py", "_records", "NOTE_CREATE_DEF"),
+        ("_web/registry.py", "_records", "NOTE_DELETE_DEF"),
+        ("_web/registry.py", "_records", "NOTE_GET_DEF"),
+        ("_web/registry.py", "_records", "NOTE_LIST_DEF"),
+        ("_web/registry.py", "_records", "NOTE_UPDATE_DEF"),
         ("_web/backend.py", "_records", "SourceGetInput"),
         ("_web/backend.py", "_records", "SourceGetResult"),
         ("_web/backend.py", "_records", "SourceAddCommitState"),
@@ -586,10 +640,7 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/codec/artifacts.py", "_records", "ArtifactRecord"),
         ("_web/codec/artifacts.py", "_records", "ArtifactSlideRecord"),
         ("_web/codec/artifacts.py", "_records", "ArtifactUserStateRecord"),
-        ("_web/codec/artifacts.py", "_records", "AudioArtifactUserStateRecord"),
-        ("_web/codec/artifacts.py", "_records", "FlashcardArtifactUserStateRecord"),
         ("_web/codec/artifacts.py", "_records", "ReportSuggestionRecord"),
-        ("_web/codec/artifacts.py", "_records", "UnknownArtifactUserStateRecord"),
         ("_web/codec/collections.py", "_records", "CollectionRecord"),
         ("_web/codec/labels.py", "_records", "LabelRecord"),
         ("_web/codec/notebooks.py", "_records", "NotebookChatSessionRecord"),
@@ -601,6 +652,8 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/codec/sharing.py", "_records", "ShareStatusRecord"),
         ("_web/codec/sharing.py", "_records", "SharedUserRecord"),
         ("_web/codec/sources.py", "_records", "SourceRecord"),
+        ("_web/registry.py", "_records", "ARTIFACT_GET_DEF"),
+        ("_web/registry.py", "_records", "ARTIFACT_LIST_DEF"),
         ("_web/registry.py", "_records", "NOTEBOOK_GET_DEF"),
         ("_web/registry.py", "_records", "NOTEBOOK_LIST_DEF"),
         ("_web/registry.py", "_records", "NOTEBOOK_CREATE_DEF"),
@@ -617,10 +670,12 @@ _REVIEWED_BACKEND_IMPORT_MODULES = frozenset(
         "_backend",
         "_backend_compat",
         "_mutation_services",
+        "_note_service",
         "_notebook_mutation_service",
         "_projectors",
         "_read_services",
         "_records",
+        "_studio",
         "_web",
         "_web.backend",
         "backend",
@@ -635,6 +690,7 @@ _REVIEWED_BACKEND_IMPORT_PREFIXES = (
     "notebooklm._projectors",
     "notebooklm._read_services",
     "notebooklm._records",
+    "notebooklm._studio",
     "notebooklm._web",
 )
 
@@ -645,7 +701,7 @@ def _is_reviewed_backend_import_module(module: str) -> bool:
     )
 
 
-ACTIVE_P2_BACKEND_INVOKE_SITES = frozenset(
+ACTIVE_BACKEND_INVOKE_SITES = frozenset(
     {
         "_notebook_mutation_service.py:NotebookMutationService.create",
         "_notebook_mutation_service.py:NotebookMutationService.delete",
@@ -654,6 +710,14 @@ ACTIVE_P2_BACKEND_INVOKE_SITES = frozenset(
         "_read_services.py:NotebookReadService.list",
         "_read_services.py:SourceReadService.get",
         "_read_services.py:SourceReadService.list",
+        "_note_service.py:NoteService.create_note",
+        "_note_service.py:NoteService.create_note._finalize_then_cleanup",
+        "_note_service.py:NoteService.delete_note",
+        "_note_service.py:NoteService.get_note_or_none",
+        "_note_service.py:NoteService.list_notes",
+        "_note_service.py:NoteService.update_note",
+        "_studio/catalog.py:StudioCatalog.get_or_none",
+        "_studio/catalog.py:StudioCatalog.list",
         "_mutation_services.py:SourceUrlMutationService.add_url",
     }
 )
@@ -753,9 +817,10 @@ def audit_inert_p1_backend_dataflow(
                     )
                     if (
                         isinstance(parent, ast.keyword)
-                        and parent.arg == "_backend"
+                        and parent.arg in {"_backend", "backend"}
                         and isinstance(facade_name, str)
-                        and facade_name in {"NotebooksAPI", "SourcesAPI"}
+                        and facade_name
+                        in {"ArtifactsAPI", "NoteService", "NotebooksAPI", "SourcesAPI"}
                     ):
                         assembly_backend_bindings.append(facade_name)
                     else:
@@ -776,7 +841,7 @@ def audit_inert_p1_backend_dataflow(
             f"missing={sorted(REVIEWED_BACKEND_IMPORTS - observed_imports)}, "
             f"extra={sorted(observed_imports - REVIEWED_BACKEND_IMPORTS)}"
         )
-    expected_invokes = ACTIVE_P2_BACKEND_INVOKE_SITES | INERT_P1_BACKEND_INVOKE_SITES
+    expected_invokes = ACTIVE_BACKEND_INVOKE_SITES | INERT_P1_BACKEND_INVOKE_SITES
     if invoke_sites != expected_invokes:
         errors.append(
             "semantic backend invoke sites changed: "
@@ -787,10 +852,11 @@ def audit_inert_p1_backend_dataflow(
         errors.append(
             f"P1 WebRpcBackend construction target changed: {assembly_constructor_targets}"
         )
-    if sorted(assembly_backend_bindings) != ["NotebooksAPI", "SourcesAPI"]:
+    expected_facades = ["ArtifactsAPI", "NoteService", "NotebooksAPI", "SourcesAPI"]
+    if sorted(assembly_backend_bindings) != expected_facades:
         errors.append(
-            "P2 facade backend bindings changed: "
-            f"expected=['NotebooksAPI', 'SourcesAPI'], "
+            "semantic facade backend bindings changed: "
+            f"expected={expected_facades}, "
             f"actual={sorted(assembly_backend_bindings)}"
         )
     if assembly_backend_escapes:

@@ -51,7 +51,7 @@ from notebooklm._collections import CollectionsAPI
 from notebooklm._labels import LabelsAPI
 from notebooklm._mind_map import NoteBackedMindMapService
 from notebooklm._mind_maps_api import MindMapsAPI
-from notebooklm._note_service import NoteService
+from notebooklm._note_service import LegacyNoteBackedService
 from notebooklm._notebooks import NotebooksAPI
 from notebooklm._notes import NotesAPI
 from notebooklm._sources import SourcesAPI
@@ -105,7 +105,7 @@ def _make_artifacts_api() -> ArtifactsAPI:
         lifecycle=core,
         notebooks=notebooks,
         mind_maps=mind_maps,
-        note_service=MagicMock(spec=NoteService),
+        note_service=MagicMock(spec=LegacyNoteBackedService),
     )
 
 
@@ -117,9 +117,9 @@ def _make_notes_api() -> NotesAPI:
     # truthy non-list payload would now raise ``DecodingError`` as drift (#1344),
     # so it can no longer stand in for "empty".
     core = make_fake_core(rpc_call=AsyncMock(return_value=None))
-    note_service = NoteService(core)
-    mind_maps = NoteBackedMindMapService(note_service)
-    return NotesAPI(notes=note_service, mind_maps=mind_maps)
+    from tests._fixtures.note_stack import make_note_stack
+
+    return make_note_stack(core)[3]
 
 
 def _make_mind_maps_api() -> MindMapsAPI:

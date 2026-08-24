@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, unique
 
@@ -156,92 +156,6 @@ class SourceRecord:
     revision_timestamp: datetime | None = None
     last_modified_at: datetime | None = None
     kind_present: bool = True
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactMediaRecord:
-    """One neutral audio/video media location."""
-
-    url: str
-    kind: str
-    type_code: int | None = None
-    mime_type: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactSlideRecord:
-    """One neutral rendered slide."""
-
-    image_url: str | None
-    width: int | None
-    height: int | None
-    alt_text: str | None
-    text: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactInfographicRecord:
-    """One neutral rendered infographic."""
-
-    title: str | None
-    image_url: str | None
-    width: int | None
-    height: int | None
-    alt_text: str | None
-    text: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class AudioArtifactUserStateRecord:
-    """Neutral audio playback state."""
-
-    playback_position_seconds: float
-
-
-@dataclass(frozen=True, slots=True)
-class FlashcardArtifactUserStateRecord:
-    """Neutral flashcard study state."""
-
-    card_acquisitions: tuple[tuple[str, str], ...]
-    current_card_index: int | None = None
-    hidden_card_indices: tuple[int, ...] = ()
-    last_shown_order: tuple[int, ...] = ()
-    current_view: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class UnknownArtifactUserStateRecord:
-    """Lossless forward-compatible artifact state payload."""
-
-    raw: object
-
-
-ArtifactUserStateRecord = (
-    AudioArtifactUserStateRecord | FlashcardArtifactUserStateRecord | UnknownArtifactUserStateRecord
-)
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactRecord:
-    """Neutral studio artifact decoded from a web listing row."""
-
-    id: str
-    title: str
-    artifact_type: int
-    status: int
-    created_at: datetime | None = None
-    url: str | None = None
-    variant: int | None = None
-    generation_prompt: str | None = None
-    media_urls: tuple[ArtifactMediaRecord, ...] = ()
-    duration_seconds: float | None = None
-    slides: tuple[ArtifactSlideRecord, ...] = ()
-    infographics: tuple[ArtifactInfographicRecord, ...] = ()
-    report_kind: str | None = None
-    source_ids: tuple[str, ...] = ()
-    last_modified_at: datetime | None = None
-    etag: str | None = None
-    user_state: ArtifactUserStateRecord | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -467,6 +381,193 @@ class SourceAddFailureRecord:
     suppress_context: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class NoteRecord:
+    """Neutral note value returned by note semantic operations."""
+
+    id: str
+    notebook_id: str
+    title: str
+    content: str
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NoteListInput:
+    """Notebook whose active plain notes should be listed."""
+
+    notebook_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class NoteListResult:
+    """Active plain notes in backend order."""
+
+    notes: tuple[NoteRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NoteGetInput:
+    """Notebook and exact note identity requested by note get."""
+
+    notebook_id: str
+    note_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class NoteGetResult:
+    """Exact note lookup result; ``None`` is a genuine miss."""
+
+    note: NoteRecord | None
+
+
+@dataclass(frozen=True, slots=True)
+class NoteCreateInput:
+    """Requested plain-note value."""
+
+    notebook_id: str
+    title: str
+    content: str
+
+
+@dataclass(frozen=True, slots=True)
+class NoteCreateResult:
+    """Created note identity and creation metadata before finalization."""
+
+    note: NoteRecord
+
+
+@dataclass(frozen=True, slots=True)
+class NoteUpdateInput:
+    """Exact note identity and replacement content/title."""
+
+    notebook_id: str
+    note_id: str
+    content: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
+class NoteUpdateResult:
+    """Successful in-place note update."""
+
+
+@dataclass(frozen=True, slots=True)
+class NoteDeleteInput:
+    """Exact note identity to soft-delete idempotently."""
+
+    notebook_id: str
+    note_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class NoteDeleteResult:
+    """Successful idempotent note deletion."""
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactMediaRecord:
+    """One transport-neutral artifact media rendition."""
+
+    url: str = field(repr=False)
+    kind: str = "unknown"
+    unrecognized_kind: int | str | None = None
+    mime_type: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactSlideRecord:
+    """One rendered slide without exposing asset contents in representations."""
+
+    image_url: str | None = field(default=None, repr=False)
+    width: int | None = None
+    height: int | None = None
+    alt_text: str | None = field(default=None, repr=False)
+    text: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactInfographicRecord:
+    """One rendered infographic."""
+
+    title: str | None = None
+    image_url: str | None = field(default=None, repr=False)
+    width: int | None = None
+    height: int | None = None
+    alt_text: str | None = field(default=None, repr=False)
+    text: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactUserStateRecord:
+    """Closed known user-state summary with opaque forward-compatible payload."""
+
+    kind: str
+    playback_position_seconds: float | None = None
+    card_acquisitions: tuple[tuple[str, str], ...] = ()
+    current_card_index: int | None = None
+    hidden_card_indices: tuple[int, ...] = ()
+    last_shown_order: tuple[int, ...] = ()
+    current_view: str | None = None
+    raw: object | None = field(default=None, repr=False, compare=True)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactRecord:
+    """Complete neutral Studio catalog entry from one catalog snapshot."""
+
+    id: str
+    title: str
+    family: str
+    status: str
+    unrecognized_family: int | str | None = None
+    variant: str | None = None
+    unrecognized_variant: int | str | None = None
+    unrecognized_status: int | str | None = None
+    created_at: datetime | None = None
+    url: str | None = field(default=None, repr=False)
+    generation_prompt: str | None = field(default=None, repr=False)
+    media_urls: tuple[ArtifactMediaRecord, ...] = field(default=(), repr=False)
+    duration_seconds: float | None = None
+    slides: tuple[ArtifactSlideRecord, ...] = field(default=(), repr=False)
+    infographics: tuple[ArtifactInfographicRecord, ...] = field(default=(), repr=False)
+    report_kind: str | None = None
+    source_ids: tuple[str, ...] = ()
+    last_modified_at: datetime | None = None
+    etag: str | None = field(default=None, repr=False)
+    user_state: ArtifactUserStateRecord | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactListInput:
+    """Notebook whose complete Studio catalog is requested."""
+
+    notebook_id: str
+    family: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactListResult:
+    """Complete heterogeneous Studio catalog in backend order."""
+
+    artifacts: tuple[ArtifactRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactGetInput:
+    """Notebook and artifact identities requested from one catalog snapshot."""
+
+    notebook_id: str
+    artifact_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactGetResult:
+    """Artifact get result; ``None`` is the semantic not-found state."""
+
+    artifact: ArtifactRecord | None
+
+
 NOTEBOOK_LIST_DEF: OperationDef[NotebookListInput, NotebookListResult] = OperationDef(
     Operation.NOTEBOOK_LIST,
     CallPolicy.READ,
@@ -503,6 +604,18 @@ SOURCE_LIST_DEF: OperationDef[SourceListInput, SourceListResult] = OperationDef(
     SourceListInput,
     SourceListResult,
 )
+ARTIFACT_LIST_DEF: OperationDef[ArtifactListInput, ArtifactListResult] = OperationDef(
+    Operation.ARTIFACT_LIST,
+    CallPolicy.READ,
+    ArtifactListInput,
+    ArtifactListResult,
+)
+ARTIFACT_GET_DEF: OperationDef[ArtifactGetInput, ArtifactGetResult] = OperationDef(
+    Operation.ARTIFACT_GET,
+    CallPolicy.READ,
+    ArtifactGetInput,
+    ArtifactGetResult,
+)
 SOURCE_GET_DEF: OperationDef[SourceGetInput, SourceGetResult] = OperationDef(
     Operation.SOURCE_GET,
     CallPolicy.READ,
@@ -515,18 +628,41 @@ SOURCE_ADD_URL_DEF: OperationDef[SourceAddUrlInput, SourceAddUrlResult] = Operat
     SourceAddUrlInput,
     SourceAddUrlResult,
 )
+NOTE_LIST_DEF: OperationDef[NoteListInput, NoteListResult] = OperationDef(
+    Operation.NOTE_LIST,
+    CallPolicy.READ,
+    NoteListInput,
+    NoteListResult,
+)
+NOTE_GET_DEF: OperationDef[NoteGetInput, NoteGetResult] = OperationDef(
+    Operation.NOTE_GET,
+    CallPolicy.READ,
+    NoteGetInput,
+    NoteGetResult,
+)
+NOTE_CREATE_DEF: OperationDef[NoteCreateInput, NoteCreateResult] = OperationDef(
+    Operation.NOTE_CREATE,
+    CallPolicy.MUTATION,
+    NoteCreateInput,
+    NoteCreateResult,
+)
+NOTE_UPDATE_DEF: OperationDef[NoteUpdateInput, NoteUpdateResult] = OperationDef(
+    Operation.NOTE_UPDATE,
+    CallPolicy.MUTATION,
+    NoteUpdateInput,
+    NoteUpdateResult,
+)
+NOTE_DELETE_DEF: OperationDef[NoteDeleteInput, NoteDeleteResult] = OperationDef(
+    Operation.NOTE_DELETE,
+    CallPolicy.MUTATION,
+    NoteDeleteInput,
+    NoteDeleteResult,
+)
 
 
 __all__ = [
-    "ArtifactInfographicRecord",
-    "ArtifactMediaRecord",
-    "ArtifactRecord",
-    "ArtifactSlideRecord",
-    "ArtifactUserStateRecord",
-    "AudioArtifactUserStateRecord",
-    "CollectionRecord",
-    "FlashcardArtifactUserStateRecord",
-    "LabelRecord",
+    "ARTIFACT_GET_DEF",
+    "ARTIFACT_LIST_DEF",
     "NOTEBOOK_GET_DEF",
     "NOTEBOOK_LIST_DEF",
     "NOTEBOOK_CREATE_DEF",
@@ -535,6 +671,22 @@ __all__ = [
     "SOURCE_GET_DEF",
     "SOURCE_LIST_DEF",
     "SOURCE_ADD_URL_DEF",
+    "NOTE_CREATE_DEF",
+    "NOTE_DELETE_DEF",
+    "NOTE_GET_DEF",
+    "NOTE_LIST_DEF",
+    "NOTE_UPDATE_DEF",
+    "ArtifactGetInput",
+    "ArtifactGetResult",
+    "ArtifactInfographicRecord",
+    "ArtifactListInput",
+    "ArtifactListResult",
+    "ArtifactMediaRecord",
+    "ArtifactRecord",
+    "ArtifactSlideRecord",
+    "ArtifactUserStateRecord",
+    "CollectionRecord",
+    "LabelRecord",
     "NotebookChatSessionRecord",
     "NotebookChatSettingsRecord",
     "NotebookCreateInput",
@@ -550,6 +702,17 @@ __all__ = [
     "NotebookDescriptionRecord",
     "NotebookUpdateInput",
     "NotebookUpdateResult",
+    "NoteCreateInput",
+    "NoteCreateResult",
+    "NoteDeleteInput",
+    "NoteDeleteResult",
+    "NoteGetInput",
+    "NoteGetResult",
+    "NoteListInput",
+    "NoteListResult",
+    "NoteRecord",
+    "NoteUpdateInput",
+    "NoteUpdateResult",
     "SourceGetInput",
     "SourceGetResult",
     "SourceAddCommitState",
@@ -566,5 +729,4 @@ __all__ = [
     "ShareStatusRecord",
     "SharedUserRecord",
     "SuggestedTopicRecord",
-    "UnknownArtifactUserStateRecord",
 ]

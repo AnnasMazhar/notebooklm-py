@@ -147,13 +147,16 @@ SHARED_RPC_AUTHORITY_RULES.update(
             )
         ),
         (Operation.ARTIFACT_GENERATE_MIND_MAP, _b(RPCMethod.CREATE_NOTE, "plain")): _rules(
-            ("_note_service.py:NoteService.create_note", "persist generated JSON")
+            ("_note_service.py:LegacyNoteBackedService.create_note", "persist generated JSON")
         ),
         (Operation.NOTE_CREATE, _b(RPCMethod.CREATE_NOTE, "plain")): _rules(
-            ("_note_service.py:NoteService.create_note", "public=notes.create")
+            ("_web/backend.py:WebRpcBackend._note_create", "public=notes.create")
         ),
         (Operation.MIND_MAP_GENERATE_NOTE, _b(RPCMethod.CREATE_NOTE, "plain")): _rules(
-            ("_note_service.py:NoteService.create_note", "kind=NOTE_BACKED persistence")
+            (
+                "_note_service.py:LegacyNoteBackedService.create_note",
+                "kind=NOTE_BACKED persistence",
+            )
         ),
         (Operation.ARTIFACT_GENERATE_MIND_MAP, _b(RPCMethod.GET_NOTEBOOK)): _rules(
             ("_notebooks.py:NotebooksAPI.get_raw", "source_ids is None")
@@ -456,34 +459,54 @@ for _operation, _kind in (
 SHARED_RPC_AUTHORITY_RULES.update(
     {
         (Operation.ARTIFACT_LIST, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifact/listing.py:ArtifactListingService.list_raw", "heterogeneous list")
+            ("_web/backend.py:WebRpcBackend._artifact_catalog_records", "heterogeneous list")
         ),
         (Operation.ARTIFACT_GET, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifact/listing.py:ArtifactListingService.list_raw", "select artifact/prompt")
+            (
+                "_web/backend.py:WebRpcBackend._artifact_catalog_records",
+                "select artifact for get/get_or_none",
+            ),
+            ("_artifacts.py:ArtifactsAPI._list_raw", "select prompt or poll status"),
+        ),
+        (Operation.ARTIFACT_LIST, _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)): _rules(
+            (
+                "_note_service.py:LegacyNoteBackedService.fetch_note_rows",
+                "merge note-backed mind maps",
+            )
+        ),
+        (Operation.ARTIFACT_GET, _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)): _rules(
+            (
+                "_note_service.py:LegacyNoteBackedService.fetch_note_rows",
+                "select note-backed mind map",
+            )
         ),
         (Operation.ARTIFACT_RENAME, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifact/listing.py:ArtifactListingService.list_raw", "return_object=True post-read")
+            ("_artifacts.py:ArtifactsAPI._list_raw", "return_object=True post-read")
         ),
         (Operation.ARTIFACT_DOWNLOAD, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifact/listing.py:ArtifactListingService.list_raw", "select downloadable artifact")
+            ("_artifacts.py:ArtifactsAPI._list_raw", "application download selection"),
+            (
+                "_artifact/downloads.py:ArtifactDownloadService._list_raw",
+                "public family download selection",
+            ),
         ),
         (Operation.ARTIFACT_WAIT, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
             (
-                "_artifact/listing.py:ArtifactListingService.list_raw",
+                "_artifacts.py:ArtifactsAPI._list_raw",
                 "one catalog read per poll tick",
             )
         ),
         (Operation.MIND_MAP_LIST, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifact/listing.py:ArtifactListingService.list_raw", "filter interactive maps")
+            ("_artifacts.py:ArtifactsAPI._list_raw", "filter interactive maps")
         ),
         (Operation.MIND_MAP_GET, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
             (
-                "_artifact/listing.py:ArtifactListingService.list_raw",
+                "_artifacts.py:ArtifactsAPI._list_raw",
                 "auto-detect/select interactive id",
             )
         ),
         (Operation.MIND_MAP_GENERATE_INTERACTIVE, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifact/listing.py:ArtifactListingService.list_raw", "post-create settle/id match")
+            ("_artifacts.py:ArtifactsAPI._list_raw", "post-create settle/id match")
         ),
         (Operation.LABEL_LIST, _b(RPCMethod.LIST_LABELS)): _rules(
             ("_labels.py:LabelsAPI.list", "label_type=source")
@@ -544,10 +567,13 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_collections.py:CollectionsAPI.rename", "collection name mutation")
         ),
         (Operation.NOTE_UPDATE, _b(RPCMethod.UPDATE_NOTE)): _rules(
-            ("_note_service.py:NoteService.update_note", "public=notes.update")
+            ("_web/backend.py:WebRpcBackend._note_update", "public=notes.update")
+        ),
+        (Operation.NOTE_CREATE, _b(RPCMethod.UPDATE_NOTE)): _rules(
+            ("_web/backend.py:WebRpcBackend._note_update", "notes.create finalize")
         ),
         (Operation.MIND_MAP_UPDATE, _b(RPCMethod.UPDATE_NOTE)): _rules(
-            ("_note_service.py:NoteService.update_note", "kind=NOTE_BACKED")
+            ("_note_service.py:LegacyNoteBackedService.update_note", "kind=NOTE_BACKED")
         ),
         (Operation.SOURCE_ADD_URL, _b(RPCMethod.UPDATE_SOURCE)): _rules(
             (
@@ -582,10 +608,13 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_artifacts.py:ArtifactsAPI.delete", "kind=INTERACTIVE")
         ),
         (Operation.NOTE_DELETE, _b(RPCMethod.DELETE_NOTE)): _rules(
-            ("_note_service.py:NoteService.delete_note", "public=notes.delete")
+            ("_web/backend.py:WebRpcBackend._note_delete", "public=notes.delete")
+        ),
+        (Operation.NOTE_CREATE, _b(RPCMethod.DELETE_NOTE)): _rules(
+            ("_web/backend.py:WebRpcBackend._note_delete", "cancelled create orphan cleanup")
         ),
         (Operation.MIND_MAP_DELETE, _b(RPCMethod.DELETE_NOTE)): _rules(
-            ("_note_service.py:NoteService.delete_note", "kind=NOTE_BACKED")
+            ("_note_service.py:LegacyNoteBackedService.delete_note", "kind=NOTE_BACKED")
         ),
         (Operation.LABEL_DELETE, _b(RPCMethod.DELETE_LABEL)): _rules(
             ("_labels.py:LabelsAPI.delete", "label_type=source")
@@ -619,16 +648,22 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_chat/api.py:ChatAPI.get_conversation_id", "conversation_id is omitted")
         ),
         (Operation.NOTE_LIST, _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)): _rules(
-            ("_note_service.py:NoteService.fetch_note_rows", "filter kind=NOTE")
+            ("_web/backend.py:WebRpcBackend._note_list", "filter kind=NOTE")
         ),
         (Operation.NOTE_GET, _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)): _rules(
-            ("_note_service.py:NoteService.fetch_note_rows", "select note id")
+            ("_web/backend.py:WebRpcBackend._note_get", "select note id")
         ),
         (Operation.MIND_MAP_LIST, _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)): _rules(
-            ("_note_service.py:NoteService.fetch_note_rows", "filter kind=NOTE_BACKED")
+            (
+                "_note_service.py:LegacyNoteBackedService.fetch_note_rows",
+                "filter kind=NOTE_BACKED",
+            )
         ),
         (Operation.MIND_MAP_GET, _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)): _rules(
-            ("_note_service.py:NoteService.fetch_note_rows", "auto-detect/select note-backed id")
+            (
+                "_note_service.py:LegacyNoteBackedService.fetch_note_rows",
+                "auto-detect/select note-backed id",
+            )
         ),
         (Operation.SHARING_GET, _b(RPCMethod.GET_SHARE_STATUS)): _rules(
             ("_sharing.py:SharingAPI.get_status", "public=sharing.get_status")

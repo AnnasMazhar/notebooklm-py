@@ -28,7 +28,12 @@ import pytest
 from notebooklm import MindMap, Note
 from notebooklm._mind_map import NoteBackedMindMapService
 from notebooklm._mind_maps_api import MindMapsAPI, extract_interactive_tree_leaf
-from notebooklm._note_service import NoteRowKind, NoteService, _cleanup_tasks
+from notebooklm._note_service import (
+    LegacyNoteBackedService,
+    NoteRowKind,
+    NoteService,
+    _cleanup_tasks,
+)
 from notebooklm._notes import NotesAPI
 from notebooklm._row_adapters.notes import NoteRow
 from notebooklm._types.mind_maps import MindMapKind
@@ -43,6 +48,7 @@ from notebooklm.exceptions import (
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import Artifact, ArtifactType, MindMapResult
 from tests._fixtures.fake_core import make_fake_core
+from tests._fixtures.note_stack import make_note_stack
 
 # ===========================================================================
 # 1. Public Signatures and Method Inventory Frozen
@@ -86,12 +92,15 @@ def test_notes_api_public_signatures_are_frozen() -> None:
 
 def test_note_service_public_signatures_are_frozen() -> None:
     """Freeze method signatures on NoteService primitives."""
-    assert list(inspect.signature(NoteService.fetch_note_rows).parameters) == [
+    assert list(inspect.signature(NoteService.list_notes).parameters) == [
         "self",
         "notebook_id",
     ]
-    assert list(inspect.signature(NoteService.classify_row).parameters) == ["self", "row"]
-    assert list(inspect.signature(NoteService.extract_content).parameters) == ["self", "row"]
+    assert list(inspect.signature(NoteService.get_note_or_none).parameters) == [
+        "self",
+        "notebook_id",
+        "note_id",
+    ]
 
     create_sig = inspect.signature(NoteService.create_note).parameters
     assert list(create_sig) == ["self", "notebook_id", "title", "content", "operation_variant"]
@@ -111,6 +120,17 @@ def test_note_service_public_signatures_are_frozen() -> None:
         "self",
         "notebook_id",
         "note_id",
+    ]
+
+    # Deferred note-backed callers retain their exact private raw-service seam
+    # until the MIND_MAP_* slice; NotesAPI never receives this class.
+    assert list(inspect.signature(LegacyNoteBackedService.fetch_note_rows).parameters) == [
+        "self",
+        "notebook_id",
+    ]
+    assert list(inspect.signature(LegacyNoteBackedService.classify_row).parameters) == [
+        "self",
+        "row",
     ]
 
 
@@ -207,7 +227,7 @@ async def test_note_service_fetch_note_rows_normalizes_containers_and_handles_sc
 ):
     """NoteService extracts rows from nested or flat containers, filters non-rows, and raises on drift."""
     mock_session = make_fake_core(rpc_call=AsyncMock())
-    service = NoteService(mock_session)
+    service = LegacyNoteBackedService(mock_session)
 
     # 1. Nested row container with various valid and invalid row shapes
     mock_session.rpc_executor.rpc_call.return_value = [
@@ -259,7 +279,7 @@ async def test_note_service_fetch_note_rows_normalizes_containers_and_handles_sc
 def test_note_service_classify_row_exhaustiveness() -> None:
     """NoteService classifies rows into DELETED, MIND_MAP, NOTE, and UNKNOWN."""
     mock_session = make_fake_core(rpc_call=AsyncMock())
-    service = NoteService(mock_session)
+    service = LegacyNoteBackedService(mock_session)
 
     # Deleted row (status=2 at position 2)
     assert service.classify_row(["n-del", None, 2]) == NoteRowKind.DELETED
@@ -292,7 +312,7 @@ def test_note_service_classify_row_exhaustiveness() -> None:
 async def test_note_service_crud_wire_payloads_and_endpoints() -> None:
     """Verify wire payloads, parameter shapes, and RPC methods for all NoteService operations."""
     mock_session = make_fake_core(rpc_call=AsyncMock(return_value=[["note-new"]]))
-    service = NoteService(mock_session)
+    service = make_note_stack(mock_session)[0]
 
     # 1. create_note (CREATE_NOTE followed by shielded UPDATE_NOTE)
     note = await service.create_note(
@@ -309,13 +329,25 @@ async def test_note_service_crud_wire_payloads_and_endpoints() -> None:
         RPCMethod.CREATE_NOTE,
         ["nb-100", "", [1], None, "Research Plan"],
         source_path="/notebook/nb-100",
+        allow_null=False,
+        _is_retry=False,
+        disable_internal_retries=False,
         operation_variant="plain",
+        read_timeout=None,
+        raise_on_null_status=False,
+        _retry_deadline=None,
     )
     assert mock_session.rpc_executor.rpc_call.await_args_list[1] == call(
         RPCMethod.UPDATE_NOTE,
         ["nb-100", "note-new", [[["# Goals", "Research Plan", [], 0]]]],
         source_path="/notebook/nb-100",
         allow_null=True,
+        _is_retry=False,
+        disable_internal_retries=False,
+        operation_variant=None,
+        read_timeout=None,
+        raise_on_null_status=False,
+        _retry_deadline=None,
     )
 
     # 2. update_note
@@ -326,6 +358,12 @@ async def test_note_service_crud_wire_payloads_and_endpoints() -> None:
         ["nb-100", "note-1", [[["Updated Content", "Updated Title", [], 0]]]],
         source_path="/notebook/nb-100",
         allow_null=True,
+        _is_retry=False,
+        disable_internal_retries=False,
+        operation_variant=None,
+        read_timeout=None,
+        raise_on_null_status=False,
+        _retry_deadline=None,
     )
 
     # 3. delete_note
@@ -336,6 +374,12 @@ async def test_note_service_crud_wire_payloads_and_endpoints() -> None:
         ["nb-100", None, ["note-1"]],
         source_path="/notebook/nb-100",
         allow_null=True,
+        _is_retry=False,
+        disable_internal_retries=False,
+        operation_variant=None,
+        read_timeout=None,
+        raise_on_null_status=False,
+        _retry_deadline=None,
     )
 
 
@@ -343,7 +387,7 @@ async def test_note_service_crud_wire_payloads_and_endpoints() -> None:
 async def test_note_service_create_note_handles_id_extraction_and_timestamps() -> None:
     """create_note decodes nested and flat envelopes, extracts created_at, and fails loud on missing ID."""
     mock_session = make_fake_core(rpc_call=AsyncMock())
-    service = NoteService(mock_session)
+    service, _, _, api = make_note_stack(mock_session)
 
     # 1. Nested envelope with creation timestamp [seconds, nanos]
     mock_session.rpc_executor.rpc_call.return_value = [
@@ -375,7 +419,7 @@ async def test_note_service_create_note_handles_id_extraction_and_timestamps() -
     for degenerate in [None, [], [[]], [[None]], [123]]:
         mock_session.rpc_executor.rpc_call.return_value = degenerate
         with pytest.raises(RPCError) as exc_info:
-            await service.create_note("nb-100", title="Title", content="Body")
+            await api.create("nb-100", title="Title", content="Body")
         assert exc_info.value.method_id == RPCMethod.CREATE_NOTE.value
 
 
@@ -397,7 +441,7 @@ async def test_note_service_create_note_cancellation_triggers_fire_and_forget_cl
         return None
 
     mock_session = make_fake_core(rpc_call=AsyncMock(side_effect=_mock_rpc_call))
-    service = NoteService(mock_session)
+    service = make_note_stack(mock_session)[0]
 
     task = asyncio.create_task(service.create_note("nb-100", title="Title", content="Body"))
     await update_started.wait()
@@ -426,6 +470,12 @@ async def test_note_service_create_note_cancellation_triggers_fire_and_forget_cl
         ["nb-100", None, ["note-orphan"]],
         source_path="/notebook/nb-100",
         allow_null=True,
+        _is_retry=False,
+        disable_internal_retries=False,
+        operation_variant=None,
+        read_timeout=None,
+        raise_on_null_status=False,
+        _retry_deadline=None,
     )
 
 
@@ -438,9 +488,7 @@ async def test_note_service_create_note_cancellation_triggers_fire_and_forget_cl
 async def test_notes_api_list_filters_deleted_and_mind_maps() -> None:
     """NotesAPI.list returns only active plain notes, filtering out deleted notes and mind maps."""
     mock_session = make_fake_core(rpc_call=AsyncMock())
-    service = NoteService(mock_session)
-    mind_maps = NoteBackedMindMapService(service)
-    api = NotesAPI(notes=service, mind_maps=mind_maps)
+    _, _, _, api = make_note_stack(mock_session)
 
     mock_session.rpc_executor.rpc_call.return_value = [
         [
@@ -463,9 +511,7 @@ async def test_notes_api_list_filters_deleted_and_mind_maps() -> None:
 async def test_notes_api_get_and_get_or_none_exact_id_selection() -> None:
     """NotesAPI.get raises NoteNotFoundError on miss; get_or_none returns None; uses exact ID match."""
     mock_session = make_fake_core(rpc_call=AsyncMock())
-    service = NoteService(mock_session)
-    mind_maps = NoteBackedMindMapService(service)
-    api = NotesAPI(notes=service, mind_maps=mind_maps)
+    _, _, _, api = make_note_stack(mock_session)
 
     mock_session.rpc_executor.rpc_call.return_value = [
         [
@@ -493,9 +539,7 @@ async def test_notes_api_get_and_get_or_none_exact_id_selection() -> None:
 async def test_notes_api_update_existence_preflight_and_loud_failure() -> None:
     """NotesAPI.update executes existence preflight via get_or_none and raises NoteNotFoundError on miss."""
     mock_session = make_fake_core(rpc_call=AsyncMock())
-    service = NoteService(mock_session)
-    mind_maps = NoteBackedMindMapService(service)
-    api = NotesAPI(notes=service, mind_maps=mind_maps)
+    _, _, _, api = make_note_stack(mock_session)
 
     # Missing note -> preflight fails loud before UPDATE_NOTE
     mock_session.rpc_executor.rpc_call.return_value = [[]]
@@ -522,6 +566,12 @@ async def test_notes_api_update_existence_preflight_and_loud_failure() -> None:
         ["nb-100", "n-exist", [[["New Content", "New Title", [], 0]]]],
         source_path="/notebook/nb-100",
         allow_null=True,
+        _is_retry=False,
+        disable_internal_retries=False,
+        operation_variant=None,
+        read_timeout=None,
+        raise_on_null_status=False,
+        _retry_deadline=None,
     )
 
 
@@ -529,9 +579,7 @@ async def test_notes_api_update_existence_preflight_and_loud_failure() -> None:
 async def test_notes_api_delete_is_idempotent_and_returns_none() -> None:
     """NotesAPI.delete and delete_mind_map are idempotent and return None."""
     mock_session = make_fake_core(rpc_call=AsyncMock(return_value=None))
-    service = NoteService(mock_session)
-    mind_maps = NoteBackedMindMapService(service)
-    api = NotesAPI(notes=service, mind_maps=mind_maps)
+    _, _, _, api = make_note_stack(mock_session)
 
     assert await api.delete("nb-100", "note-1") is None
     assert await api.delete_mind_map("nb-100", "mm-1") is None
@@ -546,7 +594,7 @@ async def test_notes_api_delete_is_idempotent_and_returns_none() -> None:
 async def test_note_backed_mind_map_service_operations() -> None:
     """NoteBackedMindMapService lists, extracts, deletes, and renames note-backed mind maps."""
     mock_session = make_fake_core(rpc_call=AsyncMock())
-    service = NoteService(mock_session)
+    service = LegacyNoteBackedService(mock_session)
     mind_maps = NoteBackedMindMapService(service)
 
     mm_json = '{"name": "Architecture Map", "children": []}'
@@ -866,9 +914,7 @@ async def test_notes_and_mind_maps_get_notebook_recency_bump_inventory() -> None
             ]
         )
     )
-    note_service = NoteService(mock_session)
-    mind_maps_service = NoteBackedMindMapService(note_service)
-    notes_api = NotesAPI(notes=note_service, mind_maps=mind_maps_service)
+    _, _, mind_maps_service, notes_api = make_note_stack(mock_session)
 
     def _get_notebook_call_count() -> int:
         return sum(
