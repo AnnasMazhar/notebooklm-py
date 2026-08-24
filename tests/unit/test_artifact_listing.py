@@ -1,4 +1,4 @@
-"""Direct shape-handling tests for ``ArtifactListingService.list_raw``.
+"""Direct shape-handling tests for the legacy raw artifact-list seam.
 
 The listing service collapses recognized payload shapes (a wrapped
 ``[[row, ...]]`` envelope, an already-flat row list, or an empty/None payload)
@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from notebooklm._artifact.listing import ArtifactListingService
+from notebooklm._artifacts import ArtifactsAPI
 from notebooklm.exceptions import DecodingError, RPCError
 
 
@@ -28,7 +29,9 @@ class _FakeRpc:
 
 
 async def _list_raw(payload: Any) -> list[Any]:
-    return await ArtifactListingService().list_raw("nb_123", rpc=_FakeRpc(payload))
+    api = object.__new__(ArtifactsAPI)
+    api._rpc = _FakeRpc(payload)
+    return await api._list_raw("nb_123")
 
 
 class TestListRawShapeHandling:

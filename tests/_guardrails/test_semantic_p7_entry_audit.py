@@ -38,7 +38,6 @@ KNOWN_RPC_CALLER_CONSUMERS: frozenset[tuple[str, str, str]] = frozenset(
     {
         ("_artifact/downloads.py", "ArtifactDownloadService.__init__", "rpc"),
         ("_artifact/generation.py", "ArtifactGenerationService.__init__", "rpc"),
-        ("_artifact/listing.py", "ArtifactListingService.list_raw", "rpc"),
         ("_artifacts.py", "ArtifactsAPI.__init__", "rpc"),
         ("_chat/api.py", "ChatAPI.__init__", "rpc"),
         ("_collections.py", "CollectionsAPI.__init__", "rpc"),

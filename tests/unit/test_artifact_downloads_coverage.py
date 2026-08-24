@@ -30,6 +30,7 @@ from notebooklm._artifact.downloads import (
     _is_trusted_download_host,
 )
 from notebooklm.exceptions import UnknownRPCMethodError
+from notebooklm.rpc import RPCMethod
 from notebooklm.types import (
     ArtifactDownloadError,
     ArtifactNotFoundError,
@@ -46,7 +47,7 @@ def _make_service(**overrides):
     # awaitable empty list so the inert service skips that guard.
     listing.list_raw = AsyncMock(return_value=[])
     kwargs = {
-        "rpc": MagicMock(),
+        "rpc": MagicMock(rpc_call=AsyncMock(return_value=[])),
         "listing": listing,
         "mind_maps": MagicMock(),
     }
@@ -758,16 +759,19 @@ async def test_download_url_non_https_rejected(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# _list_raw delegation
+# _list_raw legacy download authority
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_list_raw_delegates_to_listing():
-    listing = MagicMock()
-    listing.list_raw = AsyncMock(return_value=["raw"])
-    service = _make_service(listing=listing)
+async def test_list_raw_uses_download_owned_rpc_authority():
+    rows = [["raw"]]
+    rpc = MagicMock(rpc_call=AsyncMock(return_value=[rows]))
+    service = _make_service(rpc=rpc)
     result = await service._list_raw("nb_1")
-    assert result == ["raw"]
-    listing.list_raw.assert_awaited_once()
+    assert result == rows
+    assert rpc.rpc_call.await_args.args[:2] == (
+        RPCMethod.LIST_ARTIFACTS,
+        [[2], "nb_1", 'NOT artifact.status = "ARTIFACT_STATUS_SUGGESTED"'],
+    )
 
 
 # ---------------------------------------------------------------------------

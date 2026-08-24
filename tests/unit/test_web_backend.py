@@ -25,6 +25,8 @@ from notebooklm._notebook_payloads import (
 )
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._records import (
+    ARTIFACT_GET_DEF,
+    ARTIFACT_LIST_DEF,
     NOTE_CREATE_DEF,
     NOTE_DELETE_DEF,
     NOTE_GET_DEF,
@@ -107,7 +109,7 @@ def _backend(executor: _RecordingExecutor) -> WebRpcBackend:
     return WebRpcBackend(executor, transport_factory=_transport_factory)  # type: ignore[arg-type]
 
 
-def test_registry_is_closed_and_exposes_migrated_handlers() -> None:
+def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
     assert set(WEB_OPERATION_REGISTRY) == set(Operation)
     assert {
         Operation.NOTEBOOK_LIST,
@@ -123,6 +125,8 @@ def test_registry_is_closed_and_exposes_migrated_handlers() -> None:
         Operation.NOTE_CREATE,
         Operation.NOTE_UPDATE,
         Operation.NOTE_DELETE,
+        Operation.ARTIFACT_LIST,
+        Operation.ARTIFACT_GET,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -142,6 +146,8 @@ def test_registry_is_closed_and_exposes_migrated_handlers() -> None:
         Operation.NOTE_CREATE: NOTE_CREATE_DEF,
         Operation.NOTE_UPDATE: NOTE_UPDATE_DEF,
         Operation.NOTE_DELETE: NOTE_DELETE_DEF,
+        Operation.ARTIFACT_LIST: ARTIFACT_LIST_DEF,
+        Operation.ARTIFACT_GET: ARTIFACT_GET_DEF,
     }
     assert all(
         binding.unsupported_reason
@@ -894,10 +900,11 @@ async def test_close_does_not_close_client_owned_executor() -> None:
 
 
 def test_only_migrated_feature_runtime_reads_private_backend() -> None:
-    """Only composition plus the migrated notebook/source slices may use the port."""
+    """Only composition plus the migrated semantic slices may use the port."""
     package = Path(__file__).resolve().parents[2] / "src" / "notebooklm"
     allowed = {
         package / "_client_assembly.py",
+        package / "_artifacts.py",
         package / "client.py",  # annotation-only declaration
         package / "_notebooks.py",
         package / "_notebook_mutation_service.py",
@@ -906,6 +913,7 @@ def test_only_migrated_feature_runtime_reads_private_backend() -> None:
         package / "_read_services.py",
         package / "_sources.py",
     }
+    allowed.update((package / "_studio").rglob("*.py"))
     allowed.update((package / "_web").rglob("*.py"))
     violations: list[str] = []
     for path in package.rglob("*.py"):

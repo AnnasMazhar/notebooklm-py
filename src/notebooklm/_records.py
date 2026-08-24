@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, unique
 
@@ -396,6 +396,109 @@ class NoteDeleteResult:
     """Successful idempotent note deletion."""
 
 
+@dataclass(frozen=True, slots=True)
+class ArtifactMediaRecord:
+    """One transport-neutral artifact media rendition."""
+
+    url: str = field(repr=False)
+    kind: str = "unknown"
+    unrecognized_kind: int | str | None = None
+    mime_type: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactSlideRecord:
+    """One rendered slide without exposing asset contents in representations."""
+
+    image_url: str | None = field(default=None, repr=False)
+    width: int | None = None
+    height: int | None = None
+    alt_text: str | None = field(default=None, repr=False)
+    text: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactInfographicRecord:
+    """One rendered infographic."""
+
+    title: str | None = None
+    image_url: str | None = field(default=None, repr=False)
+    width: int | None = None
+    height: int | None = None
+    alt_text: str | None = field(default=None, repr=False)
+    text: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactUserStateRecord:
+    """Closed known user-state summary with opaque forward-compatible payload."""
+
+    kind: str
+    playback_position_seconds: float | None = None
+    card_acquisitions: tuple[tuple[str, str], ...] = ()
+    current_card_index: int | None = None
+    hidden_card_indices: tuple[int, ...] = ()
+    last_shown_order: tuple[int, ...] = ()
+    current_view: str | None = None
+    raw: object | None = field(default=None, repr=False, compare=True)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactRecord:
+    """Complete neutral Studio catalog entry from one catalog snapshot."""
+
+    id: str
+    title: str
+    family: str
+    status: str
+    unrecognized_family: int | str | None = None
+    variant: str | None = None
+    unrecognized_variant: int | str | None = None
+    unrecognized_status: int | str | None = None
+    created_at: datetime | None = None
+    url: str | None = field(default=None, repr=False)
+    generation_prompt: str | None = field(default=None, repr=False)
+    media_urls: tuple[ArtifactMediaRecord, ...] = field(default=(), repr=False)
+    duration_seconds: float | None = None
+    slides: tuple[ArtifactSlideRecord, ...] = field(default=(), repr=False)
+    infographics: tuple[ArtifactInfographicRecord, ...] = field(default=(), repr=False)
+    report_kind: str | None = None
+    source_ids: tuple[str, ...] = ()
+    last_modified_at: datetime | None = None
+    etag: str | None = field(default=None, repr=False)
+    user_state: ArtifactUserStateRecord | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactListInput:
+    """Notebook whose complete Studio catalog is requested."""
+
+    notebook_id: str
+    family: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactListResult:
+    """Complete heterogeneous Studio catalog in backend order."""
+
+    artifacts: tuple[ArtifactRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactGetInput:
+    """Notebook and artifact identities requested from one catalog snapshot."""
+
+    notebook_id: str
+    artifact_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactGetResult:
+    """Artifact get result; ``None`` is the semantic not-found state."""
+
+    artifact: ArtifactRecord | None
+
+
 NOTEBOOK_LIST_DEF: OperationDef[NotebookListInput, NotebookListResult] = OperationDef(
     Operation.NOTEBOOK_LIST,
     CallPolicy.READ,
@@ -431,6 +534,18 @@ SOURCE_LIST_DEF: OperationDef[SourceListInput, SourceListResult] = OperationDef(
     CallPolicy.READ,
     SourceListInput,
     SourceListResult,
+)
+ARTIFACT_LIST_DEF: OperationDef[ArtifactListInput, ArtifactListResult] = OperationDef(
+    Operation.ARTIFACT_LIST,
+    CallPolicy.READ,
+    ArtifactListInput,
+    ArtifactListResult,
+)
+ARTIFACT_GET_DEF: OperationDef[ArtifactGetInput, ArtifactGetResult] = OperationDef(
+    Operation.ARTIFACT_GET,
+    CallPolicy.READ,
+    ArtifactGetInput,
+    ArtifactGetResult,
 )
 SOURCE_GET_DEF: OperationDef[SourceGetInput, SourceGetResult] = OperationDef(
     Operation.SOURCE_GET,
@@ -477,6 +592,8 @@ NOTE_DELETE_DEF: OperationDef[NoteDeleteInput, NoteDeleteResult] = OperationDef(
 
 
 __all__ = [
+    "ARTIFACT_GET_DEF",
+    "ARTIFACT_LIST_DEF",
     "NOTEBOOK_GET_DEF",
     "NOTEBOOK_LIST_DEF",
     "NOTEBOOK_CREATE_DEF",
@@ -490,6 +607,15 @@ __all__ = [
     "NOTE_GET_DEF",
     "NOTE_LIST_DEF",
     "NOTE_UPDATE_DEF",
+    "ArtifactGetInput",
+    "ArtifactGetResult",
+    "ArtifactInfographicRecord",
+    "ArtifactListInput",
+    "ArtifactListResult",
+    "ArtifactMediaRecord",
+    "ArtifactRecord",
+    "ArtifactSlideRecord",
+    "ArtifactUserStateRecord",
     "NotebookChatSessionRecord",
     "NotebookChatSettingsRecord",
     "NotebookCreateInput",

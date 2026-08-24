@@ -389,6 +389,7 @@ def _assemble_client(
         mind_maps=mind_maps,
         note_service=legacy_note_backed,
         storage_path=storage_path,
+        _backend=client._backend,
     )
     # ChatAPI (per ADR-0014) takes its
     # four direct collaborators (RpcCaller, RuntimeTransport,

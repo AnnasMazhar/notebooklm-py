@@ -2,7 +2,8 @@
 
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
 P2.2 routes three notebook mutation handlers; P2.3 routes the live URL/YouTube
-source composite; and P6.3 routes plain-note CRUD. These bindings intentionally reuse
+source composite; P5.1 routes Studio catalog list/get; and P6.3 routes plain-note
+CRUD. These bindings intentionally reuse
 the current request builders, strict row adapters, and public-model decoders
 until the P3 codec split.
 Removal: P3 replaces the compatibility model-to-record projections below with
@@ -38,6 +39,8 @@ from .._idempotency import (
     idempotent_create,
     mark_unconfirmed,
 )
+from .._mind_map import NoteBackedMindMapService
+from .._note_service import LegacyNoteBackedService
 from .._notebook_payloads import (
     build_create_notebook_params,
     build_get_notebook_params,
@@ -45,6 +48,15 @@ from .._notebook_payloads import (
 )
 from .._operations import CallPolicy, Operation, OperationDef
 from .._records import (
+    ArtifactGetInput,
+    ArtifactGetResult,
+    ArtifactInfographicRecord,
+    ArtifactListInput,
+    ArtifactListResult,
+    ArtifactMediaRecord,
+    ArtifactRecord,
+    ArtifactSlideRecord,
+    ArtifactUserStateRecord,
     NotebookChatSessionRecord,
     NotebookChatSettingsRecord,
     NotebookCreateInput,
@@ -82,6 +94,7 @@ from .._records import (
     SourceListResult,
     SourceRecord,
 )
+from .._row_adapters.artifacts import unwrap_artifact_rows
 from .._rpc_executor import RpcExecutor
 from .._settings import build_get_user_settings_params, extract_account_limits
 from .._source.add import SourceAddService, honor_requested_title_if_fresh
@@ -107,18 +120,27 @@ from ..exceptions import (
     SourceTimeoutError,
     UnknownRPCMethodError,
 )
-from ..rpc import RPCMethod, safe_index
+from ..rpc import ARTIFACT_STATUS_SUGGESTED_WIRE_NAME, RPCMethod, safe_index
 from ..rpc.types import (
+    artifact_status_to_str,
     drive_source_status_to_str,
     share_permission_to_str,
     source_status_to_str,
 )
-from ..types import Notebook, Source
+from ..types import (
+    Artifact,
+    AudioArtifactUserState,
+    FlashcardArtifactUserState,
+    Notebook,
+    Source,
+    UnknownArtifactUserState,
+)
 from .codec.notes import decode_created_note, decode_note, decode_notes
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
 source_logger = logging.getLogger("notebooklm").getChild("_sources")
+artifact_logger = logging.getLogger("notebooklm._artifact.listing")
 
 _CREATE_NOTEBOOK_QUOTA_RPC_CODE = 3
 
@@ -392,6 +414,112 @@ def _capture_source_add_failure(
         context_is_original=context_is_original,
         explicit_cause=explicit is not None,
         suppress_context=exc.__suppress_context__,
+    )
+
+
+_ARTIFACT_FAMILIES = {
+    1: "audio",
+    2: "report",
+    3: "video",
+    5: "mind_map",
+    6: "fantasy_map",
+    7: "infographic",
+    8: "slide_deck",
+    9: "data_table",
+    10: "file",
+}
+_ARTIFACT_VARIANTS = {1: "flashcards", 2: "quiz", 4: "interactive_mind_map"}
+_MEDIA_KINDS = {1: "progressive", 2: "hls", 3: "dash", 4: "download"}
+
+
+def _artifact_record(artifact: Artifact) -> ArtifactRecord:
+    type_code = artifact._artifact_type
+    variant_code = artifact._variant
+    variant = None if variant_code is None else _ARTIFACT_VARIANTS.get(variant_code)
+    if type_code == 4 and variant is not None:
+        family = "mind_map" if variant == "interactive_mind_map" else variant
+        unrecognized_family: int | str | None = None
+    else:
+        family = _ARTIFACT_FAMILIES.get(type_code, "unknown")
+        unrecognized_family = type_code if type_code not in _ARTIFACT_FAMILIES else None
+    unrecognized_variant = variant_code if type_code == 4 and variant is None else None
+    status = artifact_status_to_str(artifact.status)
+    unrecognized_status = artifact.status if status == "unknown" and artifact.status != 0 else None
+
+    state = artifact.user_state
+    if isinstance(state, AudioArtifactUserState):
+        user_state = ArtifactUserStateRecord(
+            kind="audio",
+            playback_position_seconds=state.playback_position_seconds,
+        )
+    elif isinstance(state, FlashcardArtifactUserState):
+        user_state = ArtifactUserStateRecord(
+            kind="flashcards",
+            card_acquisitions=tuple(state.card_acquisitions.items()),
+            current_card_index=state.current_card_index,
+            hidden_card_indices=state.hidden_card_indices,
+            last_shown_order=state.last_shown_order,
+            current_view=state.current_view,
+        )
+    elif isinstance(state, UnknownArtifactUserState):
+        user_state = ArtifactUserStateRecord(kind="unknown", raw=state.raw)
+    else:
+        user_state = None
+
+    return ArtifactRecord(
+        id=artifact.id,
+        title=artifact.title,
+        family=family,
+        status=status,
+        unrecognized_family=unrecognized_family,
+        variant=variant,
+        unrecognized_variant=unrecognized_variant,
+        unrecognized_status=unrecognized_status,
+        created_at=artifact.created_at,
+        url=artifact.url,
+        generation_prompt=artifact.generation_prompt,
+        media_urls=tuple(
+            ArtifactMediaRecord(
+                url=media.url,
+                kind=(
+                    "unknown"
+                    if media.type_code is None
+                    else _MEDIA_KINDS.get(media.type_code, "unknown")
+                ),
+                unrecognized_kind=(
+                    media.type_code if media.type_code not in _MEDIA_KINDS else None
+                ),
+                mime_type=media.mime_type,
+            )
+            for media in artifact.media_urls
+        ),
+        duration_seconds=artifact.duration_seconds,
+        slides=tuple(
+            ArtifactSlideRecord(
+                image_url=slide.image_url,
+                width=slide.width,
+                height=slide.height,
+                alt_text=slide.alt_text,
+                text=slide.text,
+            )
+            for slide in artifact.slides
+        ),
+        infographics=tuple(
+            ArtifactInfographicRecord(
+                title=item.title,
+                image_url=item.image_url,
+                width=item.width,
+                height=item.height,
+                alt_text=item.alt_text,
+                text=item.text,
+            )
+            for item in artifact.infographics
+        ),
+        report_kind=artifact.report_kind,
+        source_ids=artifact.source_ids,
+        last_modified_at=artifact.last_modified_at,
+        etag=artifact.etag,
+        user_state=user_state,
     )
 
 
@@ -913,6 +1041,88 @@ class WebRpcBackend:
         if value.kinds is not None:
             records = tuple(record for record in records if record.kind in value.kinds)
         return SourceListResult(sources=records)
+
+    async def _artifact_catalog_records(
+        self,
+        notebook_id: str,
+        *,
+        operation: Operation,
+        deadline: RuntimeDeadline | None,
+        include_mind_maps: bool,
+    ) -> tuple[ArtifactRecord, ...]:
+        result = await self._rpc_call(
+            RPCMethod.LIST_ARTIFACTS,
+            [
+                [2],
+                notebook_id,
+                f'NOT artifact.status = "{ARTIFACT_STATUS_SUGGESTED_WIRE_NAME}"',
+            ],
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{notebook_id}",
+            allow_null=True,
+        )
+        if isinstance(result, list):
+            rows = unwrap_artifact_rows(
+                result,
+                method_id=RPCMethod.LIST_ARTIFACTS.value,
+                source="WebRpcBackend._artifact_catalog_records",
+            )
+        elif not result:
+            rows = []
+        else:
+            raise DecodingError(
+                "Unrecognized LIST_ARTIFACTS payload shape",
+                raw_response=reprlib.repr(result),
+                method_id=RPCMethod.LIST_ARTIFACTS.value,
+            )
+
+        artifacts = [Artifact.from_api_response(row) for row in rows if isinstance(row, list)]
+        if include_mind_maps:
+            caller = _DeadlineRpcCaller(self, deadline, operation)
+            mind_maps = NoteBackedMindMapService(LegacyNoteBackedService(cast(Any, caller)))
+            try:
+                mind_map_rows = await mind_maps.list_mind_maps(notebook_id)
+                artifacts.extend(
+                    artifact
+                    for row in mind_map_rows
+                    if (artifact := Artifact.from_mind_map(row)) is not None
+                )
+            except DecodingError:
+                raise
+            except (RPCError, NetworkError) as exc:
+                artifact_logger.warning("Failed to fetch mind maps: %s", exc)
+        return tuple(_artifact_record(artifact) for artifact in artifacts)
+
+    async def _artifact_list(
+        self,
+        value: ArtifactListInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> ArtifactListResult:
+        records = await self._artifact_catalog_records(
+            value.notebook_id,
+            operation=Operation.ARTIFACT_LIST,
+            deadline=deadline,
+            include_mind_maps=value.family in {None, "mind_map"},
+        )
+        return ArtifactListResult(artifacts=records)
+
+    async def _artifact_get(
+        self,
+        value: ArtifactGetInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> ArtifactGetResult:
+        records = await self._artifact_catalog_records(
+            value.notebook_id,
+            operation=Operation.ARTIFACT_GET,
+            deadline=deadline,
+            include_mind_maps=True,
+        )
+        return ArtifactGetResult(
+            artifact=next((item for item in records if item.id == value.artifact_id), None)
+        )
 
     async def _source_get(
         self,

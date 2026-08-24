@@ -61,6 +61,7 @@ from notebooklm.rpc import (
     RPCMethod,
 )
 from tests._fixtures.fake_core import make_fake_core
+from tests._fixtures.web_backend import build_web_backend
 
 
 def _make_api(
@@ -68,10 +69,7 @@ def _make_api(
     list_mind_maps_return: list[Any] | None = None,
 ) -> tuple[ArtifactsAPI, Any, MagicMock]:
     """Construct an ArtifactsAPI instance with isolated mock collaborators."""
-    mock_core = make_fake_core(
-        rpc_call=rpc_call or AsyncMock(return_value=[]),
-        get_source_ids=AsyncMock(return_value=[]),
-    )
+    studio_rpc_call = rpc_call or AsyncMock(return_value=[])
     mock_notebooks = MagicMock()
     mock_notebooks.get_source_ids = AsyncMock(return_value=[])
     mock_mind_maps = MagicMock(spec=NoteBackedMindMapService)
@@ -79,6 +77,16 @@ def _make_api(
         mock_mind_maps.list_mind_maps = AsyncMock(return_value=list_mind_maps_return)
     else:
         mock_mind_maps.list_mind_maps = AsyncMock(return_value=[])
+
+    async def routed_rpc_call(method: RPCMethod, params: list[Any], **kwargs: Any) -> Any:
+        if method is RPCMethod.GET_NOTES_AND_MIND_MAPS:
+            return [await mock_mind_maps.list_mind_maps(params[0])]
+        return await studio_rpc_call(method, params, **kwargs)
+
+    mock_core = make_fake_core(
+        rpc_call=AsyncMock(side_effect=routed_rpc_call),
+        get_source_ids=AsyncMock(return_value=[]),
+    )
     mock_note_service = MagicMock()
     api = ArtifactsAPI(
         rpc=mock_core,
@@ -87,6 +95,7 @@ def _make_api(
         notebooks=mock_notebooks,
         mind_maps=mock_mind_maps,
         note_service=mock_note_service,
+        _backend=build_web_backend(mock_core),
     )
     return api, mock_core, mock_mind_maps
 

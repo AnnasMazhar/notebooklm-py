@@ -325,7 +325,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
             "list_slide_decks",
             "list_data_tables",
         ),
-        (_b(RPCMethod.LIST_ARTIFACTS),),
+        (_b(RPCMethod.LIST_ARTIFACTS), _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)),
     ),
     OperationSpec(
         Operation.ARTIFACT_GET,
@@ -334,7 +334,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "notebook+artifact",
         "Selects one artifact or its prompt from the heterogeneous catalog.",
         _p("artifacts", "get", "get_or_none", "get_prompt", "poll_status"),
-        (_b(RPCMethod.LIST_ARTIFACTS),),
+        (_b(RPCMethod.LIST_ARTIFACTS), _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)),
     ),
     OperationSpec(
         Operation.ARTIFACT_GENERATE_AUDIO,
