@@ -44,10 +44,9 @@ from .._rpc_executor import RpcExecutor
 from .._source.listing import SourceLister
 from .._types.sources import _SOURCE_TYPE_CODE_MAP, SourceType
 from ..exceptions import DecodingError, NetworkError, RPCError
-from ..rpc import (
-    RPCMethod,
+from ..rpc import RPCMethod, safe_index
+from ..rpc.types import (
     drive_source_status_to_str,
-    safe_index,
     share_permission_to_str,
     source_status_to_str,
 )
@@ -99,7 +98,11 @@ def _notebook_record(notebook: Notebook) -> NotebookRecord:
 
 def _source_record(source: Source) -> SourceRecord:
     type_code = source._type_code
-    kind = _SOURCE_TYPE_CODE_MAP.get(type_code, SourceType.UNKNOWN)
+    kind = (
+        SourceType.UNKNOWN
+        if type_code is None
+        else _SOURCE_TYPE_CODE_MAP.get(type_code, SourceType.UNKNOWN)
+    )
     unrecognized_kind: int | str | None = (
         type_code if type_code is not None and type_code not in _SOURCE_TYPE_CODE_MAP else None
     )

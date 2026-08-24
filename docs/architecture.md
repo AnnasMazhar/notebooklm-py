@@ -103,6 +103,11 @@ the upcoming P2.1 notebook/source reads; existing feature facades still dispatch
 phase descriptions are sequencing decisions, not a claim that P2-P8 are complete. P9
 public-surface work and a mobile backend require separate decisions.
 
+The P0 operation-catalog audit classifies exactly six P1 web functions (two generic RPC
+forwarders and the four typed handlers) as inert rather than as duplicate execution authorities.
+That bounded classification is mutation-tested and is removed handler-by-handler in P2, in the
+same slice that makes a compatibility facade delegate to the handler.
+
 P0 adds four ADR-0022 contract baselines before runtime delegation:
 
 | Baseline | Freezes |
