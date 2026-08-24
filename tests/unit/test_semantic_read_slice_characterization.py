@@ -208,6 +208,33 @@ async def test_source_get_preserves_late_bound_list_and_miss_contracts() -> None
 
 
 @pytest.mark.asyncio
+async def test_source_get_preserves_class_level_late_bound_list_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api, rpc_call = _sources_api(None)
+    expected = Source(id="src-2", title="Two")
+    calls: list[str] = []
+
+    async def replacement_list(
+        self: SourcesAPI, notebook_id: str, **_kwargs: object
+    ) -> list[Source]:
+        assert self is api
+        calls.append(notebook_id)
+        return [Source(id="src-1"), expected]
+
+    monkeypatch.setattr(SourcesAPI, "list", replacement_list)
+
+    assert await api.get_or_none("nb-1", "src-2") is expected
+    assert await api.get_or_none("nb-1", "missing") is None
+    with pytest.raises(SourceNotFoundError) as exc_info:
+        await api.get("nb-1", "missing")
+
+    assert exc_info.value.source_id == "missing"
+    assert calls == ["nb-1", "nb-1", "nb-1"]
+    rpc_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_source_get_default_path_uses_backend_and_preserves_genuine_miss() -> None:
     payload = [["Notebook", [_source_entry("src-1", title="One")], "nb-1"]]
     rpc_call = AsyncMock(side_effect=[payload, payload, payload])

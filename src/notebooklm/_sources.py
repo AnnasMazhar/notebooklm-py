@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable, Collection
 from pathlib import Path
 from time import monotonic
-from typing import IO, Any, Literal
+from typing import IO, Any, Final, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -247,7 +247,7 @@ class SourcesAPI:
             The :class:`~notebooklm.types.Source`, or ``None`` if not found.
         """
         list_method = self.list
-        if getattr(list_method, "__func__", None) is not SourcesAPI.list:
+        if getattr(list_method, "__func__", None) is not _ORIGINAL_SOURCES_LIST:
             return await self._lister.get(
                 notebook_id,
                 source_id,
@@ -1099,3 +1099,6 @@ class SourcesAPI:
             auth_route,
             logger=logger,
         )
+
+
+_ORIGINAL_SOURCES_LIST: Final = SourcesAPI.list
