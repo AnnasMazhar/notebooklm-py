@@ -467,8 +467,8 @@ GENERIC_RPC_FORWARDERS = frozenset(
 
 # P1 constructed the semantic web backend with every handler inert. P2 removes
 # each handler from this set in the same slice that delegates its facade. The
-# notebook/source read and notebook mutation handlers are live. The shared
-# forwarder remains inert until every registered operation delegates.
+# notebook/source read and mutation handlers plus plain-note CRUD are live. The
+# shared forwarder remains inert until every registered operation delegates.
 INERT_P1_WEB_FORWARDERS = frozenset(
     {
         "_web/backend.py:WebRpcBackend._rpc_call",
@@ -477,7 +477,7 @@ INERT_P1_WEB_FORWARDERS = frozenset(
 INERT_P1_WEB_HANDLERS: frozenset[str] = frozenset()
 INERT_P1_WEB_SITES = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
 
-# Removal: P2 deletes one handler exemption and admits the corresponding
+# Removal: each live slice deletes one handler exemption and admits the corresponding
 # service import/invoke sites in the same bounded delegation slice. Until then,
 # these exact imports are the whole production semantic-backend dataflow.
 REVIEWED_BACKEND_IMPORTS = frozenset(
@@ -506,7 +506,22 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_mutation_services.py", "_records", "SOURCE_ADD_URL_DEF"),
         ("_mutation_services.py", "_records", "SourceAddUrlInput"),
         ("_mutation_services.py", "_records", "SourceAddUrlResult"),
+        ("_note_service.py", "_backend", "BackendAdapter"),
+        ("_note_service.py", "_projectors", "project_note"),
+        ("_note_service.py", "_records", "NOTE_CREATE_DEF"),
+        ("_note_service.py", "_records", "NOTE_DELETE_DEF"),
+        ("_note_service.py", "_records", "NOTE_GET_DEF"),
+        ("_note_service.py", "_records", "NOTE_LIST_DEF"),
+        ("_note_service.py", "_records", "NOTE_UPDATE_DEF"),
+        ("_note_service.py", "_records", "NoteCreateInput"),
+        ("_note_service.py", "_records", "NoteDeleteInput"),
+        ("_note_service.py", "_records", "NoteGetInput"),
+        ("_note_service.py", "_records", "NoteListInput"),
+        ("_note_service.py", "_records", "NoteUpdateInput"),
+        ("_notes.py", "_backend", "BackendError"),
+        ("_notes.py", "_backend_compat", "project_backend_error"),
         ("_projectors.py", "_records", "NotebookRecord"),
+        ("_projectors.py", "_records", "NoteRecord"),
         ("_projectors.py", "_records", "SourceRecord"),
         ("_read_services.py", "_backend", "BackendAdapter"),
         ("_read_services.py", "_projectors", "project_notebook"),
@@ -548,6 +563,22 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/backend.py", "_records", "NotebookRecord"),
         ("_web/backend.py", "_records", "NotebookUpdateInput"),
         ("_web/backend.py", "_records", "NotebookUpdateResult"),
+        ("_web/backend.py", "_records", "NoteCreateInput"),
+        ("_web/backend.py", "_records", "NoteCreateResult"),
+        ("_web/backend.py", "_records", "NoteDeleteInput"),
+        ("_web/backend.py", "_records", "NoteDeleteResult"),
+        ("_web/backend.py", "_records", "NoteGetInput"),
+        ("_web/backend.py", "_records", "NoteGetResult"),
+        ("_web/backend.py", "_records", "NoteListInput"),
+        ("_web/backend.py", "_records", "NoteListResult"),
+        ("_web/backend.py", "_records", "NoteUpdateInput"),
+        ("_web/backend.py", "_records", "NoteUpdateResult"),
+        ("_web/codec/notes.py", "_records", "NoteRecord"),
+        ("_web/registry.py", "_records", "NOTE_CREATE_DEF"),
+        ("_web/registry.py", "_records", "NOTE_DELETE_DEF"),
+        ("_web/registry.py", "_records", "NOTE_GET_DEF"),
+        ("_web/registry.py", "_records", "NOTE_LIST_DEF"),
+        ("_web/registry.py", "_records", "NOTE_UPDATE_DEF"),
         ("_web/backend.py", "_records", "SourceGetInput"),
         ("_web/backend.py", "_records", "SourceGetResult"),
         ("_web/backend.py", "_records", "SourceAddCommitState"),
@@ -606,7 +637,7 @@ def _is_reviewed_backend_import_module(module: str) -> bool:
     )
 
 
-ACTIVE_P2_BACKEND_INVOKE_SITES = frozenset(
+ACTIVE_BACKEND_INVOKE_SITES = frozenset(
     {
         "_notebook_mutation_service.py:NotebookMutationService.create",
         "_notebook_mutation_service.py:NotebookMutationService.delete",
@@ -615,6 +646,12 @@ ACTIVE_P2_BACKEND_INVOKE_SITES = frozenset(
         "_read_services.py:NotebookReadService.list",
         "_read_services.py:SourceReadService.get",
         "_read_services.py:SourceReadService.list",
+        "_note_service.py:NoteService.create_note",
+        "_note_service.py:NoteService.create_note._finalize_then_cleanup",
+        "_note_service.py:NoteService.delete_note",
+        "_note_service.py:NoteService.get_note_or_none",
+        "_note_service.py:NoteService.list_notes",
+        "_note_service.py:NoteService.update_note",
         "_mutation_services.py:SourceUrlMutationService.add_url",
     }
 )
@@ -714,9 +751,9 @@ def audit_inert_p1_backend_dataflow(
                     )
                     if (
                         isinstance(parent, ast.keyword)
-                        and parent.arg == "_backend"
+                        and parent.arg in {"_backend", "backend"}
                         and isinstance(facade_name, str)
-                        and facade_name in {"NotebooksAPI", "SourcesAPI"}
+                        and facade_name in {"NoteService", "NotebooksAPI", "SourcesAPI"}
                     ):
                         assembly_backend_bindings.append(facade_name)
                     else:
@@ -737,7 +774,7 @@ def audit_inert_p1_backend_dataflow(
             f"missing={sorted(REVIEWED_BACKEND_IMPORTS - observed_imports)}, "
             f"extra={sorted(observed_imports - REVIEWED_BACKEND_IMPORTS)}"
         )
-    expected_invokes = ACTIVE_P2_BACKEND_INVOKE_SITES | INERT_P1_BACKEND_INVOKE_SITES
+    expected_invokes = ACTIVE_BACKEND_INVOKE_SITES | INERT_P1_BACKEND_INVOKE_SITES
     if invoke_sites != expected_invokes:
         errors.append(
             "semantic backend invoke sites changed: "
@@ -748,10 +785,10 @@ def audit_inert_p1_backend_dataflow(
         errors.append(
             f"P1 WebRpcBackend construction target changed: {assembly_constructor_targets}"
         )
-    if sorted(assembly_backend_bindings) != ["NotebooksAPI", "SourcesAPI"]:
+    if sorted(assembly_backend_bindings) != ["NoteService", "NotebooksAPI", "SourcesAPI"]:
         errors.append(
-            "P2 facade backend bindings changed: "
-            f"expected=['NotebooksAPI', 'SourcesAPI'], "
+            "semantic facade backend bindings changed: "
+            f"expected=['NoteService', 'NotebooksAPI', 'SourcesAPI'], "
             f"actual={sorted(assembly_backend_bindings)}"
         )
     if assembly_backend_escapes:

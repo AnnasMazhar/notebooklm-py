@@ -1429,6 +1429,15 @@ Each domain migration must:
 | **P6.3.2** | Semantic NoteService migration & reconciliation | `src/notebooklm/_note_service.py` -> `_notes/` | Backend-neutral NoteService consuming BackendAdapter; cancellation cleanup & creation timestamp preservation |
 | **P6.3.3** | MindMapsAPI dual-service delegation & retirement | `src/notebooklm/_mind_maps_api.py`, `_mind_map.py` | MindMapsAPI delegating note-backed operations to semantic NoteService and interactive operations to Studio family service; exact MindMap return shape & auto-detect preservation |
 
+**P6.3 entry slice (2026-08-23):** P6.3.1 and the plain-note portion of P6.3.2 are
+live. `NotesAPI` list/get/create/update/delete delegate to backend-neutral `NoteService`; five typed
+NOTE_* definitions bind through `WebRpcBackend`, with mixed-row classification, exact-id lookup,
+schema errors, creation timestamps, existence preflight, idempotent delete, shielded finalization,
+and cancellation cleanup preserved. These paths issue zero `GET_NOTEBOOK` calls. Note-backed
+mind-map/artifact callers remain on the explicitly named private `LegacyNoteBackedService` until
+P6.3.3; no MIND_MAP_* call is temporarily attributed to NOTE_* authority. The P7 `RpcCaller`
+consumer audit records that exact legacy owner rather than the migrated semantic service.
+
 #### P6.1 addendum — chat operation and wire-site map
 
 Prep landed ahead of the migration PRs: no production behavior changed, and the six chat contracts
@@ -1486,7 +1495,6 @@ execution authority live.
 5. **Cleanup.** Delete the superseded direct `RpcCaller` implementations, drop `RPCMethod` from the
    chat facade, and re-run the catalog audit so the chat rows' `execution_authorities` name the
    backend sites.
-
 #### Acceptance criteria
 
 - No migrated feature API imports `RPCMethod` or constructs positional RPC arrays.

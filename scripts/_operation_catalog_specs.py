@@ -624,7 +624,11 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "notebook",
         "Creates a plain five-element note row without blind retry.",
         _p("notes", "create"),
-        (_b(RPCMethod.CREATE_NOTE, "plain"),),
+        (
+            _b(RPCMethod.CREATE_NOTE, "plain"),
+            _b(RPCMethod.UPDATE_NOTE),
+            _b(RPCMethod.DELETE_NOTE),
+        ),
     ),
     OperationSpec(
         Operation.NOTE_UPDATE,

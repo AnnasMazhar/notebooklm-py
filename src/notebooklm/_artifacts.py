@@ -22,7 +22,7 @@ from ._artifact.listing import ArtifactListingService
 from ._artifact.payloads import build_suggest_reports_params
 from ._lookup import unwrap_or_raise
 from ._mind_map import NoteBackedMindMapService
-from ._note_service import NoteService
+from ._note_service import LegacyNoteBackedService
 from ._notebook_metadata import NotebookSourceIdProvider
 from ._polling_registry import PollRegistry
 from ._row_adapters import artifacts as _artifact_rows
@@ -84,7 +84,7 @@ class ArtifactsAPI:
         lifecycle: "ClientLifecycle",
         notebooks: NotebookSourceIdProvider,
         mind_maps: NoteBackedMindMapService,
-        note_service: NoteService,
+        note_service: LegacyNoteBackedService,
         storage_path: Path | None = None,
     ) -> None:
         """Initialize the artifacts API.

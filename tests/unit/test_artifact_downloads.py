@@ -31,7 +31,7 @@ def mock_artifacts_api():
     services delegate down to that single RPC seam.
     """
     from notebooklm._mind_map import NoteBackedMindMapService
-    from notebooklm._note_service import NoteService
+    from notebooklm._note_service import LegacyNoteBackedService
     from tests._fixtures.fake_core import make_fake_core
 
     mock_core = make_fake_core(
@@ -44,7 +44,7 @@ def mock_artifacts_api():
     # surface stays consistent with production behavior. Tests that
     # need to override list_mind_maps continue to patch it via
     # ``patch.object(api._mind_maps, "list_mind_maps", ...)``.
-    note_service = NoteService(mock_core)
+    note_service = LegacyNoteBackedService(mock_core)
     mind_maps = NoteBackedMindMapService(note_service)
     api = ArtifactsAPI(
         rpc=mock_core,

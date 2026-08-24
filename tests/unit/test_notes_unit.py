@@ -4,9 +4,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from notebooklm._mind_map import NoteBackedMindMapService
-from notebooklm._note_service import NoteService
-from notebooklm._notes import NotesAPI
 from notebooklm.exceptions import NoteNotFoundError, RPCError
 
 
@@ -32,12 +29,9 @@ def notes_api(mock_core):
     fixture exercises the production wiring rather than a fully-mocked
     collaborator surface.
     """
-    note_service = NoteService(mock_core)
-    mind_maps = NoteBackedMindMapService(note_service)
-    return NotesAPI(
-        notes=note_service,
-        mind_maps=mind_maps,
-    )
+    from tests._fixtures.note_stack import make_note_stack
+
+    return make_note_stack(mock_core)[3]
 
 
 # =============================================================================

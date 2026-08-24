@@ -941,7 +941,8 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_note_service.py:NoteService.create_note"
+        "_note_service.py:LegacyNoteBackedService.create_note",
+        "_web/backend.py:WebRpcBackend._note_create"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -1207,7 +1208,8 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_note_service.py:NoteService.delete_note"
+        "_note_service.py:LegacyNoteBackedService.delete_note",
+        "_web/backend.py:WebRpcBackend._note_delete"
       ],
       "golden_disposition": "golden_exempt",
       "golden_evidence": "success contract returns None; the response carries no decodable row to pin",
@@ -1235,6 +1237,7 @@
       "response_decoders": [],
       "response_projectors": [],
       "route_contexts": [
+        "notebook",
         "notebook+mind-map",
         "notebook+note"
       ],
@@ -1242,6 +1245,7 @@
       "rpc_method": "DELETE_NOTE",
       "semantic_operations": [
         "mind_map.delete",
+        "note.create",
         "note.delete"
       ],
       "variant": null
@@ -1682,7 +1686,9 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_note_service.py:NoteService.fetch_note_rows"
+        "_note_service.py:LegacyNoteBackedService.fetch_note_rows",
+        "_web/backend.py:WebRpcBackend._note_get",
+        "_web/backend.py:WebRpcBackend._note_list"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -3023,7 +3029,8 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_note_service.py:NoteService.update_note"
+        "_note_service.py:LegacyNoteBackedService.update_note",
+        "_web/backend.py:WebRpcBackend._note_update"
       ],
       "golden_disposition": "golden_exempt",
       "golden_evidence": "success contract returns None; the response carries no decodable row to pin",
@@ -3051,6 +3058,7 @@
       "response_decoders": [],
       "response_projectors": [],
       "route_contexts": [
+        "notebook",
         "notebook+mind-map",
         "notebook+note"
       ],
@@ -3058,6 +3066,7 @@
       "rpc_method": "UPDATE_NOTE",
       "semantic_operations": [
         "mind_map.update",
+        "note.create",
         "note.update"
       ],
       "variant": null
@@ -3517,7 +3526,7 @@
         {
           "binding": "CREATE_NOTE:plain",
           "discriminator": "persist generated JSON",
-          "site": "_note_service.py:NoteService.create_note",
+          "site": "_note_service.py:LegacyNoteBackedService.create_note",
           "transport_kind": "rpc"
         },
         {
@@ -4813,7 +4822,7 @@
         {
           "binding": "DELETE_NOTE:<default>",
           "discriminator": "kind=NOTE_BACKED",
-          "site": "_note_service.py:NoteService.delete_note",
+          "site": "_note_service.py:LegacyNoteBackedService.delete_note",
           "transport_kind": "rpc"
         }
       ],
@@ -4917,7 +4926,7 @@
         {
           "binding": "CREATE_NOTE:plain",
           "discriminator": "kind=NOTE_BACKED persistence",
-          "site": "_note_service.py:NoteService.create_note",
+          "site": "_note_service.py:LegacyNoteBackedService.create_note",
           "transport_kind": "rpc"
         },
         {
@@ -4984,7 +4993,7 @@
         {
           "binding": "GET_NOTES_AND_MIND_MAPS:<default>",
           "discriminator": "auto-detect/select note-backed id",
-          "site": "_note_service.py:NoteService.fetch_note_rows",
+          "site": "_note_service.py:LegacyNoteBackedService.fetch_note_rows",
           "transport_kind": "rpc"
         },
         {
@@ -5029,7 +5038,7 @@
         {
           "binding": "GET_NOTES_AND_MIND_MAPS:<default>",
           "discriminator": "filter kind=NOTE_BACKED",
-          "site": "_note_service.py:NoteService.fetch_note_rows",
+          "site": "_note_service.py:LegacyNoteBackedService.fetch_note_rows",
           "transport_kind": "rpc"
         },
         {
@@ -5078,7 +5087,7 @@
         {
           "binding": "UPDATE_NOTE:<default>",
           "discriminator": "kind=NOTE_BACKED",
-          "site": "_note_service.py:NoteService.update_note",
+          "site": "_note_service.py:LegacyNoteBackedService.update_note",
           "transport_kind": "rpc"
         }
       ],
@@ -5111,7 +5120,19 @@
         {
           "binding": "CREATE_NOTE:plain",
           "discriminator": "public=notes.create",
-          "site": "_note_service.py:NoteService.create_note",
+          "site": "_web/backend.py:WebRpcBackend._note_create",
+          "transport_kind": "rpc"
+        },
+        {
+          "binding": "DELETE_NOTE:<default>",
+          "discriminator": "cancelled create orphan cleanup",
+          "site": "_web/backend.py:WebRpcBackend._note_delete",
+          "transport_kind": "rpc"
+        },
+        {
+          "binding": "UPDATE_NOTE:<default>",
+          "discriminator": "notes.create finalize",
+          "site": "_web/backend.py:WebRpcBackend._note_update",
           "transport_kind": "rpc"
         }
       ],
@@ -5119,7 +5140,9 @@
       "known_divergence": null,
       "known_divergence_kind": null,
       "native_bindings": [
-        "CREATE_NOTE:plain"
+        "CREATE_NOTE:plain",
+        "DELETE_NOTE:<default>",
+        "UPDATE_NOTE:<default>"
       ],
       "owner": "NoteService",
       "policy": "mutation",
@@ -5143,7 +5166,7 @@
         {
           "binding": "DELETE_NOTE:<default>",
           "discriminator": "public=notes.delete",
-          "site": "_note_service.py:NoteService.delete_note",
+          "site": "_web/backend.py:WebRpcBackend._note_delete",
           "transport_kind": "rpc"
         }
       ],
@@ -5175,7 +5198,7 @@
         {
           "binding": "GET_NOTES_AND_MIND_MAPS:<default>",
           "discriminator": "select note id",
-          "site": "_note_service.py:NoteService.fetch_note_rows",
+          "site": "_web/backend.py:WebRpcBackend._note_get",
           "transport_kind": "rpc"
         }
       ],
@@ -5207,7 +5230,7 @@
         {
           "binding": "GET_NOTES_AND_MIND_MAPS:<default>",
           "discriminator": "filter kind=NOTE",
-          "site": "_note_service.py:NoteService.fetch_note_rows",
+          "site": "_web/backend.py:WebRpcBackend._note_list",
           "transport_kind": "rpc"
         }
       ],
@@ -5241,7 +5264,7 @@
         {
           "binding": "UPDATE_NOTE:<default>",
           "discriminator": "public=notes.update",
-          "site": "_note_service.py:NoteService.update_note",
+          "site": "_web/backend.py:WebRpcBackend._note_update",
           "transport_kind": "rpc"
         }
       ],

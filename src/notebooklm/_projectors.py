@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from typing import cast
 
-from ._records import NotebookRecord, SourceRecord
+from ._records import NotebookRecord, NoteRecord, SourceRecord
 from .types import (
     ChatGoal,
     ChatResponseLength,
     ChatSession,
     ChatSettings,
     DriveSourceStatus,
+    Note,
     Notebook,
     PremiumFeatureInfo,
     SharePermission,
@@ -155,4 +156,16 @@ def project_source(record: SourceRecord) -> Source:
     )
 
 
-__all__ = ["project_notebook", "project_source"]
+def project_note(record: NoteRecord) -> Note:
+    """Construct one public :class:`Note` from a neutral record."""
+
+    return Note(
+        id=record.id,
+        notebook_id=record.notebook_id,
+        title=record.title,
+        content=record.content,
+        created_at=record.created_at,
+    )
+
+
+__all__ = ["project_note", "project_notebook", "project_source"]
