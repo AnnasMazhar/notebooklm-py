@@ -1062,6 +1062,40 @@ The outcome is appended to this plan by the next code PR, or by the abandonment 
 an entrance and no exit is Risk 1 restated rather than controlled -- so "abandon" must be a
 first-class, pre-authorized outcome, not an escalation.
 
+#### P2 stop/go outcome — GO (2026-08-23)
+
+**Decider:** Codex primary integration agent (`/root`), acting under the repository owner's
+instruction to continue the semantic-backend plan.
+
+Evidence reviewed after the complete P2.1/P2.2/P2.3 local integration:
+
+- The bounded P2 commit set adds 5,031 lines and removes 1,175 overall; production source accounts
+  for 2,170 additions and 660 removals. The two migrated compatibility facades themselves shrink by
+  236 lines (166 added, 402 removed), while the added weight is concentrated in closed records,
+  web handlers, compatibility projection, contracts, and mutation-sensitive guardrails.
+- Eight semantic operations are live: four notebook/source reads, three notebook mutations, and the
+  complete generic-plus-YouTube URL workflow. Only the shared generic web RPC forwarder remains
+  inert; each migrated facade has one execution authority.
+- `RecordingBackend` exercises the services without client assembly, cookies, middleware, or HTTP
+  in five focused unit modules (16 direct uses). This is materially clearer than reconstructing the
+  production runtime for service behavior tests.
+- No cassette changed. The integrated evidence includes 293 focused mutation/backend compatibility
+  tests, 108 operation-catalog tests, 54 backend-boundary/P4 contract tests, the codec/UTF-16 gates,
+  and clean mypy over 368 source files.
+- Independent native review reproduced and fixed three compatibility defects before this decision:
+  empty-title notebook updates, `NotebookLimitError` cause/context preservation, and deadline
+  exhaustion during URL reconciliation. Post-fix focused tests and Ruff are green.
+- The DTO/record/projector layers remove positional wire knowledge from semantic services and make
+  uncertainty explicit. The remaining bridge weight is real, but it is localized in `_web` and the
+  closed compatibility projector rather than duplicated in the public facades.
+- The catalog now resolves the former URL/YouTube hidden-dispatch ambiguity under one operation and
+  records notebook mutation and reconciliation authority explicitly. Public traceback fields and
+  causal relationships are reconstructed from bounded serializable evidence.
+
+**Decision: GO.** Continue to P3/P4. P3 must keep moving wire decoding out of compatibility model
+paths, and P4 must converge the compatibility/error/deadline bridge rather than allowing its current
+size to become a second permanent exception layer.
+
 ### P3 — Separate web codecs from public model projection
 
 **Purpose:** ensure public model compatibility no longer constrains live wire decoding.
