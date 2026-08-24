@@ -12,7 +12,7 @@ from __future__ import annotations
 import reprlib
 from collections.abc import Callable
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any
 
 from .._backend import (
     BackendCapabilities,
@@ -43,6 +43,7 @@ from .._records import (
 )
 from .._rpc_executor import RpcExecutor
 from .._source.listing import SourceLister
+from .._source.upload_payloads import build_template_block
 from .._types.sources import _SOURCE_TYPE_CODE_MAP, SourceType
 from ..exceptions import (
     AuthError,
@@ -166,45 +167,6 @@ def _source_record(source: Source) -> SourceRecord:
         revision_timestamp=source.revision_timestamp,
         last_modified_at=source.last_modified_at,
     )
-
-
-class _DeadlineRpcCaller:
-    """Removal: P3 folds this deadline handoff into direct web bindings."""
-
-    def __init__(
-        self,
-        backend: WebRpcBackend,
-        deadline: RuntimeDeadline | None,
-        operation: Operation,
-    ) -> None:
-        self._backend = backend
-        self._deadline = deadline
-        self._operation = operation
-
-    async def rpc_call(
-        self,
-        method: RPCMethod,
-        params: list[Any],
-        source_path: str = "/",
-        allow_null: bool = False,
-        _is_retry: bool = False,
-        *,
-        disable_internal_retries: bool = False,
-        operation_variant: str | None = None,
-        raise_on_null_status: bool = False,
-    ) -> Any:
-        return await self._backend._rpc_call(
-            method,
-            params,
-            operation=self._operation,
-            deadline=self._deadline,
-            source_path=source_path,
-            allow_null=allow_null,
-            _is_retry=_is_retry,
-            disable_internal_retries=disable_internal_retries,
-            operation_variant=operation_variant,
-            raise_on_null_status=raise_on_null_status,
-        )
 
 
 class WebRpcBackend:
@@ -404,9 +366,16 @@ class WebRpcBackend:
         *,
         deadline: RuntimeDeadline | None,
     ) -> SourceListResult:
-        caller = _DeadlineRpcCaller(self, deadline, Operation.SOURCE_LIST)
-        sources = await SourceLister(cast(Any, caller)).list(
+        notebook = await self._rpc_call(
+            RPCMethod.GET_NOTEBOOK,
+            [value.notebook_id, None, build_template_block(), None, 0],
+            operation=Operation.SOURCE_LIST,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+        )
+        sources = SourceLister(self._executor).normalize(
             value.notebook_id,
+            notebook,
             strict=value.strict,
         )
         records = tuple(_source_record(source) for source in sources)
@@ -422,8 +391,14 @@ class WebRpcBackend:
         *,
         deadline: RuntimeDeadline | None,
     ) -> SourceGetResult:
-        caller = _DeadlineRpcCaller(self, deadline, Operation.SOURCE_GET)
-        sources = await SourceLister(cast(Any, caller)).list(value.notebook_id)
+        notebook = await self._rpc_call(
+            RPCMethod.GET_NOTEBOOK,
+            [value.notebook_id, None, build_template_block(), None, 0],
+            operation=Operation.SOURCE_GET,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+        )
+        sources = SourceLister(self._executor).normalize(value.notebook_id, notebook)
         records = tuple(_source_record(source) for source in sources)
         return SourceGetResult(
             source=next((source for source in records if source.id == value.source_id), None)

@@ -97,16 +97,17 @@ The migration runs P0 through P8, with the runtime collapse in P7 after feature 
 and the web cookie-provider extraction in P8 after P7. P3's codec/model separation is approved;
 it reuses the current strict row-adapter and wire-contract evidence rather than renaming it for its
 own sake. P0's catalog and contract evidence are implemented and frozen. P1 also constructs the
-private, inert `WebRpcBackend` at the shared client-assembly seam and registers typed handlers for
-the upcoming P2.1 notebook/source reads; existing feature facades still dispatch directly through
-`RpcExecutor`, so no production operation delegates through the semantic port yet. The remaining
-phase descriptions are sequencing decisions, not a claim that P2-P8 are complete. P9
+private `WebRpcBackend` at the shared client-assembly seam and registers typed handlers for
+the P2.1 notebook/source reads. Both list/get slices now delegate through their semantic read
+services and that client-owned backend; every other feature remains on its legacy execution path.
+The remaining phase descriptions are sequencing decisions, not a claim that P2.1 as a whole or
+P2-P8 are complete. P9
 public-surface work and a mobile backend require separate decisions.
 
-The P0 operation-catalog audit classifies exactly six P1 web functions (two generic RPC
-forwarders and the four typed handlers) as inert rather than as duplicate execution authorities.
-That bounded classification is mutation-tested and is removed handler-by-handler in P2, in the
-same slice that makes a compatibility facade delegate to the handler.
+The P0 operation-catalog audit now classifies exactly one web function (the generic RPC forwarder)
+as inert rather than as a duplicate execution authority. The four typed handlers are the sole
+notebook/source list/get authorities. That bounded classification is mutation-tested and shrinks in
+the same slice that makes each compatibility facade delegate.
 
 P0 adds four ADR-0022 contract baselines before runtime delegation:
 
@@ -1029,7 +1030,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_operations.py` | Closed P0 semantic vocabulary: `Operation` / `CallPolicy` enums and frozen, slotted, typed `OperationDef`, consumed by the private P1 backend port and registries. |
 | `_projectors.py` | Shared P2.1 compatibility projectors from neutral notebook/source records to the existing public `Notebook` / `Source` models, using their normal constructors and no wire adapters. |
 | `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
-| `_web/backend.py` | P1 web semantic backend over the existing `RpcExecutor`; its first four handlers reuse current payload/row adapters and return neutral records. Existing feature facades do not delegate through it until P2. |
+| `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; its first four handlers reuse current payload/row adapters and return neutral records. Notebook/source list/get are live P2.1 authorities. |
 | `_web/registry.py` | Closed web disposition registry over every `Operation`: four P2.1 read handlers and an explicit unsupported disposition for every other operation. |
 | `scripts/audit_operation_catalog.py` | Single build/audit CLI for the deterministic ADR-0022 projection: exact semantic authorities, native bindings, public/root-client dispositions, evidence, omissions, and divergences. |
 | `scripts/_operation_catalog_specs.py` | Reviewed semantic operation specifications, owners/policies/routes, native/web bindings, public methods, and dispositions. |

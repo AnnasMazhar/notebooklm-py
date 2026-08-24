@@ -13,6 +13,7 @@ from notebooklm.exceptions import RPCError
 from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import SourceStatus
 from notebooklm.types import Source, SourceType
+from tests._fixtures.web_backend import build_web_backend
 
 
 class RecordingRpc:
@@ -350,9 +351,16 @@ async def test_explicit_empty_filter_matches_no_sources() -> None:
 
 @pytest.mark.asyncio
 async def test_sources_api_list_delegates_strict_and_filters() -> None:
-    api = SourcesAPI(MagicMock(), uploader=MagicMock())
-    expected = [Source(id="src_1", _type_code=3, status=SourceStatus.READY)]
-    api._lister.list = AsyncMock(return_value=expected)  # type: ignore[method-assign]
+    rpc = MagicMock(
+        rpc_call=AsyncMock(
+            return_value=[["Notebook", [source_entry("src_1", metadata=[None, 11, None, None, 3])]]]
+        )
+    )
+    api = SourcesAPI(
+        rpc,
+        uploader=MagicMock(),
+        _backend=build_web_backend(rpc),
+    )
 
     result = await api.list(
         "nb_123",
@@ -361,13 +369,18 @@ async def test_sources_api_list_delegates_strict_and_filters() -> None:
         types={SourceType.PDF},
     )
 
-    assert result is expected
-    api._lister.list.assert_awaited_once_with(
-        "nb_123",
-        strict=True,
-        statuses={SourceStatus.READY},
-        types={SourceType.PDF},
+    assert [source.id for source in result] == ["src_1"]
+    assert rpc.rpc_call.await_args.args == (
+        RPCMethod.GET_NOTEBOOK,
+        [
+            "nb_123",
+            None,
+            [2, None, None, [1, None, None, None, None, None, None, None, None, None, [1]]],
+            None,
+            0,
+        ],
     )
+    assert rpc.rpc_call.await_args.kwargs["source_path"] == "/notebook/nb_123"
 
 
 @pytest.mark.asyncio

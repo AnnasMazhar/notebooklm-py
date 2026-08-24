@@ -1580,7 +1580,9 @@
         "_chat/api.py:ChatAPI.get_settings",
         "_notebooks.py:NotebooksAPI.get_raw",
         "_source/listing.py:SourceLister.list",
-        "_web/backend.py:WebRpcBackend._notebook_get"
+        "_web/backend.py:WebRpcBackend._notebook_get",
+        "_web/backend.py:WebRpcBackend._source_get",
+        "_web/backend.py:WebRpcBackend._source_list"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -6553,7 +6555,7 @@
         {
           "binding": "GET_NOTEBOOK:<default>",
           "discriminator": "select exact source id",
-          "site": "_source/listing.py:SourceLister.list",
+          "site": "_web/backend.py:WebRpcBackend._source_get",
           "transport_kind": "rpc"
         }
       ],
@@ -6572,7 +6574,7 @@
       "recency_contract": [
         {
           "authority_sites": [
-            "_source/listing.py:SourceLister.list"
+            "_web/backend.py:WebRpcBackend._source_get"
           ],
           "condition": "always",
           "maximum_calls": 1,
@@ -6670,7 +6672,7 @@
         {
           "binding": "GET_NOTEBOOK:<default>",
           "discriminator": "public=sources.list",
-          "site": "_source/listing.py:SourceLister.list",
+          "site": "_web/backend.py:WebRpcBackend._source_list",
           "transport_kind": "rpc"
         }
       ],
@@ -6688,7 +6690,7 @@
       "recency_contract": [
         {
           "authority_sites": [
-            "_source/listing.py:SourceLister.list"
+            "_web/backend.py:WebRpcBackend._source_list"
           ],
           "condition": "always",
           "maximum_calls": 1,

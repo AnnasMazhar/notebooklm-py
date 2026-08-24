@@ -465,22 +465,15 @@ GENERIC_RPC_FORWARDERS = frozenset(
 )
 
 # P1 constructed the semantic web backend with every handler inert. P2 removes
-# each handler from this set in the same slice that delegates its facade, at
-# which point the handler becomes the catalogued native authority. Notebook
-# list/get are live; the forwarding infrastructure remains inert only because
-# the still-inert source handlers use it.
+# each handler from this set in the same slice that delegates its facade. The
+# notebook and source read handlers are live; only the shared forwarder remains
+# inert until every registered operation has a facade delegation.
 INERT_P1_WEB_FORWARDERS = frozenset(
     {
-        "_web/backend.py:_DeadlineRpcCaller.rpc_call",
         "_web/backend.py:WebRpcBackend._rpc_call",
     }
 )
-INERT_P1_WEB_HANDLERS = frozenset(
-    {
-        "_web/backend.py:WebRpcBackend._source_get",
-        "_web/backend.py:WebRpcBackend._source_list",
-    }
-)
+INERT_P1_WEB_HANDLERS: frozenset[str] = frozenset()
 INERT_P1_WEB_SITES = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
 
 # Removal: P2 deletes one handler exemption and admits the corresponding
@@ -510,6 +503,10 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_read_services.py", "_records", "SOURCE_LIST_DEF"),
         ("_read_services.py", "_records", "SourceGetInput"),
         ("_read_services.py", "_records", "SourceListInput"),
+        ("_sources.py", "_backend", "BackendAdapter"),
+        ("_sources.py", "_backend", "BackendError"),
+        ("_sources.py", "_backend_compat", "project_backend_error"),
+        ("_sources.py", "_read_services", "SourceReadService"),
         ("_web/__init__.py", "backend", "WebRpcBackend"),
         ("_web/backend.py", "_backend", "BackendCapabilities"),
         ("_web/backend.py", "_backend", "BackendContractError"),
@@ -573,14 +570,11 @@ ACTIVE_P2_BACKEND_INVOKE_SITES = frozenset(
     {
         "_read_services.py:NotebookReadService.get",
         "_read_services.py:NotebookReadService.list",
-    }
-)
-INERT_P1_BACKEND_INVOKE_SITES = frozenset(
-    {
         "_read_services.py:SourceReadService.get",
         "_read_services.py:SourceReadService.list",
     }
 )
+INERT_P1_BACKEND_INVOKE_SITES: frozenset[str] = frozenset()
 
 
 def audit_inert_p1_backend_dataflow(
@@ -591,7 +585,7 @@ def audit_inert_p1_backend_dataflow(
     overrides = source_overrides or {}
     observed_imports: set[tuple[str, str, str]] = set()
     invoke_sites: set[str] = set()
-    assembly_backend_bindings: list[int] = []
+    assembly_backend_bindings: list[str] = []
     assembly_backend_escapes: list[int] = []
     assembly_constructor_targets: list[tuple[str, ...]] = []
 
@@ -602,6 +596,34 @@ def audit_inert_p1_backend_dataflow(
         parents = {
             child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)
         }
+
+        class InvokeVisitor(ast.NodeVisitor):
+            def __init__(self, module: str) -> None:
+                self.module = module
+                self.stack: list[str] = []
+
+            def visit_ClassDef(self, node: ast.ClassDef) -> None:
+                self.stack.append(node.name)
+                self.generic_visit(node)
+                self.stack.pop()
+
+            def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+                self.stack.append(node.name)
+                self.generic_visit(node)
+                self.stack.pop()
+
+            def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+                self._visit_function(node)
+
+            def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+                self._visit_function(node)
+
+            def visit_Call(self, node: ast.Call) -> None:
+                if _attribute_parts(node.func)[-1:] == ("invoke",):
+                    invoke_sites.add(f"{self.module}:{_qualname(self.stack)}")
+                self.generic_visit(node)
+
+        InvokeVisitor(relative).visit(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 observed_imports.update(
@@ -639,13 +661,18 @@ def audit_inert_p1_backend_dataflow(
                 ):
                     parent = parents.get(node)
                     call = parents.get(parent) if isinstance(parent, ast.keyword) else None
+                    facade_name = (
+                        _attribute_parts(call.func)[-1]
+                        if isinstance(call, ast.Call) and _attribute_parts(call.func)
+                        else None
+                    )
                     if (
                         isinstance(parent, ast.keyword)
                         and parent.arg == "_backend"
-                        and isinstance(call, ast.Call)
-                        and _attribute_parts(call.func)[-1:] == ("NotebooksAPI",)
+                        and isinstance(facade_name, str)
+                        and facade_name in {"NotebooksAPI", "SourcesAPI"}
                     ):
-                        assembly_backend_bindings.append(node.lineno)
+                        assembly_backend_bindings.append(facade_name)
                     else:
                         assembly_backend_escapes.append(node.lineno)
                 if isinstance(node, ast.Call) and _attribute_parts(node.func)[-1:] == (
@@ -656,34 +683,6 @@ def audit_inert_p1_backend_dataflow(
                     assembly_constructor_targets.extend(
                         _attribute_parts(target) for target in targets
                     )
-
-        class InvokeVisitor(ast.NodeVisitor):
-            def __init__(self, module_path: str) -> None:
-                self.module_path = module_path
-                self.stack: list[str] = []
-
-            def visit_ClassDef(self, node: ast.ClassDef) -> None:
-                self.stack.append(node.name)
-                self.generic_visit(node)
-                self.stack.pop()
-
-            def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
-                self.stack.append(node.name)
-                self.generic_visit(node)
-                self.stack.pop()
-
-            def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-                self._visit_function(node)
-
-            def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-                self._visit_function(node)
-
-            def visit_Call(self, node: ast.Call) -> None:
-                if _attribute_parts(node.func)[-1:] == ("invoke",):
-                    invoke_sites.add(f"{self.module_path}:{_qualname(self.stack)}")
-                self.generic_visit(node)
-
-        InvokeVisitor(relative).visit(tree)
 
     errors: list[str] = []
     if observed_imports != REVIEWED_BACKEND_IMPORTS:
@@ -703,14 +702,15 @@ def audit_inert_p1_backend_dataflow(
         errors.append(
             f"P1 WebRpcBackend construction target changed: {assembly_constructor_targets}"
         )
-    if len(assembly_backend_bindings) != 1:
+    if sorted(assembly_backend_bindings) != ["NotebooksAPI", "SourcesAPI"]:
         errors.append(
-            "P2 notebook backend binding changed: "
-            f"expected=1, actual={len(assembly_backend_bindings)}"
+            "P2 facade backend bindings changed: "
+            f"expected=['NotebooksAPI', 'SourcesAPI'], "
+            f"actual={sorted(assembly_backend_bindings)}"
         )
     if assembly_backend_escapes:
         errors.append(
-            "client._backend escapes the reviewed notebook binding at lines: "
+            "client._backend escapes the reviewed facade bindings at lines: "
             f"{sorted(assembly_backend_escapes)}"
         )
     return errors

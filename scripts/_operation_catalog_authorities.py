@@ -80,10 +80,10 @@ SHARED_RPC_AUTHORITY_RULES: dict[tuple[Operation, NativeKey], tuple[AuthorityRul
         ("_notebooks.py:NotebooksAPI.get_raw", "source_ids is None")
     ),
     (Operation.SOURCE_LIST, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_source/listing.py:SourceLister.list", "public=sources.list")
+        ("_web/backend.py:WebRpcBackend._source_list", "public=sources.list")
     ),
     (Operation.SOURCE_GET, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_source/listing.py:SourceLister.list", "select exact source id")
+        ("_web/backend.py:WebRpcBackend._source_get", "select exact source id")
     ),
     (Operation.SOURCE_ADD_URL, _b(RPCMethod.GET_NOTEBOOK)): _rules(
         ("_source/listing.py:SourceLister.list", "unconditional baseline plus ambiguity probes")
@@ -280,6 +280,8 @@ class RecencyRule:
 _GET_TYPED = "_web/backend.py:WebRpcBackend._notebook_get"
 _GET_RAW = "_notebooks.py:NotebooksAPI.get_raw"
 _GET_SOURCES = "_source/listing.py:SourceLister.list"
+_GET_SOURCE_LIST = "_web/backend.py:WebRpcBackend._source_list"
+_GET_SOURCE = "_web/backend.py:WebRpcBackend._source_get"
 
 
 RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
@@ -334,7 +336,7 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
         ),
     ),
     Operation.SOURCE_LIST: (
-        RecencyRule(_p("sources", "list"), 1, 1, "public_call", "always", (_GET_SOURCES,)),
+        RecencyRule(_p("sources", "list"), 1, 1, "public_call", "always", (_GET_SOURCE_LIST,)),
     ),
     Operation.SOURCE_GET: (
         RecencyRule(
@@ -343,7 +345,7 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             1,
             "public_call",
             "always",
-            (_GET_SOURCES,),
+            (_GET_SOURCE,),
         ),
     ),
     Operation.SOURCE_ADD_TEXT: (
