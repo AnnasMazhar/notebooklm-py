@@ -37,6 +37,8 @@ class BackendErrorReason(str, Enum):
     CLIENT = "client"
     DECODING = "decoding"
     IDEMPOTENCY_VARIANT = "idempotency_variant"
+    LABEL_AMBIGUOUS_CREATE = "label_ambiguous_create"
+    LABEL_NOT_FOUND = "label_not_found"
     NETWORK = "network"
     NOTEBOOK_LIMIT = "notebook_limit"
     NOTEBOOK_NOT_FOUND = "notebook_not_found"

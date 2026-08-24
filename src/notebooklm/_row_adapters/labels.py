@@ -1,4 +1,4 @@
-"""Typed positional view over a raw source-label tuple.
+"""Typed positional views over the shared label/collection row grammar.
 
 Strict-only per ADR-0019/0011: positional descent uses ``safe_index``
 (raises ``UnknownRPCMethodError`` on drift) and type drift raises too. The only
@@ -17,7 +17,7 @@ from typing import Any
 from ..exceptions import UnknownRPCMethodError
 from ..rpc import safe_index
 
-__all__ = ["LabelRow"]
+__all__ = ["CollectionRow", "LabelRow"]
 
 _SRC = "_row_adapters.labels"
 
@@ -75,3 +75,60 @@ class LabelRow:
                 source=_SRC,
             )
         return cls(name=name, source_ids=source_ids, id=label_id, emoji=emoji)
+
+
+@dataclass(frozen=True)
+class CollectionRow:
+    """Typed positional view over a raw collection tuple ``[name, notebook_ids, id, emoji]``.
+
+    Shaped like :class:`LabelRow` only while the group is empty. Once populated
+    the member slot carries *bare* notebook-id strings (``["nb_id", ...]``), not
+    the label's wrapped singletons (``[["src_id"], ...]``) — confirmed live on
+    PR #2009 — so the two rows cannot share one decoder.
+    """
+
+    name: str
+    notebook_ids: tuple[str, ...]
+    id: str
+    emoji: str
+
+    @classmethod
+    def from_collection_tuple(
+        cls, data: list[Any], *, method_id: str | None = None
+    ) -> CollectionRow:
+        # Required positions — safe_index raises UnknownRPCMethodError on drift.
+        name = safe_index(data, 0, method_id=method_id, source=_SRC)
+        members = safe_index(data, 1, method_id=method_id, source=_SRC)  # list OR None
+        collection_id = safe_index(data, 2, method_id=method_id, source=_SRC)
+        emoji = safe_index(data, 3, method_id=method_id, source=_SRC)
+        # Type drift fails loud — do NOT collapse to sentinels (ADR-0019/0011).
+        if not isinstance(name, str) or not isinstance(collection_id, str):
+            raise UnknownRPCMethodError(
+                message="collection tuple name/id not strings",
+                method_id=method_id,
+                source=_SRC,
+            )
+        if members is None:
+            notebook_ids: tuple[str, ...] = ()  # legitimate empty collection
+        elif isinstance(members, list):
+            if not all(isinstance(member, str) for member in members):
+                raise UnknownRPCMethodError(
+                    message="malformed collection member row",
+                    method_id=method_id,
+                    source=_SRC,
+                )
+            notebook_ids = tuple(members)
+        else:
+            raise UnknownRPCMethodError(
+                message="collection notebook_ids slot is neither None nor list",
+                method_id=method_id,
+                source=_SRC,
+            )
+        # Non-string emoji is drift — raise, do not coerce to "".
+        if not isinstance(emoji, str):
+            raise UnknownRPCMethodError(
+                message="collection emoji slot is not a string",
+                method_id=method_id,
+                source=_SRC,
+            )
+        return cls(name=name, notebook_ids=notebook_ids, id=collection_id, emoji=emoji)

@@ -8,13 +8,17 @@ from typing import Any, cast
 import httpx
 
 from ._backend import BackendContractError, BackendError, BackendErrorReason
-from ._records import SourceAddFailureKind, SourceAddFailureRecord
+from ._records import LabelKind, SourceAddFailureKind, SourceAddFailureRecord
 from .exceptions import (
     ArtifactFeatureUnavailableError,
     AuthError,
     ClientError,
+    CollectionError,
+    CollectionNotFoundError,
     DecodingError,
     IdempotencyVariantError,
+    LabelError,
+    LabelNotFoundError,
     NetworkError,
     NotebookLimitError,
     NotebookNotFoundError,
@@ -135,6 +139,18 @@ def _rpc_diagnostics(error: BackendError) -> dict[str, Any]:
         "rpc_code": rpc_code,
         "found_ids": normalized_found_ids,
     }
+
+
+def _label_kind(error: BackendError, diagnostics: Mapping[str, object]) -> LabelKind:
+    """Read the closed label/collection discriminator from backend diagnostics."""
+    raw = _optional(error, diagnostics, "label_kind", str)
+    try:
+        return LabelKind(cast(str, raw))
+    except ValueError as exc:
+        raise BackendContractError(
+            f"invalid label kind discriminator {raw!r}",
+            operation=error.operation,
+        ) from exc
 
 
 def project_backend_error(error: BackendError) -> Exception:
@@ -384,6 +400,33 @@ def project_backend_error(error: BackendError) -> Exception:
                 ),
             ),
         )
+
+    if reason is BackendErrorReason.LABEL_NOT_FOUND:
+        kind = _label_kind(error, diagnostics)
+        label_id = _optional(error, diagnostics, "label_id", str)
+        if label_id is None:
+            raise BackendContractError(
+                "label-not-found compatibility error lacks label_id",
+                operation=error.operation,
+            )
+        method_id = cast(str | None, _optional(error, diagnostics, "method_id", str))
+        # A collection is a label with a distinct discriminator, so one neutral
+        # reason carries both domains; the discriminator picks the exact public
+        # class each facade documented before the migration.
+        not_found = (
+            CollectionNotFoundError(cast(str, label_id), method_id=method_id)
+            if kind is LabelKind.COLLECTION
+            else LabelNotFoundError(cast(str, label_id), method_id=method_id)
+        )
+        return _preserve_outcome(error, not_found)
+    if reason is BackendErrorReason.LABEL_AMBIGUOUS_CREATE:
+        kind = _label_kind(error, diagnostics)
+        ambiguity = (
+            CollectionError(error.message)
+            if kind is LabelKind.COLLECTION
+            else LabelError(error.message)
+        )
+        return _preserve_outcome(error, ambiguity)
 
     rpc = _rpc_diagnostics(error)
     if reason is BackendErrorReason.AUTH:

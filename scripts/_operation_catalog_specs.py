@@ -825,7 +825,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "notebook",
         "Runs the manual-create mode of CreateLabel.",
         _p("labels", "create"),
-        (_b(RPCMethod.CREATE_LABEL),),
+        (_b(RPCMethod.LIST_LABELS), _b(RPCMethod.CREATE_LABEL)),
     ),
     OperationSpec(
         Operation.LABEL_UPDATE,
@@ -835,6 +835,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "Updates fields or source membership through field-mask variants.",
         _p("labels", "update", "rename", "set_emoji", "add_sources", "remove_sources"),
         (
+            _b(RPCMethod.LIST_LABELS),
             _b(RPCMethod.UPDATE_LABEL),
             _b(RPCMethod.UPDATE_LABEL, "add_sources"),
             _b(RPCMethod.UPDATE_LABEL, "remove_sources"),
@@ -884,7 +885,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "account",
         "Creates a type-3 label with a null notebook parent.",
         _p("collections", "create"),
-        (_b(RPCMethod.CREATE_LABEL),),
+        (_b(RPCMethod.LIST_LABELS), _b(RPCMethod.CREATE_LABEL)),
     ),
     OperationSpec(
         Operation.COLLECTION_UPDATE,
@@ -894,6 +895,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "Renames or changes notebook membership through shared label variants.",
         _p("collections", "rename", "add_notebooks", "remove_notebooks"),
         (
+            _b(RPCMethod.LIST_LABELS),
             _b(RPCMethod.UPDATE_LABEL),
             _b(RPCMethod.UPDATE_LABEL, "add_notebooks"),
             _b(RPCMethod.UPDATE_LABEL, "remove_notebooks"),

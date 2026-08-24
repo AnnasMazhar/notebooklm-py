@@ -111,6 +111,86 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
                 _native(RPCMethod.UPDATE_SOURCE, _IDEMPOTENT, "optional title readback"),
             ),
         ),
+        Operation.LABEL_LIST: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (_native(RPCMethod.LIST_LABELS, _IDEMPOTENT, "source-label collection read"),),
+        ),
+        Operation.LABEL_GET: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (_native(RPCMethod.LIST_LABELS, _IDEMPOTENT, "source-label identity scan"),),
+        ),
+        Operation.LABEL_GENERATE: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (_native(RPCMethod.CREATE_LABEL, _NO_RETRY, "automatic source-label grouping"),),
+        ),
+        Operation.LABEL_CREATE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(RPCMethod.LIST_LABELS, _IDEMPOTENT, "pre-create identity baseline"),
+                _native(RPCMethod.CREATE_LABEL, _NO_RETRY, "manual source-label allocation"),
+            ),
+        ),
+        Operation.LABEL_UPDATE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(RPCMethod.LIST_LABELS, _IDEMPOTENT, "preflight and readback"),
+                _native(RPCMethod.UPDATE_LABEL, _IDEMPOTENT, "name/emoji set-op"),
+                _native(
+                    RPCMethod.UPDATE_LABEL,
+                    _NO_RETRY,
+                    "source membership append",
+                    variant="add_sources",
+                ),
+                _native(
+                    RPCMethod.UPDATE_LABEL,
+                    _IDEMPOTENT,
+                    "source membership removal",
+                    variant="remove_sources",
+                ),
+            ),
+        ),
+        Operation.LABEL_DELETE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (_native(RPCMethod.DELETE_LABEL, _NO_RETRY, "batch source-label delete"),),
+        ),
+        Operation.COLLECTION_LIST: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (_native(RPCMethod.LIST_LABELS, _IDEMPOTENT, "account collection read"),),
+        ),
+        Operation.COLLECTION_GET: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (_native(RPCMethod.LIST_LABELS, _IDEMPOTENT, "collection identity scan"),),
+        ),
+        Operation.COLLECTION_CREATE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(RPCMethod.LIST_LABELS, _IDEMPOTENT, "baseline and create readback"),
+                _native(RPCMethod.CREATE_LABEL, _NO_RETRY, "account collection allocation"),
+            ),
+        ),
+        Operation.COLLECTION_UPDATE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(RPCMethod.LIST_LABELS, _IDEMPOTENT, "preflight and readback"),
+                _native(RPCMethod.UPDATE_LABEL, _IDEMPOTENT, "collection field set-op"),
+                _native(
+                    RPCMethod.UPDATE_LABEL,
+                    _NO_RETRY,
+                    "notebook membership append",
+                    variant="add_notebooks",
+                ),
+                _native(
+                    RPCMethod.UPDATE_LABEL,
+                    _IDEMPOTENT,
+                    "notebook membership removal",
+                    variant="remove_notebooks",
+                ),
+            ),
+        ),
+        Operation.COLLECTION_DELETE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (_native(RPCMethod.DELETE_LABEL, _NO_RETRY, "batch collection delete"),),
+        ),
         Operation.ARTIFACT_LIST: WebCallPolicyBinding(
             CallPolicy.READ,
             (

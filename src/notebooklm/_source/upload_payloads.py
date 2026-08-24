@@ -23,7 +23,7 @@ def build_template_block() -> list[Any]:
 
     Shared by ``CREATE_NOTEBOOK`` and every ``ADD_SOURCE`` / ``ADD_SOURCE_FILE``
     variant. This is the same wrapper the label RPCs already send
-    (``_label.params._opts``; its inner ``[1, ..., [1]]`` context block also
+    (``_web.codec.labels._opts``; its inner ``[1, ..., [1]]`` context block also
     appears in ``_settings``). Google's Gemini-3.5 rollout made create/source
     require the full wrapper too — they previously sent a degenerate
     ``[2], [1]`` (create) / ``[2], None, None`` (source) tail, which migrated

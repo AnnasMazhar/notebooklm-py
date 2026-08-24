@@ -16,6 +16,7 @@ from notebooklm.exceptions import (
     UnknownRPCMethodError,
 )
 from notebooklm.rpc import RPCMethod
+from tests._fixtures.web_backend import build_web_backend
 
 
 def _collection_tuple(
@@ -56,6 +57,7 @@ class FakeRpc:
         *,
         disable_internal_retries: bool = False,
         operation_variant: str | None = None,
+        **_transport_kwargs: Any,
     ) -> Any:
         self.calls.append(
             SimpleNamespace(
@@ -83,7 +85,8 @@ def _api(
 ):
     rpc = FakeRpc(responses, sequences)
     list_notebooks = AsyncMock(return_value=notebooks or [])
-    return CollectionsAPI(rpc, list_notebooks=list_notebooks), rpc, list_notebooks
+    api = CollectionsAPI(build_web_backend(rpc), list_notebooks=list_notebooks)
+    return api, rpc, list_notebooks
 
 
 # -- read --------------------------------------------------------------------
@@ -298,6 +301,7 @@ async def test_add_notebooks_is_not_atomic_partial_failure_propagates() -> None:
             *,
             disable_internal_retries=False,
             operation_variant=None,
+            **_transport_kwargs,
         ):  # noqa: E501
             await super().rpc_call(
                 method,
@@ -313,7 +317,7 @@ async def test_add_notebooks_is_not_atomic_partial_failure_propagates() -> None:
             return None
 
     rpc = _RaiseOnSecondUpdate()
-    api = CollectionsAPI(rpc, list_notebooks=AsyncMock(return_value=[]))
+    api = CollectionsAPI(build_web_backend(rpc), list_notebooks=AsyncMock(return_value=[]))
     with pytest.raises(RuntimeError):
         await api.add_notebooks("c1", ["a", "b", "c"])
     updates = [c for c in rpc.calls if c.method == RPCMethod.UPDATE_LABEL]

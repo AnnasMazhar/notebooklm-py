@@ -1,8 +1,8 @@
-"""Exact-payload tests for the source-label RPC param builders."""
+"""Exact-payload tests for the source-label half of the shared label wire codec."""
 
 from __future__ import annotations
 
-from notebooklm._label.params import (
+from notebooklm._web.codec.labels import (
     _opts,
     build_create_label_params,
     build_delete_labels_params,
@@ -24,16 +24,16 @@ def test_opts_is_fresh_each_call() -> None:
     assert a[3] is not b[3]  # nested wrapper not aliased either
 
 
-def test_generate_default_scope_is_unlabeled() -> None:
+def test_generate_defaults_to_the_incremental_scope() -> None:
     assert build_generate_labels_params(NB) == [OPTS, NB, None, None, [0]]
 
 
-def test_generate_scope_all_is_destructive_empty_slot() -> None:
-    assert build_generate_labels_params(NB, scope="all") == [OPTS, NB, None, None, []]
+def test_generate_replace_existing_is_destructive_empty_slot() -> None:
+    assert build_generate_labels_params(NB, replace_existing=True) == [OPTS, NB, None, None, []]
 
 
-def test_generate_scope_unlabeled_explicit() -> None:
-    assert build_generate_labels_params(NB, scope="unlabeled") == [OPTS, NB, None, None, [0]]
+def test_generate_incremental_scope_explicit() -> None:
+    assert build_generate_labels_params(NB, replace_existing=False) == [OPTS, NB, None, None, [0]]
 
 
 def test_create_label_with_emoji() -> None:

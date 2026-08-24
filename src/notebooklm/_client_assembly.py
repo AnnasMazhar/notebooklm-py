@@ -431,8 +431,8 @@ def _assemble_client(
     # Source labels. Takes a narrow ``list_sources`` callable (not the whole
     # SourcesAPI) for the membership->Source join in ``labels.sources()``;
     # wired after ``client.sources`` exists. Same client/bound loop (ADR-0004).
-    client.labels = LabelsAPI(internals.executor, list_sources=client.sources.list)
+    client.labels = LabelsAPI(client._backend, list_sources=client.sources.list)
     # Collections (account-level notebook groups). Takes a narrow ``list_notebooks``
     # callable for the membership->Notebook join in ``collections.notebooks()``;
     # wired after ``client.notebooks`` exists. Same client/bound loop (ADR-0004).
-    client.collections = CollectionsAPI(internals.executor, list_notebooks=client.notebooks.list)
+    client.collections = CollectionsAPI(client._backend, list_notebooks=client.notebooks.list)

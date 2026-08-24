@@ -35,10 +35,10 @@
 | `b7Wfje` | UPDATE_SOURCE | Rename source | `_sources.py` |
 | `tr032e` | GET_SOURCE_GUIDE | Get source summary | `_sources.py` |
 | `hizoJc` | GET_SOURCE | Get clean fulltext content of a source | `_source/content.py` |
-| `agX4Bc` | CREATE_LABEL | AI-generate label groupings and create manual labels | `_labels.py` |
-| `I3xc3c` | LIST_LABELS | List source labels for a notebook | `_labels.py` |
-| `le8sX` | UPDATE_LABEL | Rename label, set emoji, add/remove sources | `_labels.py`, `_label/params.py` |
-| `GyzE7e` | DELETE_LABEL | Delete one or more labels (batch) | `_labels.py` |
+| `agX4Bc` | CREATE_LABEL | AI-generate label groupings and create manual labels/collections | `_web/backend.py`, `_web/codec/labels.py` |
+| `I3xc3c` | LIST_LABELS | List source labels for a notebook, or account collections | `_web/backend.py`, `_web/codec/labels.py` |
+| `le8sX` | UPDATE_LABEL | Rename label/collection, set emoji, add/remove sources or notebooks | `_web/backend.py`, `_web/codec/labels.py` |
+| `GyzE7e` | DELETE_LABEL | Delete one or more labels/collections (batch) | `_web/backend.py`, `_web/codec/labels.py` |
 | `R7cb6c` | CREATE_ARTIFACT | Unified artifact generation | `_artifacts.py` |
 | `gArtLc` | LIST_ARTIFACTS | List artifacts in a notebook | `_artifacts.py` |
 | `V5N4be` | DELETE_ARTIFACT | Delete artifact | `_artifacts.py` |
@@ -741,7 +741,9 @@ Live label-flow notes:
 
 ### RPC: CREATE_LABEL (agX4Bc)
 
-**Source:** `_labels.py::generate()`, `_labels.py::create()` (builders in `_label/params.py`)
+**Source:** `_web/backend.py::WebRpcBackend._label_generate()` / `._label_create()` /
+`._collection_create()` (builders in `_web/codec/labels.py`), reached from
+`labels.generate()` / `labels.create()` / `collections.create()`
 
 A single multi-mode RPC; the mode is selected by which slot is populated. Slot
 `[4]` drives AI auto-labeling (`generate`); slot `[5]` creates manual labels
@@ -762,7 +764,8 @@ params = [OPTS, notebook_id, None, None, None, [["New Label", ""]]]
 
 ### RPC: LIST_LABELS (I3xc3c)
 
-**Source:** `_labels.py::list()`
+**Source:** `_web/backend.py::WebRpcBackend._label_set_list()` (builder:
+`_web/codec/labels.py`), reached from `labels.list()` and `collections.list()`
 
 ```python
 params = [OPTS, notebook_id]
@@ -774,8 +777,11 @@ its source UUIDs, so one `list()` call gives the complete source→label mapping
 
 ### RPC: UPDATE_LABEL (le8sX)
 
-**Source:** `_labels.py::update()`, `rename()`, `set_emoji()`,
-`add_sources()`, `remove_sources()` (builder: `_label/params.py`)
+**Source:** `_web/backend.py::WebRpcBackend._label_update()` and
+`._collection_update()` (builders: `_web/codec/labels.py`), reached from
+`labels.update()` / `rename()` / `set_emoji()` / `add_sources()` /
+`remove_sources()` and `collections.rename()` / `add_notebooks()` /
+`remove_notebooks()`
 
 A unified label-update RPC covering rename, emoji, and source membership. Slot
 `[3]` is a fieldmask `[[name_emoji, sources_add, sources_remove]]`; populate
@@ -807,7 +813,8 @@ wire shape honors only the first id in each group.
 
 ### RPC: DELETE_LABEL (GyzE7e)
 
-**Source:** `_labels.py::delete()`
+**Source:** `_web/backend.py::WebRpcBackend._label_set_delete()` (builder:
+`_web/codec/labels.py`), reached from `labels.delete()` and `collections.delete()`
 
 Batch-capable — label IDs are passed as an array. Deleting a label does **not**
 delete its sources (they become unlabeled).

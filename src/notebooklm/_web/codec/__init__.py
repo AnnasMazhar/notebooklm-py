@@ -3,7 +3,7 @@
 from .artifacts import decode_artifact, decode_mind_map_artifact, decode_report_suggestion
 from .collections import decode_collection
 from .documents import decode_structured_document
-from .labels import decode_label
+from .labels import decode_label, decode_label_create_echo, decode_label_list
 from .notebooks import decode_notebook, decode_notebook_description
 from .notes import decode_created_note, decode_note, decode_notes
 from .sharing import decode_share_status, decode_shared_user
@@ -22,6 +22,8 @@ __all__ = [
     "decode_artifact",
     "decode_collection",
     "decode_label",
+    "decode_label_create_echo",
+    "decode_label_list",
     "decode_mind_map_artifact",
     "decode_notebook",
     "decode_notebook_description",

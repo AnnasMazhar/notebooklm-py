@@ -64,6 +64,17 @@ KNOWN_ACTIVE_SEMANTIC_OPERATIONS: frozenset[Operation] = frozenset(
         Operation.NOTE_CREATE,
         Operation.NOTE_UPDATE,
         Operation.NOTE_DELETE,
+        Operation.LABEL_LIST,
+        Operation.LABEL_GET,
+        Operation.LABEL_GENERATE,
+        Operation.LABEL_CREATE,
+        Operation.LABEL_UPDATE,
+        Operation.LABEL_DELETE,
+        Operation.COLLECTION_LIST,
+        Operation.COLLECTION_GET,
+        Operation.COLLECTION_CREATE,
+        Operation.COLLECTION_UPDATE,
+        Operation.COLLECTION_DELETE,
     }
 )
 
@@ -76,8 +87,6 @@ KNOWN_RPC_CALLER_CONSUMERS: frozenset[tuple[str, str, str]] = frozenset(
         ("_artifact/generation.py", "ArtifactGenerationService.__init__", "rpc"),
         ("_artifacts.py", "ArtifactsAPI.__init__", "rpc"),
         ("_chat/api.py", "ChatAPI.__init__", "rpc"),
-        ("_collections.py", "CollectionsAPI.__init__", "rpc"),
-        ("_labels.py", "LabelsAPI.__init__", "rpc"),
         ("_mind_maps_api.py", "MindMapsAPI.__init__", "rpc"),
         ("_note_service.py", "LegacyNoteBackedService.__init__", "rpc"),
         ("_notebook_metadata.py", "create_default_source_lister", "rpc"),

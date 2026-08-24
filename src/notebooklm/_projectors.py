@@ -11,6 +11,7 @@ from ._records import (
     ArtifactUserStateRecord,
     CollectionRecord,
     GenerationStatusRecord,
+    LabelKind,
     LabelRecord,
     NotebookDescriptionRecord,
     NotebookRecord,
@@ -368,25 +369,32 @@ def project_report_suggestion(record: ReportSuggestionRecord) -> ReportSuggestio
 
 
 def project_label(record: LabelRecord) -> Label:
-    """Construct one public source label."""
+    """Construct one public label from its kind-discriminated record."""
+
+    if record.kind is not LabelKind.SOURCE_LABEL:
+        raise ValueError(f"cannot project {record.kind.value} record as a source Label")
 
     return Label(
         id=record.id,
         name=record.name,
         notebook_id=record.notebook_id,
         emoji=record.emoji,
-        source_ids=list(record.source_ids),
+        source_ids=list(record.member_ids),
     )
 
 
-def project_collection(record: CollectionRecord) -> Collection:
-    """Construct one public notebook collection."""
+def project_collection(record: LabelRecord | CollectionRecord) -> Collection:
+    """Construct one public collection from its kind-discriminated record."""
+
+    if isinstance(record, LabelRecord) and record.kind is not LabelKind.COLLECTION:
+        raise ValueError(f"cannot project {record.kind.value} record as a Collection")
+    member_ids = record.member_ids if isinstance(record, LabelRecord) else record.notebook_ids
 
     return Collection(
         id=record.id,
         name=record.name,
         emoji=record.emoji,
-        notebook_ids=list(record.notebook_ids),
+        notebook_ids=list(member_ids),
     )
 
 

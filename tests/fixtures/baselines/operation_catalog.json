@@ -228,6 +228,186 @@
         }
       ]
     },
+    "collection.create": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "baseline and create readback",
+          "rpc_method": "LIST_LABELS",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "account collection allocation",
+          "rpc_method": "CREATE_LABEL",
+          "variant": null
+        }
+      ]
+    },
+    "collection.delete": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "batch collection delete",
+          "rpc_method": "DELETE_LABEL",
+          "variant": null
+        }
+      ]
+    },
+    "collection.get": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "collection identity scan",
+          "rpc_method": "LIST_LABELS",
+          "variant": null
+        }
+      ]
+    },
+    "collection.list": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "account collection read",
+          "rpc_method": "LIST_LABELS",
+          "variant": null
+        }
+      ]
+    },
+    "collection.update": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "preflight and readback",
+          "rpc_method": "LIST_LABELS",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "collection field set-op",
+          "rpc_method": "UPDATE_LABEL",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "notebook membership append",
+          "rpc_method": "UPDATE_LABEL",
+          "variant": "add_notebooks"
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "notebook membership removal",
+          "rpc_method": "UPDATE_LABEL",
+          "variant": "remove_notebooks"
+        }
+      ]
+    },
+    "label.create": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "pre-create identity baseline",
+          "rpc_method": "LIST_LABELS",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "manual source-label allocation",
+          "rpc_method": "CREATE_LABEL",
+          "variant": null
+        }
+      ]
+    },
+    "label.delete": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "batch source-label delete",
+          "rpc_method": "DELETE_LABEL",
+          "variant": null
+        }
+      ]
+    },
+    "label.generate": {
+      "call_policy": "stateful_start",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "automatic source-label grouping",
+          "rpc_method": "CREATE_LABEL",
+          "variant": null
+        }
+      ]
+    },
+    "label.get": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "source-label identity scan",
+          "rpc_method": "LIST_LABELS",
+          "variant": null
+        }
+      ]
+    },
+    "label.list": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "source-label collection read",
+          "rpc_method": "LIST_LABELS",
+          "variant": null
+        }
+      ]
+    },
+    "label.update": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "preflight and readback",
+          "rpc_method": "LIST_LABELS",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "name/emoji set-op",
+          "rpc_method": "UPDATE_LABEL",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "source membership append",
+          "rpc_method": "UPDATE_LABEL",
+          "variant": "add_sources"
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "source membership removal",
+          "rpc_method": "UPDATE_LABEL",
+          "variant": "remove_sources"
+        }
+      ]
+    },
     "note.create": {
       "call_policy": "mutation",
       "known_divergence": null,
@@ -1279,9 +1459,9 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_collections.py:CollectionsAPI.create",
-        "_labels.py:LabelsAPI.create",
-        "_labels.py:LabelsAPI.generate"
+        "_web/backend.py:WebRpcBackend._collection_create",
+        "_web/backend.py:WebRpcBackend._label_create",
+        "_web/backend.py:WebRpcBackend._label_generate"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -1585,8 +1765,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_collections.py:CollectionsAPI.delete",
-        "_labels.py:LabelsAPI.delete"
+        "_web/backend.py:WebRpcBackend._label_set_delete"
       ],
       "golden_disposition": "golden_exempt",
       "golden_evidence": "success contract returns None; the response carries no decodable row to pin",
@@ -2529,8 +2708,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_collections.py:CollectionsAPI.list",
-        "_labels.py:LabelsAPI.list"
+        "_web/backend.py:WebRpcBackend._label_set_list"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -2571,12 +2749,16 @@
       "rpc_id": "I3xc3c",
       "rpc_method": "LIST_LABELS",
       "semantic_operations": [
+        "collection.create",
         "collection.get",
         "collection.list",
         "collection.notebooks",
+        "collection.update",
+        "label.create",
         "label.get",
         "label.list",
-        "label.sources"
+        "label.sources",
+        "label.update"
       ],
       "variant": null
     },
@@ -3259,8 +3441,8 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_collections.py:CollectionsAPI.rename",
-        "_labels.py:LabelsAPI.update"
+        "_web/backend.py:WebRpcBackend._collection_update",
+        "_web/backend.py:WebRpcBackend._label_update"
       ],
       "golden_disposition": "golden_exempt",
       "golden_evidence": "client discards this RPC's response; any returned object is decoded from a separate (golden-covered) read RPC",
@@ -3303,7 +3485,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_collections.py:CollectionsAPI.add_notebooks"
+        "_web/backend.py:WebRpcBackend._collection_update"
       ],
       "golden_disposition": "golden_exempt",
       "golden_evidence": "client discards this RPC's response; any returned object is decoded from a separate (golden-covered) read RPC",
@@ -3343,7 +3525,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_labels.py:LabelsAPI.add_sources"
+        "_web/backend.py:WebRpcBackend._label_update"
       ],
       "golden_disposition": "golden_exempt",
       "golden_evidence": "client discards this RPC's response; any returned object is decoded from a separate (golden-covered) read RPC",
@@ -3383,7 +3565,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_collections.py:CollectionsAPI.remove_notebooks"
+        "_web/backend.py:WebRpcBackend._collection_update"
       ],
       "golden_disposition": "golden_exempt",
       "golden_evidence": "client discards this RPC's response; any returned object is decoded from a separate (golden-covered) read RPC",
@@ -3423,7 +3605,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_labels.py:LabelsAPI.remove_sources"
+        "_web/backend.py:WebRpcBackend._label_update"
       ],
       "golden_disposition": "golden_exempt",
       "golden_evidence": "client discards this RPC's response; any returned object is decoded from a separate (golden-covered) read RPC",
@@ -4828,7 +5010,13 @@
         {
           "binding": "CREATE_LABEL:<default>",
           "discriminator": "label_type=collection",
-          "site": "_collections.py:CollectionsAPI.create",
+          "site": "_web/backend.py:WebRpcBackend._collection_create",
+          "transport_kind": "rpc"
+        },
+        {
+          "binding": "LIST_LABELS:<default>",
+          "discriminator": "baseline/create readback",
+          "site": "_web/backend.py:WebRpcBackend._label_set_list",
           "transport_kind": "rpc"
         }
       ],
@@ -4836,7 +5024,8 @@
       "known_divergence": null,
       "known_divergence_kind": null,
       "native_bindings": [
-        "CREATE_LABEL:<default>"
+        "CREATE_LABEL:<default>",
+        "LIST_LABELS:<default>"
       ],
       "owner": "CollectionService",
       "policy": "mutation",
@@ -4859,7 +5048,7 @@
         {
           "binding": "DELETE_LABEL:<default>",
           "discriminator": "label_type=collection",
-          "site": "_collections.py:CollectionsAPI.delete",
+          "site": "_web/backend.py:WebRpcBackend._label_set_delete",
           "transport_kind": "rpc"
         }
       ],
@@ -4888,7 +5077,7 @@
         {
           "binding": "LIST_LABELS:<default>",
           "discriminator": "select collection id",
-          "site": "_collections.py:CollectionsAPI.list",
+          "site": "_web/backend.py:WebRpcBackend._label_set_list",
           "transport_kind": "rpc"
         }
       ],
@@ -4921,7 +5110,7 @@
         {
           "binding": "LIST_LABELS:<default>",
           "discriminator": "label_type=collection",
-          "site": "_collections.py:CollectionsAPI.list",
+          "site": "_web/backend.py:WebRpcBackend._label_set_list",
           "transport_kind": "rpc"
         }
       ],
@@ -4952,7 +5141,7 @@
         {
           "binding": "LIST_LABELS:<default>",
           "discriminator": "resolve collection membership",
-          "site": "_collections.py:CollectionsAPI.list",
+          "site": "_web/backend.py:WebRpcBackend._label_set_list",
           "transport_kind": "rpc"
         },
         {
@@ -4992,21 +5181,27 @@
       "disposition": "semantic",
       "execution_authorities": [
         {
+          "binding": "LIST_LABELS:<default>",
+          "discriminator": "update preflight/readback",
+          "site": "_web/backend.py:WebRpcBackend._label_set_list",
+          "transport_kind": "rpc"
+        },
+        {
           "binding": "UPDATE_LABEL:<default>",
           "discriminator": "collection name mutation",
-          "site": "_collections.py:CollectionsAPI.rename",
+          "site": "_web/backend.py:WebRpcBackend._collection_update",
           "transport_kind": "rpc"
         },
         {
           "binding": "UPDATE_LABEL:add_notebooks",
           "discriminator": "direct semantic binding",
-          "site": "_collections.py:CollectionsAPI.add_notebooks",
+          "site": "_web/backend.py:WebRpcBackend._collection_update",
           "transport_kind": "rpc"
         },
         {
           "binding": "UPDATE_LABEL:remove_notebooks",
           "discriminator": "direct semantic binding",
-          "site": "_collections.py:CollectionsAPI.remove_notebooks",
+          "site": "_web/backend.py:WebRpcBackend._collection_update",
           "transport_kind": "rpc"
         }
       ],
@@ -5014,6 +5209,7 @@
       "known_divergence": null,
       "known_divergence_kind": null,
       "native_bindings": [
+        "LIST_LABELS:<default>",
         "UPDATE_LABEL:<default>",
         "UPDATE_LABEL:add_notebooks",
         "UPDATE_LABEL:remove_notebooks"
@@ -5041,7 +5237,13 @@
         {
           "binding": "CREATE_LABEL:<default>",
           "discriminator": "label_type=source",
-          "site": "_labels.py:LabelsAPI.create",
+          "site": "_web/backend.py:WebRpcBackend._label_create",
+          "transport_kind": "rpc"
+        },
+        {
+          "binding": "LIST_LABELS:<default>",
+          "discriminator": "pre-create identity baseline",
+          "site": "_web/backend.py:WebRpcBackend._label_set_list",
           "transport_kind": "rpc"
         }
       ],
@@ -5049,7 +5251,8 @@
       "known_divergence": null,
       "known_divergence_kind": null,
       "native_bindings": [
-        "CREATE_LABEL:<default>"
+        "CREATE_LABEL:<default>",
+        "LIST_LABELS:<default>"
       ],
       "owner": "LabelService",
       "policy": "mutation",
@@ -5072,7 +5275,7 @@
         {
           "binding": "DELETE_LABEL:<default>",
           "discriminator": "label_type=source",
-          "site": "_labels.py:LabelsAPI.delete",
+          "site": "_web/backend.py:WebRpcBackend._label_set_delete",
           "transport_kind": "rpc"
         }
       ],
@@ -5103,7 +5306,7 @@
         {
           "binding": "CREATE_LABEL:<default>",
           "discriminator": "label_mode=auto-group",
-          "site": "_labels.py:LabelsAPI.generate",
+          "site": "_web/backend.py:WebRpcBackend._label_generate",
           "transport_kind": "rpc"
         }
       ],
@@ -5132,7 +5335,7 @@
         {
           "binding": "LIST_LABELS:<default>",
           "discriminator": "select source-label id",
-          "site": "_labels.py:LabelsAPI.list",
+          "site": "_web/backend.py:WebRpcBackend._label_set_list",
           "transport_kind": "rpc"
         }
       ],
@@ -5164,7 +5367,7 @@
         {
           "binding": "LIST_LABELS:<default>",
           "discriminator": "label_type=source",
-          "site": "_labels.py:LabelsAPI.list",
+          "site": "_web/backend.py:WebRpcBackend._label_set_list",
           "transport_kind": "rpc"
         }
       ],
@@ -5196,13 +5399,13 @@
         {
           "binding": "GET_NOTEBOOK:<default>",
           "discriminator": "resolve label source ids",
-          "site": "_source/listing.py:SourceLister.list",
+          "site": "_web/backend.py:WebRpcBackend._source_list",
           "transport_kind": "rpc"
         },
         {
           "binding": "LIST_LABELS:<default>",
           "discriminator": "resolve source-label membership",
-          "site": "_labels.py:LabelsAPI.list",
+          "site": "_web/backend.py:WebRpcBackend._label_set_list",
           "transport_kind": "rpc"
         }
       ],
@@ -5240,21 +5443,27 @@
       "disposition": "semantic",
       "execution_authorities": [
         {
+          "binding": "LIST_LABELS:<default>",
+          "discriminator": "update preflight/readback",
+          "site": "_web/backend.py:WebRpcBackend._label_set_list",
+          "transport_kind": "rpc"
+        },
+        {
           "binding": "UPDATE_LABEL:<default>",
           "discriminator": "label field-mask mutation",
-          "site": "_labels.py:LabelsAPI.update",
+          "site": "_web/backend.py:WebRpcBackend._label_update",
           "transport_kind": "rpc"
         },
         {
           "binding": "UPDATE_LABEL:add_sources",
           "discriminator": "direct semantic binding",
-          "site": "_labels.py:LabelsAPI.add_sources",
+          "site": "_web/backend.py:WebRpcBackend._label_update",
           "transport_kind": "rpc"
         },
         {
           "binding": "UPDATE_LABEL:remove_sources",
           "discriminator": "direct semantic binding",
-          "site": "_labels.py:LabelsAPI.remove_sources",
+          "site": "_web/backend.py:WebRpcBackend._label_update",
           "transport_kind": "rpc"
         }
       ],
@@ -5262,6 +5471,7 @@
       "known_divergence": null,
       "known_divergence_kind": null,
       "native_bindings": [
+        "LIST_LABELS:<default>",
         "UPDATE_LABEL:<default>",
         "UPDATE_LABEL:add_sources",
         "UPDATE_LABEL:remove_sources"
