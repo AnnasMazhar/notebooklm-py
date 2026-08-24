@@ -15,6 +15,8 @@ PRODUCTION_STATE_FILES = [
     *sorted((ROOT / "src/notebooklm/_middleware").glob("*.py")),
     ROOT / "src/notebooklm/_runtime/transport.py",
 ]
+
+
 def _mutable_context_accesses(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     try:

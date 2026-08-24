@@ -266,9 +266,7 @@ def audit_operation_catalog() -> list[str]:
 
     override_honored, _evidence = _override_honored()
     if not override_honored:
-        errors.append(
-            "WebExecutionRuntime must call resolve_rpc_id exactly once per binding path"
-        )
+        errors.append("WebExecutionRuntime must call resolve_rpc_id exactly once per binding path")
 
     for feature, operations in GREENFIELD_OMISSION_COVERAGE.items():
         absent = [

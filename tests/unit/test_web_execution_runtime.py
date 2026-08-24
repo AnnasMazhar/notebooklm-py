@@ -48,4 +48,3 @@ async def test_backend_semantic_dispatch_uses_owned_runtime_and_parent_deadline(
     assert len(owner.perform_calls) == 1
     assert owner.perform_calls[0]["retry_deadline"] is deadline
     assert owner.perform_calls[0]["read_timeout"] <= deadline.timeout
-

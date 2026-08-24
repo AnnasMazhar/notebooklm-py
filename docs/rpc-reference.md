@@ -509,8 +509,15 @@ params = [
 # Drive source structure - single-wrapped (not double!)
 source_data = [
     [file_id, mime_type, 1, title],  # 0: File info
-    None, None, None, None, None,  # 1-5: Padding
-    None, None, None, None,  # 6-9: Padding
+    None,
+    None,
+    None,
+    None,
+    None,  # 1-5: Padding
+    None,
+    None,
+    None,
+    None,  # 6-9: Padding
     1,  # 10: Trailing flag
 ]
 params = [
@@ -1521,8 +1528,16 @@ params = [
         None,  # [1]
         7,  # [2]: ArtifactTypeCode.INFOGRAPHIC
         source_ids_triple,  # [3]
-        None, None, None, None, None,  # [4-8]: Padding
-        None, None, None, None, None,  # [9-13]: Padding
+        None,
+        None,
+        None,
+        None,
+        None,  # [4-8]: Padding
+        None,
+        None,
+        None,
+        None,
+        None,  # [9-13]: Padding
         [[instructions, language, None, orientation_code, detail_code, style_code]],  # [14]
     ],
 ]
@@ -1548,8 +1563,18 @@ params = [
         None,  # [1]
         8,  # [2]: ArtifactTypeCode.SLIDE_DECK
         source_ids_triple,  # [3]
-        None, None, None, None, None, None,  # [4-9]: Padding
-        None, None, None, None, None, None,  # [10-15]: Padding
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,  # [4-9]: Padding
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,  # [10-15]: Padding
         [[instructions, language, format_code, length_code]],  # [16]
     ],
 ]
@@ -1568,8 +1593,20 @@ params = [
         None,  # [1]
         9,  # [2]: ArtifactTypeCode.DATA_TABLE
         source_ids_triple,  # [3]
-        None, None, None, None, None, None, None,  # [4-10]: Padding
-        None, None, None, None, None, None, None,  # [11-17]: Padding
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,  # [4-10]: Padding
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,  # [11-17]: Padding
         [None, [instructions, language]],  # [18]
     ],
 ]
