@@ -145,6 +145,7 @@ KNOWN_WEB_PACKAGE_FIRST_PARTY_IMPORTS: frozenset[str] = frozenset(
         "_web.deadline_rpc",
         "_web.deadlines",
         "_web.error_policy",
+        "_web.failure_projection",
         "_web.labels",
         "_web.policy",
         "_web.registry",
