@@ -17,6 +17,7 @@ from notebooklm._backend import (
     BackendKind,
     UnsupportedOperationError,
 )
+from notebooklm._backend_compat import project_backend_error
 from notebooklm._deadline import RuntimeDeadline
 from notebooklm._notebook_payloads import (
     build_create_notebook_params,
@@ -71,6 +72,7 @@ from notebooklm.exceptions import (
     ClientError,
     DecodingError,
     NetworkError,
+    NotebookNotFoundError,
     RateLimitError,
     RPCError,
     RPCResponseTooLargeError,
@@ -390,6 +392,35 @@ async def test_notebook_title_update_mutates_then_reads_back() -> None:
     assert executor.calls[0].kwargs["source_path"] == "/"
     assert executor.calls[0].kwargs["allow_null"] is True
     assert executor.calls[1].kwargs["source_path"] == "/notebook/nb-1"
+
+
+@pytest.mark.asyncio
+async def test_notebook_update_readback_not_found_preserves_public_error_context() -> None:
+    original = ClientError(
+        "not found",
+        status_code=404,
+        method_id=RPCMethod.GET_NOTEBOOK.value,
+        raw_response="scrubbed response",
+        rpc_code=5,
+    )
+    executor = _RecordingExecutor(None, original)
+
+    with pytest.raises(BackendError) as exc_info:
+        await _backend(executor).invoke(
+            NOTEBOOK_UPDATE_DEF,
+            NotebookUpdateInput("nb-missing", title="Renamed"),
+            deadline=None,
+        )
+
+    projected = project_backend_error(exc_info.value)
+
+    assert isinstance(projected, NotebookNotFoundError)
+    assert projected.notebook_id == "nb-missing"
+    assert projected.method_id == RPCMethod.GET_NOTEBOOK.value
+    assert isinstance(projected.__cause__, ClientError)
+    assert projected.__cause__.status_code == 404
+    assert projected.__cause__.rpc_code == 5
+    assert projected.__cause__.raw_response == "scrubbed response"
 
 
 @pytest.mark.asyncio

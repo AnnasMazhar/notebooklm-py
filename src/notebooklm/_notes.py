@@ -56,9 +56,8 @@ class NotesAPI:
         """Initialize the notes API.
 
         Args:
-            notes: Backend note-row primitives. Owns
-                ``fetch_note_rows`` / ``classify_row`` / ``create_note``
-                / ``update_note`` / ``delete_note``.
+            notes: Transport-neutral plain-note service. Owns typed
+                list/get/create/update/delete dispatch through the semantic backend.
             mind_maps: Mind-map-only facade backed by ``notes``. Owns
                 the ``list_mind_maps`` / ``delete_mind_map`` paths the
                 public ``NotesAPI`` surface forwards through.
@@ -80,17 +79,6 @@ class NotesAPI:
             List of Note objects.
         """
         logger.debug("Listing notes in notebook: %s", notebook_id)
-        raw_lookup = self._get_all_notes_and_mind_maps
-        if getattr(raw_lookup, "__func__", None) is not _ORIGINAL_NOTES_RAW_LOOKUP:
-            notes: list[Note] = []
-            for item in await raw_lookup(notebook_id):
-                if self._is_deleted(item):
-                    continue
-                content = self._extract_content(item)
-                if NoteRow.is_mind_map_content(content):
-                    continue
-                notes.append(self._parse_note(item, notebook_id))
-            return notes
         try:
             return await self._notes.list_notes(notebook_id)
         except BackendError as error:
@@ -136,12 +124,6 @@ class NotesAPI:
         Returns:
             The :class:`~notebooklm.types.Note`, or ``None`` if not found.
         """
-        raw_lookup = self._get_all_notes_and_mind_maps
-        if getattr(raw_lookup, "__func__", None) is not _ORIGINAL_NOTES_RAW_LOOKUP:
-            for item in await raw_lookup(notebook_id):
-                if isinstance(item, list) and item and NoteRow(item).id == note_id:
-                    return self._parse_note(item, notebook_id)
-            return None
         try:
             return await self._notes.get_note_or_none(notebook_id, note_id)
         except BackendError as error:
@@ -328,6 +310,3 @@ class NotesAPI:
             content=row.content or "",
             created_at=row.created_at,
         )
-
-
-_ORIGINAL_NOTES_RAW_LOOKUP = NotesAPI._get_all_notes_and_mind_maps

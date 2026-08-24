@@ -10053,7 +10053,7 @@
               "notebooklm/cli/_source_render.py:SourceWaitProcessingError"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_source/polling.py:SourceProcessingError(source_id, source.status)": "sha256:7f721f20d3eeb03ca8abb2a5fdbf2ef1867fdb00a782ed8b7faeeee4c457fed4",
+              "notebooklm/_source/polling.py:SourceProcessingError(source_id, source.status)": "sha256:dcc3057822eb365e61f6c119fa7542ad2c621024cc459c0274bb6a1f4838f727",
               "notebooklm/cli/_source_render.py:SourceWaitProcessingError": "sha256:349e14b8d4fd53ea74d1af20651404d772f78349d5cedcda22ddbe00e81785b9"
             },
             "id": "cli.Source.transitive-wait-processing-error-final-wrapper",

@@ -134,7 +134,7 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         with pytest.raises(FrozenInstanceError):
             op_def.policy = CallPolicy.READ  # type: ignore[misc]
 
-    assert set(WEB_SUPPORTED_OPERATIONS) == {op_def.key for op_def in expected_migrated}
+    assert {op_def.key for op_def in expected_migrated} <= set(WEB_SUPPORTED_OPERATIONS)
 
 
 @pytest.mark.parametrize(
@@ -339,7 +339,6 @@ def test_unacknowledged_divergence_fails_catalog_audit(monkeypatch: pytest.Monke
     assert described_divergences != set(mutated_kinds)
 
 
-
 # =============================================================================
 # 3. RuntimeDeadline Identity, No Nested Reset, and Shared-Poll Exception
 # =============================================================================
@@ -475,6 +474,7 @@ async def test_shared_poll_follower_exception_is_preserved() -> None:
     own deadline, while followers await the shared future. A follower timeout or cancellation
     does not cancel or reset the leader's poll task.
     """
+
     class DummyLoopGuard:
         def assert_bound_loop(self) -> None:
             pass

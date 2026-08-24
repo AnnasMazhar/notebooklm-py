@@ -27,7 +27,7 @@ from notebooklm._note_service import LegacyNoteBackedService
 from notebooklm._notebooks import NotebooksAPI
 from notebooklm._sources import SourcesAPI
 from notebooklm.exceptions import ClientError, NotebookNotFoundError, RPCError
-from notebooklm.types import MindMap, MindMapKind, Source
+from notebooklm.types import MindMap, MindMapKind, Note, Source
 from tests._fixtures.web_backend import build_web_backend
 
 # ---------------------------------------------------------------------------
@@ -94,6 +94,7 @@ def artifacts_api():
         notebooks=notebooks,
         mind_maps=mind_maps,
         note_service=MagicMock(spec=LegacyNoteBackedService),
+        _backend=build_web_backend(core.rpc_executor),
     )
 
 
@@ -278,7 +279,7 @@ class TestArtifactsGetOrNone:
     async def test_returns_artifact_on_hit(self, artifacts_api):
         found = MagicMock()
         found.id = "art_1"
-        artifacts_api.list = AsyncMock(return_value=[found])
+        artifacts_api._catalog = MagicMock(get_or_none=AsyncMock(return_value=found))
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
             result = await artifacts_api.get_or_none("nb_1", "art_1")
@@ -286,7 +287,7 @@ class TestArtifactsGetOrNone:
 
     @pytest.mark.asyncio
     async def test_returns_none_on_miss(self, artifacts_api):
-        artifacts_api.list = AsyncMock(return_value=[])
+        artifacts_api._catalog = MagicMock(get_or_none=AsyncMock(return_value=None))
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
             result = await artifacts_api.get_or_none("nb_1", "missing")
@@ -294,7 +295,7 @@ class TestArtifactsGetOrNone:
 
     @pytest.mark.asyncio
     async def test_propagates_rpc_error(self, artifacts_api):
-        artifacts_api.list = AsyncMock(side_effect=RPCError("boom"))
+        artifacts_api._catalog = MagicMock(get_or_none=AsyncMock(side_effect=RPCError("boom")))
         with pytest.raises(RPCError):
             await artifacts_api.get_or_none("nb_1", "art_1")
 
@@ -307,41 +308,31 @@ class TestArtifactsGetOrNone:
 class TestNotesGetOrNone:
     @pytest.mark.asyncio
     async def test_returns_note_on_hit(self, notes_api):
-        notes_api._get_all_notes_and_mind_maps = AsyncMock(
-            return_value=[["note_1", ["note_1", "Body", None, None, "Title"]]]
-        )
+        found = Note(id="note_1", notebook_id="nb_1", title="Title", content="Body")
+        notes_api._notes = MagicMock(get_note_or_none=AsyncMock(return_value=found))
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
             result = await notes_api.get_or_none("nb_1", "note_1")
-        assert result is not None
-        assert result.id == "note_1"
+        assert result is found
 
     @pytest.mark.asyncio
     async def test_returns_none_on_miss(self, notes_api):
-        notes_api._get_all_notes_and_mind_maps = AsyncMock(return_value=[])
+        notes_api._notes = MagicMock(get_note_or_none=AsyncMock(return_value=None))
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
             result = await notes_api.get_or_none("nb_1", "missing")
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_id_match_reads_through_note_row_adapter(self, notes_api):
-        """The id-slot comparison goes through ``NoteRow.id`` (#1485).
-
-        ``NoteRow.id`` stringifies the raw slot (the unified ``SourceRow.id``
-        convention), so a non-string wire id still matches its string form
-        instead of silently flipping a found note to not-found.
-        """
-        notes_api._get_all_notes_and_mind_maps = AsyncMock(
-            return_value=[[12345, ["12345", "Body", None, None, "Title"]]]
-        )
+    async def test_returns_semantic_service_projection_unchanged(self, notes_api):
+        found = Note(id="12345", notebook_id="nb_1", title="Title", content="Body")
+        notes_api._notes = MagicMock(get_note_or_none=AsyncMock(return_value=found))
         result = await notes_api.get_or_none("nb_1", "12345")
-        assert result is not None
-        assert result.id == "12345"
+        assert result is found
 
     @pytest.mark.asyncio
     async def test_propagates_rpc_error(self, notes_api):
-        notes_api._get_all_notes_and_mind_maps = AsyncMock(side_effect=RPCError("boom"))
+        notes_api._notes = MagicMock(get_note_or_none=AsyncMock(side_effect=RPCError("boom")))
         with pytest.raises(RPCError):
             await notes_api.get_or_none("nb_1", "note_1")
 

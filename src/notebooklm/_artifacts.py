@@ -115,6 +115,7 @@ class ArtifactsAPI:
                 call site that the generation service's ``generate_mind_map``
                 uses to persist generated mind maps.
             storage_path: Path to storage state file for loading download cookies.
+            _backend: Private semantic backend used by Studio catalog reads.
         """
         self._rpc = rpc
         self._drain = drain
@@ -162,9 +163,12 @@ class ArtifactsAPI:
         if self._catalog is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
         try:
+            family = (
+                None if artifact_type is None else getattr(artifact_type, "value", artifact_type)
+            )
             return await self._catalog.list(
                 notebook_id,
-                None if artifact_type is None else artifact_type.value,
+                family,
             )
         except BackendError as error:
             raise project_backend_error(error) from None

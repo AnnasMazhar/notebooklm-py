@@ -723,7 +723,7 @@ async def test_sources_api_add_url_uses_only_the_semantic_service() -> None:
     api._url_mutation_service.add_url.assert_awaited_once()
     assert api._url_mutation_service.add_url.await_args.kwargs["wait"] is True
     assert api._url_mutation_service.add_url.await_args.kwargs["wait_timeout"] == 3.0
-    assert api._url_mutation_service.add_url.await_args.kwargs["deadline"] is not None
+    assert api._url_mutation_service.add_url.await_args.kwargs["deadline"] is None
     api._add_youtube_source.assert_not_awaited()
     api._add_url_source.assert_not_awaited()
 

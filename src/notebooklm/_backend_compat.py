@@ -168,13 +168,48 @@ def project_backend_error(error: BackendError) -> Exception:
                 "notebook-not-found compatibility error lacks notebook_id",
                 operation=error.operation,
             )
-        return _preserve_outcome(
-            error,
-            NotebookNotFoundError(
-                cast(str, notebook_id),
-                method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
-            ),
+        method_id = cast(str | None, _optional(error, diagnostics, "method_id", str))
+        raw_response = cast(str | None, _optional(error, diagnostics, "raw_response", str))
+        rpc_code = cast(
+            str | int | None,
+            _optional(error, diagnostics, "rpc_code", (str, int)),
         )
+        found_ids = diagnostics.get("found_ids")
+        if found_ids is None:
+            normalized_found_ids: list[str] = []
+        elif isinstance(found_ids, list) and all(isinstance(item, str) for item in found_ids):
+            normalized_found_ids = found_ids
+        else:
+            raise BackendContractError(
+                "notebook-not-found found_ids must be list[str] or None",
+                operation=error.operation,
+            )
+        detail = cast(str | None, _optional(error, diagnostics, "detail", str))
+        not_found_projected = NotebookNotFoundError(
+            cast(str, notebook_id),
+            method_id=method_id,
+            raw_response=raw_response,
+            rpc_code=rpc_code,
+            found_ids=normalized_found_ids,
+            detail=detail,
+        )
+        not_found_original_message = cast(
+            str | None,
+            _optional(error, diagnostics, "original_message", str),
+        )
+        if not_found_original_message is not None:
+            not_found_original = ClientError(
+                not_found_original_message,
+                status_code=_required_int(error, diagnostics, "status_code"),
+                method_id=method_id,
+                raw_response=raw_response,
+                rpc_code=rpc_code,
+                found_ids=normalized_found_ids,
+            )
+            not_found_projected.__cause__ = not_found_original
+            not_found_projected.__context__ = not_found_original
+            not_found_projected.__suppress_context__ = True
+        return _preserve_outcome(error, not_found_projected)
     if reason is BackendErrorReason.NOTEBOOK_LIMIT:
         current_count = _required_int(error, diagnostics, "current_count")
         if current_count is None:

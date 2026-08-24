@@ -144,6 +144,7 @@ class SourceRecord:
     url: str | None = None
     kind: str = "unknown"
     unrecognized_kind: int | str | None = None
+    kind_present: bool = True
     created_at: datetime | None = None
     status: str = "unknown"
     drive_document_id: str | None = None
@@ -155,7 +156,6 @@ class SourceRecord:
     revision_id: str | None = None
     revision_timestamp: datetime | None = None
     last_modified_at: datetime | None = None
-    kind_present: bool = True
 
 
 @dataclass(frozen=True, slots=True)

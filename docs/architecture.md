@@ -101,13 +101,14 @@ private `WebRpcBackend` at the shared client-assembly seam and registers typed h
 the P2.1 notebook/source reads, P2.2 notebook mutations, P2.3 URL/YouTube registration, P5.1 Studio
 catalog reads, and P6.3 plain-note CRUD. These public paths delegate through transport-neutral
 semantic services and that client-owned backend. The URL-source handler owns ordinary and hidden
-YouTube dispatch, exact pre-create reconciliation, and best-effort title mutation under one
-absolute deadline. P3 now routes the remaining live notebook, source, artifact, label, collection,
-and sharing response grammars through private records and compatibility projectors; GET_SOURCE
-structured documents retain their explicit transport-neutral value exemption. The retained public
-parsing factories remain callable but have no production callers. The remaining phase descriptions
-are sequencing decisions, not a claim that the rest of P4-P8 are complete. P9 public-surface work
-and a mobile backend require separate decisions.
+YouTube dispatch, exact pre-create reconciliation, and best-effort title mutation. It honors one
+caller-supplied absolute semantic deadline when present; the public `wait_timeout` remains the
+readiness-poll budget and starts after creation. P3 now routes the remaining live notebook, source,
+artifact, label, collection, and sharing response grammars through private records and compatibility
+projectors; GET_SOURCE structured documents retain their explicit transport-neutral value exemption.
+The retained public parsing factories remain callable but have no production callers. The remaining
+phase descriptions are sequencing decisions, not a claim that the rest of P4-P8 are complete. P9
+public-surface work and a mobile backend require separate decisions.
 
 The operation-catalog audit classifies only the shared generic web RPC forwarder as inert. The four
 notebook/source read handlers, three notebook-mutation handlers, URL-source composite, two Studio
@@ -120,7 +121,7 @@ P0 adds four ADR-0022 contract baselines before runtime delegation:
 
 | Baseline | Freezes |
 | --- | --- |
-| `operation_catalog` | 86 operations with 159 exact authority rows (40 multi-authority); 56 native rows (14 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; 146 namespace methods (eight local-only), ten root-client members, and 11 divergences (10 authority, one policy) |
+| `operation_catalog` | 86 operations with 163 exact authority rows (42 multi-authority); 56 native rows (14 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; 146 namespace methods (eight local-only), ten root-client members, and 11 divergences (10 authority, one policy) |
 | `public_model_contract` | The 86 exported identities (50 dataclasses, 36 enums): construction, field/member order, behavior flags, export paths, structured pickle success/failure, first-party state hooks, and `Notebook` / `ChatReference` legacy-state restore invariants |
 | `json_envelope` | Exact sink/view-backed projection modes, keys, causal fields, and conditional variants: CLI 31 model identities/133 projections, MCP 32/123, REST 32/57 (313 unique ids). Its closed-world sink inventory covers 350 terminal/error sites: 225 public-projection, 117 reviewed non-public, eight forwarding infrastructure, and 15 conditional non-public variants across 14 sites. Every live id has a terminal allocation; registrations/direct JSON bypasses fail closed. It also pins 36 private DTO -> public dataclass paths (34 linked; `SourceRefreshResult.result` production-dead; `ValidatedSessionConfig.limits` internal-runtime-only), 16 explicit helper fingerprints, and a compact aggregate digest for the bounded 519-node / 1,242-edge transitive helper graph (520 unique helpers overall). Thirty-seven declarations across 28 literal final-dict sites are AST-derived, while 168 explicit declarations remain manually reviewed. The supplemental 49-dataclass inventory excludes `AuthTokens`; only the exact redacted MCP/REST `server_info` identity contributions are allowed. `authuser` / `account_email` may emit, while storage path/profile generation only select control flow; recursive credentials and any extra projection fail closed. |
 | `metrics_contract` | The 14 snapshot and five event fields plus normalized success/transport-error/decode-error observations through composed public `rpc_call()` / `metrics_snapshot()`; direct non-RPC middleware probes are supplemental |
