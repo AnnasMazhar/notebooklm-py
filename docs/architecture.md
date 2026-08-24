@@ -1313,6 +1313,7 @@ src/notebooklm/
 │   ├── __init__.py              # Lazy private WebRpcBackend re-export (leaf-codec safe)
 │   ├── backend.py               # Single semantic backend + client-runtime owner
 │   ├── runtime.py               # Sole web RPC encode/dispatch/decode engine
+│   ├── deadlines.py             # Closed semantic deadline-authority ledger
 │   ├── deadline_rpc.py          # Deadline-bound legacy composite caller
 │   ├── chat.py                  # P6.1 Chat workflow handlers
 │   ├── chat_transport.py        # Streamed Chat transport adapter and bounded error translation

@@ -2185,10 +2185,10 @@ class TestGetConversationIdNullRaw:
     ):
         """Test get_conversation_id returns None when rpc_call returns None (arc 231->230)."""
         async with NotebookLMClient(auth_tokens) as client:
-            # Patch the shared executor behind the semantic web backend to
+            # Patch the backend-owned execution runtime to
             # return None (bypasses decode error).
             with patch.object(
-                client._backend._executor,
+                client._backend._runtime,
                 "rpc_call",
                 new_callable=AsyncMock,
                 return_value=None,
