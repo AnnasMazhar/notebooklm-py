@@ -500,6 +500,64 @@ class ArtifactGetResult:
     artifact: ArtifactRecord | None
 
 
+@dataclass(frozen=True, slots=True)
+class GenerationStatusRecord:
+    """Transport-neutral artifact generation task state."""
+
+    task_id: str
+    status: str
+    url: str | None = field(default=None, repr=False)
+    error: str | None = field(default=None, repr=False)
+    error_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InfographicGenerateInput:
+    """Infographic options without web enum or payload vocabulary."""
+
+    notebook_id: str
+    source_ids: tuple[str, ...] | None = None
+    language: str | None = "en"
+    instructions: str | None = field(default=None, repr=False)
+    orientation: str | None = None
+    detail_level: str | None = None
+    style: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SlideDeckGenerateInput:
+    """Slide-deck options without web enum or payload vocabulary."""
+
+    notebook_id: str
+    source_ids: tuple[str, ...] | None = None
+    language: str | None = "en"
+    instructions: str | None = field(default=None, repr=False)
+    slide_format: str | None = None
+    slide_length: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class VisualGenerateResult:
+    """Visual generation kickoff result."""
+
+    status: GenerationStatusRecord
+
+
+@dataclass(frozen=True, slots=True)
+class VisualMetadataRecord:
+    """Visual readiness and accessibility metadata from one catalog row."""
+
+    artifact_id: str
+    family: str
+    lifecycle_status: str
+    usable: bool
+    slides: tuple[ArtifactSlideRecord, ...] = field(default=(), repr=False)
+    infographics: tuple[ArtifactInfographicRecord, ...] = field(default=(), repr=False)
+    preferred_url: str | None = field(default=None, repr=False)
+    generation_prompt: str | None = field(default=None, repr=False)
+    created_at: datetime | None = None
+
+
 NOTEBOOK_LIST_DEF: OperationDef[NotebookListInput, NotebookListResult] = OperationDef(
     Operation.NOTEBOOK_LIST,
     CallPolicy.READ,
@@ -550,6 +608,22 @@ ARTIFACT_GET_DEF: OperationDef[ArtifactGetInput, ArtifactGetResult] = OperationD
     ArtifactGetInput,
     ArtifactGetResult,
 )
+ARTIFACT_GENERATE_INFOGRAPHIC_DEF: OperationDef[InfographicGenerateInput, VisualGenerateResult] = (
+    OperationDef(
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+        CallPolicy.STATEFUL_START,
+        InfographicGenerateInput,
+        VisualGenerateResult,
+    )
+)
+ARTIFACT_GENERATE_SLIDE_DECK_DEF: OperationDef[SlideDeckGenerateInput, VisualGenerateResult] = (
+    OperationDef(
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK,
+        CallPolicy.STATEFUL_START,
+        SlideDeckGenerateInput,
+        VisualGenerateResult,
+    )
+)
 SOURCE_GET_DEF: OperationDef[SourceGetInput, SourceGetResult] = OperationDef(
     Operation.SOURCE_GET,
     CallPolicy.MUTATION,
@@ -596,6 +670,8 @@ NOTE_DELETE_DEF: OperationDef[NoteDeleteInput, NoteDeleteResult] = OperationDef(
 
 __all__ = [
     "ARTIFACT_GET_DEF",
+    "ARTIFACT_GENERATE_INFOGRAPHIC_DEF",
+    "ARTIFACT_GENERATE_SLIDE_DECK_DEF",
     "ARTIFACT_LIST_DEF",
     "NOTEBOOK_GET_DEF",
     "NOTEBOOK_LIST_DEF",
@@ -619,6 +695,11 @@ __all__ = [
     "ArtifactRecord",
     "ArtifactSlideRecord",
     "ArtifactUserStateRecord",
+    "GenerationStatusRecord",
+    "InfographicGenerateInput",
+    "SlideDeckGenerateInput",
+    "VisualGenerateResult",
+    "VisualMetadataRecord",
     "NotebookChatSessionRecord",
     "NotebookChatSettingsRecord",
     "NotebookCreateInput",

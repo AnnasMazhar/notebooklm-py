@@ -27,9 +27,11 @@ from ._mind_map import NoteBackedMindMapService
 from ._note_service import LegacyNoteBackedService
 from ._notebook_metadata import NotebookSourceIdProvider
 from ._polling_registry import PollRegistry
+from ._projectors import project_artifact, project_generation_status
+from ._records import InfographicGenerateInput, SlideDeckGenerateInput
 from ._row_adapters import artifacts as _artifact_rows
 from ._runtime.contracts import RpcCaller
-from ._studio import StudioCatalog
+from ._studio import StudioCatalog, VisualFamilyService
 from ._types.research import MindMapResult
 from .exceptions import ArtifactNotFoundError, DecodingError
 
@@ -122,6 +124,11 @@ class ArtifactsAPI:
         self._mind_maps = mind_maps
         self._note_service = note_service
         self._catalog = StudioCatalog(_backend) if _backend is not None else None
+        self._visuals = (
+            VisualFamilyService(_backend, self._catalog)
+            if _backend is not None and self._catalog is not None
+            else None
+        )
         self._poll_registry = PollRegistry()
         self._listing = ArtifactListingService()
         self._downloads = ArtifactDownloadService(
@@ -254,11 +261,27 @@ class ArtifactsAPI:
 
     async def list_infographics(self, notebook_id: str) -> builtins.list[Artifact]:
         """List infographic artifacts."""
-        return await self.list(notebook_id, ArtifactType.INFOGRAPHIC)
+        if self._visuals is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            return [
+                project_artifact(record)
+                for record in await self._visuals.list_infographics(notebook_id)
+            ]
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def list_slide_decks(self, notebook_id: str) -> builtins.list[Artifact]:
         """List slide deck artifacts."""
-        return await self.list(notebook_id, ArtifactType.SLIDE_DECK)
+        if self._visuals is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            return [
+                project_artifact(record)
+                for record in await self._visuals.list_slide_decks(notebook_id)
+            ]
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def list_data_tables(self, notebook_id: str) -> builtins.list[Artifact]:
         """List data table artifacts."""
@@ -403,15 +426,23 @@ class ArtifactsAPI:
         style: InfographicStyle | None = None,
     ) -> GenerationStatus:
         """Generate an infographic."""
-        return await self._generation.generate_infographic(
-            notebook_id,
-            source_ids=source_ids,
-            language=language,
-            instructions=instructions,
-            orientation=orientation,
-            detail_level=detail_level,
-            style=style,
-        )
+        if self._visuals is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            result = await self._visuals.generate_infographic(
+                InfographicGenerateInput(
+                    notebook_id=notebook_id,
+                    source_ids=None if source_ids is None else tuple(source_ids),
+                    language=language,
+                    instructions=instructions,
+                    orientation=None if orientation is None else orientation.name.lower(),
+                    detail_level=None if detail_level is None else detail_level.name.lower(),
+                    style=None if style is None else style.name.lower(),
+                )
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
+        return project_generation_status(result.status)
 
     async def generate_slide_deck(
         self,
@@ -423,14 +454,22 @@ class ArtifactsAPI:
         slide_length: SlideDeckLength | None = None,
     ) -> GenerationStatus:
         """Generate a slide deck."""
-        return await self._generation.generate_slide_deck(
-            notebook_id,
-            source_ids=source_ids,
-            language=language,
-            instructions=instructions,
-            slide_format=slide_format,
-            slide_length=slide_length,
-        )
+        if self._visuals is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            result = await self._visuals.generate_slide_deck(
+                SlideDeckGenerateInput(
+                    notebook_id=notebook_id,
+                    source_ids=None if source_ids is None else tuple(source_ids),
+                    language=language,
+                    instructions=instructions,
+                    slide_format=None if slide_format is None else slide_format.name.lower(),
+                    slide_length=None if slide_length is None else slide_length.name.lower(),
+                )
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
+        return project_generation_status(result.status)
 
     async def revise_slide(
         self,

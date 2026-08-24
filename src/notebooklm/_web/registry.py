@@ -1,7 +1,8 @@
 """Closed web dispositions for the semantic operation vocabulary.
 
 P2.1 reads, P2.2 notebook mutations, P2.3 URL/YouTube registration, P5.1 Studio
-catalog reads, and P6.3 plain-note CRUD have executable bindings. Every other P0
+catalog reads, P5.5 Infographic/Slide Deck generation, and P6.3 plain-note CRUD have
+executable bindings. Every other P0
 operation has an unsupported disposition, and
 the count assertions force a deliberate registry update when the closed
 :class:`Operation` enum changes.
@@ -16,6 +17,8 @@ from typing import Any, Final
 
 from .._operations import Operation, OperationDef
 from .._records import (
+    ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
+    ARTIFACT_GENERATE_SLIDE_DECK_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
     NOTE_CREATE_DEF,
@@ -79,6 +82,8 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.NOTE_DELETE: NOTE_DELETE_DEF,
         Operation.ARTIFACT_LIST: ARTIFACT_LIST_DEF,
         Operation.ARTIFACT_GET: ARTIFACT_GET_DEF,
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC: ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK: ARTIFACT_GENERATE_SLIDE_DECK_DEF,
     }
 )
 
@@ -99,6 +104,8 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.NOTE_DELETE: "_note_delete",
         Operation.ARTIFACT_LIST: "_artifact_list",
         Operation.ARTIFACT_GET: "_artifact_get",
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC: "_infographic_generate",
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK: "_slide_deck_generate",
     }
 )
 
@@ -110,7 +117,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 15
+_EXPECTED_SUPPORTED_COUNT: Final = 17
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

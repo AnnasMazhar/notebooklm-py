@@ -2,8 +2,8 @@
 
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
 P2.2 routes three notebook mutation handlers; P2.3 routes the live URL/YouTube
-source composite; P5.1 routes Studio catalog list/get; and P6.3 routes plain-note
-CRUD. These bindings intentionally reuse
+source composite; P5.1 routes Studio catalog list/get; P5.5 routes Infographic/Slide Deck
+generation; and P6.3 routes plain-note CRUD. These bindings intentionally reuse
 the current request builders, strict row adapters, and public-model decoders
 until the P3 codec split.
 Removal: P3 replaces the compatibility model-to-record projections below with
@@ -16,13 +16,17 @@ import asyncio
 import logging
 import reprlib
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import Any, cast
 from urllib.parse import urlparse
 
 import httpx
 
+from .._artifact.payloads import (
+    build_infographic_artifact_params,
+    build_slide_deck_artifact_params,
+)
 from .._backend import (
     BackendCapabilities,
     BackendContractError,
@@ -34,6 +38,7 @@ from .._backend import (
     mark_backend_outcome_unknown,
 )
 from .._deadline import RuntimeDeadline
+from .._env import get_default_language
 from .._idempotency import (
     _CreateResultKind,
     _IdempotentCreateResult,
@@ -58,6 +63,8 @@ from .._records import (
     ArtifactRecord,
     ArtifactSlideRecord,
     ArtifactUserStateRecord,
+    GenerationStatusRecord,
+    InfographicGenerateInput,
     NotebookChatSessionRecord,
     NotebookChatSettingsRecord,
     NotebookCreateInput,
@@ -82,6 +89,7 @@ from .._records import (
     NoteListResult,
     NoteUpdateInput,
     NoteUpdateResult,
+    SlideDeckGenerateInput,
     SourceAddCommitState,
     SourceAddFailureKind,
     SourceAddFailureRecord,
@@ -94,8 +102,10 @@ from .._records import (
     SourceListInput,
     SourceListResult,
     SourceRecord,
+    VisualGenerateResult,
 )
 from .._row_adapters.artifacts import unwrap_artifact_rows
+from .._row_adapters.sources import SourceRow
 from .._rpc_executor import RpcExecutor
 from .._settings import build_get_user_settings_params, extract_account_limits
 from .._source.add import SourceAddService, honor_requested_title_if_fresh
@@ -125,7 +135,12 @@ from ..exceptions import (
 from ..rpc import (
     ARTIFACT_STATUS_SUGGESTED_WIRE_NAME,
     GrpcStatusCode,
+    InfographicDetail,
+    InfographicOrientation,
+    InfographicStyle,
     RPCMethod,
+    SlideDeckFormat,
+    SlideDeckLength,
     normalize_grpc_status,
     safe_index,
 )
@@ -443,6 +458,37 @@ _ARTIFACT_FAMILIES = {
 }
 _ARTIFACT_VARIANTS = {1: "flashcards", 2: "quiz", 4: "interactive_mind_map"}
 _MEDIA_KINDS = {1: "progressive", 2: "hls", 3: "dash", 4: "download"}
+_INFOGRAPHIC_ORIENTATIONS = {
+    "landscape": InfographicOrientation.LANDSCAPE,
+    "portrait": InfographicOrientation.PORTRAIT,
+    "square": InfographicOrientation.SQUARE,
+}
+_INFOGRAPHIC_DETAILS = {
+    "concise": InfographicDetail.CONCISE,
+    "standard": InfographicDetail.STANDARD,
+    "detailed": InfographicDetail.DETAILED,
+}
+_INFOGRAPHIC_STYLES = {
+    "auto_select": InfographicStyle.AUTO_SELECT,
+    "sketch_note": InfographicStyle.SKETCH_NOTE,
+    "professional": InfographicStyle.PROFESSIONAL,
+    "bento_grid": InfographicStyle.BENTO_GRID,
+    "editorial": InfographicStyle.EDITORIAL,
+    "instructional": InfographicStyle.INSTRUCTIONAL,
+    "bricks": InfographicStyle.BRICKS,
+    "clay": InfographicStyle.CLAY,
+    "anime": InfographicStyle.ANIME,
+    "kawaii": InfographicStyle.KAWAII,
+    "scientific": InfographicStyle.SCIENTIFIC,
+}
+_SLIDE_DECK_FORMATS = {
+    "detailed_deck": SlideDeckFormat.DETAILED_DECK,
+    "presenter_slides": SlideDeckFormat.PRESENTER_SLIDES,
+}
+_SLIDE_DECK_LENGTHS = {
+    "default": SlideDeckLength.DEFAULT,
+    "short": SlideDeckLength.SHORT,
+}
 
 
 def _artifact_record(artifact: Artifact) -> ArtifactRecord:
@@ -1179,6 +1225,258 @@ class WebRpcBackend:
         return ArtifactGetResult(
             artifact=next((item for item in records if item.id == value.artifact_id), None)
         )
+
+    async def _infographic_generate(
+        self,
+        value: InfographicGenerateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> VisualGenerateResult:
+        orientation = self._visual_option(
+            value.orientation,
+            _INFOGRAPHIC_ORIENTATIONS,
+            parameter="orientation",
+            operation=Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+        )
+        detail_level = self._visual_option(
+            value.detail_level,
+            _INFOGRAPHIC_DETAILS,
+            parameter="detail level",
+            operation=Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+        )
+        style = self._visual_option(
+            value.style,
+            _INFOGRAPHIC_STYLES,
+            parameter="style",
+            operation=Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+        )
+        source_ids = await self._visual_source_selection(
+            value.notebook_id,
+            value.source_ids,
+            operation=Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+            deadline=deadline,
+        )
+        params = build_infographic_artifact_params(
+            value.notebook_id,
+            list(source_ids),
+            language=(get_default_language() if value.language is None else value.language),
+            instructions=value.instructions,
+            orientation=cast(InfographicOrientation | None, orientation),
+            detail_level=cast(InfographicDetail | None, detail_level),
+            style=cast(InfographicStyle | None, style),
+        )
+        return await self._visual_generate(
+            value.notebook_id,
+            params,
+            operation=Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+            artifact_type="infographic",
+            deadline=deadline,
+        )
+
+    async def _slide_deck_generate(
+        self,
+        value: SlideDeckGenerateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> VisualGenerateResult:
+        slide_format = self._visual_option(
+            value.slide_format,
+            _SLIDE_DECK_FORMATS,
+            parameter="format",
+            operation=Operation.ARTIFACT_GENERATE_SLIDE_DECK,
+        )
+        slide_length = self._visual_option(
+            value.slide_length,
+            _SLIDE_DECK_LENGTHS,
+            parameter="length",
+            operation=Operation.ARTIFACT_GENERATE_SLIDE_DECK,
+        )
+        source_ids = await self._visual_source_selection(
+            value.notebook_id,
+            value.source_ids,
+            operation=Operation.ARTIFACT_GENERATE_SLIDE_DECK,
+            deadline=deadline,
+        )
+        params = build_slide_deck_artifact_params(
+            value.notebook_id,
+            list(source_ids),
+            language=(get_default_language() if value.language is None else value.language),
+            instructions=value.instructions,
+            slide_format=cast(SlideDeckFormat | None, slide_format),
+            slide_length=cast(SlideDeckLength | None, slide_length),
+        )
+        return await self._visual_generate(
+            value.notebook_id,
+            params,
+            operation=Operation.ARTIFACT_GENERATE_SLIDE_DECK,
+            artifact_type="slide deck",
+            deadline=deadline,
+        )
+
+    @staticmethod
+    def _visual_option(
+        value: str | None,
+        options: Mapping[str, object],
+        *,
+        parameter: str,
+        operation: Operation,
+    ) -> object | None:
+        if value is None:
+            return None
+        option = options.get(value)
+        if option is None:
+            raise BackendContractError(
+                f"unrecognized visual {parameter} {value!r}",
+                operation=operation,
+            )
+        return option
+
+    async def _visual_source_selection(
+        self,
+        notebook_id: str,
+        source_ids: tuple[str, ...] | None,
+        *,
+        operation: Operation,
+        deadline: RuntimeDeadline | None,
+    ) -> tuple[str, ...]:
+        if source_ids is not None:
+            return source_ids
+        notebook = await self._rpc_call(
+            RPCMethod.GET_NOTEBOOK,
+            build_get_notebook_params(notebook_id),
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{notebook_id}",
+        )
+        return self._visual_source_ids(notebook_id, notebook)
+
+    async def _visual_generate(
+        self,
+        notebook_id: str,
+        params: list[Any],
+        *,
+        operation: Operation,
+        artifact_type: str,
+        deadline: RuntimeDeadline | None,
+    ) -> VisualGenerateResult:
+        result = await self._rpc_call(
+            RPCMethod.CREATE_ARTIFACT,
+            params,
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{notebook_id}",
+            allow_null=True,
+            operation_variant=None,
+            raise_on_null_status=True,
+        )
+        if result is None:
+            raise self._artifact_feature_unavailable(operation, artifact_type)
+
+        method_id = RPCMethod.CREATE_ARTIFACT.value
+        artifact_id = safe_index(
+            result,
+            0,
+            0,
+            method_id=method_id,
+            source="_parse_generation_result",
+        )
+        if artifact_id is None:
+            raise self._artifact_feature_unavailable(operation, "artifact")
+        if not artifact_id:
+            raise DecodingError(
+                "No artifact id (source=_parse_generation_result)",
+                method_id=method_id,
+            )
+        status_code = safe_index(
+            result,
+            0,
+            4,
+            method_id=method_id,
+            source="_parse_generation_result",
+        )
+        status = "pending" if status_code is None else artifact_status_to_str(status_code)
+        return VisualGenerateResult(
+            GenerationStatusRecord(task_id=cast(str, artifact_id), status=status)
+        )
+
+    @staticmethod
+    def _artifact_feature_unavailable(
+        operation: Operation,
+        artifact_type: str,
+    ) -> BackendError:
+        return BackendError(
+            message=f"{artifact_type.replace('_', ' ').capitalize()} generation is unavailable",
+            operation=operation,
+            diagnostics=MappingProxyType(
+                {
+                    "artifact_type": artifact_type,
+                    "method_id": RPCMethod.CREATE_ARTIFACT.value,
+                    "raw_response": None,
+                }
+            ),
+            reason=BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
+        )
+
+    @staticmethod
+    def _visual_source_ids(notebook_id: str, notebook: object) -> tuple[str, ...]:
+        """Preserve the facade's tolerant source-id extraction and warnings."""
+
+        source_ids: list[str] = []
+        if not notebook or not isinstance(notebook, list):
+            return tuple(source_ids)
+        method_id = RPCMethod.GET_NOTEBOOK.value
+        try:
+            notebook_info = safe_index(
+                notebook,
+                0,
+                method_id=method_id,
+                source="NotebooksAPI.get_source_ids",
+            )
+            if not isinstance(notebook_info, list):
+                notebook_logger.warning(
+                    "get_source_ids: notebook_data[0] shape unexpected for %s "
+                    "(schema drift?). top-type=%s",
+                    notebook_id,
+                    type(notebook_info).__name__,
+                )
+                return tuple(source_ids)
+            if len(notebook_info) <= 1:
+                notebook_logger.warning(
+                    "get_source_ids: notebook_info has no sources slot for %s "
+                    "(schema drift?). len=%d",
+                    notebook_id,
+                    len(notebook_info),
+                )
+                return tuple(source_ids)
+            sources = safe_index(
+                notebook_info,
+                1,
+                method_id=method_id,
+                source="NotebooksAPI.get_source_ids",
+            )
+            if sources is None:
+                return tuple(source_ids)
+            if not isinstance(sources, list):
+                notebook_logger.warning(
+                    "get_source_ids: notebook_info[1] not list for %s (schema drift?). len=%d",
+                    notebook_id,
+                    len(notebook_info),
+                )
+                return tuple(source_ids)
+            for source in sources:
+                if not (isinstance(source, list) and source):
+                    continue
+                source_id = SourceRow.from_entry(source, method_id=method_id).id
+                if source_id:
+                    source_ids.append(source_id)
+        except (IndexError, TypeError) as error:
+            notebook_logger.warning(
+                "get_source_ids: unexpected exception despite guards for %s: %s",
+                notebook_id,
+                error,
+                exc_info=True,
+            )
+        return tuple(source_ids)
 
     async def _source_get(
         self,

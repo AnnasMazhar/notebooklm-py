@@ -128,6 +128,30 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
                 ),
             ),
         ),
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "conditional all-source selection"),
+                _native(RPCMethod.CREATE_ARTIFACT, _PROBE_CREATE, "infographic generation start"),
+            ),
+            known_divergence=(
+                "The exported notebooklm.artifacts.with_rate_limit_retry helper re-invokes the "
+                "internal facade operation after rate limiting. P4.2 removes that internal use "
+                "while preserving the public helper and adapter-neutral retry presentation policy."
+            ),
+        ),
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "conditional all-source selection"),
+                _native(RPCMethod.CREATE_ARTIFACT, _PROBE_CREATE, "slide-deck generation start"),
+            ),
+            known_divergence=(
+                "The exported notebooklm.artifacts.with_rate_limit_retry helper re-invokes the "
+                "internal facade operation after rate limiting. P4.2 removes that internal use "
+                "while preserving the public helper and adapter-neutral retry presentation policy."
+            ),
+        ),
         Operation.NOTE_LIST: WebCallPolicyBinding(
             CallPolicy.READ,
             (

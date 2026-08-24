@@ -9,6 +9,10 @@ from typing import Any
 
 import pytest
 
+from notebooklm._artifact.payloads import (
+    build_infographic_artifact_params,
+    build_slide_deck_artifact_params,
+)
 from notebooklm._backend import (
     BackendContractError,
     BackendDeadlineExceededError,
@@ -26,6 +30,8 @@ from notebooklm._notebook_payloads import (
 )
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._records import (
+    ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
+    ARTIFACT_GENERATE_SLIDE_DECK_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
     NOTE_CREATE_DEF,
@@ -41,6 +47,7 @@ from notebooklm._records import (
     SOURCE_ADD_URL_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
+    InfographicGenerateInput,
     NotebookCreateInput,
     NotebookDeleteInput,
     NotebookDeleteResult,
@@ -53,6 +60,7 @@ from notebooklm._records import (
     NoteGetInput,
     NoteListInput,
     NoteUpdateInput,
+    SlideDeckGenerateInput,
     SourceAddCommitState,
     SourceAddFailureKind,
     SourceAddFailureRecord,
@@ -70,6 +78,7 @@ from notebooklm._web.registry import (
     WEB_SUPPORTED_OPERATIONS,
 )
 from notebooklm.exceptions import (
+    ArtifactFeatureUnavailableError,
     AuthError,
     ClientError,
     DecodingError,
@@ -84,7 +93,14 @@ from notebooklm.exceptions import (
     ServerError,
     UnknownRPCMethodError,
 )
-from notebooklm.rpc import RPCMethod
+from notebooklm.rpc import (
+    InfographicDetail,
+    InfographicOrientation,
+    InfographicStyle,
+    RPCMethod,
+    SlideDeckFormat,
+    SlideDeckLength,
+)
 
 
 @dataclass(frozen=True)
@@ -133,6 +149,8 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.NOTE_DELETE,
         Operation.ARTIFACT_LIST,
         Operation.ARTIFACT_GET,
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -154,6 +172,8 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.NOTE_DELETE: NOTE_DELETE_DEF,
         Operation.ARTIFACT_LIST: ARTIFACT_LIST_DEF,
         Operation.ARTIFACT_GET: ARTIFACT_GET_DEF,
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC: ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK: ARTIFACT_GENERATE_SLIDE_DECK_DEF,
     }
     assert all(
         binding.unsupported_reason
@@ -162,6 +182,153 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
     )
     assert not WEB_STAGED_OPERATIONS
     assert WEB_OPERATION_REGISTRY[Operation.SOURCE_ADD_URL].definition is SOURCE_ADD_URL_DEF
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("definition", "value", "expected"),
+    [
+        (
+            ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
+            InfographicGenerateInput(
+                "nb",
+                ("src-a", "src-b"),
+                "fr",
+                "Show relationships",
+                "portrait",
+                "detailed",
+                "scientific",
+            ),
+            build_infographic_artifact_params(
+                "nb",
+                ["src-a", "src-b"],
+                language="fr",
+                instructions="Show relationships",
+                orientation=InfographicOrientation.PORTRAIT,
+                detail_level=InfographicDetail.DETAILED,
+                style=InfographicStyle.SCIENTIFIC,
+            ),
+        ),
+        (
+            ARTIFACT_GENERATE_SLIDE_DECK_DEF,
+            SlideDeckGenerateInput(
+                "nb",
+                ("src-a", "src-b"),
+                "fr",
+                "Speaker notes",
+                "presenter_slides",
+                "short",
+            ),
+            build_slide_deck_artifact_params(
+                "nb",
+                ["src-a", "src-b"],
+                language="fr",
+                instructions="Speaker notes",
+                slide_format=SlideDeckFormat.PRESENTER_SLIDES,
+                slide_length=SlideDeckLength.SHORT,
+            ),
+        ),
+    ],
+)
+async def test_visual_generation_reuses_payloads_and_one_absolute_deadline(
+    definition: object,
+    value: object,
+    expected: list[Any],
+) -> None:
+    executor = _RecordingExecutor([["artifact-id", "Visual", 1, None, 1]])
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 12.0)
+
+    result = await _backend(executor).invoke(definition, value, deadline=deadline)  # type: ignore[arg-type]
+
+    assert (result.status.task_id, result.status.status) == ("artifact-id", "pending")
+    assert [call.method for call in executor.calls] == [RPCMethod.CREATE_ARTIFACT]
+    assert executor.calls[0].params == expected
+    assert executor.calls[0].kwargs["read_timeout"] == 3.0
+    assert executor.calls[0].kwargs["disable_internal_retries"] is False
+    assert executor.calls[0].kwargs["_retry_deadline"] is deadline
+
+
+@pytest.mark.asyncio
+async def test_visual_generation_omitted_sources_share_deadline_and_tolerant_extraction() -> None:
+    executor = _RecordingExecutor(
+        [["Notebook", [[["src-a"], "A"], [["src-b"], "B"]], "nb"]],
+        [["artifact-id", "Visual", 1, None, 1]],
+    )
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 11.0)
+
+    await _backend(executor).invoke(
+        ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
+        InfographicGenerateInput("nb", source_ids=None),
+        deadline=deadline,
+    )
+
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.GET_NOTEBOOK,
+        RPCMethod.CREATE_ARTIFACT,
+    ]
+    assert executor.calls[0].params == build_get_notebook_params("nb")
+    assert executor.calls[1].params[2][3] == [[["src-a"]], [["src-b"]]]
+    assert all(call.kwargs["_retry_deadline"] is deadline for call in executor.calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "value",
+    [
+        InfographicGenerateInput("nb", (), orientation="future"),
+        InfographicGenerateInput("nb", (), detail_level="future"),
+        InfographicGenerateInput("nb", (), style="future"),
+        SlideDeckGenerateInput("nb", (), slide_format="future"),
+        SlideDeckGenerateInput("nb", (), slide_length="future"),
+    ],
+)
+async def test_visual_generation_rejects_unreviewed_options_before_executor(
+    value: InfographicGenerateInput | SlideDeckGenerateInput,
+) -> None:
+    executor = _RecordingExecutor([])
+    definition = (
+        ARTIFACT_GENERATE_INFOGRAPHIC_DEF
+        if isinstance(value, InfographicGenerateInput)
+        else ARTIFACT_GENERATE_SLIDE_DECK_DEF
+    )
+
+    with pytest.raises(BackendContractError, match="unrecognized visual"):
+        await _backend(executor).invoke(definition, value, deadline=None)  # type: ignore[arg-type]
+
+    assert executor.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("definition", "value", "artifact_type"),
+    [
+        (
+            ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
+            InfographicGenerateInput("nb", ()),
+            "infographic",
+        ),
+        (
+            ARTIFACT_GENERATE_SLIDE_DECK_DEF,
+            SlideDeckGenerateInput("nb", ()),
+            "slide deck",
+        ),
+    ],
+)
+async def test_visual_generation_feature_unavailable_reconstructs_public_error(
+    definition: object,
+    value: object,
+    artifact_type: str,
+) -> None:
+    executor = _RecordingExecutor(None)
+
+    with pytest.raises(BackendError) as caught:
+        await _backend(executor).invoke(definition, value, deadline=None)  # type: ignore[arg-type]
+
+    assert caught.value.reason is BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE
+    projected = project_backend_error(caught.value)
+    assert isinstance(projected, ArtifactFeatureUnavailableError)
+    assert projected.artifact_type == artifact_type
+    assert projected.method_id == RPCMethod.CREATE_ARTIFACT.value
 
 
 @pytest.mark.asyncio
@@ -869,6 +1036,7 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
     )
     assert set(BackendErrorReason) == {
         BackendErrorReason.AUTH,
+        BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
         BackendErrorReason.CLIENT,
         BackendErrorReason.DECODING,
         BackendErrorReason.IDEMPOTENCY_VARIANT,

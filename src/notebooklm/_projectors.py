@@ -7,6 +7,7 @@ from typing import cast
 from ._records import (
     ArtifactRecord,
     ArtifactUserStateRecord,
+    GenerationStatusRecord,
     NotebookRecord,
     NoteRecord,
     SourceRecord,
@@ -24,6 +25,8 @@ from .types import (
     ChatSettings,
     DriveSourceStatus,
     FlashcardArtifactUserState,
+    GenerationState,
+    GenerationStatus,
     Note,
     Notebook,
     PremiumFeatureInfo,
@@ -218,6 +221,22 @@ def project_note(record: NoteRecord) -> Note:
     )
 
 
+def project_generation_status(record: GenerationStatusRecord) -> GenerationStatus:
+    """Construct one public generation kickoff state from a neutral record."""
+
+    try:
+        status = GenerationState(record.status)
+    except ValueError:
+        status = GenerationState.UNKNOWN
+    return GenerationStatus(
+        task_id=record.task_id,
+        status=status,
+        url=record.url,
+        error=record.error,
+        error_code=record.error_code,
+    )
+
+
 def _project_artifact_user_state(
     record: ArtifactUserStateRecord | None,
 ) -> AudioArtifactUserState | FlashcardArtifactUserState | UnknownArtifactUserState | None:
@@ -309,4 +328,10 @@ def project_artifact(record: ArtifactRecord) -> Artifact:
     )
 
 
-__all__ = ["project_artifact", "project_note", "project_notebook", "project_source"]
+__all__ = [
+    "project_artifact",
+    "project_generation_status",
+    "project_note",
+    "project_notebook",
+    "project_source",
+]

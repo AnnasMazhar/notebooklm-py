@@ -122,6 +122,20 @@ _GENERATION_OPERATIONS = {
     Operation.ARTIFACT_GENERATE_DATA_TABLE: "artifact_type=data-table",
 }
 for _operation, _discriminator in _GENERATION_OPERATIONS.items():
+    if _operation in {
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK,
+    }:
+        SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.CREATE_ARTIFACT))] = _rules(
+            ("_web/backend.py:WebRpcBackend._visual_generate", _discriminator)
+        )
+        SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.GET_NOTEBOOK))] = _rules(
+            (
+                "_web/backend.py:WebRpcBackend._visual_source_selection",
+                "source_ids is None",
+            )
+        )
+        continue
     SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.CREATE_ARTIFACT))] = _rules(
         ("_artifact/generation.py:ArtifactGenerationService._call_generate", _discriminator)
     )
@@ -431,6 +445,23 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
 }
 
 for _operation in (*_GENERATION_OPERATIONS, Operation.ARTIFACT_GENERATE_MIND_MAP):
+    if _operation in {
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK,
+    }:
+        RECENCY_CONTRACTS[_operation] = (
+            RecencyRule(
+                next(
+                    spec.public_methods for spec in OPERATION_SPECS if spec.operation is _operation
+                ),
+                0,
+                1,
+                "public_call",
+                "one only when source_ids is omitted",
+                ("_web/backend.py:WebRpcBackend._visual_source_selection",),
+            ),
+        )
+        continue
     RECENCY_CONTRACTS[_operation] = (
         RecencyRule(
             next(spec.public_methods for spec in OPERATION_SPECS if spec.operation is _operation),
