@@ -29,15 +29,16 @@ class TestAutoRefreshIntegration:
 
         client = NotebookLMClient(auth)
         # Bound methods aren't identical, so compare underlying function
-        assert client._backend._auth_coord._refresh_callback is not None
+        assert client._provider._coordinator._refresh_callback is not None
         assert (
-            client._backend._auth_coord._refresh_callback.__func__ is NotebookLMClient.refresh_auth
+            client._provider._coordinator._refresh_callback.__func__
+            is NotebookLMClient.refresh_auth
         )
         # ``_refresh_lock`` is lazily created on first ``_await_refresh``.
         # At construction time it is ``None`` so the client can be
         # instantiated outside a running loop; the helper allocates the
         # lock on demand inside the async refresh path.
-        assert client._backend._auth_coord._refresh_lock is None
+        assert client._provider._coordinator._refresh_lock is None
 
     @pytest.mark.asyncio
     async def test_full_refresh_flow_http_error(self):
@@ -60,13 +61,13 @@ class TestAutoRefreshIntegration:
             # Wave 3 of plan ``host-protocol-removal`` deleted the
             # Session-level ``update_auth_headers`` forward; call the
             # canonical coordinator method directly with explicit kwargs.
-            client._backend._auth_coord.update_auth_headers(
+            client._provider._coordinator.update_auth_headers(
                 auth=client.auth,
                 kernel=client._backend._kernel,
             )
             return client.auth
 
-        client._backend._auth_coord._refresh_callback = tracking_refresh
+        client._provider._coordinator._refresh_callback = tracking_refresh
 
         # Mock HTTP responses
         call_count = [0]
@@ -113,13 +114,13 @@ class TestAutoRefreshIntegration:
             # Wave 3 of plan ``host-protocol-removal`` deleted the
             # Session-level ``update_auth_headers`` forward; call the
             # canonical coordinator method directly with explicit kwargs.
-            client._backend._auth_coord.update_auth_headers(
+            client._provider._coordinator.update_auth_headers(
                 auth=client.auth,
                 kernel=client._backend._kernel,
             )
             return client.auth
 
-        client._backend._auth_coord._refresh_callback = tracking_refresh
+        client._provider._coordinator._refresh_callback = tracking_refresh
 
         # Mock HTTP to succeed, but decode_response to fail with auth error first
         async def mock_post(*args, **kwargs):
@@ -174,13 +175,13 @@ class TestAutoRefreshIntegration:
         async def tracking_refresh():
             refresh_calls.append(True)
             client.auth.csrf_token = "new_csrf"
-            client._backend._auth_coord.update_auth_headers(
+            client._provider._coordinator.update_auth_headers(
                 auth=client.auth,
                 kernel=client._backend._kernel,
             )
             return client.auth
 
-        client._backend._auth_coord._refresh_callback = tracking_refresh
+        client._provider._coordinator._refresh_callback = tracking_refresh
 
         call_count = [0]
 
@@ -256,13 +257,13 @@ class TestAutoRefreshIntegration:
 
         async def tracking_refresh():
             client.auth.csrf_token = "new_csrf"
-            client._backend._auth_coord.update_auth_headers(
+            client._provider._coordinator.update_auth_headers(
                 auth=client.auth,
                 kernel=client._backend._kernel,
             )
             return client.auth
 
-        client._backend._auth_coord._refresh_callback = tracking_refresh
+        client._provider._coordinator._refresh_callback = tracking_refresh
 
         async def mock_post(*args, **kwargs):
             response = MagicMock()
@@ -300,7 +301,7 @@ class TestAutoRefreshIntegration:
         async def mock_refresh():
             return auth
 
-        client._backend._auth_coord._refresh_callback = mock_refresh
+        client._provider._coordinator._refresh_callback = mock_refresh
 
         call_count = [0]
 
@@ -343,7 +344,7 @@ class TestAutoRefreshIntegration:
             # Simulates refresh_auth detecting redirect to login
             raise ValueError("Authentication expired. Run 'notebooklm login' to re-authenticate.")
 
-        client._backend._auth_coord._refresh_callback = failing_refresh
+        client._provider._coordinator._refresh_callback = failing_refresh
 
         async def mock_post(*args, **kwargs):
             request = httpx.Request("POST", args[0])
@@ -387,7 +388,7 @@ class TestAutoRefreshIntegration:
             refresh_calls.append(True)
             return client.auth
 
-        client._backend._auth_coord._refresh_callback = tracking_refresh
+        client._provider._coordinator._refresh_callback = tracking_refresh
 
         create_post_count = [0]
 
@@ -443,7 +444,7 @@ class TestAutoRefreshIntegration:
             refresh_calls.append(True)
             return client.auth
 
-        client._backend._auth_coord._refresh_callback = tracking_refresh
+        client._provider._coordinator._refresh_callback = tracking_refresh
 
         create_post_count = [0]
 

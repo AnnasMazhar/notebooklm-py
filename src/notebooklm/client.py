@@ -35,9 +35,9 @@ if TYPE_CHECKING:
 
 # Keep feature/collaborator types importable for runtime type-hint introspection.
 from ._artifacts import ArtifactsAPI
-from ._auth import tokens as _auth_tokens
 from ._auth.account import authuser_query as authuser_query
 from ._auth.extraction import extract_wiz_field as extract_wiz_field
+from ._auth.web_provider_storage import load_web_provider_bootstrap
 from ._chat import ChatAPI
 from ._client_assembly import _assemble_client
 from ._client_seams import ClientSeams
@@ -68,6 +68,7 @@ from ._source.upload import SourceUploadPipeline
 from ._sources import SourcesAPI
 from ._url_utils import is_google_auth_redirect as is_google_auth_redirect
 from ._web.backend import WebRpcBackend
+from ._web_cookie_provider import WebCookieProvider
 from .auth import AuthTokens
 from .exceptions import AuthExtractionError as AuthExtractionError
 
@@ -126,6 +127,7 @@ class NotebookLMClient:
     # runtime attribute surface itself.
     _seams: ClientSeams
     _backend: WebRpcBackend
+    _provider: WebCookieProvider
     _source_uploader: SourceUploadPipeline
     sources: SourcesAPI
     notebooks: NotebooksAPI
@@ -327,7 +329,7 @@ class NotebookLMClient:
         :class:`AuthTokens` object set in :meth:`__init__`, so the public
         ``client.auth`` identity and behavior are unchanged.
         """
-        return self._backend.auth
+        return self._provider.auth
 
     async def __aenter__(self) -> NotebookLMClient:
         """Open the client connection."""
@@ -483,11 +485,10 @@ class NotebookLMClient:
         (``client.notebooks``, ``client.sources``, etc.) when possible. Import
         ``RPCMethod`` from ``notebooklm.rpc``.
 
-        The wrapper forwards to :meth:`RpcExecutor.rpc_call` on the
-        executor that was bound during :meth:`__init__` (and that every
-        feature API shares). Internal call sites that need to bind the
-        underlying internal-only parameters do so against the executor
-        surface directly, not via this public wrapper.
+        The wrapper forwards through ``WebRpcBackend`` to the
+        :class:`WebExecutionRuntime` bound during construction (and shared by
+        every feature API). Internal call sites bind internal-only parameters
+        against that backend runtime, not via this public wrapper.
 
         ``read_timeout`` (default ``None``) overrides the client-wide read
         timeout for this one call — useful for RPCs known to run long (e.g.
@@ -682,10 +683,9 @@ class NotebookLMClient:
         Coordinator single-flight + join-then-rerun (caller-side):
 
             The base-policy refresh (``allow_headless=False``) is BOTH the
-            coordinator's single-flight callback (the mid-RPC 401 path runs it
-            via :meth:`AuthRefreshCoordinator.await_refresh`) and what a default
-            ``refresh_auth()`` performs directly — so the callback path never
-            re-routes into the coordinator and there is no recursion.
+            provider's single-flight callback (the mid-RPC 401 path joins it
+            through the provider boundary) and what a default ``refresh_auth()``
+            performs directly, without recursive coordinator entry.
 
             A wider-policy caller (``allow_headless=True``) instead JOINS
             whatever base-policy flight the coordinator has in progress (or
@@ -705,7 +705,7 @@ class NotebookLMClient:
                 changed), or if cookies are dead and L3 is unavailable / also
                 fails (the persisted profile's Google session is expired too).
         """
-        return await self._backend.refresh_auth(allow_headless=allow_headless)
+        return await self._provider.refresh(allow_headless=allow_headless)
 
     def get_account_authuser(self) -> int:
         """Return the ``authuser`` index of the signed-in account (0 = default).
@@ -714,7 +714,7 @@ class NotebookLMClient:
         the profile's persisted metadata or inline ``NOTEBOOKLM_AUTH_JSON``);
         network-free. Falls back to ``0`` for pre-account-binding profiles.
         """
-        return self._backend.get_account_authuser()
+        return self._provider.get_account_authuser()
 
     async def get_account_email(self, *, live_fallback: bool = True) -> str | None:
         """Return the signed-in Google account email, or ``None`` if undiscoverable.
@@ -735,7 +735,7 @@ class NotebookLMClient:
         (calling outside ``async with``) is the only surfaced error, from
         :meth:`Kernel.get_http_client`, and only on the live-fallback path.
         """
-        return await self._backend.get_account_email(live_fallback=live_fallback)
+        return await self._provider.get_account_email(live_fallback=live_fallback)
 
 
 class _FromStorageContext:
@@ -787,17 +787,12 @@ class _FromStorageContext:
         path = kwargs["path"]
         profile = kwargs["profile"]
 
-        loaded = await _auth_tokens._load_stored_auth(
+        bootstrap = await load_web_provider_bootstrap(
             path=Path(path) if path else None,
             profile=profile,
-            policy=_auth_tokens.LoadPolicy(allow_headless=kwargs["allow_headless"]),
-            auth_type=AuthTokens,
+            allow_headless=kwargs["allow_headless"],
         )
-        match loaded:
-            case _auth_tokens.InlineLoadedAuth(auth=auth):
-                pass
-            case _auth_tokens.FileLoadedAuth(auth=auth):
-                pass
+        auth = bootstrap.auth
         storage_path = auth.storage_path
 
         client = self._cls(
@@ -817,8 +812,15 @@ class _FromStorageContext:
             upload_timeout=kwargs["upload_timeout"],
             on_rpc_event=kwargs["on_rpc_event"],
         )
-        if isinstance(loaded, _auth_tokens.FileLoadedAuth) and hasattr(client, "_backend"):
-            client._backend.register_open_baseline(loaded.store, loaded.persistence_baseline)
+        if (
+            bootstrap.store is not None
+            and bootstrap.persistence_baseline is not None
+            and hasattr(client, "_provider")
+        ):
+            client._provider.register_open_baseline(
+                bootstrap.store,
+                bootstrap.persistence_baseline,
+            )
         self._client = client
         return client
 

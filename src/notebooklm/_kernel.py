@@ -9,6 +9,7 @@ import httpx
 
 from ._request_types import PostBody
 from ._streaming_post import stream_post_with_size_cap
+from ._web_cookie_provider import WebCookieGeneration
 from .auth import AuthTokens, build_cookie_jar
 from .types import ConnectionLimits
 
@@ -34,6 +35,10 @@ class Kernel:
         # A composed client seeds this once from AuthTokens' bootstrap shadow;
         # after open, ``get_cookies`` resolves directly to the transport jar.
         self._cookies = self._bootstrap_cookies(auth) if auth is not None else None
+        # Retain only the monotonic fence. Credential-bearing generation
+        # values belong to the provider and per-call request state, never the
+        # mutable backend session owner.
+        self._installed_generation: int | None = None
         self._timeout: float | None = None
         self._connect_timeout: float | None = None
 
@@ -93,10 +98,40 @@ class Kernel:
             raise RuntimeError("Client not initialized. Use 'async with' context.")
         return self._http_client
 
+    def install_generation(self, generation: WebCookieGeneration) -> bool:
+        """Clone a newer provider generation into this private session.
+
+        The monotonic fence prevents a delayed attempt from rolling the live
+        session back after a newer stored generation has already arrived.
+        Equal generations are deliberately left alone: ordinary response
+        ``Set-Cookie`` mutations belong to the private session and must not be
+        overwritten by replaying its original provider seed.
+        """
+        installed = self._installed_generation
+        if installed is not None and generation.generation <= installed:
+            return False
+
+        replacement = generation.cookies.to_httpx()
+        target = self._http_client.cookies if self._http_client is not None else self._cookies
+        if target is None:
+            self._cookies = replacement
+        else:
+            from ._auth.cookies import _replace_cookie_jar
+
+            _replace_cookie_jar(target, replacement)
+            self._cookies = target
+        self._installed_generation = generation.generation
+        return True
+
+    @property
+    def installed_generation(self) -> int | None:
+        """Return only the non-secret provider epoch used by the fence."""
+        return self._installed_generation
+
     async def open(
         self,
         *,
-        auth: AuthTokens,
+        auth: AuthTokens | None,
         timeout: float,
         connect_timeout: float,
         limits: ConnectionLimits,
@@ -120,8 +155,10 @@ class Kernel:
         # construction so account identity can be resolved before open. This
         # helper is the ONE legitimate internal read of AuthTokens' cookie
         # shadows. It becomes ``auth.initial_cookies`` in ADR-0032 Phase B.
-        if self._cookies is None:
+        if self._cookies is None and auth is not None:
             self._cookies = self._bootstrap_cookies(auth)
+        if self._cookies is None:
+            raise RuntimeError("Cookie jar not initialized. Install a generation first.")
 
         self._http_client = self._async_client_factory(
             headers={

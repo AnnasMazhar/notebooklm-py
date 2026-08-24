@@ -8,10 +8,10 @@
   raw transport errors into the ``Transport*`` exception shapes consumed
   by ``RetryMiddleware`` / ``AuthRefreshMiddleware``.
 * :meth:`RuntimeTransport.refresh_request_for_current_auth` — re-builds
-  the envelope from ``RPC_CONTEXT_BUILD_REQUEST`` if a concurrent refresh
+  the envelope from ``RpcCallState.build_request`` if a concurrent refresh
   moved the auth snapshot between materialization and the terminal POST.
 * :meth:`RuntimeTransport.perform_authed_post` — the entry point the
-  RPC executor / chat path call. Runs the
+  :class:`WebExecutionRuntime` / chat path call. Runs the
   loop-affinity guard, captures the current auth snapshot, materializes
   the request envelope, dispatches it through the wired middleware
   chain, and records the semaphore queue-wait latency.
@@ -23,7 +23,7 @@ tunables (``_rate_limit_max_retries`` / ``_server_error_max_retries`` /
 ``_refresh_retry_delay``). ``perform_authed_post`` does not read the
 retry-delay directly — the retry/backoff budget for the refresh path
 is owned by ``AuthRefreshMiddleware`` and by
-``RpcExecutor.try_refresh_and_retry``, both of which read
+``WebExecutionRuntime.try_refresh_and_retry``, both of which read
 ``chain_host._refresh_retry_delay`` live through provider lambdas wired
 in ``_runtime.init.wire_middleware_chain``.
 
@@ -39,9 +39,9 @@ The chain itself is reached by the transport through an injected
 ``chain_host._authed_post_chain`` live, late on every
 :meth:`perform_authed_post` call; this both breaks the construction
 cycle while keeping chain ownership inside the backend runtime. The
-:class:`AuthRefreshCoordinator` snapshot is reached via an injected
-``snapshot_provider`` callable so :class:`RuntimeTransport` never has
-to hold a direct back-reference to the composition root.
+immutable provider generation is reached via an injected
+``snapshot_provider`` callable so :class:`RuntimeTransport` never retains
+a mutable credential owner.
 """
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ class RuntimeTransport:
         (including retries driven by ``RetryMiddleware`` for 429 / 5xx) and
         unconditionally rebuilds ``RpcRequest.url`` / ``.headers`` / ``.body``
         from a freshly captured :class:`AuthSnapshot` whenever
-        ``RPC_CONTEXT_BUILD_REQUEST`` is present. The unconditional rebuild
+        ``RpcCallState.build_request`` is present. The unconditional rebuild
         is the runtime correctness fix for the stale-envelope path that
         existed when the freshness check short-circuited on snapshot
         equality:
@@ -136,8 +136,7 @@ class RuntimeTransport:
         2. Terminal POSTs and the response is HTTP 401.
         3. :class:`AuthRefreshMiddleware` (just inside ``RetryMiddleware``)
            catches the auth error, refreshes credentials, mutates
-           ``request.context[RPC_CONTEXT_AUTH_SNAPSHOT]`` to ``S_new``
-           in-place (see
+           the shared state's auth snapshot to ``S_new`` in-place (see
            :meth:`AuthRefreshMiddleware._rebuild_request_after_refresh`
            for the contract — that mutation is the carrier of the new
            snapshot across the ``Retry`` ↔ ``AuthRefresh`` boundary), and
@@ -180,11 +179,17 @@ class RuntimeTransport:
 
         current_snapshot = await self._snapshot_provider()
         state.publish_auth_snapshot(current_snapshot)
-        return materialize_rpc_request(
+        request = materialize_rpc_request(
             build_request=build_request,
             snapshot=current_snapshot,
             state=state,
         )
+        # P8: clone only a newer immutable provider generation into the
+        # backend-private session.  This is synchronous and stays after the
+        # final snapshot await but before the terminal POST, so cancellation
+        # cannot mix one generation's route/tokens with another's cookies.
+        self._kernel.install_generation(current_snapshot)
+        return request
 
     async def terminal(self, request: RpcRequest) -> RpcResponse:
         """Chain leaf — sends the populated ``RpcRequest`` via ``Kernel.post``.
@@ -243,13 +248,13 @@ class RuntimeTransport:
     ) -> httpx.Response:
         """Authed POST entry point — routes through the middleware chain.
 
-        Shared transport surface used by ``RpcExecutor._execute_once``
+        Shared transport surface used by ``WebExecutionRuntime._execute_once``
         (``_rpc_executor.py``) and the semantic chat binding through
         ``_web/chat_transport.py``; keep the same keyword-only signature.
 
         ``RpcRequest.url`` / ``headers`` / ``body`` are populated through
         :func:`materialize_rpc_request` before the chain sees the
-        request. ``RPC_CONTEXT_BUILD_REQUEST`` remains as the bounded
+        request. ``RpcCallState.build_request`` remains as the bounded
         rebuild recipe for auth-refresh and pre-terminal freshness
         checks.
 
@@ -260,7 +265,7 @@ class RuntimeTransport:
         refresh allowance with the executor's decoded-RPC refresh layer
         (issue #1205). Callers that drive the chain without a budget (the
         chat path) pass ``None``; the middleware then falls back to its
-        per-chain ``RPC_CONTEXT_AUTH_REFRESHED`` boolean.
+        per-chain ``RpcCallState.auth_refreshed`` boolean.
 
         ``retry_deadline`` is an optional
         :class:`notebooklm._deadline.RuntimeDeadline` seeded by the RPC
@@ -314,7 +319,7 @@ class RuntimeTransport:
         # AND keeps Metrics timing the queue wait, while still bounding
         # the retry-and-refresh cohort to one slot per logical RPC.
         # The middleware writes the queue-wait duration to
-        # ``request.context[RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS]`` so the recorder
+        # ``request.state.queue_wait_seconds`` so the recorder
         # below can forward it to ``ClientMetrics`` without giving the
         # middleware an opinionated ``ClientMetrics`` dependency.
         #
@@ -340,7 +345,7 @@ class RuntimeTransport:
             # (RetryMiddleware budget exhaustion, AuthRefreshMiddleware
             # refresh failure, etc.) MUST still surface the queue-wait
             # latency. ``SemaphoreMiddleware`` writes the duration to
-            # ``request.context[RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS]`` after the
+            # ``request.state.queue_wait_seconds`` after the
             # semaphore is acquired; absence of the key means the slot
             # was never acquired and there's nothing to record.
             queue_wait = request.state.queue_wait_seconds

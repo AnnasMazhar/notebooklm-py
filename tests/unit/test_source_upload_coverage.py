@@ -480,8 +480,9 @@ def test_drive_import_service_preserves_falsey_override_and_live_auth_route() ->
     service = pipeline.create_drive_import_service(add_file=override)
 
     assert service._add_file is override
-    assert service._fetch._cookies_provider == pipeline.live_cookies
-    assert service._fetch._authuser == pipeline.authuser_value()
+    assert service._fetch._generation_provider == pipeline._generation
+    assert service._fetch._cookies_provider is None
+    assert service._fetch._authuser is None
 
 
 @pytest.mark.asyncio

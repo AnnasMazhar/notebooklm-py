@@ -80,7 +80,7 @@ async def test_save_lock_acquired_off_event_loop_thread(
         # ``save_cookies_to_storage`` is called from inside ``with lock:``
         # in ``_save()``. Whichever thread runs this spy is, by definition,
         # the thread currently holding ``CookiePersistence.save_lock``.
-        observed["lock_held"] = core_ref["core"]._backend._cookie_persistence.save_lock.locked()
+        observed["lock_held"] = core_ref["core"]._provider._persistence.save_lock.locked()
         observed["holder_thread"] = threading.current_thread()
         return True
 
@@ -89,8 +89,8 @@ async def test_save_lock_acquired_off_event_loop_thread(
     core = _make_core(tmp_path, cookie_saver=spy)
     core_ref["core"] = core
 
-    await core._backend._lifecycle.save_cookies(
-        core._backend._cookie_persistence,
+    await core._provider._lifecycle.save_cookies(
+        core._provider._persistence,
         httpx.Cookies(),
     )
 
@@ -157,12 +157,12 @@ async def test_save_lock_does_not_block_event_loop(
             await asyncio.sleep(0.01)
         # If we reach here, the loop is still scheduling tasks AND the
         # worker thread is inside the spy (lock held).
-        loop_observations.append(core._backend._cookie_persistence.save_lock.locked())
+        loop_observations.append(core._provider._persistence.save_lock.locked())
         release_save.set()
 
     await asyncio.gather(
-        core._backend._lifecycle.save_cookies(
-            core._backend._cookie_persistence,
+        core._provider._lifecycle.save_cookies(
+            core._provider._persistence,
             httpx.Cookies(),
         ),
         heartbeat(),

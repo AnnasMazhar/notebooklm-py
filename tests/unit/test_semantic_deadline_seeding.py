@@ -224,7 +224,7 @@ def test_production_assembly_reads_live_timeout_without_mutating_started_deadlin
     )
 
     first = client._backend._deadline_factory.start()
-    client._backend._lifecycle._timeout = 41.0
+    client._provider._lifecycle._timeout = 41.0
     second = client._backend._deadline_factory.start()
 
     assert first is not None and second is not None

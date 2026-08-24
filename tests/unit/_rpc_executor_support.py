@@ -96,9 +96,9 @@ def _executor(
         return {"rpc_id": rpc_id, "allow_null": allow_null}
 
     return RpcExecutor(
-        kernel=owner,  # type: ignore[arg-type]
+        assert_open=owner.get_http_client,
         transport=owner,  # type: ignore[arg-type]
-        auth_refresh=owner,  # type: ignore[arg-type]
+        refresh=owner.await_refresh,
         metrics=owner,  # type: ignore[arg-type]
         decode_response=decode_response or _decode,
         is_auth_error=is_auth_error or (lambda exc: False),

@@ -159,11 +159,10 @@ def test_shared_wiring_identities_hold_on_both_paths() -> None:
             )
             is client._backend
         ), f"{label}: URL source mutations must share the client-owned semantic backend"
-        assert getattr(client._source_uploader, "_auth", _missing) is client._backend.auth, (
-            f"{label}: the upload pipeline (SourceUploadPipeline._auth) must alias "
-            "the client-owned AuthTokens (ADR-0016 Auth Instance Invariant)"
-        )
-        assert client.auth is client._backend.auth
+        assert getattr(client._source_uploader, "_generation_provider", _missing) == (
+            client._provider.generation
+        ), f"{label}: direct upload legs must consume the client provider generation"
+        assert client.auth is client._provider.auth
 
 
 def test_backend_receives_the_resolved_web_transport_factory() -> None:

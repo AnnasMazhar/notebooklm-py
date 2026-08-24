@@ -60,6 +60,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
+from .._auth.cookie_types import CookieJar
 from .._loop_affinity import assert_bound_loop
 from .._loop_bound import LoopBoundPrimitive
 from .._request_types import AuthSnapshot
@@ -67,7 +68,6 @@ from ..auth import AuthTokens
 from .config import CORE_LOGGER_NAME
 
 if TYPE_CHECKING:
-    from .._auth.cookie_types import CookieJar
     from .._client_metrics import ClientMetrics
     from .._kernel import Kernel
 
@@ -230,8 +230,13 @@ class AuthRefreshCoordinator(LoopBoundPrimitive):
     # in sync.
     # ------------------------------------------------------------------
 
-    async def snapshot(self, *, auth: AuthTokens) -> AuthSnapshot:
-        """Capture the current auth scalars as a frozen snapshot.
+    async def snapshot(
+        self,
+        *,
+        auth: AuthTokens,
+        cookie_jar: httpx.Cookies | None = None,
+    ) -> AuthSnapshot:
+        """Capture the current cookie/token/route generation atomically.
 
         Acquires :attr:`_auth_snapshot_lock` for the four scalar reads so a
         concurrent :meth:`update_auth_tokens` cannot interleave between
@@ -258,11 +263,16 @@ class AuthRefreshCoordinator(LoopBoundPrimitive):
         async with self.get_auth_snapshot_lock():
             if self._metrics is not None:
                 self._metrics.record_lock_wait(time.perf_counter() - wait_start)
+            live_cookies = cookie_jar if cookie_jar is not None else auth.cookie_jar
             return AuthSnapshot(
                 csrf_token=auth.csrf_token,
                 session_id=auth.session_id,
                 authuser=auth.authuser,
                 account_email=auth.account_email,
+                cookies=(
+                    CookieJar.from_httpx(live_cookies) if live_cookies is not None else CookieJar()
+                ),
+                generation=auth._profile_session_generation,
             )
 
     async def update_auth_tokens(

@@ -78,7 +78,7 @@ def test_constructor_options_route_to_current_effective_consumers(tmp_path: Path
         import_research_timeout=83.0,
     )
 
-    lifecycle = client._backend._lifecycle
+    lifecycle = client._provider._lifecycle
     assert lifecycle is not None
 
     # timeout -> lifecycle, executor budget, and ResearchAPI base window.
@@ -120,7 +120,7 @@ def test_constructor_options_route_to_current_effective_consumers(tmp_path: Path
 
     # RPC concurrency reaches its focused owner and the live middleware;
     # the lazily materialized semaphore has the configured capacity.
-    rpc_semaphore = client._backend._rpc_semaphore
+    rpc_semaphore = client._provider._rpc_semaphore
     assert rpc_semaphore is not None
     assert rpc_semaphore.max_concurrent_rpcs == 9
     assert rpc_semaphore.get()._value == 9
@@ -241,7 +241,7 @@ def test_rpc_limit_cross_validates_against_connection_pool() -> None:
 
 def test_none_rpc_limit_routes_to_the_unbounded_semaphore_path() -> None:
     client = NotebookLMClient(_auth(), max_concurrent_rpcs=None)
-    rpc_semaphore = client._backend._rpc_semaphore
+    rpc_semaphore = client._provider._rpc_semaphore
     assert rpc_semaphore is not None
     assert rpc_semaphore.max_concurrent_rpcs is None
     assert rpc_semaphore.get().__class__.__name__ == "nullcontext"

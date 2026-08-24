@@ -14,6 +14,7 @@ from typing import IO, TYPE_CHECKING, Any, Protocol, cast
 import httpx
 
 from .._auth.account import authuser_query, format_authuser_value
+from .._auth.cookie_types import CookieJar
 from .._callbacks import maybe_await_callback
 from .._idempotency import (
     _coerce_create_result,
@@ -27,7 +28,8 @@ from .._runtime.config import (
     DEFAULT_MAX_CONCURRENT_UPLOADS,
     normalize_max_concurrent_uploads,
 )
-from .._runtime.contracts import Kernel
+from .._runtime.contracts import Kernel, LoopGuard
+from .._web_cookie_provider import WebCookieGeneration
 from ..exceptions import (
     AuthError,
     NetworkError,
@@ -93,7 +95,6 @@ from .upload_payloads import (
 )
 
 if TYPE_CHECKING:
-    from .._runtime.lifecycle import ClientLifecycle
     from .._transport_drain import TransportDrainTracker
 
 
@@ -133,6 +134,8 @@ ListSources = Callable[[str], Awaitable[list[Source]]]
 RegisterFileSource = Callable[[str, str], Awaitable[SourceFileRegistrationRecord]]
 RenameSource = Callable[[str, str, str], Awaitable[Source | None]]
 QueueWaitRecorder = Callable[[float], None]
+GenerationProvider = Callable[[], Awaitable[WebCookieGeneration]]
+GenerationInstaller = Callable[[WebCookieGeneration], bool]
 
 
 class _SourceUploadResult:
@@ -166,9 +169,11 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         *,
         rpc: Any | None = None,
         drain: TransportDrainTracker,
-        lifecycle: ClientLifecycle,
+        lifecycle: LoopGuard,
         kernel: Kernel,
-        auth: AuthMetadata,
+        auth: AuthMetadata | None = None,
+        generation_provider: GenerationProvider | None = None,
+        generation_installer: GenerationInstaller | None = None,
         upload_timeout: httpx.Timeout | None = None,
         max_concurrent_uploads: int | None = DEFAULT_MAX_CONCURRENT_UPLOADS,
         record_upload_queue_wait: QueueWaitRecorder | None = None,
@@ -187,6 +192,8 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         self._lifecycle = lifecycle
         self._kernel = kernel
         self._auth = auth
+        self._generation_provider = generation_provider
+        self._generation_installer = generation_installer
         self._upload_timeout = upload_timeout
         self._record_upload_queue_wait = record_upload_queue_wait
         self._async_client_factory = async_client_factory
@@ -237,10 +244,32 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         return resolve_transport_factory()
 
     def _authuser_query(self) -> str:
+        if self._auth is None:
+            raise RuntimeError("source upload has no compatibility auth metadata")
         return authuser_query(self._auth.authuser, self._auth.account_email)
 
     def _authuser_header(self) -> str:
+        if self._auth is None:
+            raise RuntimeError("source upload has no compatibility auth metadata")
         return format_authuser_value(self._auth.authuser, self._auth.account_email)
+
+    async def _generation(self) -> WebCookieGeneration:
+        """Acquire and install one atomic cookie/route value for a direct leg."""
+        provider = self._generation_provider
+        if provider is not None:
+            generation = await provider()
+            if self._generation_installer is not None:
+                self._generation_installer(generation)
+            return generation
+        if self._auth is None:
+            raise RuntimeError("source upload has no cookie-generation provider")
+        return WebCookieGeneration(
+            csrf_token="",
+            session_id="",
+            authuser=self._auth.authuser,
+            account_email=self._auth.account_email,
+            cookies=CookieJar.from_httpx(self._live_cookies()),
+        )
 
     def _live_cookies(self) -> httpx.Cookies:
         cookies = getattr(self._kernel, "cookies", None)
@@ -317,7 +346,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
 
     def authuser_value(self) -> str:
         """Account-routing value for Google URLs (#1884), matching the upload leg."""
-        return format_authuser_value(self._auth.authuser, self._auth.account_email)
+        return self._authuser_header()
 
     def create_drive_import_service(self, *, add_file: AddFile | None = None) -> DriveImportService:
         """Build the Drive bridge without exposing credential material to callers.
@@ -328,8 +357,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         """
         return DriveImportService(
             fetch=DriveFetcher(
-                cookies_provider=self.live_cookies,
-                authuser=self.authuser_value(),
+                generation_provider=self._generation,
             ),
             add_file=add_file if add_file is not None else self.add_file,
         )
@@ -875,6 +903,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         content_type: str,
     ) -> str:
         """Start a resumable upload session and get the upload URL."""
+        generation = await self._generation()
         request = build_resumable_upload_start_request(
             notebook_id=notebook_id,
             filename=filename,
@@ -882,13 +911,16 @@ class SourceUploadPipeline(LoopBoundPrimitive):
             source_id=source_id,
             content_type=content_type,
             upload_url=get_upload_url(),
-            authuser_query=self._authuser_query(),
-            authuser_header=self._authuser_header(),
+            authuser_query=authuser_query(generation.authuser, generation.account_email),
+            authuser_header=format_authuser_value(
+                generation.authuser,
+                generation.account_email,
+            ),
         )
 
         async with self._client_factory()(
             timeout=self._resolve_upload_timeout(httpx.Timeout(10.0, read=60.0)),
-            cookies=self._live_cookies(),
+            cookies=generation.cookies.to_httpx(),
         ) as client:
             response = await client.post(
                 request.url,
@@ -931,11 +963,15 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         close_wired = False
         try:
             upload_url = _validate_resumable_upload_url(upload_url)
+            generation = await self._generation()
             # Origin/Referer track the *validated* upload URL, never the configured
             # base URL: the two personal hosts stand in for each other, and an
             # Origin naming the other host fails Google's origin-bound auth checks.
             origin = _upload_url_origin(upload_url)
-            auth_route = self._authuser_header()
+            auth_route = format_authuser_value(
+                generation.authuser,
+                generation.account_email,
+            )
             headers = {
                 "Accept": "*/*",
                 "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
@@ -981,7 +1017,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                 nonlocal finalize_started
                 async with self._client_factory()(
                     timeout=self._resolve_upload_timeout(httpx.Timeout(10.0, read=300.0)),
-                    cookies=self._live_cookies(),
+                    cookies=generation.cookies.to_httpx(),
                 ) as client:
                     finalize_started = True
                     # The curl_cffi transport streams the request body from disk via
@@ -1063,6 +1099,11 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         """
         try:
             upload_url = _validate_resumable_upload_url(upload_url)
+            generation = await self._generation()
+            auth_route = format_authuser_value(
+                generation.authuser,
+                generation.account_email,
+            )
             origin = _upload_url_origin(upload_url)
             headers = {
                 "Accept": "*/*",
@@ -1074,7 +1115,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
             }
             async with self._client_factory()(
                 timeout=httpx.Timeout(10.0, read=10.0),
-                cookies=self._live_cookies(),
+                cookies=generation.cookies.to_httpx(),
             ) as client:
                 await client.post(upload_url, headers=headers)
         except Exception as exc:  # noqa: BLE001

@@ -469,26 +469,15 @@ async def test_first_terminal_attempt_rebuilds_when_snapshot_changed(monkeypatch
             ]
         )
 
-        async def fake_snapshot(*, auth: AuthTokens) -> AuthSnapshot:
-            # Tightened signature pins the explicit-collaborator contract:
-            # the production caller MUST pass ``auth=<live AuthTokens>``,
-            # not the legacy positional host. ``auth is core.auth`` proves
-            # the chain captured the same ``AuthTokens`` instance NotebookLMClient
-            # holds (identity-stable per the live-reference contract in
-            # ``wire_middleware_chain``).
-            assert auth is core.auth
+        async def fake_generation() -> AuthSnapshot:
+            # Request materialization reads only the provider's immutable
+            # generation boundary, never mutable ``AuthTokens``.
             try:
                 return next(snapshots)
             except StopIteration:
                 pytest.fail("unexpected extra auth snapshot")
 
-        # PR #4b inlined ``NotebookLMClient._snapshot``; the production call
-        # sites now read ``self._auth_coord.snapshot(auth=self.auth)``
-        # directly (the NotebookLMClient-shaped ``_AuthRefreshHost`` was deleted
-        # in favor of an explicit ``auth: AuthTokens`` kwarg), so this
-        # test swaps the canonical coordinator method instead of the
-        # (now-deleted) NotebookLMClient delegate.
-        core._backend._auth_coord.snapshot = fake_snapshot  # type: ignore[method-assign]
+        core._provider.generation = fake_generation  # type: ignore[method-assign]
         calls: list[AuthSnapshot] = []
 
         def build(snapshot: AuthSnapshot) -> tuple[str, str, dict[str, str]]:
@@ -1096,7 +1085,7 @@ async def test_exponential_backoff_caps_at_30_seconds(monkeypatch):
     try:
         # This test isolates the exponential schedule itself. Keep the aggregate
         # retry deadline high enough that it does not stop before the cap repeats.
-        core._backend._lifecycle._timeout = 200.0
+        core._provider._lifecycle._timeout = 200.0
         sleeps: list[float] = []
 
         async def fake_sleep(seconds: float) -> None:

@@ -223,7 +223,7 @@ class TestRPCCallHTTPErrors:
         # gate in rpc_call short-circuits and the status mapping runs.
         async with NotebookLMClient(auth_tokens) as client:
             core = client
-            core._backend._auth_coord._refresh_callback = None
+            core._provider._coordinator._refresh_callback = None
 
             mock_response = MagicMock()
             mock_response.status_code = 400
@@ -292,13 +292,13 @@ class TestRPCCallAuthRetry:
         async with NotebookLMClient(auth_tokens) as client:
             core = client
             refresh_callback = AsyncMock()
-            core._backend._auth_coord._refresh_callback = refresh_callback
+            core._provider._coordinator._refresh_callback = refresh_callback
             import asyncio
 
             # Pre-allocate the lock so the first refresh attempt doesn't
             # try to construct one (the coordinator's lazy-init runs at
             # the first ``await_refresh`` call site).
-            core._backend._auth_coord._refresh_lock = asyncio.Lock()
+            core._provider._coordinator._refresh_lock = asyncio.Lock()
 
             success_response = MagicMock()
             success_response.status_code = 200
@@ -477,7 +477,7 @@ class TestCrossDomainCookiePreservation:
             # Wave 3 of plan ``host-protocol-removal`` deleted the
             # NotebookLMClient-level ``update_auth_headers`` forward; call the
             # canonical coordinator method directly with explicit kwargs.
-            core._backend._auth_coord.update_auth_headers(
+            core._provider._coordinator.update_auth_headers(
                 auth=core.auth, kernel=core._backend._kernel
             )
 
@@ -504,7 +504,7 @@ class TestCrossDomainCookiePreservation:
             # Wave 3 of plan ``host-protocol-removal`` deleted the
             # NotebookLMClient-level ``update_auth_headers`` forward; call the
             # canonical coordinator method directly with explicit kwargs.
-            core._backend._auth_coord.update_auth_headers(
+            core._provider._coordinator.update_auth_headers(
                 auth=core.auth, kernel=core._backend._kernel
             )
 
@@ -545,7 +545,7 @@ class TestCrossDomainCookiePreservation:
             # Wave 3 of plan ``host-protocol-removal`` deleted the
             # NotebookLMClient-level ``update_auth_headers`` forward; call the
             # canonical coordinator method directly with explicit kwargs.
-            core._backend._auth_coord.update_auth_headers(
+            core._provider._coordinator.update_auth_headers(
                 auth=core.auth, kernel=core._backend._kernel
             )
 

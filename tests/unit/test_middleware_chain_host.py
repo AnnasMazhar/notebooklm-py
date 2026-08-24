@@ -122,8 +122,8 @@ async def test_constructor_refresh_callback_is_the_refresh_leaf() -> None:
 
     core = build_client_shell_for_tests(auth=auth, refresh_callback=fake_refresh)
 
-    await core._backend._auth_coord.await_refresh()
-    await core._backend._auth_coord.await_refresh()
+    await core._provider._coordinator.await_refresh()
+    await core._provider._coordinator.await_refresh()
 
     assert calls == [None, None]
 

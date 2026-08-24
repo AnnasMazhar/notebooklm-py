@@ -54,6 +54,8 @@ from notebooklm._backend import BackendContractError, BackendKind
 from notebooklm._kernel import Kernel
 from notebooklm._request_types import AuthSnapshot
 from notebooklm._runtime.auth import AuthRefreshCoordinator
+from notebooklm._web.backend import WebRpcBackend
+from notebooklm._web_cookie_provider import WebCookieGeneration
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient, _FromStorageContext
 from tests._fixtures.web_backend import build_web_backend
@@ -179,22 +181,30 @@ def test_generation_install_has_no_await_boundary() -> None:
     assert not inspect.iscoroutinefunction(AuthTokens._replace_profile_session)
 
 
-def test_todays_atomic_read_is_two_mechanisms_not_one_generation() -> None:
-    """Record the gap P8 closes: the frozen snapshot carries no cookie axis.
-
-    ``AuthSnapshot`` is immutable and covers the four routing/token scalars
-    under the snapshot lock. The cookie axis is aligned separately, by the
-    no-await rule at the transport terminal. P8's immutable generation is where
-    those two mechanisms become one value; until then this test states the
-    current split explicitly so the merge is a deliberate change.
-    """
+def test_atomic_read_is_one_immutable_cookie_route_generation() -> None:
+    """P8 closes the split: the frozen snapshot now carries every axis."""
     snapshot_fields = {field.name for field in dataclasses.fields(AuthSnapshot)}
-    assert snapshot_fields == {"csrf_token", "session_id", "authuser", "account_email"}
-    assert "cookies" not in snapshot_fields and "cookie_jar" not in snapshot_fields
+    assert snapshot_fields == {
+        "csrf_token",
+        "session_id",
+        "authuser",
+        "account_email",
+        "cookies",
+        "generation",
+    }
 
-    snapshot = AuthSnapshot(csrf_token="c", session_id="s", authuser=0, account_email=None)
+    snapshot = AuthSnapshot(
+        csrf_token="c",
+        session_id="s",
+        authuser=0,
+        account_email=None,
+        cookies=CookieJar.from_httpx(_jar(SID="one")),
+        generation=3,
+    )
     with pytest.raises(FrozenInstanceError):
         snapshot.authuser = 1  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        snapshot.cookies = CookieJar()  # type: ignore[misc]
 
     # The lock that makes the four scalars coherent is distinct from the
     # single-flight lock; P8 must not collapse them while merging the axes.
@@ -226,6 +236,8 @@ async def test_coordinator_serializes_route_install_against_snapshot_reads() -> 
 
     snapshot = await coordinator.snapshot(auth=auth)
     assert (snapshot.authuser, snapshot.account_email) == (4, "owner@example.com")
+    assert snapshot.cookies == CookieJar.from_httpx(target)
+    assert snapshot.generation == 1
 
 
 # -----------------------------------------------------------------------------
@@ -274,6 +286,164 @@ def test_cookie_generation_clone_gives_each_holder_its_own_container() -> None:
     assert dict(clone) == {"SID": "shared-sid"}
 
 
+def test_backend_private_session_clones_and_fences_provider_generations() -> None:
+    """A delayed provider value cannot alias or roll back the private jar."""
+    auth = _make_auth()
+    kernel = Kernel(auth=auth)
+    first = WebCookieGeneration(
+        csrf_token="c1",
+        session_id="s1",
+        authuser=0,
+        account_email=None,
+        cookies=CookieJar.from_httpx(_jar(SID="first")),
+        generation=1,
+    )
+    second = WebCookieGeneration(
+        csrf_token="c2",
+        session_id="s2",
+        authuser=2,
+        account_email="owner@example.com",
+        cookies=CookieJar.from_httpx(_jar(SID="second")),
+        generation=2,
+    )
+
+    assert kernel.install_generation(first) is True
+    assert dict(kernel.cookies) == {"SID": "first"}
+    assert kernel.cookies is not first.cookies
+    assert kernel.install_generation(second) is True
+    assert dict(kernel.cookies) == {"SID": "second"}
+    assert kernel.install_generation(first) is False
+    assert dict(kernel.cookies) == {"SID": "second"}
+    assert kernel.installed_generation == 2
+    assert not any(isinstance(value, WebCookieGeneration) for value in vars(kernel).values()), (
+        "the mutable session must retain only the non-secret integer epoch"
+    )
+
+
+@pytest.mark.asyncio
+async def test_provider_and_backend_own_distinct_mutable_sessions() -> None:
+    """Mutation crosses the boundary only through a detached generation."""
+    from tests._helpers.client_factory import build_client_shell_for_tests
+
+    client = build_client_shell_for_tests(_make_auth())
+    async with client:
+        provider_kernel = client._provider._kernel
+        backend_kernel = client._backend._kernel
+        assert provider_kernel is not backend_kernel
+        assert provider_kernel.get_http_client() is not backend_kernel.get_http_client()
+        assert provider_kernel.cookies is not backend_kernel.cookies
+
+        before = await client._provider.generation()
+        backend_kernel.cookies.set("BACKEND", "only", domain=".google.com", path="/")
+        assert "BACKEND" not in dict(provider_kernel.cookies)
+        assert "BACKEND" not in before.cookies.names()
+
+        await client._provider.reconcile()
+        after = await client._provider.generation()
+        assert after.generation == before.generation + 1
+        assert "BACKEND" in after.cookies.names()
+        assert after.cookies is not backend_kernel.cookies
+
+
+@pytest.mark.asyncio
+async def test_provider_refresh_publishes_one_atomic_local_epoch() -> None:
+    """A live-jar/token gap remains private until one successful commit."""
+    from tests._helpers.client_factory import build_client_shell_for_tests
+
+    client = build_client_shell_for_tests(_make_auth())
+    provider = client._provider
+    cookie_changed = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def fake_refresh(*, allow_headless: bool = False) -> AuthTokens:
+        del allow_headless
+
+        async def work() -> AuthTokens:
+            provider._kernel.cookies.set("SID", "new", domain=".google.com", path="/")
+            cookie_changed.set()
+            await finish.wait()
+            provider.auth.csrf_token = "new-csrf"
+            provider.auth.session_id = "new-session"
+            return provider.auth
+
+        return await provider.run_refresh_transaction(work)
+
+    provider._refresh_session = fake_refresh
+    before = await provider.generation()
+    refresh_task = asyncio.create_task(provider.refresh())
+    await cookie_changed.wait()
+
+    during = await provider.generation()
+    assert during is before
+    assert (during.csrf_token, during.session_id) == ("test-csrf", "test-session")
+    assert dict(during.cookies.to_httpx())["SID"] == "test-sid"
+
+    finish.set()
+    assert await refresh_task is provider.auth
+    after = await provider.generation()
+    assert after.generation == before.generation + 1
+    assert (after.csrf_token, after.session_id) == ("new-csrf", "new-session")
+    assert dict(after.cookies.to_httpx())["SID"] == "new"
+
+
+@pytest.mark.asyncio
+async def test_provider_refresh_is_single_flight_and_waiter_cancellation_is_local() -> None:
+    """Concurrent callers share one shielded leader and one success epoch."""
+    from tests._helpers.client_factory import build_client_shell_for_tests
+
+    client = build_client_shell_for_tests(_make_auth())
+    provider = client._provider
+    entered = asyncio.Event()
+    finish = asyncio.Event()
+    started = 0
+
+    async def fake_refresh(*, allow_headless: bool = False) -> AuthTokens:
+        del allow_headless
+
+        async def work() -> AuthTokens:
+            nonlocal started
+            started += 1
+            entered.set()
+            await finish.wait()
+            provider.auth.csrf_token = "one-success"
+            return provider.auth
+
+        return await provider.run_refresh_transaction(work)
+
+    provider._refresh_session = fake_refresh
+    first = asyncio.create_task(provider.refresh())
+    second = asyncio.create_task(provider.refresh())
+    await entered.wait()
+    leader = provider._base_refresh_task
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    assert provider._base_refresh_task is leader
+    assert leader is not None and not leader.done()
+
+    finish.set()
+    assert await second is provider.auth
+    assert started == 1
+    assert (await provider.generation()).generation == 1
+
+
+def test_generation_repr_redacts_cookie_and_token_values() -> None:
+    generation = WebCookieGeneration(
+        csrf_token="csrf-secret",
+        session_id="session-secret",
+        authuser=3,
+        account_email="owner@example.com",
+        cookies=CookieJar.from_httpx(_jar(SID="cookie-secret")),
+        generation=4,
+    )
+
+    rendered = repr(generation)
+    for secret in ("csrf-secret", "session-secret", "cookie-secret"):
+        assert secret not in rendered
+    assert "owner@example.com" in rendered
+    assert "generation=4" in rendered
+
+
 @pytest.mark.asyncio
 async def test_client_auth_identity_invariant_holds_across_the_graph() -> None:
     """ADR-0016: every consumer aliases the one mutable ``AuthTokens``."""
@@ -297,11 +467,12 @@ def test_direct_backend_does_not_invent_a_client_runtime_or_http_session() -> No
     backend = build_web_backend(object())
 
     assert backend.kind is BackendKind.WEB
-    assert backend._auth is None
+    assert backend._provider is None
+    assert backend._session is None
     assert backend._kernel is None
-    assert backend._lifecycle is None
-    assert backend._cookie_persistence is None
-    assert backend._rpc_semaphore is None
+    assert not hasattr(backend, "_lifecycle")
+    assert not hasattr(backend, "_cookie_persistence")
+    assert not hasattr(backend, "_auth_coord")
     assert not any(
         isinstance(value, (httpx.AsyncClient, httpx.Cookies, Kernel))
         for value in vars(backend).values()
@@ -325,11 +496,39 @@ async def test_backend_close_does_not_close_dependencies_it_did_not_create() -> 
 
     await backend.close()
     assert closed == []
-    assert backend._closed is True
 
-    # Idempotent: closing twice is not an error and still closes nothing else.
-    await backend.close()
-    assert closed == []
+
+@pytest.mark.asyncio
+async def test_backend_closes_only_a_provider_it_created() -> None:
+    """The explicit ownership bit governs provider teardown exactly once."""
+
+    class _RecordingProvider:
+        def __init__(self) -> None:
+            self.closed = 0
+
+        async def close(self) -> None:
+            self.closed += 1
+
+    injected = _RecordingProvider()
+    injected_backend = WebRpcBackend(
+        object(),  # type: ignore[arg-type]
+        transport_factory=lambda **_kwargs: object(),
+        provider=injected,  # type: ignore[arg-type]
+    )
+    await injected_backend.close()
+    assert injected.closed == 0
+
+    owned = _RecordingProvider()
+    owned_backend = WebRpcBackend(
+        object(),  # type: ignore[arg-type]
+        transport_factory=lambda **_kwargs: object(),
+        provider=owned,  # type: ignore[arg-type]
+        owns_provider=True,
+    )
+    await owned_backend.close()
+    await owned_backend.close()
+    assert owned.closed == 1
+    assert owned_backend._closed is True
 
 
 @pytest.mark.asyncio

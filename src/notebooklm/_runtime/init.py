@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from .._auth.profile_store import ProfileStore
+from .._auth.web_provider_refresh import WebProviderRefresh
 from .._client_metrics import ClientMetrics
 from .._client_seams import ClientSeams, resolve_client_seams
 from .._cookie_persistence import CookiePersistence
@@ -42,6 +43,7 @@ from .._reqid_counter import ReqidCounter
 from .._rpc_semaphore import RpcSemaphore
 from .._transport_drain import TransportDrainTracker
 from .._web.runtime import WebExecutionRuntime
+from .._web_cookie_provider import WebCookieProvider
 from ..auth import AuthTokens
 from .auth import AuthRefreshCoordinator
 from .config import (
@@ -55,6 +57,8 @@ from .config import (
 from .helpers import _resolve_keepalive_interval
 from .lifecycle import ClientLifecycle, CookieRotator, CookieSaver
 from .transport import RuntimeTransport
+from .web_backend_session import WebBackendSession
+from .web_cookie_provider import RuntimeWebCookieProvider
 
 if TYPE_CHECKING:
     # Runtime import of ``ConnectionLimits`` is deferred to
@@ -109,8 +113,8 @@ class WiredMiddleware:
 class ClientInternals:
     """Construction-only receipt for an atomically assembled web runtime.
 
-    ``_assemble_client`` passes this receipt directly into ``WebRpcBackend``,
-    which unpacks each leaf and does not retain the container. Unlike the
+    ``_assemble_client`` projects explicit safe leaves into ``WebRpcBackend``;
+    the backend never receives this credential-bearing receipt. Unlike the
     retired mutable holder, this record is never published on the client and
     has no bind/reset behavior.
     """
@@ -119,9 +123,12 @@ class ClientInternals:
     drain_tracker: TransportDrainTracker
     reqid: ReqidCounter
     auth_coord: AuthRefreshCoordinator
-    kernel: Kernel
+    provider_kernel: Kernel
+    backend_kernel: Kernel
+    backend_session: WebBackendSession
     lifecycle: ClientLifecycle
     cookie_persistence: CookiePersistence
+    provider: WebCookieProvider
     executor: WebExecutionRuntime
     web_transport_factory: Callable[..., httpx.AsyncClient]
     rpc_semaphore: RpcSemaphore
@@ -369,9 +376,8 @@ def _build_runtime_leaves(
 
 def build_runtime_transport(
     *,
-    auth: AuthTokens,
+    provider: WebCookieProvider,
     metrics: ClientMetrics,
-    auth_coord: AuthRefreshCoordinator,
     kernel: Kernel,
     lifecycle: ClientLifecycle,
     chain_host: MiddlewareChainHost,
@@ -389,11 +395,8 @@ def build_runtime_transport(
     provider closure (rather than a frozen reference) keeps the write-once
     construction cycle explicit without publishing chain state on the client.
 
-    The ``snapshot_provider`` closure passes the client-owned
-    :class:`AuthTokens` collaborator directly to
-    :meth:`AuthRefreshCoordinator.snapshot`; the coordinator routes
-    its lock-wait metric through ``self._metrics`` (supplied at
-    construction). The ``bound_loop_check`` lambda reads through
+    The ``snapshot_provider`` closure reads one immutable generation through
+    the provider boundary. The ``bound_loop_check`` lambda reads through
     ``collaborators.lifecycle.assert_bound_loop`` at call time, preserving
     lifecycle method patchability without retaining a broad host-level
     ``assert_bound_loop`` forward.
@@ -409,7 +412,7 @@ def build_runtime_transport(
     """
     return RuntimeTransport(
         kernel=kernel,
-        snapshot_provider=lambda: auth_coord.snapshot(auth=auth),
+        snapshot_provider=lambda: provider.generation(),
         chain_provider=lambda: chain_host._authed_post_chain,
         metrics=metrics,
         bound_loop_check=lifecycle.assert_bound_loop,
@@ -422,9 +425,8 @@ def wire_middleware_chain(
     drain_tracker: TransportDrainTracker,
     metrics: ClientMetrics,
     lifecycle: ClientLifecycle,
-    auth_coord: AuthRefreshCoordinator,
+    provider: WebCookieProvider,
     chain_host: MiddlewareChainHost,
-    auth: AuthTokens,
     authed_post_chain_terminal: Callable[..., Awaitable[Any]],
     rpc_semaphore: RpcSemaphore,
     is_auth_error: Callable[[Exception], bool],
@@ -440,20 +442,8 @@ def wire_middleware_chain(
       dynamic-delegate refresh entry point (:meth:`await_refresh`). The
       tunable provider lambdas and the ``refresh_callable`` reference
       capture this host directly.
-    * ``auth`` — the live :class:`AuthTokens` collaborator passed
-      explicitly to :meth:`AuthRefreshCoordinator.snapshot` on every
-      call. The provider lambda captures this object by reference; the
-      capture is safe because production never reassigns the
-      client-owned ``AuthTokens`` object after construction (the only
-      mutation path is in-place scalar updates via
-      :meth:`AuthRefreshCoordinator.update_auth_tokens`, which mutate
-      the captured instance directly). This replaced the previous
-      ``auth_snapshot_host: _AuthRefreshHost`` host-shaped parameter
-      when the ``_AuthRefreshHost`` Protocol was deleted in favor of
-      per-method explicit collaborators; the coordinator routes its
-      lock-wait metric through its own ``self._metrics`` (supplied at
-      construction), so it no longer needs a host-shaped collaborator
-      for the metric either.
+    * ``provider`` — the live immutable-generation and refresh boundary.
+      Concrete refresh coordination and mutable credentials remain behind it.
 
     Post-construction mutation on ``chain_host._<attr>`` still takes
     effect through the middleware live-binding contract documented in
@@ -475,9 +465,9 @@ def wire_middleware_chain(
         retry_timeout_provider=lambda: lifecycle._timeout,
         refresh_retry_delay_provider=lambda: chain_host._refresh_retry_delay,
         refresh_callable=chain_host.await_refresh,
-        auth_snapshot_provider=lambda: auth_coord.snapshot(auth=auth),
+        auth_snapshot_provider=lambda: provider.generation(),
         is_auth_error=is_auth_error,
-        refresh_callback_enabled_provider=lambda: auth_coord.has_refresh_callback,
+        refresh_callback_enabled_provider=lambda: provider.has_refresh_callback,
     )
     middlewares: list[Middleware] = chain_builder.build()
     authed_post_chain: NextCall = build_chain(
@@ -551,7 +541,7 @@ def compose_client_internals(
         drain_tracker,
         reqid,
         auth_coord,
-        kernel,
+        provider_kernel,
         lifecycle,
         cookie_persistence,
     ) = _build_runtime_leaves(
@@ -562,19 +552,63 @@ def compose_client_internals(
         cookie_saver=cookie_saver,
         cookie_rotator=cookie_rotator,
     )
+    rpc_semaphore = RpcSemaphore(config.max_concurrent_rpcs)
+
+    # P8 keeps credential acquisition and backend execution in distinct
+    # mutable sessions. The provider kernel is the existing lifecycle/
+    # refresh/persistence owner; the backend kernel is seeded only from
+    # detached immutable provider generations.
+    backend_kernel = Kernel(async_client_factory=config.async_client_factory)
+    backend_session = WebBackendSession(
+        kernel=backend_kernel,
+        timeout=config.timeout,
+        connect_timeout=config.connect_timeout,
+        limits=config.limits,
+    )
+
+    provider_ref: RuntimeWebCookieProvider | None = None
+
+    async def run_provider_refresh(
+        work: Callable[[], Awaitable[AuthTokens]],
+    ) -> AuthTokens:
+        provider = provider_ref
+        if provider is None:  # pragma: no cover - construction-order guard
+            raise RuntimeError("web cookie provider refresh used before binding")
+        return await provider.run_refresh_transaction(work)
+
+    refresh_adapter = WebProviderRefresh(
+        auth=auth,
+        kernel=provider_kernel,
+        coordinator=auth_coord,
+        lifecycle=lifecycle,
+        persistence=cookie_persistence,
+        transaction=run_provider_refresh,
+    )
+    provider = RuntimeWebCookieProvider(
+        auth=auth,
+        kernel=provider_kernel,
+        backend_session=backend_session,
+        coordinator=auth_coord,
+        lifecycle=lifecycle,
+        persistence=cookie_persistence,
+        drain_tracker=drain_tracker,
+        reqid=reqid,
+        rpc_semaphore=rpc_semaphore,
+        refresh_session=refresh_adapter.refresh,
+    )
+    provider_ref = provider
+
     chain_host = MiddlewareChainHost(
-        _auth_refresh=auth_coord,
+        _refresh=provider.await_refresh,
         _rate_limit_max_retries=config.rate_limit_max_retries,
         _server_error_max_retries=config.server_error_max_retries,
         _refresh_retry_delay=config.refresh_retry_delay,
     )
-    rpc_semaphore = RpcSemaphore(config.max_concurrent_rpcs)
 
     transport = build_runtime_transport(
-        auth=auth,
+        provider=provider,
         metrics=metrics,
-        auth_coord=auth_coord,
-        kernel=kernel,
+        kernel=backend_kernel,
         lifecycle=lifecycle,
         chain_host=chain_host,
         logger=SESSION_LOGGER,
@@ -585,9 +619,8 @@ def compose_client_internals(
         drain_tracker=drain_tracker,
         metrics=metrics,
         lifecycle=lifecycle,
-        auth_coord=auth_coord,
+        provider=provider,
         chain_host=chain_host,
-        auth=auth,
         authed_post_chain_terminal=(
             authed_post_terminal
             if authed_post_terminal is not None
@@ -599,15 +632,15 @@ def compose_client_internals(
     chain_host._authed_post_chain = wired.authed_post_chain
 
     executor = WebExecutionRuntime(
-        kernel=kernel,
+        assert_open=backend_session.assert_open,
         transport=transport,
-        auth_refresh=auth_coord,
+        refresh=provider.await_refresh,
         metrics=metrics,
         decode_response=lambda *a, **kw: seams.decode_response(*a, **kw),
         is_auth_error=lambda *a, **kw: seams.is_auth_error(*a, **kw),
         sleep=lambda *a, **kw: seams.sleep(*a, **kw),
         timeout_provider=lambda: lifecycle._timeout,
-        refresh_callback_enabled_provider=lambda: auth_coord.has_refresh_callback,
+        refresh_callback_enabled_provider=lambda: provider.has_refresh_callback,
         refresh_retry_delay_provider=lambda: chain_host._refresh_retry_delay,
     )
     return ClientInternals(
@@ -615,9 +648,12 @@ def compose_client_internals(
         drain_tracker=drain_tracker,
         reqid=reqid,
         auth_coord=auth_coord,
-        kernel=kernel,
+        provider_kernel=provider_kernel,
+        backend_kernel=backend_kernel,
+        backend_session=backend_session,
         lifecycle=lifecycle,
         cookie_persistence=cookie_persistence,
+        provider=provider,
         executor=executor,
         web_transport_factory=config.async_client_factory,
         rpc_semaphore=rpc_semaphore,

@@ -172,8 +172,8 @@ def test_constructor_option_routing_to_all_collaborators() -> None:
     )
 
     # 1. timeout -> lifecycle & research
-    assert client._backend._lifecycle is not None
-    assert client._backend._lifecycle._timeout == 45.0
+    assert client._provider._lifecycle is not None
+    assert client._provider._lifecycle._timeout == 45.0
     assert client.research._base_timeout == 45.0
 
     # 2. storage_path -> auth & artifacts download service
@@ -181,29 +181,29 @@ def test_constructor_option_routing_to_all_collaborators() -> None:
     assert client.artifacts._downloads._remote._storage_path == Path("/tmp/test_storage.json")
 
     # 3. keepalive & keepalive_min_interval -> lifecycle (clamped to min_interval)
-    assert client._backend._lifecycle._keepalive_interval == 120.0
+    assert client._provider._lifecycle._keepalive_interval == 120.0
 
     # 4. retry retries -> RetryMiddleware
     assert client._backend.retry_limits == (5, 4)
 
     # 5. limits -> lifecycle
-    assert client._backend._lifecycle._limits is custom_limits
+    assert client._provider._lifecycle._limits is custom_limits
 
     # 6. max_concurrent_uploads & upload_timeout -> source_uploader
     assert client._source_uploader._max_concurrent_uploads == 2
     assert client._source_uploader._upload_timeout == upload_timeout
 
     # 7. max_concurrent_rpcs -> atomic runtime semaphore
-    assert client._backend._rpc_semaphore is not None
-    assert client._backend._rpc_semaphore.max_concurrent_rpcs == 8
+    assert client._provider._rpc_semaphore is not None
+    assert client._provider._rpc_semaphore.max_concurrent_rpcs == 8
 
     # 8. on_rpc_event -> ClientMetrics
     assert client._backend._metrics is not None
     assert client._backend._metrics._on_rpc_event is on_event
 
     # 9. cookie_saver & cookie_rotator -> lifecycle
-    assert client._backend._lifecycle._cookie_saver is custom_saver
-    assert client._backend._lifecycle._cookie_rotator is custom_rotator
+    assert client._provider._lifecycle._cookie_saver is custom_saver
+    assert client._provider._lifecycle._cookie_rotator is custom_rotator
 
     # 10. chat_timeout & chat_response_max_bytes -> chat backend binding
     assert client._backend._chat_timeout == 200.0
@@ -261,7 +261,7 @@ def test_public_client_member_disposition_and_owner_parity() -> None:
 def test_loop_affinity_protocol_and_cross_loop_rejection() -> None:
     """The runtime semaphore rejects cross-loop reuse and rebuilds after rebinding."""
     client = build_client_shell_for_tests(auth=_make_auth(), max_concurrent_rpcs=2)
-    semaphore = client._backend._rpc_semaphore
+    semaphore = client._provider._rpc_semaphore
     assert semaphore is not None
     assert isinstance(semaphore, LoopBoundPrimitive)
 
@@ -367,10 +367,10 @@ async def test_close_with_drain_runs_cancel_hooks_first() -> None:
         call_order.append("lifecycle_close")
 
     assert client._backend._drain_tracker is not None
-    assert client._backend._lifecycle is not None
+    assert client._provider._lifecycle is not None
     client._backend._drain_tracker.register_drain_hook("test_hook", fake_drain_hook)
     client._backend._drain_tracker.drain = fake_drain  # type: ignore[method-assign]
-    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
+    client._provider._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     await client.close(drain=True)
 
@@ -391,9 +391,9 @@ async def test_close_cancellation_during_drain_tears_down_transport_via_shield()
         close_called = True
 
     assert client._backend._drain_tracker is not None
-    assert client._backend._lifecycle is not None
+    assert client._provider._lifecycle is not None
     client._backend._drain_tracker.drain = hanging_drain  # type: ignore[method-assign]
-    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
+    client._provider._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     close_task = asyncio.create_task(client.close(drain=True))
     await asyncio.sleep(0.01)
@@ -459,7 +459,7 @@ async def test_auth_refresh_coordinator_single_flight() -> None:
         return auth
 
     client = build_client_shell_for_tests(auth=auth, refresh_callback=mock_refresh)
-    coord = client._backend._auth_coord
+    coord = client._provider._coordinator
     assert coord is not None
 
     await asyncio.gather(
@@ -477,7 +477,7 @@ def test_adr0016_auth_instance_invariant_aliased_across_live_graph() -> None:
     client = NotebookLMClient(auth)
 
     assert client.auth is auth
-    assert client._backend.auth is auth
+    assert client._provider.auth is auth
     assert client._source_uploader._auth is auth
 
     # In-place update is reflected across all alias holders

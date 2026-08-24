@@ -135,13 +135,13 @@ def _install_zero_retry_seam(
             async def _stub_refresh() -> AuthTokens:
                 refresh_calls.append(None)
                 client.auth.csrf_token = "refreshed_csrf_token"
-                client._backend._auth_coord.update_auth_headers(
+                client._provider._coordinator.update_auth_headers(
                     auth=client.auth,
                     kernel=client._backend._kernel,
                 )
                 return client.auth
 
-            client._backend._auth_coord._refresh_callback = _stub_refresh
+            client._provider._coordinator._refresh_callback = _stub_refresh
         return client
 
     async def _instant_sleep(_seconds: float) -> None:

@@ -107,6 +107,7 @@ CookieSaver = SaveCookiesToStorage
 #: pins the async-callable contract so mypy rejects sync ``def`` callables
 #: at the injection point.
 CookieRotator = Callable[..., Awaitable[None]]
+CookieRotationRunner = Callable[[httpx.AsyncClient, Path | None], Awaitable[None]]
 
 
 async def _default_cookie_rotator(*args: Any, **kwargs: Any) -> None:
@@ -182,6 +183,22 @@ class ClientLifecycle:
         # explicit callback reaches the isolated v0.x result adapter.
         self._cookie_saver: CookieSaver | None = cookie_saver
         self._cookie_rotator: CookieRotator = cookie_rotator or _default_cookie_rotator
+        self._cookie_rotation_runner: CookieRotationRunner | None = None
+
+    def configure_cookie_rotation_runner(
+        self,
+        runner: CookieRotationRunner,
+    ) -> None:
+        """Bind the provider's atomic rotation transaction at composition."""
+        self._cookie_rotation_runner = runner
+
+    async def rotate_cookies(
+        self,
+        client: httpx.AsyncClient,
+        path: Path | None,
+    ) -> None:
+        """Invoke the configured existing rotator transaction leaf."""
+        await self._cookie_rotator(client, path)
 
     @property
     def _http_client(self) -> httpx.AsyncClient | None:
@@ -469,10 +486,7 @@ class ClientLifecycle:
         try:
             # Stop the keepalive task before tearing down the HTTP client so
             # the loop can't issue a poke against an already-closed transport.
-            if self._keepalive_task is not None:
-                self._keepalive_task.cancel()
-                await asyncio.gather(self._keepalive_task, return_exceptions=True)
-                self._keepalive_task = None
+            await self.cancel_keepalive()
 
             # Cancel any in-flight auth refresh task BEFORE the cookie
             # save or shielded ``aclose()``. Without this, a slow refresh
@@ -511,6 +525,15 @@ class ClientLifecycle:
                 # executor-reset step here — the backend runtime persists across
                 # close() → open() cycles.
                 await asyncio.shield(self._kernel.aclose())
+
+    async def cancel_keepalive(self) -> None:
+        """Cancel and settle the provider-owned rotation task, if any."""
+        task = self._keepalive_task
+        if task is None:
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        self._keepalive_task = None
 
     # ------------------------------------------------------------------
     # Keepalive
@@ -574,7 +597,11 @@ class ClientLifecycle:
                     # concurrent layer-1 callers (e.g. spawned ``fetch_tokens``
                     # tasks on the same profile) and other keepalive loops on
                     # the same profile see the fresh rotation and skip.
-                    await self._cookie_rotator(client, self._keepalive_storage_path)
+                    runner = self._cookie_rotation_runner
+                    if runner is None:
+                        await self.rotate_cookies(client, self._keepalive_storage_path)
+                    else:
+                        await runner(client, self._keepalive_storage_path)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:  # noqa: BLE001 - opportunistic best-effort
@@ -602,6 +629,7 @@ class ClientLifecycle:
 
 __all__ = [
     "ClientLifecycle",
+    "CookieRotationRunner",
     "CookieRotator",
     "CookieSaver",
     "_default_cookie_rotator",

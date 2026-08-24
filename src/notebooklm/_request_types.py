@@ -12,8 +12,8 @@ Five names live here:
 - :data:`BuildRequest` — sync callable that maps an ``AuthSnapshot`` to a
   ``(url, body, headers)`` tuple ready for the transport. The chain leaf reads
   the materialized ``RpcRequest`` fields directly; the callable remains in
-  ``RpcRequest.context["build_request"]`` so auth refresh and terminal
-  freshness checks can rebuild the envelope from a new snapshot.
+  the immutable-identity ``RpcCallState.build_request`` field so auth refresh
+  and terminal freshness checks can rebuild the envelope from a new snapshot.
 - :data:`PostBody` — body type accepted by the legacy tuple-return
   ``BuildRequest`` shape and by the low-level streaming POST helper.
 - :class:`BuildRequestResult` — the *named* dataclass form of the same
@@ -33,22 +33,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import TypeAlias
 
+from ._web_cookie_provider import WebCookieGeneration
 
-@dataclass(frozen=True)
-class AuthSnapshot:
-    """Point-in-time view of auth headers used to build a single request.
-
-    Captured once per HTTP attempt by the shared authed transport and passed
-    into the caller-supplied ``build_request`` factory so the URL/body are
-    consistent for that attempt. On retry, a *new* snapshot is taken so
-    refreshed credentials are picked up before the rebuild.
-    """
-
-    csrf_token: str
-    session_id: str
-    authuser: int
-    account_email: str | None
+# Compatibility name retained for the established middleware/request-builder
+# surface.  P8 closes the former split between this four-scalar snapshot and
+# the separately observed live cookie jar: both names now denote the same
+# frozen generation value.
+AuthSnapshot: TypeAlias = WebCookieGeneration
 
 
 # Build-request factory: receives a fresh ``AuthSnapshot`` and returns the

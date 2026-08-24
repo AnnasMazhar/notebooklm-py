@@ -102,7 +102,7 @@ async def test_session_close_drains_artifact_poll_hook() -> None:
     artifacts = ArtifactsAPI(
         rpc=core._backend._runtime,
         drain=core._backend._drain_tracker,
-        lifecycle=core._backend._lifecycle,
+        lifecycle=core._provider._lifecycle,
         notebooks=MagicMock(),
         mind_maps=MagicMock(spec=NoteBackedMindMapService),
         note_service=MagicMock(spec=NoteService),
@@ -258,7 +258,7 @@ async def test_close_fires_drain_hooks_before_drain_wait() -> None:
 
     client._backend._drain_tracker.run_drain_hooks = fake_run_drain_hooks  # type: ignore[method-assign]
     client._backend._drain_tracker.drain = fake_drain  # type: ignore[method-assign]
-    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
+    client._provider._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     await client.close()
 
@@ -283,7 +283,7 @@ async def test_close_arms_drain_before_hooks_without_rejecting_nested_work() -> 
         return None
 
     tracker.register_drain_hook("blocking", blocking_hook)
-    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
+    client._provider._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     outer = await tracker.begin_transport_post("accepted-before-close")
     close_task = asyncio.create_task(client.close(drain=True))
@@ -320,7 +320,7 @@ async def test_client_close_default_drain_is_true() -> None:
         pass
 
     client._backend._drain_tracker.drain = fake_drain  # type: ignore[method-assign]
-    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
+    client._provider._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     await client.close()
 
@@ -342,7 +342,7 @@ async def test_client_close_drain_false_skips_drain() -> None:
         pass
 
     client._backend._drain_tracker.drain = fake_drain  # type: ignore[method-assign]
-    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
+    client._provider._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     await client.close(drain=False)
 
@@ -362,7 +362,7 @@ async def test_client_aexit_uses_drain_true_default() -> None:
         pass
 
     client._backend._drain_tracker.drain = fake_drain  # type: ignore[method-assign]
-    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
+    client._provider._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     # Drive __aexit__ directly rather than `async with` so we can use the
     # patched core without going through ``open()``.

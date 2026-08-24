@@ -24,7 +24,7 @@ from notebooklm._auth.profile_store import (
     ProfileStore,
 )
 from notebooklm._auth.storage import CookieSaveResult, snapshot_cookie_jar
-from notebooklm._auth.tokens import FileLoadedAuth, InlineLoadedAuth
+from notebooklm._auth.web_provider_storage import WebProviderBootstrap
 from notebooklm._cookie_persistence import CookiePersistence
 from notebooklm.auth import AuthTokens
 from tests._helpers.client_factory import build_client_shell_for_tests
@@ -435,8 +435,8 @@ def test_runtime_factory_keeps_raw_auth_store_and_resolved_lifecycle_target(
     explicit = tmp_path / "explicit.json"
     auth = _auth(raw)
     client = build_client_shell_for_tests(auth, keepalive_storage_path=explicit)
-    persistence = client._backend._cookie_persistence
-    lifecycle = client._backend._lifecycle
+    persistence = client._provider._persistence
+    lifecycle = client._provider._lifecycle
 
     assert persistence._default_store is not None
     assert persistence._default_store.path == raw
@@ -466,8 +466,8 @@ async def test_lifecycle_default_canonical_and_explicit_saver_routes(
     _write(path)
     auth = _auth(path)
     default_client = build_client_shell_for_tests(auth)
-    persistence = default_client._backend._cookie_persistence
-    lifecycle = default_client._backend._lifecycle
+    persistence = default_client._provider._persistence
+    lifecycle = default_client._provider._lifecycle
     canonical = AsyncMock()
     monkeypatch.setattr(persistence, "_save_canonical", canonical)
     await lifecycle.save_cookies(persistence, _live())
@@ -484,8 +484,8 @@ async def test_lifecycle_default_canonical_and_explicit_saver_routes(
     custom_client = build_client_shell_for_tests(_auth(path), cookie_saver=custom)
     custom_input = legacy_jar("custom")
     custom_expected = rows(custom_input)
-    await custom_client._backend._lifecycle.save_cookies(
-        custom_client._backend._cookie_persistence,
+    await custom_client._provider._lifecycle.save_cookies(
+        custom_client._provider._persistence,
         custom_input,
     )
     assert len(custom_calls) == 1
@@ -503,13 +503,13 @@ async def test_file_loaded_client_registers_pair_inline_does_not_and_subclass_sk
     baseline = _typed("loaded")
     file_auth = _auth(path)
 
-    async def load_file(**kwargs: Any) -> FileLoadedAuth:
-        return FileLoadedAuth(file_auth, store, baseline)
+    async def load_file(**kwargs: Any) -> WebProviderBootstrap:
+        return WebProviderBootstrap(file_auth, store, baseline)
 
-    monkeypatch.setattr(client_module._auth_tokens, "_load_stored_auth", load_file)
+    monkeypatch.setattr(client_module, "load_web_provider_bootstrap", load_file)
     context = client_module.NotebookLMClient.from_storage(str(path))
     client = await context._build()
-    persistence = client._backend._cookie_persistence
+    persistence = client._provider._persistence
     assert persistence._default_store is store
     assert isinstance(
         persistence._states[store.ordering_key].baseline,
@@ -518,18 +518,18 @@ async def test_file_loaded_client_registers_pair_inline_does_not_and_subclass_sk
 
     inline_auth = _auth(None)
 
-    async def load_inline(**kwargs: Any) -> InlineLoadedAuth:
-        return InlineLoadedAuth(inline_auth)
+    async def load_inline(**kwargs: Any) -> WebProviderBootstrap:
+        return WebProviderBootstrap(inline_auth)
 
-    monkeypatch.setattr(client_module._auth_tokens, "_load_stored_auth", load_inline)
+    monkeypatch.setattr(client_module, "load_web_provider_bootstrap", load_inline)
     inline = await client_module.NotebookLMClient.from_storage(str(path))._build()
-    assert inline._backend._cookie_persistence._states == {}
+    assert inline._provider._persistence._states == {}
 
     class BareClient(client_module.NotebookLMClient):
         def __init__(self, auth: AuthTokens, **kwargs: Any) -> None:
             self.seen_auth = auth
 
-    monkeypatch.setattr(client_module._auth_tokens, "_load_stored_auth", load_file)
+    monkeypatch.setattr(client_module, "load_web_provider_bootstrap", load_file)
     bare = cast(BareClient, await BareClient.from_storage(str(path))._build())
     assert bare.seen_auth is file_auth
     assert not hasattr(bare, "_collaborators")

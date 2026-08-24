@@ -291,16 +291,21 @@ def _assemble_client(
         rpc=internals.executor,
         drain=internals.drain_tracker,
         lifecycle=internals.lifecycle,
-        kernel=internals.kernel,
-        # ADR-0016's Auth Instance Invariant: the upload pipeline
-        # reads the backend-owned ``auth`` reference
-        # instead of a detached auth copy. Production refresh-time
-        # mutation is therefore observed by the uploader unchanged.
-        auth=auth,
+        kernel=internals.backend_kernel,
+        # Direct upload/Drive HTTP legs consume the same immutable provider
+        # generation as RPC transport, so route and cookie values cannot tear
+        # across the registration await.
+        generation_provider=internals.provider.generation,
+        generation_installer=internals.backend_kernel.install_generation,
         upload_timeout=upload_timeout,
         max_concurrent_uploads=max_concurrent_uploads,
         record_upload_queue_wait=internals.metrics.record_upload_queue_wait,
     )
+    # The provider is a first-class compatibility owner outside ``_web``.
+    # ``WebRpcBackend`` receives the same object only for close ownership; all
+    # auth/account facade methods delegate here without teaching the backend
+    # package about credential material.
+    client._provider = internals.provider
     # Assemble the private semantic port once every backend-owned collaborator
     # is available. The resolved transport factory remains a construction
     # parameter rather than a backend kind/capability.
@@ -317,8 +322,13 @@ def _assemble_client(
         # once; an already-started RuntimeDeadline remains immutable even if a
         # later test/internal reconfiguration changes the lifecycle scalar.
         deadline_factory=RuntimeDeadlineFactory(lambda: internals.lifecycle._timeout),
-        client_runtime=internals,
-        auth=auth,
+        metrics=internals.metrics,
+        drain_tracker=internals.drain_tracker,
+        reqid=internals.reqid,
+        chain_host=internals.chain_host,
+        provider=internals.provider,
+        session=internals.backend_session,
+        owns_provider=True,
     )
     # Hold the uploader as a first-class client attribute so the
     # open-time loop-affinity reset (issue #1196 upload variant) can

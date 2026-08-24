@@ -56,7 +56,7 @@ def _stub_open(monkeypatch: pytest.MonkeyPatch) -> list[object]:
 
     # Object-form patch against a locally-imported seam alias (ADR-0007 Form 2):
     # patch the unbound `open` method on the `ClientLifecycle` class so the
-    # `client._backend._lifecycle.open(...)` instance call resolves to the
+    # `client._provider._lifecycle.open(...)` instance call resolves to the
     # stub. Avoids the import-string-target form that silently no-ops on relocation.
     import notebooklm._runtime.lifecycle as _lifecycle
 

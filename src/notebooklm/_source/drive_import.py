@@ -54,7 +54,9 @@ import httpx
 from .._artifact._download_client import _is_trusted_download_host
 from .._artifact._redirect_guard import redirect_revalidation_hooks
 from .._artifact.downloads import _await_writer_exit
+from .._auth.account import format_authuser_value
 from .._types.sources import _HTML_FILE_EXTENSIONS, _UPLOAD_FILE_EXTENSIONS
+from .._web_cookie_provider import WebCookieGeneration
 from ..exceptions import (
     ArtifactDownloadError,
     AuthError,
@@ -374,13 +376,17 @@ class DriveFetcher:
     def __init__(
         self,
         *,
-        cookies_provider: Callable[[], httpx.Cookies],
+        cookies_provider: Callable[[], httpx.Cookies] | None = None,
+        generation_provider: Callable[[], Awaitable[WebCookieGeneration]] | None = None,
         client_factory: StreamingClientFactory = _default_streaming_client,
         max_bytes: int = _MAX_DRIVE_DOWNLOAD_BYTES,
         authuser: str | None = None,
         temp_dir: Path | None = None,
     ) -> None:
+        if cookies_provider is None and generation_provider is None:
+            raise TypeError("cookies_provider or generation_provider is required")
         self._cookies_provider = cookies_provider
+        self._generation_provider = generation_provider
         self._client_factory = client_factory
         self._max_bytes = max_bytes
         # Routes a multi-login cookie jar to the SELECTED account (else authuser=0).
@@ -390,12 +396,32 @@ class DriveFetcher:
         self._temp_dir = temp_dir
 
     async def __call__(self, ref: DriveRef) -> DriveDownload:
-        url = _download_url(ref.file_id, authuser=self._authuser, resource_key=ref.resource_key)
-        result = await self._request(url, ref, allow_confirm=True)
+        generation = (
+            await self._generation_provider() if self._generation_provider is not None else None
+        )
+        route = (
+            format_authuser_value(generation.authuser, generation.account_email)
+            if generation is not None
+            else self._authuser
+        )
+        url = _download_url(ref.file_id, authuser=route, resource_key=ref.resource_key)
+        result = await self._request(
+            url,
+            ref,
+            allow_confirm=True,
+            generation=generation,
+            authuser=route,
+        )
         if isinstance(result, _ConfirmRedirect):
             # Re-request with the confirm token; a second interstitial is treated
             # as a hard failure (no unbounded confirm loop).
-            result = await self._request(result.url, ref, allow_confirm=False)
+            result = await self._request(
+                result.url,
+                ref,
+                allow_confirm=False,
+                generation=generation,
+                authuser=route,
+            )
         if isinstance(result, _ConfirmRedirect):  # pragma: no cover - defensive
             raise ValidationError(
                 f"Drive kept returning the download-confirmation page for {ref.file_id}; "
@@ -404,15 +430,31 @@ class DriveFetcher:
         return result
 
     async def _request(
-        self, url: str, ref: DriveRef, *, allow_confirm: bool
+        self,
+        url: str,
+        ref: DriveRef,
+        *,
+        allow_confirm: bool,
+        generation: WebCookieGeneration | None = None,
+        authuser: str | None = None,
     ) -> DriveDownload | _ConfirmRedirect:
         file_id = ref.file_id
         timeout = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=30.0)
-        client = self._client_factory(self._cookies_provider(), timeout)
+        if generation is not None:
+            cookies = generation.cookies.to_httpx()
+        else:
+            assert self._cookies_provider is not None
+            cookies = self._cookies_provider()
+        client = self._client_factory(cookies, timeout)
         try:
             async with client:  # noqa: SIM117 - stream() nested so the client is entered first
                 async with client.stream("GET", url) as response:
-                    return await self._handle_response(response, ref, allow_confirm=allow_confirm)
+                    return await self._handle_response(
+                        response,
+                        ref,
+                        allow_confirm=allow_confirm,
+                        authuser=authuser,
+                    )
         except (httpx.HTTPError, ArtifactDownloadError) as exc:
             # Transport-level faults (timeout, DNS, connection reset, or a
             # redirect-guard policy rejection escaping the streaming GET) map to a
@@ -424,7 +466,12 @@ class DriveFetcher:
             ) from exc
 
     async def _handle_response(
-        self, response: httpx.Response, ref: DriveRef, *, allow_confirm: bool
+        self,
+        response: httpx.Response,
+        ref: DriveRef,
+        *,
+        allow_confirm: bool,
+        authuser: str | None = None,
     ) -> DriveDownload | _ConfirmRedirect:
         file_id = ref.file_id
         status = response.status_code
@@ -444,7 +491,12 @@ class DriveFetcher:
 
         content_type = response.headers.get("content-type", "")
         if "text/html" in content_type.lower():
-            return await self._classify_html(response, ref, allow_confirm=allow_confirm)
+            return await self._classify_html(
+                response,
+                ref,
+                allow_confirm=allow_confirm,
+                authuser=authuser,
+            )
         if status >= 400:
             # A non-HTML 4xx (e.g. 403/404) is a hard caller/permission error.
             raise ValidationError(
@@ -470,7 +522,12 @@ class DriveFetcher:
         return DriveDownload(path=path, filename=filename, content_type=content_type or None)
 
     async def _classify_html(
-        self, response: httpx.Response, ref: DriveRef, *, allow_confirm: bool
+        self,
+        response: httpx.Response,
+        ref: DriveRef,
+        *,
+        allow_confirm: bool,
+        authuser: str | None = None,
     ) -> _ConfirmRedirect:
         """Discriminate an HTML response: expired-auth / confirm page / not-downloadable."""
         file_id = ref.file_id
@@ -484,7 +541,7 @@ class DriveFetcher:
                 return _ConfirmRedirect(
                     url=_confirm_url(
                         confirm_params,
-                        authuser=self._authuser,
+                        authuser=authuser,
                         resource_key=ref.resource_key,
                     )
                 )

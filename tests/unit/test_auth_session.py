@@ -895,7 +895,7 @@ async def test_profile_reload_adopts_disk_baseline_before_persisting_response_co
     async def inline_to_thread(func):  # type: ignore[no-untyped-def]
         return func()
 
-    persistence = core._backend._cookie_persistence
+    persistence = core._provider._persistence
     await persistence._prepare_open_baseline(storage, to_thread=inline_to_thread)
     write_profile("disk-b")
 
@@ -923,7 +923,7 @@ async def test_profile_reload_adopts_disk_baseline_before_persisting_response_co
         cookies=stale,
         follow_redirects=True,
     ) as http_client:
-        install_http_client_for_test(core._backend._kernel, http_client)
+        install_http_client_for_test(core._provider._kernel, http_client)
         await core.refresh_auth()
 
     persisted = json.loads(storage.read_text(encoding="utf-8"))["cookies"]
@@ -1098,7 +1098,7 @@ async def test_storage_cookie_reload_preserves_legacy_account_route(tmp_path: Pa
         storage_path=storage,
         cookie_jar=live,
         install_profile=lambda target, source, sampled, authuser, account_email: (
-            core._backend._auth_coord.install_profile_session(
+            core._provider._coordinator.install_profile_session(
                 auth=core.auth,
                 target_cookie_jar=target,
                 source_cookie_jar=source,
@@ -1438,7 +1438,7 @@ async def test_profile_advance_between_reload_and_adoption_cannot_be_overwritten
             account_email="open@example.com",
         )
     )
-    persistence = core._backend._cookie_persistence
+    persistence = core._provider._persistence
     await persistence._prepare_open_baseline(storage, to_thread=inline_to_thread)
     write_profile("sample-b", 2, "sample@example.com")
 
@@ -1455,7 +1455,7 @@ async def test_profile_advance_between_reload_and_adoption_cannot_be_overwritten
         cookie_jar=live,
         load_profile_pair=load_then_advance,
         install_profile=lambda target, source, expected, authuser, account_email: (
-            core._backend._auth_coord.install_profile_session(
+            core._provider._coordinator.install_profile_session(
                 auth=core.auth,
                 target_cookie_jar=target,
                 source_cookie_jar=source,
@@ -1513,7 +1513,7 @@ async def test_reload_sequence_supersedes_a_pre_replacement_cookie_save(tmp_path
     live.set("__Secure-1PSIDTS", "open-a-ts", domain=".google.com", path="/")
     write_profile("open-a")
     core = build_client_shell_for_tests(_auth(storage_path=storage, cookie_jar=live))
-    persistence = core._backend._cookie_persistence
+    persistence = core._provider._persistence
     await persistence._prepare_open_baseline(storage, to_thread=inline_to_thread)
     write_profile("disk-b")
 
@@ -1638,7 +1638,7 @@ async def test_refresh_auth_session_persists_through_client_core_save_cookies(
         follow_redirects=True,
     )
     install_http_client_for_test(core._backend._kernel, http_client)
-    core._backend._cookie_persistence.capture_open_snapshot(http_client.cookies)
+    core._provider._persistence.capture_open_snapshot(http_client.cookies)
     try:
         # Wave 2 of plan ``host-protocol-removal`` made every dependency
         # of :func:`refresh_auth_session` an explicit keyword-only
@@ -1649,9 +1649,9 @@ async def test_refresh_auth_session_persists_through_client_core_save_cookies(
         await refresh_auth_session(
             auth=core.auth,
             kernel=core._backend._kernel,
-            auth_coord=core._backend._auth_coord,
-            lifecycle=core._backend._lifecycle,
-            cookie_persistence=core._backend._cookie_persistence,
+            auth_coord=core._provider._coordinator,
+            lifecycle=core._provider._lifecycle,
+            cookie_persistence=core._provider._persistence,
         )
     finally:
         await http_client.aclose()
@@ -1669,10 +1669,10 @@ def test_client_refresh_auth_is_facade_only() -> None:
     tree = ast.parse(source)
     function = next(node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef))
 
-    calls_backend_refresh = any(
+    calls_provider_refresh = any(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "refresh_auth"
+        and node.func.attr == "refresh"
         for node in ast.walk(function)
     )
     forbidden_names = {
@@ -1694,7 +1694,7 @@ def test_client_refresh_auth_is_facade_only() -> None:
         elif isinstance(node, ast.Attribute) and node.attr in forbidden_attrs:
             violations.append((node.lineno, node.attr))
 
-    assert calls_backend_refresh
+    assert calls_provider_refresh
     assert violations == []
 
 

@@ -33,11 +33,11 @@ client-side forwards in front of it.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .._runtime.auth import AuthRefreshCoordinator
     from .._runtime.transport import RuntimeTransport
     from .core import NextCall, RpcRequest, RpcResponse
 
@@ -53,11 +53,8 @@ class MiddlewareChainHost:
     without giving either side a permanent back-reference to the other.
 
     Attributes:
-        _auth_refresh: The :class:`AuthRefreshCoordinator` collaborator.
-            :meth:`await_refresh` looks up the coordinator dynamically
-            on every call so a fixture-time rebind of
-            ``host._auth_refresh.await_refresh = fake`` keeps steering
-            the live refresh-and-retry path.
+        _refresh: Narrow provider-bound refresh callable.  The provider owns
+            the concrete coordinator and generation publication policy.
         _rate_limit_max_retries: Budget consumed by the retry middleware
             on 429 responses. Stored on the host (the chain's provider
             lambda reads this attribute live, so mid-flight rebinding
@@ -76,7 +73,7 @@ class MiddlewareChainHost:
             to ``transport.terminal``.
     """
 
-    _auth_refresh: AuthRefreshCoordinator
+    _refresh: Callable[[], Awaitable[None]]
     _rate_limit_max_retries: int
     _server_error_max_retries: int
     _refresh_retry_delay: float
@@ -116,19 +113,8 @@ class MiddlewareChainHost:
         return await transport.terminal(request)
 
     async def await_refresh(self) -> None:
-        """Run / join the shared refresh task on the coordinator.
-
-        Dynamic delegation — looks up ``self._auth_refresh.await_refresh``
-        on every call so a fixture-time rebind of the coordinator's
-        method (or of ``host._auth_refresh`` itself) keeps steering the
-        live refresh path. The single-flight semantics, lock contract,
-        and ``asyncio.shield`` cancellation handling all live inside
-        :meth:`AuthRefreshCoordinator.await_refresh` — this method is a
-        thin forward whose only job is to provide the chain a stable
-        ``refresh_callable`` reference at construction time while still
-        allowing the underlying implementation to be rebound for tests.
-        """
-        await self._auth_refresh.await_refresh()
+        """Run or join refresh through the provider-owned boundary."""
+        await self._refresh()
 
 
 __all__ = ["MiddlewareChainHost"]

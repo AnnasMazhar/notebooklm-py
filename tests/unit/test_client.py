@@ -276,7 +276,7 @@ class TestFromStorage:
         monkeypatch.setattr(_auth_tokens, "_load_stored_auth", fake_load_stored_auth)
 
         client = await NotebookLMClient.from_storage(str(explicit_path))._build()
-        persistence = client._backend._cookie_persistence
+        persistence = client._provider._persistence
         assert persistence is not None
         state = persistence._states[store.ordering_key]
 
@@ -375,8 +375,7 @@ class TestRefreshAuth:
             auth.csrf_token = csrf
             auth.session_id = session_id
 
-        assert client._backend._auth_coord is not None
-        monkeypatch.setattr(client._backend._auth_coord, "update_auth_tokens", fake_update)
+        monkeypatch.setattr(client._provider._coordinator, "update_auth_tokens", fake_update)
 
         async with client:
             refreshed_auth = await client.refresh_auth()
@@ -484,9 +483,9 @@ class TestRefreshAuth:
                 raise ValueError("Authentication expired. Run 'notebooklm login'.")
             return auth
 
-        import notebooklm._web.backend as backend_mod
+        import notebooklm._auth.web_provider_refresh as provider_mod
 
-        monkeypatch.setattr(backend_mod, "refresh_auth_session", fake_session)
+        monkeypatch.setattr(provider_mod, "refresh_auth_session", fake_session)
 
         async with client:
             result = await client.refresh_auth(allow_headless=True)
@@ -507,9 +506,9 @@ class TestRefreshAuth:
             calls.append(allow_headless)
             return auth
 
-        import notebooklm._web.backend as backend_mod
+        import notebooklm._auth.web_provider_refresh as provider_mod
 
-        monkeypatch.setattr(backend_mod, "refresh_auth_session", fake_session)
+        monkeypatch.setattr(provider_mod, "refresh_auth_session", fake_session)
 
         async with client:
             result = await client.refresh_auth(allow_headless=True)
@@ -540,9 +539,9 @@ class TestRefreshAuth:
                 raise RuntimeError("Client not initialized. Use 'async with' context.")
             return auth
 
-        import notebooklm._web.backend as backend_mod
+        import notebooklm._auth.web_provider_refresh as provider_mod
 
-        monkeypatch.setattr(backend_mod, "refresh_auth_session", fake_session)
+        monkeypatch.setattr(provider_mod, "refresh_auth_session", fake_session)
 
         async with client:
             with pytest.raises(RuntimeError, match="Client not initialized"):
@@ -569,9 +568,9 @@ class TestRefreshAuth:
             calls.append(allow_headless)
             return auth
 
-        import notebooklm._web.backend as backend_mod
+        import notebooklm._auth.web_provider_refresh as provider_mod
 
-        monkeypatch.setattr(backend_mod, "refresh_auth_session", fake_session)
+        monkeypatch.setattr(provider_mod, "refresh_auth_session", fake_session)
         # If the default path routed through the coordinator, await_refresh would
         # invoke the callback (refresh_auth) and we'd see a nested call; assert it
         # runs exactly once with the base policy.
@@ -759,8 +758,7 @@ class TestSessionRefreshCallback:
             pass
 
         core = build_client_shell_for_tests(auth, refresh_callback=mock_refresh)
-        assert core._backend._auth_coord is not None
-        assert core._backend._auth_coord._refresh_callback is mock_refresh
+        assert core._provider._coordinator._refresh_callback is mock_refresh
 
     def test_refresh_callback_defaults_to_none(self):
         """Session should default refresh_callback to None."""
@@ -772,8 +770,7 @@ class TestSessionRefreshCallback:
         )
 
         core = build_client_shell_for_tests(auth)
-        assert core._backend._auth_coord is not None
-        assert core._backend._auth_coord._refresh_callback is None
+        assert core._provider._coordinator._refresh_callback is None
 
     def test_refresh_lock_lazy_at_construction(self):
         """Refresh lock is ``None`` at construction regardless of callback.
@@ -795,15 +792,13 @@ class TestSessionRefreshCallback:
 
         # With callback: lazy — lock is None until first refresh attempt.
         core_with_cb = build_client_shell_for_tests(auth, refresh_callback=mock_refresh)
-        assert core_with_cb._backend._auth_coord is not None
-        assert core_with_cb._backend._auth_coord._refresh_lock is None
-        assert core_with_cb._backend._auth_coord._refresh_callback is mock_refresh
+        assert core_with_cb._provider._coordinator._refresh_lock is None
+        assert core_with_cb._provider._coordinator._refresh_callback is mock_refresh
 
         # Without callback: also None (unchanged behavior on this axis).
         core_without_cb = build_client_shell_for_tests(auth)
-        assert core_without_cb._backend._auth_coord is not None
-        assert core_without_cb._backend._auth_coord._refresh_lock is None
-        assert core_without_cb._backend._auth_coord._refresh_callback is None
+        assert core_without_cb._provider._coordinator._refresh_lock is None
+        assert core_without_cb._provider._coordinator._refresh_callback is None
 
 
 # =============================================================================

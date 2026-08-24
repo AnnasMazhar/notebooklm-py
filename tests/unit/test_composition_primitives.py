@@ -43,8 +43,9 @@ def test_client_construction_publishes_one_runtime_to_backend(factory: Any) -> N
     assert isinstance(client._seams, ClientSeams)
     assert backend._runtime is client.notebooks._legacy_rpc
     assert backend._chat_transport is backend._runtime._transport
-    assert backend._rpc_semaphore is not None
-    assert backend._rpc_semaphore.max_concurrent_rpcs == 3
+    assert not hasattr(backend, "_rpc_semaphore")
+    assert client._provider._rpc_semaphore is not None
+    assert client._provider._rpc_semaphore.max_concurrent_rpcs == 3
     assert not hasattr(client, "_composed")
     assert not hasattr(client, "_collaborators")
     assert not hasattr(client, "_rpc_executor")

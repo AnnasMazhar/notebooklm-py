@@ -129,7 +129,7 @@ async def test_stale_csrf_triggers_refresh_and_retry(
 
     # The refresh callback is reached through the auth coordinator; patch it on
     # the coordinator so the wrapper is what the retry loop sees.
-    client._backend._auth_coord._refresh_callback = tracking_refresh
+    client._provider._coordinator._refresh_callback = tracking_refresh
 
     with notebooklm_vcr.use_cassette(CASSETTE_NAME) as cassette:
         async with client:
@@ -142,7 +142,7 @@ async def test_stale_csrf_triggers_refresh_and_retry(
             # the Session-level ``update_auth_headers`` forward; call the
             # canonical coordinator method directly with explicit kwargs.
             client.auth.csrf_token = "INVALID_CSRF_FOR_TEST"
-            client._backend._auth_coord.update_auth_headers(
+            client._provider._coordinator.update_auth_headers(
                 auth=client.auth,
                 kernel=client._backend._kernel,
             )

@@ -242,7 +242,7 @@ async def test_drain_waits_for_artifact_poll_task(auth_tokens: AuthTokens) -> No
     api = ArtifactsAPI(
         rpc=core._backend._runtime,
         drain=core._backend._drain_tracker,
-        lifecycle=core._backend._lifecycle,
+        lifecycle=core._provider._lifecycle,
         notebooks=MagicMock(),
         mind_maps=MagicMock(spec=NoteBackedMindMapService),
         note_service=MagicMock(spec=NoteService),
@@ -302,7 +302,7 @@ async def test_close_with_drain_closes_transport_after_timeout(auth_tokens: Auth
         calls.append("close")
 
     client._backend._drain_tracker.drain = drain_timeout  # type: ignore[method-assign]
-    client._backend._lifecycle.close = close_transport  # type: ignore[method-assign]
+    client._provider._lifecycle.close = close_transport  # type: ignore[method-assign]
 
     with pytest.raises(TimeoutError, match="deadline"):
         await client.close(drain=True, drain_timeout=0.1)
@@ -323,7 +323,7 @@ async def test_close_with_invalid_drain_does_not_close_transport(auth_tokens: Au
         calls.append("close")
 
     client._backend._drain_tracker.drain = invalid_drain  # type: ignore[method-assign]
-    client._backend._lifecycle.close = close_transport  # type: ignore[method-assign]
+    client._provider._lifecycle.close = close_transport  # type: ignore[method-assign]
 
     with pytest.raises(ValueError, match="bad deadline"):
         await client.close(drain=True, drain_timeout=-1.0)
@@ -344,7 +344,7 @@ async def test_upload_progress_callback_receives_byte_counts(
             uploader=SourceUploadPipeline(
                 rpc=core,
                 drain=core._backend._drain_tracker,
-                lifecycle=core._backend._lifecycle,
+                lifecycle=core._provider._lifecycle,
                 kernel=core._backend._kernel,
                 auth=core.auth,
                 record_upload_queue_wait=core._backend._metrics.record_upload_queue_wait,
@@ -390,7 +390,7 @@ async def test_wait_for_completion_status_change_callback(auth_tokens: AuthToken
     api = ArtifactsAPI(
         rpc=core._backend._runtime,
         drain=core._backend._drain_tracker,
-        lifecycle=core._backend._lifecycle,
+        lifecycle=core._provider._lifecycle,
         notebooks=MagicMock(),
         mind_maps=MagicMock(spec=NoteBackedMindMapService),
         note_service=MagicMock(spec=NoteService),

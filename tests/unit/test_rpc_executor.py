@@ -774,7 +774,7 @@ async def test_constructor_injected_sleep_drives_executor(monkeypatch) -> None:
 
     # ADR-0014 Rule 5 (Wave 4): executor calls ``self._auth_refresh.await_refresh()``
     # directly. Patch the collaborator the executor actually reaches.
-    monkeypatch.setattr(core._backend._auth_coord, "await_refresh", fake_await_refresh)
+    monkeypatch.setattr(core._provider._coordinator, "await_refresh", fake_await_refresh)
     monkeypatch.setattr(executor, "rpc_call", fake_rpc_call)
 
     from notebooklm._auth_refresh_retry import RefreshBudget

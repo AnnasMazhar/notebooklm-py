@@ -32,4 +32,4 @@ def test_keepalive_min_interval_reaches_runtime_as_effective_interval(
         keepalive_min_interval=minimum,
     )
 
-    assert client._backend._lifecycle._keepalive_interval == expected
+    assert client._provider._lifecycle._keepalive_interval == expected

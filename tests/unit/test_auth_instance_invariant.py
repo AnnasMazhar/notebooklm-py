@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from notebooklm._request_types import AuthSnapshot
 from notebooklm.auth import AuthTokens
 from tests._helpers.client_factory import build_client_shell_for_tests
 
@@ -18,23 +17,11 @@ def _make_auth() -> AuthTokens:
 
 
 @pytest.mark.asyncio
-async def test_snapshot_provider_captures_client_auth_by_identity() -> None:
-    """Transport snapshots must pass the identical client-owned auth object."""
+async def test_snapshot_provider_reads_provider_generation_by_identity() -> None:
+    """Transport snapshots use the provider generation and preserve public auth."""
     auth = _make_auth()
     client = build_client_shell_for_tests(auth)
-    captured: dict[str, AuthTokens] = {}
+    expected = await client._provider.generation()
 
-    async def snapshot(*, auth: AuthTokens) -> AuthSnapshot:
-        captured["auth"] = auth
-        return AuthSnapshot(
-            csrf_token=auth.csrf_token,
-            session_id=auth.session_id,
-            authuser=auth.authuser,
-            account_email=auth.account_email,
-        )
-
-    client._backend._auth_coord.snapshot = snapshot  # type: ignore[method-assign]
-
-    await client._backend._runtime._transport._snapshot_provider()
-
-    assert captured["auth"] is client.auth
+    assert await client._backend._runtime._transport._snapshot_provider() is expected
+    assert client.auth is auth

@@ -2,9 +2,9 @@
 
 The runtime owns the complete logical-call path: batchexecute encoding,
 dispatch through the ordered transport policy stack, response decoding, and
-the decoded-auth retry. ``RpcExecutor`` remains a compatibility adapter for
-the public raw-RPC escape hatch; semantic web operations call this runtime
-through :class:`notebooklm._web.backend.WebRpcBackend`.
+the decoded-auth retry. Semantic web operations and the public raw-RPC escape
+hatch both call this runtime through
+:class:`notebooklm._web.backend.WebRpcBackend`.
 """
 
 from __future__ import annotations
@@ -17,14 +17,12 @@ import math
 import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, NoReturn, Protocol
-from urllib.parse import urlencode
 
 import httpx
 
-from .._auth.account import format_authuser_value
 from .._auth_refresh_retry import RefreshBudget, refresh_and_count
 from .._deadline import RuntimeDeadline
-from .._env import get_base_url, get_default_language
+from .._env import get_base_url
 from .._idempotency import (
     IDEMPOTENCY_REGISTRY,
     resolve_effective_disable_internal_retries,
@@ -37,6 +35,7 @@ from .._transport_errors import (
     TransportServerError,
     parse_retry_after,
 )
+from .._web_request_auth import build_web_rpc_request, build_web_rpc_url
 from ..exceptions import DecodingError
 from ..rpc import (
     ClientError,
@@ -46,16 +45,12 @@ from ..rpc import (
     RPCMethod,
     RPCTimeoutError,
     ServerError,
-    build_request_body,
     encode_rpc_request,
-    get_batchexecute_url,
     resolve_rpc_id,
 )
 
 if TYPE_CHECKING:
     from .._client_metrics import ClientMetrics
-    from .._kernel import Kernel
-    from .._runtime.auth import AuthRefreshCoordinator
     from .._runtime.contracts import RpcCaller
     from .._runtime.transport import RuntimeTransport
 
@@ -100,17 +95,17 @@ class DecodeResponse(Protocol):
 class WebExecutionRuntime:
     """Own web batchexecute encode, transport dispatch, decode, and retry.
 
-    Per ADR-0014 Rule 5, the constructor takes its four runtime collaborators
-    (Kernel, RuntimeTransport, AuthRefreshCoordinator, ClientMetrics) directly
-    via keyword-only arguments rather than reaching them through an owner facade.
+    The constructor takes narrow session-open and provider-refresh callables,
+    plus transport and metrics collaborators, rather than retaining concrete
+    credential or acquisition owners.
     """
 
     def __init__(
         self,
         *,
-        kernel: Kernel,
+        assert_open: Callable[[], None],
         transport: RuntimeTransport,
-        auth_refresh: AuthRefreshCoordinator,
+        refresh: Callable[[], Awaitable[None]],
         metrics: ClientMetrics,
         decode_response: DecodeResponse,
         is_auth_error: Callable[[Exception], bool],
@@ -119,9 +114,9 @@ class WebExecutionRuntime:
         refresh_callback_enabled_provider: Callable[[], bool],
         refresh_retry_delay_provider: Callable[[], float],
     ):
-        self._kernel = kernel
+        self._assert_open = assert_open
         self._transport = transport
-        self._auth_refresh = auth_refresh
+        self._refresh = refresh
         self._metrics = metrics
         self._decode_response = decode_response
         self._is_auth_error = is_auth_error
@@ -199,7 +194,7 @@ class WebExecutionRuntime:
         # kernel accessor instead of the now-narrowed :class:`RpcOwner`
         # Protocol attribute keeps the early-fail behavior intact while
         # removing ``_http_client`` from the Protocol surface.
-        self._kernel.get_http_client()
+        self._assert_open()
 
         # Only the outer call mints a request id; the decode-time retry path
         # (``_is_retry=True``) inherits the parent's id so a single
@@ -308,9 +303,13 @@ class WebExecutionRuntime:
         rpc_request = encode_rpc_request(method, params, rpc_id_override=resolved_id)
 
         def _build(snapshot: AuthSnapshot) -> tuple[str, str, dict[str, str]]:
-            url = self.build_url(method, snapshot, source_path, rpc_id_override=resolved_id)
-            body = build_request_body(rpc_request, snapshot.csrf_token)
-            return url, body, {}
+            return build_web_rpc_request(
+                rpc_method=method,
+                generation=snapshot,
+                source_path=source_path,
+                rpc_id_override=resolved_id,
+                encoded_request=rpc_request,
+            )
 
         try:
             response = await self._transport.perform_authed_post(
@@ -485,20 +484,12 @@ class WebExecutionRuntime:
         rpc_id_override: str | None = None,
     ) -> str:
         """Build the batchexecute URL from a frozen auth snapshot."""
-        rpc_id = rpc_id_override if rpc_id_override is not None else rpc_method.value
-        params: dict[str, str] = {
-            "rpcids": rpc_id,
-            "source-path": source_path,
-            "f.sid": snapshot.session_id,
-            "hl": get_default_language(),
-            "rt": "c",
-        }
-        if snapshot.account_email or snapshot.authuser:
-            params["authuser"] = format_authuser_value(
-                snapshot.authuser,
-                snapshot.account_email,
-            )
-        return f"{get_batchexecute_url()}?{urlencode(params)}"
+        return build_web_rpc_url(
+            rpc_method,
+            snapshot,
+            source_path,
+            rpc_id_override=rpc_id_override,
+        )
 
     def raise_rpc_error_from_http_status(
         self,
@@ -648,7 +639,7 @@ class WebExecutionRuntime:
         it was explicitly given.
         """
         await refresh_and_count(
-            refresh=self._auth_refresh.await_refresh,
+            refresh=self._refresh,
             on_refresh_failure=lambda _refresh_error: original_error,
             sleep=self._sleep,
             refresh_retry_delay=self._refresh_retry_delay_provider(),

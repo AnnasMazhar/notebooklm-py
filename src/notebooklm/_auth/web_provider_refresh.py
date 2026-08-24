@@ -9,6 +9,7 @@ profile transaction, or master-token operation is reimplemented here.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from .._cookie_persistence import CookiePersistence
@@ -17,6 +18,15 @@ from .._runtime.auth import AuthRefreshCoordinator
 from .._runtime.lifecycle import ClientLifecycle
 from .session import refresh_auth_session
 from .tokens import AuthTokens
+
+RefreshTransaction = Callable[
+    [Callable[[], Awaitable[AuthTokens]]],
+    Awaitable[AuthTokens],
+]
+
+
+async def _run_direct(work: Callable[[], Awaitable[AuthTokens]]) -> AuthTokens:
+    return await work()
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -28,16 +38,20 @@ class WebProviderRefresh:
     coordinator: AuthRefreshCoordinator = field(repr=False)
     lifecycle: ClientLifecycle = field(repr=False)
     persistence: CookiePersistence = field(repr=False)
+    transaction: RefreshTransaction = field(default=_run_direct, repr=False)
 
     async def _refresh_session(self, *, allow_headless: bool) -> AuthTokens:
-        return await refresh_auth_session(
-            auth=self.auth,
-            kernel=self.kernel,
-            auth_coord=self.coordinator,
-            lifecycle=self.lifecycle,
-            cookie_persistence=self.persistence,
-            allow_headless=allow_headless,
-        )
+        async def work() -> AuthTokens:
+            return await refresh_auth_session(
+                auth=self.auth,
+                kernel=self.kernel,
+                auth_coord=self.coordinator,
+                lifecycle=self.lifecycle,
+                cookie_persistence=self.persistence,
+                allow_headless=allow_headless,
+            )
+
+        return await self.transaction(work)
 
     async def refresh(self, *, allow_headless: bool = False) -> AuthTokens:
         """Refresh with the established base/wider policy interaction.

@@ -13,7 +13,7 @@ a dead loop.
 
 Post-fix: ``NotebookLMClient.__aenter__()`` calls ``ClientLifecycle.open()``,
 which captures ``asyncio.get_running_loop()`` on the lifecycle (read via
-``core._backend._lifecycle.get_bound_loop()``), and
+``core._provider._lifecycle.get_bound_loop()``), and
 ``RuntimeTransport.perform_authed_post`` asserts the running loop matches
 via a cheap ``is`` comparison through ``assert_bound_loop``. On mismatch
 we raise an actionable ``RuntimeError`` at the call site instead of
@@ -32,7 +32,7 @@ The test exercises the surgical contract:
    ``is`` comparison).
 3. **No binding before open()** — a freshly-constructed ``NotebookLMClient``
    that has never entered its context has
-   ``core._backend._lifecycle.get_bound_loop() is None``.
+   ``core._provider._lifecycle.get_bound_loop() is None``.
    ``RuntimeTransport.perform_authed_post``'s loop check is a no-op while
    unbound; the later kernel access raises the existing not-open error, not
    the loop guard.
@@ -88,7 +88,7 @@ async def _open_core_with_transport(transport: ConcurrentMockTransport) -> Noteb
     normally — which is the moment the loop affinity is captured —
     then close-and-replace the underlying client with one that routes
     through our recording transport. The replacement keeps
-    ``core._backend._lifecycle.get_bound_loop()`` unchanged because we
+    ``core._provider._lifecycle.get_bound_loop()`` unchanged because we
     don't enter the client again.
     """
     core = build_client_shell_for_tests(auth=_make_auth())
@@ -246,13 +246,13 @@ def test_capped_client_reopen_on_new_loop_rebinds_semaphore(
     asyncio.run(_open_swap_and_close_under_loop_a())
     # The reset happens on open(), not close(): the stale semaphore is still
     # cached here, bound to the now-dead loop A.
-    assert core._backend._rpc_semaphore._semaphore is not None
+    assert core._provider._rpc_semaphore._semaphore is not None
 
     async def _reopen_and_dispatch_under_loop_b() -> None:
         await core.__aenter__()
         # reset_after_open() must have discarded the loop-A semaphore so the
         # next get_rpc_semaphore() rebuilds it on loop B.
-        assert core._backend._rpc_semaphore._semaphore is None
+        assert core._provider._rpc_semaphore._semaphore is None
         prior_cookies = core._backend._kernel.get_http_client().cookies
         await core._backend._kernel.get_http_client().aclose()
         install_http_client_for_test(
@@ -426,7 +426,7 @@ def test_reqid_and_auth_locks_reopen_on_new_loop_rebind(
 
     core = build_client_shell_for_tests(auth=_make_auth())
     reqid = core._backend._reqid
-    auth_coord = core._backend._auth_coord
+    auth_coord = core._provider._coordinator
 
     async def _force_contended_acquire(lock: asyncio.Lock) -> None:
         """Drive the blocked-waiter path so ``lock`` binds to the running loop.
@@ -636,13 +636,13 @@ async def test_bound_loop_captured_on_open(
     construction-time loop may not be the dispatch-time loop.
     """
     core = build_client_shell_for_tests(auth=_make_auth())
-    assert core._backend._lifecycle.get_bound_loop() is None, (
+    assert core._provider._lifecycle.get_bound_loop() is None, (
         "NotebookLMClient must not bind to a loop at construction time — open() is the binding moment."
     )
 
     await core.__aenter__()
     try:
-        assert core._backend._lifecycle.get_bound_loop() is asyncio.get_running_loop(), (
+        assert core._provider._lifecycle.get_bound_loop() is asyncio.get_running_loop(), (
             "open() must capture the *running* loop, not a stored or module-level reference."
         )
 

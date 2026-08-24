@@ -445,7 +445,7 @@ async def test_stale_account_only_profile_install_cannot_overwrite_newer_route()
         account_email="first@example.com",
     )
     client = build_client_shell_for_tests(auth)
-    coordinator = client._backend._auth_coord
+    coordinator = client._provider._coordinator
     target = auth.cookie_jar
     assert target is not None
     expected = CookieJar.from_httpx(target)
@@ -562,6 +562,17 @@ async def test_concurrent_refresh_does_not_corrupt_inflight_rpc_request(rpc_firs
             core._backend._kernel,
             httpx.AsyncClient(
                 cookies=prior_cookies,
+                transport=transport,
+                timeout=httpx.Timeout(connect=1.0, read=5.0, write=5.0, pool=1.0),
+            ),
+        )
+        provider_kernel = core._provider._kernel
+        provider_cookies = provider_kernel.get_http_client().cookies
+        await provider_kernel.get_http_client().aclose()
+        install_http_client_for_test(
+            provider_kernel,
+            httpx.AsyncClient(
+                cookies=provider_cookies,
                 transport=transport,
                 timeout=httpx.Timeout(connect=1.0, read=5.0, write=5.0, pool=1.0),
             ),

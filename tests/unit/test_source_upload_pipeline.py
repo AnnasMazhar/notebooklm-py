@@ -1126,7 +1126,8 @@ async def test_start_resumable_upload_uses_injected_http_client() -> None:
     )
 
     assert upload_url == "https://notebooklm.google.com/upload/_/?upload_id=session"
-    assert client_factory.call_args.kwargs["cookies"] is runtime.cookies
+    assert client_factory.call_args.kwargs["cookies"] is not runtime.cookies
+    assert dict(client_factory.call_args.kwargs["cookies"]) == dict(runtime.cookies)
     request = client.post.await_args
     assert request.kwargs["headers"]["x-goog-upload-command"] == "start"
     assert request.kwargs["headers"]["x-goog-upload-header-content-type"] == "application/pdf"
