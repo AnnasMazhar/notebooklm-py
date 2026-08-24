@@ -91,14 +91,15 @@ def project_backend_error(error: BackendError) -> Exception:
             operation=error.operation,
         )
     diagnostics = _diagnostics(error)
+    projected: Exception
 
     if reason is BackendErrorReason.NETWORK:
-        return NetworkError(
+        projected = NetworkError(
             error.message,
             method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
         )
-    if reason is BackendErrorReason.TIMEOUT:
-        return RPCTimeoutError(
+    elif reason is BackendErrorReason.TIMEOUT:
+        projected = RPCTimeoutError(
             error.message,
             method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
             timeout_seconds=cast(
@@ -106,7 +107,7 @@ def project_backend_error(error: BackendError) -> Exception:
                 _optional(error, diagnostics, "timeout_seconds", (float, int)),
             ),
         )
-    if reason is BackendErrorReason.UNKNOWN_RPC_METHOD:
+    elif reason is BackendErrorReason.UNKNOWN_RPC_METHOD:
         method_id = _optional(error, diagnostics, "method_id", (str, int))
         rpc_code = _optional(error, diagnostics, "rpc_code", (str, int))
         found_ids = diagnostics.get("found_ids")
@@ -127,7 +128,7 @@ def project_backend_error(error: BackendError) -> Exception:
                 operation=error.operation,
             )
         source = _optional(error, diagnostics, "source", str)
-        return UnknownRPCMethodError(
+        projected = UnknownRPCMethodError(
             error.message,
             method_id=cast(str | int | None, method_id),
             path=cast(tuple[int, ...] | None, path),
@@ -137,46 +138,54 @@ def project_backend_error(error: BackendError) -> Exception:
             data_at_failure=diagnostics.get("data_at_failure"),
             rpc_code=cast(str | int | None, rpc_code),
         )
+    else:
+        rpc = _rpc_diagnostics(error)
+        if reason is BackendErrorReason.AUTH:
+            auth_projected = AuthError(error.message, **rpc)
+            recoverable = _optional(error, diagnostics, "recoverable", bool)
+            auth_projected.recoverable = bool(recoverable)
+            projected = auth_projected
+        elif reason is BackendErrorReason.CLIENT:
+            projected = ClientError(
+                error.message,
+                status_code=_required_int(error, diagnostics, "status_code"),
+                **rpc,
+            )
+        elif reason is BackendErrorReason.DECODING:
+            projected = DecodingError(error.message, **rpc)
+        elif reason is BackendErrorReason.RATE_LIMIT:
+            projected = RateLimitError(
+                error.message,
+                retry_after=_required_int(error, diagnostics, "retry_after"),
+                **rpc,
+            )
+        elif reason is BackendErrorReason.RESPONSE_TOO_LARGE:
+            projected = RPCResponseTooLargeError(
+                error.message,
+                limit_bytes=_required_int(error, diagnostics, "limit_bytes"),
+                bytes_read=_required_int(error, diagnostics, "bytes_read"),
+                method_id=rpc["method_id"],
+            )
+        elif reason is BackendErrorReason.RPC:
+            projected = RPCError(error.message, **rpc)
+        elif reason is BackendErrorReason.SERVER:
+            projected = ServerError(
+                error.message,
+                status_code=_required_int(error, diagnostics, "status_code"),
+                **rpc,
+            )
+        else:
+            raise BackendContractError(
+                f"unsupported backend compatibility reason {reason.value!r}",
+                operation=error.operation,
+            )
 
-    rpc = _rpc_diagnostics(error)
-    if reason is BackendErrorReason.AUTH:
-        projected = AuthError(error.message, **rpc)
-        recoverable = _optional(error, diagnostics, "recoverable", bool)
-        projected.recoverable = bool(recoverable)
-        return projected
-    if reason is BackendErrorReason.CLIENT:
-        return ClientError(
-            error.message,
-            status_code=_required_int(error, diagnostics, "status_code"),
-            **rpc,
-        )
-    if reason is BackendErrorReason.DECODING:
-        return DecodingError(error.message, **rpc)
-    if reason is BackendErrorReason.RATE_LIMIT:
-        return RateLimitError(
-            error.message,
-            retry_after=_required_int(error, diagnostics, "retry_after"),
-            **rpc,
-        )
-    if reason is BackendErrorReason.RESPONSE_TOO_LARGE:
-        return RPCResponseTooLargeError(
-            error.message,
-            limit_bytes=_required_int(error, diagnostics, "limit_bytes"),
-            bytes_read=_required_int(error, diagnostics, "bytes_read"),
-            method_id=rpc["method_id"],
-        )
-    if reason is BackendErrorReason.RPC:
-        return RPCError(error.message, **rpc)
-    if reason is BackendErrorReason.SERVER:
-        return ServerError(
-            error.message,
-            status_code=_required_int(error, diagnostics, "status_code"),
-            **rpc,
-        )
-    raise BackendContractError(
-        f"unsupported backend compatibility reason {reason.value!r}",
-        operation=error.operation,
-    )
+    if error.outcome_unknown:
+        projected.unconfirmed = True  # type: ignore[attr-defined]
+    return projected
 
 
 __all__ = ["project_backend_error"]
+
+
+
