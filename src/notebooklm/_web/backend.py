@@ -24,6 +24,8 @@ import httpx
 from .._artifact.payloads import (
     build_audio_artifact_params,
     build_flashcards_artifact_params,
+    build_interactive_mind_map_artifact_params,
+    build_mind_map_params,
     build_quiz_artifact_params,
 )
 from .._backend import (
@@ -64,6 +66,18 @@ from .._records import (
     GenerationStatusRecord,
     InteractiveGenerateInput,
     InteractiveGenerateResult,
+    MindMapDeleteInput,
+    MindMapDeleteResult,
+    MindMapGenerateInteractiveInput,
+    MindMapGenerateInteractiveResult,
+    MindMapGenerateNoteInput,
+    MindMapGenerateNoteResult,
+    MindMapGetInput,
+    MindMapGetResult,
+    MindMapListInput,
+    MindMapListResult,
+    MindMapUpdateInput,
+    MindMapUpdateResult,
     NotebookCreateInput,
     NotebookCreateResult,
     NotebookDeleteInput,
@@ -140,8 +154,18 @@ from ..rpc import (
 from ..rpc.types import artifact_status_to_str, drive_source_status_to_str, source_status_to_str
 from ..types import Source
 from .codec.artifacts import decode_artifact, decode_mind_map_artifact
+from .codec.mind_maps import (
+    decode_created_interactive_id,
+    decode_generated_tree,
+    decode_interactive_tree,
+)
 from .codec.notebooks import decode_notebook
-from .codec.notes import decode_created_note, decode_note, decode_notes
+from .codec.notes import (
+    decode_created_note,
+    decode_note,
+    decode_note_backed_mind_maps,
+    decode_notes,
+)
 from .codec.sources import decode_source
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 
@@ -1483,6 +1507,138 @@ class WebRpcBackend:
             allow_null=True,
         )
         return NoteDeleteResult()
+
+    async def _mind_map_list(
+        self,
+        value: MindMapListInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> MindMapListResult:
+        result = await self._rpc_call(
+            RPCMethod.GET_NOTES_AND_MIND_MAPS,
+            [value.notebook_id],
+            operation=Operation.MIND_MAP_LIST,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return MindMapListResult(decode_note_backed_mind_maps(result, value.notebook_id))
+
+    async def _mind_map_get(
+        self,
+        value: MindMapGetInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> MindMapGetResult:
+        result = await self._rpc_call(
+            RPCMethod.GET_INTERACTIVE_HTML,
+            [value.mind_map_id],
+            operation=Operation.MIND_MAP_GET,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return MindMapGetResult(decode_interactive_tree(result))
+
+    async def _mind_map_generate_note(
+        self,
+        value: MindMapGenerateNoteInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> MindMapGenerateNoteResult:
+        source_ids = value.source_ids
+        if source_ids is None:
+            notebook = await self._rpc_call(
+                RPCMethod.GET_NOTEBOOK,
+                build_get_notebook_params(value.notebook_id),
+                operation=Operation.MIND_MAP_GENERATE_NOTE,
+                deadline=deadline,
+                source_path=f"/notebook/{value.notebook_id}",
+            )
+            source_ids = self._audio_source_ids(notebook)
+        result = await self._rpc_call(
+            RPCMethod.GENERATE_MIND_MAP,
+            build_mind_map_params(
+                list(source_ids),
+                language=(get_default_language() if value.language is None else value.language),
+                instructions=value.instructions,
+            ),
+            operation=Operation.MIND_MAP_GENERATE_NOTE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+            operation_variant=None,
+        )
+        return MindMapGenerateNoteResult(decode_generated_tree(result))
+
+    async def _mind_map_generate_interactive(
+        self,
+        value: MindMapGenerateInteractiveInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> MindMapGenerateInteractiveResult:
+        source_ids = value.source_ids
+        if source_ids is None:
+            notebook = await self._rpc_call(
+                RPCMethod.GET_NOTEBOOK,
+                build_get_notebook_params(value.notebook_id),
+                operation=Operation.MIND_MAP_GENERATE_INTERACTIVE,
+                deadline=deadline,
+                source_path=f"/notebook/{value.notebook_id}",
+            )
+            source_ids = self._audio_source_ids(notebook)
+        result = await self._rpc_call(
+            RPCMethod.CREATE_ARTIFACT,
+            build_interactive_mind_map_artifact_params(
+                value.notebook_id,
+                list(source_ids),
+                instructions=value.instructions,
+            ),
+            operation=Operation.MIND_MAP_GENERATE_INTERACTIVE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+            operation_variant=None,
+        )
+        mind_map_id = decode_created_interactive_id(result)
+        if mind_map_id is None:
+            raise self._artifact_feature_unavailable(
+                Operation.MIND_MAP_GENERATE_INTERACTIVE,
+                "mind_map",
+            )
+        return MindMapGenerateInteractiveResult(mind_map_id)
+
+    async def _mind_map_update(
+        self,
+        value: MindMapUpdateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> MindMapUpdateResult:
+        await self._rpc_call(
+            RPCMethod.RENAME_ARTIFACT,
+            [[value.mind_map_id, value.title], [["title"]]],
+            operation=Operation.MIND_MAP_UPDATE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return MindMapUpdateResult()
+
+    async def _mind_map_delete(
+        self,
+        value: MindMapDeleteInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> MindMapDeleteResult:
+        await self._rpc_call(
+            RPCMethod.DELETE_ARTIFACT,
+            [[2], value.mind_map_id],
+            operation=Operation.MIND_MAP_DELETE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return MindMapDeleteResult()
 
     async def _source_add_url(
         self,

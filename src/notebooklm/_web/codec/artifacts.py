@@ -102,6 +102,9 @@ def decode_artifact(data: list[Any]) -> ArtifactRecord:
         status=status,
         unrecognized_family=unrecognized_family,
         variant=variant,
+        interactive_variant_pending=(
+            type_code == ArtifactTypeCode.QUIZ.value and variant_code is None
+        ),
         unrecognized_variant=unrecognized_variant,
         unrecognized_status=(row.status if status == "unknown" and row.status != 0 else None),
         created_at=row.created_at,

@@ -1262,6 +1262,7 @@ def _adapter_function_call_graph(
     for symbol, function in functions.items():
         module, qualname = function_modules[symbol]
         local_aliases: dict[str, str] = {}
+        ambiguous_alias_targets: dict[str, set[str]] = {}
         changed = True
         while changed:
             changed = False
@@ -1292,13 +1293,30 @@ def _adapter_function_call_graph(
                         local_aliases=local_aliases,
                     )
                 alias_name = node.targets[0].id
-                if target is not None and local_aliases.get(alias_name) != target:
+                if target is None:
+                    continue
+                if alias_name in ambiguous_alias_targets:
+                    ambiguous_alias_targets[alias_name].add(target)
+                    continue
+                previous = local_aliases.get(alias_name)
+                if previous is not None and previous != target:
+                    # A branch-local callable alias can legitimately name more
+                    # than one helper (for example quiz vs flashcard builders).
+                    # Retain every target for the call-edge pass instead of
+                    # oscillating forever in this fixed-point pass.
+                    del local_aliases[alias_name]
+                    ambiguous_alias_targets[alias_name] = {previous, target}
+                    changed = True
+                elif previous is None:
                     local_aliases[alias_name] = target
                     changed = True
 
         calls = _FunctionCallCollector(function)
         calls.visit(function)
         for call in calls.calls:
+            if isinstance(call.func, ast.Name) and call.func.id in ambiguous_alias_targets:
+                graph[symbol].update(ambiguous_alias_targets[call.func.id])
+                continue
             target = expression_target(
                 call.func,
                 module=module,

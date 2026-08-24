@@ -39,8 +39,16 @@ from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._read_services import NotebookReadService, SourceReadService
 from notebooklm._records import (
     ARTIFACT_GENERATE_AUDIO_DEF,
+    ARTIFACT_GENERATE_FLASHCARDS_DEF,
+    ARTIFACT_GENERATE_QUIZ_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
+    MIND_MAP_DELETE_DEF,
+    MIND_MAP_GENERATE_INTERACTIVE_DEF,
+    MIND_MAP_GENERATE_NOTE_DEF,
+    MIND_MAP_GET_DEF,
+    MIND_MAP_LIST_DEF,
+    MIND_MAP_UPDATE_DEF,
     NOTE_CREATE_DEF,
     NOTE_DELETE_DEF,
     NOTE_GET_DEF,
@@ -143,11 +151,31 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             Operation.ARTIFACT_GENERATE_AUDIO,
             CallPolicy.STATEFUL_START,
         ),
+        ARTIFACT_GENERATE_QUIZ_DEF: (
+            Operation.ARTIFACT_GENERATE_QUIZ,
+            CallPolicy.STATEFUL_START,
+        ),
+        ARTIFACT_GENERATE_FLASHCARDS_DEF: (
+            Operation.ARTIFACT_GENERATE_FLASHCARDS,
+            CallPolicy.STATEFUL_START,
+        ),
         NOTE_LIST_DEF: (Operation.NOTE_LIST, CallPolicy.READ),
         NOTE_GET_DEF: (Operation.NOTE_GET, CallPolicy.READ),
         NOTE_CREATE_DEF: (Operation.NOTE_CREATE, CallPolicy.MUTATION),
         NOTE_UPDATE_DEF: (Operation.NOTE_UPDATE, CallPolicy.MUTATION),
         NOTE_DELETE_DEF: (Operation.NOTE_DELETE, CallPolicy.MUTATION),
+        MIND_MAP_LIST_DEF: (Operation.MIND_MAP_LIST, CallPolicy.READ),
+        MIND_MAP_GET_DEF: (Operation.MIND_MAP_GET, CallPolicy.READ),
+        MIND_MAP_GENERATE_NOTE_DEF: (
+            Operation.MIND_MAP_GENERATE_NOTE,
+            CallPolicy.STATEFUL_START,
+        ),
+        MIND_MAP_GENERATE_INTERACTIVE_DEF: (
+            Operation.MIND_MAP_GENERATE_INTERACTIVE,
+            CallPolicy.STATEFUL_START,
+        ),
+        MIND_MAP_UPDATE_DEF: (Operation.MIND_MAP_UPDATE, CallPolicy.MUTATION),
+        MIND_MAP_DELETE_DEF: (Operation.MIND_MAP_DELETE, CallPolicy.MUTATION),
     }
 
     for op_def, (expected_key, expected_policy) in expected_migrated.items():
@@ -253,6 +281,28 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             ],
         ),
         (
+            ARTIFACT_GENERATE_QUIZ_DEF,
+            [
+                (RPCMethod.GET_NOTEBOOK, None),
+                (RPCMethod.CREATE_ARTIFACT, None),
+            ],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.PROBE_THEN_CREATE,
+            ],
+        ),
+        (
+            ARTIFACT_GENERATE_FLASHCARDS_DEF,
+            [
+                (RPCMethod.GET_NOTEBOOK, None),
+                (RPCMethod.CREATE_ARTIFACT, None),
+            ],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.PROBE_THEN_CREATE,
+            ],
+        ),
+        (
             NOTE_LIST_DEF,
             [(RPCMethod.GET_NOTES_AND_MIND_MAPS, None)],
             [IdempotencyPolicy.IDEMPOTENT_SET_OP],
@@ -275,6 +325,48 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         (
             NOTE_DELETE_DEF,
             [(RPCMethod.DELETE_NOTE, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            MIND_MAP_LIST_DEF,
+            [(RPCMethod.GET_NOTES_AND_MIND_MAPS, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            MIND_MAP_GET_DEF,
+            [(RPCMethod.GET_INTERACTIVE_HTML, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            MIND_MAP_GENERATE_NOTE_DEF,
+            [
+                (RPCMethod.GET_NOTEBOOK, None),
+                (RPCMethod.GENERATE_MIND_MAP, None),
+            ],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.PROBE_THEN_CREATE,
+            ],
+        ),
+        (
+            MIND_MAP_GENERATE_INTERACTIVE_DEF,
+            [
+                (RPCMethod.GET_NOTEBOOK, None),
+                (RPCMethod.CREATE_ARTIFACT, None),
+            ],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.PROBE_THEN_CREATE,
+            ],
+        ),
+        (
+            MIND_MAP_UPDATE_DEF,
+            [(RPCMethod.RENAME_ARTIFACT, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            MIND_MAP_DELETE_DEF,
+            [(RPCMethod.DELETE_ARTIFACT, None)],
             [IdempotencyPolicy.IDEMPOTENT_SET_OP],
         ),
     ],
@@ -372,16 +464,16 @@ def test_call_policy_does_not_control_transport_retries() -> None:
 # =============================================================================
 
 
-def test_exact_known_divergences_inventory_is_eleven_and_passes_audit() -> None:
-    """The operation catalog contains exactly 11 reviewed divergences (1 policy, 10 authority)."""
-    assert len(DIVERGENCE_KINDS) == 11
+def test_exact_known_divergences_inventory_is_twelve_and_passes_audit() -> None:
+    """The catalog contains exactly 12 reviewed divergences (1 policy, 11 authority)."""
+    assert len(DIVERGENCE_KINDS) == 12
 
     described_divergences = {
         spec.operation: (spec.known_divergence, DIVERGENCE_KINDS.get(spec.operation))
         for spec in OPERATION_SPECS
         if spec.known_divergence is not None
     }
-    assert len(described_divergences) == 11
+    assert len(described_divergences) == 12
     assert set(described_divergences) == set(DIVERGENCE_KINDS)
 
     # Exact operations with reviewed divergences
@@ -397,7 +489,7 @@ def test_exact_known_divergences_inventory_is_eleven_and_passes_audit() -> None:
     assert policy_divergences[0][1] is not None
     assert "AT_LEAST_ONCE_ACCEPTED" in policy_divergences[0][1]
 
-    assert len(authority_divergences) == 10
+    assert len(authority_divergences) == 11
     assert {op.value for op, _ in authority_divergences} == {
         "artifact.download",
         "artifact.generate_audio",
@@ -409,6 +501,7 @@ def test_exact_known_divergences_inventory_is_eleven_and_passes_audit() -> None:
         "artifact.generate_slide_deck",
         "artifact.generate_video",
         "artifact.revise_slide",
+        "mind_map.generate_interactive",
     }
 
 

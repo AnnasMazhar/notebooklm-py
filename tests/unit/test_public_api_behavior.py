@@ -123,17 +123,11 @@ def _make_notes_api() -> NotesAPI:
 
 
 def _make_mind_maps_api() -> MindMapsAPI:
-    mind_maps = MagicMock(spec=NoteBackedMindMapService)
-    mind_maps.list_mind_maps = AsyncMock(return_value=[])
-    artifacts = MagicMock()
-    artifacts.list = AsyncMock(return_value=[])
-    notebooks = MagicMock()
-    return MindMapsAPI(
-        rpc=MagicMock(),
-        mind_maps=mind_maps,
-        artifacts=artifacts,
-        notebooks=notebooks,
-    )
+    notes = MagicMock()
+    notes.list_mind_maps = AsyncMock(return_value=[])
+    studio = MagicMock()
+    studio.list_mind_maps = AsyncMock(return_value=[])
+    return MindMapsAPI(notes=notes, studio=studio)
 
 
 def _make_labels_api() -> LabelsAPI:

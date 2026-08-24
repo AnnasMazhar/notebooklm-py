@@ -68,6 +68,7 @@ from ._settings import SettingsAPI
 from ._sharing import SharingAPI
 from ._source.upload import SourceUploadPipeline
 from ._sources import SourcesAPI
+from ._studio import MindMapFamilyService, StudioCatalog
 from ._web.backend import WebRpcBackend
 from .auth import AuthTokens
 
@@ -410,13 +411,19 @@ def _assemble_client(
         notes=note_service,
         mind_maps=mind_maps,
     )
-    # Unified mind-map surface over both backends (note-backed + interactive
-    # studio artifact); dispatches each op to the correct RPC family (#1256).
+    # Unified mind-map surface over two semantic services. Note-backed flows
+    # share the client-scoped NoteService; interactive flows use the Studio
+    # family and its typed MIND_MAP_* bindings. The legacy adapter above remains
+    # only for artifact/download compatibility outside MindMapsAPI.
+    mind_map_catalog = StudioCatalog(backend=client._backend)
+    mind_map_studio = MindMapFamilyService(
+        backend=client._backend,
+        catalog=mind_map_catalog,
+        wait_for_completion=client.artifacts.wait_for_completion,
+    )
     client.mind_maps = MindMapsAPI(
-        rpc=internals.executor,
-        mind_maps=mind_maps,
-        artifacts=client.artifacts,
-        notebooks=client.notebooks,
+        notes=note_service,
+        studio=mind_map_studio,
     )
     # Pure-RPC features (typed as ``rpc: RpcCaller``). Pass the
     # ``RpcExecutor`` collaborator directly, sourced from the composed

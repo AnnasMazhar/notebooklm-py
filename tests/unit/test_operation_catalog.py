@@ -237,6 +237,8 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
         "_source/listing.py:SourceLister.list",
         "_web/backend.py:WebRpcBackend._audio_generate",
         "_web/backend.py:WebRpcBackend._interactive_generate",
+        "_web/backend.py:WebRpcBackend._mind_map_generate_interactive",
+        "_web/backend.py:WebRpcBackend._mind_map_generate_note",
         "_web/backend.py:WebRpcBackend._notebook_get",
         "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
@@ -561,6 +563,7 @@ def test_known_divergences_remain_reported_but_do_not_fail_audit() -> None:
         "artifact.generate_slide_deck",
         "artifact.generate_video",
         "artifact.revise_slide",
+        "mind_map.generate_interactive",
         "source.refresh",
     }
 

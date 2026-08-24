@@ -25,7 +25,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from notebooklm._artifacts import ArtifactsAPI
+from notebooklm._mind_maps_api import MindMapsAPI
 from notebooklm._notes import NotesAPI
+from notebooklm._studio import MindMapFamilyService
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 from tests._fixtures.fake_core import FakeSession, make_fake_core
@@ -290,6 +292,9 @@ def test_client_exposes_artifacts_and_notes(mock_auth: AuthTokens) -> None:
     client = NotebookLMClient(mock_auth)
     assert isinstance(client.artifacts, ArtifactsAPI)
     assert isinstance(client.notes, NotesAPI)
+    assert isinstance(client.mind_maps, MindMapsAPI)
+    assert client.mind_maps._notes is client.notes._notes
+    assert isinstance(client.mind_maps._studio, MindMapFamilyService)
 
 
 def test_artifacts_constructible_without_notes_api(mock_auth: AuthTokens) -> None:

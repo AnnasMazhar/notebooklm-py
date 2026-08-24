@@ -110,14 +110,11 @@ def notes_api():
 
 @pytest.fixture
 def mind_maps_api():
-    rpc = MagicMock(rpc_call=AsyncMock(return_value=None))
-    mind_maps = MagicMock()
-    mind_maps.list_mind_maps = AsyncMock(return_value=[])
-    mind_maps.extract_content = MagicMock(side_effect=lambda row: row[1])
-    artifacts = MagicMock()
-    artifacts.list = AsyncMock(return_value=[])
-    notebooks = MagicMock()
-    return MindMapsAPI(rpc=rpc, mind_maps=mind_maps, artifacts=artifacts, notebooks=notebooks)
+    notes = MagicMock()
+    notes.list_mind_maps = AsyncMock(return_value=[])
+    studio = MagicMock()
+    studio.list_mind_maps = AsyncMock(return_value=[])
+    return MindMapsAPI(notes=notes, studio=studio)
 
 
 # ---------------------------------------------------------------------------

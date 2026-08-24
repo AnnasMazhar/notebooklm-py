@@ -1,9 +1,9 @@
 """Semantic plain-note service plus deferred note-backed compatibility.
 
-``NoteService`` owns the migrated NOTE_* semantic workflow used by
-``NotesAPI``. ``LegacyNoteBackedService`` temporarily retains the direct web
-RPC implementation used only by note-backed mind-map and artifact callers;
-that compatibility class retires with the later MIND_MAP_* slice.
+``NoteService`` owns the migrated NOTE_* workflow used by ``NotesAPI`` and the
+note-backed side of ``MindMapsAPI``. ``LegacyNoteBackedService`` retains the
+direct web implementation only for deferred saved-chat/artifact compatibility
+callers; the public mind-map facade must not use it.
 
 ``NoteRowKind`` is a private classification of the raw row shapes
 returned by the ``GET_NOTES_AND_MIND_MAPS`` RPC. It is intentionally
@@ -21,18 +21,24 @@ the row — losing a chat-mode tag is preferable to dropping the note.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from ._backend import BackendAdapter
-from ._projectors import project_note
+from ._projectors import project_mind_map, project_note
 from ._records import (
+    MIND_MAP_GENERATE_NOTE_DEF,
+    MIND_MAP_LIST_DEF,
     NOTE_CREATE_DEF,
     NOTE_DELETE_DEF,
     NOTE_GET_DEF,
     NOTE_LIST_DEF,
     NOTE_UPDATE_DEF,
+    MindMapGenerateNoteInput,
+    MindMapListInput,
+    MindMapRecord,
     NoteCreateInput,
     NoteDeleteInput,
     NoteGetInput,
@@ -40,10 +46,10 @@ from ._records import (
     NoteUpdateInput,
 )
 from ._row_adapters.notes import NoteRow
-from .exceptions import DecodingError, RPCError
+from .exceptions import DecodingError, MindMapNotFoundError, RPCError
 from .rpc import safe_index
 from .rpc.types import RPCMethod
-from .types import Note
+from .types import MindMap, Note
 
 if TYPE_CHECKING:
     from ._runtime.contracts import RpcCaller
@@ -86,12 +92,13 @@ class NoteRowKind(Enum):
 
 
 class LegacyNoteBackedService:
-    """Deferred raw note-row implementation for note-backed mind maps only.
+    """Deferred raw note-row implementation for compatibility callers only.
 
     Owns the ``GET_NOTES_AND_MIND_MAPS`` / ``CREATE_NOTE`` /
     ``UPDATE_NOTE`` / ``DELETE_NOTE`` RPC family. Shared by
-    ``NoteBackedMindMapService`` and artifact mind-map persistence use this
-    service until the MIND_MAP_* semantic slice. ``NotesAPI`` must never use it.
+    Saved-chat and artifact mind-map persistence still use this service outside
+    the retired ``MindMapsAPI`` execution path. Plain-note ``NotesAPI`` methods
+    and ``MindMapsAPI`` must never use it.
 
     Takes the narrow :class:`RpcCaller` capability — note CRUD only
     needs ``rpc_call(...)``; everything else (drain hooks, transport,
@@ -466,7 +473,7 @@ class LegacyNoteBackedService:
 
 
 class NoteService:
-    """Backend-neutral NOTE_* workflow consumed exclusively by ``NotesAPI``."""
+    """Backend-neutral plain-note and note-backed mind-map workflows."""
 
     __slots__ = ("_backend",)
 
@@ -577,3 +584,101 @@ class NoteService:
             NoteDeleteInput(notebook_id, note_id),
             deadline=None,
         )
+
+    async def list_mind_maps(self, notebook_id: str) -> list[MindMap]:
+        """Return active note-backed mind maps without exposing note rows."""
+
+        return [
+            project_mind_map(record) for record in await self._list_mind_map_records(notebook_id)
+        ]
+
+    async def _list_mind_map_records(self, notebook_id: str) -> tuple[MindMapRecord, ...]:
+        """Keep exact persisted JSON available for title-only updates."""
+
+        result = await self._backend.invoke(
+            MIND_MAP_LIST_DEF,
+            MindMapListInput(notebook_id),
+            deadline=None,
+        )
+        return result.mind_maps
+
+    async def get_mind_map_or_none(self, notebook_id: str, mind_map_id: str) -> MindMap | None:
+        """Select one exact note-backed identity from the semantic listing."""
+
+        return next(
+            (item for item in await self.list_mind_maps(notebook_id) if item.id == mind_map_id),
+            None,
+        )
+
+    async def generate_mind_map(
+        self,
+        notebook_id: str,
+        source_ids: list[str] | None,
+        language: str | None,
+        instructions: str | None,
+    ) -> MindMap:
+        """Generate JSON through MIND_MAP_* and persist it through semantic NOTE_* ops."""
+
+        generated = await self._backend.invoke(
+            MIND_MAP_GENERATE_NOTE_DEF,
+            MindMapGenerateNoteInput(
+                notebook_id,
+                None if source_ids is None else tuple(source_ids),
+                language,
+                instructions,
+            ),
+            deadline=None,
+        )
+        tree_json = generated.tree_json
+        if tree_json is None:
+            return project_mind_map(MindMapRecord("", notebook_id, "Mind Map", "note_backed"))
+        title = "Mind Map"
+        try:
+            tree = json.loads(tree_json)
+        except (json.JSONDecodeError, TypeError):
+            tree = None
+        if isinstance(tree, dict):
+            candidate = tree.get("name")
+            if isinstance(candidate, str) and candidate:
+                title = candidate
+        note = await self.create_note(notebook_id, title=title, content=tree_json)
+        return project_mind_map(
+            MindMapRecord(
+                note.id,
+                notebook_id,
+                title,
+                "note_backed",
+                note.created_at,
+                tree_json,
+            )
+        )
+
+    async def rename_mind_map(
+        self,
+        notebook_id: str,
+        mind_map_id: str,
+        new_title: str,
+    ) -> None:
+        """Retitle a note-backed mind map after an exact semantic preflight."""
+
+        existing = next(
+            (
+                item
+                for item in await self._list_mind_map_records(notebook_id)
+                if item.id == mind_map_id
+            ),
+            None,
+        )
+        if existing is None:
+            raise MindMapNotFoundError(mind_map_id)
+        await self.update_note(
+            notebook_id,
+            mind_map_id,
+            existing.tree_json or "",
+            new_title,
+        )
+
+    async def delete_mind_map(self, notebook_id: str, mind_map_id: str) -> None:
+        """Delete a note-backed mind map idempotently through NOTE_DELETE."""
+
+        await self.delete_note(notebook_id, mind_map_id)

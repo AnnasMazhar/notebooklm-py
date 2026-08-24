@@ -21,6 +21,12 @@ from notebooklm._backend import (
 from notebooklm._deadline import RuntimeDeadline
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._records import (
+    MIND_MAP_DELETE_DEF,
+    MIND_MAP_GENERATE_INTERACTIVE_DEF,
+    MIND_MAP_GENERATE_NOTE_DEF,
+    MIND_MAP_GET_DEF,
+    MIND_MAP_LIST_DEF,
+    MIND_MAP_UPDATE_DEF,
     NOTE_CREATE_DEF,
     NOTE_DELETE_DEF,
     NOTE_GET_DEF,
@@ -30,6 +36,19 @@ from notebooklm._records import (
     NOTEBOOK_LIST_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
+    MindMapDeleteInput,
+    MindMapDeleteResult,
+    MindMapGenerateInteractiveInput,
+    MindMapGenerateInteractiveResult,
+    MindMapGenerateNoteInput,
+    MindMapGenerateNoteResult,
+    MindMapGetInput,
+    MindMapGetResult,
+    MindMapListInput,
+    MindMapListResult,
+    MindMapRecord,
+    MindMapUpdateInput,
+    MindMapUpdateResult,
     NotebookChatSessionRecord,
     NotebookChatSettingsRecord,
     NotebookGetInput,
@@ -89,6 +108,14 @@ def test_read_slice_records_are_frozen_slotted_values_with_typed_definitions() -
         created_at=timestamp,
     )
     note = NoteRecord("note-id", "notebook-id", "Note", "Body", timestamp)
+    mind_map = MindMapRecord(
+        "mind-map-id",
+        "notebook-id",
+        "Mind Map",
+        "note_backed",
+        timestamp,
+        '{"name":"Mind Map","children":[]}',
+    )
     values = (
         NotebookListInput(),
         NotebookListResult((notebook,)),
@@ -113,6 +140,18 @@ def test_read_slice_records_are_frozen_slotted_values_with_typed_definitions() -
         NoteUpdateResult(),
         NoteDeleteInput("notebook-id", "note-id"),
         NoteDeleteResult(),
+        MindMapListInput("notebook-id"),
+        MindMapListResult((mind_map,)),
+        MindMapGetInput("notebook-id", "mind-map-id"),
+        MindMapGetResult(mind_map.tree_json),
+        MindMapGenerateNoteInput("notebook-id", ("source-id",), "en", "focus"),
+        MindMapGenerateNoteResult(mind_map.tree_json),
+        MindMapGenerateInteractiveInput("notebook-id", ("source-id",), "focus"),
+        MindMapGenerateInteractiveResult("mind-map-id"),
+        MindMapUpdateInput("notebook-id", "mind-map-id", "Renamed"),
+        MindMapUpdateResult(),
+        MindMapDeleteInput("notebook-id", "mind-map-id"),
+        MindMapDeleteResult(),
     )
 
     assert all(not hasattr(value, "__dict__") for value in values)
@@ -165,6 +204,42 @@ def test_read_slice_records_are_frozen_slotted_values_with_typed_definitions() -
             CallPolicy.MUTATION,
             NoteDeleteInput,
             NoteDeleteResult,
+        ),
+        MIND_MAP_LIST_DEF: (
+            Operation.MIND_MAP_LIST,
+            CallPolicy.READ,
+            MindMapListInput,
+            MindMapListResult,
+        ),
+        MIND_MAP_GET_DEF: (
+            Operation.MIND_MAP_GET,
+            CallPolicy.READ,
+            MindMapGetInput,
+            MindMapGetResult,
+        ),
+        MIND_MAP_GENERATE_NOTE_DEF: (
+            Operation.MIND_MAP_GENERATE_NOTE,
+            CallPolicy.STATEFUL_START,
+            MindMapGenerateNoteInput,
+            MindMapGenerateNoteResult,
+        ),
+        MIND_MAP_GENERATE_INTERACTIVE_DEF: (
+            Operation.MIND_MAP_GENERATE_INTERACTIVE,
+            CallPolicy.STATEFUL_START,
+            MindMapGenerateInteractiveInput,
+            MindMapGenerateInteractiveResult,
+        ),
+        MIND_MAP_UPDATE_DEF: (
+            Operation.MIND_MAP_UPDATE,
+            CallPolicy.MUTATION,
+            MindMapUpdateInput,
+            MindMapUpdateResult,
+        ),
+        MIND_MAP_DELETE_DEF: (
+            Operation.MIND_MAP_DELETE,
+            CallPolicy.MUTATION,
+            MindMapDeleteInput,
+            MindMapDeleteResult,
         ),
     }
     for definition, (key, policy, input_type, output_type) in definitions.items():

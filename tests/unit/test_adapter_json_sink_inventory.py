@@ -10,15 +10,16 @@ from pathlib import Path, PurePath, PureWindowsPath
 
 import pytest
 from scripts.audit_adapter_json_sinks import (
-    _relative_source_path as _sink_relative_source_path,
-)
-from scripts.audit_adapter_json_sinks import (
+    _adapter_function_call_graph,
     assert_exact_sink_dispositions,
     assert_no_unreviewed_cli_json_serialization,
     assert_no_unreviewed_direct_json_emissions,
     assert_supported_adapter_registrations,
     discover_adapter_json_sinks,
     fingerprint_adapter_helpers,
+)
+from scripts.audit_adapter_json_sinks import (
+    _relative_source_path as _sink_relative_source_path,
 )
 from scripts.audit_adapter_projection_paths import (
     PrivateDataclassProjectionPath,
@@ -40,6 +41,34 @@ def _write_adapter_source(root: Path, relative_path: str, source: str) -> None:
     path = root / "notebooklm" / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
+
+
+def test_transitive_graph_retains_each_branch_local_callable_alias(tmp_path: Path) -> None:
+    _write_adapter_source(
+        tmp_path,
+        "sample.py",
+        """
+def left():
+    return 1
+
+def right():
+    return 2
+
+def dispatch(use_left):
+    if use_left:
+        builder = left
+    else:
+        builder = right
+    return builder()
+""",
+    )
+
+    graph, _functions = _adapter_function_call_graph(tmp_path)
+
+    assert graph["notebooklm.sample.dispatch"] == {
+        "notebooklm.sample.left",
+        "notebooklm.sample.right",
+    }
 
 
 @pytest.mark.parametrize(
