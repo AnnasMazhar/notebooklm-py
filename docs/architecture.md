@@ -1151,6 +1151,7 @@ src/notebooklm/
 ├── _atomic_io.py                # Atomic JSON write/update helpers
 ├── _auth_refresh_retry.py       # Shared auth refresh-and-retry core (RefreshBudget + refresh_and_count) for both retry layers
 ├── _backoff.py                  # Shared retry backoff calculation
+├── _backend.py                  # Private semantic backend port, capabilities, errors, and deadline handoff (P1)
 ├── _callbacks.py                # Sync/async callback invocation helper
 ├── _client_assembly.py          # Shared client-assembly seam (constructor + test factory)
 ├── _client_composed.py          # Client-owned composition holder
@@ -1184,6 +1185,7 @@ src/notebooklm/
 ├── _mind_maps_api.py            # MindMapsAPI — unified mind-map surface over both backends (#1256)
 ├── _notebook_metadata.py        # Metadata protocols
 ├── _operations.py               # Inert closed semantic operation/call-policy vocabulary (P0)
+├── _records.py                  # Neutral notebook/source list/get operation records (P1)
 ├── _url_utils.py                # URL validation helpers
 ├── _sharing_manager.py          # Sharing management logic
 ├── _version_check.py            # Deprecation version guard
