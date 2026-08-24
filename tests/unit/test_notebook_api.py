@@ -292,6 +292,34 @@ async def test_get_metadata_fetches_notebook_and_sources_concurrently() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_metadata_cancels_and_drains_sibling_when_one_read_fails() -> None:
+    core = _make_core()
+    source_lister = MagicMock()
+    sibling_started = asyncio.Event()
+    sibling_cancelled = asyncio.Event()
+
+    async def get_notebook(_notebook_id: str) -> Notebook:
+        await sibling_started.wait()
+        raise RuntimeError("notebook read failed")
+
+    async def list_sources(_notebook_id: str) -> list[Source]:
+        sibling_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            sibling_cancelled.set()
+
+    source_lister.list = AsyncMock(side_effect=list_sources)
+    api = NotebooksAPI(core.rpc_executor, sources_api=source_lister)
+    api.get = AsyncMock(side_effect=get_notebook)
+
+    with pytest.raises(RuntimeError, match="notebook read failed"):
+        await api.get_metadata("nb_123")
+
+    assert sibling_cancelled.is_set()
+
+
+@pytest.mark.asyncio
 async def test_get_metadata_warns_when_notebook_reports_sources_but_listing_is_empty(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

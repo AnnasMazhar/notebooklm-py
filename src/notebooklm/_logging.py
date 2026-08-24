@@ -206,6 +206,10 @@ _REDACT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (_CSRF_BARE_TOKEN, r"\1***"),
     # session-id query param
     (re.compile(r"(\bf\.sid=)" + _QUERY_VALUE_SUFFIX), _QUERY_VALUE_REPLACEMENT),
+    # Account routing may carry either a numeric index or the selected account
+    # email. Treat both forms as credential-equivalent so third-party HTTP
+    # errors cannot disclose the route through their rendered request URL.
+    (re.compile(r"(\bauthuser=)" + _QUERY_VALUE_SUFFIX, re.IGNORECASE), _QUERY_VALUE_REPLACEMENT),
     # resumable-upload session query param
     (re.compile(r"(\bupload_id=)" + _QUERY_VALUE_SUFFIX, re.IGNORECASE), _QUERY_VALUE_REPLACEMENT),
     # OAuth-shaped credentials (refresh / access / authorization code)
@@ -300,9 +304,10 @@ _THIRD_PARTY_LOGGERS: tuple[str, ...] = ("httpx", "urllib3")
 #     design advertises "superset of substrings in any pattern" but its own
 #     list omits OAuth anchors; without them the OAuth pattern would silently
 #     stop redacting whenever a message had no other secret marker.
-#   - "continue=" and "authuser=" are NOT in ``_REDACT_PATTERNS``. Including
-#     them is harmless: they only INCREASE the regex-sweep rate, never the
-#     redaction surface, and they hedge against future audit additions.
+#   - "continue=" is NOT in ``_REDACT_PATTERNS``. Including it is harmless: it
+#     only INCREASES the regex-sweep rate, never the redaction surface, and
+#     hedges against future audit additions. ``authuser=`` is credential-shaped
+#     because account routing may use an email, so it is redacted explicitly.
 #   - "csrf" covers the ``csrf=<value>`` form alias. The canonical CSRF
 #     token shows up as ``at=<csrf>`` (covered by "at="); the standalone
 #     ``AF1_QpN-`` token shape is covered by "af1_qpn-".

@@ -1104,6 +1104,7 @@ def test_fast_path_tokens_cover_every_redaction_pattern():
         ("csrf", "form csrf=AF1_QpN-SECRET_X"),
         ("af1_qpn-", "bare token AF1_QpN-SECRET_X in prose"),
         ("f.sid", "url ?f.sid=ABC_DEF"),
+        ("authuser=", "url ?authuser=owner@example.com&hl=en"),
         ("_token=", "oauth body refresh_token=RT&access_token=AT&id_token=IT"),
         ("code=", "oauth callback code=AUTH_X"),
         ("sid", "cookie SID=v1; SAPISID=v2; HSID=v3"),

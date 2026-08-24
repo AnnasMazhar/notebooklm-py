@@ -2137,16 +2137,63 @@ def audit_recency_contracts() -> list[str]:
         errors.append("chat.configure must split read and mutation recency conditions")
     metadata_tree = _parse(SRC_ROOT / "_notebook_metadata.py")
     metadata_fn = _find_class_method(metadata_tree, "NotebookMetadataService", "get_metadata")
-    gather_shapes = []
+    task_shapes: list[tuple[str, ...]] = []
+    gather_shapes: list[tuple[list[tuple[str, ...]], tuple[tuple[str | None, object], ...]]] = []
+    cancel_calls = 0
     if metadata_fn is not None:
         for call in (node for node in ast.walk(metadata_fn) if isinstance(node, ast.Call)):
+            if (
+                _attribute_parts(call.func)[-2:] == ("asyncio", "create_task")
+                and len(call.args) == 1
+                and isinstance(call.args[0], ast.Call)
+            ):
+                task_shapes.append(_attribute_parts(call.args[0].func))
+            if _attribute_parts(call.func)[-2:] == ("task", "cancel"):
+                cancel_calls += 1
             if _attribute_parts(call.func)[-2:] == ("asyncio", "gather"):
                 gather_shapes.append(
-                    [_attribute_parts(arg.func) for arg in call.args if isinstance(arg, ast.Call)]
+                    (
+                        [
+                            (arg.value.id,)
+                            if isinstance(arg, ast.Starred) and isinstance(arg.value, ast.Name)
+                            else _attribute_parts(arg.func)
+                            for arg in call.args
+                            if isinstance(arg, (ast.Call, ast.Starred))
+                        ],
+                        tuple(
+                            (
+                                keyword.arg,
+                                keyword.value.value
+                                if isinstance(keyword.value, ast.Constant)
+                                else None,
+                            )
+                            for keyword in call.keywords
+                        ),
+                    )
                 )
-    if gather_shapes != [[("self", "_get_notebook"), ("self", "_source_lister", "list")]]:
+    catches_base_exception = metadata_fn is not None and any(
+        isinstance(node, ast.ExceptHandler)
+        and isinstance(node.type, ast.Name)
+        and node.type.id == "BaseException"
+        for node in ast.walk(metadata_fn)
+    )
+    if (
+        task_shapes
+        != [
+            ("self", "_get_notebook"),
+            ("self", "_source_lister", "list"),
+        ]
+        or gather_shapes
+        != [
+            ([("tasks",)], ()),
+            ([("tasks",)], (("return_exceptions", True),)),
+        ]
+        or cancel_calls != 1
+        or not catches_base_exception
+    ):
         errors.append(
-            "NotebookMetadataService.get_metadata must gather exactly notebook lookup + source list"
+            "NotebookMetadataService.get_metadata must create, gather, cancel, and drain exactly "
+            "the notebook lookup + source list tasks"
         )
 
     backend_tree = _parse(SRC_ROOT / "_web" / "backend.py")
