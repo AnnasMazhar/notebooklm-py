@@ -9,8 +9,10 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 
+from notebooklm._auth.cookie_types import Cookie, CookieJar
 from notebooklm._records import (
     SourceAddCommitState,
     SourceAddDriveResult,
@@ -23,6 +25,7 @@ from notebooklm._records import (
 )
 from notebooklm._source.upload import SourceUploadPipeline
 from notebooklm._sources import SourcesAPI
+from notebooklm._web_cookie_provider import WebCookieGeneration
 from notebooklm.exceptions import NetworkError, RPCError, ValidationError
 from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import SourceStatus
@@ -39,19 +42,39 @@ def mock_core():
     core.auth = MagicMock()
     core.auth.authuser = 0
     core.auth.account_email = None
-    # Upload paths pass the live http client's cookie jar to httpx so cookies
-    # are scoped by Domain attribute (#373). Keep this distinct from
-    # auth.cookie_jar so upload tests prove the live jar is used.
+    # Retired compatibility jars remain deliberately distinct from the P8
+    # provider generation so direct-leg tests can prove neither is consulted.
     auth_cookie_jar = MagicMock(name="auth_cookie_jar")
     live_cookie_jar = MagicMock(name="live_cookie_jar")
     core.auth.cookie_jar = auth_cookie_jar
     core.get_http_client = MagicMock()
     core.get_http_client.return_value.cookies = live_cookie_jar
     core.kernel = core
-    # The stateful upload pipeline reaches the live cookie jar through the
-    # injected kernel/session compatibility path. Keep this distinct from
-    # auth.cookie_jar so the invariant still proves uploads reuse the live jar.
+    # Keep the retired kernel/session compatibility accessor available but
+    # distinct, so generation assertions prove direct legs never consult it.
     core.live_cookies = MagicMock(return_value=live_cookie_jar)
+    core.provider_cookies = CookieJar(
+        (
+            Cookie("SID", ".google.com", "/", "provider-sid"),
+            Cookie("__Secure-1PSIDTS", ".google.com", "/", "provider-ts"),
+        )
+    )
+    core.captured_generations = []
+
+    async def generation() -> WebCookieGeneration:
+        committed = WebCookieGeneration(
+            csrf_token="provider-csrf",
+            session_id="provider-session",
+            authuser=core.auth.authuser,
+            account_email=core.auth.account_email,
+            cookies=core.provider_cookies,
+            generation=7,
+        )
+        core.captured_generations.append(committed)
+        return committed
+
+    core.generation_provider = AsyncMock(side_effect=generation)
+    core.generation_installer = MagicMock(return_value=True)
     # Mirror ``Session``'s auth-route helper surface. The
     # ``authuser_query()`` and ``authuser_header()`` callables read
     # ``core.auth.authuser`` / ``core.auth.account_email`` at call time so
@@ -106,6 +129,8 @@ def sources_api(mock_core):
         lifecycle=mock_core,
         kernel=mock_core.kernel,
         auth=mock_core.auth,
+        generation_provider=mock_core.generation_provider,
+        generation_installer=mock_core.generation_installer,
         record_upload_queue_wait=mock_core.record_upload_queue_wait,
     )
     return SourcesAPI(
@@ -190,12 +215,17 @@ def test_upload_helpers_do_not_read_runtime_auth_or_live_cookies_directly(helper
     assert violations == []
 
 
-def _assert_async_client_uses_live_cookies(mock_client_cls, mock_core) -> None:
-    assert (
-        mock_client_cls.call_args.kwargs["cookies"]
-        is mock_core.get_http_client.return_value.cookies
-    )
-    assert mock_client_cls.call_args.kwargs["cookies"] is not mock_core.auth.cookie_jar
+def _assert_async_client_uses_provider_generation(mock_client_cls, mock_core) -> None:
+    cookies = mock_client_cls.call_args.kwargs["cookies"]
+    assert isinstance(cookies, httpx.Cookies)
+    assert CookieJar.from_httpx(cookies) == mock_core.provider_cookies
+    assert cookies is not mock_core.get_http_client.return_value.cookies
+    assert cookies is not mock_core.auth.cookie_jar
+    assert len(mock_core.captured_generations) == 1
+    generation = mock_core.captured_generations[0]
+    assert generation.cookies == mock_core.provider_cookies
+    mock_core.generation_provider.assert_awaited_once_with()
+    mock_core.generation_installer.assert_called_once_with(generation)
 
 
 class TestWaitArgsKeywordOnly:
@@ -698,10 +728,10 @@ class TestStartResumableUpload:
             assert headers["x-goog-upload-header-content-length"] == "2048"
             assert headers["x-goog-upload-header-content-type"] == "application/pdf"
             assert headers["x-goog-upload-protocol"] == "resumable"
-            # Cookie header is no longer set manually; httpx scopes cookies
-            # by Domain attribute via the cookie_jar kwarg (#373).
+            # Cookies are cloned by value from the same immutable generation
+            # that supplied the route; no mutable backend/provider jar aliases.
             assert "Cookie" not in headers
-            _assert_async_client_uses_live_cookies(mock_client_cls, mock_core)
+            _assert_async_client_uses_provider_generation(mock_client_cls, mock_core)
 
     @pytest.mark.asyncio
     async def test_start_resumable_upload_uses_integer_authuser_query_and_header(
@@ -885,10 +915,9 @@ class TestUploadFileStreaming:
 
             assert headers["x-goog-upload-command"] == "upload, finalize"
             assert headers["x-goog-upload-offset"] == "0"
-            # Cookie header is no longer set manually; httpx scopes cookies
-            # by Domain attribute via the cookie_jar kwarg (#373).
+            # Cookies are cloned by value from the immutable generation.
             assert "Cookie" not in headers
-            _assert_async_client_uses_live_cookies(mock_client_cls, mock_core)
+            _assert_async_client_uses_provider_generation(mock_client_cls, mock_core)
 
     @pytest.mark.asyncio
     async def test_upload_file_streaming_preserves_authuser_header(
@@ -918,11 +947,13 @@ class TestUploadFileStreaming:
         )
 
     @pytest.mark.asyncio
-    async def test_cancel_upload_session_preserves_authuser_header_and_live_cookies(
+    async def test_cancel_upload_session_uses_fresh_generation_route_and_cookies(
         self, sources_api, mock_core
     ):
-        """Best-effort Scotty cancel keeps the provided auth route and live cookie jar."""
-        auth_route = "user+test@example.com"
+        """Best-effort cancel ignores a stale route and captures one fresh generation."""
+        stale_auth_route = "stale@example.com"
+        mock_core.auth.authuser = 4
+        mock_core.auth.account_email = "provider+route@example.com"
 
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
@@ -932,13 +963,16 @@ class TestUploadFileStreaming:
 
             await sources_api._cancel_upload_session(
                 "https://notebooklm.google.com/upload/_/?upload_id=session",
-                auth_route,
+                stale_auth_route,
             )
 
         headers = mock_client.post.call_args.kwargs["headers"]
-        assert headers["x-goog-authuser"] == auth_route
+        generation = mock_core.captured_generations[0]
+        assert generation.account_email == "provider+route@example.com"
+        assert headers["x-goog-authuser"] == generation.account_email
+        assert headers["x-goog-authuser"] != stale_auth_route
         assert headers["x-goog-upload-command"] == "cancel"
-        _assert_async_client_uses_live_cookies(mock_client_cls, mock_core)
+        _assert_async_client_uses_provider_generation(mock_client_cls, mock_core)
 
     @pytest.mark.asyncio
     async def test_upload_file_streaming_uses_generator(self, sources_api, mock_core, tmp_path):
