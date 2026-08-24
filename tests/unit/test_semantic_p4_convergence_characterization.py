@@ -42,15 +42,16 @@ from notebooklm._records import (
     NOTEBOOK_DELETE_DEF,
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
-    NOTEBOOK_TITLE_UPDATE_DEF,
+    NOTEBOOK_UPDATE_DEF,
+    SOURCE_ADD_URL_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
     NotebookGetInput,
     NotebookGetResult,
     NotebookListResult,
     NotebookRecord,
-    NotebookTitleUpdateInput,
-    NotebookTitleUpdateResult,
+    NotebookUpdateInput,
+    NotebookUpdateResult,
     SourceGetResult,
     SourceListResult,
     SourceRecord,
@@ -119,10 +120,11 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         NOTEBOOK_LIST_DEF: (Operation.NOTEBOOK_LIST, CallPolicy.READ),
         NOTEBOOK_GET_DEF: (Operation.NOTEBOOK_GET, CallPolicy.READ),
         NOTEBOOK_CREATE_DEF: (Operation.NOTEBOOK_CREATE, CallPolicy.MUTATION),
-        NOTEBOOK_TITLE_UPDATE_DEF: (Operation.NOTEBOOK_UPDATE, CallPolicy.MUTATION),
+        NOTEBOOK_UPDATE_DEF: (Operation.NOTEBOOK_UPDATE, CallPolicy.MUTATION),
         NOTEBOOK_DELETE_DEF: (Operation.NOTEBOOK_DELETE, CallPolicy.MUTATION),
         SOURCE_LIST_DEF: (Operation.SOURCE_LIST, CallPolicy.READ),
         SOURCE_GET_DEF: (Operation.SOURCE_GET, CallPolicy.READ),
+        SOURCE_ADD_URL_DEF: (Operation.SOURCE_ADD_URL, CallPolicy.MUTATION),
     }
 
     for op_def, (expected_key, expected_policy) in expected_migrated.items():
@@ -154,7 +156,7 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             [IdempotencyPolicy.PROBE_THEN_CREATE],
         ),
         (
-            NOTEBOOK_TITLE_UPDATE_DEF,
+            NOTEBOOK_UPDATE_DEF,
             [(RPCMethod.RENAME_NOTEBOOK, None), (RPCMethod.GET_NOTEBOOK, None)],
             [IdempotencyPolicy.IDEMPOTENT_SET_OP, IdempotencyPolicy.IDEMPOTENT_SET_OP],
         ),
@@ -172,6 +174,19 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             SOURCE_GET_DEF,
             [(RPCMethod.GET_NOTEBOOK, None)],
             [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            SOURCE_ADD_URL_DEF,
+            [
+                (RPCMethod.ADD_SOURCE, "url"),
+                (RPCMethod.GET_NOTEBOOK, None),
+                (RPCMethod.UPDATE_SOURCE, None),
+            ],
+            [
+                IdempotencyPolicy.PROBE_THEN_CREATE,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
         ),
     ],
 )
@@ -407,12 +422,12 @@ async def test_web_rpc_backend_passes_single_deadline_without_nested_resets() ->
     # Advance simulated time during execution
     clock_time = 105.0
     result = await backend.invoke(
-        NOTEBOOK_TITLE_UPDATE_DEF,
-        NotebookTitleUpdateInput(notebook_id="nb-1", title="Renamed"),
+        NOTEBOOK_UPDATE_DEF,
+        NotebookUpdateInput(notebook_id="nb-1", title="Renamed"),
         deadline=deadline,
     )
 
-    assert isinstance(result, NotebookTitleUpdateResult)
+    assert isinstance(result, NotebookUpdateResult)
     assert result.notebook.title == "Renamed"
     assert len(rpc_call.await_args_list) == 2
 
