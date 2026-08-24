@@ -97,8 +97,9 @@ leak a provider. A second backend remains out of scope.
 ### `_app/` orchestration and budgets
 
 ADR-0021 remains in force: `_app/` never imports private siblings and reaches backend work only
-through a client/feature facade. The P0 operation catalog records these current orchestrators as
-owners rather than hiding them:
+through a client/feature facade. The P0 operation catalog records these current orchestrator call
+sites and distinguishes their validation, dispatch, and outcome-projection roles from the facade
+or exported-helper execution owners:
 
 | `_app/` area | Disposition | Budget route |
 | --- | --- | --- |
