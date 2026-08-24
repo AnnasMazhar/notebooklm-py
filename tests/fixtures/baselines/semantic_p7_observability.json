@@ -1,0 +1,330 @@
+{
+  "client_metrics_snapshot_fields": [
+    "rpc_calls_started",
+    "rpc_calls_succeeded",
+    "rpc_calls_failed",
+    "rpc_rate_limit_retries",
+    "rpc_server_error_retries",
+    "rpc_auth_retries",
+    "rpc_latency_seconds_total",
+    "rpc_queue_wait_seconds_total",
+    "rpc_queue_wait_seconds_max",
+    "upload_queue_wait_seconds_total",
+    "upload_queue_wait_seconds_max",
+    "lock_wait_seconds_total",
+    "lock_wait_seconds_max",
+    "rpc_decode_errors"
+  ],
+  "rpc_telemetry_event_fields": [
+    "method",
+    "status",
+    "elapsed_seconds",
+    "request_id",
+    "error_type"
+  ],
+  "scenarios": {
+    "auth_refresh_then_success": {
+      "callback": {
+        "call_blocked_while_callback_waited": true,
+        "completed_before_call_returned": 1,
+        "started": 1
+      },
+      "events": [
+        {
+          "elapsed_seconds": "positive-float",
+          "error_type": null,
+          "method": "LIST_NOTEBOOKS",
+          "request_id": "semantic-p7-observability",
+          "status": "success"
+        }
+      ],
+      "http_attempts": [
+        "LIST_NOTEBOOKS",
+        "LIST_NOTEBOOKS"
+      ],
+      "metrics_snapshot": {
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
+        "rpc_auth_retries": 1,
+        "rpc_calls_failed": 0,
+        "rpc_calls_started": 1,
+        "rpc_calls_succeeded": 1,
+        "rpc_decode_errors": 0,
+        "rpc_latency_seconds_total": "positive-float",
+        "rpc_queue_wait_seconds_max": "positive-float",
+        "rpc_queue_wait_seconds_total": "positive-float",
+        "rpc_rate_limit_retries": 0,
+        "rpc_server_error_retries": 0,
+        "upload_queue_wait_seconds_max": "zero-float",
+        "upload_queue_wait_seconds_total": "zero-float"
+      },
+      "raised": null,
+      "refresh_calls": 1,
+      "result": []
+    },
+    "chat_stream_success": {
+      "callback": {
+        "call_blocked_while_callback_waited": null,
+        "completed_before_call_returned": 0,
+        "started": 0
+      },
+      "events": [],
+      "http_attempts": [
+        "CHAT_STREAM"
+      ],
+      "metrics_snapshot": {
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
+        "rpc_auth_retries": 0,
+        "rpc_calls_failed": 0,
+        "rpc_calls_started": 0,
+        "rpc_calls_succeeded": 0,
+        "rpc_decode_errors": 0,
+        "rpc_latency_seconds_total": "zero-float",
+        "rpc_queue_wait_seconds_max": "positive-float",
+        "rpc_queue_wait_seconds_total": "positive-float",
+        "rpc_rate_limit_retries": 0,
+        "rpc_server_error_retries": 0,
+        "upload_queue_wait_seconds_max": "zero-float",
+        "upload_queue_wait_seconds_total": "zero-float"
+      },
+      "raised": null,
+      "refresh_calls": 0,
+      "result": {
+        "answer": "The deterministic semantic chat answer is long enough.",
+        "conversation_id": "conversation-1"
+      }
+    },
+    "decode_error_after_transport_success": {
+      "callback": {
+        "call_blocked_while_callback_waited": true,
+        "completed_before_call_returned": 1,
+        "started": 1
+      },
+      "events": [
+        {
+          "elapsed_seconds": "positive-float",
+          "error_type": null,
+          "method": "LIST_NOTEBOOKS",
+          "request_id": "semantic-p7-observability",
+          "status": "success"
+        }
+      ],
+      "http_attempts": [
+        "LIST_NOTEBOOKS"
+      ],
+      "metrics_snapshot": {
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
+        "rpc_auth_retries": 0,
+        "rpc_calls_failed": 0,
+        "rpc_calls_started": 1,
+        "rpc_calls_succeeded": 1,
+        "rpc_decode_errors": 1,
+        "rpc_latency_seconds_total": "positive-float",
+        "rpc_queue_wait_seconds_max": "positive-float",
+        "rpc_queue_wait_seconds_total": "positive-float",
+        "rpc_rate_limit_retries": 0,
+        "rpc_server_error_retries": 0,
+        "upload_queue_wait_seconds_max": "zero-float",
+        "upload_queue_wait_seconds_total": "zero-float"
+      },
+      "raised": "DecodingError",
+      "refresh_calls": 0,
+      "result": null
+    },
+    "rate_limit_retry_then_success": {
+      "callback": {
+        "call_blocked_while_callback_waited": true,
+        "completed_before_call_returned": 1,
+        "started": 1
+      },
+      "events": [
+        {
+          "elapsed_seconds": "positive-float",
+          "error_type": null,
+          "method": "LIST_NOTEBOOKS",
+          "request_id": "semantic-p7-observability",
+          "status": "success"
+        }
+      ],
+      "http_attempts": [
+        "LIST_NOTEBOOKS",
+        "LIST_NOTEBOOKS"
+      ],
+      "metrics_snapshot": {
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
+        "rpc_auth_retries": 0,
+        "rpc_calls_failed": 0,
+        "rpc_calls_started": 1,
+        "rpc_calls_succeeded": 1,
+        "rpc_decode_errors": 0,
+        "rpc_latency_seconds_total": "positive-float",
+        "rpc_queue_wait_seconds_max": "positive-float",
+        "rpc_queue_wait_seconds_total": "positive-float",
+        "rpc_rate_limit_retries": 1,
+        "rpc_server_error_retries": 0,
+        "upload_queue_wait_seconds_max": "zero-float",
+        "upload_queue_wait_seconds_total": "zero-float"
+      },
+      "raised": null,
+      "refresh_calls": 0,
+      "result": []
+    },
+    "server_retry_then_success": {
+      "callback": {
+        "call_blocked_while_callback_waited": true,
+        "completed_before_call_returned": 1,
+        "started": 1
+      },
+      "events": [
+        {
+          "elapsed_seconds": "positive-float",
+          "error_type": null,
+          "method": "LIST_NOTEBOOKS",
+          "request_id": "semantic-p7-observability",
+          "status": "success"
+        }
+      ],
+      "http_attempts": [
+        "LIST_NOTEBOOKS",
+        "LIST_NOTEBOOKS"
+      ],
+      "metrics_snapshot": {
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
+        "rpc_auth_retries": 0,
+        "rpc_calls_failed": 0,
+        "rpc_calls_started": 1,
+        "rpc_calls_succeeded": 1,
+        "rpc_decode_errors": 0,
+        "rpc_latency_seconds_total": "positive-float",
+        "rpc_queue_wait_seconds_max": "positive-float",
+        "rpc_queue_wait_seconds_total": "positive-float",
+        "rpc_rate_limit_retries": 0,
+        "rpc_server_error_retries": 1,
+        "upload_queue_wait_seconds_max": "zero-float",
+        "upload_queue_wait_seconds_total": "zero-float"
+      },
+      "raised": null,
+      "refresh_calls": 0,
+      "result": []
+    },
+    "successful_mutation": {
+      "callback": {
+        "call_blocked_while_callback_waited": true,
+        "completed_before_call_returned": 1,
+        "started": 1
+      },
+      "events": [
+        {
+          "elapsed_seconds": "positive-float",
+          "error_type": null,
+          "method": "DELETE_NOTEBOOK",
+          "request_id": "semantic-p7-observability",
+          "status": "success"
+        }
+      ],
+      "http_attempts": [
+        "DELETE_NOTEBOOK"
+      ],
+      "metrics_snapshot": {
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
+        "rpc_auth_retries": 0,
+        "rpc_calls_failed": 0,
+        "rpc_calls_started": 1,
+        "rpc_calls_succeeded": 1,
+        "rpc_decode_errors": 0,
+        "rpc_latency_seconds_total": "positive-float",
+        "rpc_queue_wait_seconds_max": "positive-float",
+        "rpc_queue_wait_seconds_total": "positive-float",
+        "rpc_rate_limit_retries": 0,
+        "rpc_server_error_retries": 0,
+        "upload_queue_wait_seconds_max": "zero-float",
+        "upload_queue_wait_seconds_total": "zero-float"
+      },
+      "raised": null,
+      "refresh_calls": 0,
+      "result": null
+    },
+    "successful_read": {
+      "callback": {
+        "call_blocked_while_callback_waited": true,
+        "completed_before_call_returned": 1,
+        "started": 1
+      },
+      "events": [
+        {
+          "elapsed_seconds": "positive-float",
+          "error_type": null,
+          "method": "LIST_NOTEBOOKS",
+          "request_id": "semantic-p7-observability",
+          "status": "success"
+        }
+      ],
+      "http_attempts": [
+        "LIST_NOTEBOOKS"
+      ],
+      "metrics_snapshot": {
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
+        "rpc_auth_retries": 0,
+        "rpc_calls_failed": 0,
+        "rpc_calls_started": 1,
+        "rpc_calls_succeeded": 1,
+        "rpc_decode_errors": 0,
+        "rpc_latency_seconds_total": "positive-float",
+        "rpc_queue_wait_seconds_max": "positive-float",
+        "rpc_queue_wait_seconds_total": "positive-float",
+        "rpc_rate_limit_retries": 0,
+        "rpc_server_error_retries": 0,
+        "upload_queue_wait_seconds_max": "zero-float",
+        "upload_queue_wait_seconds_total": "zero-float"
+      },
+      "raised": null,
+      "refresh_calls": 0,
+      "result": []
+    },
+    "terminal_transport_error": {
+      "callback": {
+        "call_blocked_while_callback_waited": true,
+        "completed_before_call_returned": 1,
+        "started": 1
+      },
+      "events": [
+        {
+          "elapsed_seconds": "positive-float",
+          "error_type": "TransportServerError",
+          "method": "LIST_NOTEBOOKS",
+          "request_id": "semantic-p7-observability",
+          "status": "error"
+        }
+      ],
+      "http_attempts": [
+        "LIST_NOTEBOOKS"
+      ],
+      "metrics_snapshot": {
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
+        "rpc_auth_retries": 0,
+        "rpc_calls_failed": 1,
+        "rpc_calls_started": 1,
+        "rpc_calls_succeeded": 0,
+        "rpc_decode_errors": 0,
+        "rpc_latency_seconds_total": "positive-float",
+        "rpc_queue_wait_seconds_max": "positive-float",
+        "rpc_queue_wait_seconds_total": "positive-float",
+        "rpc_rate_limit_retries": 0,
+        "rpc_server_error_retries": 0,
+        "upload_queue_wait_seconds_max": "zero-float",
+        "upload_queue_wait_seconds_total": "zero-float"
+      },
+      "raised": "NetworkError",
+      "refresh_calls": 0,
+      "result": null
+    }
+  },
+  "schema_version": 1
+}
