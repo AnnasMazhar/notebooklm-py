@@ -18,7 +18,8 @@ Design constraints (load-bearing — see
   lazily on first :meth:`get_drain_condition` call from inside a running
   loop.
 
-* :meth:`drain` blocks on ``self._drain_condition`` while
+* :meth:`begin_drain` atomically closes top-level admission before feature
+  hooks run; :meth:`drain` then blocks on ``self._drain_condition`` while
   ``_in_flight_posts > 0``. The ``Condition.wait_for`` pattern is the
   whole point of the helper — never replace it with a poll loop.
 
@@ -78,8 +79,8 @@ class TransportDrainTracker(LoopBoundPrimitive):
     * ``_in_flight_posts`` — count of currently-running transport
       operations across all tasks. Mutated only inside the
       ``async with condition`` block.
-    * ``_draining`` — set ``True`` by :meth:`drain`; new top-level
-      begins raise ``RuntimeError`` once this is set.
+    * ``_draining`` — set ``True`` by :meth:`begin_drain` (also called by
+      :meth:`drain`); new top-level begins raise ``RuntimeError`` once set.
     * ``_drain_condition`` — lazily-created ``asyncio.Condition``
       that ``drain`` parks on; ``finish_transport_post`` notifies
       it when ``_in_flight_posts`` drops to zero. ``None`` until the
@@ -203,6 +204,7 @@ class TransportDrainTracker(LoopBoundPrimitive):
         "admitted" status, but a child task spawned from outside any
         operation (depth 0 on the spawner) is rejected once ``_draining``.
         """
+        assert_bound_loop(self._bound_loop)
         condition = self.get_drain_condition()
         current_depth = self.current_operation_depth(asyncio.current_task())
         async with condition:
@@ -296,6 +298,20 @@ class TransportDrainTracker(LoopBoundPrimitive):
                     "Drain hook %r raised during close: %s", name, result, exc_info=result
                 )
 
+    async def begin_drain(self) -> None:
+        """Atomically stop admitting new top-level transport operations.
+
+        ``NotebookLMClient.close(drain=True)`` calls this before awaiting its
+        feature hooks. Taking the same condition used by admission closes the
+        former hook-to-drain race: once this returns, a fresh top-level begin
+        cannot slip in, while nested work from an already-admitted task keeps
+        its existing depth-based exemption.
+        """
+        assert_bound_loop(self._bound_loop)
+        condition = self.get_drain_condition()
+        async with condition:
+            self._draining = True
+
     async def drain(self, timeout: float | None = None) -> None:
         """Stop accepting new top-level work and wait for in-flight ops to finish.
 
@@ -310,9 +326,9 @@ class TransportDrainTracker(LoopBoundPrimitive):
         assert_bound_loop(self._bound_loop)
         if timeout is not None and timeout < 0:
             raise ValueError(f"timeout must be >= 0 or None, got {timeout!r}")
+        await self.begin_drain()
         condition = self.get_drain_condition()
         async with condition:
-            self._draining = True
             if self._in_flight_posts == 0:
                 return
             await asyncio.wait_for(

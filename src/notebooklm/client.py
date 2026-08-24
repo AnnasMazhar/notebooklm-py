@@ -486,6 +486,12 @@ class NotebookLMClient:
         if drain:
             drain_timeout_exc: TimeoutError | None = None
             try:
+                # Close top-level admission under the tracker's condition
+                # before awaiting hooks. Negative timeouts retain their
+                # historical validation path through ``drain`` below: close
+                # still runs hooks, raises ValueError, and does not arm drain.
+                if not (drain_timeout is not None and drain_timeout < 0):
+                    await self._collaborators.drain_tracker.begin_drain()
                 # Fire feature-owned cancel hooks BEFORE the drain wait (see
                 # the "Drain-hook ordering" section of the docstring above for
                 # why). Awaited inside this ``try`` so a *caller* CancelledError

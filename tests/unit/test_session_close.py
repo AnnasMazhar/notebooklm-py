@@ -267,6 +267,41 @@ async def test_close_fires_drain_hooks_before_drain_wait() -> None:
     )
 
 
+@pytest.mark.asyncio
+async def test_close_arms_drain_before_hooks_without_rejecting_nested_work() -> None:
+    """No fresh operation can enter while close is awaiting a feature hook."""
+    client = NotebookLMClient(_auth())
+    tracker = client._collaborators.drain_tracker
+    hook_entered = asyncio.Event()
+    release_hook = asyncio.Event()
+
+    async def blocking_hook() -> None:
+        hook_entered.set()
+        await release_hook.wait()
+
+    async def fake_close(**_kwargs: object) -> None:
+        return None
+
+    tracker.register_drain_hook("blocking", blocking_hook)
+    client._collaborators.lifecycle.close = fake_close  # type: ignore[method-assign]
+
+    outer = await tracker.begin_transport_post("accepted-before-close")
+    close_task = asyncio.create_task(client.close(drain=True))
+    await hook_entered.wait()
+
+    async def fresh_top_level() -> None:
+        await tracker.begin_transport_post("fresh-during-hook")
+
+    with pytest.raises(RuntimeError, match="draining"):
+        await asyncio.create_task(fresh_top_level())
+
+    nested = await tracker.begin_transport_post("nested-during-hook")
+    await tracker.finish_transport_post(nested)
+    await tracker.finish_transport_post(outer)
+    release_hook.set()
+    await close_task
+
+
 # ---------------------------------------------------------------------------
 # NotebookLMClient default drain=True (BREAKING)
 # ---------------------------------------------------------------------------

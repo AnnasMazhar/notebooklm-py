@@ -171,6 +171,27 @@ async def test_drain_rejects_new_top_level_work() -> None:
 
 
 @pytest.mark.asyncio
+async def test_begin_drain_closes_top_level_admission_but_allows_nested_work() -> None:
+    """The atomic admission transition preserves the accepted-task exemption."""
+    tracker = TransportDrainTracker()
+    outer = await tracker.begin_transport_post("outer")
+
+    await tracker.begin_drain()
+
+    nested = await tracker.begin_transport_post("nested")
+    await tracker.finish_transport_post(nested)
+
+    async def fresh_top_level() -> None:
+        await tracker.begin_transport_post("fresh")
+
+    with pytest.raises(RuntimeError, match="draining"):
+        await asyncio.create_task(fresh_top_level())
+
+    await tracker.finish_transport_post(outer)
+    await tracker.drain(timeout=1.0)
+
+
+@pytest.mark.asyncio
 async def test_drain_allows_nested_begin_from_admitted_task() -> None:
     """A nested begin from a task with depth > 0 must succeed even mid-drain.
 
@@ -248,6 +269,7 @@ async def test_drain_rejects_negative_timeout() -> None:
     tracker = TransportDrainTracker()
     with pytest.raises(ValueError, match="timeout must be >= 0 or None"):
         await tracker.drain(timeout=-1.0)
+    assert tracker._draining is False
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +348,29 @@ def test_begin_transport_post_guards_against_cross_loop_call() -> None:
         # Confirm the cross-loop guard fired *before* the lazy
         # ``_drain_condition`` was allocated — the whole point of the
         # guard is to prevent a foreign loop from binding the condition.
+        assert tracker._drain_condition is None
+    finally:
+        other_loop.close()
+
+
+def test_begin_transport_task_guards_against_cross_loop_call() -> None:
+    """Spawned-task admission rejects a foreign loop before allocating its condition."""
+    tracker = TransportDrainTracker()
+    other_loop = asyncio.new_event_loop()
+    try:
+        tracker.set_bound_loop(other_loop)
+
+        async def inner() -> None:
+            spawned = asyncio.create_task(asyncio.sleep(10))
+            try:
+                await tracker.begin_transport_task(spawned, "test-child")
+            finally:
+                spawned.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await spawned
+
+        with pytest.raises(RuntimeError, match="different event loop"):
+            asyncio.run(inner())
         assert tracker._drain_condition is None
     finally:
         other_loop.close()
