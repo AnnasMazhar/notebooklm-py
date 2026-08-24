@@ -44,6 +44,7 @@ from ._chat import ChatAPI
 from ._client_composed import ClientComposed
 from ._client_seams import resolve_client_seams
 from ._collections import CollectionsAPI
+from ._deadline import RuntimeDeadlineFactory
 from ._labels import LabelsAPI
 from ._mind_map import NoteBackedMindMapService
 from ._mind_maps_api import MindMapsAPI
@@ -349,6 +350,7 @@ def _assemble_client(
         chat_reqid=internals.collaborators.reqid,
         chat_timeout=resolve_chat_read_timeout(chat_timeout, timeout),
         chat_response_max_bytes=chat_response_max_bytes,
+        deadline_factory=RuntimeDeadlineFactory.fixed(timeout),
     )
     # Hold the uploader as a first-class client attribute so the
     # open-time loop-affinity reset (issue #1196 upload variant) can

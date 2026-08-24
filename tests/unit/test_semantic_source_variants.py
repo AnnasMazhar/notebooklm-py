@@ -398,6 +398,7 @@ async def test_waited_url_title_finalize_keeps_add_attribution_and_null_hydratio
         None,
         [["Notebook", [_source_entry("url", title="Requested")], "nb"]],
     )
+    deadline = RuntimeDeadline(timeout=30.0, started_at=10.0, monotonic=lambda: 12.0)
 
     result = await _web_backend(executor).invoke(
         SOURCE_ADD_URL_DEF,
@@ -407,7 +408,7 @@ async def test_waited_url_title_finalize_keeps_add_attribution_and_null_hydratio
             requested_title="Requested",
             finalize_source=SourceRecord("url", "Upstream", status="ready"),
         ),
-        deadline=None,
+        deadline=deadline,
     )
 
     assert result.source.title == "Requested"
@@ -416,6 +417,8 @@ async def test_waited_url_title_finalize_keeps_add_attribution_and_null_hydratio
         RPCMethod.GET_NOTEBOOK,
     ]
     assert RPCMethod.ADD_SOURCE not in [call[0] for call in executor.calls]
+    assert all(call[2]["_retry_deadline"] is deadline for call in executor.calls)
+    assert all(call[2]["read_timeout"] == 28.0 for call in executor.calls)
 
 
 @pytest.mark.asyncio

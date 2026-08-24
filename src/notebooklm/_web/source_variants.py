@@ -200,12 +200,14 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
         source_id: str,
         *,
         operation: Operation,
+        deadline: RuntimeDeadline | None,
     ) -> Source | None:
         sources = await self._source_public_snapshot(
             notebook_id,
             operation=operation,
-            # Public source polling never clamped an in-flight snapshot read.
-            deadline=None,
+            # This is mutation reconciliation, not the facade-owned source
+            # poll. It consumes the mutation's absolute semantic budget.
+            deadline=deadline,
         )
         return next((source for source in sources if source.id == source_id), None)
 
@@ -256,6 +258,7 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
             notebook_id,
             source_id,
             operation=operation,
+            deadline=deadline,
         )
         if source is None:
             raise SourceNotFoundError(source_id, method_id=RPCMethod.UPDATE_SOURCE.value)

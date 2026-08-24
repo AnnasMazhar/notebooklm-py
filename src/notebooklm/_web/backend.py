@@ -34,7 +34,7 @@ from .._backend import (
     UnsupportedOperationError,
     mark_backend_outcome_unknown,
 )
-from .._deadline import RuntimeDeadline
+from .._deadline import RuntimeDeadline, RuntimeDeadlineFactory
 from .._env import get_default_language
 from .._idempotency import (
     idempotent_create,
@@ -156,6 +156,7 @@ from .codec.notes import (
     decode_notes,
 )
 from .codec.suggestions import decode_prompt_source_ids
+from .deadlines import CLIENT_TIMEOUT_DEADLINE_OPERATIONS
 from .error_policy import SAFE_REASON_DIAGNOSTICS, WEB_ERROR_REASONS
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 from .runtime import WebExecutionRuntime
@@ -504,6 +505,7 @@ class WebRpcBackend(ChatWebHandlers):
         chat_reqid: ReqidCounter | None = None,
         chat_timeout: float | None = None,
         chat_response_max_bytes: int | None = None,
+        deadline_factory: RuntimeDeadlineFactory | None = None,
     ) -> None:
         assert_resolved_read_timeout(chat_timeout, name="chat_timeout")
         # The raw ``RpcExecutor`` name remains the compatibility object exposed
@@ -528,6 +530,7 @@ class WebRpcBackend(ChatWebHandlers):
         self._chat_reqid = chat_reqid
         self._chat_timeout = chat_timeout
         self._chat_response_max_bytes = chat_response_max_bytes
+        self._deadline_factory = deadline_factory
         self._capabilities = BackendCapabilities(
             supported_operations=WEB_SUPPORTED_OPERATIONS,
         )
@@ -572,6 +575,15 @@ class WebRpcBackend(ChatWebHandlers):
             )
         if deadline is not None and not isinstance(deadline, RuntimeDeadline):
             raise BackendContractError("deadline must be RuntimeDeadline or None")
+        if (
+            deadline is None
+            and self._deadline_factory is not None
+            and operation.key in CLIENT_TIMEOUT_DEADLINE_OPERATIONS
+        ):
+            # Capture once at the service/backend handoff. Every native phase
+            # below receives this exact absolute identity; upload, polling,
+            # chat, and research workflows remain on their reviewed budgets.
+            deadline = self._deadline_factory.start()
         if self._closed:
             raise BackendContractError("WebRpcBackend is closed")
         if deadline is not None and deadline.expired():
