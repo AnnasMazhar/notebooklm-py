@@ -415,18 +415,31 @@ class _DeadlineRpcCaller:
         # The semantic deadline is the only timeout authority for this composite.
         # A feature helper cannot replace it with a fresh relative timeout.
         del read_timeout
-        return await self._backend._rpc_call(
-            method,
-            params,
-            operation=self._operation,
-            deadline=self._deadline,
-            source_path=source_path,
-            allow_null=allow_null,
-            _is_retry=_is_retry,
-            disable_internal_retries=disable_internal_retries,
-            operation_variant=operation_variant,
-            raise_on_null_status=raise_on_null_status,
-        )
+        timeout_error: RPCTimeoutError | None = None
+        try:
+            return await self._backend._rpc_call(
+                method,
+                params,
+                operation=self._operation,
+                deadline=self._deadline,
+                source_path=source_path,
+                allow_null=allow_null,
+                _is_retry=_is_retry,
+                disable_internal_retries=disable_internal_retries,
+                operation_variant=operation_variant,
+                raise_on_null_status=raise_on_null_status,
+            )
+        except BackendDeadlineExceededError:
+            timeout_error = RPCTimeoutError(
+                f"Request timed out calling {method.name}",
+                method_id=method.value,
+                timeout_seconds=(self._deadline.timeout if self._deadline is not None else None),
+            )
+        # Raise outside the private deadline-error frame. The legacy composite
+        # can now apply its ordinary uncertainty policy without leaking a
+        # BackendError into the closed public failure graph.
+        assert timeout_error is not None
+        raise timeout_error
 
 
 class WebRpcBackend:

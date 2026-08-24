@@ -69,14 +69,20 @@ async def test_empty_change_fails_before_backend_invocation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_empty_title_fails_before_backend_invocation() -> None:
+async def test_empty_title_remains_a_valid_legacy_mutation_value() -> None:
     backend = RecordingBackend()
     backend.set_result(NOTEBOOK_UPDATE_DEF, NotebookUpdateResult(NotebookRecord("nb", "")))
 
-    with pytest.raises(ValidationError, match="must not be empty"):
-        await NotebookMutationService(backend).update_title("nb", "")
+    updated = await NotebookMutationService(backend).update_title("nb", "")
 
-    assert backend.invocations == []
+    assert updated.title == ""
+    assert backend.invocations == [
+        BackendInvocation(
+            Operation.NOTEBOOK_UPDATE,
+            NotebookUpdateInput("nb", title=""),
+            None,
+        )
+    ]
 
 
 def test_mutation_service_is_transport_neutral_and_never_descends_raw_rows() -> None:
