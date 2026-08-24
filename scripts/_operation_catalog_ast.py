@@ -459,7 +459,6 @@ GENERIC_RPC_FORWARDERS = frozenset(
     {
         "_web/backend.py:_DeadlineRpcCaller.rpc_call",
         "_notebooks.py:NotebooksAPI._rpc_call",
-        "_research.py:ResearchAPI._rpc_call",
         "_sources.py:SourcesAPI._rpc_call",
         "client.py:NotebookLMClient.rpc_call",
     }
@@ -569,6 +568,8 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_projectors.py", "_records", "NotebookDescriptionRecord"),
         ("_projectors.py", "_records", "NotebookRecord"),
         ("_projectors.py", "_records", "NoteRecord"),
+        ("_projectors.py", "_records", "ResearchSourceRecord"),
+        ("_projectors.py", "_records", "ResearchTaskRecord"),
         ("_projectors.py", "_records", "ReportSuggestionRecord"),
         ("_projectors.py", "_records", "ShareStatusRecord"),
         ("_projectors.py", "_records", "SourceRecord"),
@@ -583,6 +584,25 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_read_services.py", "_records", "SOURCE_LIST_DEF"),
         ("_read_services.py", "_records", "SourceGetInput"),
         ("_read_services.py", "_records", "SourceListInput"),
+        ("_research.py", "_backend", "BackendAdapter"),
+        ("_research.py", "_research_service", "_INITIAL_INTERVAL_UNSET"),
+        ("_research.py", "_research_service", "ResearchService"),
+        ("_research_service.py", "_backend", "BackendAdapter"),
+        ("_research_service.py", "_backend", "BackendError"),
+        ("_research_service.py", "_backend_compat", "project_backend_error"),
+        ("_research_service.py", "_projectors", "project_research_task"),
+        ("_research_service.py", "_records", "RESEARCH_CANCEL_DEF"),
+        ("_research_service.py", "_records", "RESEARCH_IMPORT_DEF"),
+        ("_research_service.py", "_records", "RESEARCH_POLL_DEF"),
+        ("_research_service.py", "_records", "RESEARCH_START_DEF"),
+        ("_research_service.py", "_records", "ResearchCancelInput"),
+        ("_research_service.py", "_records", "ResearchImportEntry"),
+        ("_research_service.py", "_records", "ResearchImportEntryKind"),
+        ("_research_service.py", "_records", "ResearchImportInput"),
+        ("_research_service.py", "_records", "ResearchMode"),
+        ("_research_service.py", "_records", "ResearchPollInput"),
+        ("_research_service.py", "_records", "ResearchSearchSource"),
+        ("_research_service.py", "_records", "ResearchStartInput"),
         ("_sharing.py", "_projectors", "project_share_status"),
         ("_source/add.py", "_projectors", "project_source"),
         ("_source/batch.py", "_projectors", "project_source"),
@@ -673,6 +693,22 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/backend.py", "_records", "NotebookRecord"),
         ("_web/backend.py", "_records", "NotebookUpdateInput"),
         ("_web/backend.py", "_records", "NotebookUpdateResult"),
+        ("_web/backend.py", "codec.research", "decode_imported_sources"),
+        ("_web/backend.py", "codec.research", "decode_research_start"),
+        ("_web/backend.py", "codec.research", "decode_research_tasks"),
+        ("_web/backend.py", "codec.research", "encode_research_cancel_params"),
+        ("_web/backend.py", "codec.research", "encode_research_import_params"),
+        ("_web/backend.py", "codec.research", "encode_research_poll_params"),
+        ("_web/backend.py", "codec.research", "encode_research_start_params"),
+        ("_web/backend.py", "_records", "ResearchCancelInput"),
+        ("_web/backend.py", "_records", "ResearchCancelResult"),
+        ("_web/backend.py", "_records", "ResearchImportInput"),
+        ("_web/backend.py", "_records", "ResearchImportResult"),
+        ("_web/backend.py", "_records", "ResearchMode"),
+        ("_web/backend.py", "_records", "ResearchPollInput"),
+        ("_web/backend.py", "_records", "ResearchPollResult"),
+        ("_web/backend.py", "_records", "ResearchStartInput"),
+        ("_web/backend.py", "_records", "ResearchStartResult"),
         ("_web/backend.py", "_records", "NoteCreateInput"),
         ("_web/backend.py", "_records", "NoteCreateResult"),
         ("_web/backend.py", "_records", "NoteDeleteInput"),
@@ -734,6 +770,14 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/codec/notebooks.py", "_records", "NotebookPremiumFeaturesRecord"),
         ("_web/codec/notebooks.py", "_records", "NotebookRecord"),
         ("_web/codec/notebooks.py", "_records", "SuggestedTopicRecord"),
+        ("_web/codec/research.py", "_records", "ResearchImportEntry"),
+        ("_web/codec/research.py", "_records", "ResearchImportEntryKind"),
+        ("_web/codec/research.py", "_records", "ResearchImportedSourceRecord"),
+        ("_web/codec/research.py", "_records", "ResearchMode"),
+        ("_web/codec/research.py", "_records", "ResearchSearchSource"),
+        ("_web/codec/research.py", "_records", "ResearchSourceRecord"),
+        ("_web/codec/research.py", "_records", "ResearchStartResult"),
+        ("_web/codec/research.py", "_records", "ResearchTaskRecord"),
         ("_web/codec/sharing.py", "_records", "ShareStatusRecord"),
         ("_web/codec/sharing.py", "_records", "SharedUserRecord"),
         ("_web/codec/sources.py", "_records", "SourceRecord"),
@@ -758,6 +802,10 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/registry.py", "_records", "NOTEBOOK_CREATE_DEF"),
         ("_web/registry.py", "_records", "NOTEBOOK_DELETE_DEF"),
         ("_web/registry.py", "_records", "NOTEBOOK_UPDATE_DEF"),
+        ("_web/registry.py", "_records", "RESEARCH_CANCEL_DEF"),
+        ("_web/registry.py", "_records", "RESEARCH_IMPORT_DEF"),
+        ("_web/registry.py", "_records", "RESEARCH_POLL_DEF"),
+        ("_web/registry.py", "_records", "RESEARCH_START_DEF"),
         ("_web/registry.py", "_records", "SOURCE_ADD_URL_DEF"),
         ("_web/registry.py", "_records", "SOURCE_GET_DEF"),
         ("_web/registry.py", "_records", "SOURCE_LIST_DEF"),
@@ -785,10 +833,12 @@ _REVIEWED_BACKEND_IMPORT_MODULES = frozenset(
         "_projectors",
         "_read_services",
         "_records",
+        "_research_service",
         "_studio",
         "_web",
         "_web.backend",
         "backend",
+        "codec.research",
         "registry",
         "studio_documents",
     }
@@ -801,6 +851,7 @@ _REVIEWED_BACKEND_IMPORT_PREFIXES = (
     "notebooklm._projectors",
     "notebooklm._read_services",
     "notebooklm._records",
+    "notebooklm._research_service",
     "notebooklm._studio",
     "notebooklm._web",
 )
@@ -821,6 +872,7 @@ ACTIVE_BACKEND_INVOKE_SITES = frozenset(
         "_read_services.py:NotebookReadService.list",
         "_read_services.py:SourceReadService.get",
         "_read_services.py:SourceReadService.list",
+        "_research_service.py:ResearchService._invoke",
         "_note_service.py:NoteService.create_note",
         "_note_service.py:NoteService.create_note._finalize_then_cleanup",
         "_note_service.py:NoteService.delete_note",
@@ -920,6 +972,7 @@ def audit_inert_p1_backend_dataflow(
                             "_projectors",
                             "_read_services",
                             "_records",
+                            "_research_service",
                             "_web",
                         }
                     )
@@ -941,7 +994,13 @@ def audit_inert_p1_backend_dataflow(
                         and parent.arg in {"_backend", "backend"}
                         and isinstance(facade_name, str)
                         and facade_name
-                        in {"ArtifactsAPI", "NoteService", "NotebooksAPI", "SourcesAPI"}
+                        in {
+                            "ArtifactsAPI",
+                            "NoteService",
+                            "NotebooksAPI",
+                            "ResearchAPI",
+                            "SourcesAPI",
+                        }
                     ):
                         assembly_backend_bindings.append(facade_name)
                     else:
@@ -973,7 +1032,13 @@ def audit_inert_p1_backend_dataflow(
         errors.append(
             f"P1 WebRpcBackend construction target changed: {assembly_constructor_targets}"
         )
-    expected_facades = ["ArtifactsAPI", "NoteService", "NotebooksAPI", "SourcesAPI"]
+    expected_facades = [
+        "ArtifactsAPI",
+        "NoteService",
+        "NotebooksAPI",
+        "ResearchAPI",
+        "SourcesAPI",
+    ]
     if sorted(assembly_backend_bindings) != expected_facades:
         errors.append(
             "semantic facade backend bindings changed: "

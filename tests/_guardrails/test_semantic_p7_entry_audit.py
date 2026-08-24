@@ -70,6 +70,14 @@ KNOWN_ACTIVE_SEMANTIC_OPERATIONS: frozenset[Operation] = frozenset(
 # Exact inventory of classes/functions in src/notebooklm/ taking RpcCaller.
 # These represent the remaining semantic services/facades that must migrate in P2-P6
 # before P7 runtime collapse can begin.
+#
+# A migrated domain can still appear here when its facade keeps a ``RpcCaller``
+# for a dependency another domain owns. ``_research.py`` is the current example:
+# P6.2 moved every research operation onto the semantic backend, but the facade
+# still builds the default ``NotebookSourceLister`` its import verification
+# snapshots and probes against, and that lister leaves with P6's remaining source
+# slice — not with research. Delete the row when the dependency moves, not when
+# the domain's own operations do.
 KNOWN_RPC_CALLER_CONSUMERS: frozenset[tuple[str, str, str]] = frozenset(
     {
         ("_artifact/downloads.py", "ArtifactDownloadService.__init__", "rpc"),

@@ -16,6 +16,8 @@ from ._records import (
     NotebookRecord,
     NoteRecord,
     ReportSuggestionRecord,
+    ResearchSourceRecord,
+    ResearchTaskRecord,
     ShareStatusRecord,
     SourceRecord,
 )
@@ -31,6 +33,7 @@ from .types import (
     ChatSession,
     ChatSettings,
     Collection,
+    DiscoveryMode,
     DriveSourceStatus,
     FlashcardArtifactUserState,
     GenerationState,
@@ -41,6 +44,9 @@ from .types import (
     NotebookDescription,
     PremiumFeatureInfo,
     ReportSuggestion,
+    ResearchSource,
+    ResearchStatus,
+    ResearchTask,
     ShareAccess,
     SharedUser,
     SharePermission,
@@ -96,6 +102,15 @@ _SOURCE_STATUSES = {
     "ready": SourceStatus.READY,
     "error": SourceStatus.ERROR,
     "preparing": SourceStatus.PREPARING,
+}
+_DISCOVERY_MODES = {
+    "unknown": DiscoveryMode.UNKNOWN,
+    "default_llm_search": DiscoveryMode.DEFAULT_LLM_SEARCH,
+    "raw_search": DiscoveryMode.RAW_SEARCH,
+    "curious_search": DiscoveryMode.CURIOUS_SEARCH,
+    "curious_raw_search": DiscoveryMode.CURIOUS_RAW_SEARCH,
+    "deep_research": DiscoveryMode.DEEP_RESEARCH,
+    "lite_llm_search": DiscoveryMode.LITE_LLM_SEARCH,
 }
 _DRIVE_STATUSES = {
     "unknown": DriveSourceStatus.UNKNOWN,
@@ -222,6 +237,44 @@ def project_source(record: SourceRecord) -> Source:
         revision_id=record.revision_id,
         revision_timestamp=record.revision_timestamp,
         last_modified_at=record.last_modified_at,
+    )
+
+
+def project_research_source(record: ResearchSourceRecord) -> ResearchSource:
+    """Construct one public :class:`ResearchSource` from a neutral record."""
+
+    return ResearchSource(
+        url=record.url,
+        title=record.title,
+        result_type=record.result_type,
+        research_task_id=record.research_task_id,
+        report_markdown=record.report_markdown,
+        source_ordinal=record.source_ordinal,
+        hint=record.hint,
+    )
+
+
+def project_research_task(record: ResearchTaskRecord) -> ResearchTask:
+    """Construct one public :class:`ResearchTask` from a neutral record."""
+
+    discovery_mode = (
+        None
+        if record.discovery_mode is None
+        else _DISCOVERY_MODES.get(record.discovery_mode, DiscoveryMode.UNKNOWN)
+    )
+    return ResearchTask(
+        task_id=record.task_id,
+        status=ResearchStatus(record.status),
+        query=record.query,
+        sources=tuple(project_research_source(source) for source in record.sources),
+        summary=record.summary,
+        report=record.report,
+        status_code=record.status_code,
+        source_type=record.source_type,
+        discovery_mode=discovery_mode,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        account_id=record.account_id,
     )
 
 
@@ -433,6 +486,8 @@ __all__ = [
     "project_notebook",
     "project_notebook_description",
     "project_report_suggestion",
+    "project_research_source",
+    "project_research_task",
     "project_share_status",
     "project_source",
 ]

@@ -59,6 +59,10 @@ from notebooklm._records import (
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
     NOTEBOOK_UPDATE_DEF,
+    RESEARCH_CANCEL_DEF,
+    RESEARCH_IMPORT_DEF,
+    RESEARCH_POLL_DEF,
+    RESEARCH_START_DEF,
     SOURCE_ADD_URL_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
@@ -185,6 +189,10 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_GENERATE_DATA_TABLE,
         Operation.ARTIFACT_GENERATE_MIND_MAP,
         Operation.ARTIFACT_EXPORT,
+        Operation.RESEARCH_START,
+        Operation.RESEARCH_POLL,
+        Operation.RESEARCH_CANCEL,
+        Operation.RESEARCH_IMPORT,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -216,7 +224,13 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_GENERATE_DATA_TABLE: ARTIFACT_GENERATE_DATA_TABLE_DEF,
         Operation.ARTIFACT_GENERATE_MIND_MAP: ARTIFACT_GENERATE_MIND_MAP_DEF,
         Operation.ARTIFACT_EXPORT: ARTIFACT_EXPORT_DEF,
+        Operation.RESEARCH_START: RESEARCH_START_DEF,
+        Operation.RESEARCH_POLL: RESEARCH_POLL_DEF,
+        Operation.RESEARCH_CANCEL: RESEARCH_CANCEL_DEF,
+        Operation.RESEARCH_IMPORT: RESEARCH_IMPORT_DEF,
     }
+    assert Operation.RESEARCH_WAIT not in WEB_SUPPORTED_OPERATIONS
+    assert Operation.RESEARCH_IMPORT_VERIFY not in WEB_SUPPORTED_OPERATIONS
     assert all(
         binding.unsupported_reason
         for binding in WEB_OPERATION_REGISTRY.values()
@@ -1511,6 +1525,7 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
         BackendErrorReason.NOTEBOOK_LIMIT,
         BackendErrorReason.NOTEBOOK_NOT_FOUND,
         BackendErrorReason.RATE_LIMIT,
+        BackendErrorReason.RESEARCH_START_UNAVAILABLE,
         BackendErrorReason.RESPONSE_TOO_LARGE,
         BackendErrorReason.RPC,
         BackendErrorReason.SERVER,
@@ -1729,6 +1744,8 @@ def test_only_migrated_feature_runtime_reads_private_backend() -> None:
         package / "_mutation_services.py",
         package / "_note_service.py",
         package / "_read_services.py",
+        package / "_research.py",
+        package / "_research_service.py",
         package / "_sources.py",
     }
     allowed.update((package / "_studio").rglob("*.py"))

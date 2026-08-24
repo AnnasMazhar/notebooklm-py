@@ -41,6 +41,7 @@ class BackendErrorReason(str, Enum):
     NOTEBOOK_LIMIT = "notebook_limit"
     NOTEBOOK_NOT_FOUND = "notebook_not_found"
     RATE_LIMIT = "rate_limit"
+    RESEARCH_START_UNAVAILABLE = "research_start_unavailable"
     RESPONSE_TOO_LARGE = "response_too_large"
     RPC = "rpc"
     SERVER = "server"

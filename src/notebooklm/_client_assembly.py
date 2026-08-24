@@ -418,14 +418,18 @@ def _assemble_client(
         artifacts=client.artifacts,
         notebooks=client.notebooks,
     )
-    # Pure-RPC features (typed as ``rpc: RpcCaller``). Pass the
-    # ``RpcExecutor`` collaborator directly, sourced from the composed
-    # executor.
+    # Research runs on the semantic backend; the executor stays its
+    # construction seam for the default source lister used by the
+    # import-verification snapshot/probe.
     client.research = ResearchAPI(
         internals.executor,
         base_timeout=timeout,
         import_research_timeout=import_research_timeout,
+        _backend=client._backend,
     )
+    # Pure-RPC features (typed as ``rpc: RpcCaller``). Pass the
+    # ``RpcExecutor`` collaborator directly, sourced from the composed
+    # executor.
     client.settings = SettingsAPI(internals.executor)
     client.sharing = SharingAPI(internals.executor)
     # Source labels. Takes a narrow ``list_sources`` callable (not the whole

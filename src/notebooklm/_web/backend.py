@@ -4,8 +4,7 @@ P1 assembles this backend. P2.1 routes four notebook/source reads through it;
 P2.2 routes three notebook mutation handlers; P2.3 routes the live URL/YouTube
 source composite; P5.1 routes Studio catalog list/get; P5.2 routes Audio; P5.3
 routes Quiz/Flashcards; P5.4 routes Report/Video; P5.5 routes Infographic/Slide
-Deck generation; and P6.3 routes
-plain-note CRUD. These bindings reuse
+Deck generation; P6.2 routes Research; and P6.3 routes plain-note CRUD. These bindings reuse
 current request builders and strict row adapters; P3 web codecs terminate
 response grammar in neutral records before public compatibility projection.
 """
@@ -77,6 +76,15 @@ from .._records import (
     NoteListResult,
     NoteUpdateInput,
     NoteUpdateResult,
+    ResearchCancelInput,
+    ResearchCancelResult,
+    ResearchImportInput,
+    ResearchImportResult,
+    ResearchMode,
+    ResearchPollInput,
+    ResearchPollResult,
+    ResearchStartInput,
+    ResearchStartResult,
     SourceAddCommitState,
     SourceAddFailureKind,
     SourceAddFailureRecord,
@@ -131,6 +139,15 @@ from ..types import Source
 from .codec.artifacts import decode_artifact, decode_mind_map_artifact
 from .codec.notebooks import decode_notebook
 from .codec.notes import decode_created_note, decode_note, decode_notes
+from .codec.research import (
+    decode_imported_sources,
+    decode_research_start,
+    decode_research_tasks,
+    encode_research_cancel_params,
+    encode_research_import_params,
+    encode_research_poll_params,
+    encode_research_start_params,
+)
 from .codec.sources import decode_source
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 from .studio_data import StudioDataWebHandlers
@@ -168,6 +185,18 @@ _SAFE_REASON_DIAGNOSTICS: dict[BackendErrorReason, tuple[str, ...]] = {
     BackendErrorReason.TIMEOUT: ("timeout_seconds",),
     BackendErrorReason.UNKNOWN_RPC_METHOD: ("path", "source", "data_at_failure"),
 }
+
+
+def _is_deep_start_null_result_error(exc: RPCError) -> bool:
+    """Whether a deep-start RPCError is the decoder's null-payload frame."""
+
+    method_id = RPCMethod.START_DEEP_RESEARCH.value
+    null_result_markers = ("rejected this request", "returned an empty result")
+    return (
+        exc.method_id == method_id
+        and method_id in exc.found_ids
+        and any(marker in str(exc).lower() for marker in null_result_markers)
+    )
 
 
 def _source_record(source: Source) -> SourceRecord:
@@ -558,11 +587,12 @@ class WebRpcBackend(StudioDataWebHandlers):
         operation_variant: str | None = None,
         raise_on_null_status: bool = False,
         outcome_unknown_on_expiry: bool = False,
+        attempt_timeout: float | None = None,
     ) -> Any:
-        read_timeout: float | None = None
+        read_timeout: float | None = attempt_timeout
         if deadline is not None:
-            read_timeout = deadline.remaining()
-            if read_timeout <= 0.0:
+            remaining = deadline.remaining()
+            if remaining <= 0.0:
                 raise BackendDeadlineExceededError(
                     operation,
                     # No native call was dispatched in this phase. Uncertainty
@@ -572,12 +602,13 @@ class WebRpcBackend(StudioDataWebHandlers):
                     diagnostics=MappingProxyType(
                         {
                             "timeout": deadline.timeout,
-                            "remaining": read_timeout,
+                            "remaining": remaining,
                             "timeout_seconds": deadline.timeout,
                             "method_id": method.value,
                         }
                     ),
                 )
+            read_timeout = remaining if read_timeout is None else min(read_timeout, remaining)
         return await self._executor.rpc_call(
             method,
             params,
@@ -1288,6 +1319,107 @@ class WebRpcBackend(StudioDataWebHandlers):
                 title_state=title_state,
             ),
         )
+
+    async def _research_start(
+        self,
+        value: ResearchStartInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> ResearchStartResult:
+        method = (
+            RPCMethod.START_FAST_RESEARCH
+            if value.mode is ResearchMode.FAST
+            else RPCMethod.START_DEEP_RESEARCH
+        )
+        try:
+            result = await self._rpc_call(
+                method,
+                encode_research_start_params(
+                    value.notebook_id,
+                    value.query,
+                    value.search_source,
+                    value.mode,
+                ),
+                operation=Operation.RESEARCH_START,
+                deadline=deadline,
+                source_path=f"/notebook/{value.notebook_id}",
+            )
+        except (AuthError, RateLimitError, ServerError, NetworkError):
+            raise
+        except RPCError as exc:
+            if value.mode is ResearchMode.DEEP and _is_deep_start_null_result_error(exc):
+                raise self._research_start_unavailable_error(value, exc) from exc
+            raise
+        return decode_research_start(result, method_id=method.value)
+
+    def _research_start_unavailable_error(
+        self,
+        value: ResearchStartInput,
+        error: RPCError,
+    ) -> BackendError:
+        original = self._translate_error(Operation.RESEARCH_START, error)
+        return BackendError(
+            message="research start returned no run",
+            operation=Operation.RESEARCH_START,
+            diagnostics=MappingProxyType(
+                {
+                    "notebook_id": value.notebook_id,
+                    "mode": value.mode.value,
+                    "original_message": original.message,
+                    "original_reason": (
+                        original.reason.value if original.reason is not None else None
+                    ),
+                    "original_diagnostics": dict(original.diagnostics or {}),
+                }
+            ),
+            reason=BackendErrorReason.RESEARCH_START_UNAVAILABLE,
+        )
+
+    async def _research_poll(
+        self,
+        value: ResearchPollInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> ResearchPollResult:
+        result = await self._rpc_call(
+            RPCMethod.POLL_RESEARCH,
+            encode_research_poll_params(value.notebook_id),
+            operation=Operation.RESEARCH_POLL,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+        )
+        return ResearchPollResult(tasks=decode_research_tasks(result))
+
+    async def _research_cancel(
+        self,
+        value: ResearchCancelInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> ResearchCancelResult:
+        await self._rpc_call(
+            RPCMethod.CANCEL_RESEARCH,
+            encode_research_cancel_params(value.run_id),
+            operation=Operation.RESEARCH_CANCEL,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+        )
+        return ResearchCancelResult()
+
+    async def _research_import(
+        self,
+        value: ResearchImportInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> ResearchImportResult:
+        result = await self._rpc_call(
+            RPCMethod.IMPORT_RESEARCH,
+            encode_research_import_params(value.notebook_id, value.task_id, value.entries),
+            operation=Operation.RESEARCH_IMPORT,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            attempt_timeout=value.attempt_timeout,
+        )
+        return ResearchImportResult(imported=decode_imported_sources(result))
 
     @staticmethod
     def _error_diagnostics(

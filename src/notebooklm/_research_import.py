@@ -1,13 +1,16 @@
 """Free-function helpers for research source import + verification.
 
-Extracted from ``_research.py`` (ADR-0008 module-size ratchet) so the
-``ResearchAPI.import_sources`` / ``import_sources_with_verification`` machinery
-— URL normalization for import verification, the report-source predicate, the
-imported-entry / merge helpers, the #1961 idempotency pre-filter + its
-``already_present`` side-channel carrier, and the #2187 batch-scaled read
-timeout + retry-time FAILED_PRECONDITION predicate — lives in one cohesive
-place. These are re-imported by ``_research.py`` and remain reachable as
-``notebooklm._research.<name>`` for callers/tests that reference them there.
+Extracted under the ADR-0008 module-size ratchet so the ``import_sources`` /
+``import_sources_with_verification`` machinery — URL normalization for import
+verification, the report-source predicate, the imported-entry / merge helpers,
+the #1961 idempotency pre-filter + its ``already_present`` side-channel carrier,
+and the #2187 batch-scaled read timeout + retry-time FAILED_PRECONDITION
+predicate — lives in one cohesive place.
+
+Every one of these is backend-neutral policy, so they are consumed by
+``_research_service.py`` rather than by the ``_research.py`` facade, and this
+module is their only import home. (P6.2 retired the pass-through re-exports the
+facade used to carry; reference them here.)
 """
 
 from __future__ import annotations

@@ -2549,7 +2549,7 @@ Import selected research sources into the notebook.
 # NOTE: this is the REQUEST the client sends. It is a different shape from the
 # POLL_RESEARCH *response* row documented above — the report body rides at index 1
 # here, whereas a response row carries it in the src[6] kind-3 content block. Built
-# by `_research.py::_build_report_import_entry` / `_build_web_import_entry`.
+# by `_web/codec/research.py::build_report_import_entry` / `build_web_import_entry`.
 source_array = []
 
 # Deep research report entry (outgoing import request):

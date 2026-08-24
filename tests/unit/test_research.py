@@ -9,7 +9,7 @@ from urllib.parse import parse_qs
 
 import pytest
 
-import notebooklm._research as research_module
+import notebooklm._research_service as research_service_module
 from notebooklm import (
     AmbiguousResearchTaskError,
     CitedSourceSelection,
@@ -21,6 +21,8 @@ from notebooklm import (
     RPCError,
 )
 from notebooklm._research import ResearchAPI
+from notebooklm._research_import import _normalize_import_verification_url
+from notebooklm._web.codec.research import build_report_import_entry, build_web_import_entry
 from notebooklm.research import extract_report_urls, normalize_citation_url, select_cited_sources
 from notebooklm.rpc import RPCMethod
 
@@ -45,17 +47,17 @@ def _build_research_task_payload(
 
 
 class TestBuildImportEntries:
-    """Tests for import entry builder static methods."""
+    """Tests for the web codec's IMPORT_RESEARCH entry builders."""
 
     def test_build_report_import_entry(self):
-        entry = ResearchAPI._build_report_import_entry("Title", "# Markdown")
+        entry = build_report_import_entry("Title", "# Markdown")
         assert entry[1] == ["Title", "# Markdown"]
         assert entry[3] == 3
         assert entry[10] == 3
         assert entry[0] is None
 
     def test_build_web_import_entry(self):
-        entry = ResearchAPI._build_web_import_entry("https://example.com", "Example")
+        entry = build_web_import_entry("https://example.com", "Example")
         assert entry[2] == ["https://example.com", "Example"]
         assert entry[10] == 2
         assert entry[0] is None
@@ -68,15 +70,9 @@ class TestCitedSourceSelection:
         punctuation_url = "https://Example.com/path/."
 
         assert normalize_citation_url(citation_url) == "https://example.com/path#section"
-        assert (
-            research_module._normalize_import_verification_url(citation_url)
-            == "https://example.com/path"
-        )
+        assert _normalize_import_verification_url(citation_url) == "https://example.com/path"
         assert normalize_citation_url(punctuation_url) == "https://example.com/path"
-        assert (
-            research_module._normalize_import_verification_url(punctuation_url)
-            == "https://example.com/path/."
-        )
+        assert _normalize_import_verification_url(punctuation_url) == "https://example.com/path/."
 
     def test_extract_report_urls_normalizes_markdown_and_bare_urls(self):
         urls = extract_report_urls(
@@ -303,7 +299,7 @@ class TestResearch:
         async def no_sleep(delay: float) -> None:  # noqa: ARG001
             return None
 
-        monkeypatch.setattr(research_module.asyncio, "sleep", no_sleep)
+        monkeypatch.setattr(research_service_module.asyncio, "sleep", no_sleep)
 
         first_poll = build_rpc_response(
             RPCMethod.POLL_RESEARCH,
@@ -466,7 +462,7 @@ class TestResearch:
         async def no_sleep(delay: float) -> None:  # noqa: ARG001
             return None
 
-        monkeypatch.setattr(research_module.asyncio, "sleep", no_sleep)
+        monkeypatch.setattr(research_service_module.asyncio, "sleep", no_sleep)
 
         no_research = build_rpc_response(RPCMethod.POLL_RESEARCH, [])
         completed = build_rpc_response(
@@ -514,7 +510,7 @@ class TestResearch:
         async def no_sleep(delay: float) -> None:  # noqa: ARG001
             return None
 
-        monkeypatch.setattr(research_module.asyncio, "sleep", no_sleep)
+        monkeypatch.setattr(research_service_module.asyncio, "sleep", no_sleep)
 
         absent = build_rpc_response(RPCMethod.POLL_RESEARCH, [])
         completed = build_rpc_response(

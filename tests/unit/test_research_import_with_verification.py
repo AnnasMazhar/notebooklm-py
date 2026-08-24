@@ -1,7 +1,9 @@
-"""Tests for ``ResearchAPI.import_sources_with_verification``.
+"""Tests for ``ResearchService.import_sources_with_verification``.
 
-The retry-with-verification logic for ``IMPORT_RESEARCH`` timeouts lives
-on ``ResearchAPI`` as of issue #315. These tests were originally in
+The retry-with-verification logic for ``IMPORT_RESEARCH`` timeouts became a
+library-layer concern in issue #315 and now lives on the backend-neutral
+``ResearchService`` that ``ResearchAPI`` delegates to. These tests were
+originally in
 ``tests/unit/cli/test_helpers.py::TestImportWithRetry`` (the logic used to
 live in ``cli/research_import.py``); they were moved here when the policy
 became a library-layer concern so Python API users get the same fix the
@@ -20,9 +22,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import notebooklm._research as _research_mod
-from notebooklm._research import ResearchAPI
+import notebooklm._research_service as _research_mod
+from notebooklm._research_service import ResearchService
 from notebooklm.exceptions import NetworkError, RPCError, RPCTimeoutError
+from tests._fixtures.web_backend import build_web_backend
+
+
+def _make_service(rpc: object, source_lister: object) -> ResearchService:
+    """Build the service over a web backend bound to one injected RPC double."""
+    return ResearchService(
+        build_web_backend(rpc),
+        source_lister=source_lister,  # type: ignore[arg-type]
+    )
 
 
 class _RecordingRpc:
@@ -80,20 +91,18 @@ class _Advance:
         self.then = then
 
 
-def _make_research() -> tuple[ResearchAPI, MagicMock, MagicMock]:
-    """Build a ``ResearchAPI`` with a mocked source-lister seam.
+def _make_research() -> tuple[ResearchService, MagicMock, MagicMock]:
+    """Build a ``ResearchService`` with a mocked source-lister seam.
 
     Returns ``(research, mock_rpc, mock_source_lister)``. Override
     ``research.import_sources`` / ``mock_source_lister.list`` per test.
 
-    ResearchAPI now mirrors ``NotebooksAPI``'s default-builder pattern, so
-    injecting a mock lister bypasses the cross-API dependency entirely —
-    the test does not need a SourcesAPI handle.
+    The lister is injected rather than resolved from a facade, so these tests
+    exercise the reconciliation loop with no cross-API dependency.
     """
     mock_rpc = MagicMock()
     mock_source_lister = MagicMock()
-    research = ResearchAPI(mock_rpc, source_lister=mock_source_lister)
-    return research, mock_rpc, mock_source_lister
+    return _make_service(mock_rpc, mock_source_lister), mock_rpc, mock_source_lister
 
 
 class TestImportSourcesWithVerification:
@@ -187,7 +196,7 @@ class TestImportSourcesWithVerification:
         )
         mock_source_lister = MagicMock()
         mock_source_lister.list = AsyncMock(return_value=[])
-        research = ResearchAPI(fake_rpc, source_lister=mock_source_lister)
+        research = _make_service(fake_rpc, mock_source_lister)
 
         with (
             patch.object(_research_mod.time, "monotonic", side_effect=lambda: clock["now"]),
@@ -229,7 +238,7 @@ class TestImportSourcesWithVerification:
         )
         mock_source_lister = MagicMock()
         mock_source_lister.list = AsyncMock(return_value=[])
-        research = ResearchAPI(fake_rpc, source_lister=mock_source_lister)
+        research = _make_service(fake_rpc, mock_source_lister)
 
         with (
             patch.object(_research_mod.time, "monotonic", side_effect=lambda: clock["now"]),
@@ -259,7 +268,7 @@ class TestImportSourcesWithVerification:
         fake_rpc = _RecordingRpc([[[["src_1"], "Source 1"]]])
         mock_source_lister = MagicMock()
         mock_source_lister.list = AsyncMock(return_value=[])
-        research = ResearchAPI(fake_rpc, source_lister=mock_source_lister)
+        research = _make_service(fake_rpc, mock_source_lister)
 
         imported = await research.import_sources_with_verification(
             "nb_123",
