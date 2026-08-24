@@ -4,7 +4,7 @@ Identity resolution has three sources, the first two network-free: the in-memory
 :class:`AuthTokens`, the persisted profile metadata, and (opt-in) a single live
 ``WIZ_global_data`` probe of the active ``authuser`` page. The probe is exercised
 through pytest-httpx by installing a real ``httpx.AsyncClient`` on the kernel (the
-seam ``client._collaborators.kernel.get_http_client()`` reads) so mocked page GETs
+seam ``client._backend._kernel.get_http_client()`` reads) so mocked page GETs
 are intercepted without opening a live session. The WIZ HTML shape mirrors
 ``tests/unit/test_auth_account.py``.
 """
@@ -19,7 +19,7 @@ import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
-import notebooklm.client as client_module
+import notebooklm._web.backend as backend_module
 from notebooklm._auth import account_email as account_email_module
 from notebooklm._auth.cookie_types import CookieJar
 from notebooklm.auth import AuthTokens, read_account_metadata, write_account_metadata
@@ -59,7 +59,7 @@ def _install_probe_client(client: NotebookLMClient) -> httpx.AsyncClient:
     (a followed 302 lands on a 200 signin page), not just the ``status != 200`` guard.
     """
     http_client = httpx.AsyncClient(cookies=client.auth.cookie_jar, follow_redirects=True)
-    install_http_client_for_test(client._collaborators.kernel, http_client)
+    install_http_client_for_test(client._backend._kernel, http_client)
     return http_client
 
 
@@ -92,7 +92,7 @@ async def test_in_memory_email_returned_without_http(httpx_mock: HTTPXMock) -> N
     client = NotebookLMClient(_make_auth(account_email="alice@example.com"))
     assert await client.get_account_email() == "alice@example.com"
     assert httpx_mock.get_requests() == []
-    assert client._account_email_cache == "alice@example.com"
+    assert client._backend._account_email_cache == "alice@example.com"
 
 
 async def test_persisted_email_returned_without_http(httpx_mock: HTTPXMock, tmp_path) -> None:
@@ -135,7 +135,7 @@ async def test_post_close_persisted_email_uses_retained_kernel_jar(
     write_account_metadata(storage, authuser=0, email="closed@example.com")
     client = NotebookLMClient(_make_auth(storage_path=storage))
     http_client = _install_probe_client(client)
-    await client._collaborators.kernel.aclose()
+    await client._backend._kernel.aclose()
     assert http_client.is_closed
 
     divergent_shadow = httpx.Cookies()
@@ -313,7 +313,7 @@ async def test_live_probe_restarts_after_profile_session_replacement(
         await release_probe.wait()
         return "old@example.com"
 
-    monkeypatch.setattr(client_module, "_probe_authuser", blocked_probe)
+    monkeypatch.setattr(backend_module, "_probe_authuser", blocked_probe)
     task = asyncio.create_task(client.get_account_email())
     await probe_started.wait()
     storage.write_text(
@@ -381,7 +381,7 @@ async def test_live_probe_self_heal_cannot_overwrite_advanced_profile(
         await release_probe.wait()
         return "old@example.com"
 
-    monkeypatch.setattr(client_module, "_probe_authuser", blocked_probe)
+    monkeypatch.setattr(backend_module, "_probe_authuser", blocked_probe)
     task = asyncio.create_task(client.get_account_email())
     await probe_started.wait()
     storage.write_text(
@@ -448,7 +448,7 @@ async def test_live_probe_does_not_self_heal_into_previously_advanced_profile(
         assert authuser == 0
         return "old@example.com"
 
-    monkeypatch.setattr(client_module, "_probe_authuser", probe_old_session)
+    monkeypatch.setattr(backend_module, "_probe_authuser", probe_old_session)
     try:
         assert await client.get_account_email() == "old@example.com"
     finally:
@@ -485,7 +485,7 @@ async def test_persisted_email_from_a_different_live_session_is_ignored(tmp_path
     client = NotebookLMClient(_make_auth(storage_path=storage, cookie_jar=live))
 
     assert await client.get_account_email(live_fallback=False) is None
-    assert client._account_email_cache is None
+    assert client._backend._account_email_cache is None
 
 
 async def test_persisted_email_is_matched_against_authoritative_kernel_jar(tmp_path) -> None:

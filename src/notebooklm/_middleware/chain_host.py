@@ -22,15 +22,13 @@ This module is intentionally narrow:
 * It does NOT know about metrics, the kernel, the http client, the
   RPC semaphore, or the auth snapshot. Those live in the collaborator
   bundle and in explicit provider lambdas wired by the composition root.
-* The host has no back-reference to :class:`NotebookLMClient` — the client
-  reaches it through ``self._composed.chain_host``, but not the other way
-  around. This avoids a client ↔ transport cycle, per ADR-0014 Rule 4.
+* The host has no back-reference to :class:`NotebookLMClient`; WebRpcBackend
+  owns it directly. This avoids a client ↔ transport cycle, per ADR-0014 Rule 4.
 
 The transport / wire helpers take the host directly via the
 ``chain_host`` parameter; the chain reads ``chain_host._<attr>`` on
-every attempt. Tests that need a mid-flight mutation rebind on the
-host (``core._composed.chain_host._<attr> = ...``); there are no client-side
-forwards in front of the host.
+every attempt. Focused chain tests address the host directly; there are no
+client-side forwards in front of it.
 """
 
 from __future__ import annotations
@@ -92,9 +90,8 @@ class MiddlewareChainHost:
         composition root (:func:`compose_client_internals`) is the
         single legitimate caller, and it fires this once after
         :func:`build_runtime_transport` returns. The same write-once
-        shape on the client (:meth:`ClientComposed.bind_transport`)
-        guarantees both sides of the host ↔ transport relationship are
-        bound exactly once at composition time.
+        write-once host binding guarantees the relationship is completed
+        exactly once at composition time.
         """
         if self._transport is not None:
             raise RuntimeError("MiddlewareChainHost._transport already bound")
@@ -103,9 +100,8 @@ class MiddlewareChainHost:
     async def _authed_post_chain_terminal(self, request: RpcRequest) -> RpcResponse:
         """Middleware-chain leaf — forwards to :meth:`RuntimeTransport.terminal`.
 
-        Tests that install a fake terminal rebind directly on the host
-        (``core._composed.chain_host._authed_post_chain_terminal = fake_terminal``)
-        and rebuild the chain around the new terminal.
+        Focused tests may construct a host with a fake terminal before the
+        chain is built.
 
         Raises :class:`RuntimeError` if the transport is not yet bound.
         This can only happen if a caller exercised the chain before

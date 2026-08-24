@@ -25,9 +25,7 @@ retry-delay directly — the retry/backoff budget for the refresh path
 is owned by ``AuthRefreshMiddleware`` and by
 ``RpcExecutor.try_refresh_and_retry``, both of which read
 ``chain_host._refresh_retry_delay`` live through provider lambdas wired
-in ``_runtime.init.wire_middleware_chain``. Integration tests that
-assign ``client._composed.chain_host._refresh_retry_delay = 0`` keep
-steering the live delay.
+in ``_runtime.init.wire_middleware_chain``.
 
 Construction order in :func:`compose_client_internals`:
 :func:`notebooklm._runtime.init.build_runtime_transport` constructs the
@@ -40,8 +38,7 @@ The chain itself is reached by the transport through an injected
 ``chain_provider`` closure that reads
 ``chain_host._authed_post_chain`` live, late on every
 :meth:`perform_authed_post` call; this both breaks the construction
-cycle and preserves the long-standing test pattern of reassigning
-``core._composed.chain_host._authed_post_chain`` to install a fake chain. The
+cycle while keeping chain ownership inside the backend runtime. The
 :class:`AuthRefreshCoordinator` snapshot is reached via an injected
 ``snapshot_provider`` callable so :class:`RuntimeTransport` never has
 to hold a direct back-reference to the composition root.
@@ -112,9 +109,7 @@ class RuntimeTransport:
         # Live-binding chain accessor. The wired chain is installed onto
         # :class:`MiddlewareChainHost` AFTER :class:`RuntimeTransport`
         # is constructed (the chain's leaf is :meth:`terminal`, so the
-        # transport must exist first). Tests also reassign
-        # ``core._composed.chain_host._authed_post_chain`` post-construction to
-        # install a fake chain — going through a provider closure
+        # transport must exist first). Going through a provider closure
         # (called late in :meth:`perform_authed_post`) ensures those
         # reassignments take effect on the next call without any
         # further mutation here.

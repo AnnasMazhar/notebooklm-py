@@ -276,7 +276,8 @@ class TestFromStorage:
         monkeypatch.setattr(_auth_tokens, "_load_stored_auth", fake_load_stored_auth)
 
         client = await NotebookLMClient.from_storage(str(explicit_path))._build()
-        persistence = client._collaborators.cookie_persistence
+        persistence = client._backend._cookie_persistence
+        assert persistence is not None
         state = persistence._states[store.ordering_key]
 
         assert persistence._default_store is store
@@ -357,7 +358,7 @@ class TestRefreshAuth:
 
         Tests that want to observe the mutation patch the coordinator method
         (matching the new keyword-only signature) and read the live
-        ``AuthTokens`` instance via ``client._auth``, which the Auth Instance
+        ``AuthTokens`` instance via ``client.auth``, which the Auth Instance
         Invariant keeps aliased with the composed runtime's auth snapshot
         provider.
         """
@@ -374,7 +375,8 @@ class TestRefreshAuth:
             auth.csrf_token = csrf
             auth.session_id = session_id
 
-        monkeypatch.setattr(client._collaborators.auth_coord, "update_auth_tokens", fake_update)
+        assert client._backend._auth_coord is not None
+        monkeypatch.setattr(client._backend._auth_coord, "update_auth_tokens", fake_update)
 
         async with client:
             refreshed_auth = await client.refresh_auth()
@@ -382,9 +384,9 @@ class TestRefreshAuth:
         assert calls == [("new_csrf_token_123", "new_session_id_456")]
         assert refreshed_auth.csrf_token == "new_csrf_token_123"
         assert refreshed_auth.session_id == "new_session_id_456"
-        assert client._auth is refreshed_auth
-        assert client._auth.csrf_token == "new_csrf_token_123"
-        assert client._auth.session_id == "new_session_id_456"
+        assert client.auth is refreshed_auth
+        assert client.auth.csrf_token == "new_csrf_token_123"
+        assert client.auth.session_id == "new_session_id_456"
 
     @pytest.mark.asyncio
     async def test_refresh_auth_routes_to_account_email(self, httpx_mock: HTTPXMock):
@@ -482,16 +484,16 @@ class TestRefreshAuth:
                 raise ValueError("Authentication expired. Run 'notebooklm login'.")
             return auth
 
-        import notebooklm.client as client_mod
+        import notebooklm._web.backend as backend_mod
 
-        monkeypatch.setattr(client_mod, "refresh_auth_session", fake_session)
+        monkeypatch.setattr(backend_mod, "refresh_auth_session", fake_session)
 
         async with client:
             result = await client.refresh_auth(allow_headless=True)
 
         # Joined the base flight (False, failed) then re-ran with the L3 rung (True).
         assert calls == [False, True]
-        assert result is client._auth
+        assert result is client.auth
 
     @pytest.mark.asyncio
     async def test_refresh_auth_wider_policy_returns_when_base_flight_succeeds(
@@ -505,16 +507,16 @@ class TestRefreshAuth:
             calls.append(allow_headless)
             return auth
 
-        import notebooklm.client as client_mod
+        import notebooklm._web.backend as backend_mod
 
-        monkeypatch.setattr(client_mod, "refresh_auth_session", fake_session)
+        monkeypatch.setattr(backend_mod, "refresh_auth_session", fake_session)
 
         async with client:
             result = await client.refresh_auth(allow_headless=True)
 
         # Base flight (False) succeeded → no L3 re-run.
         assert calls == [False]
-        assert result is client._auth
+        assert result is client.auth
 
     @pytest.mark.asyncio
     async def test_refresh_auth_wider_policy_propagates_incidental_runtimeerror(
@@ -538,9 +540,9 @@ class TestRefreshAuth:
                 raise RuntimeError("Client not initialized. Use 'async with' context.")
             return auth
 
-        import notebooklm.client as client_mod
+        import notebooklm._web.backend as backend_mod
 
-        monkeypatch.setattr(client_mod, "refresh_auth_session", fake_session)
+        monkeypatch.setattr(backend_mod, "refresh_auth_session", fake_session)
 
         async with client:
             with pytest.raises(RuntimeError, match="Client not initialized"):
@@ -567,9 +569,9 @@ class TestRefreshAuth:
             calls.append(allow_headless)
             return auth
 
-        import notebooklm.client as client_mod
+        import notebooklm._web.backend as backend_mod
 
-        monkeypatch.setattr(client_mod, "refresh_auth_session", fake_session)
+        monkeypatch.setattr(backend_mod, "refresh_auth_session", fake_session)
         # If the default path routed through the coordinator, await_refresh would
         # invoke the callback (refresh_auth) and we'd see a nested call; assert it
         # runs exactly once with the base policy.
@@ -577,7 +579,7 @@ class TestRefreshAuth:
             result = await client.refresh_auth()
 
         assert calls == [False]
-        assert result is client._auth
+        assert result is client.auth
 
 
 # =============================================================================
@@ -757,7 +759,8 @@ class TestSessionRefreshCallback:
             pass
 
         core = build_client_shell_for_tests(auth, refresh_callback=mock_refresh)
-        assert core._collaborators.auth_coord._refresh_callback is mock_refresh
+        assert core._backend._auth_coord is not None
+        assert core._backend._auth_coord._refresh_callback is mock_refresh
 
     def test_refresh_callback_defaults_to_none(self):
         """Session should default refresh_callback to None."""
@@ -769,7 +772,8 @@ class TestSessionRefreshCallback:
         )
 
         core = build_client_shell_for_tests(auth)
-        assert core._collaborators.auth_coord._refresh_callback is None
+        assert core._backend._auth_coord is not None
+        assert core._backend._auth_coord._refresh_callback is None
 
     def test_refresh_lock_lazy_at_construction(self):
         """Refresh lock is ``None`` at construction regardless of callback.
@@ -791,13 +795,15 @@ class TestSessionRefreshCallback:
 
         # With callback: lazy — lock is None until first refresh attempt.
         core_with_cb = build_client_shell_for_tests(auth, refresh_callback=mock_refresh)
-        assert core_with_cb._collaborators.auth_coord._refresh_lock is None
-        assert core_with_cb._collaborators.auth_coord._refresh_callback is mock_refresh
+        assert core_with_cb._backend._auth_coord is not None
+        assert core_with_cb._backend._auth_coord._refresh_lock is None
+        assert core_with_cb._backend._auth_coord._refresh_callback is mock_refresh
 
         # Without callback: also None (unchanged behavior on this axis).
         core_without_cb = build_client_shell_for_tests(auth)
-        assert core_without_cb._collaborators.auth_coord._refresh_lock is None
-        assert core_without_cb._collaborators.auth_coord._refresh_callback is None
+        assert core_without_cb._backend._auth_coord is not None
+        assert core_without_cb._backend._auth_coord._refresh_lock is None
+        assert core_without_cb._backend._auth_coord._refresh_callback is None
 
 
 # =============================================================================
@@ -846,12 +852,12 @@ class TestRpcCallAutoRetry:
             response.raise_for_status = MagicMock()
             return response
 
-        install_http_client_for_test(core._collaborators.kernel, MagicMock())
-        core._collaborators.kernel.get_http_client().post = mock_post
-        install_post_as_stream(None, core._collaborators.kernel.get_http_client(), mock_post)
-        core._collaborators.kernel.get_http_client().headers = {"Cookie": "old"}
+        install_http_client_for_test(core._backend._kernel, MagicMock())
+        core._backend._kernel.get_http_client().post = mock_post
+        install_post_as_stream(None, core._backend._kernel.get_http_client(), mock_post)
+        core._backend._kernel.get_http_client().headers = {"Cookie": "old"}
 
-        result = await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+        result = await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
 
         assert len(refresh_called) == 1, "refresh_callback should be called once"
         assert call_count[0] == 2, "RPC should be called twice (original + retry)"
@@ -899,12 +905,12 @@ class TestRpcCallAutoRetry:
             response.raise_for_status = MagicMock()
             return response
 
-        install_http_client_for_test(core._collaborators.kernel, MagicMock())
-        core._collaborators.kernel.get_http_client().post = mock_post
-        install_post_as_stream(None, core._collaborators.kernel.get_http_client(), mock_post)
-        core._collaborators.kernel.get_http_client().headers = {"Cookie": "old"}
+        install_http_client_for_test(core._backend._kernel, MagicMock())
+        core._backend._kernel.get_http_client().post = mock_post
+        install_post_as_stream(None, core._backend._kernel.get_http_client(), mock_post)
+        core._backend._kernel.get_http_client().headers = {"Cookie": "old"}
 
-        result = await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+        result = await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
 
         assert len(refresh_called) == 1, "refresh_callback should be called once"
         assert decode_call_count[0] == 2, "decode should be called twice (original + retry)"
@@ -947,13 +953,13 @@ class TestRpcCallAutoRetry:
             response.raise_for_status = MagicMock()
             return response
 
-        install_http_client_for_test(core._collaborators.kernel, MagicMock())
-        core._collaborators.kernel.get_http_client().post = mock_post
-        install_post_as_stream(None, core._collaborators.kernel.get_http_client(), mock_post)
-        core._collaborators.kernel.get_http_client().headers = {"Cookie": "old"}
+        install_http_client_for_test(core._backend._kernel, MagicMock())
+        core._backend._kernel.get_http_client().post = mock_post
+        install_post_as_stream(None, core._backend._kernel.get_http_client(), mock_post)
+        core._backend._kernel.get_http_client().headers = {"Cookie": "old"}
 
         with pytest.raises(RPCError, match="Unauthorized access"):
-            await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+            await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
 
         assert refresh_called == []
         assert decode_call_count[0] == 1
@@ -977,12 +983,12 @@ class TestRpcCallAutoRetry:
             response = httpx.Response(401, request=request)
             raise httpx.HTTPStatusError("Unauthorized", request=request, response=response)
 
-        install_http_client_for_test(core._collaborators.kernel, MagicMock())
-        core._collaborators.kernel.get_http_client().post = mock_post
-        install_post_as_stream(None, core._collaborators.kernel.get_http_client(), mock_post)
+        install_http_client_for_test(core._backend._kernel, MagicMock())
+        core._backend._kernel.get_http_client().post = mock_post
+        install_post_as_stream(None, core._backend._kernel.get_http_client(), mock_post)
 
         with pytest.raises(RPCError, match="HTTP 401"):
-            await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+            await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
 
         assert call_count[0] == 1, "Should not retry without callback"
 
@@ -1014,13 +1020,13 @@ class TestRpcCallAutoRetry:
             response = httpx.Response(401, request=request)
             raise httpx.HTTPStatusError("Unauthorized", request=request, response=response)
 
-        install_http_client_for_test(core._collaborators.kernel, MagicMock())
-        core._collaborators.kernel.get_http_client().post = mock_post
-        install_post_as_stream(None, core._collaborators.kernel.get_http_client(), mock_post)
-        core._collaborators.kernel.get_http_client().headers = {"Cookie": "old"}
+        install_http_client_for_test(core._backend._kernel, MagicMock())
+        core._backend._kernel.get_http_client().post = mock_post
+        install_post_as_stream(None, core._backend._kernel.get_http_client(), mock_post)
+        core._backend._kernel.get_http_client().headers = {"Cookie": "old"}
 
         with pytest.raises(RPCError, match="HTTP 401"):
-            await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+            await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
 
         assert refresh_count[0] == 1, "Should only refresh once"
         assert call_count[0] == 2, "Should only retry once"
@@ -1060,12 +1066,12 @@ class TestRpcCallAutoRetry:
             response = httpx.Response(500, request=request)
             raise httpx.HTTPStatusError("Server Error", request=request, response=response)
 
-        install_http_client_for_test(core._collaborators.kernel, MagicMock())
-        core._collaborators.kernel.get_http_client().post = mock_post
-        install_post_as_stream(None, core._collaborators.kernel.get_http_client(), mock_post)
+        install_http_client_for_test(core._backend._kernel, MagicMock())
+        core._backend._kernel.get_http_client().post = mock_post
+        install_post_as_stream(None, core._backend._kernel.get_http_client(), mock_post)
 
         with pytest.raises(RPCError, match="Server error 500"):
-            await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+            await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
 
         assert len(refresh_called) == 0, "Should not refresh on non-auth error"
         assert call_count[0] == 1, "Should not retry on non-auth error"
@@ -1091,12 +1097,12 @@ class TestRpcCallAutoRetry:
             response = httpx.Response(401, request=request)
             raise httpx.HTTPStatusError("Unauthorized", request=request, response=response)
 
-        install_http_client_for_test(core._collaborators.kernel, MagicMock())
-        core._collaborators.kernel.get_http_client().post = mock_post
-        install_post_as_stream(None, core._collaborators.kernel.get_http_client(), mock_post)
+        install_http_client_for_test(core._backend._kernel, MagicMock())
+        core._backend._kernel.get_http_client().post = mock_post
+        install_post_as_stream(None, core._backend._kernel.get_http_client(), mock_post)
 
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+            await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
 
         # Check exception chaining
         assert exc_info.value.__cause__ is not None
@@ -1140,15 +1146,15 @@ class TestRpcCallAutoRetry:
             response.raise_for_status = MagicMock()
             return response
 
-        install_http_client_for_test(core._collaborators.kernel, MagicMock())
-        core._collaborators.kernel.get_http_client().post = mock_post
-        install_post_as_stream(None, core._collaborators.kernel.get_http_client(), mock_post)
-        core._collaborators.kernel.get_http_client().headers = {"Cookie": "old"}
+        install_http_client_for_test(core._backend._kernel, MagicMock())
+        core._backend._kernel.get_http_client().post = mock_post
+        install_post_as_stream(None, core._backend._kernel.get_http_client(), mock_post)
+        core._backend._kernel.get_http_client().headers = {"Cookie": "old"}
 
         # Start two concurrent calls
         await asyncio.gather(
-            core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []),
-            core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []),
+            core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, []),
+            core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, []),
             return_exceptions=True,
         )
 
@@ -1200,12 +1206,12 @@ class TestRpcCallAutoRetry:
             response.raise_for_status = MagicMock()
             return response
 
-        install_http_client_for_test(core._collaborators.kernel, MagicMock())
-        core._collaborators.kernel.get_http_client().post = mock_post
-        install_post_as_stream(None, core._collaborators.kernel.get_http_client(), mock_post)
-        core._collaborators.kernel.get_http_client().headers = {"Cookie": "old"}
+        install_http_client_for_test(core._backend._kernel, MagicMock())
+        core._backend._kernel.get_http_client().post = mock_post
+        install_post_as_stream(None, core._backend._kernel.get_http_client(), mock_post)
+        core._backend._kernel.get_http_client().headers = {"Cookie": "old"}
 
-        result = await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+        result = await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
 
         assert len(refresh_called) == 1, "refresh_callback should be called once on 400"
         assert call_count[0] == 2, "RPC should be called twice (original + retry)"
@@ -1235,15 +1241,15 @@ class TestRpcCallAutoRetry:
             response = httpx.Response(400, request=request)
             raise httpx.HTTPStatusError("Bad Request", request=request, response=response)
 
-        install_http_client_for_test(core._collaborators.kernel, MagicMock())
-        core._collaborators.kernel.get_http_client().post = mock_post
-        install_post_as_stream(None, core._collaborators.kernel.get_http_client(), mock_post)
+        install_http_client_for_test(core._backend._kernel, MagicMock())
+        core._backend._kernel.get_http_client().post = mock_post
+        install_post_as_stream(None, core._backend._kernel.get_http_client(), mock_post)
 
         # ClientError is the 4xx (non-401/403) mapping in rpc_call
         from notebooklm.rpc import ClientError
 
         with pytest.raises(ClientError):
-            await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+            await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
 
         assert call_count[0] == 1, "Should not retry without callback"
 
@@ -1273,12 +1279,12 @@ class TestRpcCallAutoRetry:
             response = httpx.Response(400, request=request)
             raise httpx.HTTPStatusError("Bad Request", request=request, response=response)
 
-        install_http_client_for_test(core._collaborators.kernel, MagicMock())
-        core._collaborators.kernel.get_http_client().post = mock_post
-        install_post_as_stream(None, core._collaborators.kernel.get_http_client(), mock_post)
+        install_http_client_for_test(core._backend._kernel, MagicMock())
+        core._backend._kernel.get_http_client().post = mock_post
+        install_post_as_stream(None, core._backend._kernel.get_http_client(), mock_post)
 
         with pytest.raises(httpx.HTTPStatusError) as exc_info:
-            await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+            await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
 
         # Surfaced exception is the original 400, chained from the refresh failure
         assert exc_info.value.response.status_code == 400
@@ -1299,10 +1305,10 @@ class TestBuildUrlAuthuser:
         from notebooklm._request_types import AuthSnapshot
 
         return AuthSnapshot(
-            csrf_token=core._auth.csrf_token,
-            session_id=core._auth.session_id,
-            authuser=core._auth.authuser,
-            account_email=core._auth.account_email,
+            csrf_token=core.auth.csrf_token,
+            session_id=core.auth.session_id,
+            authuser=core.auth.authuser,
+            account_email=core.auth.account_email,
         )
 
     def test_default_authuser_omits_param(self):
@@ -1312,7 +1318,7 @@ class TestBuildUrlAuthuser:
             session_id="sess",
         )
         core = build_client_shell_for_tests(auth=auth)
-        url = core._rpc_executor.build_url(RPCMethod.LIST_NOTEBOOKS, self._snapshot_for(core))
+        url = core._backend._runtime.build_url(RPCMethod.LIST_NOTEBOOKS, self._snapshot_for(core))
         assert "authuser" not in url
 
     def test_non_default_authuser_added(self):
@@ -1323,7 +1329,7 @@ class TestBuildUrlAuthuser:
             authuser=2,
         )
         core = build_client_shell_for_tests(auth=auth)
-        url = core._rpc_executor.build_url(RPCMethod.LIST_NOTEBOOKS, self._snapshot_for(core))
+        url = core._backend._runtime.build_url(RPCMethod.LIST_NOTEBOOKS, self._snapshot_for(core))
         assert "authuser=2" in url
 
     def test_account_email_preferred_over_authuser_index(self):
@@ -1335,6 +1341,6 @@ class TestBuildUrlAuthuser:
             account_email="bob@example.com",
         )
         core = build_client_shell_for_tests(auth=auth)
-        url = core._rpc_executor.build_url(RPCMethod.LIST_NOTEBOOKS, self._snapshot_for(core))
+        url = core._backend._runtime.build_url(RPCMethod.LIST_NOTEBOOKS, self._snapshot_for(core))
         assert "authuser=bob%40example.com" in url
         assert "authuser=2" not in url

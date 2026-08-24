@@ -151,38 +151,9 @@ KNOWN_RPC_CALLER_CONSUMERS: frozenset[tuple[str, str, str]] = (
 REQUEST_FIXTURE_SEAM = "_fixtures/chain.py"
 REQUEST_FIXTURE_FACTORY = "make_request"
 
-# These three tests characterize the holder being retired rather than using it
-# as a mutable seam for some other subject. They must survive until the P7
-# replacement can be compared against them, then retire with ClientComposed.
-REQUIRED_COMPOSED_CHARACTERIZATION: dict[str, frozenset[str]] = {
-    "unit/test_composition_primitives.py": frozenset(
-        {
-            "test_client_composed_chain_host_binder_raises_on_double_bind",
-            "test_client_composed_chain_metadata_binder_raises_on_double_bind",
-            "test_client_composed_executor_binder_raises_on_double_bind",
-            "test_client_composed_properties_raise_before_binding",
-            "test_client_composed_runtime_collaborators_binder_raises_on_double_bind",
-            "test_client_composed_transport_binder_raises_on_double_bind",
-            "test_compose_client_internals_returns_client_internals",
-            "test_get_rpc_semaphore_cross_loop_raises_actionable_runtime_error",
-            "test_get_rpc_semaphore_no_binding_is_silent_noop",
-            "test_get_rpc_semaphore_returns_nullcontext_when_cap_is_none",
-            "test_get_rpc_semaphore_same_loop_use_unaffected",
-            "test_prebuilt_client_composed_cap_must_match_constructor_cap",
-            "test_reset_after_open_discards_lazy_semaphore",
-            "test_set_bound_loop_different_loop_discards_stale_semaphore",
-            "test_set_bound_loop_none_clears_binding_and_discards_semaphore",
-            "test_set_bound_loop_same_loop_keeps_cached_semaphore",
-        }
-    ),
-    "unit/test_semantic_p7_runtime_characterization.py": frozenset(
-        {
-            "test_client_composed_max_concurrent_rpcs_validation",
-            "test_client_composed_property_invariants_and_write_once_bindings",
-            "test_loop_affinity_protocol_and_cross_loop_rejection",
-        }
-    ),
-}
+# P7 retired ClientComposed and migrated its behavioral oracles to the atomic
+# backend-runtime tests. No mutable-holder exemption remains.
+REQUIRED_COMPOSED_CHARACTERIZATION: dict[str, frozenset[str]] = {}
 
 
 @dataclass(frozen=True, slots=True)

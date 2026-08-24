@@ -435,8 +435,8 @@ def test_runtime_factory_keeps_raw_auth_store_and_resolved_lifecycle_target(
     explicit = tmp_path / "explicit.json"
     auth = _auth(raw)
     client = build_client_shell_for_tests(auth, keepalive_storage_path=explicit)
-    persistence = client._collaborators.cookie_persistence
-    lifecycle = client._collaborators.lifecycle
+    persistence = client._backend._cookie_persistence
+    lifecycle = client._backend._lifecycle
 
     assert persistence._default_store is not None
     assert persistence._default_store.path == raw
@@ -466,8 +466,8 @@ async def test_lifecycle_default_canonical_and_explicit_saver_routes(
     _write(path)
     auth = _auth(path)
     default_client = build_client_shell_for_tests(auth)
-    persistence = default_client._collaborators.cookie_persistence
-    lifecycle = default_client._collaborators.lifecycle
+    persistence = default_client._backend._cookie_persistence
+    lifecycle = default_client._backend._lifecycle
     canonical = AsyncMock()
     monkeypatch.setattr(persistence, "_save_canonical", canonical)
     await lifecycle.save_cookies(persistence, _live())
@@ -484,8 +484,8 @@ async def test_lifecycle_default_canonical_and_explicit_saver_routes(
     custom_client = build_client_shell_for_tests(_auth(path), cookie_saver=custom)
     custom_input = legacy_jar("custom")
     custom_expected = rows(custom_input)
-    await custom_client._collaborators.lifecycle.save_cookies(
-        custom_client._collaborators.cookie_persistence,
+    await custom_client._backend._lifecycle.save_cookies(
+        custom_client._backend._cookie_persistence,
         custom_input,
     )
     assert len(custom_calls) == 1
@@ -509,7 +509,7 @@ async def test_file_loaded_client_registers_pair_inline_does_not_and_subclass_sk
     monkeypatch.setattr(client_module._auth_tokens, "_load_stored_auth", load_file)
     context = client_module.NotebookLMClient.from_storage(str(path))
     client = await context._build()
-    persistence = client._collaborators.cookie_persistence
+    persistence = client._backend._cookie_persistence
     assert persistence._default_store is store
     assert isinstance(
         persistence._states[store.ordering_key].baseline,
@@ -523,7 +523,7 @@ async def test_file_loaded_client_registers_pair_inline_does_not_and_subclass_sk
 
     monkeypatch.setattr(client_module._auth_tokens, "_load_stored_auth", load_inline)
     inline = await client_module.NotebookLMClient.from_storage(str(path))._build()
-    assert inline._collaborators.cookie_persistence._states == {}
+    assert inline._backend._cookie_persistence._states == {}
 
     class BareClient(client_module.NotebookLMClient):
         def __init__(self, auth: AuthTokens, **kwargs: Any) -> None:

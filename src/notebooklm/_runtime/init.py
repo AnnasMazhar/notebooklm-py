@@ -2,7 +2,7 @@
 
 Splits the client-runtime constructor into three concerns:
 :func:`validate_constructor_args` (kwarg validation + normalization),
-:func:`build_collaborators` (the seven collaborators in dependency order),
+:func:`_build_runtime_leaves` (the seven leaves in dependency order),
 and :func:`wire_middleware_chain` (the six-middleware ADR-0009 chain).
 Dependency-ordering and seam-resolution comments live inside the helpers so
 future readers see *why* the order matters.
@@ -30,7 +30,6 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from .._auth.profile_store import ProfileStore
-from .._client_composed import ClientComposed
 from .._client_metrics import ClientMetrics
 from .._client_seams import ClientSeams, resolve_client_seams
 from .._cookie_persistence import CookiePersistence
@@ -40,9 +39,9 @@ from .._middleware.chain import MiddlewareChainBuilder
 from .._middleware.chain_host import MiddlewareChainHost
 from .._middleware.core import Middleware, NextCall, build_chain
 from .._reqid_counter import ReqidCounter
-from .._rpc_executor import RpcExecutor
 from .._rpc_semaphore import RpcSemaphore
 from .._transport_drain import TransportDrainTracker
+from .._web.runtime import WebExecutionRuntime
 from ..auth import AuthTokens
 from .auth import AuthRefreshCoordinator
 from .config import (
@@ -98,26 +97,6 @@ class ValidatedSessionConfig:
 
 
 @dataclass(frozen=True)
-class RuntimeCollaborators:
-    """Constructed-collaborator bundle produced by
-    :func:`build_collaborators`.
-
-    The construction order inside ``build_collaborators`` is dependency-driven
-    (see the inline comments there for the rationale); this container exists
-    only to give the client constructor a single hand-off shape after the
-    construction phase.
-    """
-
-    metrics: ClientMetrics
-    drain_tracker: TransportDrainTracker
-    reqid: ReqidCounter
-    auth_coord: AuthRefreshCoordinator
-    kernel: Kernel
-    lifecycle: ClientLifecycle
-    cookie_persistence: CookiePersistence
-
-
-@dataclass(frozen=True)
 class WiredMiddleware:
     """Wired middleware chain produced by :func:`wire_middleware_chain`."""
 
@@ -128,11 +107,26 @@ class WiredMiddleware:
 
 @dataclass(frozen=True)
 class ClientInternals:
-    """Result of :func:`compose_client_internals`."""
+    """Construction-only receipt for an atomically assembled web runtime.
 
-    collaborators: RuntimeCollaborators
-    executor: RpcExecutor
+    ``_assemble_client`` passes this receipt directly into ``WebRpcBackend``,
+    which unpacks each leaf and does not retain the container. Unlike the
+    retired mutable holder, this record is never published on the client and
+    has no bind/reset behavior.
+    """
+
+    metrics: ClientMetrics
+    drain_tracker: TransportDrainTracker
+    reqid: ReqidCounter
+    auth_coord: AuthRefreshCoordinator
+    kernel: Kernel
+    lifecycle: ClientLifecycle
+    cookie_persistence: CookiePersistence
+    executor: WebExecutionRuntime
     web_transport_factory: Callable[..., httpx.AsyncClient]
+    rpc_semaphore: RpcSemaphore
+    transport: RuntimeTransport
+    chain_host: MiddlewareChainHost
 
 
 def _resolve_async_client_factory(
@@ -176,7 +170,7 @@ def validate_constructor_args(
     the final client-side seam bindings; see the module docstring for why
     the seam-resolution boundary stops here.
     The returned :class:`ValidatedSessionConfig` is consumed by
-    :func:`build_collaborators` and :func:`wire_middleware_chain`.
+    :func:`_build_runtime_leaves` and :func:`wire_middleware_chain`.
 
     Raises:
         ValueError: If ``rate_limit_max_retries`` / ``server_error_max_retries``
@@ -250,7 +244,7 @@ def validate_constructor_args(
     )
 
 
-def build_collaborators(
+def _build_runtime_leaves(
     config: ValidatedSessionConfig,
     *,
     auth: AuthTokens,
@@ -258,7 +252,15 @@ def build_collaborators(
     on_rpc_event: Callable[[RpcTelemetryEvent], object] | None,
     cookie_saver: CookieSaver | None,
     cookie_rotator: CookieRotator | None,
-) -> RuntimeCollaborators:
+) -> tuple[
+    ClientMetrics,
+    TransportDrainTracker,
+    ReqidCounter,
+    AuthRefreshCoordinator,
+    Kernel,
+    ClientLifecycle,
+    CookiePersistence,
+]:
     """Construct the seven extracted collaborators in dependency order.
 
     The order is dependency-driven so the load-bearing inter-collaborator
@@ -362,36 +364,30 @@ def build_collaborators(
         initial_snapshot=auth.cookie_snapshot,
     )
 
-    return RuntimeCollaborators(
-        metrics=metrics,
-        drain_tracker=drain_tracker,
-        reqid=reqid,
-        auth_coord=auth_coord,
-        kernel=kernel,
-        lifecycle=lifecycle,
-        cookie_persistence=cookie_persistence,
-    )
+    return metrics, drain_tracker, reqid, auth_coord, kernel, lifecycle, cookie_persistence
 
 
 def build_runtime_transport(
-    collaborators: RuntimeCollaborators,
     *,
     auth: AuthTokens,
+    metrics: ClientMetrics,
+    auth_coord: AuthRefreshCoordinator,
+    kernel: Kernel,
+    lifecycle: ClientLifecycle,
     chain_host: MiddlewareChainHost,
     logger: logging.Logger,
 ) -> RuntimeTransport:
     """Construct the :class:`RuntimeTransport` collaborator.
 
-    Built **after** :func:`build_collaborators` and **before**
+    Built **after** :func:`_build_runtime_leaves` and **before**
     :func:`wire_middleware_chain`, because the wired chain is built
     around ``transport.terminal``. The transport reaches the chain
     through a live-binding ``chain_provider`` closure that reads
     ``chain_host._authed_post_chain`` on every authed POST; that
     attribute is assigned by :func:`compose_client_internals`
     immediately after :func:`wire_middleware_chain` returns. Using a
-    provider closure (rather than a frozen reference) lets tests reassign
-    ``core._composed.chain_host._authed_post_chain = fake_chain`` to
-    install a fake chain and expect the next call to honor it.
+    provider closure (rather than a frozen reference) keeps the write-once
+    construction cycle explicit without publishing chain state on the client.
 
     The ``snapshot_provider`` closure passes the client-owned
     :class:`AuthTokens` collaborator directly to
@@ -412,18 +408,21 @@ def build_runtime_transport(
     / ``caplog`` selectors would not yet recognise.
     """
     return RuntimeTransport(
-        kernel=collaborators.kernel,
-        snapshot_provider=lambda: collaborators.auth_coord.snapshot(auth=auth),
+        kernel=kernel,
+        snapshot_provider=lambda: auth_coord.snapshot(auth=auth),
         chain_provider=lambda: chain_host._authed_post_chain,
-        metrics=collaborators.metrics,
-        bound_loop_check=lambda: collaborators.lifecycle.assert_bound_loop(),
+        metrics=metrics,
+        bound_loop_check=lifecycle.assert_bound_loop,
         logger=logger,
     )
 
 
 def wire_middleware_chain(
-    collaborators: RuntimeCollaborators,
     *,
+    drain_tracker: TransportDrainTracker,
+    metrics: ClientMetrics,
+    lifecycle: ClientLifecycle,
+    auth_coord: AuthRefreshCoordinator,
     chain_host: MiddlewareChainHost,
     auth: AuthTokens,
     authed_post_chain_terminal: Callable[..., Awaitable[Any]],
@@ -468,17 +467,17 @@ def wire_middleware_chain(
     # and ``RpcRequest.context`` contract live in
     # ``_middleware/chain.py`` module docstring.
     chain_builder = MiddlewareChainBuilder(
-        drain_tracker=collaborators.drain_tracker,
-        metrics=collaborators.metrics,
+        drain_tracker=drain_tracker,
+        metrics=metrics,
         rpc_semaphore=rpc_semaphore,
         rate_limit_max_retries_provider=lambda: chain_host._rate_limit_max_retries,
         server_error_max_retries_provider=lambda: chain_host._server_error_max_retries,
-        retry_timeout_provider=lambda: collaborators.lifecycle._timeout,
+        retry_timeout_provider=lambda: lifecycle._timeout,
         refresh_retry_delay_provider=lambda: chain_host._refresh_retry_delay,
         refresh_callable=chain_host.await_refresh,
-        auth_snapshot_provider=lambda: collaborators.auth_coord.snapshot(auth=auth),
+        auth_snapshot_provider=lambda: auth_coord.snapshot(auth=auth),
         is_auth_error=is_auth_error,
-        refresh_callback_enabled_provider=lambda: collaborators.auth_coord.has_refresh_callback,
+        refresh_callback_enabled_provider=lambda: auth_coord.has_refresh_callback,
     )
     middlewares: list[Middleware] = chain_builder.build()
     authed_post_chain: NextCall = build_chain(
@@ -516,7 +515,6 @@ def compose_client_internals(
     async_client_factory: Callable[..., httpx.AsyncClient] | None = None,
     authed_post_terminal: NextCall | None = None,
     seams: ClientSeams | None = None,
-    composed: ClientComposed | None = None,
 ) -> ClientInternals:
     """Single entry point that owns the client composition sequence."""
     # MUST stay first — preserves the earliest-opportunity refusal that
@@ -528,14 +526,6 @@ def compose_client_internals(
         is_auth_error=is_auth_error,
         decode_response=decode_response,
     )
-    if composed is None:
-        composed = ClientComposed(max_concurrent_rpcs=max_concurrent_rpcs)
-    elif composed.max_concurrent_rpcs != max_concurrent_rpcs:
-        raise ValueError(
-            "composed.max_concurrent_rpcs must match max_concurrent_rpcs "
-            f"(got composed.max_concurrent_rpcs={composed.max_concurrent_rpcs!r}, "
-            f"max_concurrent_rpcs={max_concurrent_rpcs!r})"
-        )
     async_client_factory = _resolve_async_client_factory(async_client_factory)
 
     config = validate_constructor_args(
@@ -556,7 +546,15 @@ def compose_client_internals(
         is_auth_error=seams.is_auth_error,
         async_client_factory=async_client_factory,
     )
-    collaborators = build_collaborators(
+    (
+        metrics,
+        drain_tracker,
+        reqid,
+        auth_coord,
+        kernel,
+        lifecycle,
+        cookie_persistence,
+    ) = _build_runtime_leaves(
         config,
         auth=auth,
         refresh_callback=refresh_callback,
@@ -565,25 +563,29 @@ def compose_client_internals(
         cookie_rotator=cookie_rotator,
     )
     chain_host = MiddlewareChainHost(
-        _auth_refresh=collaborators.auth_coord,
+        _auth_refresh=auth_coord,
         _rate_limit_max_retries=config.rate_limit_max_retries,
         _server_error_max_retries=config.server_error_max_retries,
         _refresh_retry_delay=config.refresh_retry_delay,
     )
-    composed.bind_runtime_collaborators(collaborators)
-    composed.bind_chain_host(chain_host)
+    rpc_semaphore = RpcSemaphore(config.max_concurrent_rpcs)
 
     transport = build_runtime_transport(
-        collaborators,
         auth=auth,
+        metrics=metrics,
+        auth_coord=auth_coord,
+        kernel=kernel,
+        lifecycle=lifecycle,
         chain_host=chain_host,
         logger=SESSION_LOGGER,
     )
-    composed.bind_transport(transport)
     chain_host._bind_transport(transport)
 
     wired = wire_middleware_chain(
-        collaborators,
+        drain_tracker=drain_tracker,
+        metrics=metrics,
+        lifecycle=lifecycle,
+        auth_coord=auth_coord,
         chain_host=chain_host,
         auth=auth,
         authed_post_chain_terminal=(
@@ -591,39 +593,43 @@ def compose_client_internals(
             if authed_post_terminal is not None
             else chain_host._authed_post_chain_terminal
         ),
-        rpc_semaphore=composed.rpc_semaphore,
+        rpc_semaphore=rpc_semaphore,
         is_auth_error=lambda *a, **kw: seams.is_auth_error(*a, **kw),
     )
     chain_host._authed_post_chain = wired.authed_post_chain
-    composed.bind_chain_metadata(wired)
 
-    executor = RpcExecutor(
-        kernel=collaborators.kernel,
+    executor = WebExecutionRuntime(
+        kernel=kernel,
         transport=transport,
-        auth_refresh=collaborators.auth_coord,
-        metrics=collaborators.metrics,
+        auth_refresh=auth_coord,
+        metrics=metrics,
         decode_response=lambda *a, **kw: seams.decode_response(*a, **kw),
         is_auth_error=lambda *a, **kw: seams.is_auth_error(*a, **kw),
         sleep=lambda *a, **kw: seams.sleep(*a, **kw),
-        timeout_provider=lambda: collaborators.lifecycle._timeout,
-        refresh_callback_enabled_provider=lambda: collaborators.auth_coord.has_refresh_callback,
+        timeout_provider=lambda: lifecycle._timeout,
+        refresh_callback_enabled_provider=lambda: auth_coord.has_refresh_callback,
         refresh_retry_delay_provider=lambda: chain_host._refresh_retry_delay,
     )
-    composed.bind_executor(executor)
-
     return ClientInternals(
-        collaborators=collaborators,
+        metrics=metrics,
+        drain_tracker=drain_tracker,
+        reqid=reqid,
+        auth_coord=auth_coord,
+        kernel=kernel,
+        lifecycle=lifecycle,
+        cookie_persistence=cookie_persistence,
         executor=executor,
         web_transport_factory=config.async_client_factory,
+        rpc_semaphore=rpc_semaphore,
+        transport=transport,
+        chain_host=chain_host,
     )
 
 
 __all__ = [
     "ClientInternals",
-    "RuntimeCollaborators",
     "ValidatedSessionConfig",
     "WiredMiddleware",
-    "build_collaborators",
     "build_runtime_transport",
     "compose_client_internals",
     "validate_constructor_args",

@@ -49,9 +49,7 @@ class MiddlewareChainBuilder:
 
     Provider callables (``rate_limit_max_retries_provider`` etc.) are
     used by ``RetryMiddleware`` / ``AuthRefreshMiddleware`` so
-    post-construction mutations on ``MiddlewareChainHost`` still take
-    effect — the integration-test idiom of poking
-    ``core._composed.chain_host._rate_limit_max_retries = 0`` must keep working.
+    backend-owned ``MiddlewareChainHost`` values are read at attempt time.
     """
 
     def __init__(

@@ -96,10 +96,10 @@ async def test_constructor_retry_budget_steers_pipeline(
     try:
         install_post_as_stream(
             monkeypatch,
-            core._collaborators.kernel.get_http_client(),
+            core._backend._kernel.get_http_client(),
             fake_post,
         )
-        response = await core._composed.transport.perform_authed_post(
+        response = await core._backend._runtime._transport.perform_authed_post(
             build_request=build,
             log_label="test-constructor-retry-budget",
         )
@@ -122,8 +122,8 @@ async def test_constructor_refresh_callback_is_the_refresh_leaf() -> None:
 
     core = build_client_shell_for_tests(auth=auth, refresh_callback=fake_refresh)
 
-    await core._collaborators.auth_coord.await_refresh()
-    await core._collaborators.auth_coord.await_refresh()
+    await core._backend._auth_coord.await_refresh()
+    await core._backend._auth_coord.await_refresh()
 
     assert calls == [None, None]
 
@@ -143,7 +143,7 @@ async def test_constructor_terminal_leaf_steers_real_middleware_pipeline() -> No
         def build(snapshot: AuthSnapshot) -> tuple[str, str, dict[str, str]]:
             return "https://example.test/x", "payload", {"X-Test": "yes"}
 
-        response = await core._composed.transport.perform_authed_post(
+        response = await core._backend._runtime._transport.perform_authed_post(
             build_request=build,
             log_label="test-terminal-leaf",
         )
@@ -163,6 +163,6 @@ def test_constructor_retry_values_reach_runtime_configuration() -> None:
         refresh_retry_delay=0.5,
     )
 
-    assert core._composed.chain_host._rate_limit_max_retries == 7
-    assert core._composed.chain_host._server_error_max_retries == 11
-    assert core._composed.chain_host._refresh_retry_delay == 0.5
+    assert core._backend._chain_host._rate_limit_max_retries == 7
+    assert core._backend._chain_host._server_error_max_retries == 11
+    assert core._backend._chain_host._refresh_retry_delay == 0.5

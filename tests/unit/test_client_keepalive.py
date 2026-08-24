@@ -105,7 +105,7 @@ class TestKeepaliveDisabledByDefault:
         """No keepalive task is spawned and no extra HTTP calls fire by default."""
         client = NotebookLMClient(mock_auth)
         async with client:
-            assert client._collaborators.lifecycle._keepalive_task is None
+            assert client._backend._lifecycle._keepalive_task is None
             # Give the loop a chance to run; nothing should happen
             await asyncio.sleep(0.1)
 
@@ -133,12 +133,12 @@ class TestKeepaliveLifecycle:
         )
 
         async with client:
-            task = client._collaborators.lifecycle._keepalive_task
+            task = client._backend._lifecycle._keepalive_task
             assert task is not None
             assert not task.done()
 
         # Task should be cleaned up; no warnings should be raised.
-        assert client._collaborators.lifecycle._keepalive_task is None
+        assert client._backend._lifecycle._keepalive_task is None
         # Either cancelled or finished; never left dangling.
         assert task.done()
 
@@ -152,7 +152,7 @@ class TestKeepaliveFloor:
             keepalive=10.0,
             keepalive_min_interval=60.0,
         )
-        assert client._collaborators.lifecycle._keepalive_interval == 60.0
+        assert client._backend._lifecycle._keepalive_interval == 60.0
 
     @pytest.mark.asyncio
     async def test_floor_does_not_lower_higher_interval(self, mock_auth):
@@ -162,7 +162,7 @@ class TestKeepaliveFloor:
             keepalive=600.0,
             keepalive_min_interval=60.0,
         )
-        assert client._collaborators.lifecycle._keepalive_interval == 600.0
+        assert client._backend._lifecycle._keepalive_interval == 600.0
 
     @pytest.mark.asyncio
     async def test_none_keeps_disabled(self, mock_auth):
@@ -172,7 +172,7 @@ class TestKeepaliveFloor:
             keepalive=None,
             keepalive_min_interval=60.0,
         )
-        assert client._collaborators.lifecycle._keepalive_interval is None
+        assert client._backend._lifecycle._keepalive_interval is None
 
 
 class TestKeepaliveValidation:
@@ -258,8 +258,8 @@ class TestKeepalivePokes:
                 failure_message="Expected first keepalive poke",
             )
             # Task is still running after the failure
-            assert client._collaborators.lifecycle._keepalive_task is not None
-            assert not client._collaborators.lifecycle._keepalive_task.done()
+            assert client._backend._lifecycle._keepalive_task is not None
+            assert not client._backend._lifecycle._keepalive_task.done()
             await _wait_for_rotate_requests(
                 httpx_mock,
                 minimum=2,
@@ -515,7 +515,7 @@ class TestSaveCookiesUnification:
             before production silently reverts to legacy merge.
             """
             lock_held_during_save.append(
-                core_ref["core"]._collaborators.cookie_persistence.save_lock.locked()
+                core_ref["core"]._backend._cookie_persistence.save_lock.locked()
             )
             call_kwargs.append(kwargs)
             return True
@@ -524,8 +524,8 @@ class TestSaveCookiesUnification:
         core = build_client_shell_for_tests(auth, cookie_saver=spy)
         core_ref["core"] = core
 
-        await core._collaborators.lifecycle.save_cookies(
-            core._collaborators.cookie_persistence,
+        await core._backend._lifecycle.save_cookies(
+            core._backend._cookie_persistence,
             httpx.Cookies(),
         )
 
@@ -592,9 +592,7 @@ class TestSaveCookiesUnification:
             must route through the snapshot/delta path, never the legacy
             full-merge path.
             """
-            save_calls.append(
-                client_ref["client"]._collaborators.cookie_persistence.save_lock.locked()
-            )
+            save_calls.append(client_ref["client"]._backend._cookie_persistence.save_lock.locked())
             snapshot_kwarg_present.append("original_snapshot" in kwargs)
             return True
 

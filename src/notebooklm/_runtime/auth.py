@@ -147,8 +147,7 @@ class AuthRefreshCoordinator(LoopBoundPrimitive):
         loop only on the *contended* acquire path, so a stale lock cannot
         actually trip the cross-loop ``RuntimeError`` today. The discard brings
         the coordinator in line with its clear-on-rebind siblings
-        (:class:`~notebooklm._client_composed.ClientComposed`,
-        ``SourceUploadPipeline``, ``ChatAPI``) so any future ``await`` under
+        (``RpcSemaphore``, ``SourceUploadPipeline``, ``ChatAPI``) so any future ``await`` under
         one of these locks cannot activate the trap.
 
         Deliberately does NOT touch ``_refresh_task``: the slot-preservation
@@ -174,7 +173,7 @@ class AuthRefreshCoordinator(LoopBoundPrimitive):
         under either lock — see :meth:`_on_loop_rebind`), so this is a
         consistency hardening, not an active-bug fix (#2106).
 
-        Mirrors :meth:`ClientComposed.reset_after_open`. Deliberately narrow:
+        Mirrors the backend-owned RPC semaphore reset. Deliberately narrow:
         dropping the references is enough because both locks are reallocated
         lazily by :meth:`get_refresh_lock` / :meth:`get_auth_snapshot_lock`
         from inside the new loop. ``_refresh_task`` and ``_refresh_callback``

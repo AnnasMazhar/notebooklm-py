@@ -41,7 +41,6 @@ import httpx
 
 from ._artifacts import ArtifactsAPI
 from ._chat import ChatAPI
-from ._client_composed import ClientComposed
 from ._client_seams import resolve_client_seams
 from ._collections import CollectionsAPI
 from ._deadline import RuntimeDeadlineFactory
@@ -164,29 +163,9 @@ def _assemble_client(
         if auth.storage_path != storage_path:
             auth = dataclasses.replace(auth, storage_path=storage_path)
 
-    # Direct client-owned reference to the authoritative ``AuthTokens``
-    # instance. Set AFTER the ``storage_path`` normalization above so it
-    # captures the same (possibly rebound) instance that
-    # :func:`compose_client_internals` then propagates into
-    # :class:`CookiePersistence`, the snapshot-provider lambdas,
-    # and :class:`SourceUploadPipeline`. ADR-0016's Auth Instance
-    # Invariant requires every reference across the live object graph
-    # to alias this exact same mutable object so
-    # :meth:`AuthRefreshCoordinator.update_auth_tokens` in-place
-    # mutations are observed everywhere.
-    #
-    # ``refresh_auth()``, the public ``auth`` property, and the
-    # ``SourceUploadPipeline(auth=...)`` constructor argument all back
-    # off this field. The client shell helper
-    # (``tests/_helpers/client_factory.build_client_shell_for_tests``)
-    # runs this exact function, so tests exercise the same code path as
-    # production.
-    client._auth = auth
-    # Per-client, route-keyed memo for ``get_account_email``. Set here — not in
-    # ``__init__`` — so the factory-built shell has it too
-    # (test_client_factory_parity, incidents #1196/#1225).
-    client._account_email_cache = None
-    client._account_email_cache_route = None
+    # ``auth`` is handed once to the backend-owned runtime and every
+    # auth-sensitive leaf captures that identical mutable object. The public
+    # client no longer publishes a second protocol-runtime owner.
 
     # Production default: the client's own ``refresh_auth`` bound method.
     # The test factory overrides this (typically with ``None`` or a fake)
@@ -255,9 +234,9 @@ def _assemble_client(
         import_research_timeout, name="import_research_timeout"
     )
 
-    # The client is the composition root: :func:`compose_client_internals`
-    # binds composition state onto ``client._composed`` and returns only the
-    # collaborators + executor that feature adapters need.
+    # This function is the only composition root. ``compose_client_internals``
+    # returns a complete frozen construction receipt which WebRpcBackend
+    # immediately unpacks before the client is published.
     #
     # The public NotebookLMClient kwarg surface is unchanged — the
     # five seam kwargs (``decode_response`` / ``sleep`` /
@@ -277,8 +256,6 @@ def _assemble_client(
         sleep=sleep,
         is_auth_error=is_auth_error,
     )
-    client._composed = ClientComposed(max_concurrent_rpcs=max_concurrent_rpcs)
-
     internals = compose_client_internals(
         auth=auth,
         timeout=timeout,
@@ -302,22 +279,7 @@ def _assemble_client(
         async_client_factory=async_client_factory,
         authed_post_terminal=authed_post_terminal,
         seams=client._seams,
-        composed=client._composed,
     )
-    # Owned reference to the collaborator bundle so
-    # :meth:`metrics_snapshot` (and any future
-    # NotebookLMClient-side collaborator consumers) read from the
-    # same bundle feature internals use.
-    client._collaborators = internals.collaborators
-    # Owned reference to the RPC executor so ``client.rpc_call``
-    # dispatches through it directly rather than through a
-    # compatibility wrapper. The executor satisfies the
-    # ``RpcCaller`` Protocol and is the same instance the feature
-    # APIs receive (``internals.executor`` is shared with
-    # ``SourcesAPI`` / ``NotebooksAPI`` / ``ArtifactsAPI``
-    # / ``ChatAPI`` / etc., so a test that swaps the executor's
-    # ``rpc_call`` sees the swap on every feature consumer).
-    client._rpc_executor = internals.executor
     # ADR-0014 Rule 2: the upload pipeline takes its three runtime
     # collaborators (``rpc`` + ``drain`` + ``lifecycle``) directly
     # instead of via a composite-runtime adapter. ``Kernel`` and
@@ -327,17 +289,17 @@ def _assemble_client(
     # ``SourcesAPI`` no longer reads them back off a broad host.
     source_uploader = SourceUploadPipeline(
         rpc=internals.executor,
-        drain=internals.collaborators.drain_tracker,
-        lifecycle=internals.collaborators.lifecycle,
-        kernel=internals.collaborators.kernel,
+        drain=internals.drain_tracker,
+        lifecycle=internals.lifecycle,
+        kernel=internals.kernel,
         # ADR-0016's Auth Instance Invariant: the upload pipeline
-        # reads the client-owned ``client._auth`` reference set above
+        # reads the backend-owned ``auth`` reference
         # instead of a detached auth copy. Production refresh-time
         # mutation is therefore observed by the uploader unchanged.
-        auth=client._auth,
+        auth=auth,
         upload_timeout=upload_timeout,
         max_concurrent_uploads=max_concurrent_uploads,
-        record_upload_queue_wait=internals.collaborators.metrics.record_upload_queue_wait,
+        record_upload_queue_wait=internals.metrics.record_upload_queue_wait,
     )
     # Assemble the private semantic port once every backend-owned collaborator
     # is available. The resolved transport factory remains a construction
@@ -346,15 +308,17 @@ def _assemble_client(
         internals.executor,
         transport_factory=internals.web_transport_factory,
         source_uploader=source_uploader,
-        chat_transport=client._composed.transport,
-        chat_reqid=internals.collaborators.reqid,
+        chat_transport=internals.transport,
+        chat_reqid=internals.reqid,
         chat_timeout=resolve_chat_read_timeout(chat_timeout, timeout),
         chat_response_max_bytes=chat_response_max_bytes,
         # Match WebExecutionRuntime's established live timeout-provider
         # contract. Each semantic call captures the current client timeout
         # once; an already-started RuntimeDeadline remains immutable even if a
         # later test/internal reconfiguration changes the lifecycle scalar.
-        deadline_factory=RuntimeDeadlineFactory(lambda: internals.collaborators.lifecycle._timeout),
+        deadline_factory=RuntimeDeadlineFactory(lambda: internals.lifecycle._timeout),
+        client_runtime=internals,
+        auth=auth,
     )
     # Hold the uploader as a first-class client attribute so the
     # open-time loop-affinity reset (issue #1196 upload variant) can
@@ -391,8 +355,8 @@ def _assemble_client(
     # It receives the semantic backend plus the drain/lifecycle collaborators
     # used by its lifecycle-terminal polling service.
     client.artifacts = ArtifactsAPI(
-        drain=internals.collaborators.drain_tracker,
-        lifecycle=internals.collaborators.lifecycle,
+        drain=internals.drain_tracker,
+        lifecycle=internals.lifecycle,
         notebooks=client.notebooks,
         mind_maps=mind_maps,
         note_service=legacy_note_backed,
@@ -403,7 +367,7 @@ def _assemble_client(
     # delegates all six semantic operations to the client-owned backend.
     client.chat = ChatAPI(
         backend=client._backend,
-        loop_guard=internals.collaborators.lifecycle,
+        loop_guard=internals.lifecycle,
         notebooks=client.notebooks,
         created_chat_sessions=client.notebooks,
     )

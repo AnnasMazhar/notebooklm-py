@@ -45,8 +45,8 @@ async def refresh_auth_session(
     lifecycle's ``host``-shaped ``save_cookies`` signature; both have
     been lifted now that every collaborator the refresh path needs is
     in scope directly. The single production caller
-    (:meth:`NotebookLMClient.refresh_auth`) sources the five
-    collaborators from ``self._auth`` and ``self._collaborators``.
+    (:meth:`NotebookLMClient.refresh_auth`) delegates to WebRpcBackend, which
+    owns the five collaborators.
 
     Layer-3 headless re-auth (the deepest recovery layer):
 

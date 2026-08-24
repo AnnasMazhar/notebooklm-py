@@ -33,8 +33,8 @@ async def test_snapshot_provider_captures_client_auth_by_identity() -> None:
             account_email=auth.account_email,
         )
 
-    client._collaborators.auth_coord.snapshot = snapshot  # type: ignore[method-assign]
+    client._backend._auth_coord.snapshot = snapshot  # type: ignore[method-assign]
 
-    await client._composed.transport._snapshot_provider()
+    await client._backend._runtime._transport._snapshot_provider()
 
-    assert captured["auth"] is client._auth
+    assert captured["auth"] is client.auth

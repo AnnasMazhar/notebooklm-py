@@ -21,7 +21,6 @@ Example:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Callable, Generator
 from pathlib import Path
@@ -37,15 +36,10 @@ if TYPE_CHECKING:
 # Keep feature/collaborator types importable for runtime type-hint introspection.
 from ._artifacts import ArtifactsAPI
 from ._auth import tokens as _auth_tokens
-from ._auth.account import _probe_authuser
 from ._auth.account import authuser_query as authuser_query
-from ._auth.account_email import AccountEmailCacheKey, resolve_account_email
 from ._auth.extraction import extract_wiz_field as extract_wiz_field
-from ._auth.session import refresh_auth_session
-from ._backend import BackendAdapter
 from ._chat import ChatAPI
 from ._client_assembly import _assemble_client
-from ._client_composed import ClientComposed
 from ._client_seams import ClientSeams
 from ._client_seams import resolve_client_seams as resolve_client_seams  # noqa: F401
 from ._collections import CollectionsAPI
@@ -58,7 +52,6 @@ from ._note_service import NoteService as NoteService  # noqa: F401
 from ._notebooks import NotebooksAPI
 from ._notes import NotesAPI
 from ._research import ResearchAPI
-from ._rpc_executor import RpcExecutor
 from ._runtime.config import (
     AUTO_READ_TIMEOUT,
     DEFAULT_CHAT_RESPONSE_MAX_BYTES,
@@ -67,7 +60,6 @@ from ._runtime.config import (
     DEFAULT_MAX_CONCURRENT_UPLOADS,
     DEFAULT_TIMEOUT,
 )
-from ._runtime.init import RuntimeCollaborators
 from ._runtime.init import compose_client_internals as compose_client_internals  # noqa: F401
 from ._runtime.lifecycle import CookieRotator, CookieSaver
 from ._settings import SettingsAPI
@@ -75,6 +67,7 @@ from ._sharing import SharingAPI
 from ._source.upload import SourceUploadPipeline
 from ._sources import SourcesAPI
 from ._url_utils import is_google_auth_redirect as is_google_auth_redirect
+from ._web.backend import WebRpcBackend
 from .auth import AuthTokens
 from .exceptions import AuthExtractionError as AuthExtractionError
 
@@ -131,12 +124,8 @@ class NotebookLMClient:
     # block in sync with ``_assemble_client``; the parity gate
     # ``tests/_guardrails/test_client_factory_parity.py`` pins the
     # runtime attribute surface itself.
-    _auth: AuthTokens
     _seams: ClientSeams
-    _composed: ClientComposed
-    _collaborators: RuntimeCollaborators
-    _rpc_executor: RpcExecutor
-    _backend: BackendAdapter
+    _backend: WebRpcBackend
     _source_uploader: SourceUploadPipeline
     sources: SourcesAPI
     notebooks: NotebooksAPI
@@ -329,13 +318,6 @@ class NotebookLMClient:
     #: Per-client memo for the signed-in account email so a *successful* live probe
     #: (used only when neither the in-memory ``AuthTokens`` nor persisted storage
     #: carries one) runs at most once per account route. A failed/undiscoverable probe
-    #: is NOT memoized, so a genuinely account-less profile re-probes on each call —
-    #: acceptable for the rare ``include_account`` path. The route key invalidates a
-    #: cached email after mid-session profile reload switches or clears the account.
-    #: Assigned in ``_assemble_client`` (factory-shell parity).
-    _account_email_cache: str | None
-    _account_email_cache_route: AccountEmailCacheKey | None
-
     @property
     def auth(self) -> AuthTokens:
         """Get the authentication tokens.
@@ -345,20 +327,12 @@ class NotebookLMClient:
         :class:`AuthTokens` object set in :meth:`__init__`, so the public
         ``client.auth`` identity and behavior are unchanged.
         """
-        return self._auth
+        return self._backend.auth
 
     async def __aenter__(self) -> NotebookLMClient:
         """Open the client connection."""
         logger.debug("Opening NotebookLM client")
-        # Preserve the historical fail-fast check that composition is complete.
-        _ = self._composed.transport
-        await self._collaborators.lifecycle.open(
-            auth=self._auth,
-            drain_tracker=self._collaborators.drain_tracker,
-            auth_coord=self._collaborators.auth_coord,
-            reqid=self._collaborators.reqid,
-            cookie_persistence=self._collaborators.cookie_persistence,
-            composed=self._composed,
+        await self._backend.open_client(
             uploader=self._source_uploader,
             chat=self.chat,
         )
@@ -398,7 +372,7 @@ class NotebookLMClient:
         owns the in-flight counter; the public client-side behavior
         (drain semantics and timeout propagation) is unchanged.
         """
-        await self._collaborators.drain_tracker.drain(timeout=timeout)
+        await self._backend.drain_client(timeout=timeout)
 
     async def close(
         self,
@@ -483,100 +457,14 @@ class NotebookLMClient:
         feature hook that blocks indefinitely could still extend shutdown,
         and such hooks should bound their own work.
         """
-        if drain:
-            drain_timeout_exc: TimeoutError | None = None
-            try:
-                # Close top-level admission under the tracker's condition
-                # before awaiting hooks. Negative timeouts retain their
-                # historical validation path through ``drain`` below: close
-                # still runs hooks, raises ValueError, and does not arm drain.
-                if not (drain_timeout is not None and drain_timeout < 0):
-                    await self._collaborators.drain_tracker.begin_drain()
-                # Fire feature-owned cancel hooks BEFORE the drain wait (see
-                # the "Drain-hook ordering" section of the docstring above for
-                # why). Awaited inside this ``try`` so a *caller* CancelledError
-                # arriving during the hook fire still routes through the I12
-                # shielded-close path below; ``run_drain_hooks`` itself never
-                # re-raises (it gathers with ``return_exceptions=True``).
-                await self._collaborators.drain_tracker.run_drain_hooks()
-                await self.drain(timeout=drain_timeout)
-            except TimeoutError as exc:
-                # Drain deadline missed. Hold onto the exception and
-                # fall through to the shielded close below so callers
-                # see both the timeout signal AND a torn-down transport.
-                drain_timeout_exc = exc
-            except asyncio.CancelledError:
-                # Cancellation-safety contract (audit finding I12): if
-                # the caller's task is cancelled while drain() is
-                # waiting (e.g. ``asyncio.wait_for`` deadline, manual
-                # ``task.cancel()``), we MUST still tear down the
-                # transport before letting the cancel propagate. On a
-                # single cancellation this shielded await runs to
-                # completion synchronously (Python does not re-raise
-                # CancelledError without an explicit re-cancel). If a
-                # SECOND cancel arrives while we're parked here,
-                # ``asyncio.shield`` isolates the inner lifecycle close
-                # Task so it continues in the background; the second
-                # cancel hits the awaiter and is swallowed below so the
-                # original CancelledError surfaces unchanged.
-                try:
-                    await asyncio.shield(
-                        self._collaborators.lifecycle.close(
-                            auth_coord=self._collaborators.auth_coord,
-                            drain_tracker=self._collaborators.drain_tracker,
-                            cookie_persistence=self._collaborators.cookie_persistence,
-                        )
-                    )
-                except (Exception, asyncio.CancelledError):
-                    # Swallow regular close failures and any re-cancel
-                    # propagated through the shield await so the
-                    # original CancelledError below is the one that
-                    # reaches the caller. The inner shielded Task
-                    # continues to run regardless.
-                    # NOTE: deliberately NOT catching ``BaseException`` —
-                    # ``KeyboardInterrupt`` and ``SystemExit`` are
-                    # process-exit signals that must propagate unchanged.
-                    pass
-                raise
-            # Any other exception from drain (e.g. ``ValueError`` for a
-            # caller-provided invalid deadline) propagates here without
-            # an implicit close — matches pre-I12 caller-error semantics
-            # asserted by
-            # ``test_close_with_invalid_drain_does_not_close_transport``.
-
-            try:
-                await asyncio.shield(
-                    self._collaborators.lifecycle.close(
-                        auth_coord=self._collaborators.auth_coord,
-                        drain_tracker=self._collaborators.drain_tracker,
-                        cookie_persistence=self._collaborators.cookie_persistence,
-                    )
-                )
-            except Exception as close_exc:
-                if drain_timeout_exc is not None:
-                    logger.warning(
-                        "Suppressing close() error after drain timeout to "
-                        "preserve timeout signal: %s",
-                        close_exc,
-                    )
-                    raise drain_timeout_exc from close_exc
-                raise
-            if drain_timeout_exc is not None:
-                raise drain_timeout_exc
-            return
-        await self._collaborators.lifecycle.close(
-            auth_coord=self._collaborators.auth_coord,
-            drain_tracker=self._collaborators.drain_tracker,
-            cookie_persistence=self._collaborators.cookie_persistence,
-        )
+        await self._backend.close_client(drain=drain, drain_timeout=drain_timeout)
 
     def metrics_snapshot(self) -> ClientMetricsSnapshot:
         """Return cumulative observability counters for this client.
 
-        Reads from the collaborator bundle stored by :meth:`__init__` from
-        the composition root's :class:`ClientInternals`.
+        The backend owns the one metrics instance used by the runtime chain.
         """
-        return self._collaborators.metrics.snapshot()
+        return self._backend.metrics_snapshot()
 
     async def rpc_call(
         self,
@@ -616,7 +504,7 @@ class NotebookLMClient:
             were removed (see :doc:`/deprecations`). The default-shape
             call (``client.rpc_call(method, params)``) is unchanged.
         """
-        return await self._rpc_executor.rpc_call(
+        return await self._backend.public_rpc_call(
             method=method,
             params=params,
             allow_null=allow_null,
@@ -628,7 +516,7 @@ class NotebookLMClient:
     @property
     def is_connected(self) -> bool:
         """Check if the client is connected."""
-        return self._collaborators.lifecycle.is_open()
+        return self._backend.is_connected
 
     @classmethod
     def from_storage(
@@ -769,19 +657,10 @@ class NotebookLMClient:
         This helps prevent 'Session Expired' errors by obtaining a fresh CSRF
         token (SNlM0e) and session ID (FdrFJe).
 
-        This call site uses explicit collaborators sourced from
-        ``self._auth`` and ``self._collaborators``. The five kwargs mirror
-        the :func:`refresh_auth_session` signature: ``auth`` is the
-        client-owned :class:`AuthTokens` instance (the Auth Instance
-        Invariant guarantees this is the same object every auth consumer
-        observes), and the remaining four come from the collaborator
-        bundle the composition root produced
-        (:func:`notebooklm._runtime.init.compose_client_internals`). The
-        ``tests/_helpers/client_factory.build_client_shell_for_tests``
-        helper wires ``_auth`` and ``_collaborators`` through the same
-        :func:`notebooklm._client_assembly._assemble_client` seam this
-        constructor delegates to, so test shells observe the same
-        resolution path.
+        This compatibility method delegates to WebRpcBackend, which owns the
+        authoritative AuthTokens and refresh collaborators. The public
+        constructor and canonical test factory share the same atomic assembly
+        path.
 
         Args:
             allow_headless: Opt in to **layer-3 headless re-auth** when the
@@ -826,37 +705,7 @@ class NotebookLMClient:
                 changed), or if cookies are dead and L3 is unavailable / also
                 fails (the persisted profile's Google session is expired too).
         """
-        coord = self._collaborators.auth_coord
-        if not allow_headless or not coord.has_refresh_callback:
-            # Base policy — also the coordinator's single-flight callback body,
-            # so this branch must NOT re-enter await_refresh (that would recurse
-            # through the callback). No coordinator wired ⇒ same direct path.
-            return await refresh_auth_session(
-                auth=self._auth,
-                kernel=self._collaborators.kernel,
-                auth_coord=coord,
-                lifecycle=self._collaborators.lifecycle,
-                cookie_persistence=self._collaborators.cookie_persistence,
-                allow_headless=allow_headless,
-            )
-        # Wider policy: join the in-flight base refresh (join-then-rerun).
-        try:
-            await coord.await_refresh()
-        except ValueError:
-            # Narrow by design: the L3-remediable base-flight failure surfaces as
-            # ValueError (dead-cookie 302 / token extraction). refresh-cmd swallows
-            # its RuntimeError internally (returns bool), so a RuntimeError here is
-            # incidental (e.g. "Client not initialized") and must propagate, not
-            # trigger a second headless refresh; transport 5xx propagates too.
-            return await refresh_auth_session(
-                auth=self._auth,
-                kernel=self._collaborators.kernel,
-                auth_coord=coord,
-                lifecycle=self._collaborators.lifecycle,
-                cookie_persistence=self._collaborators.cookie_persistence,
-                allow_headless=True,
-            )
-        return self._auth
+        return await self._backend.refresh_auth(allow_headless=allow_headless)
 
     def get_account_authuser(self) -> int:
         """Return the ``authuser`` index of the signed-in account (0 = default).
@@ -865,7 +714,7 @@ class NotebookLMClient:
         the profile's persisted metadata or inline ``NOTEBOOKLM_AUTH_JSON``);
         network-free. Falls back to ``0`` for pre-account-binding profiles.
         """
-        return self._auth.authuser
+        return self._backend.get_account_authuser()
 
     async def get_account_email(self, *, live_fallback: bool = True) -> str | None:
         """Return the signed-in Google account email, or ``None`` if undiscoverable.
@@ -886,19 +735,7 @@ class NotebookLMClient:
         (calling outside ``async with``) is the only surfaced error, from
         :meth:`Kernel.get_http_client`, and only on the live-fallback path.
         """
-        email, cached_email, cached_key = await resolve_account_email(
-            auth=self._auth,
-            cached_email=self._account_email_cache,
-            cached_key=self._account_email_cache_route,
-            live_fallback=live_fallback,
-            get_cookies=self._collaborators.kernel.get_cookies,
-            get_http_client=self._collaborators.kernel.get_http_client,
-            probe=_probe_authuser,
-            to_thread=asyncio.to_thread,
-        )
-        self._account_email_cache = cached_email
-        self._account_email_cache_route = cached_key
-        return email
+        return await self._backend.get_account_email(live_fallback=live_fallback)
 
 
 class _FromStorageContext:
@@ -980,10 +817,8 @@ class _FromStorageContext:
             upload_timeout=kwargs["upload_timeout"],
             on_rpc_event=kwargs["on_rpc_event"],
         )
-        if isinstance(loaded, _auth_tokens.FileLoadedAuth) and hasattr(client, "_collaborators"):
-            client._collaborators.cookie_persistence.register_open_baseline(
-                loaded.store, loaded.persistence_baseline
-            )
+        if isinstance(loaded, _auth_tokens.FileLoadedAuth) and hasattr(client, "_backend"):
+            client._backend.register_open_baseline(loaded.store, loaded.persistence_baseline)
         self._client = client
         return client
 

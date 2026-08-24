@@ -9,7 +9,7 @@ axis:
 
 * The trivial owners (``TransportDrainTracker`` / ``ReqidCounter`` /
   ``AuthRefreshCoordinator``) only stored the new binding.
-* The clear-on-rebind owners (``ClientComposed`` / ``SourceUploadPipeline`` /
+* The clear-on-rebind owners (``RpcSemaphore`` / ``SourceUploadPipeline`` /
   ``ChatAPI``) additionally discarded their cached loop-bound state *when the
   loop actually changed* so a stale primitive bound to a now-dead loop is never
   reused after a reopen on a different loop.

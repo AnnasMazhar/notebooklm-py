@@ -134,14 +134,13 @@ class _StubHost:
         # like ``_auth_coord``, by ``reset_after_open`` (#2106) so their lazy
         # loop-bound locks are discarded on close→reopen.
         self._reqid = MagicMock()
-        # ``open()`` also propagates the bound loop into the composition
-        # holder and resets the lazy RPC semaphore (issue #1169): it calls
-        # ``composed.set_bound_loop(loop)`` and ``composed.reset_after_open()``
+        # ``open()`` also propagates the bound loop into the RPC semaphore
+        # (issue #1169): it calls ``set_bound_loop`` and ``reset_after_open``
         # so a client reopened on a different loop rebuilds the semaphore on
         # the new loop. The ``MagicMock`` default lets both calls land
         # without configuring side effects; the invocations are asserted by
         # ``test_open_captures_bound_loop_and_resets_drain``.
-        self.runtime_holder = MagicMock()
+        self.rpc_semaphore = MagicMock()
         # ``open()`` also propagates the bound loop into the Sources upload
         # pipeline and resets its lazy upload semaphore (issue #1196 upload
         # variant): it calls ``uploader.set_bound_loop(loop)`` and
@@ -212,7 +211,7 @@ async def _open(lifecycle: ClientLifecycle, host: _StubHost) -> None:
         auth_coord=host._auth_coord,
         reqid=host._reqid,
         cookie_persistence=host.cookie_persistence,
-        composed=host.runtime_holder,
+        rpc_semaphore=host.rpc_semaphore,
         uploader=host._uploader,
         chat=host._chat,
     )
@@ -286,10 +285,8 @@ async def test_open_captures_bound_loop_and_resets_drain() -> None:
     host._drain_tracker.reset_after_open.assert_called_once_with()
     # Issue #1169: the focused RPC gate owner receives loop propagation and
     # reset treatment directly so it rebinds on close→reopen.
-    host.runtime_holder.rpc_semaphore.set_bound_loop.assert_called_once_with(
-        asyncio.get_running_loop()
-    )
-    host.runtime_holder.rpc_semaphore.reset_after_open.assert_called_once_with()
+    host.rpc_semaphore.set_bound_loop.assert_called_once_with(asyncio.get_running_loop())
+    host.rpc_semaphore.reset_after_open.assert_called_once_with()
     # Issue #1196 upload variant: the Sources upload pipeline is the second
     # lazily-built loop-bound semaphore and must receive the same
     # set_bound_loop / reset_after_open treatment so the upload semaphore
@@ -664,7 +661,7 @@ def test_bound_loop_mismatch_via_session_raises_runtime_error() -> None:
         # populated, this is a no-op and ``_bound_loop`` stays bound to loop A.
         await core.__aenter__()
         try:
-            await core._composed.transport.perform_authed_post(
+            await core._backend._runtime._transport.perform_authed_post(
                 build_request=_build_request_stub,
                 log_label="test.cross_loop",
             )

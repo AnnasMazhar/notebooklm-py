@@ -31,15 +31,15 @@ async def test_coordinator_refresh_crosses_client_and_session_composition_seam()
     client = NotebookLMClient(auth)
     # Keep production assembly and callback wiring; replace only the network
     # transport so this boundary test remains deterministic and offline.
-    client._collaborators.kernel._async_client_factory = client_factory
+    client._backend._kernel._async_client_factory = client_factory
 
     async with client:
-        callback = client._collaborators.auth_coord._refresh_callback
+        callback = client._backend._auth_coord._refresh_callback
         assert callback is not None
         assert getattr(callback, "__self__", None) is client
         assert getattr(callback, "__func__", None) is NotebookLMClient.refresh_auth
 
-        await client._collaborators.auth_coord.await_refresh()
+        await client._backend._auth_coord.await_refresh()
 
     assert len(requests) == 1
     assert requests[0].method == "GET"

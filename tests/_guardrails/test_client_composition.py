@@ -10,7 +10,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLIENT_PATH = REPO_ROOT / "src" / "notebooklm" / "client.py"
 ASSEMBLY_PATH = REPO_ROOT / "src" / "notebooklm" / "_client_assembly.py"
-COMPOSED_PATH = REPO_ROOT / "src" / "notebooklm" / "_client_composed.py"
+RUNTIME_INIT_PATH = REPO_ROOT / "src" / "notebooklm" / "_runtime" / "init.py"
 
 # Both composition-root files: ``client.py`` (the thin ``__init__``
 # delegate) and ``_client_assembly.py`` (the shared assembly seam the
@@ -88,22 +88,48 @@ def test_notebooklm_client_does_not_inline_composition_holder_state(path: Path) 
             violations.append(f"line {node.lineno}: {node.value.id}.{node.attr}")
 
     assert not violations, (
-        f"{path.name} must keep composition holder state on ClientComposed:\n  "
+        f"{path.name} must keep runtime state on the backend-owned atomic runtime:\n  "
         + "\n  ".join(violations)
     )
 
 
-def test_client_composed_does_not_expose_collaborators_alias() -> None:
-    tree = _tree(COMPOSED_PATH)
-    violations: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "collaborators":
-            violations.append(f"property/function line {node.lineno}: collaborators")
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Attribute) and target.attr == "collaborators":
-                    violations.append(f"assignment line {node.lineno}: .collaborators")
-    assert not violations, (
-        "ClientComposed must expose runtime_collaborators, not collaborators:\n  "
-        + "\n  ".join(violations)
+def test_mutable_client_composed_holder_is_retired() -> None:
+    assert not (REPO_ROOT / "src" / "notebooklm" / "_client_composed.py").exists()
+    for path in COMPOSITION_ROOT_PATHS:
+        assert "ClientComposed" not in path.read_text(encoding="utf-8")
+
+
+def test_client_internals_is_a_frozen_complete_runtime_record() -> None:
+    tree = _tree(RUNTIME_INIT_PATH)
+    classes = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == "ClientInternals"
+    ]
+    assert len(classes) == 1
+    class_node = classes[0]
+    fields = {
+        node.target.id
+        for node in class_node.body
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    }
+    assert fields == {
+        "metrics",
+        "drain_tracker",
+        "reqid",
+        "auth_coord",
+        "kernel",
+        "lifecycle",
+        "cookie_persistence",
+        "executor",
+        "web_transport_factory",
+        "rpc_semaphore",
+        "transport",
+        "chain_host",
+    }
+    decorator = class_node.decorator_list[0]
+    assert isinstance(decorator, ast.Call)
+    assert any(
+        keyword.arg == "frozen" and isinstance(keyword.value, ast.Constant) and keyword.value.value
+        for keyword in decorator.keywords
     )

@@ -41,7 +41,7 @@ def _status_error(status_code: int, *, retry_after: str | None = None) -> httpx.
 
 @pytest.mark.asyncio
 async def test_rpc_executor_attribute_is_dispatched_through(monkeypatch) -> None:
-    """``core._rpc_executor`` is the canonical RPC dispatch seam."""
+    """``core._backend._runtime`` is the canonical RPC dispatch seam."""
     core = build_client_shell_for_tests(_auth_tokens())
     calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
 
@@ -52,14 +52,14 @@ async def test_rpc_executor_attribute_is_dispatched_through(monkeypatch) -> None
 
     executor = FakeExecutor()
     # Stage B1 PR 2 deleted ``Session._get_rpc_executor`` (the lazy
-    # factory) — the executor now lives directly on ``core._rpc_executor``
+    # factory) — the executor now lives directly on ``core._backend._runtime``
     # post-composition. Override the attribute so every caller that
-    # dispatches through ``core._rpc_executor.rpc_call(...)`` sees the
+    # dispatches through ``core._backend._runtime.rpc_call(...)`` sees the
     # fake.
-    monkeypatch.setattr(core, "_rpc_executor", executor)
+    monkeypatch.setattr(core._backend, "_runtime", executor)
 
     assert (
-        await core._rpc_executor.rpc_call(
+        await core._backend._runtime.rpc_call(
             RPCMethod.LIST_NOTEBOOKS,
             [],
             "/",
@@ -133,7 +133,7 @@ async def test_constructor_injected_decode_response_drives_executor(monkeypatch)
         return {"decoded": rpc_id}
 
     core = build_client_shell_for_tests(_auth_tokens(), decode_response=fake_decode)
-    executor = core._rpc_executor
+    executor = core._backend._runtime
 
     async def fake_perform_authed_post(
         *,
@@ -151,7 +151,9 @@ async def test_constructor_injected_decode_response_drives_executor(monkeypatch)
     # ``self._transport.perform_authed_post(...)`` directly instead of
     # routing through the retired ``Session._perform_authed_post`` forward. Patch the
     # collaborator the executor actually reaches.
-    monkeypatch.setattr(core._composed.transport, "perform_authed_post", fake_perform_authed_post)
+    monkeypatch.setattr(
+        core._backend._runtime._transport, "perform_authed_post", fake_perform_authed_post
+    )
 
     result = await executor._execute_once(
         RPCMethod.LIST_NOTEBOOKS,
@@ -161,7 +163,7 @@ async def test_constructor_injected_decode_response_drives_executor(monkeypatch)
         False,
     )
 
-    assert core._rpc_executor is executor
+    assert core._backend._runtime is executor
     assert result == {"decoded": RPCMethod.LIST_NOTEBOOKS.value}
     assert decode_calls == [
         {
@@ -734,7 +736,7 @@ async def test_constructor_injected_sleep_drives_executor(monkeypatch) -> None:
         refresh_retry_delay=0.5,
         sleep=fake_sleep,
     )
-    executor = core._rpc_executor
+    executor = core._backend._runtime
     refresh_calls = 0
 
     async def fake_await_refresh() -> None:
@@ -772,7 +774,7 @@ async def test_constructor_injected_sleep_drives_executor(monkeypatch) -> None:
 
     # ADR-0014 Rule 5 (Wave 4): executor calls ``self._auth_refresh.await_refresh()``
     # directly. Patch the collaborator the executor actually reaches.
-    monkeypatch.setattr(core._collaborators.auth_coord, "await_refresh", fake_await_refresh)
+    monkeypatch.setattr(core._backend._auth_coord, "await_refresh", fake_await_refresh)
     monkeypatch.setattr(executor, "rpc_call", fake_rpc_call)
 
     from notebooklm._auth_refresh_retry import RefreshBudget
@@ -789,7 +791,7 @@ async def test_constructor_injected_sleep_drives_executor(monkeypatch) -> None:
         _refresh_budget=RefreshBudget(),
     )
 
-    assert core._rpc_executor is executor
+    assert core._backend._runtime is executor
     assert result == {"ok": True}
     assert refresh_calls == 1
     assert sleep_calls == [0.5]

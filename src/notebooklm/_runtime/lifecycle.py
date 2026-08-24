@@ -76,9 +76,9 @@ from .config import CORE_LOGGER_NAME
 
 if TYPE_CHECKING:
     from .._chat import ChatAPI
-    from .._client_composed import ClientComposed
     from .._cookie_persistence import CookiePersistence
     from .._reqid_counter import ReqidCounter
+    from .._rpc_semaphore import RpcSemaphore
     from .._source.upload import SourceUploadPipeline
     from .._transport_drain import TransportDrainTracker
     from ..types import ConnectionLimits
@@ -240,7 +240,7 @@ class ClientLifecycle:
         auth_coord: AuthRefreshCoordinator,
         reqid: ReqidCounter,
         cookie_persistence: CookiePersistence,
-        composed: ClientComposed,
+        rpc_semaphore: RpcSemaphore,
         uploader: SourceUploadPipeline,
         chat: ChatAPI,
     ) -> None:
@@ -290,7 +290,7 @@ class ClientLifecycle:
         # ``asyncio.Semaphore`` and break on Python 3.10/3.11. Propagating the
         # captured loop lets ``RpcSemaphore.get`` short-circuit
         # cross-loop misuse with the shared diagnostic.
-        composed.rpc_semaphore.set_bound_loop(self._bound_loop)
+        rpc_semaphore.set_bound_loop(self._bound_loop)
         # The Sources upload semaphore is the second lazily-built loop-bound
         # ``asyncio.Semaphore`` with the same close→reopen hazard as the RPC
         # semaphore above (the bug #1196 fixed for RPC): a client closed on
@@ -319,7 +319,7 @@ class ClientLifecycle:
         # bound to the prior (now-dead) loop (issue #1169). Narrow by design —
         # the semaphore is reconstructed lazily on the next ``get_rpc_semaphore``
         # call from inside the new loop; ``max_concurrent_rpcs`` is untouched.
-        composed.rpc_semaphore.reset_after_open()
+        rpc_semaphore.reset_after_open()
         # Same close→reopen reset for the Sources upload semaphore so a
         # reopened client rebuilds it on the new loop instead of reusing the
         # stale one bound to the prior (now-dead) loop. Narrow by design — the
@@ -453,13 +453,9 @@ class ClientLifecycle:
         so a single misbehaving hook can't block the rest of the close
         sequence.
 
-        There is no close-time ``host._rpc_executor = None`` step. The
-        composition root
-        (:func:`notebooklm._runtime.init.compose_client_internals`)
-        binds the executor exactly once via
-        :meth:`notebooklm._client_composed.ClientComposed.bind_executor`,
-        and the binding is preserved across ``close()`` → ``open()``
-        cycles. The executor's
+        There is no close-time executor reset. The composition root builds the
+        backend execution runtime exactly once, and that ownership is preserved
+        across ``close()`` → ``open()`` cycles. The runtime's
         underlying transport collaborator (:class:`Kernel`) rebuilds
         its ``httpx.AsyncClient`` on each :meth:`open`, so the executor
         continues to operate against the fresh transport state without
@@ -512,8 +508,7 @@ class ClientLifecycle:
                 # the transport. The shielded aclose runs to completion;
                 # ``self._http_client = None`` then makes ``is_open``
                 # return False correctly. There is no
-                # ``host._rpc_executor = None`` step here — the executor is
-                # composition-root-bound and persists across
+                # executor-reset step here — the backend runtime persists across
                 # close() → open() cycles.
                 await asyncio.shield(self._kernel.aclose())
 

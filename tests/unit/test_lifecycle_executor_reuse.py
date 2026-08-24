@@ -21,7 +21,7 @@ This module pins three load-bearing invariants:
    a full ``close()`` → ``open()`` cycle.
 2. The reused executor can still execute an RPC after the cycle (it is
    not bound to a stale transport reference).
-3. ``NotebookLMClient._rpc_executor`` is the same client-owned executor stored
+3. ``NotebookLMClient._backend._runtime`` is the same client-owned executor stored
    on ``ClientComposed``.
 """
 
@@ -50,18 +50,18 @@ async def test_executor_identity_survives_close_then_open() -> None:
 
     Pins the Stage B1 PR 2 contract: the composition root binds the
     executor exactly once and :meth:`ClientLifecycle.close` no longer
-    nulls ``host._rpc_executor``. The same :class:`RpcExecutor`
+    nulls ``host._backend._runtime``. The same :class:`RpcExecutor`
     reference drives RPCs across the lifecycle cycle — feature
     adapters that captured the executor at construction time
     (``ChatAPI`` / ``SourcesAPI`` / etc.) do not need to re-grab it.
     """
     core = build_client_shell_for_tests(_make_auth())
-    initial_executor = core._rpc_executor
+    initial_executor = core._backend._runtime
     assert initial_executor is not None, "composition root must bind the executor"
 
     await core.__aenter__()
     try:
-        assert core._rpc_executor is initial_executor, (
+        assert core._backend._runtime is initial_executor, (
             "open() must not rebind the executor — it persists from composition"
         )
     finally:
@@ -69,13 +69,13 @@ async def test_executor_identity_survives_close_then_open() -> None:
 
     # Stage B1 PR 2 dropped the close-time null on _rpc_executor; the
     # binding survives close().
-    assert core._rpc_executor is initial_executor, (
+    assert core._backend._runtime is initial_executor, (
         "close() must not null the executor — Stage B1 PR 2 dropped that step"
     )
 
     await core.__aenter__()
     try:
-        assert core._rpc_executor is initial_executor, (
+        assert core._backend._runtime is initial_executor, (
             "second open() also leaves the executor alone — same instance "
             "throughout the close()→open() cycle"
         )
@@ -87,14 +87,14 @@ async def test_executor_identity_survives_close_then_open() -> None:
 async def test_rpc_call_succeeds_after_close_then_open_with_same_executor() -> None:
     """A reused executor still executes RPCs after a full lifecycle cycle.
 
-    Production callers reach the executor as ``client._rpc_executor``;
+    Production callers reach the executor as ``client._backend._runtime``;
     if Stage B1 PR 2 had accidentally re-nulled the slot inside
     :meth:`ClientLifecycle.close`, the second dispatch after the cycle
     would raise ``AttributeError``. This test exercises the call path end-to-end
     through a stubbed executor to confirm the binding survives.
     """
     core = build_client_shell_for_tests(_make_auth())
-    executor = core._rpc_executor
+    executor = core._backend._runtime
     assert executor is not None
 
     # Stub ``rpc_call`` on the executor with a plain async function
@@ -114,7 +114,7 @@ async def test_rpc_call_succeeds_after_close_then_open_with_same_executor() -> N
 
     # Drive a full lifecycle cycle.
     await core.__aenter__()
-    result1 = await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+    result1 = await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
     await core.close()
 
     # Critical re-open + rpc_call — the deleted close-time null would
@@ -122,7 +122,7 @@ async def test_rpc_call_succeeds_after_close_then_open_with_same_executor() -> N
     # fail-fast guard.
     await core.__aenter__()
     try:
-        result2 = await core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+        result2 = await core._backend._runtime.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
     finally:
         await core.close()
 
@@ -131,11 +131,12 @@ async def test_rpc_call_succeeds_after_close_then_open_with_same_executor() -> N
     assert sentinel["call_count"] == 2
     # The executor reference never moved — both calls dispatched
     # through the same fake.
-    assert core._rpc_executor is executor
+    assert core._backend._runtime is executor
 
 
-def test_session_rpc_executor_forwards_to_client_composed() -> None:
-    """``NotebookLMClient._rpc_executor`` reads through ``ClientComposed``."""
+def test_client_raw_rpc_uses_backend_owned_runtime() -> None:
+    """The client publishes no second executor owner."""
     core = build_client_shell_for_tests(_make_auth())
 
-    assert core._rpc_executor is core._composed.executor
+    assert core.notebooks._legacy_rpc is core._backend._runtime
+    assert not hasattr(core, "_rpc_executor")

@@ -124,23 +124,23 @@ def test_shared_wiring_identities_hold_on_both_paths() -> None:
             f"{label}: chat must share the client's NotebooksAPI instance "
             "(ChatAPI._notebooks), not a privately constructed one"
         )
-        assert getattr(client.notebooks, "_legacy_rpc", _missing) is client._rpc_executor, (
+        assert getattr(client.notebooks, "_legacy_rpc", _missing) is client._backend._runtime, (
             f"{label}: notebook raw-compatibility helpers must use the client's "
             "shared RpcExecutor through the narrow legacy collaborator"
         )
         assert getattr(client.notebooks._share_manager, "_backend", _missing) is client._backend, (
             f"{label}: the injected ShareManager must share the client's semantic backend"
         )
-        assert getattr(client._backend, "_executor", _missing) is client._rpc_executor, (
-            f"{label}: the private WebRpcBackend must share the client's RpcExecutor"
-        )
+        assert not hasattr(client, "_rpc_executor")
+        assert not hasattr(client, "_collaborators")
         assert (
             getattr(getattr(client.chat, "_service", None), "_backend", _missing) is client._backend
         ), f"{label}: chat must share the client-owned semantic backend"
         assert (
-            getattr(client._backend, "_chat_transport", _missing) is client._composed.transport
+            getattr(client._backend, "_chat_transport", _missing)
+            is client._backend._runtime._transport
         ), f"{label}: chat.ask must use the client-owned runtime transport"
-        assert getattr(client._backend, "_chat_reqid", _missing) is client._collaborators.reqid, (
+        assert getattr(client._backend, "_chat_reqid", _missing) is client._backend._reqid, (
             f"{label}: chat.ask must use the client-owned request-id counter"
         )
         assert (
@@ -159,13 +159,11 @@ def test_shared_wiring_identities_hold_on_both_paths() -> None:
             )
             is client._backend
         ), f"{label}: URL source mutations must share the client-owned semantic backend"
-        assert getattr(client._source_uploader, "_auth", _missing) is client._auth, (
+        assert getattr(client._source_uploader, "_auth", _missing) is client._backend.auth, (
             f"{label}: the upload pipeline (SourceUploadPipeline._auth) must alias "
             "the client-owned AuthTokens (ADR-0016 Auth Instance Invariant)"
         )
-        assert client.auth is client._auth, (
-            f"{label}: the public auth property must alias the client-owned AuthTokens"
-        )
+        assert client.auth is client._backend.auth
 
 
 def test_backend_receives_the_resolved_web_transport_factory() -> None:
@@ -181,7 +179,8 @@ def test_backend_receives_the_resolved_web_transport_factory() -> None:
 
     assert client._backend.kind.value == "web"
     assert client._backend._transport_factory is transport_factory
-    assert client._collaborators.kernel._async_client_factory is transport_factory
+    assert client._backend._kernel is not None
+    assert client._backend._kernel._async_client_factory is transport_factory
 
 
 # --- detector self-tests (non-vacuity, per docs/development.md) ------------

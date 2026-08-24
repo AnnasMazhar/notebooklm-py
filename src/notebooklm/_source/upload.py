@@ -286,7 +286,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         on a *different* event loop builds a fresh ``asyncio.Semaphore`` on the new
         loop instead of reusing the stale one bound to the old (now-dead) loop
         (which on 3.10/3.11 can raise "bound to a different event loop" or mispark
-        waiters). Mirrors ``ClientComposed.reset_after_open``; the semaphore is
+        waiters). Mirrors the backend RPC semaphore reset; the semaphore is
         rebuilt lazily on the next :meth:`get_upload_semaphore` call.
         """
         self._upload_semaphore = None

@@ -100,15 +100,15 @@ async def test_session_close_drains_artifact_poll_hook() -> None:
     # (``rpc`` + ``drain`` + ``lifecycle``) directly — mirrors production
     # wiring in ``NotebookLMClient.__init__``.
     artifacts = ArtifactsAPI(
-        rpc=core._rpc_executor,
-        drain=core._collaborators.drain_tracker,
-        lifecycle=core._collaborators.lifecycle,
+        rpc=core._backend._runtime,
+        drain=core._backend._drain_tracker,
+        lifecycle=core._backend._lifecycle,
         notebooks=MagicMock(),
         mind_maps=MagicMock(spec=NoteBackedMindMapService),
         note_service=MagicMock(spec=NoteService),
     )
     assert (
-        core._collaborators.drain_tracker._drain_hooks["artifacts.polls"]
+        core._backend._drain_tracker._drain_hooks["artifacts.polls"]
         == artifacts._lifecycle_service.drain
     )
     await core.__aenter__()
@@ -148,12 +148,12 @@ async def test_session_close_absorbs_drain_hook_errors() -> None:
     async def angry_hook() -> None:
         raise RuntimeError("poll cleanup failed")
 
-    core._collaborators.drain_tracker.register_drain_hook("angry", angry_hook)
+    core._backend._drain_tracker.register_drain_hook("angry", angry_hook)
 
     # return_exceptions=True in close() means this should NOT propagate.
     await asyncio.wait_for(core.close(), timeout=1.0)
 
-    assert core._collaborators.kernel.http_client is None
+    assert core._backend._kernel.http_client is None
 
 
 @pytest.mark.asyncio
@@ -162,7 +162,7 @@ async def test_session_close_with_no_polls_is_noop_on_drain_step() -> None:
     core = build_client_shell_for_tests(_auth())
     await core.__aenter__()
     await core.close()
-    assert core._collaborators.kernel.http_client is None
+    assert core._backend._kernel.http_client is None
 
 
 @pytest.mark.asyncio
@@ -184,7 +184,7 @@ async def test_close_drain_cancels_inflight_poll_in_operation_scope() -> None:
     core = build_client_shell_for_tests(_auth())
     await core.__aenter__()
 
-    tracker = core._collaborators.drain_tracker
+    tracker = core._backend._drain_tracker
     registry = PollRegistry()
     cancellation_seen = asyncio.Event()
     scope_entered = asyncio.Event()
@@ -227,7 +227,7 @@ async def test_close_drain_cancels_inflight_poll_in_operation_scope() -> None:
     assert task.done()
     assert cancellation_seen.is_set()
     assert tracker._in_flight_posts == 0
-    assert core._collaborators.kernel.http_client is None
+    assert core._backend._kernel.http_client is None
     # Resolve the registered future so it isn't GC'd un-awaited (the poll task
     # was cancelled, so mirror that on the shared future).
     if not future.done():
@@ -256,9 +256,9 @@ async def test_close_fires_drain_hooks_before_drain_wait() -> None:
     async def fake_close(**_kwargs: object) -> None:
         order.append("close")
 
-    client._collaborators.drain_tracker.run_drain_hooks = fake_run_drain_hooks  # type: ignore[method-assign]
-    client._collaborators.drain_tracker.drain = fake_drain  # type: ignore[method-assign]
-    client._collaborators.lifecycle.close = fake_close  # type: ignore[method-assign]
+    client._backend._drain_tracker.run_drain_hooks = fake_run_drain_hooks  # type: ignore[method-assign]
+    client._backend._drain_tracker.drain = fake_drain  # type: ignore[method-assign]
+    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     await client.close()
 
@@ -271,7 +271,7 @@ async def test_close_fires_drain_hooks_before_drain_wait() -> None:
 async def test_close_arms_drain_before_hooks_without_rejecting_nested_work() -> None:
     """No fresh operation can enter while close is awaiting a feature hook."""
     client = NotebookLMClient(_auth())
-    tracker = client._collaborators.drain_tracker
+    tracker = client._backend._drain_tracker
     hook_entered = asyncio.Event()
     release_hook = asyncio.Event()
 
@@ -283,7 +283,7 @@ async def test_close_arms_drain_before_hooks_without_rejecting_nested_work() -> 
         return None
 
     tracker.register_drain_hook("blocking", blocking_hook)
-    client._collaborators.lifecycle.close = fake_close  # type: ignore[method-assign]
+    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     outer = await tracker.begin_transport_post("accepted-before-close")
     close_task = asyncio.create_task(client.close(drain=True))
@@ -319,8 +319,8 @@ async def test_client_close_default_drain_is_true() -> None:
     async def fake_close(**_kwargs: object) -> None:
         pass
 
-    client._collaborators.drain_tracker.drain = fake_drain  # type: ignore[method-assign]
-    client._collaborators.lifecycle.close = fake_close  # type: ignore[method-assign]
+    client._backend._drain_tracker.drain = fake_drain  # type: ignore[method-assign]
+    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     await client.close()
 
@@ -341,8 +341,8 @@ async def test_client_close_drain_false_skips_drain() -> None:
     async def fake_close(**_kwargs: object) -> None:
         pass
 
-    client._collaborators.drain_tracker.drain = fake_drain  # type: ignore[method-assign]
-    client._collaborators.lifecycle.close = fake_close  # type: ignore[method-assign]
+    client._backend._drain_tracker.drain = fake_drain  # type: ignore[method-assign]
+    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     await client.close(drain=False)
 
@@ -361,8 +361,8 @@ async def test_client_aexit_uses_drain_true_default() -> None:
     async def fake_close(**_kwargs: object) -> None:
         pass
 
-    client._collaborators.drain_tracker.drain = fake_drain  # type: ignore[method-assign]
-    client._collaborators.lifecycle.close = fake_close  # type: ignore[method-assign]
+    client._backend._drain_tracker.drain = fake_drain  # type: ignore[method-assign]
+    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     # Drive __aexit__ directly rather than `async with` so we can use the
     # patched core without going through ``open()``.

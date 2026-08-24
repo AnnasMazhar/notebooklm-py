@@ -14,17 +14,14 @@ brittle whole-``vars()`` snapshot.  Coverage is intentionally split as follows:
 from __future__ import annotations
 
 import asyncio
-from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 
-from notebooklm._middleware.retry import RetryMiddleware
-from notebooklm._middleware.semaphore import SemaphoreMiddleware
+from notebooklm._records import SourceAddFileResult, SourceRecord
 from notebooklm._runtime.config import DEFAULT_MAX_CONCURRENT_UPLOADS
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
@@ -37,10 +34,6 @@ def _auth() -> AuthTokens:
         csrf_token="option-routing-csrf",
         session_id="option-routing-session",
     )
-
-
-def _middleware(client: NotebookLMClient, kind: type[Any]) -> Any:
-    return next(item for item in client._composed.middlewares if isinstance(item, kind))
 
 
 def test_constructor_options_route_to_current_effective_consumers(tmp_path: Path) -> None:
@@ -85,11 +78,12 @@ def test_constructor_options_route_to_current_effective_consumers(tmp_path: Path
         import_research_timeout=83.0,
     )
 
-    lifecycle = client._collaborators.lifecycle
+    lifecycle = client._backend._lifecycle
+    assert lifecycle is not None
 
     # timeout -> lifecycle, executor budget, and ResearchAPI base window.
     assert lifecycle._timeout == 37.0
-    assert client._rpc_executor._timeout_provider() == 37.0
+    assert client._backend._runtime._timeout_provider() == 37.0
     assert client.research._base_timeout == 37.0
 
     # storage_path -> a client-local AuthTokens copy, persistence owners, and
@@ -107,11 +101,7 @@ def test_constructor_options_route_to_current_effective_consumers(tmp_path: Path
     assert lifecycle._keepalive_interval == 11.0
 
     # Retry options -> the live chain-host values consumed by RetryMiddleware.
-    retry = _middleware(client, RetryMiddleware)
-    assert client._composed.chain_host._rate_limit_max_retries == 6
-    assert client._composed.chain_host._server_error_max_retries == 7
-    assert retry._resolve_rate_limit_max() == 6
-    assert retry._resolve_server_error_max() == 7
+    assert client._backend.retry_limits == (6, 7)
 
     # Connection limits are owned by lifecycle.open(), which passes this exact
     # neutral value object to Kernel.open().
@@ -130,13 +120,14 @@ def test_constructor_options_route_to_current_effective_consumers(tmp_path: Path
 
     # RPC concurrency reaches its focused owner and the live middleware;
     # the lazily materialized semaphore has the configured capacity.
-    semaphore_middleware = _middleware(client, SemaphoreMiddleware)
-    assert client._composed.max_concurrent_rpcs == 9
-    assert semaphore_middleware._rpc_semaphore is client._composed.rpc_semaphore
-    assert client._composed.get_rpc_semaphore()._value == 9
+    rpc_semaphore = client._backend._rpc_semaphore
+    assert rpc_semaphore is not None
+    assert rpc_semaphore.max_concurrent_rpcs == 9
+    assert rpc_semaphore.get()._value == 9
 
     # Callback/cookie seams retain identity at their single runtime owners.
-    assert client._collaborators.metrics._on_rpc_event is on_rpc_event
+    assert client._backend._metrics is not None
+    assert client._backend._metrics._on_rpc_event is on_rpc_event
     assert lifecycle._cookie_saver is cookie_saver
     assert lifecycle._cookie_rotator is cookie_rotator
     assert telemetry_calls == []
@@ -158,9 +149,18 @@ async def test_upload_options_reach_the_public_sources_api_route(tmp_path: Path)
         upload_timeout=upload_timeout,
         max_concurrent_uploads=3,
     )
-    uploaded = Source(id="uploaded-source", title="Report")
+    uploaded = Source(id="uploaded-source", title="report.txt")
     add_file = AsyncMock(return_value=SimpleNamespace(source=uploaded, transient_error_types=()))
+    finalize_file_title = AsyncMock(
+        return_value=SourceAddFileResult(SourceRecord(id="uploaded-source", title="Report"))
+    )
     client._source_uploader._add_file_result = add_file
+    source_service = client.sources._source_service
+    assert source_service is not None
+    client.sources._source_service = SimpleNamespace(  # type: ignore[assignment]
+        add_file=source_service.add_file,
+        finalize_file_title=finalize_file_title,
+    )
     client.sources.wait_until_ready = AsyncMock(return_value=uploaded)  # type: ignore[method-assign]
     path = tmp_path / "report.txt"
 
@@ -173,7 +173,8 @@ async def test_upload_options_reach_the_public_sources_api_route(tmp_path: Path)
         title="Report",
     )
 
-    assert result == uploaded
+    assert result.id == "uploaded-source"
+    assert result.title == "Report"
     assert client._source_uploader._resolve_upload_timeout(httpx.Timeout(1.0)) is upload_timeout
     assert client._source_uploader.get_upload_semaphore()._value == 3
     add_file.assert_awaited_once_with(
@@ -191,6 +192,10 @@ async def test_upload_options_reach_the_public_sources_api_route(tmp_path: Path)
         timeout=41.0,
         transient_error_types=(),
     )
+    finalize_file_title.assert_awaited_once()
+    assert finalize_file_title.await_args.args[0] == "notebook-id"
+    assert finalize_file_title.await_args.args[1].id == "uploaded-source"
+    assert finalize_file_title.await_args.args[2] == "Report"
 
 
 @pytest.mark.parametrize("bad_value", [0, -1])
@@ -236,11 +241,10 @@ def test_rpc_limit_cross_validates_against_connection_pool() -> None:
 
 def test_none_rpc_limit_routes_to_the_unbounded_semaphore_path() -> None:
     client = NotebookLMClient(_auth(), max_concurrent_rpcs=None)
-    semaphore_middleware = _middleware(client, SemaphoreMiddleware)
-
-    assert client._composed.max_concurrent_rpcs is None
-    assert isinstance(client._composed.get_rpc_semaphore(), type(nullcontext()))
-    assert semaphore_middleware._rpc_semaphore is client._composed.rpc_semaphore
+    rpc_semaphore = client._backend._rpc_semaphore
+    assert rpc_semaphore is not None
+    assert rpc_semaphore.max_concurrent_rpcs is None
+    assert rpc_semaphore.get().__class__.__name__ == "nullcontext"
 
 
 @pytest.mark.asyncio
@@ -263,7 +267,8 @@ async def test_on_rpc_event_callback_is_owned_and_awaited() -> None:
         request_id="request-1",
     )
 
-    emission = asyncio.create_task(client._collaborators.metrics.emit_rpc_event(event))
+    assert client._backend._metrics is not None
+    emission = asyncio.create_task(client._backend._metrics.emit_rpc_event(event))
     await asyncio.wait_for(entered.wait(), timeout=1.0)
     await asyncio.sleep(0)
     assert not emission.done()

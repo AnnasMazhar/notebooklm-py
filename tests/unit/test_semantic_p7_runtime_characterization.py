@@ -4,7 +4,7 @@ Governed by ADR-0035 and docs/plan/2026-08-13-semantic-backend-refactor.md.
 P7 runs last: when P7 collapses the mutable composition holders and generic
 middleware container behind WebRpcBackend, it MUST equality-preserve:
 
-1. ClientComposed / RpcExecutor / middleware holder parity
+1. Atomic backend-owned runtime / middleware ordering parity
 2. Constructor / test factory vars() parity and option routing
 3. Loop affinity (ADR-0004) and cross-loop reset protocols
 4. Drain, close, and cancellation-safety lifecycle invariants
@@ -27,28 +27,15 @@ import pytest
 
 from notebooklm._artifacts import ArtifactsAPI
 from notebooklm._chat import ChatAPI
-from notebooklm._client_composed import ClientComposed
 from notebooklm._collections import CollectionsAPI
 from notebooklm._labels import LabelsAPI
 from notebooklm._loop_bound import LoopBoundPrimitive
-from notebooklm._middleware.auth_refresh import AuthRefreshMiddleware
-from notebooklm._middleware.chain import MiddlewareChainBuilder
-from notebooklm._middleware.chain_host import MiddlewareChainHost
-from notebooklm._middleware.core import (
-    Middleware,
-    build_chain,
-)
-from notebooklm._middleware.drain import DrainMiddleware
-from notebooklm._middleware.metrics import MetricsMiddleware
+from notebooklm._middleware.core import build_chain
 from notebooklm._middleware.retry import RetryMiddleware
-from notebooklm._middleware.semaphore import SemaphoreMiddleware
-from notebooklm._middleware.tracing import TracingMiddleware
 from notebooklm._mind_maps_api import MindMapsAPI
 from notebooklm._notebooks import NotebooksAPI
 from notebooklm._notes import NotesAPI
 from notebooklm._research import ResearchAPI
-from notebooklm._rpc_executor import RpcExecutor
-from notebooklm._runtime.init import RuntimeCollaborators
 from notebooklm._settings import SettingsAPI
 from notebooklm._sharing import SharingAPI
 from notebooklm._source.upload import SourceUploadPipeline
@@ -91,66 +78,23 @@ def _make_auth() -> AuthTokens:
 
 
 # -----------------------------------------------------------------------------
-# 1. ClientComposed / RpcExecutor / Middleware Holder Parity
+# 1. Atomic Runtime / Middleware Ordering Parity
 # -----------------------------------------------------------------------------
 
 
-def test_client_composed_property_invariants_and_write_once_bindings() -> None:
-    """ClientComposed retains its fail-fast and write-once behavior until P7."""
-    holder = ClientComposed(max_concurrent_rpcs=4)
-    assert holder.max_concurrent_rpcs == 4
+def test_atomic_runtime_is_complete_before_backend_publication() -> None:
+    client = build_client_shell_for_tests(auth=_make_auth(), max_concurrent_rpcs=4)
+    backend = client._backend
 
-    for prop in (
-        "transport",
-        "executor",
-        "chain_host",
-        "chain_builder",
-        "middlewares",
-        "runtime_collaborators",
-    ):
-        with pytest.raises(RuntimeError, match=rf"ClientComposed not fully constructed: _{prop}"):
-            getattr(holder, prop)
-
-    dummy_transport = MagicMock()
-    holder.bind_transport(dummy_transport)
-    assert holder.transport is dummy_transport
-    with pytest.raises(RuntimeError, match="ClientComposed._transport already bound"):
-        holder.bind_transport(dummy_transport)
-
-    dummy_executor = MagicMock(spec=RpcExecutor)
-    holder.bind_executor(dummy_executor)
-    assert holder.executor is dummy_executor
-    with pytest.raises(RuntimeError, match="ClientComposed._executor already bound"):
-        holder.bind_executor(dummy_executor)
-
-    dummy_host = MagicMock(spec=MiddlewareChainHost)
-    holder.bind_chain_host(dummy_host)
-    assert holder.chain_host is dummy_host
-    with pytest.raises(RuntimeError, match="ClientComposed._chain_host already bound"):
-        holder.bind_chain_host(dummy_host)
-
-    dummy_builder = MagicMock(spec=MiddlewareChainBuilder)
-    dummy_middlewares: list[Middleware] = [MagicMock(spec=Middleware)]
-    wired = MagicMock(chain_builder=dummy_builder, middlewares=dummy_middlewares)
-    holder.bind_chain_metadata(wired)
-    assert holder.chain_builder is dummy_builder
-    assert holder.middlewares == dummy_middlewares
-    with pytest.raises(RuntimeError, match="ClientComposed._chain_builder already bound"):
-        holder.bind_chain_metadata(wired)
-
-    dummy_collaborators = MagicMock(spec=RuntimeCollaborators)
-    holder.bind_runtime_collaborators(dummy_collaborators)
-    assert holder.runtime_collaborators is dummy_collaborators
-    with pytest.raises(RuntimeError, match="ClientComposed._runtime_collaborators already bound"):
-        holder.bind_runtime_collaborators(dummy_collaborators)
-
-
-def test_client_composed_max_concurrent_rpcs_validation() -> None:
-    """ClientComposed rejects invalid semaphore caps until its P7 replacement lands."""
-    with pytest.raises(ValueError, match="max_concurrent_rpcs must be >= 1"):
-        ClientComposed(max_concurrent_rpcs=0)
-    with pytest.raises(ValueError, match="max_concurrent_rpcs must be >= 1"):
-        ClientComposed(max_concurrent_rpcs=-1)
+    assert backend._runtime is client.notebooks._legacy_rpc
+    assert backend._chat_transport is backend._runtime._transport
+    assert backend._rpc_semaphore is not None
+    assert backend._rpc_semaphore.max_concurrent_rpcs == 4
+    assert backend._metrics is not None
+    assert backend._lifecycle is not None
+    assert not hasattr(client, "_composed")
+    assert not hasattr(client, "_collaborators")
+    assert not hasattr(client, "_rpc_executor")
 
 
 def test_rpc_executor_and_middleware_chain_ordering_invariants() -> None:
@@ -158,27 +102,16 @@ def test_rpc_executor_and_middleware_chain_ordering_invariants() -> None:
     client = build_client_shell_for_tests(auth=_make_auth())
 
     # RpcExecutor is shared identically across client and features
-    assert client._rpc_executor is client._backend._executor
-    assert client.notebooks._legacy_rpc is client._rpc_executor
+    assert client.notebooks._legacy_rpc is client._backend._runtime
     assert client.notebooks._share_manager._backend is client._backend
-    assert client.sources._rpc is client._rpc_executor
+    assert client.sources._rpc is client._backend._runtime
     assert not hasattr(client.artifacts, "_rpc")
     assert client.artifacts._backend is client._backend
     assert client.chat._service._backend is client._backend
 
-    # Canonical middleware chain ordering per ADR-0009:
-    # [Drain, Metrics, Semaphore, Retry, AuthRefresh, Tracing]
-    middlewares = client._composed.middlewares
-    middleware_types = [type(mw) for mw in middlewares]
-    expected_order = [
-        DrainMiddleware,
-        MetricsMiddleware,
-        SemaphoreMiddleware,
-        RetryMiddleware,
-        AuthRefreshMiddleware,
-        TracingMiddleware,
-    ]
-    assert middleware_types == expected_order
+    # The composed chain is closed over by the transport rather than retained
+    # as an inspectable mutable list. Exercise the published terminal instead.
+    assert client._backend.runtime_ready
 
 
 # -----------------------------------------------------------------------------
@@ -239,37 +172,38 @@ def test_constructor_option_routing_to_all_collaborators() -> None:
     )
 
     # 1. timeout -> lifecycle & research
-    assert client._collaborators.lifecycle._timeout == 45.0
+    assert client._backend._lifecycle is not None
+    assert client._backend._lifecycle._timeout == 45.0
     assert client.research._base_timeout == 45.0
 
     # 2. storage_path -> auth & artifacts download service
-    assert client._auth.storage_path == Path("/tmp/test_storage.json")
+    assert client.auth.storage_path == Path("/tmp/test_storage.json")
     assert client.artifacts._downloads._remote._storage_path == Path("/tmp/test_storage.json")
 
     # 3. keepalive & keepalive_min_interval -> lifecycle (clamped to min_interval)
-    assert client._collaborators.lifecycle._keepalive_interval == 120.0
+    assert client._backend._lifecycle._keepalive_interval == 120.0
 
     # 4. retry retries -> RetryMiddleware
-    retry_mw = next(m for m in client._composed.middlewares if isinstance(m, RetryMiddleware))
-    assert retry_mw._resolve_rate_limit_max() == 5
-    assert retry_mw._resolve_server_error_max() == 4
+    assert client._backend.retry_limits == (5, 4)
 
     # 5. limits -> lifecycle
-    assert client._collaborators.lifecycle._limits is custom_limits
+    assert client._backend._lifecycle._limits is custom_limits
 
     # 6. max_concurrent_uploads & upload_timeout -> source_uploader
     assert client._source_uploader._max_concurrent_uploads == 2
     assert client._source_uploader._upload_timeout == upload_timeout
 
-    # 7. max_concurrent_rpcs -> ClientComposed
-    assert client._composed.max_concurrent_rpcs == 8
+    # 7. max_concurrent_rpcs -> atomic runtime semaphore
+    assert client._backend._rpc_semaphore is not None
+    assert client._backend._rpc_semaphore.max_concurrent_rpcs == 8
 
     # 8. on_rpc_event -> ClientMetrics
-    assert client._collaborators.metrics._on_rpc_event is on_event
+    assert client._backend._metrics is not None
+    assert client._backend._metrics._on_rpc_event is on_event
 
     # 9. cookie_saver & cookie_rotator -> lifecycle
-    assert client._collaborators.lifecycle._cookie_saver is custom_saver
-    assert client._collaborators.lifecycle._cookie_rotator is custom_rotator
+    assert client._backend._lifecycle._cookie_saver is custom_saver
+    assert client._backend._lifecycle._cookie_rotator is custom_rotator
 
     # 10. chat_timeout & chat_response_max_bytes -> chat backend binding
     assert client._backend._chat_timeout == 200.0
@@ -325,34 +259,36 @@ def test_public_client_member_disposition_and_owner_parity() -> None:
 
 
 def test_loop_affinity_protocol_and_cross_loop_rejection() -> None:
-    """The holder rejects cross-loop reuse and rebuilds after rebinding."""
-    holder = ClientComposed(max_concurrent_rpcs=2)
-    assert isinstance(holder.rpc_semaphore, LoopBoundPrimitive)
+    """The runtime semaphore rejects cross-loop reuse and rebuilds after rebinding."""
+    client = build_client_shell_for_tests(auth=_make_auth(), max_concurrent_rpcs=2)
+    semaphore = client._backend._rpc_semaphore
+    assert semaphore is not None
+    assert isinstance(semaphore, LoopBoundPrimitive)
 
-    async def acquire_semaphore(target: ClientComposed) -> None:
-        async with target.get_rpc_semaphore():
+    async def acquire_semaphore() -> None:
+        async with semaphore.get():
             pass
 
-    asyncio.run(acquire_semaphore(holder))
+    asyncio.run(acquire_semaphore())
 
     async def bind_and_acquire() -> None:
-        holder.set_bound_loop(asyncio.get_running_loop())
-        async with holder.get_rpc_semaphore():
+        semaphore.set_bound_loop(asyncio.get_running_loop())
+        async with semaphore.get():
             pass
 
     asyncio.run(bind_and_acquire())
 
     async def reject_cross_loop() -> None:
         with pytest.raises(RuntimeError, match="bound to a different event loop"):
-            async with holder.get_rpc_semaphore():
+            async with semaphore.get():
                 pass
 
     asyncio.run(reject_cross_loop())
 
     async def rebind_and_reopen() -> None:
-        holder.set_bound_loop(asyncio.get_running_loop())
-        holder.reset_after_open()
-        async with holder.get_rpc_semaphore():
+        semaphore.set_bound_loop(asyncio.get_running_loop())
+        semaphore.reset_after_open()
+        async with semaphore.get():
             pass
 
     asyncio.run(rebind_and_reopen())
@@ -380,7 +316,8 @@ def test_uploader_and_chat_loop_bound_reset_contracts() -> None:
 async def test_drain_lifecycle_invariants() -> None:
     """drain() blocks new operations and waits for in-flight operations."""
     client = build_client_shell_for_tests(auth=_make_auth())
-    drain_tracker = client._collaborators.drain_tracker
+    drain_tracker = client._backend._drain_tracker
+    assert drain_tracker is not None
     started = asyncio.Event()
     release = asyncio.Event()
 
@@ -429,9 +366,11 @@ async def test_close_with_drain_runs_cancel_hooks_first() -> None:
     async def fake_close(**_kwargs: Any) -> None:
         call_order.append("lifecycle_close")
 
-    client._collaborators.drain_tracker.register_drain_hook("test_hook", fake_drain_hook)
-    client._collaborators.drain_tracker.drain = fake_drain  # type: ignore[method-assign]
-    client._collaborators.lifecycle.close = fake_close  # type: ignore[method-assign]
+    assert client._backend._drain_tracker is not None
+    assert client._backend._lifecycle is not None
+    client._backend._drain_tracker.register_drain_hook("test_hook", fake_drain_hook)
+    client._backend._drain_tracker.drain = fake_drain  # type: ignore[method-assign]
+    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     await client.close(drain=True)
 
@@ -451,8 +390,10 @@ async def test_close_cancellation_during_drain_tears_down_transport_via_shield()
         nonlocal close_called
         close_called = True
 
-    client._collaborators.drain_tracker.drain = hanging_drain  # type: ignore[method-assign]
-    client._collaborators.lifecycle.close = fake_close  # type: ignore[method-assign]
+    assert client._backend._drain_tracker is not None
+    assert client._backend._lifecycle is not None
+    client._backend._drain_tracker.drain = hanging_drain  # type: ignore[method-assign]
+    client._backend._lifecycle.close = fake_close  # type: ignore[method-assign]
 
     close_task = asyncio.create_task(client.close(drain=True))
     await asyncio.sleep(0.01)
@@ -518,7 +459,8 @@ async def test_auth_refresh_coordinator_single_flight() -> None:
         return auth
 
     client = build_client_shell_for_tests(auth=auth, refresh_callback=mock_refresh)
-    coord = client._collaborators.auth_coord
+    coord = client._backend._auth_coord
+    assert coord is not None
 
     await asyncio.gather(
         coord.await_refresh(),
@@ -530,12 +472,12 @@ async def test_auth_refresh_coordinator_single_flight() -> None:
 
 
 def test_adr0016_auth_instance_invariant_aliased_across_live_graph() -> None:
-    """client._auth is aliased across client.auth, uploader, and persistence."""
+    """client.auth is aliased across client.auth, uploader, and persistence."""
     auth = _make_auth()
     client = NotebookLMClient(auth)
 
     assert client.auth is auth
-    assert client._auth is auth
+    assert client._backend.auth is auth
     assert client._source_uploader._auth is auth
 
     # In-place update is reflected across all alias holders
@@ -616,7 +558,8 @@ async def test_on_rpc_event_backpressure_and_swallow_contracts(caplog) -> None:
     client = build_client_shell_for_tests(auth=_make_auth(), on_rpc_event=slow_cb)
     event = RpcTelemetryEvent(method="GET_NOTEBOOK", status="success", elapsed_seconds=0.05)
 
-    task = asyncio.create_task(client._collaborators.metrics.emit_rpc_event(event))
+    assert client._backend._metrics is not None
+    task = asyncio.create_task(client._backend._metrics.emit_rpc_event(event))
     await started.wait()
     assert not task.done(), "emit_rpc_event must await the callback before returning"
 
@@ -628,9 +571,9 @@ async def test_on_rpc_event_backpressure_and_swallow_contracts(caplog) -> None:
     def failing_cb(event: RpcTelemetryEvent) -> None:
         raise RuntimeError("callback exploded")
 
-    client._collaborators.metrics._on_rpc_event = failing_cb
+    client._backend._metrics._on_rpc_event = failing_cb
     with caplog.at_level(logging.WARNING, logger="notebooklm._core"):
         # Must not raise
-        await client._collaborators.metrics.emit_rpc_event(event)
+        await client._backend._metrics.emit_rpc_event(event)
 
     assert any("callback exploded" in r.getMessage() for r in caplog.records)

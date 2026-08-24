@@ -10,6 +10,7 @@ migrated wire shapes belong in ``_web.codec``; the backend owns their execution 
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import reprlib
 from collections.abc import Callable
@@ -24,6 +25,9 @@ from .._artifact.payloads import (
     build_interactive_mind_map_artifact_params,
     build_mind_map_params,
 )
+from .._auth.account import _probe_authuser
+from .._auth.account_email import AccountEmailCacheKey, resolve_account_email
+from .._auth.session import refresh_auth_session
 from .._backend import (
     BackendCapabilities,
     BackendContractError,
@@ -101,13 +105,13 @@ from .._records import (
 from .._row_adapters.artifacts import (
     unwrap_artifact_rows,
 )
-from .._rpc_executor import RpcExecutor
 from .._runtime.config import assert_resolved_read_timeout
 from .._transport_errors import (
     TransportAuthExpired,
     TransportRateLimited,
     TransportServerError,
 )
+from ..auth import AuthTokens
 from ..exceptions import (
     AuthError,
     ChatError,
@@ -135,6 +139,7 @@ from ..rpc import (
     normalize_grpc_status,
     safe_index,
 )
+from ..types import ClientMetricsSnapshot
 from .chat import ChatWebHandlers
 from .codec import settings as settings_codec
 from .codec.artifacts import decode_artifact, decode_mind_map_artifact
@@ -163,8 +168,11 @@ from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 from .runtime import WebExecutionRuntime
 
 if TYPE_CHECKING:
+    from .._chat import ChatAPI
     from .._reqid_counter import ReqidCounter
+    from .._runtime.init import ClientInternals
     from .._runtime.transport import RuntimeTransport
+    from .._source.upload import SourceUploadPipeline
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
 source_logger = logging.getLogger("notebooklm").getChild("_sources")
@@ -449,6 +457,8 @@ class WebRpcBackend(ChatWebHandlers):
         chat_timeout: float | None = None,
         chat_response_max_bytes: int | None = None,
         deadline_factory: RuntimeDeadlineFactory | None = None,
+        client_runtime: ClientInternals | None = None,
+        auth: AuthTokens | None = None,
     ) -> None:
         assert_resolved_read_timeout(chat_timeout, name="chat_timeout")
         # The raw ``RpcExecutor`` name remains the compatibility object exposed
@@ -457,9 +467,20 @@ class WebRpcBackend(ChatWebHandlers):
         # directly so execution authority no longer resides in the general
         # client adapter.
         self._runtime = runtime
-        # Transitional compatibility for callers/tests that still inspect the
-        # pre-P7 collaborator name. Semantic dispatch never reads this alias.
-        self._executor: RpcExecutor = cast(RpcExecutor, runtime)
+        self._auth = auth
+        self._metrics = client_runtime.metrics if client_runtime is not None else None
+        self._drain_tracker = client_runtime.drain_tracker if client_runtime is not None else None
+        self._reqid = client_runtime.reqid if client_runtime is not None else None
+        self._auth_coord = client_runtime.auth_coord if client_runtime is not None else None
+        self._kernel = client_runtime.kernel if client_runtime is not None else None
+        self._lifecycle = client_runtime.lifecycle if client_runtime is not None else None
+        self._cookie_persistence = (
+            client_runtime.cookie_persistence if client_runtime is not None else None
+        )
+        self._rpc_semaphore = client_runtime.rpc_semaphore if client_runtime is not None else None
+        self._chain_host = client_runtime.chain_host if client_runtime is not None else None
+        self._account_email_cache: str | None = None
+        self._account_email_cache_route: AccountEmailCacheKey | None = None
         self._transport_factory = transport_factory
         self._source_uploader = source_uploader
         if self._source_uploader is not None:
@@ -482,6 +503,225 @@ class WebRpcBackend(ChatWebHandlers):
     @property
     def kind(self) -> BackendKind:
         return BackendKind.WEB
+
+    @property
+    def auth(self) -> AuthTokens:
+        """Return the client-owned mutable auth capability."""
+        if self._auth is None:
+            raise RuntimeError("WebRpcBackend has no client auth owner")
+        return self._auth
+
+    @property
+    def runtime_ready(self) -> bool:
+        """Whether atomic client-runtime assembly completed before publication."""
+        return (
+            self._lifecycle is not None
+            and self._rpc_semaphore is not None
+            and self._chain_host is not None
+            and self._chain_host._authed_post_chain is not None
+        )
+
+    @property
+    def retry_limits(self) -> tuple[int, int]:
+        """Return the live retry budgets owned by the backend chain host."""
+        if self._chain_host is None:
+            raise RuntimeError("WebRpcBackend has no retry configuration")
+        return (
+            self._chain_host._rate_limit_max_retries,
+            self._chain_host._server_error_max_retries,
+        )
+
+    async def open_client(
+        self,
+        *,
+        uploader: SourceUploadPipeline,
+        chat: ChatAPI,
+    ) -> None:
+        """Open every loop-bound runtime owner as one backend lifecycle."""
+        lifecycle = self._lifecycle
+        drain_tracker = self._drain_tracker
+        auth_coord = self._auth_coord
+        reqid = self._reqid
+        cookie_persistence = self._cookie_persistence
+        rpc_semaphore = self._rpc_semaphore
+        if any(
+            item is None
+            for item in (
+                lifecycle,
+                drain_tracker,
+                auth_coord,
+                reqid,
+                cookie_persistence,
+                rpc_semaphore,
+            )
+        ):
+            raise RuntimeError("WebRpcBackend has no complete client lifecycle")
+        assert lifecycle is not None
+        assert drain_tracker is not None
+        assert auth_coord is not None
+        assert reqid is not None
+        assert cookie_persistence is not None
+        assert rpc_semaphore is not None
+        await lifecycle.open(
+            auth=self.auth,
+            drain_tracker=drain_tracker,
+            auth_coord=auth_coord,
+            reqid=reqid,
+            cookie_persistence=cookie_persistence,
+            rpc_semaphore=rpc_semaphore,
+            uploader=uploader,
+            chat=chat,
+        )
+
+    async def drain_client(self, timeout: float | None = None) -> None:
+        """Stop admission and wait for client-owned work to settle."""
+        if self._drain_tracker is None:
+            raise RuntimeError("WebRpcBackend has no client drain owner")
+        await self._drain_tracker.drain(timeout=timeout)
+
+    async def close_client(
+        self,
+        *,
+        drain: bool = True,
+        drain_timeout: float | None = None,
+    ) -> None:
+        """Close the client lifecycle while preserving drain/cancel arbitration."""
+        lifecycle = self._lifecycle
+        drain_tracker = self._drain_tracker
+        auth_coord = self._auth_coord
+        cookie_persistence = self._cookie_persistence
+        if any(item is None for item in (lifecycle, drain_tracker, auth_coord, cookie_persistence)):
+            raise RuntimeError("WebRpcBackend has no complete client lifecycle")
+        assert lifecycle is not None
+        assert drain_tracker is not None
+        assert auth_coord is not None
+        assert cookie_persistence is not None
+
+        async def close_lifecycle() -> None:
+            await lifecycle.close(
+                auth_coord=auth_coord,
+                drain_tracker=drain_tracker,
+                cookie_persistence=cookie_persistence,
+            )
+
+        if not drain:
+            await close_lifecycle()
+            return
+
+        drain_timeout_exc: TimeoutError | None = None
+        try:
+            if not (drain_timeout is not None and drain_timeout < 0):
+                await drain_tracker.begin_drain()
+            await drain_tracker.run_drain_hooks()
+            await drain_tracker.drain(timeout=drain_timeout)
+        except TimeoutError as exc:
+            drain_timeout_exc = exc
+        except asyncio.CancelledError:
+            try:
+                await asyncio.shield(close_lifecycle())
+            except (Exception, asyncio.CancelledError):
+                pass
+            raise
+
+        try:
+            await asyncio.shield(close_lifecycle())
+        except Exception as close_exc:
+            if drain_timeout_exc is not None:
+                logging.getLogger(__name__).warning(
+                    "Suppressing close() error after drain timeout to preserve timeout signal: %s",
+                    close_exc,
+                )
+                raise drain_timeout_exc from close_exc
+            raise
+        if drain_timeout_exc is not None:
+            raise drain_timeout_exc
+
+    def metrics_snapshot(self) -> ClientMetricsSnapshot:
+        if self._metrics is None:
+            raise RuntimeError("WebRpcBackend has no client metrics owner")
+        return self._metrics.snapshot()
+
+    async def public_rpc_call(
+        self,
+        method: RPCMethod,
+        params: list[Any],
+        allow_null: bool = False,
+        *,
+        disable_internal_retries: bool = False,
+        read_timeout: float | None = None,
+        raise_on_null_status: bool = False,
+    ) -> Any:
+        return await self._runtime.rpc_call(
+            method=method,
+            params=params,
+            allow_null=allow_null,
+            disable_internal_retries=disable_internal_retries,
+            read_timeout=read_timeout,
+            raise_on_null_status=raise_on_null_status,
+        )
+
+    @property
+    def is_connected(self) -> bool:
+        return self._lifecycle is not None and self._lifecycle.is_open()
+
+    async def refresh_auth(self, *, allow_headless: bool = False) -> AuthTokens:
+        """Refresh the backend-owned auth capability with the established policy."""
+        coord = self._auth_coord
+        kernel = self._kernel
+        lifecycle = self._lifecycle
+        cookie_persistence = self._cookie_persistence
+        if any(item is None for item in (coord, kernel, lifecycle, cookie_persistence)):
+            raise RuntimeError("WebRpcBackend has no complete auth runtime")
+        assert coord is not None
+        assert kernel is not None
+        assert lifecycle is not None
+        assert cookie_persistence is not None
+        if not allow_headless or not coord.has_refresh_callback:
+            return await refresh_auth_session(
+                auth=self.auth,
+                kernel=kernel,
+                auth_coord=coord,
+                lifecycle=lifecycle,
+                cookie_persistence=cookie_persistence,
+                allow_headless=allow_headless,
+            )
+        try:
+            await coord.await_refresh()
+        except ValueError:
+            return await refresh_auth_session(
+                auth=self.auth,
+                kernel=kernel,
+                auth_coord=coord,
+                lifecycle=lifecycle,
+                cookie_persistence=cookie_persistence,
+                allow_headless=True,
+            )
+        return self.auth
+
+    def get_account_authuser(self) -> int:
+        return self.auth.authuser
+
+    async def get_account_email(self, *, live_fallback: bool = True) -> str | None:
+        if self._kernel is None:
+            raise RuntimeError("WebRpcBackend has no client kernel owner")
+        email, cached_email, cached_key = await resolve_account_email(
+            auth=self.auth,
+            cached_email=self._account_email_cache,
+            cached_key=self._account_email_cache_route,
+            live_fallback=live_fallback,
+            get_cookies=self._kernel.get_cookies,
+            get_http_client=self._kernel.get_http_client,
+            probe=_probe_authuser,
+            to_thread=asyncio.to_thread,
+        )
+        self._account_email_cache = cached_email
+        self._account_email_cache_route = cached_key
+        return email
+
+    def register_open_baseline(self, store: Any, baseline: Any) -> None:
+        if self._cookie_persistence is None:
+            raise RuntimeError("WebRpcBackend has no cookie-persistence owner")
+        self._cookie_persistence.register_open_baseline(store, baseline)
 
     @property
     def capabilities(self) -> BackendCapabilities:

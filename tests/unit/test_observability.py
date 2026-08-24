@@ -80,16 +80,16 @@ async def test_rpc_metrics_event_and_correlation_scope(auth_tokens: AuthTokens) 
         decode_response=fake_decode,
         authed_post_terminal=fake_terminal,
     )
-    install_http_client_for_test(core._collaborators.kernel, AsyncMock(spec=httpx.AsyncClient))
+    install_http_client_for_test(core._backend._kernel, AsyncMock(spec=httpx.AsyncClient))
 
     with correlation_id("batch-42"):
-        result = await core._rpc_executor.rpc_call(RPCMethod.GET_NOTEBOOK, ["nb_123"])
+        result = await core._backend._runtime.rpc_call(RPCMethod.GET_NOTEBOOK, ["nb_123"])
 
     assert result == {"ok": True}
     assert seen_request_ids == ["batch-42"]
     assert get_request_id() is None
 
-    snapshot = core._collaborators.metrics.snapshot()
+    snapshot = core._backend._metrics.snapshot()
     assert isinstance(snapshot, ClientMetricsSnapshot)
     assert snapshot.rpc_calls_started == 1
     assert snapshot.rpc_calls_succeeded == 1
@@ -135,12 +135,12 @@ async def test_rpc_decode_error_bumps_drift_counter(auth_tokens: AuthTokens) -> 
         decode_response=drifting_decode,
         authed_post_terminal=fake_terminal,
     )
-    install_http_client_for_test(core._collaborators.kernel, AsyncMock(spec=httpx.AsyncClient))
+    install_http_client_for_test(core._backend._kernel, AsyncMock(spec=httpx.AsyncClient))
 
     with pytest.raises(DecodingError):
-        await core._rpc_executor.rpc_call(RPCMethod.GET_NOTEBOOK, ["nb_123"])
+        await core._backend._runtime.rpc_call(RPCMethod.GET_NOTEBOOK, ["nb_123"])
 
-    snapshot = core._collaborators.metrics.snapshot()
+    snapshot = core._backend._metrics.snapshot()
     assert snapshot.rpc_decode_errors == 1
     # The transport leg succeeded (200 OK), so the generic transport-failure
     # counter stays 0 — the drift is counted ONLY under the dedicated signal.
@@ -155,22 +155,22 @@ async def test_drain_rejects_new_work_and_waits_for_in_flight(auth_tokens: AuthT
     release = asyncio.Event()
 
     async def in_flight() -> None:
-        operation_token = await core._collaborators.drain_tracker.begin_transport_post("test")
+        operation_token = await core._backend._drain_tracker.begin_transport_post("test")
         started.set()
         try:
             await release.wait()
         finally:
-            await core._collaborators.drain_tracker.finish_transport_post(operation_token)
+            await core._backend._drain_tracker.finish_transport_post(operation_token)
 
     task = asyncio.create_task(in_flight())
     await started.wait()
 
-    drain_task = asyncio.create_task(core._collaborators.drain_tracker.drain(timeout=1.0))
+    drain_task = asyncio.create_task(core._backend._drain_tracker.drain(timeout=1.0))
     await asyncio.sleep(0)
 
     assert not drain_task.done()
     with pytest.raises(RuntimeError, match="draining"):
-        await core._collaborators.drain_tracker.begin_transport_post("new")
+        await core._backend._drain_tracker.begin_transport_post("new")
 
     release.set()
     await drain_task
@@ -182,19 +182,17 @@ async def test_drain_allows_nested_work_inside_accepted_operation(
     auth_tokens: AuthTokens,
 ) -> None:
     core = build_client_shell_for_tests(auth_tokens)
-    outer_token = await core._collaborators.drain_tracker.begin_transport_post("source upload")
+    outer_token = await core._backend._drain_tracker.begin_transport_post("source upload")
     try:
-        drain_task = asyncio.create_task(core._collaborators.drain_tracker.drain(timeout=1.0))
+        drain_task = asyncio.create_task(core._backend._drain_tracker.drain(timeout=1.0))
         await asyncio.sleep(0)
 
-        nested_token = await core._collaborators.drain_tracker.begin_transport_post(
-            "RPC ADD_SOURCE"
-        )
-        await core._collaborators.drain_tracker.finish_transport_post(nested_token)
+        nested_token = await core._backend._drain_tracker.begin_transport_post("RPC ADD_SOURCE")
+        await core._backend._drain_tracker.finish_transport_post(nested_token)
 
         assert not drain_task.done()
     finally:
-        await core._collaborators.drain_tracker.finish_transport_post(outer_token)
+        await core._backend._drain_tracker.finish_transport_post(outer_token)
 
     await drain_task
 
@@ -205,11 +203,11 @@ async def test_operation_scope_tracks_drain_without_upload_semaphore(
 ) -> None:
     core = build_client_shell_for_tests(auth_tokens)
 
-    async with core._collaborators.drain_tracker.operation_scope("plain-operation"):
-        assert core._collaborators.drain_tracker._in_flight_posts == 1
+    async with core._backend._drain_tracker.operation_scope("plain-operation"):
+        assert core._backend._drain_tracker._in_flight_posts == 1
         assert not hasattr(core, "get_upload_semaphore")
 
-    assert core._collaborators.drain_tracker._in_flight_posts == 0
+    assert core._backend._drain_tracker._in_flight_posts == 0
     assert "_upload_semaphore" not in core.__dict__
 
 
@@ -218,19 +216,19 @@ async def test_drain_rejects_child_task_spawned_from_accepted_operation(
     auth_tokens: AuthTokens,
 ) -> None:
     core = build_client_shell_for_tests(auth_tokens)
-    outer_token = await core._collaborators.drain_tracker.begin_transport_post("source upload")
+    outer_token = await core._backend._drain_tracker.begin_transport_post("source upload")
     try:
-        drain_task = asyncio.create_task(core._collaborators.drain_tracker.drain(timeout=1.0))
+        drain_task = asyncio.create_task(core._backend._drain_tracker.drain(timeout=1.0))
         await asyncio.sleep(0)
 
         async def child_work() -> None:
-            child_token = await core._collaborators.drain_tracker.begin_transport_post("child task")
-            await core._collaborators.drain_tracker.finish_transport_post(child_token)
+            child_token = await core._backend._drain_tracker.begin_transport_post("child task")
+            await core._backend._drain_tracker.finish_transport_post(child_token)
 
         with pytest.raises(RuntimeError, match="draining"):
             await asyncio.create_task(child_work())
     finally:
-        await core._collaborators.drain_tracker.finish_transport_post(outer_token)
+        await core._backend._drain_tracker.finish_transport_post(outer_token)
 
     await drain_task
 
@@ -242,9 +240,9 @@ async def test_drain_waits_for_artifact_poll_task(auth_tokens: AuthTokens) -> No
     # (``rpc`` + ``drain`` + ``lifecycle``) directly — mirrors production
     # wiring in ``NotebookLMClient.__init__``.
     api = ArtifactsAPI(
-        rpc=core._rpc_executor,
-        drain=core._collaborators.drain_tracker,
-        lifecycle=core._collaborators.lifecycle,
+        rpc=core._backend._runtime,
+        drain=core._backend._drain_tracker,
+        lifecycle=core._backend._lifecycle,
         notebooks=MagicMock(),
         mind_maps=MagicMock(spec=NoteBackedMindMapService),
         note_service=MagicMock(spec=NoteService),
@@ -255,9 +253,7 @@ async def test_drain_waits_for_artifact_poll_task(auth_tokens: AuthTokens) -> No
 
     async def fake_poll_status(notebook_id: str, task_id: str) -> GenerationStatus:
         nonlocal poll_count
-        operation_token = await core._collaborators.drain_tracker.begin_transport_post(
-            "poll_status"
-        )
+        operation_token = await core._backend._drain_tracker.begin_transport_post("poll_status")
         try:
             poll_count += 1
             if poll_count == 1:
@@ -266,7 +262,7 @@ async def test_drain_waits_for_artifact_poll_task(auth_tokens: AuthTokens) -> No
                 return GenerationStatus(task_id=task_id, status="in_progress")
             return GenerationStatus(task_id=task_id, status="completed")
         finally:
-            await core._collaborators.drain_tracker.finish_transport_post(operation_token)
+            await core._backend._drain_tracker.finish_transport_post(operation_token)
 
     api.poll_status = fake_poll_status  # type: ignore[method-assign]
 
@@ -281,7 +277,7 @@ async def test_drain_waits_for_artifact_poll_task(auth_tokens: AuthTokens) -> No
     )
     await first_poll_started.wait()
 
-    drain_task = asyncio.create_task(core._collaborators.drain_tracker.drain(timeout=1.0))
+    drain_task = asyncio.create_task(core._backend._drain_tracker.drain(timeout=1.0))
     await asyncio.sleep(0)
     assert not drain_task.done()
 
@@ -305,8 +301,8 @@ async def test_close_with_drain_closes_transport_after_timeout(auth_tokens: Auth
     async def close_transport(**_kwargs: object) -> None:
         calls.append("close")
 
-    client._collaborators.drain_tracker.drain = drain_timeout  # type: ignore[method-assign]
-    client._collaborators.lifecycle.close = close_transport  # type: ignore[method-assign]
+    client._backend._drain_tracker.drain = drain_timeout  # type: ignore[method-assign]
+    client._backend._lifecycle.close = close_transport  # type: ignore[method-assign]
 
     with pytest.raises(TimeoutError, match="deadline"):
         await client.close(drain=True, drain_timeout=0.1)
@@ -326,8 +322,8 @@ async def test_close_with_invalid_drain_does_not_close_transport(auth_tokens: Au
     async def close_transport(**_kwargs: object) -> None:
         calls.append("close")
 
-    client._collaborators.drain_tracker.drain = invalid_drain  # type: ignore[method-assign]
-    client._collaborators.lifecycle.close = close_transport  # type: ignore[method-assign]
+    client._backend._drain_tracker.drain = invalid_drain  # type: ignore[method-assign]
+    client._backend._lifecycle.close = close_transport  # type: ignore[method-assign]
 
     with pytest.raises(ValueError, match="bad deadline"):
         await client.close(drain=True, drain_timeout=-1.0)
@@ -347,11 +343,11 @@ async def test_upload_progress_callback_receives_byte_counts(
             core,
             uploader=SourceUploadPipeline(
                 rpc=core,
-                drain=core._collaborators.drain_tracker,
-                lifecycle=core._collaborators.lifecycle,
-                kernel=core._collaborators.kernel,
-                auth=core._auth,
-                record_upload_queue_wait=core._collaborators.metrics.record_upload_queue_wait,
+                drain=core._backend._drain_tracker,
+                lifecycle=core._backend._lifecycle,
+                kernel=core._backend._kernel,
+                auth=core.auth,
+                record_upload_queue_wait=core._backend._metrics.record_upload_queue_wait,
             ),
         )
         test_file = tmp_path / "upload.txt"
@@ -392,9 +388,9 @@ async def test_wait_for_completion_status_change_callback(auth_tokens: AuthToken
     core = build_client_shell_for_tests(auth_tokens)
     # ``ArtifactsAPI`` consumes its three runtime collaborators directly.
     api = ArtifactsAPI(
-        rpc=core._rpc_executor,
-        drain=core._collaborators.drain_tracker,
-        lifecycle=core._collaborators.lifecycle,
+        rpc=core._backend._runtime,
+        drain=core._backend._drain_tracker,
+        lifecycle=core._backend._lifecycle,
         notebooks=MagicMock(),
         mind_maps=MagicMock(spec=NoteBackedMindMapService),
         note_service=MagicMock(spec=NoteService),

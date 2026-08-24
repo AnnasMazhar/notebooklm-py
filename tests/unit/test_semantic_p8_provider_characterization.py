@@ -283,7 +283,7 @@ async def test_client_auth_identity_invariant_holds_across_the_graph() -> None:
     client = build_client_shell_for_tests(auth=auth)
 
     assert client.auth is auth
-    assert client._auth is auth
+    assert client.auth is auth
     assert client.get_account_authuser() == auth.authuser
 
 
@@ -292,22 +292,16 @@ async def test_client_auth_identity_invariant_holds_across_the_graph() -> None:
 # -----------------------------------------------------------------------------
 
 
-def test_backend_does_not_own_an_http_session_today() -> None:
-    """Pre-P8 the backend borrows client-owned RPC and streamed-Chat collaborators."""
+def test_direct_backend_does_not_invent_a_client_runtime_or_http_session() -> None:
+    """A directly constructed semantic backend owns only its supplied runtime."""
     backend = build_web_backend(object())
 
     assert backend.kind is BackendKind.WEB
-    assert set(vars(backend)) == {
-        "_executor",
-        "_transport_factory",
-        "_chat_transport",
-        "_chat_reqid",
-        "_chat_timeout",
-        "_chat_response_max_bytes",
-        "_source_uploader",
-        "_capabilities",
-        "_closed",
-    }
+    assert backend._auth is None
+    assert backend._kernel is None
+    assert backend._lifecycle is None
+    assert backend._cookie_persistence is None
+    assert backend._rpc_semaphore is None
     assert not any(
         isinstance(value, (httpx.AsyncClient, httpx.Cookies, Kernel))
         for value in vars(backend).values()

@@ -26,7 +26,7 @@ a different cancel-injection site:
 - ``__aexit__`` driven through :func:`asyncio.wait_for(timeout=0.1)` so
   the outer cancel reliably arrives while the slowed ``aclose`` is in
   flight — i.e. inside the shielded await.
-- We hold a reference to ``client._collaborators.kernel.http_client`` captured before
+- We hold a reference to ``client._backend._kernel.http_client`` captured before
   the cancel (close nulls the attribute on success) and assert
   ``http_client_ref.is_closed`` is true afterwards — proof that the
   shielded ``aclose`` in the outer ``finally`` ran to completion.
@@ -155,9 +155,9 @@ async def test_close_during_keepalive_cancel_does_not_leak_transport(
     await client.__aenter__()
     try:
         # Save the transport ref BEFORE the cancel — successful close
-        # clears ``client._collaborators.kernel.http_client`` (inner finally), so we'd
+        # clears ``client._backend._kernel.http_client`` (inner finally), so we'd
         # have no handle otherwise.
-        http_client_ref = client._collaborators.kernel.get_http_client()
+        http_client_ref = client._backend._kernel.get_http_client()
         assert http_client_ref is not None, "open() must have installed a transport"
 
         # Slow down ``aclose()`` so the outer ``wait_for(timeout=0.1)``
@@ -261,7 +261,7 @@ async def test_cancel_during_drain_in_close_does_not_leak_transport(
     - Open the client.
     - Capture ``http_client_ref`` BEFORE the cancel (successful close
       nulls the kernel's transport attribute).
-    - Monkeypatch ``client._collaborators.drain_tracker.drain`` to park on an
+    - Monkeypatch ``client._backend._drain_tracker.drain`` to park on an
       unset ``asyncio.Event`` so drain() blocks indefinitely; the only
       exit is the ``CancelledError`` injected by the outer ``wait_for``
       deadline. The public ``NotebookLMClient.drain`` reaches the
@@ -288,7 +288,7 @@ async def test_cancel_during_drain_in_close_does_not_leak_transport(
     try:
         # Capture the transport ref BEFORE the cancel — successful close
         # nulls ``_kernel.http_client``, so we'd lose the handle.
-        http_client_ref = client._collaborators.kernel.get_http_client()
+        http_client_ref = client._backend._kernel.get_http_client()
         assert http_client_ref is not None, "open() must have installed a transport"
 
         # Park ``drain`` on an unset event. The only way out is the
@@ -303,7 +303,7 @@ async def test_cancel_during_drain_in_close_does_not_leak_transport(
             drain_entered.set()
             await hang_event.wait()
 
-        monkeypatch.setattr(client._collaborators.drain_tracker, "drain", _hanging_drain)
+        monkeypatch.setattr(client._backend._drain_tracker, "drain", _hanging_drain)
 
         # Drive ``close(drain=True)`` through a short ``wait_for`` so a
         # cancel lands while ``drain`` is parked. The cancel propagates

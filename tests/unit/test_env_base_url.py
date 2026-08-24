@@ -125,12 +125,12 @@ def test_core_build_url_uses_enterprise_base_url(monkeypatch):
     from notebooklm._request_types import AuthSnapshot
 
     snapshot = AuthSnapshot(
-        csrf_token=core._auth.csrf_token,
-        session_id=core._auth.session_id,
-        authuser=core._auth.authuser,
-        account_email=core._auth.account_email,
+        csrf_token=core.auth.csrf_token,
+        session_id=core.auth.session_id,
+        authuser=core.auth.authuser,
+        account_email=core.auth.account_email,
     )
-    url = core._rpc_executor.build_url(RPCMethod.LIST_NOTEBOOKS, snapshot)
+    url = core._backend._runtime.build_url(RPCMethod.LIST_NOTEBOOKS, snapshot)
 
     assert url.startswith("https://notebooklm.cloud.google.com/_/LabsTailwindUi/data/")
 
@@ -155,9 +155,9 @@ async def test_upload_start_uses_enterprise_url_and_headers(monkeypatch, httpx_m
                 rpc=core,
                 drain=core,
                 lifecycle=core,
-                kernel=core._collaborators.kernel,
-                auth=core._auth,
-                record_upload_queue_wait=core._collaborators.metrics.record_upload_queue_wait,
+                kernel=core._backend._kernel,
+                auth=core.auth,
+                record_upload_queue_wait=core._backend._metrics.record_upload_queue_wait,
             ),
         )
         result = await api._start_resumable_upload(

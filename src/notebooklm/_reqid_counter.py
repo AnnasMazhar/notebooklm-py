@@ -31,7 +31,7 @@ Design constraints (load-bearing — see ``tests/unit/test_reqid_counter.py`` an
   :class:`notebooklm._client_metrics.ClientMetrics` so this class is unit-
   testable in isolation; the runtime-init helper wires it up to
   ``ClientMetrics.record_lock_wait`` at construction (see
-  ``_runtime.init.build_collaborators``).
+  ``_runtime.init._build_runtime_leaves``).
 """
 
 from __future__ import annotations
@@ -140,7 +140,7 @@ class ReqidCounter(LoopBoundPrimitive):
         the lock — see :meth:`_on_loop_rebind`), so this is a consistency
         hardening, not an active-bug fix (#2106).
 
-        Mirrors :meth:`ClientComposed.reset_after_open`. Deliberately narrow:
+        Mirrors the backend-owned RPC semaphore reset. Deliberately narrow:
         dropping the reference is enough because the lock is reallocated
         lazily on the next :meth:`next_reqid` call from inside the new loop.
         ``_value`` is left untouched so reqid monotonicity survives reopen.

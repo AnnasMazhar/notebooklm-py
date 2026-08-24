@@ -134,7 +134,7 @@ def test_session_wires_seam_attributes_for_executor_and_chain() -> None:
     assert core._seams.sleep is custom_sleep
     assert core._seams.is_auth_error is custom_is_auth_error
 
-    executor = core._rpc_executor
+    executor = core._backend._runtime
     # Constructor-injected callables propagate through the closure.
     assert executor._decode_response() == ["custom"]
     assert executor._is_auth_error(object()) is True
