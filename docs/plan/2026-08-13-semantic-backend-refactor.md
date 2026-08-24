@@ -1704,6 +1704,11 @@ inherit the pre-P8 baseline.
   already-acquired immutable generation through their existing wire adapters. Their exact imports
   and credential identifiers are audited; none can reach profile, refresh, persistence, master-token,
   or interactive-login owners.
+- The pre-P7 semantic observability fixture remains byte-for-byte frozen. P8's immutable-generation
+  request path intentionally removes the coordinator snapshot-lock read from six ordinary RPC
+  scenarios, so the derived matrix allocates exactly their 12 `lock_wait_seconds_total` / `_max`
+  cells as zero before normalizing only those cells for the all-field historical comparison. Auth
+  refresh and streamed Chat remain independently pinned to positive lock-wait populations.
 - `_auth.web_provider_storage` delegates the complete `_load_stored_auth` transaction and carries
   its existing `ProfileStore`/persistence-baseline pair. `_auth.web_provider_refresh` delegates the
   complete `refresh_auth_session` transaction and preserves the base-flight/wider-policy

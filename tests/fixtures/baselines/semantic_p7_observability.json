@@ -114,8 +114,8 @@
         "LIST_NOTEBOOKS"
       ],
       "metrics_snapshot": {
-        "lock_wait_seconds_max": "zero-float",
-        "lock_wait_seconds_total": "zero-float",
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
         "rpc_auth_retries": 0,
         "rpc_calls_failed": 0,
         "rpc_calls_started": 1,
@@ -153,8 +153,8 @@
         "LIST_NOTEBOOKS"
       ],
       "metrics_snapshot": {
-        "lock_wait_seconds_max": "zero-float",
-        "lock_wait_seconds_total": "zero-float",
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
         "rpc_auth_retries": 0,
         "rpc_calls_failed": 0,
         "rpc_calls_started": 1,
@@ -192,8 +192,8 @@
         "LIST_NOTEBOOKS"
       ],
       "metrics_snapshot": {
-        "lock_wait_seconds_max": "zero-float",
-        "lock_wait_seconds_total": "zero-float",
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
         "rpc_auth_retries": 0,
         "rpc_calls_failed": 0,
         "rpc_calls_started": 1,
@@ -230,8 +230,8 @@
         "DELETE_NOTEBOOK"
       ],
       "metrics_snapshot": {
-        "lock_wait_seconds_max": "zero-float",
-        "lock_wait_seconds_total": "zero-float",
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
         "rpc_auth_retries": 0,
         "rpc_calls_failed": 0,
         "rpc_calls_started": 1,
@@ -268,8 +268,8 @@
         "LIST_NOTEBOOKS"
       ],
       "metrics_snapshot": {
-        "lock_wait_seconds_max": "zero-float",
-        "lock_wait_seconds_total": "zero-float",
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
         "rpc_auth_retries": 0,
         "rpc_calls_failed": 0,
         "rpc_calls_started": 1,
@@ -306,8 +306,8 @@
         "LIST_NOTEBOOKS"
       ],
       "metrics_snapshot": {
-        "lock_wait_seconds_max": "zero-float",
-        "lock_wait_seconds_total": "zero-float",
+        "lock_wait_seconds_max": "positive-float",
+        "lock_wait_seconds_total": "positive-float",
         "rpc_auth_retries": 0,
         "rpc_calls_failed": 1,
         "rpc_calls_started": 1,

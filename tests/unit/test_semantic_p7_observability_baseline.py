@@ -14,15 +14,18 @@ Regenerate intentionally with::
 CI never passes ``--update-baselines``; it only compares the derived matrix to
 the committed fixture.
 
-P8 deliberately removes the auth-snapshot lock from ordinary RPC request
-materialization: those calls consume an immutable provider generation instead.
-Their lock-wait totals are therefore exactly zero. Auth refresh still records
-its coordinator lock, and Chat still records its request-id lock.
+The committed fixture remains the frozen pre-P7 artifact. P8 deliberately
+removes the auth-snapshot lock from ordinary RPC request materialization:
+those calls consume an immutable provider generation instead. The exact 12
+affected cells are allocated below and normalized only for the final all-field
+historical comparison. Auth refresh still records its coordinator lock, and
+Chat still records its request-id lock.
 """
 
 from __future__ import annotations
 
 import asyncio
+import copy
 import dataclasses
 import json
 from collections.abc import Awaitable, Callable
@@ -51,6 +54,23 @@ _BASELINE_PATH = (
 )
 _CORRELATION_ID = "semantic-p7-observability"
 _CHAT_STREAM_LABEL = "CHAT_STREAM"
+_LOCK_WAIT_FIELDS = frozenset({"lock_wait_seconds_total", "lock_wait_seconds_max"})
+_P8_ORDINARY_RPC_LOCK_WAIT_CELLS = frozenset(
+    {
+        ("successful_read", "lock_wait_seconds_total"),
+        ("successful_read", "lock_wait_seconds_max"),
+        ("successful_mutation", "lock_wait_seconds_total"),
+        ("successful_mutation", "lock_wait_seconds_max"),
+        ("rate_limit_retry_then_success", "lock_wait_seconds_total"),
+        ("rate_limit_retry_then_success", "lock_wait_seconds_max"),
+        ("server_retry_then_success", "lock_wait_seconds_total"),
+        ("server_retry_then_success", "lock_wait_seconds_max"),
+        ("terminal_transport_error", "lock_wait_seconds_total"),
+        ("terminal_transport_error", "lock_wait_seconds_max"),
+        ("decode_error_after_transport_success", "lock_wait_seconds_total"),
+        ("decode_error_after_transport_success", "lock_wait_seconds_max"),
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +152,18 @@ def _normalized_events(events: list[RpcTelemetryEvent]) -> list[dict[str, object
         }
         for event in events
     ]
+
+
+def _normalize_approved_p8_lock_wait_delta(observed: dict[str, object]) -> dict[str, object]:
+    """Allocate only P8's 12 approved cells to the frozen pre-P7 population."""
+    normalized = copy.deepcopy(observed)
+    scenarios = normalized["scenarios"]
+    assert isinstance(scenarios, dict)
+    for scenario, field in _P8_ORDINARY_RPC_LOCK_WAIT_CELLS:
+        metrics = scenarios[scenario]["metrics_snapshot"]
+        assert metrics[field] == "zero-float"
+        metrics[field] = "positive-float"
+    return normalized
 
 
 async def _run_scenario(
@@ -367,26 +399,23 @@ async def test_semantic_web_observability_matches_pre_p7_baseline(
         == 1
     )
     assert scenarios["chat_stream_success"]["events"] == []
-    for scenario in (
-        "successful_read",
-        "successful_mutation",
-        "rate_limit_retry_then_success",
-        "server_retry_then_success",
-        "terminal_transport_error",
-        "decode_error_after_transport_success",
-    ):
-        metrics = scenarios[scenario]["metrics_snapshot"]
-        assert metrics["lock_wait_seconds_total"] == "zero-float"
-        assert metrics["lock_wait_seconds_max"] == "zero-float"
+    zero_lock_wait_cells = {
+        (scenario, field)
+        for scenario, result in scenarios.items()
+        for field in _LOCK_WAIT_FIELDS
+        if result["metrics_snapshot"][field] == "zero-float"
+    }
+    assert zero_lock_wait_cells == _P8_ORDINARY_RPC_LOCK_WAIT_CELLS
     for scenario in ("auth_refresh_then_success", "chat_stream_success"):
         metrics = scenarios[scenario]["metrics_snapshot"]
         assert metrics["lock_wait_seconds_total"] == "positive-float"
         assert metrics["lock_wait_seconds_max"] == "positive-float"
 
+    historical_comparison = _normalize_approved_p8_lock_wait_delta(observed)
     if update_baselines:
         _BASELINE_PATH.write_text(
-            json.dumps(observed, indent=2, sort_keys=True) + "\n",
+            json.dumps(historical_comparison, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
     expected = json.loads(_BASELINE_PATH.read_text(encoding="utf-8"))
-    assert observed == expected
+    assert historical_comparison == expected
