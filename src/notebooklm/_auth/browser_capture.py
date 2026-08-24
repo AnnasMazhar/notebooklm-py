@@ -129,11 +129,13 @@ def replace_captured_profile(
 
 
 LOGIN_MAX_RETRIES = 3
-# Ceiling on failed navigations tolerated inside one login wait. Generous
-# against a real sign-in — a chain that aborts a handful of times is ordinary,
-# twenty times is not — while still stopping a page that fails instantly in a
-# loop from spinning out the entire timeout. See :func:`wait_for_login_landing`.
+# Ceiling on CONSECUTIVE IMMEDIATE failed navigations inside one login wait.
+# Generous against a real sign-in, tight enough to stop a page failing in a
+# no-delay loop from spinning out the timeout. See :func:`wait_for_login_landing`.
 MAX_TOLERATED_NAVIGATION_FAILURES = 20
+# A failed wait faster than this took no real time, so the page — not the human
+# — produced it. Only such back-to-back failures count toward the cap above.
+INSTANT_FAILURE_SECONDS = 0.25
 # Playwright TargetClosedError substring — matches the default message from
 # Playwright's TargetClosedError class (introduced in v1.41). If a future
 # version changes this message, the error will propagate unhandled (safe fallback).
@@ -142,14 +144,17 @@ _NAVIGATION_INTERRUPTED_MARKERS = (
     "navigation interrupted",
     "interrupted by another navigation",
 )
-# Chromium reports a failed navigation as a ``net::ERR_*`` code carried in the
-# Playwright error message. Parsing the code out (rather than testing the
-# message for literals) is what lets the two predicates below disagree about
-# the SAME error: the family is not uniform, and which half of it is benign
-# depends entirely on who issued the navigation. ``ERR_ABORTED`` is a race
-# wherever it appears; ``ERR_CONNECTION_REFUSED`` and ``ERR_INVALID_URL`` are
-# real faults when we navigate and mere noise when the human does.
-# See :func:`is_navigation_race` vs :func:`is_navigation_failure`.
+# Chromium aborts a pending navigation with this prose and NO ``net::`` code when
+# a beforeunload dialog is dismissed (``crPage.js`` -> ``frameAbortedNavigation``),
+# so neither matcher above sees it. Broad predicate only: where WE navigate, a
+# cancelled goto means it did not happen, and proceeding on a stale ``page.url``
+# is the trap the headless arm guards against below.
+_ABORTED_NAVIGATION_MARKERS = ("navigation cancelled by beforeunload dialog",)
+# Chromium reports a failed navigation as a ``net::ERR_*`` code in the Playwright
+# message. Parsing the code out (rather than matching literals) is what lets the
+# two predicates below disagree about the SAME error: which half of the family is
+# benign depends on who issued the navigation. See :func:`is_navigation_race` vs
+# :func:`is_navigation_failure`.
 _NET_ERROR_PATTERN = re.compile(r"net::[A-Z0-9_]+")
 BROWSER_CLOSED_HELP = (
     "[red]The browser window was closed during login.[/red]\n"
@@ -282,14 +287,16 @@ def is_navigation_race(error: str | Exception) -> bool:
 
     The narrow predicate, for the sites where **we** issued the navigation (the
     landing retry loop, cookie forcing). There a failure is our failure, so only
-    the race class may be swallowed: ``ERR_ABORTED`` means the request was
-    cancelled because something replaced it, which is precisely the benign
-    outcome #214 and #322 widened this matcher for.
+    the race class may be swallowed: ``ERR_ABORTED`` means something replaced
+    the request — the benign outcome #214 and #322 widened this matcher for.
 
-    Emphatically NOT the whole ``net::ERR_*`` family. ``ERR_CONNECTION_REFUSED``
-    earns :func:`connection_error_help`, and ``ERR_INVALID_URL`` is a
-    configuration fault that must fail fast — swallowing either would turn a
-    real error into a silent hang.
+    Emphatically NOT the whole ``net::ERR_*`` family: ``ERR_INVALID_URL`` is a
+    configuration fault that must fail fast, and ``ERR_CONNECTION_REFUSED`` must
+    stay visible too — swallowing either turns a real error into a silent hang.
+    Note ``ERR_CONNECTION_REFUSED`` is NOT in
+    :data:`RETRYABLE_CONNECTION_ERRORS` (only ``…CLOSED``/``…RESET`` are), so it
+    reaches neither :func:`connection_error_help` nor this predicate — it
+    propagates. That routing gap predates this; do not "fix" it by widening here.
     """
     if TARGET_CLOSED_ERROR in str(error):
         return False
@@ -302,18 +309,20 @@ def is_navigation_failure(error: str | Exception) -> bool:
     """Return True when a Playwright error is any failed navigation.
 
     The broad predicate, for the login wait alone. There we are not navigating —
-    we are *watching a human* navigate — so the identity of the failed hop says
-    nothing about whether their sign-in will succeed. A DNS blip, a VPN flap or
-    a refused connection on one hop is not grounds to tear down a five-minute
-    wait, which is why this deliberately spans the whole ``net::ERR_*`` family
-    where :func:`is_navigation_race` does not.
+    we are *watching a human* navigate — so a failed hop says nothing about
+    whether their sign-in succeeds. A DNS blip or VPN flap is no grounds to tear
+    down a five-minute wait, hence the whole ``net::ERR_*`` family here where
+    :func:`is_navigation_race` takes only the race class.
 
     Excludes ``TargetClosed`` on both predicates: a dead browser cannot be
     waited on, and every caller routes it to :data:`BROWSER_CLOSED_HELP`.
     """
     if TARGET_CLOSED_ERROR in str(error):
         return False
-    return navigation_error_code(error) is not None or is_navigation_interrupted_error(error)
+    if navigation_error_code(error) is not None or is_navigation_interrupted_error(error):
+        return True
+    lowered = str(error).lower()
+    return any(marker in lowered for marker in _ABORTED_NAVIGATION_MARKERS)
 
 
 def accepted_login_hosts() -> tuple[str, ...]:
@@ -538,9 +547,9 @@ def log_observed_navigations(page: Any) -> Iterator[None]:
 def _current_url(page: Any) -> str:
     """Read ``page.url`` unredacted for host matching, or ``""`` if unreadable.
 
-    The redacted :func:`safe_page_url` is for *logging*; this is the value the
-    accept predicate runs on. Both degrade rather than raise, because a dead
-    page must not turn a browser-closed login into an unhandled traceback.
+    The redacted :func:`safe_page_url` is for *logging*; this is what the accept
+    predicate runs on. Both degrade rather than raise — a dead page must not turn
+    a browser-closed login into an unhandled traceback.
     """
     try:
         return page.url or ""
@@ -569,43 +578,41 @@ def wait_for_login_landing(
 
     Nothing about a failed navigation says the login failed. Common causes are
     routine: an external-protocol handoff (Windows Hello / passkey
-    ``ms-cxh://``), a ``204`` response, a navigation that becomes a download, or
-    a transient DNS/VPN fault mid-form. So each one is tolerated and the wait
-    re-arms on the REMAINING budget, preserving the caller's overall timeout.
-
-    Scope is deliberately narrow. ``TargetClosed`` (a dead browser, which
-    genuinely cannot be waited on) and any non-navigation Playwright error
-    propagate unchanged, so the caller's existing routing still owns them.
+    ``ms-cxh://``), a ``204``, a navigation that becomes a download, a transient
+    DNS/VPN fault. Each is tolerated and the wait re-arms on the REMAINING
+    budget, preserving the caller's overall timeout. ``TargetClosed`` and any
+    non-navigation Playwright error propagate unchanged.
 
     Two properties worth keeping in mind when editing:
 
-    * **The deadline alone is not a sufficient bound.** It is tempting to
-      assume iterations are paced by the page, since ``wait_for_url`` blocks
-      between navigations — but a page that fails *instantly* and repeatedly (a
-      meta-refresh to a dead host, an error page that reloads itself) returns
-      the rejection with no delay at all, and the loop then spins for the whole
-      timeout. :data:`MAX_TOLERATED_NAVIGATION_FAILURES` is what actually bounds
-      it; the deadline only bounds the honest, page-paced case.
-    * **A failure that commits an error page is tolerated but cannot
-      self-heal.** An aborted navigation leaves the user's document intact
-      (they are still on the Google form, so resuming is exactly right), while
-      ``ERR_NAME_NOT_RESOLVED`` and friends commit a Chromium error page. We
-      keep waiting either way — the human can navigate back — but only the
-      first case tends to recover on its own. Hence the one-time notice.
+    * **The deadline alone is not a sufficient bound.** ``wait_for_url`` blocks
+      between real navigations, so iterations look page-paced — but a page that
+      fails *instantly* rejects with no delay and would spin out the timeout.
+      :data:`MAX_TOLERATED_NAVIGATION_FAILURES` consecutive *immediate* failures
+      is the real bound; the deadline bounds only the paced case.
+    * **A committed error page is tolerated but cannot self-heal.** An abort
+      leaves the user's document intact (still on the Google form);
+      ``ERR_NAME_NOT_RESOLVED`` and friends commit a Chromium error page. We keep
+      waiting either way, but only the first recovers alone — hence the notice.
     """
     from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
     deadline = time.monotonic() + timeout_s
-    # Seeded with the caller's value rather than a first read of the clock, so
-    # the common path (no failure at all) hands Playwright the requested
-    # timeout verbatim — ``--browser-timeout 420`` must arrive as 420_000, not
-    # as 419_999.99 worth of float noise. Only a re-arm consults the deadline.
+    # Seeded from the caller's value, not a clock read, so the common path hands
+    # Playwright the timeout verbatim (``--browser-timeout 420`` must arrive as
+    # 420_000, not 419_999.99). Only a re-arm consults the deadline.
     remaining_ms: float = timeout_s * 1000
     tolerated = 0
+    # What the cap bounds, kept separate from the reported total: a cumulative
+    # count would also clip the honest slow case — 21 failures spread over a
+    # 30-minute ``--browser-timeout`` would abort a sign-in still in progress,
+    # which is the very bug this function fixes.
+    instant_failures = 0
     while True:
         if remaining_ms <= 0:
             raise PlaywrightTimeout(f"Timeout {timeout_s * 1000:.0f}ms exceeded.")
+        attempt_started = time.monotonic()
         try:
             # The SPA never fires "load"; "commit" resolves as soon as the
             # accepted host is reached (#1697). Cookies are read later.
@@ -616,36 +623,49 @@ def wait_for_login_landing(
             )
             return tolerated
         except PlaywrightTimeout:
+            # Playwright's timeout is a task racing the ``navigated`` event, so
+            # losing that race by a hair is possible: check whether the browser
+            # landed anyway before reporting "not detected". Same reasoning as
+            # the navigation-failure arm below — the accept predicate, not the
+            # exception, decides whether we are done.
+            if url_matches_base_host(_current_url(page)):
+                return tolerated
             raise
         except PlaywrightError as exc:
             if not is_navigation_failure(exc):
                 raise
-            # The navigation that failed may have been a *later* hop than the
-            # one that landed us, and the human can also arrive in the window
-            # between the rejection and the wait being re-armed. Either way the
-            # accept predicate, not the exception, decides whether we are done.
+            # The failed navigation may be a *later* hop than the one that landed
+            # us, and the human can arrive between the rejection and the re-arm.
+            # The accept predicate, not the exception, decides if we are done.
             if url_matches_base_host(_current_url(page)):
                 return tolerated
             tolerated += 1
-            if tolerated > MAX_TOLERATED_NAVIGATION_FAILURES:
-                # Past this many, the page is not racing — it is failing in a
-                # loop, and re-arming forever would burn the rest of the
-                # timeout at full tilt and bury the cause. Surface the last
-                # error so the caller's routing reports something honest.
+            # A failure that took real time is the page pacing us (a human
+            # retrying, a slow IdP hop) and RESETS the streak; only back-to-back
+            # no-delay failures are the reload loop the cap is for. The deadline
+            # bounds the paced case.
+            if time.monotonic() - attempt_started < INSTANT_FAILURE_SECONDS:
+                instant_failures += 1
+            else:
+                instant_failures = 0
+            if instant_failures > MAX_TOLERATED_NAVIGATION_FAILURES:
+                # Past this many with no delay between them, the page is not
+                # racing — it is failing in a loop, and re-arming forever would
+                # burn the rest of the timeout at full tilt and bury the cause.
+                # Surface the last error so the caller's routing reports
+                # something honest.
                 logger.error(
-                    "Login wait: gave up after %d consecutive failed navigations (%s)",
-                    tolerated,
+                    "Login wait: gave up after %d consecutive immediate failed "
+                    "navigations (%s); %d tolerated in total",
+                    instant_failures,
                     navigation_error_code(exc) or type(exc).__name__,
+                    tolerated,
                 )
-                # Say what happened BEFORE re-raising. The exception reaches the
-                # CLI's generic arm as "Unexpected error … please report a bug" —
-                # the very framing this fix exists to remove — and a captive
-                # portal or proxy looping the sign-in is not a defect in this
-                # tool. Re-raising anyway (rather than ``io.fail``) is
-                # deliberate: an unclassified Playwright error must stay visible,
-                # which is the contract
-                # ``test_run_playwright_login_wait_for_url_other_error_reraises``
-                # pins.
+                # Say what happened BEFORE re-raising: the exception reaches the
+                # CLI as "Unexpected error … please report a bug", and a captive
+                # portal looping the sign-in is no defect of ours. Re-raising
+                # rather than ``io.fail`` is deliberate — an unclassified
+                # Playwright error must stay visible.
                 if io is not None:
                     io.emit(
                         f"[red]The browser could not complete a navigation "
@@ -669,8 +689,14 @@ def wait_for_login_landing(
                 safe_page_url(page),
             )
             if tolerated == 1 and io is not None:
+                # Name the code: this also fires for a COMMITTED error page that
+                # cannot self-heal, and ``ERR_BLOCKED_BY_ADMINISTRATOR`` reading
+                # as a vague "interrupted" would cost the user their one clue.
+                # The code carries no URL.
+                code = navigation_error_code(exc)
+                detail = f" ({code})" if code else ""
                 io.emit(
-                    "[yellow]A navigation was interrupted; still waiting for sign-in...[/yellow]"
+                    f"[yellow]A navigation failed{detail}; still waiting for sign-in...[/yellow]"
                 )
             # Re-arm on what is actually left, never on a fresh full timeout:
             # the caller's budget has to survive any number of tolerated hops.
@@ -969,14 +995,15 @@ def run_browser_capture(
                             headless=headless,
                             kind=_CaptureAbortKind.BROWSER_CLOSED,
                         )
-                    elif is_nav_failure:
-                        # Do NOT fail the login. Every arm below re-reads
-                        # ``page.url`` before acting: the interactive arm either
-                        # reports "Already logged in" or enters the tolerant
-                        # wait, and the headless arm raises the honest
-                        # ``HeadlessLoginRequiredError`` when off-host. Failing
-                        # here would instead surface a repeatedly-cancelled
-                        # navigation as an unexpected-error bug report.
+                    elif is_nav_failure and interactive:
+                        # INTERACTIVE ONLY. A human still has to sign in and the
+                        # wait re-reads ``page.url``, so a bug report helps nobody.
+                        # The headless arm must NOT take this path: nothing
+                        # committed, so its landing check would read a STALE
+                        # ``page.url`` — a restored tab on a NotebookLM URL passes
+                        # and re-auth persists unvalidated cookies while reporting
+                        # success. Falling through to ``raise`` is the honest
+                        # pre-#2257 behaviour there.
                         logger.debug(
                             "Navigation kept being interrupted (%s) after %d attempts; "
                             "continuing to the landing check",

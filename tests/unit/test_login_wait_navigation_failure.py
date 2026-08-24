@@ -27,6 +27,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from notebooklm._auth.browser_capture import (
+    INSTANT_FAILURE_SECONDS,
     MAX_TOLERATED_NAVIGATION_FAILURES,
     TARGET_CLOSED_ERROR,
     is_navigation_failure,
@@ -186,6 +187,10 @@ def test_prose_interruption_matcher_still_answers_its_own_question() -> None:
         ("net::ERR_INVALID_URL", False, True),
         ("net::ERR_NAME_NOT_RESOLVED", False, True),
         ("net::ERR_SOMETHING_ELSE while loading", False, True),
+        # Chromium aborts with prose and no net:: code when a beforeunload
+        # dialog is dismissed (crPage.js -> frameAbortedNavigation). Broad only:
+        # where WE navigate, a cancelled goto means it did not happen.
+        ("navigation cancelled by beforeunload dialog", False, True),
         (TARGET_CLOSED_ERROR, False, False),
     ],
 )
@@ -206,6 +211,17 @@ def test_the_two_predicates_disagree_by_who_issued_the_navigation(
 # ---------------------------------------------------------------------------
 # The wait itself
 # ---------------------------------------------------------------------------
+
+
+def test_beforeunload_cancellation_is_tolerated_by_the_wait() -> None:
+    """A federated IdP with a beforeunload handler must not kill the wait.
+
+    This message carries no ``net::`` code, so the code-extraction path misses
+    it entirely; without an explicit marker it propagated and exited 2 while a
+    perfectly usable login page was still open.
+    """
+    page = _FakePage([_playwright_error("navigation cancelled by beforeunload dialog"), LANDED])
+    assert wait_for_login_landing(page, timeout_s=300) == 1
 
 
 def test_clean_landing_tolerates_nothing() -> None:
@@ -329,6 +345,72 @@ def test_giving_up_explains_itself_before_re_raising() -> None:
     assert "--browser-cookies" in guidance
     # No URL material, same rule as the DEBUG trace.
     assert "http" not in guidance
+
+
+def test_slow_failures_reset_the_streak_and_never_trip_the_cap() -> None:
+    """The cap counts CONSECUTIVE IMMEDIATE failures, not failures overall.
+
+    A cumulative counter would abort a long, flaky-but-honest sign-in: with
+    `--browser-timeout 1800`, 21 failures spread over half an hour would kill a
+    login the human was still completing — the exact class of bug this whole
+    function exists to fix. Only a page failing with no delay is pathological.
+    """
+    import time as _time
+
+    slow = _playwright_error(ABORTED)
+    calls = {"n": 0}
+
+    class _SlowFailingPage(_FakePage):
+        def wait_for_url(self, _matcher: Any, *, wait_until: str, timeout: float) -> None:
+            self.timeouts.append(timeout)
+            calls["n"] += 1
+            if calls["n"] > MAX_TOLERATED_NAVIGATION_FAILURES + 5:
+                self.url = LANDED
+                return
+            # Each failure takes real time, so the page is pacing us.
+            _time.sleep(INSTANT_FAILURE_SECONDS * 1.4)
+            raise slow
+
+    page = _SlowFailingPage([])
+    tolerated = wait_for_login_landing(page, timeout_s=300)
+    assert tolerated == MAX_TOLERATED_NAVIGATION_FAILURES + 5, "slow failures must not trip the cap"
+
+
+def test_landing_at_the_buzzer_beats_the_timeout() -> None:
+    """Playwright's timeout races the navigated event; losing by a hair is real.
+
+    If the browser is on the accepted host, report success rather than
+    'Login not detected' — the same rule the navigation-failure arm follows.
+    """
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    page = _FakePage([])
+
+    def _timeout_but_landed(_matcher: Any, *, wait_until: str, timeout: float) -> None:
+        page.timeouts.append(timeout)
+        page.url = LANDED
+        raise PlaywrightTimeout("Timeout 300000ms exceeded.")
+
+    page.wait_for_url = _timeout_but_landed  # type: ignore[method-assign]
+    assert wait_for_login_landing(page, timeout_s=300) == 0
+
+
+def test_timeout_without_landing_still_propagates() -> None:
+    """The re-check must not swallow a genuine timeout."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    page = _FakePage([PlaywrightTimeout("Timeout 300000ms exceeded.")], url=SIGNING_IN)
+    with pytest.raises(PlaywrightTimeout):
+        wait_for_login_landing(page, timeout_s=300)
+
+
+def test_the_notice_names_the_error_code() -> None:
+    """A policy block must be diagnosable, not a vague 'interrupted'."""
+    page = _FakePage([_playwright_error("net::ERR_BLOCKED_BY_ADMINISTRATOR"), LANDED])
+    io = _RecordingIO()
+    wait_for_login_landing(page, timeout_s=300, io=io)
+    assert "net::ERR_BLOCKED_BY_ADMINISTRATOR" in io.messages[0]
+    assert "http" not in io.messages[0]
 
 
 def test_the_cap_leaves_room_for_an_ordinary_racy_sign_in() -> None:
@@ -540,3 +622,62 @@ def test_interactive_login_survives_an_aborted_navigation(tmp_path: Any) -> None
     assert storage.exists(), "the completed sign-in must be persisted, not discarded"
     flattened = " ".join(str(a) for args in io.emitted for a in args)
     assert "Login detected" in flattened
+
+
+@pytest.mark.requires_playwright
+def test_headless_reauth_never_trusts_a_stale_url_after_failed_navigations() -> None:
+    """A cancelled goto must not let headless re-auth persist unvalidated cookies.
+
+    The interactive arm may fall through to its landing check after repeated
+    aborted navigations, because a human is still signing in and the wait
+    re-reads the URL. The headless arm has no such recovery: with nothing
+    committed, ``page.url`` is whatever a restored tab happened to show. If that
+    is already a NotebookLM URL, every check passes and re-auth reports success
+    while writing cookies it never validated.
+    """
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+    from unittest.mock import patch
+
+    from playwright.sync_api import Error as PlaywrightError
+
+    from notebooklm._auth.browser_capture import BrowserCapturePlan, run_browser_capture
+
+    with TemporaryDirectory() as tmp:
+        profile = Path(tmp) / "browser_profile"
+        profile.mkdir()
+        storage = Path(tmp) / "storage_state.json"
+
+        page = MagicMock()
+        # A restored tab already showing the app host — the trap.
+        page.url = LANDED
+        page.content.return_value = "<html></html>"
+        page.goto.side_effect = _playwright_error(ABORTED)
+
+        context = MagicMock()
+        context.pages = [page]
+        context.storage_state.return_value = {"cookies": [], "origins": []}
+        playwright = MagicMock()
+        playwright.chromium.launch_persistent_context.return_value = context
+
+        with (
+            patch(
+                "playwright.sync_api.sync_playwright",
+                side_effect=lambda: _FakeSyncPlaywright(playwright),
+            ),
+            pytest.raises(PlaywrightError),
+        ):
+            run_browser_capture(
+                BrowserCapturePlan(
+                    browser="chromium",
+                    browser_profile=profile,
+                    storage_path=storage,
+                ),
+                _EndToEndIO(),
+                headless=True,
+                interactive=False,
+            )
+
+        assert not storage.exists(), (
+            "headless re-auth must not persist cookies when no navigation committed"
+        )
