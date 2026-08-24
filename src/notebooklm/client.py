@@ -42,6 +42,7 @@ from ._auth.account import authuser_query as authuser_query
 from ._auth.account_email import AccountEmailCacheKey, resolve_account_email
 from ._auth.extraction import extract_wiz_field as extract_wiz_field
 from ._auth.session import refresh_auth_session
+from ._backend import BackendAdapter
 from ._chat import ChatAPI
 from ._client_assembly import _assemble_client
 from ._client_composed import ClientComposed
@@ -135,6 +136,7 @@ class NotebookLMClient:
     _composed: ClientComposed
     _collaborators: RuntimeCollaborators
     _rpc_executor: RpcExecutor
+    _backend: BackendAdapter
     _source_uploader: SourceUploadPipeline
     sources: SourcesAPI
     notebooks: NotebooksAPI
