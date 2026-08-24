@@ -5,40 +5,30 @@ from typing import Any
 
 from ._backend import BackendAdapter, BackendError
 from ._backend_compat import project_backend_error
-from ._idempotency import idempotent_create
-from ._idempotency import mark_unconfirmed as _unconfirmed
 from ._notebook_metadata import (
     NotebookMetadataService,
     NotebookSourceLister,
     create_default_source_lister,
 )
+from ._notebook_mutation_service import NotebookMutationService
 from ._notebook_payloads import (
     _PROMPT_SUGGESTIONS_DEFAULT_MODE,
-    build_create_notebook_params,
     build_get_notebook_params,
     build_prompt_suggestions_params,
-    build_update_notebook_params,
 )
+from ._notebook_payloads import build_create_notebook_params as build_create_notebook_params
 from ._read_services import NotebookReadService
 from ._row_adapters.notebooks import PromptSuggestionRow, unwrap_prompt_suggestions
 from ._row_adapters.sources import SourceRow
 from ._runtime.contracts import RpcCaller
-from ._settings import build_get_user_settings_params, extract_account_limits
 from ._sharing_manager import ShareManager
 from .exceptions import (
-    AuthError,
     ClientError,
-    NetworkError,
-    NotebookLimitError,
     NotebookNotFoundError,
-    RateLimitError,
-    RPCError,
-    ServerError,
     ValidationError,
 )
 from .rpc import GrpcStatusCode, RPCMethod, normalize_grpc_status, safe_index
 from .types import (
-    AccountLimits,
     Notebook,
     NotebookDescription,
     NotebookMetadata,
@@ -47,19 +37,6 @@ from .types import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-CREATE_NOTEBOOK_QUOTA_RPC_CODE = 3
-
-
-def _describe_notebooks(notebooks: list[Notebook]) -> str:
-    """Render matched notebooks as ``id (title)`` for an ambiguity message.
-
-    Mirrors ``_source/add.py::_describe_sources``. The ambiguity raises tell the
-    caller to go and check their notebook list; naming the exact rows saves them
-    diffing that list by eye against a title that, by definition, is not unique.
-    """
-    return ", ".join(f"{notebook.id} ({notebook.title!r})" for notebook in notebooks)
 
 
 def _extract_summary(outer: Any) -> str:
@@ -228,6 +205,7 @@ class NotebooksAPI:
         """
         self._rpc = rpc
         self._read_service = NotebookReadService(_backend) if _backend is not None else None
+        self._mutation_service = NotebookMutationService(_backend) if _backend is not None else None
         self._sources = sources_api or create_default_source_lister(self._rpc)
         self._metadata_service = metadata_service or NotebookMetadataService(
             # Keep notebook lookup late-bound so tests and advanced callers that
@@ -249,6 +227,12 @@ class NotebooksAPI:
         if self._read_service is None:
             raise RuntimeError("NotebooksAPI semantic read backend was not configured")
         return self._read_service
+
+    def _require_mutation_service(self) -> NotebookMutationService:
+        """Return the composition-root service for migrated notebook mutations."""
+        if self._mutation_service is None:
+            raise RuntimeError("NotebooksAPI semantic mutation backend was not configured")
+        return self._mutation_service
 
     def _take_created_chat_session_id(self, notebook_id: str) -> str | None:
         """Consume CREATE_NOTEBOOK's volunteered current chat-session id."""
@@ -529,254 +513,14 @@ class NotebooksAPI:
             docs/python-api.md#idempotency.
         """
         logger.debug("Creating notebook: %s", title)
-        params = build_create_notebook_params(title)
-
-        # Capture the baseline notebook IDs *before* the create so the
-        # probe can distinguish a notebook that landed during this
-        # call from a pre-existing notebook with the same title.
-        # Titles are NOT unique in NotebookLM, so an unfiltered match
-        # could hand back a notebook that predates the call — and every
-        # subsequent ``sources.add_*`` / ``chat.ask`` in that session
-        # would then target the wrong notebook.
-        #
-        # ``None`` is the "baseline unavailable" sentinel, matching the
-        # three sibling PROBE_THEN_CREATE paths (``add_url``,
-        # ``add_drive``, ``register_file_source``). The probe below then
-        # refuses to guess and raises on any match instead. This
-        # deliberately trades a possible duplicate create — loud, visible
-        # in the notebook list, diagnosable — for the silent wrong-identity
-        # outcome the previous empty-set fallback produced (#2232).
-        baseline_ids: set[str] | None
-        # Retained so the ambiguity raise below can name what went wrong: the
-        # caller sees "baseline unavailable" long after this line ran, and
-        # without the cause there is nothing in the process that can explain it.
-        baseline_error: Exception | None = None
         try:
-            baseline_ids = {nb.id for nb in await self.list()}
-        except Exception as exc:
-            # WARNING, not DEBUG (#2220 parity with the source paths, #2204):
-            # the ``notebooklm`` logger defaults to WARNING, so a DEBUG record
-            # here is discarded before any handler sees it and the call silently
-            # runs with its idempotency probe disabled.
-            #
-            # Swallowing is still right at *baseline* time — nothing has been
-            # written yet, so degrading is safe and failing here would break
-            # creates that would otherwise have succeeded. The probe below runs
-            # after a create that may already have committed and therefore has
-            # no such freedom; that asymmetry is the whole shape of #2220.
-            baseline_error = exc
-            logger.warning(
-                "create: baseline list() failed (%s); the idempotency probe can no "
-                "longer tell a notebook this call created from one that was already "
-                "there, so a transport failure will surface as an ambiguity error "
-                "instead of recovering",
-                type(exc).__name__,
-                exc_info=True,
-            )
-            baseline_ids = None
-
-        async def _create() -> Notebook:
-            try:
-                result = await self._rpc.rpc_call(
-                    RPCMethod.CREATE_NOTEBOOK,
-                    params,
-                    disable_internal_retries=True,
-                )
-            except RPCError as exc:
-                await self._raise_quota_error_if_detected(exc)
-                raise
-            notebook = Notebook.from_api_response(result)
-            if notebook.id and notebook.chat_sessions:
-                self._created_chat_session_ids[notebook.id] = notebook.chat_sessions[0].id
-            logger.debug("Created notebook: %s", notebook.id)
-            return notebook
-
-        async def _probe() -> Notebook | None:
-            # Transport- and auth-level errors during the probe MUST
-            # propagate: the original create may have committed
-            # server-side and we have no way to confirm. Silently
-            # returning None would let ``idempotent_create`` re-issue the
-            # create on the next attempt and duplicate the notebook.
-            # Surfacing the transport error keeps the caller in control —
-            # they can decide whether to re-probe later (e.g. once
-            # connectivity recovers) before retrying the create.
-            #
-            # Other exception types (decoding errors, unexpected RPC
-            # failures, programming bugs) propagate too, as of #2220. They
-            # signal that the probe path itself is broken — which is exactly
-            # when its protection matters most, because "broken probe" is
-            # indistinguishable from "the create did not land". The old
-            # best-effort contract returned ``None`` there and let the create
-            # be re-issued on no evidence.
-            try:
-                current = await self.list()
-            except (AuthError, RateLimitError, ServerError, NetworkError) as exc:
-                # Transport- and auth-level probe failures must propagate.
-                # Silently returning None here lets ``idempotent_create``
-                # re-issue the create on top of a broken probe, which is
-                # exactly the duplicate-resource bug we are guarding against.
-                logger.warning(
-                    "create: probe list() failed with transport/auth error; "
-                    "propagating so the caller can avoid a duplicate-resource retry"
-                )
-                # Mark it UNCONFIRMED before it goes (#2220 review): the create
-                # may already have committed and this probe could not say, which
-                # is the same predicament as the decode branch below. Without the
-                # marker a ServerError/RateLimitError here classifies as the
-                # *retriable* SERVER/RATE_LIMITED with the hint "retry after a
-                # short delay" — and the caller retries the ADD, not the probe.
-                # The underlying type is left intact, so "re-authenticate" /
-                # "connectivity" remain readable in the message.
-                _unconfirmed(exc)
-                raise
-            except Exception as exc:
-                # Propagate, do not retry (#2220). ``notebooks.create`` is the
-                # fourth instance of the probe-then-create pattern the issue
-                # names three of; leaving it swallowing would split the very
-                # uniformity that argument rests on. ``RPCError`` matches what
-                # the ambiguity branch below already raises, so no call site's
-                # ``except`` clause changes meaning.
-                logger.warning(
-                    "create: probe list() failed with a non-transport error (%s); the "
-                    "create cannot be confirmed, so it will not be retried",
-                    type(exc).__name__,
-                    exc_info=True,
-                )
-                raise _unconfirmed(
-                    RPCError(
-                        # Action first — the MCP/REST surfaces truncate messages at
-                        # 300 characters, which cut the closing instruction off.
-                        "UNRESOLVED — do not blindly retry; check your notebook list "
-                        f"first. Cannot confirm notebook with title {title!r}: the "
-                        "create failed at the transport level and may or may not have "
-                        "committed, and the idempotency probe that would settle it "
-                        f"failed too ({type(exc).__name__}). No FURTHER attempt was made, "
-                        "because retrying on an unanswered probe is how duplicates "
-                        "happen — but an earlier attempt in this call may also have "
-                        "committed.",
-                        method_id=RPCMethod.CREATE_NOTEBOOK.value,
-                    )
-                ) from exc
-            matches = [nb for nb in current if nb.title == title]
-            if baseline_ids is not None:
-                matches = [nb for nb in matches if nb.id not in baseline_ids]
-            elif matches:
-                # Without a baseline a match may predate this create — see the
-                # ``baseline_ids`` comment for the failure mode this guards.
-                # Both halves of the ambiguity are worth stating: the match may
-                # predate the create, or it may BE the create, in which case it
-                # landed and the caller will otherwise never learn its id.
-                #
-                # Deliberately NOT ``raise ... from baseline_error``. Setting
-                # ``__cause__`` (by ``from`` or by hand) makes the traceback
-                # print the cause *instead of* ``__context__`` — and here
-                # ``__context__`` is the create's transport failure, the half
-                # ``idempotent_create`` promises stays visible ("the traceback
-                # shows both halves", ``_idempotency.py``). The baseline failure
-                # is named by type in the message instead, which is all the two
-                # sibling paths without a ``cause=`` field surface either.
-                raise _unconfirmed(
-                    RPCError(
-                        # Action first — the MCP/REST surfaces truncate messages
-                        # at 300 characters, and a realistic title plus one
-                        # ``id (title)`` row runs past that, cutting the closing
-                        # instruction off. Same reasoning as the probe-failure
-                        # raise above.
-                        f"Cannot disambiguate notebook with title {title!r} — check your "
-                        "notebook list before retrying: the pre-create baseline snapshot "
-                        f"failed ({type(baseline_error).__name__}), so "
-                        f"{_describe_notebooks(matches)} may either predate this create "
-                        "or be the notebook it just created.",
-                        method_id=RPCMethod.CREATE_NOTEBOOK.value,
-                    )
-                )
-            if len(matches) == 1:
-                # ``matches`` is a list of typed ``Notebook`` objects (NOT a raw
-                # RPC payload) — tuple unpacking reads the single match
-                # without the ``name[int]`` shape that the positional-decode gate
-                # (rightly) flags only for genuine payload descents.
-                (match,) = matches  # exactly one (len==1 guard); unpack avoids name[int]
-                return match
-            if len(matches) > 1:
-                # Ambiguous: more than one new notebook with this title
-                # appeared during the call. We cannot safely pick one;
-                # surface the situation so the caller can resolve it.
-                raise _unconfirmed(
-                    RPCError(
-                        f"Cannot disambiguate notebook with title {title!r}: "
-                        f"probe found {len(matches)} new notebooks with this title "
-                        "after a transport failure. Resolve manually before retrying.",
-                        method_id=RPCMethod.CREATE_NOTEBOOK.value,
-                    )
-                )
-            return None
-
-        result = await idempotent_create(
-            _create,
-            _probe,
-            label=f"notebooks.create[{title!r}]",
-        )
-        return result.value
-
-    async def _raise_quota_error_if_detected(self, error: RPCError) -> None:
-        """Convert CREATE_NOTEBOOK invalid-argument failures into quota errors."""
-        if (
-            error.method_id != RPCMethod.CREATE_NOTEBOOK.value
-            or error.rpc_code != CREATE_NOTEBOOK_QUOTA_RPC_CODE
-        ):
-            return
-
-        # The backend reports quota exhaustion as code 3 rather than a typed
-        # limit error, so verify against the account's advertised limit before
-        # changing the exception type.
-        try:
-            account_limits = await self._get_account_limits()
-        except Exception:
-            logger.debug(
-                "Could not fetch account limits after CREATE_NOTEBOOK failure; "
-                "leaving original RPC error unchanged",
-                exc_info=True,
-            )
-            return
-
-        notebook_limit = account_limits.notebook_limit
-        if notebook_limit is None:
-            return
-
-        try:
-            notebooks = await self.list()
-        except Exception:
-            logger.debug(
-                "Could not list notebooks after CREATE_NOTEBOOK failure; "
-                "leaving original RPC error unchanged",
-                exc_info=True,
-            )
-            return
-
-        # ``is_owner`` is now ``role is SharePermission.OWNER``. It previously
-        # decoded a "has any sharing" slot, so this count silently dropped every
-        # notebook the user owned *and had shared* — biasing the quota check
-        # towards never raising ``NotebookLimitError`` (#2125).
-        owned_count = sum(1 for notebook in notebooks if notebook.is_owner)
-        # Allow one notebook of slack because list results can lag a failed
-        # create or omit service-internal notebooks that still count.
-        if owned_count < max(notebook_limit - 1, 0):
-            return
-
-        raise NotebookLimitError(
-            owned_count,
-            limit=notebook_limit,
-            original_error=error,
-        ) from error
-
-    async def _get_account_limits(self) -> AccountLimits:
-        """Fetch NotebookLM account limits from user settings."""
-        result = await self._rpc.rpc_call(
-            RPCMethod.GET_USER_SETTINGS,
-            build_get_user_settings_params(),
-            source_path="/",
-        )
-        return extract_account_limits(result)
+            notebook = await self._require_mutation_service().create(title)
+        except BackendError as error:
+            raise project_backend_error(error) from None
+        if notebook.id and notebook.chat_sessions:
+            self._created_chat_session_ids[notebook.id] = notebook.chat_sessions[0].id
+        logger.debug("Created notebook: %s", notebook.id)
+        return notebook
 
     async def get(self, notebook_id: str) -> Notebook:
         """Get notebook details.
@@ -877,14 +621,10 @@ class NotebooksAPI:
             no longer enters its block.
         """
         logger.debug("Deleting notebook: %s", notebook_id)
-        # DELETE_NOTEBOOK is the live ``DeleteProjects``. Despite the plural
-        # name, it is single-id here: the leading slot takes exactly one id.
-        # Live-probed batch variants — [[id1,id2,id3],[2]], [ids,[2,2,2]],
-        # [[[id],[2]]…], [[[id1],[id2],[id3]],[2]] — all return rpc_code=3
-        # (invalid argument). Delete one notebook per call. (Contrast
-        # DELETE_SOURCE / ADD_SOURCE / DELETE_NOTE, which ARE batch-capable.)
-        params = [[notebook_id], [2]]
-        await self._rpc.rpc_call(RPCMethod.DELETE_NOTEBOOK, params)
+        try:
+            await self._require_mutation_service().delete(notebook_id)
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def rename(self, notebook_id: str, new_title: str) -> Notebook:
         """Rename a notebook.
@@ -915,28 +655,15 @@ class NotebooksAPI:
         verbatim and can therefore clear the emoji. At least one property must
         be supplied.
         """
-        if title is None and emoji is None:
-            raise ValidationError("At least one of title or emoji must be provided")
-
         logger.debug("Updating notebook %s (title=%r, emoji=%r)", notebook_id, title, emoji)
-        # RENAME_NOTEBOOK is the live ``MutateProject``, a generic notebook
-        # mutator: the same RPC sets the title here, chat config in
-        # ``ChatAPI.configure``, and the share view-level in
-        # ``SharingAPI.set_view_level`` — each with a different params shape.
-        # Payload format recovered from the web client's generated protobuf
-        # serializer and live-verified: ChangeProperty tag 2 is title and tag 3
-        # is emoji.
-        # [notebook_id, [[null, null, null, [null, title, emoji]]]]
-        # (the trailing emoji slot is omitted for a title-only mutation)
-        params = build_update_notebook_params(notebook_id, title=title, emoji=emoji)
-        await self._rpc.rpc_call(
-            RPCMethod.RENAME_NOTEBOOK,
-            params,
-            source_path="/",  # Home page context, not notebook page
-            allow_null=True,
-        )
-        # Fetch and return the updated notebook
-        return await self.get(notebook_id)
+        try:
+            return await self._require_mutation_service().update(
+                notebook_id,
+                title=title,
+                emoji=emoji,
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def get_summary(self, notebook_id: str) -> str:
         """Get raw summary text for a notebook.

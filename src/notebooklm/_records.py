@@ -91,16 +91,17 @@ class NotebookCreateResult:
 
 
 @dataclass(frozen=True, slots=True)
-class NotebookTitleUpdateInput:
-    """Notebook identity and replacement title."""
+class NotebookUpdateInput:
+    """Notebook identity and optional title/emoji replacements."""
 
     notebook_id: str
-    title: str
+    title: str | None = None
+    emoji: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class NotebookTitleUpdateResult:
-    """Notebook read back after its title mutation."""
+class NotebookUpdateResult:
+    """Notebook read back after its property mutation."""
 
     notebook: NotebookRecord
 
@@ -189,13 +190,11 @@ NOTEBOOK_CREATE_DEF: OperationDef[NotebookCreateInput, NotebookCreateResult] = O
     NotebookCreateInput,
     NotebookCreateResult,
 )
-NOTEBOOK_TITLE_UPDATE_DEF: OperationDef[NotebookTitleUpdateInput, NotebookTitleUpdateResult] = (
-    OperationDef(
-        Operation.NOTEBOOK_UPDATE,
-        CallPolicy.MUTATION,
-        NotebookTitleUpdateInput,
-        NotebookTitleUpdateResult,
-    )
+NOTEBOOK_UPDATE_DEF: OperationDef[NotebookUpdateInput, NotebookUpdateResult] = OperationDef(
+    Operation.NOTEBOOK_UPDATE,
+    CallPolicy.MUTATION,
+    NotebookUpdateInput,
+    NotebookUpdateResult,
 )
 NOTEBOOK_DELETE_DEF: OperationDef[NotebookDeleteInput, NotebookDeleteResult] = OperationDef(
     Operation.NOTEBOOK_DELETE,
@@ -222,7 +221,7 @@ __all__ = [
     "NOTEBOOK_LIST_DEF",
     "NOTEBOOK_CREATE_DEF",
     "NOTEBOOK_DELETE_DEF",
-    "NOTEBOOK_TITLE_UPDATE_DEF",
+    "NOTEBOOK_UPDATE_DEF",
     "SOURCE_GET_DEF",
     "SOURCE_LIST_DEF",
     "NotebookChatSessionRecord",
@@ -237,8 +236,8 @@ __all__ = [
     "NotebookListResult",
     "NotebookPremiumFeaturesRecord",
     "NotebookRecord",
-    "NotebookTitleUpdateInput",
-    "NotebookTitleUpdateResult",
+    "NotebookUpdateInput",
+    "NotebookUpdateResult",
     "SourceGetInput",
     "SourceGetResult",
     "SourceListInput",

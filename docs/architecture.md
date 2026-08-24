@@ -98,16 +98,15 @@ and the web cookie-provider extraction in P8 after P7. P3's codec/model separati
 it reuses the current strict row-adapter and wire-contract evidence rather than renaming it for its
 own sake. P0's catalog and contract evidence are implemented and frozen. P1 also constructs the
 private `WebRpcBackend` at the shared client-assembly seam and registers typed handlers for
-the P2.1 notebook/source reads. Both list/get slices now delegate through their semantic read
-services and that client-owned backend. The inert P2.2 core adds notebook create/title-update/delete
-handlers without changing those public mutation paths yet. The remaining phase descriptions are
-sequencing decisions, not a claim that P2.2 or P2-P8 are complete. P9 public-surface work and a
-mobile backend require separate decisions.
+the P2.1 notebook/source reads and P2.2 notebook mutations. Both list/get slices and notebook
+create/update/delete now delegate through transport-neutral semantic services and that client-owned
+backend. The remaining phase descriptions are sequencing decisions, not a claim that P2.3 or
+P3-P8 are complete. P9 public-surface work and a mobile backend require separate decisions.
 
-The operation-catalog audit classifies five exact web sites as inert: the generic RPC forwarder,
-three notebook-mutation handlers, and create's nested one-shot call. The four notebook/source read
-handlers remain active catalogued authorities. This bounded classification is mutation-tested and
-shrinks in the later slice that makes each mutation facade delegate.
+The operation-catalog audit classifies only the generic web RPC forwarder as inert. The four
+notebook/source read handlers and three notebook-mutation handlers (including create's nested
+one-shot call) are active catalogued authorities. This bounded classification is mutation-tested
+and shrinks as later slices activate more handlers.
 
 P0 adds four ADR-0022 contract baselines before runtime delegation:
 
@@ -1031,7 +1030,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_projectors.py` | Shared P2.1 compatibility projectors from neutral notebook/source records to the existing public `Notebook` / `Source` models, using their normal constructors and no wire adapters. |
 | `_notebook_mutation_service.py` | Private P2.2 transport-neutral notebook create/title-update/delete service; validates semantic input and invokes only typed backend definitions. |
 | `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
-| `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; seven P2.1/P2.2 handlers reuse current payload/row adapters and return neutral records. Notebook/source reads are active; notebook mutations remain inert. |
+| `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; seven active P2.1/P2.2 handlers reuse current payload/row adapters and return neutral records. |
 | `_web/registry.py` | Closed web disposition registry over every `Operation`: seven typed P2.1/P2.2 handlers and an explicit unsupported disposition for every other operation. |
 | `scripts/audit_operation_catalog.py` | Single build/audit CLI for the deterministic ADR-0022 projection: exact semantic authorities, native bindings, public/root-client dispositions, evidence, omissions, and divergences. |
 | `scripts/_operation_catalog_specs.py` | Reviewed semantic operation specifications, owners/policies/routes, native/web bindings, public methods, and dispositions. |
@@ -1204,7 +1203,7 @@ src/notebooklm/
 ├── _notebook_metadata.py        # Metadata protocols
 ├── _operations.py               # Closed semantic operation/call-policy vocabulary (P0)
 ├── _projectors.py               # Neutral record-to-public Notebook/Source compatibility projectors (P2.1)
-├── _notebook_mutation_service.py # Transport-neutral notebook mutation core (P2.2, inert)
+├── _notebook_mutation_service.py # Transport-neutral notebook mutation service (P2.2)
 ├── _read_services.py            # Transport-neutral notebook/source list/get services (P2.1)
 ├── _records.py                  # Neutral P2.1/P2.2 backend DTOs and operation definitions
 ├── _url_utils.py                # URL validation helpers

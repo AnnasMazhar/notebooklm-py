@@ -36,6 +36,8 @@ class BackendErrorReason(str, Enum):
     CLIENT = "client"
     DECODING = "decoding"
     NETWORK = "network"
+    NOTEBOOK_LIMIT = "notebook_limit"
+    NOTEBOOK_NOT_FOUND = "notebook_not_found"
     RATE_LIMIT = "rate_limit"
     RESPONSE_TOO_LARGE = "response_too_large"
     RPC = "rpc"

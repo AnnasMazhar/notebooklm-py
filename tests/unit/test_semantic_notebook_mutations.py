@@ -13,14 +13,14 @@ from notebooklm._operations import Operation
 from notebooklm._records import (
     NOTEBOOK_CREATE_DEF,
     NOTEBOOK_DELETE_DEF,
-    NOTEBOOK_TITLE_UPDATE_DEF,
+    NOTEBOOK_UPDATE_DEF,
     NotebookCreateInput,
     NotebookCreateResult,
     NotebookDeleteInput,
     NotebookDeleteResult,
     NotebookRecord,
-    NotebookTitleUpdateInput,
-    NotebookTitleUpdateResult,
+    NotebookUpdateInput,
+    NotebookUpdateResult,
 )
 from notebooklm.exceptions import ValidationError
 from tests._fixtures.recording_backend import BackendInvocation, RecordingBackend
@@ -32,7 +32,7 @@ async def test_mutation_service_records_typed_calls_deadline_and_projects_result
     created = NotebookRecord("nb-created", "Created")
     updated = NotebookRecord("nb-created", "Renamed")
     backend.set_result(NOTEBOOK_CREATE_DEF, NotebookCreateResult(created))
-    backend.set_result(NOTEBOOK_TITLE_UPDATE_DEF, NotebookTitleUpdateResult(updated))
+    backend.set_result(NOTEBOOK_UPDATE_DEF, NotebookUpdateResult(updated))
     backend.set_result(NOTEBOOK_DELETE_DEF, NotebookDeleteResult())
     service = NotebookMutationService(backend)
     deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 11.0)
@@ -47,7 +47,7 @@ async def test_mutation_service_records_typed_calls_deadline_and_projects_result
         BackendInvocation(Operation.NOTEBOOK_CREATE, NotebookCreateInput("Created"), deadline),
         BackendInvocation(
             Operation.NOTEBOOK_UPDATE,
-            NotebookTitleUpdateInput("nb-created", "Renamed"),
+            NotebookUpdateInput("nb-created", title="Renamed"),
             deadline,
         ),
         BackendInvocation(Operation.NOTEBOOK_DELETE, NotebookDeleteInput("nb-created"), deadline),
@@ -55,12 +55,23 @@ async def test_mutation_service_records_typed_calls_deadline_and_projects_result
 
 
 @pytest.mark.asyncio
-async def test_empty_title_fails_before_backend_invocation() -> None:
+async def test_empty_change_fails_before_backend_invocation() -> None:
     backend = RecordingBackend()
     backend.set_result(
-        NOTEBOOK_TITLE_UPDATE_DEF,
-        NotebookTitleUpdateResult(NotebookRecord("nb", "unused")),
+        NOTEBOOK_UPDATE_DEF,
+        NotebookUpdateResult(NotebookRecord("nb", "unused")),
     )
+
+    with pytest.raises(ValidationError, match="At least one"):
+        await NotebookMutationService(backend).update("nb")
+
+    assert backend.invocations == []
+
+
+@pytest.mark.asyncio
+async def test_empty_title_fails_before_backend_invocation() -> None:
+    backend = RecordingBackend()
+    backend.set_result(NOTEBOOK_UPDATE_DEF, NotebookUpdateResult(NotebookRecord("nb", "")))
 
     with pytest.raises(ValidationError, match="must not be empty"):
         await NotebookMutationService(backend).update_title("nb", "")

@@ -20,7 +20,6 @@ from notebooklm._notebooks import NotebooksAPI
 from notebooklm._web.backend import WebRpcBackend
 from notebooklm.exceptions import ServerError, ValidationError
 from notebooklm.rpc import RPCMethod
-from notebooklm.types import Notebook
 
 
 def _api(rpc_call: AsyncMock) -> NotebooksAPI:
@@ -49,48 +48,53 @@ def test_notebook_mutation_public_signatures_are_frozen() -> None:
 @pytest.mark.asyncio
 async def test_create_pins_baseline_payload_projection_and_retry_ownership() -> None:
     rpc_call = AsyncMock(
-        return_value=[
-            "Daily News",
-            None,
-            "nb-new",
-            None,
-            None,
-            [None, False, None, None, None, [1704067200, 0]],
+        side_effect=[
+            [],
+            [
+                "Daily News",
+                None,
+                "nb-new",
+                None,
+                None,
+                [None, False, None, None, None, [1704067200, 0]],
+            ],
         ]
     )
     api = _api(rpc_call)
-    api.list = AsyncMock(return_value=[])  # type: ignore[method-assign]
 
     notebook = await api.create("Daily News")
 
     assert (notebook.id, notebook.title) == ("nb-new", "Daily News")
-    api.list.assert_awaited_once_with()
-    rpc_call.assert_awaited_once_with(
+    assert [item.args[0] for item in rpc_call.await_args_list] == [
+        RPCMethod.LIST_NOTEBOOKS,
         RPCMethod.CREATE_NOTEBOOK,
-        build_create_notebook_params("Daily News"),
-        disable_internal_retries=True,
-    )
+    ]
+    assert rpc_call.await_args_list[1].args[1] == build_create_notebook_params("Daily News")
+    assert rpc_call.await_args_list[1].kwargs["disable_internal_retries"] is True
 
 
 @pytest.mark.asyncio
 async def test_create_transport_failure_adopts_one_new_baseline_diff_without_repost() -> None:
-    rpc_call = AsyncMock(side_effect=ServerError("bad gateway", status_code=502))
-    api = _api(rpc_call)
-    recovered = Notebook(id="nb-landed", title="Daily News")
-    api.list = AsyncMock(  # type: ignore[method-assign]
+    old_row = ["Daily News", [], "nb-old"]
+    landed_row = ["Daily News", [], "nb-landed"]
+    rpc_call = AsyncMock(
         side_effect=[
-            [Notebook(id="nb-old", title="Daily News")],
-            [Notebook(id="nb-old", title="Daily News"), recovered],
+            [[old_row]],
+            ServerError("bad gateway", status_code=502),
+            [[old_row, landed_row]],
         ]
     )
+    api = _api(rpc_call)
 
-    assert await api.create("Daily News") is recovered
-    assert api.list.await_args_list == [call(), call()]
-    rpc_call.assert_awaited_once_with(
+    recovered = await api.create("Daily News")
+
+    assert (recovered.id, recovered.title) == ("nb-landed", "Daily News")
+    assert [item.args[0] for item in rpc_call.await_args_list] == [
+        RPCMethod.LIST_NOTEBOOKS,
         RPCMethod.CREATE_NOTEBOOK,
-        build_create_notebook_params("Daily News"),
-        disable_internal_retries=True,
-    )
+        RPCMethod.LIST_NOTEBOOKS,
+    ]
+    assert sum(item.args[0] is RPCMethod.CREATE_NOTEBOOK for item in rpc_call.await_args_list) == 1
 
 
 @pytest.mark.asyncio
@@ -112,6 +116,12 @@ async def test_title_update_pins_mutation_then_get_readback() -> None:
             build_update_notebook_params("nb-1", title="Renamed"),
             source_path="/",
             allow_null=True,
+            _is_retry=False,
+            disable_internal_retries=False,
+            operation_variant=None,
+            read_timeout=None,
+            raise_on_null_status=False,
+            _retry_deadline=None,
         ),
         call(
             RPCMethod.GET_NOTEBOOK,
@@ -138,7 +148,7 @@ async def test_update_rejects_empty_change_and_delete_stays_single_id_set_operat
     rpc_call.assert_not_awaited()
 
     assert await api.delete("nb-1") is None
-    rpc_call.assert_awaited_once_with(
+    assert rpc_call.await_args_list[-1].args == (
         RPCMethod.DELETE_NOTEBOOK,
         [["nb-1"], [2]],
     )

@@ -466,22 +466,14 @@ GENERIC_RPC_FORWARDERS = frozenset(
 
 # P1 constructed the semantic web backend with every handler inert. P2 removes
 # each handler from this set in the same slice that delegates its facade. The
-# notebook and source read handlers are live; the P2.2 mutation handlers and
-# their create closure remain inert until their facade-delegation commit. The
-# shared forwarder remains inert until every registered operation delegates.
+# notebook/source read and notebook mutation handlers are live. The shared
+# forwarder remains inert until every registered operation delegates.
 INERT_P1_WEB_FORWARDERS = frozenset(
     {
         "_web/backend.py:WebRpcBackend._rpc_call",
     }
 )
-INERT_P1_WEB_HANDLERS = frozenset(
-    {
-        "_web/backend.py:WebRpcBackend._notebook_create",
-        "_web/backend.py:WebRpcBackend._notebook_create.create",
-        "_web/backend.py:WebRpcBackend._notebook_delete",
-        "_web/backend.py:WebRpcBackend._notebook_title_update",
-    }
-)
+INERT_P1_WEB_HANDLERS = frozenset()
 INERT_P1_WEB_SITES = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
 
 # Removal: P2 deletes one handler exemption and admits the corresponding
@@ -496,15 +488,16 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_notebook_mutation_service.py", "_projectors", "project_notebook"),
         ("_notebook_mutation_service.py", "_records", "NOTEBOOK_CREATE_DEF"),
         ("_notebook_mutation_service.py", "_records", "NOTEBOOK_DELETE_DEF"),
-        ("_notebook_mutation_service.py", "_records", "NOTEBOOK_TITLE_UPDATE_DEF"),
+        ("_notebook_mutation_service.py", "_records", "NOTEBOOK_UPDATE_DEF"),
         ("_notebook_mutation_service.py", "_records", "NotebookCreateInput"),
         ("_notebook_mutation_service.py", "_records", "NotebookDeleteInput"),
-        ("_notebook_mutation_service.py", "_records", "NotebookTitleUpdateInput"),
+        ("_notebook_mutation_service.py", "_records", "NotebookUpdateInput"),
         ("_client_assembly.py", "_web.backend", "WebRpcBackend"),
         ("client.py", "_backend", "BackendAdapter"),
         ("_notebooks.py", "_backend", "BackendAdapter"),
         ("_notebooks.py", "_backend", "BackendError"),
         ("_notebooks.py", "_backend_compat", "project_backend_error"),
+        ("_notebooks.py", "_notebook_mutation_service", "NotebookMutationService"),
         ("_notebooks.py", "_read_services", "NotebookReadService"),
         ("_projectors.py", "_records", "NotebookRecord"),
         ("_projectors.py", "_records", "SourceRecord"),
@@ -543,8 +536,8 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/backend.py", "_records", "NotebookListResult"),
         ("_web/backend.py", "_records", "NotebookPremiumFeaturesRecord"),
         ("_web/backend.py", "_records", "NotebookRecord"),
-        ("_web/backend.py", "_records", "NotebookTitleUpdateInput"),
-        ("_web/backend.py", "_records", "NotebookTitleUpdateResult"),
+        ("_web/backend.py", "_records", "NotebookUpdateInput"),
+        ("_web/backend.py", "_records", "NotebookUpdateResult"),
         ("_web/backend.py", "_records", "SourceGetInput"),
         ("_web/backend.py", "_records", "SourceGetResult"),
         ("_web/backend.py", "_records", "SourceListInput"),
@@ -556,7 +549,7 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/registry.py", "_records", "NOTEBOOK_LIST_DEF"),
         ("_web/registry.py", "_records", "NOTEBOOK_CREATE_DEF"),
         ("_web/registry.py", "_records", "NOTEBOOK_DELETE_DEF"),
-        ("_web/registry.py", "_records", "NOTEBOOK_TITLE_UPDATE_DEF"),
+        ("_web/registry.py", "_records", "NOTEBOOK_UPDATE_DEF"),
         ("_web/registry.py", "_records", "SOURCE_GET_DEF"),
         ("_web/registry.py", "_records", "SOURCE_LIST_DEF"),
     }
@@ -566,6 +559,7 @@ _REVIEWED_BACKEND_IMPORT_MODULES = frozenset(
     {
         "_backend",
         "_backend_compat",
+        "_notebook_mutation_service",
         "_projectors",
         "_read_services",
         "_records",
@@ -578,6 +572,7 @@ _REVIEWED_BACKEND_IMPORT_MODULES = frozenset(
 
 _REVIEWED_BACKEND_IMPORT_PREFIXES = (
     "notebooklm._backend",
+    "notebooklm._notebook_mutation_service",
     "notebooklm._projectors",
     "notebooklm._read_services",
     "notebooklm._records",
@@ -593,19 +588,16 @@ def _is_reviewed_backend_import_module(module: str) -> bool:
 
 ACTIVE_P2_BACKEND_INVOKE_SITES = frozenset(
     {
+        "_notebook_mutation_service.py:NotebookMutationService.create",
+        "_notebook_mutation_service.py:NotebookMutationService.delete",
+        "_notebook_mutation_service.py:NotebookMutationService.update",
         "_read_services.py:NotebookReadService.get",
         "_read_services.py:NotebookReadService.list",
         "_read_services.py:SourceReadService.get",
         "_read_services.py:SourceReadService.list",
     }
 )
-INERT_P1_BACKEND_INVOKE_SITES = frozenset(
-    {
-        "_notebook_mutation_service.py:NotebookMutationService.create",
-        "_notebook_mutation_service.py:NotebookMutationService.delete",
-        "_notebook_mutation_service.py:NotebookMutationService.update_title",
-    }
-)
+INERT_P1_BACKEND_INVOKE_SITES = frozenset()
 
 
 def audit_inert_p1_backend_dataflow(
@@ -678,6 +670,7 @@ def audit_inert_p1_backend_dataflow(
                         in {
                             "_backend",
                             "_backend_compat",
+                            "_notebook_mutation_service",
                             "_projectors",
                             "_read_services",
                             "_records",
@@ -1242,15 +1235,20 @@ def audit_recency_contracts() -> list[str]:
             "NotebookMetadataService.get_metadata must gather exactly notebook lookup + source list"
         )
 
-    notebooks_tree = _parse(SRC_ROOT / "_notebooks.py")
-    update_fn = _find_class_method(notebooks_tree, "NotebooksAPI", "update")
-    if update_fn is None or _call_count(update_fn, ("self", "get")) != 1:
-        errors.append("NotebooksAPI.update must perform exactly one unconditional self.get call")
+    backend_tree = _parse(SRC_ROOT / "_web" / "backend.py")
+    update_fn = _find_class_method(backend_tree, "WebRpcBackend", "_notebook_update")
+    if update_fn is None or _rpc_binding_call_count(update_fn, RPCMethod.GET_NOTEBOOK) != 1:
+        errors.append(
+            "WebRpcBackend._notebook_update must perform exactly one unconditional "
+            "GET_NOTEBOOK call"
+        )
     elif any(
         argument.arg == "return_object"
         for argument in (*update_fn.args.args, *update_fn.args.kwonlyargs)
     ):
-        errors.append("NotebooksAPI.update recency contract forbids a return_object bypass")
+        errors.append(
+            "WebRpcBackend._notebook_update recency contract forbids a return_object bypass"
+        )
 
     chat_tree = _parse(SRC_ROOT / "_chat" / "api.py")
     expected_chat_gets = {"configure": 0, "set_mode": 0, "get_settings": 1}

@@ -11,6 +11,8 @@ from .exceptions import (
     ClientError,
     DecodingError,
     NetworkError,
+    NotebookLimitError,
+    NotebookNotFoundError,
     RateLimitError,
     RPCError,
     RPCResponseTooLargeError,
@@ -18,6 +20,12 @@ from .exceptions import (
     ServerError,
     UnknownRPCMethodError,
 )
+
+
+def _preserve_outcome(error: BackendError, projected: Exception) -> Exception:
+    if error.outcome_unknown:
+        projected.unconfirmed = True  # type: ignore[attr-defined]
+    return projected
 
 
 def _diagnostics(error: BackendError) -> Mapping[str, object]:
@@ -93,17 +101,23 @@ def project_backend_error(error: BackendError) -> Exception:
     diagnostics = _diagnostics(error)
 
     if reason is BackendErrorReason.NETWORK:
-        return NetworkError(
-            error.message,
-            method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
+        return _preserve_outcome(
+            error,
+            NetworkError(
+                error.message,
+                method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
+            ),
         )
     if reason is BackendErrorReason.TIMEOUT:
-        return RPCTimeoutError(
-            error.message,
-            method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
-            timeout_seconds=cast(
-                float | None,
-                _optional(error, diagnostics, "timeout_seconds", (float, int)),
+        return _preserve_outcome(
+            error,
+            RPCTimeoutError(
+                error.message,
+                method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
+                timeout_seconds=cast(
+                    float | None,
+                    _optional(error, diagnostics, "timeout_seconds", (float, int)),
+                ),
             ),
         )
     if reason is BackendErrorReason.UNKNOWN_RPC_METHOD:
@@ -127,15 +141,81 @@ def project_backend_error(error: BackendError) -> Exception:
                 operation=error.operation,
             )
         source = _optional(error, diagnostics, "source", str)
-        return UnknownRPCMethodError(
-            error.message,
-            method_id=cast(str | int | None, method_id),
-            path=cast(tuple[int, ...] | None, path),
-            source=cast(str | None, source),
-            found_ids=cast(list[str | int] | None, found_ids),
-            raw_response=diagnostics.get("raw_response"),
-            data_at_failure=diagnostics.get("data_at_failure"),
-            rpc_code=cast(str | int | None, rpc_code),
+        return _preserve_outcome(
+            error,
+            UnknownRPCMethodError(
+                error.message,
+                method_id=cast(str | int | None, method_id),
+                path=cast(tuple[int, ...] | None, path),
+                source=cast(str | None, source),
+                found_ids=cast(list[str | int] | None, found_ids),
+                raw_response=diagnostics.get("raw_response"),
+                data_at_failure=diagnostics.get("data_at_failure"),
+                rpc_code=cast(str | int | None, rpc_code),
+            ),
+        )
+
+    if reason is BackendErrorReason.NOTEBOOK_NOT_FOUND:
+        notebook_id = _optional(error, diagnostics, "notebook_id", str)
+        if notebook_id is None:
+            raise BackendContractError(
+                "notebook-not-found compatibility error lacks notebook_id",
+                operation=error.operation,
+            )
+        return _preserve_outcome(
+            error,
+            NotebookNotFoundError(
+                cast(str, notebook_id),
+                method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
+            ),
+        )
+
+    if reason is BackendErrorReason.NOTEBOOK_LIMIT:
+        current_count = _required_int(error, diagnostics, "current_count")
+        if current_count is None:
+            raise BackendContractError(
+                "notebook-limit compatibility error lacks current_count",
+                operation=error.operation,
+            )
+        original_reason = _optional(error, diagnostics, "original_reason", str)
+        original_message = _optional(error, diagnostics, "original_message", str)
+        original_diagnostics = diagnostics.get("original_diagnostics")
+        if (
+            original_reason is None
+            or original_message is None
+            or not isinstance(original_diagnostics, Mapping)
+        ):
+            raise BackendContractError(
+                "notebook-limit compatibility error lacks original RPC evidence",
+                operation=error.operation,
+            )
+        try:
+            nested_reason = BackendErrorReason(original_reason)
+        except ValueError as exc:
+            raise BackendContractError(
+                f"invalid notebook-limit original reason {original_reason!r}",
+                operation=error.operation,
+            ) from exc
+        original = project_backend_error(
+            BackendError(
+                cast(str, original_message),
+                operation=error.operation,
+                diagnostics=original_diagnostics,
+                reason=nested_reason,
+            )
+        )
+        if not isinstance(original, RPCError):
+            raise BackendContractError(
+                "notebook-limit original evidence does not reconstruct RPCError",
+                operation=error.operation,
+            )
+        return _preserve_outcome(
+            error,
+            NotebookLimitError(
+                current_count,
+                limit=_required_int(error, diagnostics, "limit"),
+                original_error=original,
+            ),
         )
 
     rpc = _rpc_diagnostics(error)
@@ -143,35 +223,47 @@ def project_backend_error(error: BackendError) -> Exception:
         projected = AuthError(error.message, **rpc)
         recoverable = _optional(error, diagnostics, "recoverable", bool)
         projected.recoverable = bool(recoverable)
-        return projected
+        return _preserve_outcome(error, projected)
     if reason is BackendErrorReason.CLIENT:
-        return ClientError(
-            error.message,
-            status_code=_required_int(error, diagnostics, "status_code"),
-            **rpc,
+        return _preserve_outcome(
+            error,
+            ClientError(
+                error.message,
+                status_code=_required_int(error, diagnostics, "status_code"),
+                **rpc,
+            ),
         )
     if reason is BackendErrorReason.DECODING:
-        return DecodingError(error.message, **rpc)
+        return _preserve_outcome(error, DecodingError(error.message, **rpc))
     if reason is BackendErrorReason.RATE_LIMIT:
-        return RateLimitError(
-            error.message,
-            retry_after=_required_int(error, diagnostics, "retry_after"),
-            **rpc,
+        return _preserve_outcome(
+            error,
+            RateLimitError(
+                error.message,
+                retry_after=_required_int(error, diagnostics, "retry_after"),
+                **rpc,
+            ),
         )
     if reason is BackendErrorReason.RESPONSE_TOO_LARGE:
-        return RPCResponseTooLargeError(
-            error.message,
-            limit_bytes=_required_int(error, diagnostics, "limit_bytes"),
-            bytes_read=_required_int(error, diagnostics, "bytes_read"),
-            method_id=rpc["method_id"],
+        return _preserve_outcome(
+            error,
+            RPCResponseTooLargeError(
+                error.message,
+                limit_bytes=_required_int(error, diagnostics, "limit_bytes"),
+                bytes_read=_required_int(error, diagnostics, "bytes_read"),
+                method_id=rpc["method_id"],
+            ),
         )
     if reason is BackendErrorReason.RPC:
-        return RPCError(error.message, **rpc)
+        return _preserve_outcome(error, RPCError(error.message, **rpc))
     if reason is BackendErrorReason.SERVER:
-        return ServerError(
-            error.message,
-            status_code=_required_int(error, diagnostics, "status_code"),
-            **rpc,
+        return _preserve_outcome(
+            error,
+            ServerError(
+                error.message,
+                status_code=_required_int(error, diagnostics, "status_code"),
+                **rpc,
+            ),
         )
     raise BackendContractError(
         f"unsupported backend compatibility reason {reason.value!r}",
