@@ -14,7 +14,7 @@ Guidance for Claude Code working in this repo. Also follow the file/naming conve
 # Canonical contributor install — matches the extras CI's test job installs.
 # Full guide: docs/installation.md
 uv sync --frozen --extra browser --extra dev --extra markdown \
-        --extra mcp --extra server --extra impersonate
+        --extra mcp --extra server --extra impersonate --extra cookies
 source .venv/bin/activate
 uv run playwright install chromium
 
@@ -32,11 +32,33 @@ at **84.39%** coverage and fails the 90% gate, while CI's set runs **15,478** at
 **96.61%** and passes. That ~1,500-test blind spot hid a real MCP-adapter defect
 through eight red CI jobs on #2198.
 
-To reproduce a CI test run exactly (`.github/workflows/test.yml`):
+To reproduce the required pull-request test suite (`.github/workflows/test.yml`):
 
 ```bash
-uv run pytest -n auto --dist loadgroup --cov=src/notebooklm \
-  --cov-report=term-missing --cov-fail-under=90
+uv run pytest -n auto --dist loadgroup \
+  -m "not repo_lint and not requires_playwright and not requires_chromium" \
+  --no-cov
+```
+
+The canonical Ubuntu 3.12 cell separately runs the required reality probes and
+the small positive semantic, public-surface, auth, and Playwright security
+contract set named in `test.yml`. Deep `repo_lint` audits are available from
+the manual `Repository Lint` job (`workflow_dispatch`) and can be reproduced
+locally with:
+
+```bash
+uv run pytest -n auto --dist loadgroup -m repo_lint --timeout=180 --no-cov
+```
+
+Coverage is intentionally a scheduled/manual nightly gate rather than a pull-
+request gate. To reproduce `.github/workflows/nightly.yml`'s coverage job:
+
+```bash
+uv run pytest -n auto --dist loadgroup \
+  -m "not repo_lint and not requires_playwright and not requires_chromium" \
+  --cov=src/notebooklm --cov-report=term-missing \
+  --cov-report=json:coverage.json --cov-fail-under=90
+uv run python scripts/check_coverage_thresholds.py --coverage-json coverage.json
 ```
 
 `--dist loadgroup` matters: it honors `@pytest.mark.xdist_group`, and at least

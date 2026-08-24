@@ -12,15 +12,17 @@ uv run playwright install chromium
 pre-commit install
 ```
 
-**Run the full pre-commit suite** (matches what CI runs). IMPORTANT: use the
-broad `.` scope, not `src/ tests/` — the pre-commit hook in CI invokes
-ruff-format on the whole tree and is stricter than a narrow scope.
+**Run the required PR checks locally.** IMPORTANT: use the broad `.` scope,
+not `src/ tests/` — the pre-commit hook in CI invokes ruff-format on the whole
+tree and is stricter than a narrow scope.
 
 ```bash
 uv run ruff format --check . && \
     uv run ruff check . && \
-    uv run mypy src/notebooklm --ignore-missing-imports && \
-    uv run pytest --cov=src/notebooklm --cov-report=term-missing --cov-fail-under=90
+    uv run mypy src/notebooklm --ignore-missing-imports
+uv run pytest -n auto --dist loadgroup \
+    -m "not repo_lint and not requires_playwright and not requires_chromium" \
+    --no-cov
 ```
 
 **No uv?** Plain pip works as a fallback (won't enforce the lockfile, so you may resolve newer dep versions than CI):
@@ -68,7 +70,13 @@ pre-commit run --all-files                      # manual run on the whole tree (
 
 > **Caveat:** if `pre-commit install` errors with `Cowardly refusing to install hooks with core.hooksPath set`, your git is configured to use a custom hooks directory (common with Husky / nx / shared dev configs). Workaround: `git config --unset core.hooksPath` then re-run `pre-commit install`, or run `pre-commit run --all-files` manually before each commit. CI runs the same hook either way, so a clean local hook is convenience, not correctness.
 
-> **CI parity.** The local pre-commit one-liner above matches the CI **lint gate** (`uv run pre-commit run --all-files` in `.github/workflows/test.yml`). CI additionally runs the full test matrix on multiple Python versions (3.10–3.14) and asserts a 90% coverage floor (`pytest --cov=src/notebooklm --cov-report=term-missing --cov-fail-under=90`). The lint+test failure modes are caught locally; the multi-Python-version drift is not — `uv run pytest --cov=src/notebooklm --cov-report=term-missing --cov-fail-under=90` here uses your local Python version only.
+> **CI parity.** The local commands above match the ordinary required PR suite
+> and lint gate in `.github/workflows/test.yml`. CI installs every optional test
+> surface and runs the matrix on Python 3.10–3.14, so a minimal contributor
+> install can still skip optional MCP/server tests. Global and per-file coverage
+> floors run in `.github/workflows/nightly.yml`; deep `repo_lint` audits run in
+> the manual `Repository Lint` job. The required Ubuntu 3.12 cell retains the
+> positive semantic/public/auth/Playwright security contracts.
 
 ### Pull Request Process
 
@@ -132,9 +140,10 @@ uv run pytest tests/unit tests/integration -m "not repo_lint"
 uv run pytest tests/unit tests/integration -m "repo_lint"
 ```
 
-Run the full suite (including `repo_lint`) before pushing — CI runs everything
-by default, so `repo_lint` failures still block merge. The default
-`uv run pytest` invocation does not filter the marker out.
+Run the full suite (including `repo_lint`) before a release or when changing a
+repo-wide contract. Pull-request CI excludes these deep audits for fast
+feedback; maintainers can run the `Repository Lint` job manually. The default
+local `uv run pytest` invocation does not filter the marker out.
 
 Quick guidance:
 

@@ -345,13 +345,15 @@ pre-commit install
 
 **Linux only:** `uv run playwright install-deps chromium` (scoped form, matches `test.yml`).
 
-**Pre-commit checklist (run before every commit):**
+**Required PR checks (run before every commit):**
 
 ```bash
 uv run ruff format --check . && \
     uv run ruff check . && \
-    uv run mypy src/notebooklm --ignore-missing-imports && \
-    uv run pytest --cov=src/notebooklm --cov-report=term-missing --cov-fail-under=90
+    uv run mypy src/notebooklm --ignore-missing-imports
+uv run pytest -n auto --dist loadgroup \
+    -m "not repo_lint and not requires_playwright and not requires_chromium" \
+    --no-cov
 ```
 
 **Verify:**
@@ -359,7 +361,9 @@ uv run ruff format --check . && \
 <!-- not mirrored: contributor verify block; CONTRIBUTING.md mirrors only the pre-commit checklist (the more frequent, per-commit version) -->
 ```bash
 notebooklm --version
-uv run pytest --cov=src/notebooklm --cov-report=term-missing --cov-fail-under=90
+uv run pytest -n auto --dist loadgroup \
+  -m "not repo_lint and not requires_playwright and not requires_chromium" \
+  --no-cov
 uv run pre-commit run --all-files
 ```
 

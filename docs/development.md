@@ -518,7 +518,7 @@ uv run pytest
 uv run pytest -n auto --dist loadgroup
 
 # Fast local loop — skip repo-wide audit / release-gate checks (~40s saved).
-# CI still runs these; the marker just lets you iterate quickly.
+# Pull-request CI skips these too; use the manual Repository Lint job when needed.
 uv run pytest tests/unit tests/integration -m "not repo_lint"
 
 # E2E tests (requires auth + test notebook)
@@ -534,7 +534,9 @@ The `repo_lint` marker tags cassette-shape lint, public-surface scans,
 docstring/install-doc drift guards, version-sync, and CI-script audits.
 These are valuable release/CI guardrails but cost ~30–45s locally. See
 [`CONTRIBUTING.md`](../CONTRIBUTING.md#fast-local-loop-skip-repo-wide-audit-checks)
-for the canonical fast-loop guidance.
+for the canonical fast-loop guidance. The required PR lane retains a curated
+positive security/contract subset; the complete `repo_lint` set runs only on
+manual workflow dispatch.
 
 ### Testing across boundaries and against reality
 
@@ -1283,8 +1285,8 @@ The `RedactingFilter` preserves `record.exc_info` (the live exception object) so
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `test.yml` | Push/PR | Unit tests, linting, type checking |
-| `nightly.yml` | Daily 6 AM UTC (`main`), manual dispatch for `release/*` | E2E tests with real API |
+| `test.yml` | Push/PR; manual dispatch | Required no-coverage test matrix, lint/type/security gates; manual deep repository lint |
+| `nightly.yml` | Daily 6 AM UTC (`main`), manual dispatch for `release/*` | Coverage floors and E2E tests with real API |
 | `rpc-health.yml` | Daily 7 AM UTC (`main`), manual dispatch for `release/*` | RPC method ID monitoring (see [stability.md](stability.md#automated-rpc-health-check)) |
 | `testpypi-publish.yml` | Manual dispatch | Publish to TestPyPI |
 | `verify-package.yml` | Manual dispatch | Verify TestPyPI or PyPI install + E2E |
