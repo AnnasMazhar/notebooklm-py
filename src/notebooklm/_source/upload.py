@@ -22,16 +22,12 @@ from .._idempotency import (
 )
 from .._idempotency import mark_unconfirmed as _unconfirmed
 from .._loop_bound import LoopBoundPrimitive
-from .._projectors import project_source
+from .._records import SourceFileRegistrationRecord
 from .._runtime.config import (
     DEFAULT_MAX_CONCURRENT_UPLOADS,
     normalize_max_concurrent_uploads,
 )
-from .._runtime.contracts import (
-    Kernel,
-    RpcCaller,
-)
-from .._web.codec.sources import decode_source
+from .._runtime.contracts import Kernel
 from ..exceptions import (
     AuthError,
     NetworkError,
@@ -39,7 +35,7 @@ from ..exceptions import (
     ServerError,
     ValidationError,
 )
-from ..rpc import RPCError, RPCMethod, get_upload_url
+from ..rpc import RPCError, get_upload_url
 from ..rpc.types import SourceStatus
 from ..types import Source, SourceAddError
 
@@ -91,11 +87,8 @@ from ._upload_decode import (  # noqa: F401
     raise_partial_upload_failure,
 )
 from .drive_import import DriveFetcher, DriveImportService
-from .listing import SourceLister
 from .polling import SourcePoller
 from .upload_payloads import (
-    build_register_file_source_params,
-    build_rename_source_params,
     build_resumable_upload_start_request,
 )
 
@@ -119,29 +112,6 @@ class AuthMetadata(Protocol):
     def account_email(self) -> str | None: ...
 
 
-class RpcCallback(Protocol):
-    """RPC callback shape used by upload registration.
-
-    A **callable** Protocol (``async def __call__(...)``) passed as a keyword arg
-    into :meth:`SourceUploadPipeline.register_file_source` — distinct from the
-    shared **object** Protocol ``RpcCaller`` (``.rpc_call(...)``); kept as a
-    structural Protocol (not a ``Callable[...]`` alias) so mypy flags keyword-name
-    typos at call sites.
-    """
-
-    async def __call__(
-        self,
-        method: RPCMethod,
-        params: list[Any],
-        source_path: str = "/",
-        allow_null: bool = False,
-        _is_retry: bool = False,
-        *,
-        disable_internal_retries: bool = False,
-        operation_variant: str | None = None,
-    ) -> Any: ...
-
-
 _INVALID_ARGUMENT_RPC_CODE = 3
 # Preserve the historical ``notebooklm._sources`` log channel after moving
 # upload choreography into this module.
@@ -160,7 +130,23 @@ class AsyncClientFactory(Protocol):
 
 
 ListSources = Callable[[str], Awaitable[list[Source]]]
+RegisterFileSource = Callable[[str, str], Awaitable[SourceFileRegistrationRecord]]
+RenameSource = Callable[[str, str, str], Awaitable[Source | None]]
 QueueWaitRecorder = Callable[[float], None]
+
+
+class _SourceUploadResult:
+    """One upload result plus its resolved per-call readiness policy."""
+
+    __slots__ = ("source", "transient_error_types")
+
+    def __init__(
+        self,
+        source: Source,
+        transient_error_types: tuple[int | None, ...],
+    ) -> None:
+        self.source = source
+        self.transient_error_types = transient_error_types
 
 
 # Single-loop-per-client invariant per ADR-0004; not safe for multi-loop fan-out.
@@ -178,7 +164,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
     def __init__(
         self,
         *,
-        rpc: RpcCaller,
+        rpc: Any | None = None,
         drain: TransportDrainTracker,
         lifecycle: ClientLifecycle,
         kernel: Kernel,
@@ -188,10 +174,15 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         record_upload_queue_wait: QueueWaitRecorder | None = None,
         async_client_factory: AsyncClientFactory | None = None,
         get_source_limit: GetSourceLimit | None = None,
-        lister: SourceLister | None = None,
+        list_sources: ListSources | None = None,
+        register_file_source: RegisterFileSource | None = None,
+        rename_source: RenameSource | None = None,
         poller: SourcePoller | None = None,
     ):
-        self._rpc = rpc
+        # ``rpc`` remains an ignored constructor keyword for source compatibility
+        # with direct pipeline builders. Wire dispatch is configured by the web
+        # backend through semantic callbacks below.
+        del rpc
         self._drain = drain
         self._lifecycle = lifecycle
         self._kernel = kernel
@@ -208,10 +199,9 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         # overrides :meth:`_on_loop_rebind` to discard the cached
         # ``_upload_semaphore`` on a loop change. Cross-loop *use* is guarded by
         # the lifecycle's ``assert_bound_loop`` at the top of ``add_file``.
-        # Defaults; SourcesAPI replaces these via configure_source_lifecycle()
-        # so the pipeline shares its lister/poller (single owner for the
-        # source-lifecycle verbs). Direct callers keep these fresh instances.
-        self._lister = lister if lister is not None else SourceLister(self._rpc)
+        self._list_sources_callback = list_sources
+        self._register_file_source_callback = register_file_source
+        self._rename_source_callback = rename_source
         self._poller = poller if poller is not None else SourcePoller()
         self._get_source_limit = get_source_limit
 
@@ -219,21 +209,18 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         """Set the optional source-limit lookup used in registration hints."""
         self._get_source_limit = get_source_limit
 
-    def configure_source_lifecycle(
+    def configure_source_backend(
         self,
         *,
-        lister: SourceLister,
-        poller: SourcePoller,
+        list_sources: ListSources,
+        register_file_source: RegisterFileSource,
+        rename_source: RenameSource,
     ) -> None:
-        """Adopt ``SourcesAPI``'s shared lister/poller as the single owner.
+        """Attach transport-neutral source callbacks owned by the web backend."""
 
-        Called from ``SourcesAPI.__init__`` so the pipeline's source-lifecycle
-        verbs delegate to the SAME ``SourceLister`` / ``SourcePoller`` instances
-        the public ``SourcesAPI`` uses, not parallel copies. Direct callers that
-        never run through ``SourcesAPI`` keep the freshly-constructed defaults.
-        """
-        self._lister = lister
-        self._poller = poller
+        self._list_sources_callback = list_sources
+        self._register_file_source_callback = register_file_source
+        self._rename_source_callback = rename_source
 
     def _resolve_upload_timeout(self, default: httpx.Timeout) -> httpx.Timeout:
         """Return the configured upload timeout, or ``default`` if unset."""
@@ -354,6 +341,32 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         on_progress: Callable[[int, int], object] | None = None,
         upload_index: int = 0,
     ) -> Source:
+        """Upload one file and return the historical public source value."""
+
+        result = await self._add_file_result(
+            notebook_id,
+            file_path,
+            mime_type,
+            wait,
+            wait_timeout,
+            title=title,
+            on_progress=on_progress,
+            upload_index=upload_index,
+        )
+        return result.source
+
+    async def _add_file_result(
+        self,
+        notebook_id: str,
+        file_path: str | Path,
+        mime_type: str | None = None,
+        wait: bool = False,
+        wait_timeout: float = 120.0,
+        *,
+        title: str | None = None,
+        on_progress: Callable[[int, int], object] | None = None,
+        upload_index: int = 0,
+    ) -> _SourceUploadResult:
         """Add a file source to a notebook using resumable upload.
 
         Raises ``ValidationError`` for HTML-family uploads because
@@ -486,7 +499,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                     exc_info=True,
                 )
 
-        return source
+        return _SourceUploadResult(source, transient_error_types)
 
     async def register_file_source(
         self,
@@ -494,9 +507,9 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         filename: str,
         *,
         list_sources: ListSources | None = None,
+        register_file_source: RegisterFileSource | None = None,
         logger: Any | None = None,
         get_source_limit: GetSourceLimit | None = None,
-        rpc_call: RpcCallback | None = None,
     ) -> str:
         """Register a file source intent and return its source ID."""
         return (
@@ -504,9 +517,9 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                 notebook_id,
                 filename,
                 list_sources=list_sources,
+                register_file_source=register_file_source,
                 logger=logger,
                 get_source_limit=get_source_limit,
-                rpc_call=rpc_call,
             )
         ).value
 
@@ -530,18 +543,15 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         filename: str,
         *,
         list_sources: ListSources | None = None,
+        register_file_source: RegisterFileSource | None = None,
         logger: Any | None = None,
         get_source_limit: GetSourceLimit | None = None,
-        rpc_call: RpcCallback | None = None,
     ) -> _IdempotentCreateResult[str]:
         """Register a file source intent and retain create/probe provenance.
 
         Filenames are not identity-bearing, so the probe matches only source IDs
         that appeared after the pre-create baseline and rejects ambiguity.
         """
-        params = build_register_file_source_params(filename, notebook_id)
-        if rpc_call is None:
-            rpc_call = self._rpc.rpc_call
         if list_sources is None:
             list_sources = self.list_sources
         if logger is None:
@@ -690,13 +700,10 @@ class SourceUploadPipeline(LoopBoundPrimitive):
 
         async def _create() -> str:
             try:
-                result = await rpc_call(
-                    RPCMethod.ADD_SOURCE_FILE,
-                    params,
-                    source_path=f"/notebook/{notebook_id}",
-                    allow_null=False,
-                    disable_internal_retries=True,
-                )
+                register = register_file_source or self._register_file_source_callback
+                if register is None:
+                    raise RuntimeError("source upload backend callbacks were not configured")
+                registration = await register(notebook_id, filename)
             except (AuthError, RateLimitError, ServerError, NetworkError):
                 # Transport-level signals must propagate so idempotent_create
                 # can catch them and run the probe before retrying.
@@ -715,7 +722,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                     message=f"Failed to register file source for {filename}: {exc}{hint}",
                 ) from exc
 
-            source_id = _extract_register_file_source_id(result, filename)
+            source_id = registration.source_id
             if source_id:
                 if baseline_ids is None or source_id not in baseline_ids:
                     return source_id
@@ -764,7 +771,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
                     filename,
                     message=(
                         "Failed to get SOURCE_ID: no trustworthy SOURCE_ID found in "
-                        f"{_register_response_shape_label(result)} registration response, "
+                        f"{registration.response_shape} registration response, "
                         "and the source-list probe found no "
                         "unambiguous new source. Check the notebook source list before retrying."
                     ),
@@ -779,15 +786,15 @@ class SourceUploadPipeline(LoopBoundPrimitive):
 
     async def list_sources(self, notebook_id: str) -> list[Source]:
         """List notebook sources for upload idempotency and polling."""
-        return await self._lister.list(notebook_id)
+        callback = self._list_sources_callback
+        if callback is None:
+            raise RuntimeError("source upload backend callbacks were not configured")
+        return await callback(notebook_id)
 
     async def get_source(self, notebook_id: str, source_id: str) -> Source | None:
         """Get a source row by ID using the upload pipeline's lister."""
-        return await self._lister.get(
-            notebook_id,
-            source_id,
-            list_sources=self.list_sources,
-        )
+        sources = await self.list_sources(notebook_id)
+        return next((source for source in sources if source.id == source_id), None)
 
     async def wait_until_ready(
         self,
@@ -849,16 +856,10 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         public ``sources.rename`` policy, issue #1255).
         """
         module_logger.debug("Renaming source %s to: %s", source_id, new_title)
-        params = build_rename_source_params(source_id, new_title)
-        result = await self._rpc.rpc_call(
-            RPCMethod.UPDATE_SOURCE,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-        )
-        if result:
-            return project_source(decode_source(result, method_id=RPCMethod.UPDATE_SOURCE.value))
-        return None
+        callback = self._rename_source_callback
+        if callback is None:
+            raise RuntimeError("source upload backend callbacks were not configured")
+        return await callback(notebook_id, source_id, new_title)
 
     async def start_resumable_upload(
         self,
@@ -1080,7 +1081,6 @@ class SourceUploadPipeline(LoopBoundPrimitive):
 
 
 __all__ = [
-    "RpcCallback",
     "SourceUploadPipeline",
     "_SOURCE_ID_UUID_PATTERN",
     "_extract_register_file_source_id",

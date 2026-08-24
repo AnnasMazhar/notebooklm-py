@@ -415,8 +415,8 @@ class Source:
         This is the **single** construction site for a :class:`Source`
         from a parsed source row. Both :meth:`from_api_response` (the
         public classmethod used by ``ADD_SOURCE`` / rename paths) and
-        :meth:`notebooklm._source.listing.SourceLister._parse_source`
-        (the ``GET_NOTEBOOK`` list/get/poll path) funnel through here so
+        web source snapshot decoding (the ``GET_NOTEBOOK`` list/get/poll path)
+        funnels through here so
         every code path produces identical :class:`Source` instances —
         including the decoded :attr:`status`.
 
@@ -476,8 +476,7 @@ class Source:
         :class:`SourceRow` itself. This method only normalizes the wire
         shape into a :class:`SourceRow` and defers to :meth:`from_row` —
         the single construction site shared with the
-        ``GET_NOTEBOOK`` list/get/poll path
-        (:meth:`notebooklm._source.listing.SourceLister._parse_source`) —
+        ``GET_NOTEBOOK`` list/get/poll path —
         so all paths produce identical :class:`Source` instances,
         including the decoded :attr:`status`. ``status`` earlier silently
         fell back to the ``SourceStatus.READY`` default here while the

@@ -66,6 +66,7 @@ from ._runtime.init import compose_client_internals
 from ._runtime.lifecycle import CookieRotator, CookieSaver
 from ._settings import SettingsAPI
 from ._sharing import SharingAPI
+from ._sharing_manager import ShareManager
 from ._source.upload import SourceUploadPipeline
 from ._sources import SourcesAPI
 from ._studio import MindMapFamilyService, StudioCatalog
@@ -370,6 +371,7 @@ def _assemble_client(
     client.notebooks = NotebooksAPI(
         internals.executor,
         sources_api=client.sources,
+        share_manager=ShareManager(backend=client._backend),
         _backend=client._backend,
     )
     # P6.3 note wiring keeps semantic NOTE_* ownership disjoint from the
@@ -417,11 +419,11 @@ def _assemble_client(
         notes=note_service,
         studio=mind_map_studio,
     )
-    # Research runs on the semantic backend; the executor stays its
-    # construction seam for the default source lister used by the
-    # import-verification snapshot/probe.
+    # Research runs entirely on the semantic backend. Source reconciliation
+    # receives the already-composed SourcesAPI explicitly; the facade owns no
+    # RpcCaller compatibility dependency.
     client.research = ResearchAPI(
-        internals.executor,
+        source_lister=client.sources,
         base_timeout=timeout,
         import_research_timeout=import_research_timeout,
         _backend=client._backend,

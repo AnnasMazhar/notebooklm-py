@@ -75,6 +75,7 @@ class SourceAddUrlInput:
     wait: bool = False
     wait_timeout: float = 120.0
     requested_title: str | None = None
+    finalize_source: SourceRecord | None = field(default=None, repr=False)
 
 
 @unique
@@ -272,6 +273,7 @@ class SourceAddDriveInput:
     mime_type: str
     wait: bool = False
     wait_timeout: float = 120.0
+    finalize_source: SourceRecord | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,6 +307,7 @@ class SourceAddFileInput:
     wait: bool = False
     wait_timeout: float = 120.0
     on_progress: SourceProgressCallback | None = field(default=None, repr=False, compare=False)
+    finalize_source: SourceRecord | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,6 +315,15 @@ class SourceAddFileResult:
     """Uploaded file source."""
 
     source: SourceRecord
+    transient_error_types: tuple[int | None, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFileRegistrationRecord:
+    """Decoded file-registration response without retaining its wire envelope."""
+
+    source_id: str | None
+    response_shape: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -358,6 +370,20 @@ class SourceFreshnessInput:
 @dataclass(frozen=True, slots=True)
 class SourceFreshnessResult:
     fresh: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SourceWaitSnapshotInput:
+    """Request one source snapshot for facade-owned readiness polling."""
+
+    notebook_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SourceWaitSnapshotResult:
+    """One decoded notebook snapshot used by a single facade poll tick."""
+
+    sources: tuple[SourceRecord, ...]
 
 
 @dataclass(frozen=True, slots=True)

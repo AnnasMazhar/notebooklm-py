@@ -166,12 +166,9 @@ class TestSourceFulltextIntegration:
         self, source_result: list[Any]
     ) -> None:
         from notebooklm._source.content import SourceContentRenderer
+        from tests._fixtures.source_content import CodecSourceContentService
 
-        class _StubRpc:
-            async def rpc_call(self, *args: Any, **kwargs: Any) -> Any:
-                return source_result
-
-        renderer = SourceContentRenderer(_StubRpc())
+        renderer = SourceContentRenderer(CodecSourceContentService(source_result))
         fulltext = await renderer.get_fulltext("nb", SOURCE_ID)
 
         # ``content`` stays the legacy flat rendering, byte for byte: every
@@ -202,13 +199,10 @@ class TestSourceFulltextIntegration:
         against a document that was right there.
         """
         from notebooklm._source.content import SourceContentRenderer
-
-        class _StubRpc:
-            async def rpc_call(self, *args: Any, **kwargs: Any) -> Any:
-                return source_result
+        from tests._fixtures.source_content import CodecSourceContentService
 
         pytest.importorskip("markdownify")
-        renderer = SourceContentRenderer(_StubRpc())
+        renderer = SourceContentRenderer(CodecSourceContentService(source_result))
         fulltext = await renderer.get_fulltext("nb", SOURCE_ID, output_format="markdown")
         assert len(fulltext.document.blocks) == 13
         assert fulltext.document.slice(108, 133) == "Light-dependent reactions"
@@ -807,12 +801,9 @@ class TestReadableRendering:
     ) -> None:
         """``SourceFulltext.rendered_content`` is additive: ``content`` is untouched."""
         from notebooklm._source.content import SourceContentRenderer
+        from tests._fixtures.source_content import CodecSourceContentService
 
-        class _StubRpc:
-            async def rpc_call(self, *args: Any, **kwargs: Any) -> Any:
-                return source_result
-
-        renderer = SourceContentRenderer(_StubRpc())
+        renderer = SourceContentRenderer(CodecSourceContentService(source_result))
         fulltext = await renderer.get_fulltext("nb", SOURCE_ID)
 
         # The capture's own first three lines, quoted rather than re-derived

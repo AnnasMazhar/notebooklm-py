@@ -11,10 +11,19 @@ from notebooklm._idempotency import (
     _IdempotentCreateResult,
     idempotent_create,
 )
+from notebooklm._records import (
+    SOURCE_ADD_URL_DEF,
+    SourceAddCommitState,
+    SourceAddTitleState,
+    SourceAddUrlReceipt,
+    SourceAddUrlResult,
+    SourceRecord,
+)
 from notebooklm._source.add import SourceAddService
 from notebooklm._sources import SourcesAPI
 from notebooklm.exceptions import NetworkError
 from notebooklm.types import Source
+from tests._fixtures.recording_backend import RecordingBackend
 
 
 @pytest.mark.asyncio
@@ -63,8 +72,8 @@ async def test_idempotent_create_reraises_last_exception_by_identity() -> None:
 
 
 @pytest.mark.asyncio
-async def test_probed_url_result_honors_the_title_but_does_not_re_wait() -> None:
-    """A ``PROBED`` ``add_url`` result is renamed, and never waited on twice.
+async def test_probed_url_result_preserves_one_facade_wait() -> None:
+    """A ``PROBED`` ``add_url`` result receives exactly one facade wait.
 
     #1988 skipped the rename for every ``PROBED`` result because a probe match
     could not be proven to be the caller's own — renaming a stranger's source
@@ -72,26 +81,43 @@ async def test_probed_url_result_honors_the_title_but_does_not_re_wait() -> None
     baseline captured before the create, so a match now *is* provably fresh and
     the requested title must win (the same flip #2113 made for ``add_drive``).
 
-    The wait half of the #1988 contract is unchanged: ``wait`` is handled inside
-    the service, so ``SourcesAPI`` must not re-await ``wait_until_ready``.
+    The semantic handler never polls. The neutral request carries ``wait`` only
+    so title application can be deferred; the public facade owns the one wait.
     """
-    api = SourcesAPI(MagicMock(), uploader=MagicMock())
-    existing = Source(id="existing", title="Upstream title", url="https://example.test")
-    api._adder.add_url = AsyncMock(
-        return_value=_IdempotentCreateResult(existing, _CreateResultKind.PROBED)
+    backend = RecordingBackend()
+    backend.set_result(
+        SOURCE_ADD_URL_DEF,
+        SourceAddUrlResult(
+            SourceRecord(
+                id="existing",
+                title="Retitle me",
+                url="https://example.test",
+            ),
+            SourceAddUrlReceipt(
+                SourceAddCommitState.RECONCILED,
+                SourceAddTitleState.RENAMED,
+            ),
+        ),
     )
+    api = SourcesAPI(MagicMock(), uploader=MagicMock(), _backend=backend)
     api.wait_until_ready = AsyncMock(  # type: ignore[method-assign]
-        return_value=Source(id="existing", title="Ready")
-    )
-    api.rename = AsyncMock(  # type: ignore[method-assign]
         return_value=Source(id="existing", title="Retitle me")
     )
 
-    result = await api.add_url("nb", existing.url, title="Retitle me", wait=True)
+    result = await api.add_url(
+        "nb",
+        "https://example.test",
+        title="Retitle me",
+        wait=True,
+    )
 
     assert result.title == "Retitle me"
-    api.rename.assert_awaited_once_with("nb", "existing", "Retitle me")
-    api.wait_until_ready.assert_not_awaited()
+    assert len(backend.invocations) == 1
+    invocation = backend.invocations[0]
+    assert invocation.operation is SOURCE_ADD_URL_DEF.key
+    assert invocation.value.wait is True
+    assert invocation.value.requested_title == "Retitle me"
+    api.wait_until_ready.assert_awaited_once_with("nb", "existing", timeout=120.0)
 
 
 @pytest.mark.asyncio
@@ -103,7 +129,7 @@ async def test_private_service_default_return_remains_source() -> None:
         "nb",
         "https://example.test",
         add_youtube_source=AsyncMock(),
-        add_url_source=AsyncMock(return_value=[[[["fresh"], "Upstream"]]]),
+        add_url_source=AsyncMock(return_value=source),
         list_sources=AsyncMock(return_value=[]),
         wait_until_ready=AsyncMock(),
         extract_youtube_video_id=MagicMock(return_value=None),

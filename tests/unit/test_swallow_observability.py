@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from notebooklm.exceptions import UnknownRPCMethodError
+from tests._fixtures.web_backend import build_web_backend
 
 # Path to the repo's src/notebooklm/ — used by the silent-site source inspection tests.
 SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "notebooklm"
@@ -26,7 +27,7 @@ async def test_get_source_ids_warns_on_top_level_shape_drift(caplog):
     from tests._fixtures.fake_core import make_fake_core
 
     core = make_fake_core(rpc_call=AsyncMock(return_value=[{"unexpected": "dict"}]))
-    api = NotebooksAPI(core)
+    api = NotebooksAPI(core.rpc_executor, _backend=build_web_backend(core.rpc_executor))
 
     with caplog.at_level(logging.WARNING, logger="notebooklm"):
         result = await api.get_source_ids("nb_drift")
@@ -49,7 +50,7 @@ async def test_get_source_ids_warns_on_inner_shape_drift(caplog):
 
     # notebook_data[0] is a list of length >1 but [1] is not a list
     core = make_fake_core(rpc_call=AsyncMock(return_value=[[None, "not a list", "x"]]))
-    api = NotebooksAPI(core)
+    api = NotebooksAPI(core.rpc_executor, _backend=build_web_backend(core.rpc_executor))
 
     with caplog.at_level(logging.WARNING, logger="notebooklm"):
         result = await api.get_source_ids("nb_inner")
@@ -67,7 +68,7 @@ async def test_get_source_ids_happy_path_no_warning(caplog):
     core = make_fake_core(
         rpc_call=AsyncMock(return_value=[[None, [[["src_alpha"]], [["src_beta"]]]]])
     )
-    api = NotebooksAPI(core)
+    api = NotebooksAPI(core.rpc_executor, _backend=build_web_backend(core.rpc_executor))
 
     with caplog.at_level(logging.WARNING, logger="notebooklm"):
         result = await api.get_source_ids("nb_happy")
@@ -91,7 +92,7 @@ async def test_get_source_ids_empty_notebook_emits_no_drift_warning(caplog):
     from tests._fixtures.fake_core import make_fake_core
 
     core = make_fake_core(rpc_call=AsyncMock(return_value=[[None] * 11]))
-    api = NotebooksAPI(core)
+    api = NotebooksAPI(core.rpc_executor, _backend=build_web_backend(core.rpc_executor))
 
     with caplog.at_level(logging.WARNING, logger="notebooklm"):
         result = await api.get_source_ids("nb_empty")
@@ -114,7 +115,7 @@ async def test_get_source_ids_warns_when_the_sources_slot_is_absent(caplog):
     from tests._fixtures.fake_core import make_fake_core
 
     core = make_fake_core(rpc_call=AsyncMock(return_value=[[None]]))
-    api = NotebooksAPI(core)
+    api = NotebooksAPI(core.rpc_executor, _backend=build_web_backend(core.rpc_executor))
 
     with caplog.at_level(logging.WARNING, logger="notebooklm"):
         result = await api.get_source_ids("nb_short")
@@ -160,12 +161,14 @@ async def test_summary_raises_on_indexerror_drift():
     from notebooklm._notebooks import NotebooksAPI
     from tests._fixtures.fake_core import make_fake_core
 
-    api = NotebooksAPI.__new__(NotebooksAPI)
     # result[0] == [42]: the summary slot is present and non-None but holds an
     # int, so the inner result[0][0][0] descent raises TypeError — genuine
     # drift, distinct from a routinely-absent summary.
     mock_core = make_fake_core(rpc_call=AsyncMock(return_value=[[42]]))
-    api._rpc = mock_core
+    api = NotebooksAPI(
+        mock_core.rpc_executor,
+        _backend=build_web_backend(mock_core.rpc_executor),
+    )
 
     with pytest.raises(UnknownRPCMethodError) as exc_info:
         await api.get_summary("nb_summary")
@@ -192,10 +195,12 @@ async def test_description_partial_summary_logs_debug(caplog):
     from notebooklm._notebooks import NotebooksAPI
     from tests._fixtures.fake_core import make_fake_core
 
-    api = NotebooksAPI.__new__(NotebooksAPI)
     # outer[0][0] works but outer[1] raises (no topics shape)
     mock_core = make_fake_core(rpc_call=AsyncMock(return_value=[[["the summary"]]]))
-    api._rpc = mock_core
+    api = NotebooksAPI(
+        mock_core.rpc_executor,
+        _backend=build_web_backend(mock_core.rpc_executor),
+    )
 
     with caplog.at_level(logging.DEBUG, logger="notebooklm"):
         desc = await api.get_description("nb_partial")

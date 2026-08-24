@@ -34,6 +34,7 @@ from notebooklm._source.upload import (
     _resolve_upload_content_type,
     _validate_resumable_upload_url,
 )
+from notebooklm._web.codec.sources import decode_file_registration
 from notebooklm.exceptions import (
     AuthError,
     NetworkError,
@@ -396,6 +397,13 @@ def _make_pipeline(
     )
 
 
+def _registration_callback(raw_call: Any):
+    async def register(_notebook_id: str, filename: str):
+        return decode_file_registration(await raw_call(), filename=filename)
+
+    return register
+
+
 def test_live_cookies_uses_get_http_client_when_kernel_lacks_cookies() -> None:
     """A kernel without a ``cookies`` attribute falls back to get_http_client (521)."""
 
@@ -440,14 +448,18 @@ def test_live_cookies_casts_non_cookies_truthy_value() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_sources_delegates_to_lister() -> None:
-    """``list_sources`` proxies to the internal SourceLister ."""
+async def test_list_sources_delegates_to_neutral_callback() -> None:
     pipeline = _make_pipeline()
     expected = [Source(id="s1", title="a.pdf")]
-    pipeline._lister.list = AsyncMock(return_value=expected)  # type: ignore[method-assign]
+    callback = AsyncMock(return_value=expected)
+    pipeline.configure_source_backend(
+        list_sources=callback,
+        register_file_source=AsyncMock(),
+        rename_source=AsyncMock(),
+    )
     result = await pipeline.list_sources("nb_1")
     assert result == expected
-    pipeline._lister.list.assert_awaited_once_with("nb_1")
+    callback.assert_awaited_once_with("nb_1")
 
 
 @pytest.mark.asyncio
@@ -533,7 +545,7 @@ class TestRegisterFileSourceBranches:
                 "report.pdf",
                 list_sources=_list,
                 logger=logger,
-                rpc_call=_rpc_call,
+                register_file_source=_registration_callback(_rpc_call),
             )
         # The marker is what keeps an unresolved create out of the non-fatal,
         # per-item SOURCE_ADD bucket (#2220). Asserted here rather than only on
@@ -573,7 +585,7 @@ class TestRegisterFileSourceBranches:
                 "report.pdf",
                 list_sources=_list,
                 logger=MagicMock(),
-                rpc_call=_rpc_call,
+                register_file_source=_registration_callback(_rpc_call),
             )
 
     @pytest.mark.asyncio
@@ -602,7 +614,7 @@ class TestRegisterFileSourceBranches:
             "report.pdf",
             list_sources=_list,
             logger=logger,
-            rpc_call=_rpc_call,
+            register_file_source=_registration_callback(_rpc_call),
         )
         assert result == "fresh_src"
         # The "probe found a freshly committed source" info line fired.
@@ -640,7 +652,7 @@ class TestRegisterFileSourceBranches:
                 "report.pdf",
                 list_sources=_list,
                 logger=MagicMock(),
-                rpc_call=_rpc_call,
+                register_file_source=_registration_callback(_rpc_call),
             )
 
         assert rpc_calls["n"] == 1, "the register must not be re-issued"
@@ -673,7 +685,7 @@ class TestRegisterFileSourceBranches:
                 "report.pdf",
                 list_sources=_list,
                 logger=MagicMock(),
-                rpc_call=_rpc_call,
+                register_file_source=_registration_callback(_rpc_call),
             )
 
         # The register RPC already returned 200, so a row may exist and this
@@ -716,7 +728,7 @@ class TestRegisterFileSourceBranches:
                 "report.pdf",
                 list_sources=_list,
                 logger=MagicMock(),
-                rpc_call=_rpc_call,
+                register_file_source=_registration_callback(_rpc_call),
             )
 
         # An ambiguity is an unconfirmed create (#2220): nothing threw, but the
@@ -754,7 +766,7 @@ class TestRegisterFileSourceBranches:
                 "report.pdf",
                 list_sources=_list,
                 logger=MagicMock(),
-                rpc_call=_rpc_call,
+                register_file_source=_registration_callback(_rpc_call),
             )
 
         # An ambiguity is an unconfirmed create (#2220): nothing threw, but the
@@ -784,7 +796,7 @@ class TestRegisterFileSourceBranches:
                 "report.pdf",
                 list_sources=_list,
                 logger=MagicMock(),
-                rpc_call=_rpc_call,
+                register_file_source=_registration_callback(_rpc_call),
             )
         # The floor-based hint (>= 50 sources, no explicit limit) is appended.
         assert "50/100/300/600" in str(exc_info.value)

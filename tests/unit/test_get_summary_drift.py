@@ -22,15 +22,17 @@ import pytest
 from notebooklm._notebooks import NotebooksAPI
 from notebooklm.exceptions import UnknownRPCMethodError
 from notebooklm.rpc import RPCMethod
+from tests._fixtures.web_backend import build_web_backend
 
 
 def _make_api(rpc_return):
     from tests._fixtures.fake_core import make_fake_core
 
-    api = NotebooksAPI.__new__(NotebooksAPI)
     core = make_fake_core(rpc_call=AsyncMock(return_value=rpc_return))
-    api._rpc = core
-    return api
+    return NotebooksAPI(
+        core.rpc_executor,
+        _backend=build_web_backend(core.rpc_executor),
+    )
 
 
 @pytest.mark.asyncio

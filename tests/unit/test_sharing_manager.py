@@ -1,25 +1,39 @@
-"""Unit tests for the legacy notebook share manager."""
+"""Unit tests for the semantic legacy notebook share manager."""
 
+from types import MappingProxyType
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from notebooklm._backend import BackendError, BackendErrorReason
 from notebooklm._notebooks import NotebooksAPI
+from notebooklm._operations import CallPolicy, Operation
 from notebooklm._sharing_manager import ShareManager, build_share_url
-from notebooklm.rpc import RPCMethod
+from notebooklm._sharing_records import (
+    LEGACY_SHARE_ARTIFACT_DEF,
+    LegacyShareArtifactInput,
+    LegacyShareArtifactResult,
+)
+from notebooklm._web.codec.sharing import build_legacy_share_artifact_params
+from notebooklm.exceptions import ServerError
+from notebooklm.rpc.decoder import decode_response
 from tests._fixtures.fake_core import make_fake_core
+from tests._fixtures.recording_backend import BackendInvocation, RecordingBackend
 
 BASE_URL = "https://notebook.google.com"
 
 
-def _make_rpc() -> AsyncMock:
-    return AsyncMock(return_value=None)
-
-
-def _make_manager() -> tuple[ShareManager, AsyncMock]:
-    rpc = _make_rpc()
-    core = make_fake_core(rpc_call=rpc)
-    return ShareManager(core.rpc_executor, base_url_provider=lambda: BASE_URL), rpc
+def _make_manager(
+    *,
+    public: bool = True,
+    artifact_id: str | None = None,
+) -> tuple[ShareManager, RecordingBackend]:
+    backend = RecordingBackend()
+    backend.set_result(
+        LEGACY_SHARE_ARTIFACT_DEF,
+        LegacyShareArtifactResult(public=public, artifact_id=artifact_id),
+    )
+    return ShareManager(backend, base_url_provider=lambda: BASE_URL), backend
 
 
 def test_build_share_url_without_artifact() -> None:
@@ -52,7 +66,7 @@ def test_build_share_url_quotes_ids() -> None:
 
 @pytest.mark.asyncio
 async def test_share_public_with_artifact_sends_legacy_payload_and_returns_deep_link() -> None:
-    manager, rpc = _make_manager()
+    manager, backend = _make_manager(artifact_id="art_456")
 
     result = await manager.share("nb_123", public=True, artifact_id="art_456")
 
@@ -61,17 +75,18 @@ async def test_share_public_with_artifact_sends_legacy_payload_and_returns_deep_
         "url": "https://notebook.google.com/notebook/nb_123?artifactId=art_456",
         "artifact_id": "art_456",
     }
-    rpc.assert_awaited_once_with(
-        RPCMethod.SHARE_ARTIFACT,
-        [[1], "nb_123", "art_456"],
-        source_path="/notebook/nb_123",
-        allow_null=True,
-    )
+    assert backend.invocations == [
+        BackendInvocation(
+            Operation.LEGACY_SHARE_ARTIFACT,
+            LegacyShareArtifactInput("nb_123", True, "art_456"),
+            None,
+        )
+    ]
 
 
 @pytest.mark.asyncio
 async def test_share_public_without_artifact_returns_notebook_url() -> None:
-    manager, rpc = _make_manager()
+    manager, backend = _make_manager()
 
     result = await manager.share("nb_123")
 
@@ -80,81 +95,141 @@ async def test_share_public_without_artifact_returns_notebook_url() -> None:
         "url": "https://notebook.google.com/notebook/nb_123",
         "artifact_id": None,
     }
-    rpc.assert_awaited_once_with(
-        RPCMethod.SHARE_ARTIFACT,
-        [[1], "nb_123"],
-        source_path="/notebook/nb_123",
-        allow_null=True,
-    )
+    assert backend.invocations == [
+        BackendInvocation(
+            Operation.LEGACY_SHARE_ARTIFACT,
+            LegacyShareArtifactInput("nb_123", True, None),
+            None,
+        )
+    ]
 
 
 @pytest.mark.asyncio
 async def test_share_private_sends_disable_payload_and_returns_no_url() -> None:
-    manager, rpc = _make_manager()
+    manager, backend = _make_manager(public=False)
 
     result = await manager.share("nb_123", public=False)
 
     assert result == {"public": False, "url": None, "artifact_id": None}
-    rpc.assert_awaited_once_with(
-        RPCMethod.SHARE_ARTIFACT,
-        [[0], "nb_123"],
-        source_path="/notebook/nb_123",
-        allow_null=True,
-    )
+    assert backend.invocations == [
+        BackendInvocation(
+            Operation.LEGACY_SHARE_ARTIFACT,
+            LegacyShareArtifactInput("nb_123", False, None),
+            None,
+        )
+    ]
 
 
 @pytest.mark.asyncio
 async def test_share_private_with_artifact_preserves_artifact_id_but_returns_no_url() -> None:
-    manager, rpc = _make_manager()
+    manager, backend = _make_manager(public=False, artifact_id="art_456")
 
     result = await manager.share("nb_123", public=False, artifact_id="art_456")
 
     assert result == {"public": False, "url": None, "artifact_id": "art_456"}
-    rpc.assert_awaited_once_with(
-        RPCMethod.SHARE_ARTIFACT,
-        [[0], "nb_123", "art_456"],
-        source_path="/notebook/nb_123",
-        allow_null=True,
-    )
+    assert backend.invocations == [
+        BackendInvocation(
+            Operation.LEGACY_SHARE_ARTIFACT,
+            LegacyShareArtifactInput("nb_123", False, "art_456"),
+            None,
+        )
+    ]
 
 
 def test_get_share_url_is_sync_and_does_not_call_rpc() -> None:
-    manager, rpc = _make_manager()
+    manager, backend = _make_manager(artifact_id="art_456")
 
     url = manager.get_share_url("nb_123", artifact_id="art_456")
 
     assert url == "https://notebook.google.com/notebook/nb_123?artifactId=art_456"
-    rpc.assert_not_called()
+    assert backend.invocations == []
 
 
 @pytest.mark.asyncio
-async def test_notebooks_api_default_share_manager_uses_late_bound_rpc_executor_call() -> None:
-    """The auto-built ``_share_manager`` late-binds the executor's rpc_call.
-
-    ``NotebooksAPI.share()`` was removed in v0.8.0 (#1363), but the default
-    ``ShareManager`` it constructed (still backing ``get_share_url``) keeps the
-    late-binding contract: ShareManager binds to the executor's ``rpc_call``
-    attribute lazily, so swapping it after construction must be honored. Driven
-    directly through ``_share_manager.share`` (the manager stays; only the public
-    wrapper was cut).
-    """
+async def test_notebooks_api_direct_construction_keeps_sync_share_url_without_rpc() -> None:
+    """The public URL formatter stays available without semantic composition."""
     core = make_fake_core(rpc_call=AsyncMock(return_value=None))
     api = NotebooksAPI(core.rpc_executor, sources_api=MagicMock())
-    replacement_rpc = AsyncMock(return_value=None)
-    # ShareManager binds to the executor's rpc_call attribute lazily — swap
-    # it to verify the late-binding contract. This is intentional behavior
-    # under test, not the forbidden pattern (we're testing the binding).
-    core.rpc_executor.rpc_call = replacement_rpc
 
-    result = await api._share_manager.share("nb_123", public=True, artifact_id="art_456")
-
-    assert result["url"] == "https://notebook.google.com/notebook/nb_123?artifactId=art_456"
-    replacement_rpc.assert_awaited_once_with(
-        RPCMethod.SHARE_ARTIFACT,
-        [[1], "nb_123", "art_456"],
-        source_path="/notebook/nb_123",
-        allow_null=True,
+    assert (
+        api.get_share_url("nb_123", artifact_id="art_456")
+        == "https://notebook.google.com/notebook/nb_123?artifactId=art_456"
     )
+    core.rpc_executor.rpc_call.assert_not_awaited()
+
+
+def test_legacy_share_operation_definition_is_closed_and_mutating() -> None:
+    assert LEGACY_SHARE_ARTIFACT_DEF.key is Operation.LEGACY_SHARE_ARTIFACT
+    assert LEGACY_SHARE_ARTIFACT_DEF.policy is CallPolicy.MUTATION
+    assert LEGACY_SHARE_ARTIFACT_DEF.input_type is LegacyShareArtifactInput
+    assert LEGACY_SHARE_ARTIFACT_DEF.output_type is LegacyShareArtifactResult
+
+
+@pytest.mark.parametrize(
+    ("public", "artifact_id", "expected"),
+    [
+        (True, "art_456", [[1], "nb_123", "art_456"]),
+        (False, "art_456", [[0], "nb_123", "art_456"]),
+        (True, None, [[1], "nb_123"]),
+        (False, None, [[0], "nb_123"]),
+        (True, "", [[1], "nb_123"]),
+        (False, "", [[0], "nb_123"]),
+    ],
+)
+def test_legacy_share_codec_preserves_conditional_artifact_slot(
+    public: bool,
+    artifact_id: str | None,
+    expected: list[object],
+) -> None:
+    assert build_legacy_share_artifact_params("nb_123", public, artifact_id) == expected
+
+
+def test_recorded_status_three_null_remains_a_success() -> None:
+    """The real SHARE_ARTIFACT cassette's INVALID_ARGUMENT/null frame is benign."""
+    raw = (
+        ")]}'\n\n102\n"
+        '[["wrb.fr","RGP97b",null,null,null,[3],"generic"],'
+        '["di",40],["af.httprm",40,"4665468529207234717",29]]\n'
+    )
+
+    assert decode_response(raw, "RGP97b", allow_null=True) is None
+
+
+@pytest.mark.asyncio
+async def test_share_reconstructs_backend_server_error() -> None:
+    backend = RecordingBackend()
+    backend.set_error(
+        LEGACY_SHARE_ARTIFACT_DEF,
+        BackendError(
+            "bad gateway",
+            operation=Operation.LEGACY_SHARE_ARTIFACT,
+            diagnostics=MappingProxyType(
+                {
+                    "method_id": "RGP97b",
+                    "rpc_code": None,
+                    "found_ids": [],
+                    "raw_response": None,
+                    "status_code": 502,
+                }
+            ),
+            reason=BackendErrorReason.SERVER,
+        ),
+    )
+    manager = ShareManager(backend, base_url_provider=lambda: BASE_URL)
+
+    with pytest.raises(ServerError, match="bad gateway") as caught:
+        await manager.share("nb_123", artifact_id="art_456")
+
+    assert caught.value.status_code == 502
+    assert caught.value.method_id == "RGP97b"
+
+
+@pytest.mark.asyncio
+async def test_share_without_semantic_backend_fails_before_projection() -> None:
+    manager = ShareManager(None, base_url_provider=lambda: BASE_URL)
+
+    with pytest.raises(RuntimeError, match="semantic backend was not configured"):
+        await manager.share("nb_123")
 
 
 def test_notebooks_api_share_method_removed_in_v080() -> None:

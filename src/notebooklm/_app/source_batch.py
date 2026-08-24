@@ -29,22 +29,30 @@ if TYPE_CHECKING:
 
 __all__ = [
     "MAX_BATCH_URLS",
+    "SourceUrlBatchOutcome",
     "batch_item_is_fatal",
     "execute_source_url_batch",
     "source_batch_invariant_error",
 ]
 
+
+class SourceUrlBatchOutcome(Protocol):
+    """Public-shape view of one positional URL batch outcome."""
+
+    @property
+    def url(self) -> str: ...
+
+    @property
+    def source(self) -> Source | None: ...
+
+    @property
+    def error(self) -> Exception | None: ...
+
+
 #: Max URL entries accepted by one batch add. Bounds one request's wire payload,
 #: backend work, result projection, and time in the shared source-mutation slot.
 MAX_BATCH_URLS = 20
 
-
-class _SourceUrlBatchItemView(Protocol):
-    """Public-shape view of one private semantic batch result."""
-
-    url: str
-    source: Source | None
-    error: Exception | None
 
 #: Categories whose REST projection (server ``CATEGORY_STATUS``) is 401 / 429 / >=500
 #: — a service/infra failure not specific to one URL. A per-item add hitting one must
@@ -83,10 +91,10 @@ async def execute_source_url_batch(
     client: NotebookLMClient,
     notebook_id: str,
     urls: list[str],
-) -> list[_SourceUrlBatchItemView]:
+) -> list[SourceUrlBatchOutcome]:
     """Run the private typed batch seam behind the transport-neutral app boundary."""
     return cast(
-        list[_SourceUrlBatchItemView],
+        list[SourceUrlBatchOutcome],
         await client.sources._add_urls_batch(notebook_id, urls),
     )
 

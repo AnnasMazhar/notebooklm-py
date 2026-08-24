@@ -1554,8 +1554,8 @@ shape.
 
 #### Entry criteria
 
-- [ ] **P0 through P6 operations migrated:** All operations in the catalog are migrated, or carry a `legacy_exception` catalog row naming an approver and an open removal issue. The catalog audit fails above **5** such rows -- otherwise this criterion is a paragraph the author writes and approves.
-- [ ] **Zero semantic-service `RpcCaller` consumers:** No semantic service consumes `RpcCaller` (audited by `tests/_guardrails/test_semantic_p7_entry_audit.py`).
+- [x] **P0 through P6 operations migrated:** All operations in the catalog are migrated, or carry a `legacy_exception` catalog row naming an approver and an open removal issue. The catalog audit fails above **5** such rows -- otherwise this criterion is a paragraph the author writes and approves. The current catalog has 82 active semantic operations, five composites, and no legacy exceptions.
+- [x] **Zero semantic-service `RpcCaller` consumers:** No semantic service consumes `RpcCaller` (audited by `tests/_guardrails/test_semantic_p7_entry_audit.py`). The sole physical consumer is the explicitly authorized `LegacyNoteBackedService` compatibility implementation.
 - [ ] **Suites green:** Backend contract, codec golden, compatibility, VCR, concurrency, cancellation, and auth-refresh suites are green.
 - [x] **`ErrorInjectionMiddleware` isolated:** the permanently pass-through production middleware
   was deleted in the dedicated pre-P7 prerequisite. Synthetic semantic failures now use
@@ -1563,7 +1563,7 @@ shape.
   seam that returns and records the same synthetic response. No production error-injection module
   imports the chain's `NextCall`, `RpcRequest`, or `RpcResponse`;
   `tests/_guardrails/test_semantic_p7_entry_audit.py` fails closed on regression.
-- [ ] **Test seams migrated:** No test outside `tests/_guardrails/` constructs or mutates `ClientComposed`, `MiddlewareChainHost`, or `RpcRequest.context`. Roughly 35 test files reach that runtime today. `test_client_factory_parity.py` and `test_middleware_context_contract.py` are the last consumers and retire in the same PR as the structure (migration rule 9). Green suites alone are not the criterion -- Risk 5 requires the seams migrated *before* P7, which "green" does not imply (audited by `tests/_guardrails/test_semantic_p7_entry_audit.py`).
+- [x] **Test seams migrated:** No test outside `tests/_guardrails/` constructs or mutates `ClientComposed`, `MiddlewareChainHost`, or `RpcRequest.context`. `tests/_guardrails/test_semantic_p7_entry_audit.py` fails closed if any of those retired mutation seams return.
 - [ ] **Runtime invariants equality-preserved:** Characterization tests (`tests/unit/test_semantic_p7_runtime_characterization.py`) pass, verifying `ClientComposed`/`RpcExecutor`/middleware holder parity, constructor `vars()` parity and option routing, loop affinity, drain/close lifecycle, retry/auth-refresh single-flight, error lattice, and metrics/telemetry snapshot/event invariants.
 
 #### Changes

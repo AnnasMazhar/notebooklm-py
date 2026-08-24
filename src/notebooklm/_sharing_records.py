@@ -127,6 +127,23 @@ class SharingUpdateUsersResult:
     status: ShareStatusRecord
 
 
+@dataclass(frozen=True, slots=True)
+class LegacyShareArtifactInput:
+    """Legacy notebook/artifact share-link state requested by compatibility internals."""
+
+    notebook_id: str
+    public: bool = True
+    artifact_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyShareArtifactResult:
+    """Caller-owned share-link state echoed after the set-state mutation."""
+
+    public: bool
+    artifact_id: str | None = None
+
+
 SHARING_GET_DEF: OperationDef[SharingGetInput, SharingGetResult] = OperationDef(
     Operation.SHARING_GET,
     CallPolicy.READ,
@@ -155,12 +172,23 @@ SHARING_UPDATE_USERS_DEF: OperationDef[SharingUpdateUsersInput, SharingUpdateUse
         SharingUpdateUsersResult,
     )
 )
+LEGACY_SHARE_ARTIFACT_DEF: OperationDef[LegacyShareArtifactInput, LegacyShareArtifactResult] = (
+    OperationDef(
+        Operation.LEGACY_SHARE_ARTIFACT,
+        CallPolicy.MUTATION,
+        LegacyShareArtifactInput,
+        LegacyShareArtifactResult,
+    )
+)
 
 __all__ = [
+    "LEGACY_SHARE_ARTIFACT_DEF",
     "SHARING_GET_DEF",
     "SHARING_SET_PUBLIC_DEF",
     "SHARING_SET_VIEW_LEVEL_DEF",
     "SHARING_UPDATE_USERS_DEF",
+    "LegacyShareArtifactInput",
+    "LegacyShareArtifactResult",
     "ShareAccessLevel",
     "SharePermissionLevel",
     "ShareStatusRecord",

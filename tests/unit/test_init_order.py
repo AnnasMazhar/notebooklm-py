@@ -160,15 +160,16 @@ def test_kernel_http_client_is_read_only_property() -> None:
     )
 
 
-def test_phase8_source_listing_service_name_and_facade_wiring_are_current() -> None:
-    """Downstream notebook-metadata work depends on the finalized lister name."""
-    from notebooklm._source.listing import SourceLister
+def test_phase8_source_read_facade_wiring_is_current() -> None:
+    """The public facade owns a neutral read service, not a wire-level lister."""
+    from notebooklm._read_services import SourceReadService
     from notebooklm._sources import SourcesAPI
 
     core = MagicMock()
-    api = SourcesAPI(core, uploader=MagicMock())
+    api = SourcesAPI(core, uploader=MagicMock(), _backend=MagicMock())
 
-    assert isinstance(api._lister, SourceLister)
+    assert isinstance(api._read_service, SourceReadService)
+    assert not hasattr(api, "_lister")
 
 
 def test_phase7_artifact_download_patch_seams_are_current() -> None:

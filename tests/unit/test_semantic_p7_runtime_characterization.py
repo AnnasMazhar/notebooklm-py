@@ -159,7 +159,8 @@ def test_rpc_executor_and_middleware_chain_ordering_invariants() -> None:
 
     # RpcExecutor is shared identically across client and features
     assert client._rpc_executor is client._backend._executor
-    assert client.notebooks._rpc is client._rpc_executor
+    assert client.notebooks._legacy_rpc is client._rpc_executor
+    assert client.notebooks._share_manager._backend is client._backend
     assert client.sources._rpc is client._rpc_executor
     assert not hasattr(client.artifacts, "_rpc")
     assert client.artifacts._backend is client._backend

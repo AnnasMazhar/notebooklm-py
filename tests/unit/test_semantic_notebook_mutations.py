@@ -13,12 +13,15 @@ from notebooklm._operations import Operation
 from notebooklm._records import (
     NOTEBOOK_CREATE_DEF,
     NOTEBOOK_DELETE_DEF,
+    NOTEBOOK_REMOVE_RECENT_DEF,
     NOTEBOOK_UPDATE_DEF,
     NotebookCreateInput,
     NotebookCreateResult,
     NotebookDeleteInput,
     NotebookDeleteResult,
     NotebookRecord,
+    NotebookRemoveRecentInput,
+    NotebookRemoveRecentResult,
     NotebookUpdateInput,
     NotebookUpdateResult,
 )
@@ -34,12 +37,14 @@ async def test_mutation_service_records_typed_calls_deadline_and_projects_result
     backend.set_result(NOTEBOOK_CREATE_DEF, NotebookCreateResult(created))
     backend.set_result(NOTEBOOK_UPDATE_DEF, NotebookUpdateResult(updated))
     backend.set_result(NOTEBOOK_DELETE_DEF, NotebookDeleteResult())
+    backend.set_result(NOTEBOOK_REMOVE_RECENT_DEF, NotebookRemoveRecentResult())
     service = NotebookMutationService(backend)
     deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 11.0)
 
     created_model = await service.create("Created", deadline=deadline)
     updated_model = await service.update_title("nb-created", "Renamed", deadline=deadline)
     assert await service.delete("nb-created", deadline=deadline) is None
+    assert await service.remove_from_recent("nb-created", deadline=deadline) is None
 
     assert (created_model.id, created_model.title) == ("nb-created", "Created")
     assert (updated_model.id, updated_model.title) == ("nb-created", "Renamed")
@@ -51,6 +56,11 @@ async def test_mutation_service_records_typed_calls_deadline_and_projects_result
             deadline,
         ),
         BackendInvocation(Operation.NOTEBOOK_DELETE, NotebookDeleteInput("nb-created"), deadline),
+        BackendInvocation(
+            Operation.NOTEBOOK_REMOVE_RECENT,
+            NotebookRemoveRecentInput("nb-created"),
+            deadline,
+        ),
     ]
 
 

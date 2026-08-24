@@ -10,9 +10,11 @@ from ._projectors import project_notebook
 from ._records import (
     NOTEBOOK_CREATE_DEF,
     NOTEBOOK_DELETE_DEF,
+    NOTEBOOK_REMOVE_RECENT_DEF,
     NOTEBOOK_UPDATE_DEF,
     NotebookCreateInput,
     NotebookDeleteInput,
+    NotebookRemoveRecentInput,
     NotebookUpdateInput,
 )
 from .exceptions import ValidationError
@@ -78,6 +80,18 @@ class NotebookMutationService:
         await self._backend.invoke(
             NOTEBOOK_DELETE_DEF,
             NotebookDeleteInput(notebook_id),
+            deadline=deadline,
+        )
+
+    async def remove_from_recent(
+        self,
+        notebook_id: str,
+        *,
+        deadline: RuntimeDeadline | None = None,
+    ) -> None:
+        await self._backend.invoke(
+            NOTEBOOK_REMOVE_RECENT_DEF,
+            NotebookRemoveRecentInput(notebook_id),
             deadline=deadline,
         )
 

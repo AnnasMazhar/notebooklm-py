@@ -5,20 +5,26 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
+from notebooklm._deadline import RuntimeDeadline
 from notebooklm._operations import Operation
 from notebooklm._records import (
+    SOURCE_ADD_DRIVE_DEF,
     SOURCE_ADD_FILE_DEF,
     SOURCE_ADD_TEXT_DEF,
     SOURCE_ADD_URL_BATCH_DEF,
+    SOURCE_ADD_URL_DEF,
     SOURCE_CHECK_FRESHNESS_DEF,
     SOURCE_DELETE_DEF,
     SOURCE_GET_GUIDE_DEF,
     SOURCE_REFRESH_DEF,
     SOURCE_UPDATE_DEF,
+    SOURCE_WAIT_DEF,
+    SourceAddDriveInput,
+    SourceAddDriveResult,
     SourceAddFailureKind,
     SourceAddFailureRecord,
     SourceAddFileInput,
@@ -26,6 +32,7 @@ from notebooklm._records import (
     SourceAddTextResult,
     SourceAddUrlBatchInput,
     SourceAddUrlBatchResult,
+    SourceAddUrlInput,
     SourceDeleteInput,
     SourceFileInputKind,
     SourceFreshnessInput,
@@ -34,6 +41,8 @@ from notebooklm._records import (
     SourceRefreshInput,
     SourceUpdateInput,
     SourceUrlBatchItemRecord,
+    SourceWaitSnapshotInput,
+    SourceWaitSnapshotResult,
 )
 from notebooklm._source_service import SourceService
 from notebooklm._sources import SourcesAPI
@@ -47,6 +56,9 @@ from notebooklm._web.codec.sources import (
     encode_get_fulltext,
     encode_get_guide,
     encode_refresh_or_freshness,
+    encode_register_file_source,
+    encode_source_snapshot,
+    encode_update_source,
 )
 from notebooklm.exceptions import SourceAddError
 from notebooklm.rpc import RPCMethod
@@ -138,10 +150,25 @@ def test_source_codec_goldens_pin_every_remaining_positional_request() -> None:
     assert encode_get_guide("src") == [[[["src"]]]]
     assert encode_get_fulltext("src", markdown=False) == [["src"], [2], [2]]
     assert encode_get_fulltext("src", markdown=True) == [["src"], [3], [3]]
+    assert encode_source_snapshot("nb") == ["nb", None, template_tail, None, 0]
+    assert encode_register_file_source("report.pdf", "nb") == [
+        [["report.pdf"]],
+        "nb",
+        template_tail,
+    ]
+    assert encode_update_source("src", "Renamed") == [None, ["src"], [[["Renamed"]]]]
     assert decode_source_guide([[[None, ["Summary"], [["one", "two"]], []]]]).keywords == (
         "one",
         "two",
     )
+
+
+def test_source_wait_snapshot_records_are_transport_neutral() -> None:
+    request = SourceWaitSnapshotInput("nb")
+    result = SourceWaitSnapshotResult((SourceRecord("src", status="ready"),))
+
+    assert request.notebook_id == "nb"
+    assert result.sources[0].id == "src"
 
 
 @pytest.mark.asyncio
@@ -195,6 +222,38 @@ async def test_neutral_service_materializes_batch_and_hides_sensitive_inputs() -
 
 
 @pytest.mark.asyncio
+async def test_text_and_drive_wait_timeouts_remain_polling_only_facade_budgets() -> None:
+    backend = RecordingBackend()
+    source = SourceRecord("src", "Title", status="ready")
+    backend.set_result(SOURCE_ADD_TEXT_DEF, SourceAddTextResult(source))
+    backend.set_result(SOURCE_ADD_DRIVE_DEF, SourceAddDriveResult(source))
+    api = SourcesAPI(MagicMock(), uploader=MagicMock(), _backend=backend)
+    api.wait_until_ready = AsyncMock(  # type: ignore[method-assign]
+        return_value=Source(id="src", title="Title", status=SourceStatus.READY)
+    )
+
+    await api.add_text("nb", "Title", "body", wait=True, wait_timeout=0.01)
+    await api.add_drive(
+        "nb",
+        "drive-id",
+        "Title",
+        wait=True,
+        wait_timeout=0.01,
+    )
+
+    assert [invocation.deadline for invocation in backend.invocations] == [None, None]
+    # The neutral request carries the caller's ordering choice so the web
+    # handler can defer any title work, but no absolute deadline is started and
+    # the handler itself never polls.
+    assert backend.invocations[0].value.wait is True
+    assert backend.invocations[1].value.wait is True
+    assert api.wait_until_ready.await_args_list == [
+        call("nb", "src", timeout=0.01),
+        call("nb", "src", timeout=0.01),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_facade_projects_positional_batch_records_without_rpc_vocabulary() -> None:
     backend = RecordingBackend()
     backend.set_result(
@@ -227,7 +286,7 @@ async def test_facade_projects_positional_batch_records_without_rpc_vocabulary()
     assert outcomes[0].source is not None and outcomes[0].source.id == "src"
     assert isinstance(outcomes[1].error, SourceAddError)
     assert outcomes[1].error.url == "https://bad.example"
-    uploader.configure_source_lifecycle.assert_called_once()
+    assert uploader.method_calls == []
 
 
 @pytest.mark.asyncio
@@ -300,6 +359,106 @@ async def test_simple_web_bindings_preserve_shapes_and_null_echo_recency() -> No
     assert executor.calls[3][1] == [[[["src"]]]]
 
 
+@pytest.mark.asyncio
+async def test_semantic_wait_binding_fetches_one_unclamped_snapshot() -> None:
+    executor = _RecordingExecutor(
+        [
+            [
+                "Notebook",
+                [
+                    _source_entry("ready", title="Ready"),
+                    _source_entry("failed", title="Failed", status=3, kind=3),
+                ],
+                "nb",
+            ]
+        ]
+    )
+    deadline = RuntimeDeadline(timeout=30.0, started_at=0.0, monotonic=lambda: 1.0)
+
+    result = await _web_backend(executor).invoke(
+        SOURCE_WAIT_DEF,
+        SourceWaitSnapshotInput("nb"),
+        deadline=deadline,
+    )
+
+    assert len(executor.calls) == 1
+    method, _params, kwargs = executor.calls[0]
+    assert method is RPCMethod.GET_NOTEBOOK
+    assert kwargs["_retry_deadline"] is None
+    assert kwargs["read_timeout"] is None
+    ready, failed = result.sources
+    assert ready.id == "ready" and ready.status == "ready"
+    assert failed.id == "failed" and failed.status == "error"
+
+
+@pytest.mark.asyncio
+async def test_waited_url_title_finalize_keeps_add_attribution_and_null_hydration() -> None:
+    executor = _RecordingExecutor(
+        None,
+        [["Notebook", [_source_entry("url", title="Requested")], "nb"]],
+    )
+
+    result = await _web_backend(executor).invoke(
+        SOURCE_ADD_URL_DEF,
+        SourceAddUrlInput(
+            "nb",
+            "",
+            requested_title="Requested",
+            finalize_source=SourceRecord("url", "Upstream", status="ready"),
+        ),
+        deadline=None,
+    )
+
+    assert result.source.title == "Requested"
+    assert [call[0] for call in executor.calls] == [
+        RPCMethod.UPDATE_SOURCE,
+        RPCMethod.GET_NOTEBOOK,
+    ]
+    assert RPCMethod.ADD_SOURCE not in [call[0] for call in executor.calls]
+
+
+@pytest.mark.asyncio
+async def test_waited_drive_title_finalize_keeps_add_attribution_without_null_hydration() -> None:
+    executor = _RecordingExecutor(None)
+
+    result = await _web_backend(executor).invoke(
+        SOURCE_ADD_DRIVE_DEF,
+        SourceAddDriveInput(
+            "nb",
+            "",
+            "Requested",
+            "application/vnd.google-apps.document",
+            finalize_source=SourceRecord("drive", "Upstream", status="ready"),
+        ),
+        deadline=None,
+    )
+
+    assert result.source.title == "Requested"
+    assert [call[0] for call in executor.calls] == [RPCMethod.UPDATE_SOURCE]
+
+
+@pytest.mark.asyncio
+async def test_waited_file_title_finalize_short_circuits_upload_and_null_hydration() -> None:
+    executor = _RecordingExecutor(None)
+    uploader = MagicMock()
+    uploader._add_file_result = AsyncMock()
+
+    result = await _web_backend(executor, uploader=uploader).invoke(
+        SOURCE_ADD_FILE_DEF,
+        SourceAddFileInput(
+            "nb",
+            SourceFileInputKind.LOCAL,
+            title="Requested",
+            finalize_source=SourceRecord("file", "Upstream", status="ready"),
+        ),
+        deadline=None,
+    )
+
+    assert result.source.title == "Requested"
+    assert [call[0] for call in executor.calls] == [RPCMethod.UPDATE_SOURCE]
+    uploader._add_file_result.assert_not_awaited()
+
+
 class _Uploader:
     def __init__(self) -> None:
         self.limit_lookup: object | None = None
@@ -308,9 +467,22 @@ class _Uploader:
     def configure_source_limit_lookup(self, callback: object) -> None:
         self.limit_lookup = callback
 
+    def configure_source_backend(self, **callbacks: object) -> None:
+        self.source_backend = callbacks
+
     async def add_file(self, notebook_id: str, file_path: str | Path, **kwargs: Any) -> Source:
         self.calls.append((notebook_id, file_path, kwargs))
         return Source(id="uploaded", title="file.txt", status=SourceStatus.PROCESSING)
+
+    async def _add_file_result(
+        self, notebook_id: str, file_path: str | Path, **kwargs: Any
+    ) -> object:
+        source = await self.add_file(notebook_id, file_path, **kwargs)
+        return type(
+            "UploadResult",
+            (),
+            {"source": source, "transient_error_types": ()},
+        )()
 
 
 @pytest.mark.asyncio
@@ -352,9 +524,12 @@ async def test_file_binding_preserves_path_callback_and_existing_upload_authorit
 
 
 @pytest.mark.asyncio
-async def test_drive_download_variant_uses_dedicated_gate_and_upload_callback() -> None:
+async def test_drive_download_variant_uses_dedicated_gate_and_upload_callback(monkeypatch) -> None:
     uploader = _Uploader()
     events: list[str] = []
+
+    uploader.live_cookies = lambda: None  # type: ignore[attr-defined]
+    uploader.authuser_value = lambda: "0"  # type: ignore[attr-defined]
 
     @asynccontextmanager
     async def gate():
@@ -365,11 +540,15 @@ async def test_drive_download_variant_uses_dedicated_gate_and_upload_callback() 
     uploader.get_download_semaphore = gate  # type: ignore[attr-defined]
 
     class _DriveService:
+        def __init__(self, *, fetch: object, add_file: object) -> None:
+            assert fetch is not None
+            assert callable(add_file)
+
         async def add_drive_file(self, notebook_id: str, document_id: str, **kwargs: Any) -> Source:
             events.append(f"route:{notebook_id}:{document_id}:{kwargs['title']}")
             return Source(id="drive-upload", title="Drive file")
 
-    uploader.create_drive_import_service = _DriveService  # type: ignore[attr-defined]
+    monkeypatch.setattr("notebooklm._web.source_variants.DriveImportService", _DriveService)
     result = await _web_backend(_RecordingExecutor(), uploader=uploader).invoke(
         SOURCE_ADD_FILE_DEF,
         SourceAddFileInput(

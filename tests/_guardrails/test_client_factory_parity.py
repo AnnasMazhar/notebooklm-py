@@ -124,9 +124,12 @@ def test_shared_wiring_identities_hold_on_both_paths() -> None:
             f"{label}: chat must share the client's NotebooksAPI instance "
             "(ChatAPI._notebooks), not a privately constructed one"
         )
-        assert getattr(client.notebooks, "_rpc", _missing) is client._rpc_executor, (
-            f"{label}: notebooks (NotebooksAPI._rpc) must dispatch through the "
-            "client's shared RpcExecutor"
+        assert getattr(client.notebooks, "_legacy_rpc", _missing) is client._rpc_executor, (
+            f"{label}: notebook raw-compatibility helpers must use the client's "
+            "shared RpcExecutor through the narrow legacy collaborator"
+        )
+        assert getattr(client.notebooks._share_manager, "_backend", _missing) is client._backend, (
+            f"{label}: the injected ShareManager must share the client's semantic backend"
         )
         assert getattr(client._backend, "_executor", _missing) is client._rpc_executor, (
             f"{label}: the private WebRpcBackend must share the client's RpcExecutor"

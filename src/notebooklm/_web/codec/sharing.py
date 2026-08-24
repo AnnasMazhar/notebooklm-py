@@ -135,6 +135,24 @@ def build_get_share_status_params(notebook_id: str) -> list[Any]:
     return [notebook_id, [2]]
 
 
+def build_legacy_share_artifact_params(
+    notebook_id: str,
+    public: bool,
+    artifact_id: str | None,
+) -> list[Any]:
+    """Build the legacy ``SHARE_ARTIFACT`` set-state payload.
+
+    The optional artifact slot is present only for a truthy id. Passing a null
+    or empty third element is a different wire request, so preserving the
+    historical omission is part of this codec's contract.
+    """
+
+    params: list[Any] = [[1] if public else [0], notebook_id]
+    if artifact_id:
+        params.append(artifact_id)
+    return params
+
+
 def build_share_visibility_params(notebook_id: str, public: bool) -> list[Any]:
     """Build the ``SHARE_NOTEBOOK`` envelope that sets link visibility."""
 
@@ -256,6 +274,7 @@ def decode_share_status(
 
 __all__ = [
     "build_get_share_status_params",
+    "build_legacy_share_artifact_params",
     "build_share_grants_params",
     "build_share_view_level_params",
     "build_share_visibility_params",

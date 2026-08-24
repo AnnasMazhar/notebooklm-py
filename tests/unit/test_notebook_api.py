@@ -18,7 +18,7 @@ from notebooklm._notebooks import (
     build_create_notebook_params,
     build_get_notebook_params,
 )
-from notebooklm._source.listing import SourceLister
+from notebooklm._sources import SourcesAPI
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 from notebooklm.exceptions import (
@@ -154,12 +154,11 @@ def test_direct_notebooks_api_construction_remains_supported() -> None:
     core = _make_core()
     api = NotebooksAPI(core.rpc_executor)
 
-    assert hasattr(api, "_sources")
-    assert isinstance(api._sources, SourceLister)
+    assert api._sources is None
 
 
 @pytest.mark.asyncio
-async def test_direct_notebooks_api_get_metadata_uses_phase8_source_lister() -> None:
+async def test_get_metadata_uses_injected_semantic_source_lister() -> None:
     core = _make_core()
     core.rpc_executor.rpc_call.return_value = [
         [
@@ -168,10 +167,9 @@ async def test_direct_notebooks_api_get_metadata_uses_phase8_source_lister() -> 
             "nb_123",
         ]
     ]
-    api = NotebooksAPI(
-        core.rpc_executor,
-        _backend=build_web_backend(core.rpc_executor),
-    )
+    backend = build_web_backend(core.rpc_executor)
+    sources = SourcesAPI(core.rpc_executor, uploader=MagicMock(), _backend=backend)
+    api = NotebooksAPI(core.rpc_executor, sources_api=sources, _backend=backend)
 
     metadata = await api.get_metadata("nb_123")
 
@@ -183,12 +181,11 @@ async def test_direct_notebooks_api_get_metadata_uses_phase8_source_lister() -> 
 
 
 @pytest.mark.asyncio
-async def test_direct_notebooks_api_metadata_lister_uses_late_bound_rpc_executor_call() -> None:
+async def test_injected_metadata_lister_uses_late_bound_rpc_executor_call() -> None:
     core = _make_core()
-    api = NotebooksAPI(
-        core.rpc_executor,
-        _backend=build_web_backend(core.rpc_executor),
-    )
+    backend = build_web_backend(core.rpc_executor)
+    sources = SourcesAPI(core.rpc_executor, uploader=MagicMock(), _backend=backend)
+    api = NotebooksAPI(core.rpc_executor, sources_api=sources, _backend=backend)
     replacement_rpc = AsyncMock(
         return_value=[
             [
@@ -952,7 +949,7 @@ class TestUpdateNotebook:
         with pytest.raises(ValidationError, match="At least one"):
             await api.update("nb-1")
 
-        api._rpc.rpc_call.assert_not_awaited()
+        api._legacy_rpc.rpc_call.assert_not_awaited()
 
 
 class TestGetNotebookFailsClosed:

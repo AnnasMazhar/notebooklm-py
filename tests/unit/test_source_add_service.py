@@ -42,27 +42,10 @@ class RecordingRpc:
         self.response = response
         self.calls: list[dict[str, Any]] = []
 
-    async def rpc_call(
-        self,
-        method: RPCMethod,
-        params: list[Any],
-        source_path: str = "/",
-        allow_null: bool = False,
-        _is_retry: bool = False,
-        *,
-        disable_internal_retries: bool = False,
-        operation_variant: str | None = None,
-    ) -> Any:
-        self.calls.append(
-            {
-                "method": method,
-                "params": params,
-                "source_path": source_path,
-                "allow_null": allow_null,
-                "disable_internal_retries": disable_internal_retries,
-                "operation_variant": operation_variant,
-            }
-        )
+    async def create_source(self, *args: Any) -> Any:
+        self.calls.append({"args": args})
+        if isinstance(self.response, Exception):
+            raise self.response
         return self.response
 
 
@@ -76,8 +59,8 @@ def logger() -> logging.Logger:
     return logging.getLogger("tests.source_add")
 
 
-def source_response(source_id: str, title: str = "Source") -> list[Any]:
-    return [[[["src_" + source_id], title, [None, 0], [None, 2]]]]
+def source_response(source_id: str, title: str = "Source") -> Source:
+    return Source(id="src_" + source_id, title=title)
 
 
 @pytest.mark.asyncio
@@ -438,27 +421,13 @@ async def test_add_text_uses_exact_rpc_shape_and_wait_hook(
         "content",
         wait=True,
         wait_timeout=9.0,
-        rpc=rpc,
+        create_source=rpc.create_source,
         wait_until_ready=wait_until_ready,
         logger=logger,
     )
 
     assert result is ready
-    assert rpc.calls == [
-        {
-            "method": RPCMethod.ADD_SOURCE,
-            # Nested template block per the Gemini-3.5 wire migration (#1546).
-            "params": [
-                [[None, ["Title", "content"], None, 2, None, None, None, None, None, None, 1]],
-                "nb_1",
-                [2, None, None, [1, None, None, None, None, None, None, None, None, None, [1]]],
-            ],
-            "source_path": "/notebook/nb_1",
-            "allow_null": False,
-            "disable_internal_retries": False,
-            "operation_variant": "text",
-        }
-    ]
+    assert rpc.calls == [{"args": ("nb_1", "Title", "content")}]
     wait_until_ready.assert_awaited_once_with("nb_1", "src_text", timeout=9.0)
 
 
@@ -488,7 +457,7 @@ async def test_add_text_propagates_narrow_transport_errors_unwrapped(
             "nb_1",
             "Title",
             "content",
-            rpc=SimpleNamespace(rpc_call=AsyncMock(side_effect=transport_error)),
+            create_source=AsyncMock(side_effect=transport_error),
             wait_until_ready=AsyncMock(),
             logger=logger,
         )
@@ -512,7 +481,7 @@ async def test_add_text_wraps_generic_rpc_error(
             "nb_1",
             "Title",
             "content",
-            rpc=SimpleNamespace(rpc_call=AsyncMock(side_effect=rpc_error)),
+            create_source=AsyncMock(side_effect=rpc_error),
             wait_until_ready=AsyncMock(),
             logger=logger,
         )
@@ -533,7 +502,7 @@ async def test_add_text_refuses_idempotent_flag(
             "Title",
             "content",
             idempotent=True,
-            rpc=SimpleNamespace(rpc_call=AsyncMock()),
+            create_source=AsyncMock(),
             wait_until_ready=AsyncMock(),
             logger=logger,
         )
@@ -555,46 +524,14 @@ async def test_add_drive_uses_exact_rpc_shape_and_wait_hook(
         mime_type="application/pdf",
         wait=True,
         wait_timeout=7.0,
-        rpc=rpc,
+        create_source=rpc.create_source,
         list_sources=AsyncMock(return_value=[]),
         wait_until_ready=wait_until_ready,
         logger=logger,
     )
 
     assert result is ready
-    # add_drive now wraps with idempotent_create, which requires
-    # disable_internal_retries=True at the RPC layer (the wrapper owns
-    # probe-then-retry recovery). operation_variant="drive" routes the
-    # call through the registry's PROBE_THEN_CREATE entry.
-    assert rpc.calls == [
-        {
-            "method": RPCMethod.ADD_SOURCE,
-            "params": [
-                [
-                    [
-                        ["drive_file", "application/pdf", 1, "Drive Doc"],
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        1,
-                    ]
-                ],
-                "nb_1",
-                [2],
-                [1, None, None, None, None, None, None, None, None, None, [1]],
-            ],
-            "source_path": "/notebook/nb_1",
-            "allow_null": True,
-            "disable_internal_retries": True,
-            "operation_variant": "drive",
-        }
-    ]
+    assert rpc.calls == [{"args": ("nb_1", "drive_file", "Drive Doc", "application/pdf")}]
     wait_until_ready.assert_awaited_once_with("nb_1", "src_drive", timeout=7.0)
 
 
@@ -608,7 +545,7 @@ async def test_add_drive_raises_source_add_error_on_null_result(
             "nb_1",
             "drive_file",
             "Drive Doc",
-            rpc=RecordingRpc(None),
+            create_source=RecordingRpc(None).create_source,
             list_sources=AsyncMock(return_value=[]),
             wait_until_ready=AsyncMock(),
             logger=logger,
@@ -640,7 +577,7 @@ async def test_add_drive_preserves_rpc_error_propagation(
             "nb_1",
             "drive_file",
             "Drive Doc",
-            rpc=SimpleNamespace(rpc_call=AsyncMock(side_effect=rpc_error)),
+            create_source=AsyncMock(side_effect=rpc_error),
             list_sources=AsyncMock(return_value=[]),
             wait_until_ready=AsyncMock(),
             logger=logger,
@@ -687,28 +624,9 @@ def test_extract_youtube_video_id_parse_error_returns_none(
     assert result is None
 
 
-@pytest.mark.asyncio
-async def test_raw_url_helpers_disable_internal_retries(service: SourceAddService) -> None:
-    rpc = RecordingRpc(source_response("url", "URL"))
-
-    await service.add_url_source("nb_1", "https://example.com", rpc=rpc)
-    await service.add_youtube_source("nb_1", "https://youtu.be/video", rpc=rpc)
-
-    assert rpc.calls[0]["disable_internal_retries"] is True
-    assert rpc.calls[0]["params"][0][0][2] == ["https://example.com"]
-    # URL add migrated to the nested trailing block (#1546): spec gains a
-    # trailing 1 and the flat [2],None,None tail becomes [2,None,None,[1,...,[1]]].
-    assert rpc.calls[0]["params"][0][0][-1] == 1
-    assert rpc.calls[0]["params"][2] == [
-        2,
-        None,
-        None,
-        [1, None, None, None, None, None, None, None, None, None, [1]],
-    ]
-    assert len(rpc.calls[0]["params"]) == 3
-    assert rpc.calls[1]["disable_internal_retries"] is True
-    assert rpc.calls[1]["allow_null"] is False
-    assert rpc.calls[1]["params"][0][0][7] == ["https://youtu.be/video"]
+def test_raw_url_execution_helpers_are_retired(service: SourceAddService) -> None:
+    assert not hasattr(service, "add_url_source")
+    assert not hasattr(service, "add_youtube_source")
 
 
 @pytest.mark.asyncio
@@ -718,6 +636,9 @@ async def test_sources_api_add_url_uses_only_the_semantic_service() -> None:
     api._extract_youtube_video_id = MagicMock(return_value="video")  # type: ignore[method-assign]
     api._add_youtube_source = AsyncMock(return_value=source_response("yt", "Video"))  # type: ignore[method-assign]
     api._add_url_source = AsyncMock()  # type: ignore[method-assign]
+    api.wait_until_ready = AsyncMock(  # type: ignore[method-assign]
+        return_value=Source(id="ready", title="Video")
+    )
 
     result = await api.add_url("nb_1", "https://youtu.be/video", wait=True, wait_timeout=3.0)
 
@@ -726,6 +647,7 @@ async def test_sources_api_add_url_uses_only_the_semantic_service() -> None:
     assert api._url_mutation_service.add_url.await_args.kwargs["wait"] is True
     assert api._url_mutation_service.add_url.await_args.kwargs["wait_timeout"] == 3.0
     assert api._url_mutation_service.add_url.await_args.kwargs["deadline"] is None
+    api.wait_until_ready.assert_awaited_once_with("nb_1", "ready", timeout=3.0)
     api._add_youtube_source.assert_not_awaited()
     api._add_url_source.assert_not_awaited()
 
@@ -784,6 +706,60 @@ async def test_add_drive_honors_title_via_post_add_rename() -> None:
         "My Title",
     )
     assert result.title == "My Title"
+
+
+@pytest.mark.asyncio
+async def test_waited_url_renames_only_after_facade_readiness() -> None:
+    api = _sources_api_with_mocked_adder()
+    events: list[str] = []
+
+    async def add_url(*args: object, **kwargs: object) -> SourceAddUrlResult:
+        events.append("create")
+        return _url_result(SourceRecord(id="u1", title="Upstream"))
+
+    async def wait_until_ready(*args: object, **kwargs: object) -> Source:
+        events.append("wait")
+        return Source(id="u1", title="Upstream")
+
+    async def finalize(*args: object, **kwargs: object) -> SourceAddUrlResult:
+        events.append("rename")
+        return _url_result(SourceRecord(id="u1", title="Requested"))
+
+    api._url_mutation_service = MagicMock(add_url=AsyncMock(side_effect=add_url))
+    api._url_mutation_service.finalize_title = AsyncMock(side_effect=finalize)
+    api.wait_until_ready = AsyncMock(side_effect=wait_until_ready)  # type: ignore[method-assign]
+
+    result = await api.add_url("nb_1", "https://example.com", title="Requested", wait=True)
+
+    assert events == ["create", "wait", "rename"]
+    assert result.title == "Requested"
+
+
+@pytest.mark.asyncio
+async def test_waited_drive_renames_only_after_facade_readiness() -> None:
+    api = _sources_api_with_mocked_adder()
+    events: list[str] = []
+
+    async def add_drive(*args: object, **kwargs: object) -> SourceAddDriveResult:
+        events.append("create")
+        return SourceAddDriveResult(SourceRecord(id="d1", title="Upstream"))
+
+    async def wait_until_ready(*args: object, **kwargs: object) -> Source:
+        events.append("wait")
+        return Source(id="d1", title="Upstream")
+
+    async def finalize(*args: object, **kwargs: object) -> SourceAddDriveResult:
+        events.append("rename")
+        return SourceAddDriveResult(SourceRecord(id="d1", title="Requested"))
+
+    api._source_service.add_drive = AsyncMock(side_effect=add_drive)  # type: ignore[union-attr]
+    api._source_service.finalize_drive_title = AsyncMock(side_effect=finalize)  # type: ignore[union-attr]
+    api.wait_until_ready = AsyncMock(side_effect=wait_until_ready)  # type: ignore[method-assign]
+
+    result = await api.add_drive("nb_1", "drive-id", "Requested", wait=True)
+
+    assert events == ["create", "wait", "rename"]
+    assert result.title == "Requested"
 
 
 @pytest.mark.asyncio
@@ -1240,14 +1216,14 @@ async def test_add_drive_baseline_failure_makes_a_match_ambiguous(
     """
     file_id = "drive_file_1"
     existing = _drive_source("src_pre_existing", file_id)
-    rpc = SimpleNamespace(rpc_call=AsyncMock(side_effect=ServerError("commit lost")))
+    create_source = AsyncMock(side_effect=ServerError("commit lost"))
 
     with pytest.raises(SourceAddError, match="Cannot disambiguate Drive source") as raised:
         await service.add_drive(
             "nb_1",
             file_id,
             "Drive Doc",
-            rpc=rpc,
+            create_source=create_source,
             # baseline fails, then the probe finds the unattributable match
             list_sources=AsyncMock(side_effect=[RPCError("baseline decode failed"), [existing]]),
             wait_until_ready=AsyncMock(),
@@ -1260,7 +1236,7 @@ async def test_add_drive_baseline_failure_makes_a_match_ambiguous(
     # The load-bearing assertion: ONE create. The finite ``side_effect`` list
     # would also fail a runaway loop, but with a StopIteration that says nothing
     # about what went wrong; this names it.
-    assert rpc.rpc_call.await_count == 1
+    assert create_source.await_count == 1
     assert isinstance(raised.value.cause, RPCError)
     assert "RPCError" in str(raised.value)
     # The create's outcome is unknown, so this must not be classified as a
@@ -1283,14 +1259,14 @@ async def test_add_drive_probe_raises_on_multiple_new_matches(
     file_id = "drive_file_2"
     first = _drive_source("src_a", file_id)
     second = _drive_source("src_b", file_id)
-    rpc = SimpleNamespace(rpc_call=AsyncMock(side_effect=ServerError("commit lost")))
+    create_source = AsyncMock(side_effect=ServerError("commit lost"))
 
     with pytest.raises(SourceAddError, match="probe found 2 new sources") as raised:
         await service.add_drive(
             "nb_1",
             file_id,
             "Drive Doc",
-            rpc=rpc,
+            create_source=create_source,
             list_sources=AsyncMock(side_effect=[[], [first, second]]),
             wait_until_ready=AsyncMock(),
             logger=logger,
@@ -1299,7 +1275,7 @@ async def test_add_drive_probe_raises_on_multiple_new_matches(
     # The load-bearing assertion: ONE create. The finite ``side_effect`` list
     # would also fail a runaway loop, but with a StopIteration that says nothing
     # about what went wrong; this names it.
-    assert rpc.rpc_call.await_count == 1
+    assert create_source.await_count == 1
     assert "src_a" in str(raised.value) or "2 new sources" in str(raised.value)
     assert getattr(raised.value, "unconfirmed", False) is True
     assert classify(raised.value).category is ErrorCategory.RPC

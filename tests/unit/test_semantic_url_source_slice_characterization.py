@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -33,6 +33,7 @@ from notebooklm.exceptions import (
     SourceTimeoutError,
 )
 from notebooklm.rpc import RPCMethod
+from notebooklm.types import Source
 from tests._fixtures.web_backend import build_web_backend
 
 
@@ -62,63 +63,59 @@ def test_add_url_public_signature_is_frozen() -> None:
 @pytest.mark.asyncio
 async def test_generic_and_youtube_payloads_share_one_url_operation_boundary() -> None:
     """Option (a): both branches are ADD_SOURCE's same ``url`` variant."""
-    rpc_call = AsyncMock(return_value=None)
-    rpc = MagicMock(rpc_call=rpc_call)
-    service = SourceAddService()
     regular_url = "https://example.com/article"
     youtube_url = "https://youtu.be/dQw4w9WgXcQ"
+    rpc_call = AsyncMock(
+        side_effect=[
+            [["Notebook", [], "nb-1"]],
+            _source_result("regular", "Regular", regular_url, type_code=5),
+            [["Notebook", [], "nb-1"]],
+            _source_result("youtube", "YouTube", youtube_url, type_code=9),
+        ]
+    )
+    rpc = MagicMock(rpc_call=rpc_call)
+    api = SourcesAPI(rpc, uploader=MagicMock(), _backend=build_web_backend(rpc))
 
-    await service.add_url_source("nb-1", regular_url, rpc=rpc)
-    await service.add_youtube_source("nb-1", youtube_url, rpc=rpc)
+    await api.add_url("nb-1", regular_url)
+    await api.add_url("nb-1", youtube_url)
 
-    assert rpc_call.await_args_list == [
-        call(
-            RPCMethod.ADD_SOURCE,
-            [
-                [[None, None, [regular_url], None, None, None, None, None, None, None, 1]],
-                "nb-1",
-                build_template_block(),
-            ],
-            source_path="/notebook/nb-1",
-            disable_internal_retries=True,
-            operation_variant="url",
-        ),
-        call(
-            RPCMethod.ADD_SOURCE,
-            [
-                [[None, None, None, None, None, None, None, [youtube_url], None, None, 1]],
-                "nb-1",
-                build_template_block(),
-            ],
-            source_path="/notebook/nb-1",
-            allow_null=False,
-            disable_internal_retries=True,
-            operation_variant="url",
-        ),
+    add_calls = [
+        entry for entry in rpc_call.await_args_list if entry.args[0] is RPCMethod.ADD_SOURCE
     ]
+    assert [entry.args[1] for entry in add_calls] == [
+        [
+            [[None, None, [regular_url], None, None, None, None, None, None, None, 1]],
+            "nb-1",
+            build_template_block(),
+        ],
+        [
+            [[None, None, None, None, None, None, None, [youtube_url], None, None, 1]],
+            "nb-1",
+            build_template_block(),
+        ],
+    ]
+    assert all(entry.kwargs["source_path"] == "/notebook/nb-1" for entry in add_calls)
+    assert all(entry.kwargs["disable_internal_retries"] is True for entry in add_calls)
+    assert all(entry.kwargs["operation_variant"] == "url" for entry in add_calls)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("url", "video_id", "type_code", "expected_adder"),
+    ("url", "video_id", "expected_adder"),
     [
-        ("https://example.com/article", None, 5, "regular"),
-        ("https://youtu.be/dQw4w9WgXcQ", "dQw4w9WgXcQ", 9, "youtube"),
+        ("https://example.com/article", None, "regular"),
+        ("https://youtu.be/dQw4w9WgXcQ", "dQw4w9WgXcQ", "youtube"),
     ],
 )
 async def test_add_url_hidden_dispatch_stays_inside_shared_reconciliation(
     url: str,
     video_id: str | None,
-    type_code: int,
     expected_adder: str,
 ) -> None:
     service = SourceAddService()
-    add_regular = AsyncMock(
-        return_value=_source_result("src-1", "Upstream", url, type_code=type_code)
-    )
-    add_youtube = AsyncMock(
-        return_value=_source_result("src-1", "Upstream", url, type_code=type_code)
-    )
+    source_record = Source(id="src-1", title="Upstream", url=url)
+    add_regular = AsyncMock(return_value=source_record)
+    add_youtube = AsyncMock(return_value=source_record)
     list_sources = AsyncMock(return_value=[])
 
     source = await service.add_url(

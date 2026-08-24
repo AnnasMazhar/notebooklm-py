@@ -130,17 +130,12 @@ async def test_add_drive_file_asserts_bound_loop_before_fetch(sources_api, mock_
     mock_core.assert_bound_loop.assert_called()
 
 
-def test_sources_api_makes_uploader_share_lifecycle_collaborators(sources_api):
-    """SourcesAPI is the single owner of the source-lifecycle verbs.
-
-    The upload pipeline's ``list_sources`` / ``get_source`` / ``wait_*``
-    helpers must delegate to the SAME ``SourceLister`` / ``SourcePoller``
-    instances the public API uses, rather than parallel copies built in the
-    pipeline constructor (issue #1205). ``SourcesAPI.__init__`` injects its
-    own collaborators via ``configure_source_lifecycle``.
-    """
-    assert sources_api._uploader._lister is sources_api._lister
-    assert sources_api._uploader._poller is sources_api._poller
+def test_web_backend_configures_uploader_semantic_source_callbacks(sources_api):
+    """The uploader receives neutral lifecycle callbacks from the web adapter."""
+    backend = sources_api._source_service._backend
+    assert sources_api._uploader._list_sources_callback.__self__ is backend
+    assert sources_api._uploader._register_file_source_callback.__self__ is backend
+    assert sources_api._uploader._rename_source_callback.__self__ is backend
 
 
 def _self_runtime_auth_attr_read(node: ast.AST, attr: str) -> bool:
@@ -256,6 +251,11 @@ class TestWaitArgsKeywordOnly:
         # title differs from the returned one; stub it so this wait-arg forwarding
         # test stays focused on the adder call.
         sources_api.rename = AsyncMock(return_value=Source(id="src_123", title="Source"))
+        sources_api.wait_until_ready = AsyncMock(return_value=Source(id="src_123", title="Source"))
+        if method_name == "add_drive":
+            target.finalize_drive_title = AsyncMock(  # type: ignore[attr-defined]
+                return_value=SourceAddDriveResult(SourceRecord("src_123", "Drive Doc"))
+            )
 
         method = getattr(sources_api, method_name)
         with warnings.catch_warnings():
@@ -266,6 +266,7 @@ class TestWaitArgsKeywordOnly:
         patched.assert_awaited_once()
         assert patched.call_args.kwargs["wait"] is True
         assert patched.call_args.kwargs["wait_timeout"] == 45.0
+        sources_api.wait_until_ready.assert_awaited_once_with("nb_123", "src_123", timeout=45.0)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1071,7 +1072,7 @@ class TestAddFile:
         test_file.write_bytes(b"fake pdf content")
 
         mock_core.rpc_executor.rpc_call.return_value = [[[["src_pdf"]]]]
-        sources_api._uploader.wait_until_ready = AsyncMock(
+        sources_api.wait_until_ready = AsyncMock(
             return_value=MagicMock(id="src_pdf", title="report.pdf")
         )
 
@@ -1093,8 +1094,44 @@ class TestAddFile:
             )
 
         assert result.id == "src_pdf"
-        sources_api._uploader.wait_until_ready.assert_awaited_once_with(
+        sources_api.wait_until_ready.assert_awaited_once_with(
             "nb_123", "src_pdf", timeout=45.0, transient_error_types=()
+        )
+
+    @pytest.mark.asyncio
+    async def test_add_file_wait_policy_uses_resolved_symlink_target_mime(
+        self, sources_api, mock_core, tmp_path
+    ):
+        """A differently-suffixed symlink uses the resolved target's media policy."""
+        target = tmp_path / "recording.mp3"
+        target.write_bytes(b"fake audio")
+        link = tmp_path / "looks-like-text.txt"
+        link.symlink_to(target)
+
+        mock_core.rpc_executor.rpc_call.return_value = [[[["src_audio"]]]]
+        sources_api.wait_until_ready = AsyncMock(
+            return_value=Source(id="src_audio", title="recording.mp3")
+        )
+        mock_start_response = MagicMock()
+        mock_start_response.headers = {
+            "x-goog-upload-url": "https://notebooklm.google.com/upload/_/?upload_id=session"
+        }
+        mock_upload_response = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
+            mock_client.post.side_effect = [mock_start_response, mock_upload_response]
+            mock_client_cls.return_value = mock_client
+
+            await sources_api.add_file("nb_123", link, wait=True)
+
+        sources_api.wait_until_ready.assert_awaited_once_with(
+            "nb_123",
+            "src_audio",
+            timeout=120.0,
+            transient_error_types=(10, 0, None),
         )
 
     @pytest.mark.asyncio
@@ -1260,7 +1297,7 @@ class TestAddFile:
             assert mock_core.rpc_executor.rpc_call.call_count == 2
             return Source(id=source_id, title="boring-filename.md", _type_code=8)
 
-        sources_api._uploader.wait_until_ready = AsyncMock(side_effect=wait_side_effect)
+        sources_api.wait_until_ready = AsyncMock(side_effect=wait_side_effect)
 
         mock_start_response = MagicMock()
         mock_start_response.headers = {
@@ -1283,7 +1320,7 @@ class TestAddFile:
             )
 
         assert result.title == "Real Intended Title"
-        sources_api._uploader.wait_until_ready.assert_awaited_once_with(
+        sources_api.wait_until_ready.assert_awaited_once_with(
             "nb_123", "src_md", timeout=120.0, transient_error_types=()
         )
         # 3 RPCs in total: baseline + register + rename.
@@ -1704,7 +1741,7 @@ class TestAddFile:
             assert mock_core.rpc_executor.rpc_call.call_count == 2
             return Source(id=source_id, title="doc.txt", _type_code=4)
 
-        sources_api._uploader.wait_until_ready = AsyncMock(side_effect=wait_side_effect)
+        sources_api.wait_until_ready = AsyncMock(side_effect=wait_side_effect)
 
         mock_start_response = MagicMock()
         mock_start_response.headers = {
@@ -1727,7 +1764,7 @@ class TestAddFile:
             )
 
         assert result.title == "doc.txt"
-        sources_api._uploader.wait_until_ready.assert_awaited_once_with(
+        sources_api.wait_until_ready.assert_awaited_once_with(
             "nb_123", "src_doc", timeout=120.0, transient_error_types=()
         )
 

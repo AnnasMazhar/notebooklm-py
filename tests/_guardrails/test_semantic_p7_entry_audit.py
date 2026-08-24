@@ -3,12 +3,14 @@
 Governed by ADR-0035 and docs/plan/2026-08-13-semantic-backend-refactor.md.
 P7 runs last: no runtime collapse is authorized until P1-P6 have isolated
 semantic feature callers from RpcCaller (or recorded explicit legacy exceptions).
-The ErrorInjectionMiddleware and mutable-test-seam prerequisites are complete;
-remaining semantic RpcCaller consumers still have to migrate.
+The ErrorInjectionMiddleware, mutable-test-seam prerequisites, and active
+semantic migrations are complete. The one intentionally retained physical
+RpcCaller consumer is explicitly authorized compatibility code, not a semantic
+feature-service blocker.
 
 This audit checks all P7 entry criteria, enumerates current blockers, and fails
 closed if entry criteria or internal consumer inventories drift unexpectedly.
-It does NOT demand P7 pass now.
+It demands a fully passing entry gate before the P7 runtime collapse begins.
 """
 
 from __future__ import annotations
@@ -44,6 +46,9 @@ KNOWN_ACTIVE_SEMANTIC_OPERATIONS: frozenset[Operation] = frozenset(
         Operation.NOTEBOOK_CREATE,
         Operation.NOTEBOOK_UPDATE,
         Operation.NOTEBOOK_DELETE,
+        Operation.NOTEBOOK_REMOVE_RECENT,
+        Operation.NOTEBOOK_SUMMARIZE,
+        Operation.NOTEBOOK_DESCRIBE,
         Operation.SOURCE_LIST,
         Operation.SOURCE_GET,
         Operation.SOURCE_ADD_URL,
@@ -61,6 +66,7 @@ KNOWN_ACTIVE_SEMANTIC_OPERATIONS: frozenset[Operation] = frozenset(
         Operation.SETTINGS_GET_LIMITS,
         Operation.SETTINGS_SET_LANGUAGE,
         Operation.NOTEBOOK_SUGGEST_PROMPTS,
+        Operation.SOURCE_WAIT,
         Operation.ARTIFACT_LIST,
         Operation.ARTIFACT_GET,
         Operation.ARTIFACT_GENERATE_AUDIO,
@@ -112,6 +118,7 @@ KNOWN_ACTIVE_SEMANTIC_OPERATIONS: frozenset[Operation] = frozenset(
         Operation.SHARING_SET_PUBLIC,
         Operation.SHARING_SET_VIEW_LEVEL,
         Operation.SHARING_UPDATE_USERS,
+        Operation.LEGACY_SHARE_ARTIFACT,
         Operation.RESEARCH_START,
         Operation.RESEARCH_POLL,
         Operation.RESEARCH_CANCEL,
@@ -119,33 +126,24 @@ KNOWN_ACTIVE_SEMANTIC_OPERATIONS: frozenset[Operation] = frozenset(
     }
 )
 
-# Exact inventory of classes/functions in src/notebooklm/ taking RpcCaller.
-# These represent the remaining semantic services/facades that must migrate in P2-P6
-# before P7 runtime collapse can begin.
-#
-# A migrated domain can still appear here when its facade keeps a ``RpcCaller``
-# for a dependency another domain owns. ``_research.py`` is the current example:
-# P6.2 moved every research operation onto the semantic backend, but the facade
-# still builds the default ``NotebookSourceLister`` its import verification
-# snapshots and probes against, and that lister leaves with P6's remaining source
-# slice — not with research. Delete the row when the dependency moves, not when
-# the domain's own operations do.
-KNOWN_RPC_CALLER_CONSUMERS: frozenset[tuple[str, str, str]] = frozenset(
+# Exact legacy exceptions to the zero-semantic-RpcCaller entry rule.
+# ``LegacyNoteBackedService`` is explicitly retained by the P6.3 plan for
+# deferred saved-chat/artifact compatibility. ``ShareManager`` is fully
+# semantic and no longer owns the runtime-wide RpcCaller capability.
+AUTHORIZED_LEGACY_RPC_CALLERS: frozenset[tuple[str, str, str]] = frozenset(
     {
         ("_note_service.py", "LegacyNoteBackedService.__init__", "rpc"),
-        ("_notebook_metadata.py", "create_default_source_lister", "rpc"),
-        ("_notebooks.py", "NotebooksAPI.__init__", "rpc"),
-        ("_research.py", "ResearchAPI.__init__", "rpc"),
-        ("_sharing_manager.py", "ShareManager.__init__", "rpc"),
-        ("_source/add.py", "SourceAddService.add_drive", "rpc"),
-        ("_source/add.py", "SourceAddService.add_text", "rpc"),
-        ("_source/add.py", "SourceAddService.add_url_source", "rpc"),
-        ("_source/add.py", "SourceAddService.add_youtube_source", "rpc"),
-        ("_source/batch.py", "SourceBatchAddService.add_urls", "rpc"),
-        ("_source/content.py", "SourceContentRenderer.__init__", "rpc"),
-        ("_source/listing.py", "SourceLister.__init__", "rpc"),
-        ("_source/upload.py", "SourceUploadPipeline.__init__", "rpc"),
     }
+)
+
+# No semantic facade/service may consume the old runtime-wide capability at P7
+# entry. Keep this named empty baseline so a deliberate future exception cannot
+# be hidden inside the authorized legacy-private set.
+KNOWN_SEMANTIC_RPC_CALLER_BLOCKERS: frozenset[tuple[str, str, str]] = frozenset()
+
+# The physical non-web inventory remains exact and fail-closed.
+KNOWN_RPC_CALLER_CONSUMERS: frozenset[tuple[str, str, str]] = (
+    AUTHORIZED_LEGACY_RPC_CALLERS | KNOWN_SEMANTIC_RPC_CALLER_BLOCKERS
 )
 
 # The one explicit request-envelope construction seam. Tests consume this
@@ -198,6 +196,8 @@ class LegacyException:
 class P7EntryReport:
     ready: bool
     remaining_rpc_consumers: list[tuple[str, str, str]]
+    authorized_legacy_rpc_consumers: list[tuple[str, str, str]]
+    unsupported_semantic_operations: list[str]
     legacy_exceptions: list[LegacyException]
     error_injection_blocked: bool
     chain_composed_test_files: list[str]
@@ -212,6 +212,10 @@ def collect_rpc_caller_consumers(src_dir: Path = SRC_ROOT) -> set[tuple[str, str
     consumers: set[tuple[str, str, str]] = set()
     for path in sorted(src_dir.rglob("*.py")):
         rel_posix = path.relative_to(src_dir).as_posix()
+        # Web adapters are the authorized transport boundary. P7 tracks semantic
+        # services/facades that still consume RpcCaller, not provider bindings.
+        if rel_posix.startswith("_web/"):
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
         class ConsumerVisitor(ast.NodeVisitor):
@@ -243,6 +247,52 @@ def collect_rpc_caller_consumers(src_dir: Path = SRC_ROOT) -> set[tuple[str, str
     return consumers
 
 
+MIGRATED_SOURCE_MODULES = frozenset(
+    {
+        "_source/add.py",
+        "_source/batch.py",
+        "_source/content.py",
+        "_source/listing.py",
+        "_source/polling.py",
+        "_source/upload.py",
+        "_mutation_services.py",
+        "_notebook_metadata.py",
+        "_read_services.py",
+        "_source_service.py",
+        "_sources.py",
+    }
+)
+
+
+def collect_migrated_source_transport_leaks(
+    src_dir: Path = SRC_ROOT,
+) -> set[tuple[str, int, str]]:
+    """Find direct RPC execution/vocabulary reintroduced into migrated source layers."""
+
+    leaks: set[tuple[str, int, str]] = set()
+    forbidden_imports = {"RpcCaller", "RPCMethod", "SourceWireCaller"}
+    for relative in sorted(MIGRATED_SOURCE_MODULES):
+        path = src_dir / relative
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    if alias.name in forbidden_imports:
+                        leaks.add((relative, node.lineno, f"import {alias.name}"))
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "rpc_call"
+            ):
+                leaks.add((relative, node.lineno, "rpc_call execution"))
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "rpc_call"
+            ):
+                leaks.add((relative, node.lineno, "RpcCaller-compatible protocol"))
+    return leaks
+
+
 def collect_legacy_exceptions(
     operation_specs: Sequence[Any] | None = None,
 ) -> list[LegacyException]:
@@ -265,6 +315,49 @@ def collect_legacy_exceptions(
             op_name = op_key.value if op_key is not None else str(spec)
             exceptions.append(LegacyException(operation=op_name, approver=approver, issue=issue))
     return exceptions
+
+
+def collect_unapproved_legacy_private_operations(
+    operation_specs: Sequence[Any] | None = None,
+) -> list[str]:
+    """Return legacy-private rows missing reviewed exception metadata."""
+    if operation_specs is None:
+        try:
+            from scripts._operation_catalog_specs import OPERATION_SPECS
+
+            operation_specs = OPERATION_SPECS
+        except ImportError:
+            operation_specs = []
+
+    missing: list[str] = []
+    for spec in operation_specs:
+        disposition = getattr(spec, "disposition", None)
+        disposition_value = getattr(disposition, "value", disposition)
+        if disposition_value != "legacy_private":
+            continue
+        if getattr(spec, "legacy_exception", None) is not None:
+            continue
+        operation = getattr(spec, "operation", None)
+        missing.append(getattr(operation, "value", str(operation)))
+    return sorted(missing)
+
+
+def collect_unsupported_semantic_operations(
+    operation_specs: Sequence[Any] | None = None,
+) -> list[str]:
+    """Return semantic catalog rows that still lack an active web binding."""
+    if operation_specs is None:
+        from scripts._operation_catalog_specs import OPERATION_SPECS
+
+        operation_specs = OPERATION_SPECS
+
+    unsupported: list[str] = []
+    for spec in operation_specs:
+        operation = getattr(spec, "operation", None)
+        disposition = getattr(getattr(spec, "disposition", None), "value", None)
+        if disposition == "semantic" and operation not in WEB_SUPPORTED_OPERATIONS:
+            unsupported.append(operation.value)
+    return sorted(unsupported)
 
 
 def check_error_injection_middleware_dependency(
@@ -525,8 +618,12 @@ def evaluate_p7_entry_readiness(
     operation_specs: Sequence[Any] | None = None,
 ) -> P7EntryReport:
     """Evaluate all P7 entry criteria and return a structured audit report."""
-    rpc_consumers = sorted(collect_rpc_caller_consumers(src_dir))
+    physical_rpc_consumers = collect_rpc_caller_consumers(src_dir)
+    authorized_legacy_rpc_consumers = sorted(physical_rpc_consumers & AUTHORIZED_LEGACY_RPC_CALLERS)
+    semantic_rpc_consumers = sorted(physical_rpc_consumers - AUTHORIZED_LEGACY_RPC_CALLERS)
+    unsupported_semantic_operations = collect_unsupported_semantic_operations(operation_specs)
     legacy_exceptions = collect_legacy_exceptions(operation_specs)
+    unapproved_legacy_private = collect_unapproved_legacy_private_operations(operation_specs)
     ei_blocked = check_error_injection_middleware_dependency(
         src_dir / "_middleware" / "error_injection.py"
     )
@@ -541,9 +638,17 @@ def evaluate_p7_entry_readiness(
             + ", ".join(sorted(operation.value for operation in active_operation_drift))
         )
 
-    if rpc_consumers:
+    if semantic_rpc_consumers:
         blockers.append(
-            f"{len(rpc_consumers)} semantic-service call sites still consume RpcCaller directly"
+            f"{len(semantic_rpc_consumers)} semantic-service call sites still consume "
+            "RpcCaller directly"
+        )
+
+    if unsupported_semantic_operations:
+        blockers.append(
+            f"{len(unsupported_semantic_operations)} catalog operations still have semantic "
+            "disposition without an active web binding: "
+            + ", ".join(unsupported_semantic_operations)
         )
 
     if len(legacy_exceptions) > MAX_ALLOWED_LEGACY_EXCEPTIONS:
@@ -557,6 +662,12 @@ def evaluate_p7_entry_readiness(
             blockers.append(
                 f"legacy_exception for operation {exc.operation!r} must specify both an approver and an open removal issue"
             )
+
+    if unapproved_legacy_private:
+        blockers.append(
+            "legacy-private operations missing an approver and evidenced open removal issue: "
+            + ", ".join(unapproved_legacy_private)
+        )
 
     if ei_blocked:
         blockers.append(
@@ -580,7 +691,9 @@ def evaluate_p7_entry_readiness(
 
     return P7EntryReport(
         ready=len(blockers) == 0,
-        remaining_rpc_consumers=rpc_consumers,
+        remaining_rpc_consumers=semantic_rpc_consumers,
+        authorized_legacy_rpc_consumers=authorized_legacy_rpc_consumers,
+        unsupported_semantic_operations=unsupported_semantic_operations,
         legacy_exceptions=legacy_exceptions,
         error_injection_blocked=ei_blocked,
         chain_composed_test_files=sorted(mutable_uses.composed),
@@ -596,20 +709,16 @@ def evaluate_p7_entry_readiness(
 # --- Test Suite -------------------------------------------------------------
 
 
-def test_p7_entry_criteria_blockers_enumeration() -> None:
-    """P7 entry is currently blocked; report must accurately enumerate all blockers."""
+def test_p7_entry_is_ready_after_all_semantic_operations_migrate() -> None:
+    """All P7 entry criteria pass with only the authorized note compatibility caller."""
     report = evaluate_p7_entry_readiness()
 
-    assert not report.ready, "P7 cannot be ready before P1-P6 migrations complete"
-    assert len(report.blockers) >= 1, f"Expected remaining blocker classes, got: {report.blockers}"
-
-    # Check each blocker category is explicitly reported
-    blocker_text = "\n".join(report.blockers)
-    assert "semantic-service call sites still consume RpcCaller" in blocker_text
-    assert "ErrorInjectionMiddleware still imports from _middleware.core" not in blocker_text
-    assert "ClientComposed" not in blocker_text
-    assert "MiddlewareChainHost" not in blocker_text
-    assert "RpcRequest.context" not in blocker_text
+    assert report.ready
+    assert report.remaining_rpc_consumers == []
+    assert report.authorized_legacy_rpc_consumers == sorted(AUTHORIZED_LEGACY_RPC_CALLERS)
+    assert report.unsupported_semantic_operations == []
+    assert report.legacy_exceptions == []
+    assert report.blockers == []
 
 
 def test_rpccaller_consumer_inventory_is_exact_and_fails_closed() -> None:
@@ -622,22 +731,38 @@ def test_rpccaller_consumer_inventory_is_exact_and_fails_closed() -> None:
         "New, unclassified RpcCaller consumers found in src/notebooklm/:\n  "
         + "\n  ".join(f"{p}:{fn}({arg})" for p, fn, arg in sorted(unclassified_new))
     )
-    # When P2-P6 migrate consumers, update KNOWN_RPC_CALLER_CONSUMERS deliberately
     assert not removed, (
-        "Migrated RpcCaller consumers must be removed from KNOWN_RPC_CALLER_CONSUMERS:\n  "
+        "Reviewed RpcCaller consumers disappeared; update the exact authorized inventory:\n  "
         + "\n  ".join(f"{p}:{fn}({arg})" for p, fn, arg in sorted(removed))
+    )
+
+
+def test_authorized_legacy_rpc_callers_are_exact_and_semantic_baseline_is_zero() -> None:
+    """Only the plan-backed note compatibility implementation is exempt."""
+    assert {
+        ("_note_service.py", "LegacyNoteBackedService.__init__", "rpc"),
+    } == AUTHORIZED_LEGACY_RPC_CALLERS
+    assert not KNOWN_SEMANTIC_RPC_CALLER_BLOCKERS
+
+
+def test_migrated_source_layers_cannot_reintroduce_transport_execution() -> None:
+    leaks = collect_migrated_source_transport_leaks()
+    assert not leaks, (
+        "Migrated source layers crossed the web transport boundary:\n  "
+        + "\n  ".join(f"{path}:{line}: {reason}" for path, line, reason in sorted(leaks))
     )
 
 
 def test_active_semantic_operation_inventory_is_exact_for_p7() -> None:
     """P7's runtime-collapse input is the exact P4-supported operation set."""
-    assert len(KNOWN_ACTIVE_SEMANTIC_OPERATIONS) == 77
+    assert len(KNOWN_ACTIVE_SEMANTIC_OPERATIONS) == 82
     assert WEB_SUPPORTED_OPERATIONS == KNOWN_ACTIVE_SEMANTIC_OPERATIONS
 
 
 def test_legacy_exception_policy_and_ceiling() -> None:
     """Legacy exception rows must be <= 5 and carry valid approver + issue."""
     exceptions = collect_legacy_exceptions()
+    assert collect_unapproved_legacy_private_operations() == []
     assert len(exceptions) <= MAX_ALLOWED_LEGACY_EXCEPTIONS, (
         f"Too many legacy exceptions: {len(exceptions)} > {MAX_ALLOWED_LEGACY_EXCEPTIONS}"
     )
@@ -691,6 +816,26 @@ def test_required_composed_characterization_remains_until_p7() -> None:
 
 
 # --- Detector Self-Tests (Fail-Closed Mutation Tests) ------------------------
+
+
+def test_evaluator_blocks_a_new_unapproved_semantic_rpc_consumer(tmp_path: Path) -> None:
+    """Authorization is exact: every newly introduced non-web consumer blocks P7."""
+    consumer = tmp_path / "semantic_service.py"
+    consumer.write_text(
+        "from notebooklm._runtime.contracts import RpcCaller\n"
+        "class SemanticService:\n"
+        "    def __init__(self, rpc: RpcCaller) -> None:\n"
+        "        self.rpc = rpc\n",
+        encoding="utf-8",
+    )
+
+    report = evaluate_p7_entry_readiness(src_dir=tmp_path)
+
+    assert report.ready is False
+    assert report.remaining_rpc_consumers == [
+        ("semantic_service.py", "SemanticService.__init__", "rpc")
+    ]
+    assert any("semantic-service call sites still consume RpcCaller" in b for b in report.blockers)
 
 
 def test_detector_fails_closed_when_legacy_exceptions_exceed_ceiling() -> None:

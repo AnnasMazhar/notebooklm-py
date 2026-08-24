@@ -4,9 +4,10 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
 
+from ._backend import BackendAdapter, BackendError
+from ._backend_compat import project_backend_error
 from ._env import get_base_url
-from ._runtime.contracts import RpcCaller
-from .rpc import RPCMethod
+from ._records import LEGACY_SHARE_ARTIFACT_DEF, LegacyShareArtifactInput
 
 
 def build_share_url(base_url: str, notebook_id: str, artifact_id: str | None = None) -> str:
@@ -27,33 +28,41 @@ class ShareManager:
 
     def __init__(
         self,
-        rpc: RpcCaller,
+        backend: BackendAdapter | None,
         base_url_provider: Callable[[], str] = get_base_url,
     ) -> None:
-        self._rpc = rpc
+        self._backend = backend
         self._base_url_provider = base_url_provider
 
     async def share(
         self, notebook_id: str, public: bool = True, artifact_id: str | None = None
     ) -> dict[str, Any]:
         """Set/update legacy public share-link state through ``SHARE_ARTIFACT``."""
-        share_options = [1] if public else [0]
-        params: list[Any] = [share_options, notebook_id]
-        if artifact_id:
-            params.append(artifact_id)
+        if self._backend is None:
+            raise RuntimeError("ShareManager semantic backend was not configured")
 
-        await self._rpc.rpc_call(
-            RPCMethod.SHARE_ARTIFACT,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-        )
+        public_error: Exception | None = None
+        try:
+            result = await self._backend.invoke(
+                LEGACY_SHARE_ARTIFACT_DEF,
+                LegacyShareArtifactInput(notebook_id, public, artifact_id),
+                deadline=None,
+            )
+        except BackendError as error:
+            public_error = project_backend_error(error)
+        else:
+            return {
+                "public": result.public,
+                "url": (
+                    self.get_share_url(notebook_id, result.artifact_id) if result.public else None
+                ),
+                "artifact_id": result.artifact_id,
+            }
 
-        return {
-            "public": public,
-            "url": self.get_share_url(notebook_id, artifact_id) if public else None,
-            "artifact_id": artifact_id,
-        }
+        # Raise outside the private BackendError frame so the compatibility
+        # projector's reviewed public cause/context graph remains observable.
+        assert public_error is not None
+        raise public_error
 
     def get_share_url(self, notebook_id: str, artifact_id: str | None = None) -> str:
         """Return the legacy share URL without toggling server-side sharing."""

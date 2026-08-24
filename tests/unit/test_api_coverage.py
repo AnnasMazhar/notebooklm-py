@@ -140,7 +140,11 @@ class TestGetSourceGuide:
         """
         rpc_call = AsyncMock(return_value=return_value)
         core = make_fake_core(rpc_call=rpc_call)
-        sources = SourcesAPI(core.rpc_executor, uploader=MagicMock())
+        sources = SourcesAPI(
+            core.rpc_executor,
+            uploader=MagicMock(),
+            _backend=build_web_backend(core.rpc_executor),
+        )
         return sources, rpc_call
 
     @pytest.mark.asyncio
@@ -301,7 +305,11 @@ class TestPayloadFixes:
         """
         rpc_call = AsyncMock(return_value=True)
         core = make_fake_core(rpc_call=rpc_call)
-        sources = SourcesAPI(core.rpc_executor, uploader=MagicMock())
+        sources = SourcesAPI(
+            core.rpc_executor,
+            uploader=MagicMock(),
+            _backend=build_web_backend(core.rpc_executor),
+        )
         return sources, rpc_call
 
     @pytest.mark.asyncio

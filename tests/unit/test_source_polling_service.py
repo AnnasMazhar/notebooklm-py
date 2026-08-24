@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from notebooklm._records import (
+    SourceRecord,
+    SourceWaitSnapshotResult,
+)
 from notebooklm._source.polling import SourcePoller
 from notebooklm._sources import SourcesAPI
 from notebooklm.types import (
@@ -637,136 +640,59 @@ async def test_wait_all_until_ready_propagates_unexpected_list_error(
 
 
 @pytest.mark.asyncio
-async def test_sources_api_wait_all_until_ready_delegates_with_list_seam() -> None:
-    """The thin ``SourcesAPI`` delegate wires the poller with ``self.list`` (the
-    single-snapshot source) and the module sleep/clock seams."""
+async def test_sources_api_wait_all_until_ready_uses_semantic_snapshots() -> None:
     api = SourcesAPI(MagicMock(), uploader=MagicMock())
-    ready = [Source(id="s0", status=SourceStatus.READY)]
-
-    with patch.object(SourcePoller, "wait_all_until_ready", new_callable=AsyncMock) as delegate:
-        delegate.return_value = ready
-        result = await api.wait_all_until_ready("nb_1", ["s0"])
-
-    assert result is ready
-    args = delegate.await_args
-    assert args.args == ("nb_1", ["s0"])
-    kwargs = args.kwargs
-    assert kwargs["timeout"] == 120.0
-    assert kwargs["initial_interval"] == 1.0
-    # Wired with the notebook-list seam (NOT get_or_none) — one list per tick.
-    assert kwargs["list_sources"].__self__ is api
-    assert kwargs["list_sources"].__func__ is SourcesAPI.list
-
-
-@pytest.mark.asyncio
-async def test_wait_for_sources_catches_base_exception_and_drains_siblings(
-    poller: SourcePoller,
-    logger: logging.Logger,
-) -> None:
-    class PollStopped(BaseException):
-        pass
-
-    slow_entered = asyncio.Event()
-    slow_cancelled = asyncio.Event()
-
-    async def wait_until_ready(notebook_id: str, source_id: str, **kwargs: object) -> Source:
-        if source_id == "bad":
-            await slow_entered.wait()
-            raise PollStopped()
-        if source_id == "slow":
-            slow_entered.set()
-            try:
-                await asyncio.sleep(60.0)
-            except asyncio.CancelledError:
-                slow_cancelled.set()
-                raise
-        return Source(id=source_id)
-
-    with pytest.raises(PollStopped):
-        await asyncio.wait_for(
-            poller.wait_for_sources(
-                "nb_1",
-                ["bad", "slow"],
-                wait_until_ready=wait_until_ready,
-                logger=logger,
-            ),
-            timeout=1.0,
-        )
-
-    assert slow_entered.is_set()
-    assert slow_cancelled.is_set()
-
-
-@pytest.mark.asyncio
-async def test_sources_api_wait_until_ready_delegates_with_call_time_dependencies() -> None:
-    api = SourcesAPI(MagicMock(), uploader=MagicMock())
-    ready = Source(id="src_1", status=SourceStatus.READY)
-
-    with patch.object(api._poller, "wait_until_ready", new_callable=AsyncMock) as delegate:
-        delegate.return_value = ready
-        result = await api.wait_until_ready("nb_1", "src_1")
-
-    assert result is ready
-    kwargs = delegate.await_args.kwargs
-    assert kwargs["timeout"] == 120.0
-    assert kwargs["initial_interval"] == 1.0
-    assert kwargs["max_interval"] == 10.0
-    assert kwargs["backoff_factor"] == 1.5
-    assert kwargs["get_source"].__self__ is api
-    # The poller is wired with get_or_none (not public get), so the readiness
-    # poll never trips the get()-returns-None deprecation.
-    assert kwargs["get_source"].__func__ is SourcesAPI.get_or_none
-
-
-@pytest.mark.asyncio
-async def test_sources_api_wait_until_ready_resolves_sources_sleep_and_monotonic(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import notebooklm._sources as _sources
-
-    api = SourcesAPI(MagicMock(), uploader=MagicMock())
-    processing = Source(id="src_1", status=SourceStatus.PROCESSING)
-    ready = Source(id="src_1", status=SourceStatus.READY)
-
-    sleep = AsyncMock()
-    monotonic = MagicMock(return_value=0.0)
-    monkeypatch.setattr(api, "get_or_none", AsyncMock(side_effect=[processing, ready]))
-    # Object-form patches against the locally-imported `_sources` seam alias:
-    # the production code resolves `asyncio.sleep`/`monotonic` from this module
-    # namespace (see `_sources.SourcesAPI.wait_until_ready`), so substituting them here
-    # exercises that resolution without an import-string patch.
-    # `_sources.monotonic` is a module-local alias (`from time import monotonic`),
-    # so patching it is already isolated. For `asyncio.sleep` we swap the whole
-    # `_sources.asyncio` binding for a mock wrapping the real module with only
-    # `sleep` overridden, so we never mutate the shared stdlib `asyncio` object.
-    fake_asyncio = MagicMock(wraps=_sources.asyncio)
-    fake_asyncio.sleep = sleep
-    monkeypatch.setattr(_sources, "asyncio", fake_asyncio)
-    monkeypatch.setattr(_sources, "monotonic", monotonic)
-
-    result = await api.wait_until_ready("nb_1", "src_1", initial_interval=0.75)
-
-    assert result is ready
-    sleep.assert_awaited_once_with(0.75)
-    assert monotonic.call_count >= 4
-
-
-@pytest.mark.asyncio
-async def test_sources_api_wait_for_sources_uses_late_bound_wait_until_ready() -> None:
-    api = SourcesAPI(MagicMock(), uploader=MagicMock())
-    api.wait_until_ready = AsyncMock(
-        side_effect=[
-            Source(id="src_1", status=SourceStatus.READY),
-            Source(id="src_2", status=SourceStatus.READY),
-        ]
+    service = MagicMock()
+    service.wait_snapshot = AsyncMock(
+        return_value=SourceWaitSnapshotResult((SourceRecord("s0", status="ready"),))
     )
+    api._source_service = service
 
-    results = await api.wait_for_sources("nb_1", ["src_1", "src_2"], timeout=42.0)
+    result = await api.wait_all_until_ready("nb_1", ["s0"])
+
+    assert [source.id for source in result] == ["s0"]
+    service.wait_snapshot.assert_awaited_once_with("nb_1")
+
+
+@pytest.mark.asyncio
+async def test_sources_api_wait_until_ready_uses_semantic_snapshots() -> None:
+    api = SourcesAPI(MagicMock(), uploader=MagicMock())
+    service = MagicMock()
+    service.wait_snapshot = AsyncMock(
+        return_value=SourceWaitSnapshotResult((SourceRecord("src_1", status="ready"),))
+    )
+    api._source_service = service
+
+    result = await api.wait_until_ready("nb_1", "src_1")
+
+    assert result.id == "src_1"
+    service.wait_snapshot.assert_awaited_once_with("nb_1")
+
+
+@pytest.mark.asyncio
+async def test_sources_api_wait_until_ready_forwards_poll_parameters() -> None:
+    api = SourcesAPI(MagicMock(), uploader=MagicMock())
+    wait = AsyncMock(return_value=Source(id="src_1", status=SourceStatus.READY))
+    with patch.object(SourcePoller, "wait_until_ready", wait):
+        result = await api.wait_until_ready("nb_1", "src_1", initial_interval=0.75)
+
+    assert result.id == "src_1"
+    assert wait.await_args.kwargs["initial_interval"] == 0.75
+    assert wait.await_args.kwargs["get_source"] == api._wait_snapshot_source
+
+
+@pytest.mark.asyncio
+async def test_sources_api_wait_for_sources_uses_one_shared_semantic_wait() -> None:
+    api = SourcesAPI(MagicMock(), uploader=MagicMock())
+    wait = AsyncMock(return_value=[Source(id="src_1"), Source(id="src_2")])
+    with patch.object(SourcePoller, "wait_all_until_ready", wait):
+        results = await api.wait_for_sources("nb_1", ["src_1", "src_2"], timeout=42.0)
 
     assert [source.id for source in results] == ["src_1", "src_2"]
-    assert api.wait_until_ready.await_count == 2
-    for call in api.wait_until_ready.await_args_list:
-        assert call.kwargs["timeout"] == 42.0
+    assert wait.await_args.args == ("nb_1", ["src_1", "src_2"])
+    assert wait.await_args.kwargs["timeout"] == 42.0
+    assert wait.await_args.kwargs["fail_fast"] is True
+    assert wait.await_args.kwargs["list_sources"] == api._wait_snapshot_sources
 
 
 @pytest.mark.asyncio

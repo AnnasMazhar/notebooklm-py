@@ -1318,7 +1318,10 @@ class TestGetSourceIds:
 
         rpc = AsyncMock()
         core = make_fake_core(rpc_call=rpc)
-        api = NotebooksAPI(core.rpc_executor)
+        api = NotebooksAPI(
+            core.rpc_executor,
+            _backend=build_web_backend(core.rpc_executor),
+        )
 
         # Mock notebook data with multiple sources
         # Structure: notebook_data[0][1] = sources list
@@ -1347,7 +1350,10 @@ class TestGetSourceIds:
 
         rpc = AsyncMock()
         core = make_fake_core(rpc_call=rpc)
-        api = NotebooksAPI(core.rpc_executor)
+        api = NotebooksAPI(
+            core.rpc_executor,
+            _backend=build_web_backend(core.rpc_executor),
+        )
 
         rpc.return_value = [["nb_123", []]]
 
@@ -1363,7 +1369,10 @@ class TestGetSourceIds:
 
         rpc = AsyncMock()
         core = make_fake_core(rpc_call=rpc)
-        api = NotebooksAPI(core.rpc_executor)
+        api = NotebooksAPI(
+            core.rpc_executor,
+            _backend=build_web_backend(core.rpc_executor),
+        )
 
         rpc.return_value = None
 
@@ -1379,7 +1388,10 @@ class TestGetSourceIds:
 
         rpc = AsyncMock()
         core = make_fake_core(rpc_call=rpc)
-        api = NotebooksAPI(core.rpc_executor)
+        api = NotebooksAPI(
+            core.rpc_executor,
+            _backend=build_web_backend(core.rpc_executor),
+        )
 
         # Malformed data - missing nested structure
         # Structure: source[0] must be a list, source[0][0] must be a string

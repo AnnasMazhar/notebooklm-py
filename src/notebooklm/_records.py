@@ -107,10 +107,13 @@ from ._settings_records import (
     UserSettingsRecord,
 )
 from ._sharing_records import (
+    LEGACY_SHARE_ARTIFACT_DEF,
     SHARING_GET_DEF,
     SHARING_SET_PUBLIC_DEF,
     SHARING_SET_VIEW_LEVEL_DEF,
     SHARING_UPDATE_USERS_DEF,
+    LegacyShareArtifactInput,
+    LegacyShareArtifactResult,
     ShareAccessLevel,
     SharedUserRecord,
     SharePermissionLevel,
@@ -145,6 +148,7 @@ from ._source_records import (
     SourceDeleteInput,
     SourceDeleteResult,
     SourceFileInputKind,
+    SourceFileRegistrationRecord,
     SourceFreshnessInput,
     SourceFreshnessResult,
     SourceFulltextInput,
@@ -164,6 +168,8 @@ from ._source_records import (
     SourceUpdateInput,
     SourceUpdateResult,
     SourceUrlBatchItemRecord,
+    SourceWaitSnapshotInput,
+    SourceWaitSnapshotResult,
 )
 
 
@@ -242,6 +248,7 @@ class NotebookGetInput:
     """Identity requested by the notebook get operation."""
 
     notebook_id: str
+    include_notebook: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,6 +256,33 @@ class NotebookGetResult:
     """Notebook get result; ``None`` is the semantic not-found state."""
 
     notebook: NotebookRecord | None
+    source_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookGuideInput:
+    """Notebook identity whose generated guide is requested."""
+
+    notebook_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookGuideResult:
+    """Generated notebook guide before public projection."""
+
+    description: NotebookDescriptionRecord
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookRemoveRecentInput:
+    """Notebook identity to remove from the account's recent list."""
+
+    notebook_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookRemoveRecentResult:
+    """Successful idempotent removal from the recent list."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1043,6 +1077,26 @@ NOTEBOOK_DELETE_DEF: OperationDef[NotebookDeleteInput, NotebookDeleteResult] = O
     NotebookDeleteInput,
     NotebookDeleteResult,
 )
+NOTEBOOK_REMOVE_RECENT_DEF: OperationDef[NotebookRemoveRecentInput, NotebookRemoveRecentResult] = (
+    OperationDef(
+        Operation.NOTEBOOK_REMOVE_RECENT,
+        CallPolicy.MUTATION,
+        NotebookRemoveRecentInput,
+        NotebookRemoveRecentResult,
+    )
+)
+NOTEBOOK_SUMMARIZE_DEF: OperationDef[NotebookGuideInput, NotebookGuideResult] = OperationDef(
+    Operation.NOTEBOOK_SUMMARIZE,
+    CallPolicy.STATEFUL_START,
+    NotebookGuideInput,
+    NotebookGuideResult,
+)
+NOTEBOOK_DESCRIBE_DEF: OperationDef[NotebookGuideInput, NotebookGuideResult] = OperationDef(
+    Operation.NOTEBOOK_DESCRIBE,
+    CallPolicy.STATEFUL_START,
+    NotebookGuideInput,
+    NotebookGuideResult,
+)
 SOURCE_LIST_DEF: OperationDef[SourceListInput, SourceListResult] = OperationDef(
     Operation.SOURCE_LIST,
     # Both source reads use GET_NOTEBOOK and therefore update notebook recency.
@@ -1266,6 +1320,12 @@ SOURCE_GET_FULLTEXT_DEF: OperationDef[SourceFulltextInput, SourceFulltextResult]
     SourceFulltextInput,
     SourceFulltextResult,
 )
+SOURCE_WAIT_DEF: OperationDef[SourceWaitSnapshotInput, SourceWaitSnapshotResult] = OperationDef(
+    Operation.SOURCE_WAIT,
+    CallPolicy.MUTATION,
+    SourceWaitSnapshotInput,
+    SourceWaitSnapshotResult,
+)
 NOTE_LIST_DEF: OperationDef[NoteListInput, NoteListResult] = OperationDef(
     Operation.NOTE_LIST,
     CallPolicy.READ,
@@ -1370,6 +1430,7 @@ __all__ = [
     "LABEL_GET_DEF",
     "LABEL_LIST_DEF",
     "LABEL_UPDATE_DEF",
+    "LEGACY_SHARE_ARTIFACT_DEF",
     "ARTIFACT_RENAME_DEF",
     "ARTIFACT_RETRY_DEF",
     "ARTIFACT_REVISE_SLIDE_DEF",
@@ -1379,7 +1440,10 @@ __all__ = [
     "NOTEBOOK_LIST_DEF",
     "NOTEBOOK_CREATE_DEF",
     "NOTEBOOK_DELETE_DEF",
+    "NOTEBOOK_DESCRIBE_DEF",
+    "NOTEBOOK_REMOVE_RECENT_DEF",
     "NOTEBOOK_SUGGEST_PROMPTS_DEF",
+    "NOTEBOOK_SUMMARIZE_DEF",
     "NOTEBOOK_UPDATE_DEF",
     "RESEARCH_CANCEL_DEF",
     "RESEARCH_IMPORT_DEF",
@@ -1405,6 +1469,7 @@ __all__ = [
     "SOURCE_CHECK_FRESHNESS_DEF",
     "SOURCE_GET_GUIDE_DEF",
     "SOURCE_GET_FULLTEXT_DEF",
+    "SOURCE_WAIT_DEF",
     "NOTE_CREATE_DEF",
     "NOTE_DELETE_DEF",
     "NOTE_GET_DEF",
@@ -1507,11 +1572,15 @@ __all__ = [
     "NotebookDeleteResult",
     "NotebookGetInput",
     "NotebookGetResult",
+    "NotebookGuideInput",
+    "NotebookGuideResult",
     "NotebookListInput",
     "NotebookListResult",
     "NotebookPremiumFeaturesRecord",
     "NotebookRecord",
     "NotebookDescriptionRecord",
+    "NotebookRemoveRecentInput",
+    "NotebookRemoveRecentResult",
     "NotebookSuggestPromptsInput",
     "NotebookSuggestPromptsResult",
     "NotebookUpdateInput",
@@ -1581,6 +1650,7 @@ __all__ = [
     "SourceAddFileInput",
     "SourceAddFileResult",
     "SourceFileInputKind",
+    "SourceFileRegistrationRecord",
     "SourceProgressCallback",
     "SourceDeleteInput",
     "SourceDeleteResult",
@@ -1596,10 +1666,14 @@ __all__ = [
     "SourceFulltextInput",
     "SourceFulltextRecord",
     "SourceFulltextResult",
+    "SourceWaitSnapshotInput",
+    "SourceWaitSnapshotResult",
     "SourceListInput",
     "SourceListResult",
     "SourceRecord",
     "SlideDeckGenerateInput",
+    "LegacyShareArtifactInput",
+    "LegacyShareArtifactResult",
     "ReportSuggestionRecord",
     "ShareAccessLevel",
     "SharePermissionLevel",

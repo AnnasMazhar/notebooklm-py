@@ -51,11 +51,16 @@ class AppAuthoritySourceContract:
 # derived directly; every shared operation/binding must appear here.
 SHARED_RPC_AUTHORITY_RULES: dict[tuple[Operation, NativeKey], tuple[AuthorityRule, ...]] = {
     (Operation.SOURCE_ADD_URL, _b(RPCMethod.ADD_SOURCE, "url")): _rules(
-        ("_source/add.py:SourceAddService.add_url_source", "web URL payload"),
-        ("_source/add.py:SourceAddService.add_youtube_source", "YouTube URL payload"),
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._create_url_source",
+            "web or YouTube URL payload selected by semantic flag",
+        ),
     ),
     (Operation.SOURCE_ADD_URL_BATCH, _b(RPCMethod.ADD_SOURCE, "url")): _rules(
-        ("_source/batch.py:SourceBatchAddService.add_urls", "one non-replayed batch payload"),
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._source_add_url_batch.create_sources",
+            "one non-replayed batch payload",
+        ),
     ),
     (Operation.NOTEBOOK_LIST, _b(RPCMethod.LIST_NOTEBOOKS)): _rules(
         ("_web/backend.py:WebRpcBackend._notebook_list", "public=notebooks.list")
@@ -70,18 +75,18 @@ SHARED_RPC_AUTHORITY_RULES: dict[tuple[Operation, NativeKey], tuple[AuthorityRul
         ("_web/backend.py:WebRpcBackend._notebook_list", "collection membership expansion")
     ),
     (Operation.NOTEBOOK_GET, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_web/backend.py:WebRpcBackend._notebook_get", "typed notebook lookup"),
-        ("_notebooks.py:NotebooksAPI.get_raw", "raw/source-id notebook lookup"),
-    ),
-    (Operation.NOTEBOOK_CREATE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_web/backend.py:WebRpcBackend._notebook_get", "null-timestamp backfill only")
+        ("_web/backend.py:WebRpcBackend._notebook_get", "typed notebook/source-id lookup"),
+        ("_notebooks.py:NotebooksAPI.get_raw", "narrow raw compatibility lookup"),
     ),
     (Operation.NOTEBOOK_UPDATE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
         ("_web/backend.py:WebRpcBackend._notebook_update", "unconditional post-mutation read")
     ),
     (Operation.NOTEBOOK_METADATA, _b(RPCMethod.GET_NOTEBOOK)): _rules(
         ("_web/backend.py:WebRpcBackend._notebook_get", "metadata notebook branch"),
-        ("_source/listing.py:SourceLister.list", "metadata source branch"),
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
+            "metadata source branch",
+        ),
     ),
     (Operation.NOTEBOOK_SUGGEST_PROMPTS, _b(RPCMethod.GET_NOTEBOOK)): _rules(
         (
@@ -90,43 +95,70 @@ SHARED_RPC_AUTHORITY_RULES: dict[tuple[Operation, NativeKey], tuple[AuthorityRul
         )
     ),
     (Operation.SOURCE_LIST, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_web/backend.py:WebRpcBackend._source_list", "public=sources.list")
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
+            "public=sources.list",
+        )
     ),
     (Operation.SOURCE_GET, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_web/backend.py:WebRpcBackend._source_get", "select exact source id")
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
+            "select exact source id",
+        )
     ),
     (Operation.SOURCE_ADD_URL, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_source/listing.py:SourceLister.list", "unconditional baseline plus ambiguity probes")
-    ),
-    (Operation.SOURCE_ADD_TEXT, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_source/listing.py:SourceLister.list", "wait=True readiness poll ticks only")
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
+            "unconditional baseline plus ambiguity probes",
+        )
     ),
     (Operation.SOURCE_ADD_URL_BATCH, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_source/listing.py:SourceLister.list", "one snapshot only for omitted-row reconciliation")
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
+            "one snapshot only for omitted-row reconciliation",
+        )
     ),
     (Operation.SOURCE_ADD_DRIVE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_source/listing.py:SourceLister.list", "unconditional baseline plus ambiguity probes")
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
+            "unconditional baseline plus ambiguity probes",
+        )
     ),
     (Operation.SOURCE_ADD_FILE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_source/listing.py:SourceLister.list", "unconditional baseline plus registration probes")
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
+            "unconditional baseline plus registration probes",
+        )
     ),
     (Operation.SOURCE_UPDATE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_web/backend.py:WebRpcBackend._source_get", "null UPDATE_SOURCE echo only")
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
+            "null UPDATE_SOURCE echo only",
+        )
     ),
     (Operation.SOURCE_WAIT, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_source/listing.py:SourceLister.list", "one shared source snapshot per poll tick")
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
+            "one readiness snapshot per tick; multi-source modes share it across inputs",
+        )
     ),
     (Operation.CHAT_ASK, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_notebooks.py:NotebooksAPI.get_raw", "source_ids is None")
+        ("_web/backend.py:WebRpcBackend._notebook_get", "source_ids is None")
     ),
     (Operation.CHAT_CONFIGURE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
         ("_web/chat.py:ChatWebHandlers._chat_configure", "action=GET only")
     ),
     (Operation.RESEARCH_IMPORT_VERIFY, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_source/listing.py:SourceLister.list", "pre-import baseline and verification probes")
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
+            "pre-import baseline and verification probes",
+        )
     ),
     (Operation.LABEL_SOURCES, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_web/backend.py:WebRpcBackend._source_list", "resolve label source ids")
+        (
+            "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
+            "resolve label source ids",
+        )
     ),
 }
 
@@ -345,9 +377,9 @@ _GET_TYPED = "_web/backend.py:WebRpcBackend._notebook_get"
 _UPDATE_TYPED = "_web/backend.py:WebRpcBackend._notebook_update"
 _GET_RAW = "_notebooks.py:NotebooksAPI.get_raw"
 _GET_DATA_SOURCES = "_web/studio_data.py:StudioDataWebHandlers._data_source_ids"
-_GET_SOURCES = "_source/listing.py:SourceLister.list"
-_GET_SOURCE_LIST = "_web/backend.py:WebRpcBackend._source_list"
-_GET_SOURCE = "_web/backend.py:WebRpcBackend._source_get"
+_GET_SOURCES = "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records"
+_GET_SOURCE_LIST = _GET_SOURCES
+_GET_SOURCE = _GET_SOURCES
 _GET_PROMPT_SOURCES = (
     "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._notebook_suggest_prompts"
 )
@@ -356,22 +388,20 @@ _GET_PROMPT_SOURCES = (
 RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
     Operation.NOTEBOOK_GET: (
         RecencyRule(
-            _p("notebooks", "get", "get_or_none", "get_raw", "get_source_ids"),
+            _p("notebooks", "get", "get_or_none", "get_source_ids"),
             1,
             1,
             "public_call",
             "always",
-            (_GET_TYPED, _GET_RAW),
+            (_GET_TYPED,),
         ),
-    ),
-    Operation.NOTEBOOK_CREATE: (
         RecencyRule(
-            _p("notebooks", "create"),
-            0,
+            _p("notebooks", "get_raw"),
+            1,
             1,
             "public_call",
-            "only when the created row has a null timestamp requiring backfill",
-            (_GET_TYPED,),
+            "narrow raw compatibility call",
+            (_GET_RAW,),
         ),
     ),
     Operation.NOTEBOOK_UPDATE: (
@@ -421,10 +451,9 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
         RecencyRule(
             _p("sources", "add_text"),
             0,
-            None,
+            0,
             "public_call",
-            "zero when wait=False; one snapshot per readiness poll tick when wait=True",
-            (_GET_SOURCES,),
+            "the create operation never reads; wait=True composes source.wait",
         ),
     ),
     Operation.SOURCE_ADD_URL_BATCH: (
@@ -443,7 +472,8 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             1,
             None,
             "public_call",
-            "one baseline plus one read for each ambiguity probe",
+            "one baseline plus ambiguity probes and, when wait=True, one snapshot per "
+            "facade-owned readiness poll tick",
             (_GET_SOURCES,),
         ),
     ),
@@ -453,7 +483,8 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             1,
             None,
             "public_call",
-            "one baseline plus one read for each ambiguity probe",
+            "one baseline plus ambiguity probes and, when wait=True, one snapshot per "
+            "facade-owned readiness poll tick",
             (_GET_SOURCES,),
         ),
     ),
@@ -463,7 +494,9 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             1,
             None,
             "public_call",
-            "one baseline plus registration/reconciliation probes",
+            "one baseline plus registration/reconciliation probes; a custom title may add "
+            "registration ticks even when wait=False, and wait=True adds facade-owned "
+            "readiness ticks",
             (_GET_SOURCES,),
         ),
     ),
@@ -474,7 +507,7 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             1,
             "public_call",
             "one exact-id source read only when UPDATE_SOURCE returns a null echo",
-            ("_web/backend.py:WebRpcBackend._source_get",),
+            (_GET_SOURCE,),
         ),
     ),
     Operation.SOURCE_WAIT: (
@@ -482,14 +515,43 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             _p(
                 "sources",
                 "wait_until_ready",
-                "wait_all_until_ready",
                 "wait_until_registered",
-                "wait_for_sources",
             ),
             1,
             1,
-            "poll_tick",
+            "waiter_poll_tick",
+            "one snapshot per single-source waiter tick",
+            (_GET_SOURCES,),
+        ),
+        RecencyRule(
+            _p("sources", "wait_all_until_ready"),
+            1,
+            1,
+            "aggregate_poll_tick",
             "one shared snapshot per tick regardless of source count",
+            (_GET_SOURCES,),
+        ),
+        RecencyRule(
+            _p("sources", "wait_for_sources"),
+            1,
+            1,
+            "aggregate_poll_tick",
+            "one shared snapshot per tick regardless of source count",
+            (_GET_SOURCES,),
+        ),
+        RecencyRule(
+            _p(
+                "sources",
+                "add_url",
+                "add_text",
+                "add_file",
+                "add_drive",
+                "add_drive_file",
+            ),
+            1,
+            1,
+            "optional_add_poll_tick",
+            "one source.wait snapshot per tick only when wait=True",
             (_GET_SOURCES,),
         ),
     ),
@@ -500,7 +562,7 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             1,
             "public_call",
             "one only when source_ids is omitted",
-            (_GET_RAW,),
+            (_GET_TYPED,),
         ),
     ),
     Operation.CHAT_CONFIGURE: (
@@ -706,10 +768,10 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ),
         ),
         (Operation.NOTEBOOK_SUMMARIZE, _b(RPCMethod.SUMMARIZE)): _rules(
-            ("_notebooks.py:NotebooksAPI.get_summary", "summary projection")
+            ("_web/backend.py:WebRpcBackend._notebook_guide", "summary projection")
         ),
         (Operation.NOTEBOOK_DESCRIBE, _b(RPCMethod.SUMMARIZE)): _rules(
-            ("_notebooks.py:NotebooksAPI.get_description", "description/topics projection")
+            ("_web/backend.py:WebRpcBackend._notebook_guide", "description/topics projection")
         ),
         (Operation.LABEL_UPDATE, _b(RPCMethod.UPDATE_LABEL)): _rules(
             ("_web/labels.py:LabelSetWebHandlers._label_update", "label field-mask mutation")
@@ -734,18 +796,21 @@ SHARED_RPC_AUTHORITY_RULES.update(
         ),
         (Operation.SOURCE_ADD_URL, _b(RPCMethod.UPDATE_SOURCE)): _rules(
             (
-                "_web/source_variants.py:SourceVariantWebHandlers._source_add_url.rename_source",
+                "_web/source_variants.py:SourceVariantWebHandlers._rename_source_public",
                 "optional post-create title",
             )
         ),
         (Operation.SOURCE_ADD_DRIVE, _b(RPCMethod.UPDATE_SOURCE)): _rules(
             (
-                "_web/source_variants.py:SourceVariantWebHandlers._source_add_drive.rename_source",
+                "_web/source_variants.py:SourceVariantWebHandlers._rename_source_public",
                 "optional post-create title",
             )
         ),
         (Operation.SOURCE_ADD_FILE, _b(RPCMethod.UPDATE_SOURCE)): _rules(
-            ("_source/upload.py:SourceUploadPipeline.rename", "optional post-upload title")
+            (
+                "_web/source_variants.py:SourceVariantWebHandlers._rename_source_public",
+                "optional post-upload title",
+            )
         ),
         (Operation.SOURCE_UPDATE, _b(RPCMethod.UPDATE_SOURCE)): _rules(
             (

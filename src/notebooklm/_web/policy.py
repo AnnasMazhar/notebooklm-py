@@ -96,6 +96,24 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
             CallPolicy.MUTATION,
             (_native(RPCMethod.DELETE_NOTEBOOK, _IDEMPOTENT, "idempotent delete"),),
         ),
+        Operation.NOTEBOOK_REMOVE_RECENT: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(
+                    RPCMethod.REMOVE_RECENTLY_VIEWED,
+                    _IDEMPOTENT,
+                    "idempotent recent-list removal",
+                ),
+            ),
+        ),
+        Operation.NOTEBOOK_SUMMARIZE: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (_native(RPCMethod.SUMMARIZE, _IDEMPOTENT, "response-only guide generation"),),
+        ),
+        Operation.NOTEBOOK_DESCRIBE: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (_native(RPCMethod.SUMMARIZE, _IDEMPOTENT, "response-only guide generation"),),
+        ),
         Operation.SOURCE_LIST: WebCallPolicyBinding(
             CallPolicy.MUTATION,
             (_native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "read with recency side effect"),),
@@ -107,7 +125,11 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
         Operation.SOURCE_ADD_URL: WebCallPolicyBinding(
             CallPolicy.MUTATION,
             (
-                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "baseline/probe/wait read"),
+                _native(
+                    RPCMethod.GET_NOTEBOOK,
+                    _IDEMPOTENT,
+                    "baseline/probe or title null-echo readback",
+                ),
                 _native(
                     RPCMethod.ADD_SOURCE,
                     _PROBE_CREATE,
@@ -138,7 +160,6 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
                     "non-idempotent pasted-text allocation",
                     variant="text",
                 ),
-                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "conditional readiness poll"),
             ),
         ),
         Operation.SOURCE_ADD_DRIVE: WebCallPolicyBinding(
@@ -150,7 +171,7 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
                     "Drive-document allocation with baseline probe",
                     variant="drive",
                 ),
-                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "baseline/probe/wait read"),
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "baseline/probe read"),
                 _native(RPCMethod.UPDATE_SOURCE, _IDEMPOTENT, "optional title set-op"),
             ),
         ),
@@ -158,7 +179,11 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
             CallPolicy.MUTATION,
             (
                 _native(RPCMethod.ADD_SOURCE_FILE, _PROBE_CREATE, "file-source registration"),
-                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "baseline/probe/wait read"),
+                _native(
+                    RPCMethod.GET_NOTEBOOK,
+                    _IDEMPOTENT,
+                    "baseline/probe or title registration tick",
+                ),
                 _native(RPCMethod.GET_USER_SETTINGS, _IDEMPOTENT, "source-limit diagnosis"),
                 _native(RPCMethod.UPDATE_SOURCE, _IDEMPOTENT, "optional title set-op"),
             ),
@@ -273,6 +298,16 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
                     _NO_RETRY,
                     "non-idempotent citation-rich note allocation",
                     variant="saved_from_chat",
+                ),
+            ),
+        ),
+        Operation.SOURCE_WAIT: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(
+                    RPCMethod.GET_NOTEBOOK,
+                    _IDEMPOTENT,
+                    "source readiness snapshot; READY_ALL shares it across inputs per tick",
                 ),
             ),
         ),
@@ -682,6 +717,16 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
             (
                 _native(RPCMethod.SHARE_NOTEBOOK, _PROBE_CREATE, "guarded ACL mutation"),
                 _native(RPCMethod.GET_SHARE_STATUS, _IDEMPOTENT, "post-mutation read"),
+            ),
+        ),
+        Operation.LEGACY_SHARE_ARTIFACT: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(
+                    RPCMethod.SHARE_ARTIFACT,
+                    _IDEMPOTENT,
+                    "legacy public share-link set-op",
+                ),
             ),
         ),
         Operation.RESEARCH_START: WebCallPolicyBinding(

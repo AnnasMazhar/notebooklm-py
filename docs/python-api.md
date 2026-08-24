@@ -692,8 +692,9 @@ cancellation:
   server-side upload slot.
 - **`notes.create`** shields the `UPDATE_NOTE` finalize step and cleans up
   the partial note on cancel.
-- **`wait_for_sources`** cancels sibling pollers on the first poller's
-  failure rather than letting them race to emit error messages.
+- **`wait_for_sources`** uses one facade-owned shared snapshot loop and fails
+  promptly on the first terminal source outcome; it creates no sibling poller
+  tasks that could outlive the call.
 - **`wait_for_completion`** uses a leader/follower polling-dedupe registry
   with a shielded leader task — follower cancellation does not kill the
   leader's poll.
@@ -1247,8 +1248,8 @@ print(url)
 | `delete(notebook_id, source_id)` | `str, str` | `None` | Delete source (idempotent; returns `None` whether or not it existed) |
 | `wait_until_ready(notebook_id, source_id, timeout=120.0, ...)` | `str, str, float, ...` | `Source` | Poll until `status == READY` (fully processed). Raises `SourceTimeoutError`/`SourceProcessingError`/`SourceNotFoundError` — see [Processing failures vs. timeouts](#processing-failures-vs-timeouts). |
 | `wait_until_registered(notebook_id, source_id, timeout=30.0, ...)` | `str, str, float, ...` | `Source` | Poll until the source is visible server-side (any non-ERROR status). Completes quickly (seconds for typical sources); intended for narrow follow-up RPCs (e.g. `UPDATE_SOURCE`) that only require registration, not full processing. |
-| `wait_for_sources(notebook_id, source_ids, timeout=120.0, **kwargs)` | `str, list[str], float, ...` | `list[Source]` | Wait for multiple sources to become ready **in parallel**. Per-source timeout; `**kwargs` are forwarded to `wait_until_ready`. |
-| `wait_all_until_ready(notebook_id, source_ids, timeout=120.0, initial_interval=1.0, max_interval=10.0, backoff_factor=1.5, transient_error_types=None)` | `str, list[str], float, ...` | `list[SourceWaitResult]` | Wait for many sources with **one notebook snapshot per poll tick** (cheaper than `wait_for_sources`'s per-source polling for large batches). Terminal per-source failures (`SourceNotFoundError` / `SourceProcessingError` / `SourceTimeoutError`) are **returned**, not raised — one result per id, in input order. |
+| `wait_for_sources(notebook_id, source_ids, timeout=120.0, **kwargs)` | `str, list[str], float, ...` | `list[Source]` | Wait for multiple sources with **one shared notebook snapshot per poll tick** and one shared timeout budget. Fails promptly on the first terminal source outcome; polling interval/backoff options in `**kwargs` configure the shared loop. |
+| `wait_all_until_ready(notebook_id, source_ids, timeout=120.0, initial_interval=1.0, max_interval=10.0, backoff_factor=1.5, transient_error_types=None)` | `str, list[str], float, ...` | `list[SourceWaitResult]` | Wait for many sources with **one shared notebook snapshot per poll tick** and one shared timeout budget. Unlike `wait_for_sources`, terminal per-source failures (`SourceNotFoundError` / `SourceProcessingError` / `SourceTimeoutError`) are **returned**, not raised — one result per id, in input order. |
 
 **Example:**
 ```python
@@ -2430,13 +2431,13 @@ effect of doing something else:
 | Path | Notes |
 |------|-------|
 | `chat.ask()` when `source_ids` is not passed | **Most frequent by far** — `get_source_ids()` runs on every ask that does not pin sources explicitly. |
-| `sources.list()` / `sources.get()` / `sources.wait_until_ready()` / `wait_all_until_ready()` | Sources are only exposed inside the notebook payload. The waiters re-read **once per poll iteration**, so a slow upload bumps recency a dozen times. |
+| `sources.list()` / `sources.get()` / source waiters | Sources are only exposed inside the notebook payload. `wait_until_ready()`, `wait_until_registered()`, `wait_for_sources()`, and `wait_all_until_ready()` re-read **once per facade-owned poll iteration**; multi-source waits share that snapshot. |
 | `notebooks.get_metadata()` | **Two** `GET_NOTEBOOK`s — it gathers `notebooks.get()` and `sources.list()` concurrently. |
 | `notebooks.get_source_ids()` / `get_raw()` | Also reached by every `artifacts.generate_*`, `mind_maps.generate()`, and `notebooks.suggest_prompts()` that does not pin source ids. |
 | `notebooks.rename()` | Re-reads after the mutation to return the updated `Notebook`. |
 | `notebooks.create()` (CLI/MCP/REST path) | One best-effort re-read to backfill the timestamps `CREATE_NOTEBOOK` leaves null; skipped when both are already populated. |
 | `chat.get_settings()` | Chat config lives in the notebook payload. |
-| `sources.add_file()` / `add_drive()` / `add_url()` | An **unconditional** pre-create baseline of existing source ids, on every call — the idempotency probe needs it to tell a source it created from one that was already there. (`add_text()` is `NON_IDEMPOTENT_NO_RETRY` and runs no probe at all, so it never bumps recency.) |
+| `sources.add_file()` / `add_drive()` / `add_url()` | An **unconditional** pre-create baseline of existing source ids, on every call — the idempotency probe needs it to tell a source it created from one that was already there. A custom file title can add registration snapshots even with `wait=False`. For every source add variant, `wait=True` composes the same one-snapshot-per-tick source waiter. `add_text()` has no create probe, so only its optional readiness wait bumps recency. |
 | REST `POST /v1/notebooks/{id}/sources/batch` | One shared existence/auth check before one multi-URL `ADD_SOURCE`; omitted failures trigger one reconciliation `GET_NOTEBOOK`. It never blindly replays a transport-uncertain batch. |
 
 > **`sources.add_drive()` and `sources.add_url()` moved rows**, in

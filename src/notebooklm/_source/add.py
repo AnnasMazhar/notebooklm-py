@@ -17,9 +17,6 @@ from .._idempotency import (
 from .._idempotency import (
     mark_unconfirmed as _unconfirmed,
 )
-from .._projectors import project_source
-from .._runtime.contracts import RpcCaller
-from .._web.codec.sources import decode_source, encode_add_drive, encode_add_text
 from ..exceptions import (
     AuthError,
     NetworkError,
@@ -29,13 +26,14 @@ from ..exceptions import (
     SourceAddError,
     ValidationError,
 )
-from ..rpc import RPCError, RPCMethod
+from ..rpc import RPCError
 from ..types import Source
-from .upload_payloads import build_template_block
 
 ListSources = Callable[[str], Awaitable[list[Source]]]
 WaitUntilReady = Callable[..., Awaitable[Source]]
-RawSourceAdder = Callable[[str, str], Awaitable[Any]]
+UrlSourceCreator = Callable[[str, str], Awaitable[Source | None]]
+TextSourceCreator = Callable[[str, str, str], Awaitable[Source | None]]
+DriveSourceCreator = Callable[[str, str, str, str], Awaitable[Source | None]]
 RenameSource = Callable[[str, str, str], Awaitable[Source | None]]
 ParseUrl = Callable[[str], Any]
 ExtractVideoId = Callable[[Any, str], str | None]
@@ -141,8 +139,8 @@ class SourceAddService:
         *,
         wait: bool = False,
         wait_timeout: float = 120.0,
-        add_youtube_source: RawSourceAdder,
-        add_url_source: RawSourceAdder,
+        add_youtube_source: UrlSourceCreator,
+        add_url_source: UrlSourceCreator,
         list_sources: ListSources,
         wait_until_ready: WaitUntilReady,
         extract_youtube_video_id: Callable[[str], str | None],
@@ -279,7 +277,7 @@ class SourceAddService:
 
             if result is None:
                 raise SourceAddError(url, message=f"API returned no data for URL: {url}")
-            return project_source(decode_source(result, method_id=RPCMethod.ADD_SOURCE.value))
+            return result
 
         # Capture baseline source ids before the first create attempt so the
         # probe can tell "this URL add landed" from "the same URL was already
@@ -445,7 +443,7 @@ class SourceAddService:
         wait: bool = False,
         wait_timeout: float = 120.0,
         idempotent: bool = False,
-        rpc: RpcCaller,
+        create_source: TextSourceCreator,
         wait_until_ready: WaitUntilReady,
         logger: logging.Logger,
     ) -> Source:
@@ -459,20 +457,8 @@ class SourceAddService:
                 "docs/python-api.md#idempotency."
             )
         logger.debug("Adding text source to notebook %s: %s", notebook_id, title)
-        # Nested template block per the Gemini-3.5 wire migration (#1546): the
-        # text spec grew from 8 to 11 elements (slot 3 None -> 2, trailing 1) and
-        # the flat [2],None,None tail collapsed into the shared template block.
-        # The literal 2 at slot 3 is a source-type code taken verbatim from the
-        # web-UI capture; its exact meaning is undocumented. Verified live
-        # against an un-migrated account.
-        params = encode_add_text(notebook_id, title, content)
         try:
-            result = await rpc.rpc_call(
-                RPCMethod.ADD_SOURCE,
-                params,
-                source_path=f"/notebook/{notebook_id}",
-                operation_variant="text",
-            )
+            source = await create_source(notebook_id, title, content)
         except (AuthError, RateLimitError, ServerError, NetworkError):
             # Preserve transport-level signals so callers can act on the
             # specific type (AuthError -> re-login, RateLimitError -> back-off
@@ -487,10 +473,8 @@ class SourceAddService:
                 message=f"Failed to add text source '{title}'",
             ) from e
 
-        if result is None:
+        if source is None:
             raise SourceAddError(title, message=f"API returned no data for text source: {title}")
-
-        source = project_source(decode_source(result, method_id=RPCMethod.ADD_SOURCE.value))
 
         if wait:
             return await wait_until_ready(notebook_id, source.id, timeout=wait_timeout)
@@ -506,7 +490,7 @@ class SourceAddService:
         mime_type: str = "application/vnd.google-apps.document",
         wait: bool = False,
         wait_timeout: float = 120.0,
-        rpc: RpcCaller,
+        create_source: DriveSourceCreator,
         list_sources: ListSources,
         wait_until_ready: WaitUntilReady,
         logger: logging.Logger,
@@ -584,11 +568,6 @@ class SourceAddService:
             # garbage sources behind.
             raise ValidationError("Drive file_id cannot be empty or whitespace-only")
         logger.debug("Adding Drive source to notebook %s: %s", notebook_id, title)
-        # TODO(#1546): Drive add is NOT yet migrated to the nested template
-        # block — no live Drive capture/probe yet, so it stays on the old
-        # [2], [1,...,[1]] tail. Migrate via build_template_block() once a Drive
-        # add is captured from the web UI and verified against a live account.
-        params = encode_add_drive(notebook_id, file_id, title, mime_type)
 
         async def _create() -> Source:
             # Preserve transport-level signals so callers can act on the
@@ -597,20 +576,13 @@ class SourceAddService:
             # exceptions must propagate so idempotent_create can catch them
             # and run the probe.
             try:
-                result = await rpc.rpc_call(
-                    RPCMethod.ADD_SOURCE,
-                    params,
-                    source_path=f"/notebook/{notebook_id}",
-                    allow_null=True,
-                    disable_internal_retries=True,
-                    operation_variant="drive",
-                )
+                source = await create_source(notebook_id, file_id, title, mime_type)
             except (AuthError, RateLimitError, ServerError, NetworkError):
                 raise
             except RPCError as e:
                 raise SourceAddError(title, cause=e) from e
 
-            if result is None:
+            if source is None:
                 raise SourceAddError(
                     title,
                     message=(
@@ -622,7 +594,7 @@ class SourceAddService:
                         "download it and add it as a `file` source instead."
                     ),
                 )
-            return project_source(decode_source(result, method_id=RPCMethod.ADD_SOURCE.value))
+            return source
 
         # Capture baseline source ids before the first create attempt so the
         # probe can tell "this Drive add landed" from "the same Drive file was
@@ -834,62 +806,5 @@ class SourceAddService:
     def is_valid_video_id(self, video_id: str) -> bool:
         """Validate YouTube video ID format."""
         return bool(video_id and re.match(r"^[a-zA-Z0-9_-]+$", video_id))
-
-    async def add_youtube_source(
-        self,
-        notebook_id: str,
-        url: str,
-        *,
-        rpc: RpcCaller,
-    ) -> Any:
-        """Add a YouTube video as a source.
-
-        The source entry is unchanged, but the flat ``[2], [1,...,[1]]`` tail
-        (4 outer elements) collapsed into the single nested
-        ``[2, None, None, [1, ..., [1]]]`` block (#1546). Verified live against
-        an un-migrated account.
-        """
-        params = [
-            [[None, None, None, None, None, None, None, [url], None, None, 1]],
-            notebook_id,
-            build_template_block(),
-        ]
-        return await rpc.rpc_call(
-            RPCMethod.ADD_SOURCE,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=False,
-            disable_internal_retries=True,
-            operation_variant="url",
-        )
-
-    async def add_url_source(
-        self,
-        notebook_id: str,
-        url: str,
-        *,
-        rpc: RpcCaller,
-    ) -> Any:
-        """Add a regular URL as a source.
-
-        The source spec gained a trailing ``1`` and the flat ``[2], None, None``
-        tail collapsed into the nested ``[2, None, None, [1, ..., [1]]]`` block
-        that NotebookLM's web UI now sends; migrated backends reject the old
-        shape (``status=5``/``9``). Verified live against an un-migrated account.
-        See https://github.com/teng-lin/notebooklm-py/issues/1546.
-        """
-        params = [
-            [[None, None, [url], None, None, None, None, None, None, None, 1]],
-            notebook_id,
-            build_template_block(),
-        ]
-        return await rpc.rpc_call(
-            RPCMethod.ADD_SOURCE,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            disable_internal_retries=True,
-            operation_variant="url",
-        )
-
 
 __all__ = ["SourceAddService"]

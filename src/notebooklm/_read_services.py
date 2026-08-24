@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 from typing import TYPE_CHECKING
 
 from ._backend import BackendAdapter
@@ -50,6 +51,29 @@ class NotebookReadService:
             deadline=deadline,
         )
         return None if result.notebook is None else project_notebook(result.notebook)
+
+    async def get_source_ids(
+        self,
+        notebook_id: str,
+        *,
+        deadline: RuntimeDeadline | None = None,
+    ) -> builtins.list[str]:
+        """Return embedded source ids from one semantic notebook snapshot."""
+        result = await self._backend.invoke(
+            NOTEBOOK_GET_DEF,
+            NotebookGetInput(notebook_id, include_notebook=False),
+            deadline=deadline,
+        )
+        return list(result.source_ids)
+
+    def source_lister(self) -> SourceReadService:
+        """Build a semantic source lister sharing this service's backend.
+
+        Direct facade construction uses this narrow composition seam for
+        notebook metadata. Production still injects its client-owned source
+        facade explicitly.
+        """
+        return SourceReadService(self._backend)
 
 
 class SourceReadService:

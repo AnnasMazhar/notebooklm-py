@@ -53,7 +53,7 @@
 | `AH0mwd` | DELETE_NOTE | Delete a note | `_notes.py` |
 | `cFji9` | GET_NOTES_AND_MIND_MAPS | List notes and mind maps | `_notes.py` |
 | `yyryJe` | GENERATE_MIND_MAP | Mind map generation | `_artifacts.py` |
-| `VfAZjd` | SUMMARIZE | Get notebook summary | `_notebooks.py` |
+| `VfAZjd` | SUMMARIZE | Get notebook summary | `_web/backend.py` |
 | `FLmJqe` | REFRESH_SOURCE | Refresh URL/Drive source | `_sources.py` |
 | `yR9Yof` | CHECK_SOURCE_FRESHNESS | Check if source needs refresh | `_sources.py` |
 | `Ljjv0c` | START_FAST_RESEARCH | Start fast research | `_research.py` |
@@ -63,12 +63,12 @@
 | `Zbrupe` | CANCEL_RESEARCH | Cancel in-flight research run | `_research.py` |
 | `rc3d8d` | RENAME_ARTIFACT | Rename artifact | `_artifacts.py` |
 | `Krh3pd` | EXPORT_ARTIFACT | Export to Docs/Sheets | `_artifacts.py` |
-| `RGP97b` | SHARE_ARTIFACT | Legacy notebook/artifact share-link toggle | `_sharing_manager.py` |
+| `RGP97b` | SHARE_ARTIFACT | Legacy notebook/artifact share-link toggle | `_web/sharing.py` |
 | `QDyure` | SHARE_NOTEBOOK | Set notebook visibility (restricted/public) | `_web/codec/sharing.py` |
 | `JFMDGd` | GET_SHARE_STATUS | Get notebook share settings | `_web/codec/sharing.py` |
 | `ciyUvf` | GET_SUGGESTED_REPORTS | Get AI-suggested report formats | `_artifacts.py` |
 | `v9rmvd` | GET_INTERACTIVE_HTML | Fetch quiz/flashcard HTML (`[0][9][0]`) / interactive mind-map tree (`[0][9][3]`) | `_artifact/downloads.py` |
-| `fejl7e` | REMOVE_RECENTLY_VIEWED | Remove notebook from recent list | `_notebooks.py` |
+| `fejl7e` | REMOVE_RECENTLY_VIEWED | Remove notebook from recent list | `_web/backend.py` |
 | `ZwVcOc` | GET_USER_SETTINGS | Get user settings including output language | `_settings.py` |
 | `hT54vc` | SET_USER_SETTINGS | Set user settings (e.g., output language) | `_settings.py` |
 
@@ -316,7 +316,7 @@ params = [
 
 ### RPC: GET_NOTEBOOK (rLM1Ne)
 
-**Source:** `_notebooks.py::get()`, `_source/listing.py::SourceLister.list()`
+**Source:** `_notebooks.py::get()`, `_web/source_variants.py::_source_snapshot_records()`
 
 ```python
 params = [
@@ -339,7 +339,7 @@ slot because the backend accepts the compact form.
 
 ### RPC: REMOVE_RECENTLY_VIEWED (fejl7e)
 
-**Source:** `_notebooks.py::remove_from_recent()`
+**Source:** `_web/backend.py::WebRpcBackend._notebook_remove_recent()`
 
 Remove a notebook from the recently viewed list (doesn't delete the notebook).
 
@@ -347,7 +347,7 @@ Remove a notebook from the recently viewed list (doesn't delete the notebook).
 params = [notebook_id]  # Just the notebook ID
 
 # No source_path needed
-await rpc_call(
+await executor.rpc_call(
     RPCMethod.REMOVE_RECENTLY_VIEWED,
     params,
     allow_null=True,
@@ -1950,7 +1950,8 @@ source_ids_triple = [[[sid]] for sid in source_ids]
 
 ### RPC: SUMMARIZE (VfAZjd)
 
-**Source:** `_notebooks.py::get_summary()`, `_notebooks.py::get_description()`
+**Source:** `_web/backend.py::WebRpcBackend._notebook_summarize()`,
+`_web/backend.py::WebRpcBackend._notebook_describe()`
 
 Gets AI-generated summary and suggested topics for a notebook.
 
@@ -2902,7 +2903,7 @@ callers decide whether to re-invoke.
 
 ### RPC: SHARE_ARTIFACT (RGP97b)
 
-**Source:** `_sharing_manager.py::ShareManager.share()` (legacy share-link toggle)
+**Source:** `_web/sharing.py::SharingWebHandlers._legacy_share_artifact()`
 
 Toggle the legacy share-link state for a notebook URL, optionally with an
 artifact deep-link target. Distinct from `SHARE_NOTEBOOK` (`QDyure`), which
@@ -2923,17 +2924,26 @@ if artifact_id:
 else:
     params = [share_options, notebook_id]
 
-# Called with source_path:
-await rpc_call(
+# Called through the semantic web handler. ``allow_null=True`` preserves the
+# observed status-3/null success response; do not opt into strict null-status
+# failure for this set operation.
+await self._rpc_call(
     RPCMethod.SHARE_ARTIFACT,
     params,
+    operation=Operation.LEGACY_SHARE_ARTIFACT,
+    deadline=deadline,
     source_path=f"/notebook/{notebook_id}",
+    allow_null=True,
 )
 
 # Share URL format:
 # - Notebook: https://notebook.google.com/notebook/{notebook_id}
 # - Artifact deep-link: https://notebook.google.com/notebook/{notebook_id}?artifactId={artifact_id}
 ```
+
+`_sharing_manager.py::ShareManager.share()` owns the compatibility projection:
+it returns the historical `{"public", "url", "artifact_id"}` mapping and builds
+the same percent-encoded notebook or artifact URL from the neutral result.
 
 **Important:** The `?artifactId=xxx` URL is a **deep link** - it opens the shared notebook and navigates to that artifact. The artifact itself isn't independently shared.
 

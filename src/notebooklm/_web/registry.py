@@ -50,6 +50,7 @@ from .._records import (
     LABEL_GET_DEF,
     LABEL_LIST_DEF,
     LABEL_UPDATE_DEF,
+    LEGACY_SHARE_ARTIFACT_DEF,
     MIND_MAP_DELETE_DEF,
     MIND_MAP_GENERATE_INTERACTIVE_DEF,
     MIND_MAP_GENERATE_NOTE_DEF,
@@ -63,9 +64,12 @@ from .._records import (
     NOTE_UPDATE_DEF,
     NOTEBOOK_CREATE_DEF,
     NOTEBOOK_DELETE_DEF,
+    NOTEBOOK_DESCRIBE_DEF,
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
+    NOTEBOOK_REMOVE_RECENT_DEF,
     NOTEBOOK_SUGGEST_PROMPTS_DEF,
+    NOTEBOOK_SUMMARIZE_DEF,
     NOTEBOOK_UPDATE_DEF,
     RESEARCH_CANCEL_DEF,
     RESEARCH_IMPORT_DEF,
@@ -91,6 +95,7 @@ from .._records import (
     SOURCE_LIST_DEF,
     SOURCE_REFRESH_DEF,
     SOURCE_UPDATE_DEF,
+    SOURCE_WAIT_DEF,
 )
 from .policy import audit_web_call_policy_bindings
 
@@ -129,6 +134,9 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.NOTEBOOK_CREATE: NOTEBOOK_CREATE_DEF,
         Operation.NOTEBOOK_UPDATE: NOTEBOOK_UPDATE_DEF,
         Operation.NOTEBOOK_DELETE: NOTEBOOK_DELETE_DEF,
+        Operation.NOTEBOOK_REMOVE_RECENT: NOTEBOOK_REMOVE_RECENT_DEF,
+        Operation.NOTEBOOK_SUMMARIZE: NOTEBOOK_SUMMARIZE_DEF,
+        Operation.NOTEBOOK_DESCRIBE: NOTEBOOK_DESCRIBE_DEF,
         Operation.SOURCE_ADD_URL: SOURCE_ADD_URL_DEF,
         Operation.SOURCE_ADD_URL_BATCH: SOURCE_ADD_URL_BATCH_DEF,
         Operation.SOURCE_ADD_TEXT: SOURCE_ADD_TEXT_DEF,
@@ -148,6 +156,7 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.CHAT_DELETE_HISTORY: CHAT_DELETE_HISTORY_DEF,
         Operation.CHAT_CONFIGURE: CHAT_CONFIGURE_DEF,
         Operation.CHAT_SAVE_NOTE: CHAT_SAVE_NOTE_DEF,
+        Operation.SOURCE_WAIT: SOURCE_WAIT_DEF,
         Operation.NOTE_LIST: NOTE_LIST_DEF,
         Operation.NOTE_GET: NOTE_GET_DEF,
         Operation.NOTE_CREATE: NOTE_CREATE_DEF,
@@ -186,6 +195,7 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.SHARING_SET_PUBLIC: SHARING_SET_PUBLIC_DEF,
         Operation.SHARING_SET_VIEW_LEVEL: SHARING_SET_VIEW_LEVEL_DEF,
         Operation.SHARING_UPDATE_USERS: SHARING_UPDATE_USERS_DEF,
+        Operation.LEGACY_SHARE_ARTIFACT: LEGACY_SHARE_ARTIFACT_DEF,
         Operation.RESEARCH_START: RESEARCH_START_DEF,
         Operation.RESEARCH_POLL: RESEARCH_POLL_DEF,
         Operation.RESEARCH_CANCEL: RESEARCH_CANCEL_DEF,
@@ -211,6 +221,9 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.NOTEBOOK_CREATE: "_notebook_create",
         Operation.NOTEBOOK_UPDATE: "_notebook_update",
         Operation.NOTEBOOK_DELETE: "_notebook_delete",
+        Operation.NOTEBOOK_REMOVE_RECENT: "_notebook_remove_recent",
+        Operation.NOTEBOOK_SUMMARIZE: "_notebook_summarize",
+        Operation.NOTEBOOK_DESCRIBE: "_notebook_describe",
         Operation.SOURCE_ADD_URL: "_source_add_url",
         Operation.SOURCE_ADD_URL_BATCH: "_source_add_url_batch",
         Operation.SOURCE_ADD_TEXT: "_source_add_text",
@@ -230,6 +243,7 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.CHAT_DELETE_HISTORY: "_chat_delete_history",
         Operation.CHAT_CONFIGURE: "_chat_configure",
         Operation.CHAT_SAVE_NOTE: "_chat_save_note",
+        Operation.SOURCE_WAIT: "_source_wait",
         Operation.NOTE_LIST: "_note_list",
         Operation.NOTE_GET: "_note_get",
         Operation.NOTE_CREATE: "_note_create",
@@ -268,6 +282,7 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.SHARING_SET_PUBLIC: "_sharing_set_public",
         Operation.SHARING_SET_VIEW_LEVEL: "_sharing_set_view_level",
         Operation.SHARING_UPDATE_USERS: "_sharing_update_users",
+        Operation.LEGACY_SHARE_ARTIFACT: "_legacy_share_artifact",
         Operation.RESEARCH_START: "_research_start",
         Operation.RESEARCH_POLL: "_research_poll",
         Operation.RESEARCH_CANCEL: "_research_cancel",
@@ -294,7 +309,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a web-registry review.
 _EXPECTED_OPERATION_COUNT: Final = 87
-_EXPECTED_SUPPORTED_COUNT: Final = 77
+_EXPECTED_SUPPORTED_COUNT: Final = 82
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

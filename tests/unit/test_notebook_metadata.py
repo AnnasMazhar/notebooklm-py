@@ -4,52 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from notebooklm._notebook_metadata import (
-    NotebookMetadataService,
-    create_default_source_lister,
-)
-from notebooklm.exceptions import RPCError
-from notebooklm.rpc import RPCMethod
+from notebooklm._notebook_metadata import NotebookMetadataService
 from notebooklm.types import Notebook, NotebookMetadata, Source, SourceType
-
-
-class RecordingRpc:
-    def __init__(self, response: Any) -> None:
-        self.response = response
-        self.calls: list[tuple[RPCMethod, list[Any], str | None]] = []
-
-    async def rpc_call(
-        self,
-        method: RPCMethod,
-        params: list[Any],
-        source_path: str = "/",
-        allow_null: bool = False,
-        _is_retry: bool = False,
-        *,
-        disable_internal_retries: bool = False,
-        operation_variant: str | None = None,
-    ) -> Any:
-        self.calls.append((method, params, source_path))
-        return self.response
-
-
-def source_entry(
-    source_id: str,
-    *,
-    title: str = "Source",
-    metadata: list[Any] | None = None,
-) -> list[Any]:
-    return [
-        [source_id],
-        title,
-        metadata or [None, 11, [1704067200, 0], None, 5],
-        [None, 2],
-    ]
 
 
 @pytest.mark.asyncio
@@ -164,40 +124,3 @@ async def test_metadata_service_propagates_source_listing_errors() -> None:
 
     get_notebook.assert_awaited_once_with("nb_123")
     source_lister.list.assert_awaited_once_with("nb_123")
-
-
-@pytest.mark.asyncio
-async def test_default_source_lister_uses_phase8_listing_service() -> None:
-    rpc = RecordingRpc([["Notebook", [source_entry("src_1", title="Web")]]])
-    source_lister = create_default_source_lister(rpc)
-
-    sources = await source_lister.list("nb_123")
-
-    assert len(sources) == 1
-    assert sources[0].id == "src_1"
-    assert sources[0].title == "Web"
-    assert sources[0].kind == SourceType.WEB_PAGE
-    assert rpc.calls == [
-        (
-            RPCMethod.GET_NOTEBOOK,
-            # #1549: GET_NOTEBOOK tail migrated to the nested template block.
-            [
-                "nb_123",
-                None,
-                [2, None, None, [1, None, None, None, None, None, None, None, None, None, [1]]],
-                None,
-                0,
-            ],
-            "/notebook/nb_123",
-        )
-    ]
-
-
-@pytest.mark.asyncio
-async def test_default_source_lister_delegates_strict_malformed_handling() -> None:
-    # A non-list, non-None sources slot is a genuinely malformed shape (a
-    # ``None`` slot is now the empty-notebook signal — see issue #1159).
-    source_lister = create_default_source_lister(RecordingRpc([["Notebook", "not-a-list"]]))
-
-    with pytest.raises(RPCError, match="sources data is str, not list"):
-        await source_lister.list("nb_123", strict=True)

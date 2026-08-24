@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import notebooklm._sources as _sources_mod
 from notebooklm._sources import SourcesAPI
 from notebooklm.types import (
     DriveSourceStatus,
@@ -16,6 +15,10 @@ from notebooklm.types import (
     SourceStatus,
     SourceTimeoutError,
 )
+
+
+def _sources_api_with_wait_service() -> SourcesAPI:
+    return SourcesAPI(MagicMock(), uploader=MagicMock())
 
 
 class TestSourceStatus:
@@ -184,8 +187,7 @@ class TestWaitUntilReady:
     @pytest.fixture
     def sources_api(self):
         """Create a SourcesAPI with mocked core."""
-        core = MagicMock()
-        return SourcesAPI(core, uploader=MagicMock())
+        return _sources_api_with_wait_service()
 
     @pytest.mark.asyncio
     async def test_returns_immediately_if_ready(self, sources_api):
@@ -361,8 +363,8 @@ class TestWaitUntilReady:
             await original_sleep(0.001)  # Minimal actual sleep
 
         with (
+            patch("notebooklm._sources.asyncio.sleep", new=mock_sleep),
             patch.object(sources_api, "get_or_none", side_effect=mock_get),
-            patch.object(_sources_mod.asyncio, "sleep", side_effect=mock_sleep),
         ):
             await sources_api.wait_until_ready(
                 "nb_1",
@@ -385,8 +387,7 @@ class TestWaitUntilRegistered:
 
     @pytest.fixture
     def sources_api(self):
-        core = MagicMock()
-        return SourcesAPI(core, uploader=MagicMock())
+        return _sources_api_with_wait_service()
 
     @pytest.mark.asyncio
     async def test_wait_until_registered_returns_on_processing(self, sources_api):
@@ -398,7 +399,7 @@ class TestWaitUntilRegistered:
 
             result = await sources_api.wait_until_registered("nb_1", "src_1", timeout=10.0)
 
-            assert result is processing
+            assert result == processing
             assert mock_get.call_count == 1
 
     @pytest.mark.asyncio
@@ -411,7 +412,7 @@ class TestWaitUntilRegistered:
 
             result = await sources_api.wait_until_registered("nb_1", "src_1", timeout=10.0)
 
-            assert result is ready
+            assert result == ready
             assert mock_get.call_count == 1
 
     @pytest.mark.asyncio
@@ -433,7 +434,7 @@ class TestWaitUntilRegistered:
                 "nb_1", "src_1", timeout=10.0, initial_interval=0.01
             )
 
-        assert result is processing
+        assert result == processing
         assert call_count == 2
 
     @pytest.mark.asyncio
@@ -456,7 +457,7 @@ class TestWaitUntilRegistered:
                 "nb_1", "src_audio", timeout=10.0, initial_interval=0.01
             )
 
-        assert result is processing
+        assert result == processing
         assert call_count == 2
 
     @pytest.mark.asyncio
@@ -488,40 +489,35 @@ class TestWaitForSources:
     @pytest.fixture
     def sources_api(self):
         """Create a SourcesAPI with mocked core."""
-        core = MagicMock()
-        return SourcesAPI(core, uploader=MagicMock())
+        api = SourcesAPI(MagicMock(), uploader=MagicMock())
+        api._source_service = MagicMock()
+        return api
 
     @pytest.mark.asyncio
     async def test_waits_for_multiple_sources(self, sources_api):
-        """Test wait_for_sources waits for all sources in parallel."""
+        """Test wait_for_sources projects one shared semantic wait in order."""
         ready_sources = [
             Source(id="src_1", status=SourceStatus.READY),
             Source(id="src_2", status=SourceStatus.READY),
         ]
 
-        async def mock_wait(notebook_id, source_id, **kwargs):
-            for s in ready_sources:
-                if s.id == source_id:
-                    return s
-            raise SourceNotFoundError(source_id)
+        sources_api.list = AsyncMock(return_value=ready_sources)
+        results = await sources_api.wait_for_sources("nb_1", ["src_1", "src_2"], timeout=10.0)
 
-        with patch.object(sources_api, "wait_until_ready", side_effect=mock_wait):
-            results = await sources_api.wait_for_sources("nb_1", ["src_1", "src_2"], timeout=10.0)
-
-            assert len(results) == 2
-            assert all(s.is_ready for s in results)
+        assert len(results) == 2
+        assert all(s.is_ready for s in results)
+        sources_api.list.assert_awaited_once_with("nb_1")
 
     @pytest.mark.asyncio
     async def test_raises_on_any_failure(self, sources_api):
         """Test wait_for_sources raises if any source fails."""
 
-        async def mock_wait(notebook_id, source_id, **kwargs):
-            if source_id == "src_2":
-                raise SourceProcessingError(source_id, status=3)
-            return Source(id=source_id, status=SourceStatus.READY)
-
-        with (
-            patch.object(sources_api, "wait_until_ready", side_effect=mock_wait),
-            pytest.raises(SourceProcessingError),
-        ):
+        sources_api.list = AsyncMock(
+            return_value=[
+                Source(id="src_1", status=SourceStatus.READY),
+                Source(id="src_2", status=SourceStatus.ERROR, _type_code=3),
+            ]
+        )
+        with pytest.raises(SourceProcessingError):
             await sources_api.wait_for_sources("nb_1", ["src_1", "src_2"], timeout=10.0)
+        sources_api.list.assert_awaited_once_with("nb_1")

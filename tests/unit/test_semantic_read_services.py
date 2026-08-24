@@ -175,7 +175,7 @@ async def test_read_services_invoke_typed_operations_and_preserve_backend_order(
     deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 11.0)
     backend = RecordingBackend()
     backend.set_result(NOTEBOOK_LIST_DEF, NotebookListResult((notebook,)))
-    backend.set_result(NOTEBOOK_GET_DEF, NotebookGetResult(notebook))
+    backend.set_result(NOTEBOOK_GET_DEF, NotebookGetResult(notebook, ("source-a", "source-b")))
     backend.set_result(SOURCE_LIST_DEF, SourceListResult((source,)))
     backend.set_result(SOURCE_GET_DEF, SourceGetResult(source))
     notebooks = NotebookReadService(backend)
@@ -183,6 +183,7 @@ async def test_read_services_invoke_typed_operations_and_preserve_backend_order(
 
     listed_notebooks = await notebooks.list(deadline=deadline)
     fetched_notebook = await notebooks.get("notebook-id", deadline=deadline)
+    source_ids = await notebooks.get_source_ids("notebook-id", deadline=deadline)
     listed_sources = await sources.list(
         "notebook-id",
         strict=True,
@@ -194,11 +195,21 @@ async def test_read_services_invoke_typed_operations_and_preserve_backend_order(
 
     assert [item.id for item in listed_notebooks] == ["notebook-id"]
     assert fetched_notebook is not None and fetched_notebook.id == "notebook-id"
+    assert source_ids == ["source-a", "source-b"]
     assert [item.id for item in listed_sources] == ["source-id"]
     assert fetched_source is not None and fetched_source.id == "source-id"
     assert backend.invocations == [
         BackendInvocation(Operation.NOTEBOOK_LIST, NotebookListInput(), deadline),
-        BackendInvocation(Operation.NOTEBOOK_GET, NotebookGetInput("notebook-id"), deadline),
+        BackendInvocation(
+            Operation.NOTEBOOK_GET,
+            NotebookGetInput("notebook-id"),
+            deadline,
+        ),
+        BackendInvocation(
+            Operation.NOTEBOOK_GET,
+            NotebookGetInput("notebook-id", include_notebook=False),
+            deadline,
+        ),
         BackendInvocation(
             Operation.SOURCE_LIST,
             SourceListInput(
@@ -251,5 +262,62 @@ async def test_notebooks_facade_delegates_live_reads_without_parallel_rpc_calls(
         Operation.NOTEBOOK_LIST,
         Operation.NOTEBOOK_GET,
         Operation.NOTEBOOK_GET,
+    ]
+    rpc_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_direct_notebooks_metadata_uses_two_semantic_reads_without_raw_transport() -> None:
+    notebook = _notebook_record()
+    source = _source_record()
+    backend = RecordingBackend()
+    backend.set_result(NOTEBOOK_GET_DEF, NotebookGetResult(notebook))
+    backend.set_result(SOURCE_LIST_DEF, SourceListResult((source,)))
+    rpc_call = AsyncMock()
+    api = NotebooksAPI(MagicMock(rpc_call=rpc_call), _backend=backend)
+
+    metadata = await api.get_metadata("notebook-id")
+
+    assert metadata.notebook.id == "notebook-id"
+    assert [item.title for item in metadata.sources] == ["Source title"]
+    assert backend.invocations == [
+        BackendInvocation(
+            Operation.NOTEBOOK_GET,
+            NotebookGetInput("notebook-id"),
+            None,
+        ),
+        BackendInvocation(
+            Operation.SOURCE_LIST,
+            SourceListInput("notebook-id"),
+            None,
+        ),
+    ]
+    rpc_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_direct_notebooks_metadata_keeps_get_late_bound_with_semantic_lister() -> None:
+    source = _source_record()
+    backend = RecordingBackend()
+    backend.set_result(SOURCE_LIST_DEF, SourceListResult((source,)))
+    rpc_call = AsyncMock()
+    api = NotebooksAPI(MagicMock(rpc_call=rpc_call), _backend=backend)
+    replacement_get = AsyncMock(
+        return_value=project_notebook(
+            NotebookRecord("notebook-id", "Late-bound notebook", sources_count=1)
+        )
+    )
+    api.get = replacement_get
+
+    metadata = await api.get_metadata("notebook-id")
+
+    assert metadata.notebook.title == "Late-bound notebook"
+    replacement_get.assert_awaited_once_with("notebook-id")
+    assert backend.invocations == [
+        BackendInvocation(
+            Operation.SOURCE_LIST,
+            SourceListInput("notebook-id"),
+            None,
+        )
     ]
     rpc_call.assert_not_awaited()

@@ -27,6 +27,16 @@ _METHOD_ID = RPCMethod.LIST_NOTEBOOKS.value
 _ROLE_LABELS = {1: "owner", 2: "editor", 3: "viewer"}
 
 
+def encode_notebook_guide(notebook_id: str) -> list[Any]:
+    """Encode the live ``GenerateNotebookGuide`` request."""
+    return [notebook_id, [2]]
+
+
+def encode_remove_from_recent(notebook_id: str) -> list[Any]:
+    """Encode one idempotent recent-list removal."""
+    return [notebook_id]
+
+
 def _datetime_from_timestamp(value: object) -> datetime | None:
     try:
         return datetime.fromtimestamp(cast(float, value), tz=timezone.utc)
@@ -222,4 +232,9 @@ def decode_notebook_description(result: Any) -> NotebookDescriptionRecord:
     )
 
 
-__all__ = ["decode_notebook", "decode_notebook_description"]
+__all__ = [
+    "decode_notebook",
+    "decode_notebook_description",
+    "encode_notebook_guide",
+    "encode_remove_from_recent",
+]

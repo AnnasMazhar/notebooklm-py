@@ -68,6 +68,7 @@ import pytest
 from notebooklm._source.upload import SourceUploadPipeline
 from notebooklm._sources import SourcesAPI
 from tests._fixtures.fake_core import FakeSession, make_fake_core
+from tests._fixtures.web_backend import build_web_backend
 
 # mock-based loop-blocking detection tests; no HTTP, no cassette.
 # Opt out of the tier-enforcement hook in tests/integration/conftest.py.
@@ -119,7 +120,8 @@ def _make_sources_api() -> tuple[SourcesAPI, FakeSession]:
         auth=core.auth,
         record_upload_queue_wait=core.record_upload_queue_wait,
     )
-    return SourcesAPI(core.rpc_executor, uploader=uploader), core
+    backend = build_web_backend(core.rpc_executor, source_uploader=uploader)
+    return SourcesAPI(core.rpc_executor, uploader=uploader, _backend=backend), core
 
 
 class _SlowReadFile:
@@ -366,7 +368,10 @@ async def test_add_file_open_runs_off_loop_thread(
     # land before ``add_file`` returns: GET_NOTEBOOK (baseline list) and
     # ADD_SOURCE_FILE (register). The "[[[['src_t1']]]]" shape feeds the
     # standard SOURCE_ID walker in ``_extract_register_file_source_id``.
-    _core.rpc_executor.rpc_call.return_value = [[[["src_t1"]]]]
+    _core.rpc_executor.rpc_call.side_effect = [
+        [["Notebook", []]],
+        [[[["src_t1"]]]],
+    ]
 
     mock_start_response = MagicMock()
     mock_start_response.headers = {

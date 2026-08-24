@@ -88,9 +88,12 @@ from notebooklm._records import (
     NOTE_UPDATE_DEF,
     NOTEBOOK_CREATE_DEF,
     NOTEBOOK_DELETE_DEF,
+    NOTEBOOK_DESCRIBE_DEF,
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
+    NOTEBOOK_REMOVE_RECENT_DEF,
     NOTEBOOK_SUGGEST_PROMPTS_DEF,
+    NOTEBOOK_SUMMARIZE_DEF,
     NOTEBOOK_UPDATE_DEF,
     RESEARCH_CANCEL_DEF,
     RESEARCH_IMPORT_DEF,
@@ -116,6 +119,7 @@ from notebooklm._records import (
     SOURCE_LIST_DEF,
     SOURCE_REFRESH_DEF,
     SOURCE_UPDATE_DEF,
+    SOURCE_WAIT_DEF,
     ArtifactDeleteInput,
     ArtifactDownloadInput,
     ArtifactPollInput,
@@ -136,8 +140,11 @@ from notebooklm._records import (
     NotebookDeleteInput,
     NotebookDeleteResult,
     NotebookGetInput,
+    NotebookGuideInput,
     NotebookListInput,
     NotebookListResult,
+    NotebookRemoveRecentInput,
+    NotebookRemoveRecentResult,
     NotebookUpdateInput,
     NoteCreateInput,
     NoteDeleteInput,
@@ -235,6 +242,9 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.NOTEBOOK_CREATE,
         Operation.NOTEBOOK_UPDATE,
         Operation.NOTEBOOK_DELETE,
+        Operation.NOTEBOOK_REMOVE_RECENT,
+        Operation.NOTEBOOK_SUMMARIZE,
+        Operation.NOTEBOOK_DESCRIBE,
         Operation.SOURCE_LIST,
         Operation.SOURCE_GET,
         Operation.SOURCE_ADD_URL,
@@ -307,6 +317,7 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.CHAT_DELETE_HISTORY,
         Operation.CHAT_CONFIGURE,
         Operation.CHAT_SAVE_NOTE,
+        Operation.SOURCE_WAIT,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -318,6 +329,9 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.NOTEBOOK_CREATE: NOTEBOOK_CREATE_DEF,
         Operation.NOTEBOOK_UPDATE: NOTEBOOK_UPDATE_DEF,
         Operation.NOTEBOOK_DELETE: NOTEBOOK_DELETE_DEF,
+        Operation.NOTEBOOK_REMOVE_RECENT: NOTEBOOK_REMOVE_RECENT_DEF,
+        Operation.NOTEBOOK_SUMMARIZE: NOTEBOOK_SUMMARIZE_DEF,
+        Operation.NOTEBOOK_DESCRIBE: NOTEBOOK_DESCRIBE_DEF,
         Operation.SOURCE_LIST: SOURCE_LIST_DEF,
         Operation.SOURCE_GET: SOURCE_GET_DEF,
         Operation.SOURCE_ADD_URL: SOURCE_ADD_URL_DEF,
@@ -390,6 +404,7 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.CHAT_DELETE_HISTORY: CHAT_DELETE_HISTORY_DEF,
         Operation.CHAT_CONFIGURE: CHAT_CONFIGURE_DEF,
         Operation.CHAT_SAVE_NOTE: CHAT_SAVE_NOTE_DEF,
+        Operation.SOURCE_WAIT: SOURCE_WAIT_DEF,
     }
     assert Operation.RESEARCH_WAIT not in WEB_SUPPORTED_OPERATIONS
     assert Operation.RESEARCH_IMPORT_VERIFY not in WEB_SUPPORTED_OPERATIONS
@@ -1272,7 +1287,7 @@ async def test_notebook_handlers_reuse_current_payloads_and_return_neutral_recor
     list_row = ["Listed", [], "nb-list", "📚"]
     get_row = [
         "Fetched",
-        [],
+        [[["source-a"], "Source A"]],
         "nb-get",
         "🧬",
         None,
@@ -1305,6 +1320,7 @@ async def test_notebook_handlers_reuse_current_payloads_and_return_neutral_recor
     assert fetched.notebook.chat_settings.goal == "custom"
     assert fetched.notebook.chat_settings.response_length == "longer"
     assert fetched.notebook.chat_sessions[0].id == "chat-session"
+    assert fetched.source_ids == ("source-a",)
     assert executor.calls[0].method is RPCMethod.LIST_NOTEBOOKS
     assert executor.calls[0].params == [None, 1, None, [2]]
     assert executor.calls[1].method is RPCMethod.GET_NOTEBOOK
@@ -1439,6 +1455,50 @@ async def test_notebook_delete_is_one_id_and_returns_empty_result() -> None:
     assert result == NotebookDeleteResult()
     assert executor.calls[0].method is RPCMethod.DELETE_NOTEBOOK
     assert executor.calls[0].params == [["nb-1"], [2]]
+
+
+@pytest.mark.asyncio
+async def test_notebook_remove_recent_preserves_null_status_and_deadline() -> None:
+    executor = _RecordingExecutor(None)
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 11.0)
+
+    result = await _backend(executor).invoke(
+        NOTEBOOK_REMOVE_RECENT_DEF,
+        NotebookRemoveRecentInput("nb-1"),
+        deadline=deadline,
+    )
+
+    assert result == NotebookRemoveRecentResult()
+    assert executor.calls[0].method is RPCMethod.REMOVE_RECENTLY_VIEWED
+    assert executor.calls[0].params == ["nb-1"]
+    assert executor.calls[0].kwargs["allow_null"] is True
+    assert executor.calls[0].kwargs["read_timeout"] == 4.0
+    assert executor.calls[0].kwargs["_retry_deadline"] is deadline
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("definition", [NOTEBOOK_SUMMARIZE_DEF, NOTEBOOK_DESCRIBE_DEF])
+async def test_notebook_guide_variants_preserve_wire_shape_and_neutral_decode(
+    definition: object,
+) -> None:
+    executor = _RecordingExecutor([[["Summary"], [[["Question?", "Ask this"]]]]])
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 11.0)
+
+    result = await _backend(executor).invoke(  # type: ignore[arg-type]
+        definition,
+        NotebookGuideInput("nb-1"),
+        deadline=deadline,
+    )
+
+    assert result.description.summary == "Summary"
+    assert [(topic.question, topic.prompt) for topic in result.description.suggested_topics] == [
+        ("Question?", "Ask this")
+    ]
+    assert executor.calls[0].method is RPCMethod.SUMMARIZE
+    assert executor.calls[0].params == ["nb-1", [2]]
+    assert executor.calls[0].kwargs["source_path"] == "/notebook/nb-1"
+    assert executor.calls[0].kwargs["read_timeout"] == 4.0
+    assert executor.calls[0].kwargs["_retry_deadline"] is deadline
 
 
 def _source_entry(
@@ -1703,29 +1763,76 @@ async def test_notebook_create_marks_neutral_probe_failure_unconfirmed() -> None
 
 
 @pytest.mark.asyncio
-async def test_url_composite_forwards_one_absolute_deadline_to_baseline_add_and_wait() -> None:
+async def test_notebook_create_reconciliation_deadline_keeps_parent_attribution() -> None:
+    clock = [0.0]
+    timeout = RPCTimeoutError(
+        "reconciliation timed out",
+        method_id=RPCMethod.LIST_NOTEBOOKS.value,
+        timeout_seconds=5.0,
+    )
+
+    class _ReconciliationTimeoutExecutor(_RecordingExecutor):
+        async def rpc_call(
+            self,
+            method: RPCMethod,
+            params: list[Any],
+            **kwargs: Any,
+        ) -> Any:
+            self.calls.append(_Call(method=method, params=params, kwargs=kwargs))
+            if len(self.calls) == 1:
+                return []
+            if len(self.calls) == 2:
+                raise ServerError("create response lost", status_code=502)
+            clock[0] = 6.0
+            raise timeout
+
+    executor = _ReconciliationTimeoutExecutor()
+    deadline = RuntimeDeadline(timeout=5.0, started_at=0.0, monotonic=lambda: clock[0])
+
+    with pytest.raises(BackendDeadlineExceededError) as caught:
+        await _backend(executor).invoke(
+            NOTEBOOK_CREATE_DEF,
+            NotebookCreateInput("Daily News"),
+            deadline=deadline,
+        )
+
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.LIST_NOTEBOOKS,
+        RPCMethod.CREATE_NOTEBOOK,
+        RPCMethod.LIST_NOTEBOOKS,
+    ]
+    assert all(call.kwargs["_retry_deadline"] is deadline for call in executor.calls)
+    assert caught.value.operation is Operation.NOTEBOOK_CREATE
+    assert caught.value.reason is BackendErrorReason.TIMEOUT
+    assert caught.value.outcome_unknown is True
+    assert caught.value.__cause__ is timeout
+
+
+@pytest.mark.asyncio
+async def test_url_wait_is_deferred_to_facade_and_does_not_consume_backend_deadline() -> None:
     url = "https://example.com/article"
-    ready = _source_entry("src-new", title="Upstream", url=url, status=2)
     executor = _RecordingExecutor(
         [["Notebook", [], "nb"]],
         _source_result("src-new", title="Upstream", url=url),
-        [["Notebook", [ready], "nb"]],
     )
     deadline = RuntimeDeadline(timeout=30.0, started_at=10.0, monotonic=lambda: 12.0)
 
-    await _backend(executor).invoke(
+    result = await _backend(executor).invoke(
         SOURCE_ADD_URL_DEF,
-        SourceAddUrlInput("nb", url, wait=True, wait_timeout=17.0),
+        SourceAddUrlInput("nb", url, wait=True, wait_timeout=17.0, requested_title="Requested"),
         deadline=deadline,
     )
 
     assert [call.method for call in executor.calls] == [
         RPCMethod.GET_NOTEBOOK,
         RPCMethod.ADD_SOURCE,
-        RPCMethod.GET_NOTEBOOK,
     ]
-    assert all(call.kwargs["_retry_deadline"] is deadline for call in executor.calls)
-    assert all(call.kwargs["read_timeout"] == 28.0 for call in executor.calls)
+    baseline, create = executor.calls
+    assert baseline.kwargs["_retry_deadline"] is deadline
+    assert create.kwargs["_retry_deadline"] is deadline
+    assert baseline.kwargs["read_timeout"] == create.kwargs["read_timeout"] == 28.0
+    assert result.source.title == "Upstream"
+    assert result.receipt.title_state is SourceAddTitleState.NOT_ATTEMPTED
 
 
 @pytest.mark.asyncio
@@ -1998,6 +2105,29 @@ def test_translated_transport_error_drops_suppressed_private_context(
     assert projected.__suppress_context__ is True
 
 
+def test_translated_network_error_omits_private_transport_wrapper_context() -> None:
+    request = httpx.Request("POST", "https://notebook.google.com/_/rpc")
+    leaf = httpx.ConnectError("connection failed", request=request)
+    transport = TransportServerError("retry budget exhausted", original=leaf)
+    error = NetworkError(
+        "Connection failed calling LIST_NOTEBOOKS",
+        method_id=RPCMethod.LIST_NOTEBOOKS.value,
+        original_error=leaf,
+    )
+    error.__cause__ = leaf
+    error.__context__ = transport
+    error.__suppress_context__ = True
+
+    translated = WebRpcBackend._translate_error(Operation.NOTEBOOK_LIST, error)
+    projected = project_backend_error(translated)
+
+    assert isinstance(projected, NetworkError)
+    assert isinstance(projected.original_error, httpx.ConnectError)
+    assert projected.__cause__ is projected.original_error
+    assert projected.__context__ is None
+    assert projected.__suppress_context__ is True
+
+
 def test_translated_error_rejects_unreviewed_context_without_public_cause() -> None:
     class _PrivateExecutionError(Exception):
         pass
@@ -2184,11 +2314,13 @@ def test_only_migrated_feature_runtime_reads_private_backend() -> None:
         package / "client.py",  # annotation-only declaration
         package / "_label_service.py",
         package / "_notebooks.py",
+        package / "_notebook_guide_service.py",
         package / "_notebook_mutation_service.py",
         package / "_mutation_services.py",
         package / "_note_service.py",
         package / "_read_services.py",
         package / "_sharing.py",
+        package / "_sharing_manager.py",
         package / "_sharing_service.py",
         package / "_research.py",
         package / "_research_service.py",

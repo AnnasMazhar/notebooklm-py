@@ -500,12 +500,10 @@ async def test_mcp_source_wait_single_over_vcr() -> None:
 async def test_mcp_source_wait_all_over_vcr() -> None:
     """``source_wait`` (no ``source``) waits for every source in the notebook.
 
-    The all-sources branch lists sources (``GET_NOTEBOOK`` → ``rLM1Ne``) then
-    fans out a per-source wait on each id. Every recorded source is already
-    ``READY``, so they all resolve on the first poll and the tool returns the
-    unified aggregate (``ok`` True, the sources in ``ready``, error buckets
-    empty). ``allow_playback_repeats`` lets the per-source polls re-match the
-    single recorded ``rLM1Ne`` interaction.
+    The all-sources branch reads one shared source snapshot (``GET_NOTEBOOK`` →
+    ``rLM1Ne``) per poll tick. Every recorded source is already ``READY``, so the
+    first snapshot resolves the aggregate (``ok`` True, the sources in ``ready``,
+    error buckets empty).
 
     The lone ``web_page`` source triggers the #1698 content-sanity ``GET_SOURCE``
     (``hizoJc``) fetch (the 7 ``pasted_text`` sources are skipped by the kind gate);

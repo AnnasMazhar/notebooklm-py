@@ -90,15 +90,13 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "NotebookService",
         "account",
         "Takes an unconditional LIST_NOTEBOOKS baseline, creates once, probes on ambiguity, and "
-        "may re-read once to backfill null timestamps in adapter workflows.",
+        "may read account settings and list again only to diagnose quota failures.",
         _p("notebooks", "create"),
         (
             _b(RPCMethod.CREATE_NOTEBOOK),
             _b(RPCMethod.LIST_NOTEBOOKS),
-            _b(RPCMethod.GET_NOTEBOOK),
             _b(RPCMethod.GET_USER_SETTINGS),
         ),
-        recency_effect="zero or one GET_NOTEBOOK timestamp backfill after create",
     ),
     OperationSpec(
         Operation.NOTEBOOK_UPDATE,
@@ -122,7 +120,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.NOTEBOOK_REMOVE_RECENT,
         CallPolicy.MUTATION,
-        "NotebookService",
+        "NotebookMutationService",
         "notebook",
         "Removes the notebook from the account's Recent list.",
         _p("notebooks", "remove_from_recent"),
@@ -131,7 +129,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.NOTEBOOK_SUMMARIZE,
         CallPolicy.STATEFUL_START,
-        "NotebookService",
+        "NotebookGuideService",
         "notebook",
         "Generates the notebook guide and projects its summary field.",
         _p("notebooks", "get_summary"),
@@ -140,7 +138,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.NOTEBOOK_DESCRIBE,
         CallPolicy.STATEFUL_START,
-        "NotebookService",
+        "NotebookGuideService",
         "notebook",
         "Uses the same guide generation response and projects description/topics.",
         _p("notebooks", "get_description"),
@@ -200,7 +198,10 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
             _b(RPCMethod.GET_NOTEBOOK),
             _b(RPCMethod.UPDATE_SOURCE),
         ),
-        recency_effect="one unconditional pre-create GET_NOTEBOOK; probes add further reads",
+        recency_effect=(
+            "one unconditional pre-create GET_NOTEBOOK; ambiguity probes add reads, and "
+            "wait=True adds one source snapshot per facade-owned readiness poll tick"
+        ),
     ),
     OperationSpec(
         Operation.SOURCE_ADD_URL_BATCH,
@@ -225,10 +226,10 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "notebook",
         "Creates text without a safe probe key; idempotent=True is rejected up front.",
         _p("sources", "add_text"),
-        (_b(RPCMethod.ADD_SOURCE, "text"), _b(RPCMethod.GET_NOTEBOOK)),
+        (_b(RPCMethod.ADD_SOURCE, "text"),),
         recency_effect=(
-            "zero GET_NOTEBOOK calls when wait=False; one source snapshot per readiness poll "
-            "tick when wait=True"
+            "source.add_text itself issues no GET_NOTEBOOK; wait=True composes source.wait, "
+            "which reads one snapshot per facade-owned readiness tick"
         ),
     ),
     OperationSpec(
@@ -243,7 +244,10 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
             _b(RPCMethod.GET_NOTEBOOK),
             _b(RPCMethod.UPDATE_SOURCE),
         ),
-        recency_effect="one unconditional pre-create GET_NOTEBOOK; probes add further reads",
+        recency_effect=(
+            "one unconditional pre-create GET_NOTEBOOK; ambiguity probes add reads, and "
+            "wait=True adds one source snapshot per facade-owned readiness poll tick"
+        ),
     ),
     OperationSpec(
         Operation.SOURCE_ADD_FILE,
@@ -260,7 +264,11 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
             _b(RPCMethod.UPDATE_SOURCE),
         ),
         ("resumable_upload", "drive_https_download"),
-        recency_effect="one unconditional pre-create GET_NOTEBOOK; probes add further reads",
+        recency_effect=(
+            "one unconditional pre-create GET_NOTEBOOK; registration/reconciliation probes add "
+            "reads, a custom title may poll registration even when wait=False, and wait=True "
+            "adds one source snapshot per facade-owned readiness poll tick"
+        ),
     ),
     OperationSpec(
         Operation.SOURCE_DELETE,
@@ -321,12 +329,18 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     ),
     OperationSpec(
         Operation.SOURCE_WAIT,
-        CallPolicy.READ,
+        CallPolicy.MUTATION,
         "SourceService",
         "notebook+source-set",
-        "Polls the notebook source snapshot; a multi-wait performs one snapshot per poll tick.",
+        "Fetches one semantic notebook source snapshot per invocation; SourcesAPI/SourcePoller "
+        "owns the loop and shares each tick across multi-source waits.",
         _p(
             "sources",
+            "add_drive",
+            "add_drive_file",
+            "add_file",
+            "add_text",
+            "add_url",
             "wait_until_ready",
             "wait_all_until_ready",
             "wait_until_registered",
@@ -334,7 +348,10 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         ),
         (_b(RPCMethod.GET_NOTEBOOK),),
         disposition=Disposition.COMPOSITE,
-        recency_effect="one GET_NOTEBOOK per poll tick (shared across multi-wait inputs)",
+        recency_effect=(
+            "one GET_NOTEBOOK per facade-owned poll tick; multi-source waits share it across "
+            "inputs and wait=True add methods compose the same snapshot operation"
+        ),
     ),
     OperationSpec(
         Operation.ARTIFACT_LIST,
@@ -982,11 +999,10 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.LEGACY_SHARE_ARTIFACT,
         CallPolicy.MUTATION,
-        "LegacyShareManager",
+        "ShareManager",
         "notebook+artifact?",
-        "Private legacy share-link mutator retained for compatibility internals.",
+        "Sets legacy notebook or artifact share-link state through the semantic backend.",
         native_bindings=(_b(RPCMethod.SHARE_ARTIFACT),),
-        disposition=Disposition.LEGACY_PRIVATE,
     ),
     OperationSpec(
         Operation.SETTINGS_GET,

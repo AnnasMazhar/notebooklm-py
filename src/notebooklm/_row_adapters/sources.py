@@ -422,8 +422,7 @@ class SourceRow:
         """Wrap an already-extracted entry (``[[id], title, metadata, ...]``).
 
         Used by callers that walked the response envelope themselves —
-        e.g. :class:`notebooklm._source.listing.SourceLister` iterating
-        over ``notebook[0][1]`` and
+        e.g. the web source snapshot codec iterating over ``notebook[0][1]`` and
         :meth:`notebooklm._notebooks.NotebooksAPI.get_source_ids`
         iterating over the same envelope. Shape is recorded as
         :attr:`SourceRowShape.ENTRY`.
@@ -479,8 +478,8 @@ class SourceRow:
     def has_id(self) -> bool:
         """Whether the row resolves to a non-empty :attr:`id`.
 
-        Used by :class:`notebooklm._source.listing.SourceLister` to skip
-        rows whose id envelopes legacy ``_extract_source_id`` would
+        Used by the source snapshot decoder to skip rows whose id envelopes
+        legacy ``_extract_source_id`` would
         have rejected (returning ``None``) — including the rare
         ``[None, True, [None]]`` drive-payload-with-``None``-inner case
         that :attr:`id` decodes to ``""``.

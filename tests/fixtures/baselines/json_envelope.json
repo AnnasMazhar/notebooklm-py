@@ -436,7 +436,7 @@
               "required_ast_fragments": [
                 "document=record.document"
               ],
-              "semantic_fingerprint": "sha256:ce402cb53639687f79157948b1236caca05fae048fb0440ed373751418a4f7fe",
+              "semantic_fingerprint": "sha256:9159b7f807076d02138c0c7f34171de13f39bdc53fddfcb8d0671ad99d1e4f2e",
               "symbol": "notebooklm._projectors.project_source_fulltext"
             },
             {
@@ -470,7 +470,7 @@
               "required_ast_fragments": [
                 "document=record.document"
               ],
-              "semantic_fingerprint": "sha256:ce402cb53639687f79157948b1236caca05fae048fb0440ed373751418a4f7fe",
+              "semantic_fingerprint": "sha256:9159b7f807076d02138c0c7f34171de13f39bdc53fddfcb8d0671ad99d1e4f2e",
               "symbol": "notebooklm._projectors.project_source_fulltext"
             },
             {
@@ -7140,7 +7140,7 @@
       }
     ],
     "transitive_helper_graph": {
-      "aggregate_fingerprint": "sha256:a5d46aaf3af06300c3ab96e64b6a89c7469776df70f0e937855bfb1d5f87ad6f",
+      "aggregate_fingerprint": "sha256:48ab09be3007bc942af1bc6236f9c0ce3d629dc55b84ed982dcf91989f17c08e",
       "edge_count": 1245,
       "node_count": 521,
       "root_count": 210,

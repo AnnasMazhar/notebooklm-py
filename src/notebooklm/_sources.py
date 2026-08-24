@@ -3,9 +3,9 @@
 import asyncio
 import builtins
 import logging
+import time
 from collections.abc import Callable, Collection
 from pathlib import Path
-from time import monotonic
 from typing import IO, Any, Final, Literal, cast
 from urllib.parse import urlparse
 
@@ -16,22 +16,31 @@ from ._backend_compat import (
     project_backend_error,
     project_source_add_failure,
 )
-from ._deadline import RuntimeDeadline
 from ._lookup import unwrap_or_raise
 from ._mutation_services import SourceUrlMutationService
-from ._projectors import project_source, project_source_fulltext, project_source_guide
+from ._projectors import (
+    project_source,
+    project_source_fulltext,
+    project_source_guide,
+    record_source,
+)
 from ._read_services import SourceReadService
 from ._runtime.config import DEFAULT_MAX_CONCURRENT_UPLOADS
 from ._source import upload as _source_upload
 from ._source.add import SourceAddService
 from ._source.batch import SourceUrlBatchItem
 from ._source.content import SourceContentRenderer
-from ._source.listing import SourceLister, _snapshot_enum_filter
-from ._source.polling import SourcePoller, SourceWaitResult
+from ._source.listing import _snapshot_enum_filter
+from ._source.polling import SourcePoller
 from ._source.upload import SourceUploadPipeline
 from ._source_service import SourceService
 from ._types.research import SourceGuide
-from .exceptions import SourceAddError, SourceNotFoundError
+from .exceptions import (
+    SourceAddError,
+    SourceNotFoundError,
+    SourceProcessingError,
+    SourceTimeoutError,
+)
 from .rpc.types import source_status_to_str
 from .types import (
     Source,
@@ -72,9 +81,8 @@ class SourcesAPI:
         """Initialize the sources API.
 
         Args:
-            rpc: The legacy source-workflow RPC capability retained for list/wait
-                helpers and by the backend-owned upload collaborators. Migrated
-                source variants dispatch through ``_backend`` instead.
+            rpc: Legacy compatibility handle retained for callers that introspect
+                the facade. Source workflows dispatch through ``_backend``.
                 Upload-flow capabilities (``kernel``, ``auth``, and
                 ``operation_scope``) are owned by ``uploader``.
             uploader: Stateful file-upload pipeline. REQUIRED — wired explicitly
@@ -109,20 +117,10 @@ class SourcesAPI:
         )
         self._source_service = SourceService(_backend) if _backend is not None else None
         self._adder = SourceAddService()
-        self._content = SourceContentRenderer(self._rpc, logger=logger)
-        self._lister = SourceLister(self._rpc)
-        self._poller = SourcePoller()
+        self._content = SourceContentRenderer(None, logger=logger)
         self._upload_timeout = upload_timeout
         self._max_concurrent_uploads = max_concurrent_uploads
         self._uploader = uploader
-        # Single owner for the source-lifecycle verbs: the upload pipeline reuses
-        # the SAME ``SourceLister`` / ``SourcePoller`` instances this API uses for
-        # its ``list_sources`` / ``get_source`` / ``wait_*`` verbs rather than
-        # re-constructing parallel copies (issue #1205).
-        self._uploader.configure_source_lifecycle(
-            lister=self._lister,
-            poller=self._poller,
-        )
 
     def _require_read_service(self) -> SourceReadService:
         """Return the composition-root service for the migrated read slice."""
@@ -241,11 +239,8 @@ class SourcesAPI:
         """
         list_method = self.list
         if getattr(list_method, "__func__", None) is not _ORIGINAL_SOURCES_LIST:
-            return await self._lister.get(
-                notebook_id,
-                source_id,
-                list_sources=list_method,
-            )
+            sources = await list_method(notebook_id)
+            return next((source for source in sources if source.id == source_id), None)
 
         public_error: Exception | None = None
         try:
@@ -257,6 +252,29 @@ class SourcesAPI:
 
     # Internal silent lookup for pollers/service code avoiding public ``get()`` misses.
     _get_or_none = get_or_none
+
+    async def _wait_snapshot_sources(self, notebook_id: str) -> builtins.list[Source]:
+        """Fetch one semantic snapshot for one facade-owned polling tick."""
+        list_method = self.list
+        if getattr(list_method, "__func__", None) is not _ORIGINAL_SOURCES_LIST:
+            return await list_method(notebook_id)
+        try:
+            result = await self._require_source_service().wait_snapshot(notebook_id)
+        except BackendError as error:
+            public_error = project_backend_error(error)
+            raise public_error from None
+        return [project_source(record) for record in result.sources]
+
+    async def _wait_snapshot_source(
+        self,
+        notebook_id: str,
+        source_id: str,
+    ) -> Source | None:
+        get_method = self.get_or_none
+        if getattr(get_method, "__func__", None) is not _ORIGINAL_SOURCES_GET_OR_NONE:
+            return await get_method(notebook_id, source_id)
+        sources = await self._wait_snapshot_sources(notebook_id)
+        return next((source for source in sources if source.id == source_id), None)
 
     async def wait_until_ready(
         self,
@@ -301,7 +319,7 @@ class SourcesAPI:
             )
             # Now safe to use in chat/artifacts
         """
-        return await self._poller.wait_until_ready(
+        return await SourcePoller().wait_until_ready(
             notebook_id,
             source_id,
             timeout=timeout,
@@ -309,9 +327,9 @@ class SourcesAPI:
             max_interval=max_interval,
             backoff_factor=backoff_factor,
             transient_error_types=transient_error_types,
-            get_source=self.get_or_none,
+            get_source=self._wait_snapshot_source,
             sleep=asyncio.sleep,
-            monotonic=monotonic,
+            monotonic=time.monotonic,
             logger=logger,
         )
 
@@ -324,7 +342,7 @@ class SourcesAPI:
         max_interval: float = 10.0,
         backoff_factor: float = 1.5,
         transient_error_types: tuple[int | None, ...] | None = None,
-    ) -> builtins.list[SourceWaitResult]:
+    ) -> builtins.list[Source | SourceNotFoundError | SourceProcessingError | SourceTimeoutError]:
         """Wait for many sources with ONE notebook snapshot per poll tick.
 
         Returns one result per id, in input order; terminal per-source failures
@@ -332,7 +350,7 @@ class SourcesAPI:
         :class:`SourceTimeoutError`) are RETURNED, not raised. See
         :meth:`SourcePoller.wait_all_until_ready`.
         """
-        return await self._poller.wait_all_until_ready(
+        return await SourcePoller().wait_all_until_ready(
             notebook_id,
             source_ids,
             timeout=timeout,
@@ -340,9 +358,9 @@ class SourcesAPI:
             max_interval=max_interval,
             backoff_factor=backoff_factor,
             transient_error_types=transient_error_types,
-            list_sources=self.list,
+            list_sources=self._wait_snapshot_sources,
             sleep=asyncio.sleep,
-            monotonic=monotonic,
+            monotonic=time.monotonic,
             logger=logger,
         )
 
@@ -385,7 +403,7 @@ class SourcesAPI:
             SourceProcessingError: If source reports a terminal ERROR for a
                 non-transient source type.
         """
-        return await self._poller.wait_until_registered(
+        return await SourcePoller().wait_until_registered(
             notebook_id,
             source_id,
             timeout=timeout,
@@ -393,9 +411,9 @@ class SourcesAPI:
             max_interval=max_interval,
             backoff_factor=backoff_factor,
             transient_error_types=transient_error_types,
-            get_source=self.get_or_none,
+            get_source=self._wait_snapshot_source,
             sleep=asyncio.sleep,
-            monotonic=monotonic,
+            monotonic=time.monotonic,
             logger=logger,
         )
 
@@ -406,13 +424,13 @@ class SourcesAPI:
         timeout: float = 120.0,
         **kwargs: Any,
     ) -> builtins.list[Source]:
-        """Wait for multiple sources to become ready in parallel.
+        """Wait for multiple sources using one shared notebook snapshot per tick.
 
         Args:
             notebook_id: The notebook ID.
             source_ids: List of source IDs to wait for.
-            timeout: Per-source timeout in seconds.
-            **kwargs: Additional arguments passed to wait_until_ready().
+            timeout: Shared polling timeout in seconds.
+            **kwargs: Polling options accepted by :meth:`wait_until_ready`.
 
         Returns:
             List of ready Source objects in the same order as source_ids.
@@ -431,14 +449,33 @@ class SourcesAPI:
                 nb_id, [s.id for s in sources]
             )
         """
-        return await self._poller.wait_for_sources(
+        allowed_options = {
+            "initial_interval",
+            "max_interval",
+            "backoff_factor",
+            "transient_error_types",
+        }
+        unexpected = next((name for name in kwargs if name not in allowed_options), None)
+        if unexpected is not None:
+            raise TypeError(
+                f"SourcesAPI.wait_for_sources() got an unexpected keyword argument {unexpected!r}"
+            )
+
+        outcomes = await SourcePoller().wait_all_until_ready(
             notebook_id,
             source_ids,
             timeout=timeout,
-            wait_until_ready=self.wait_until_ready,
+            initial_interval=kwargs.get("initial_interval", 1.0),
+            max_interval=kwargs.get("max_interval", 10.0),
+            backoff_factor=kwargs.get("backoff_factor", 1.5),
+            transient_error_types=kwargs.get("transient_error_types"),
+            fail_fast=True,
+            list_sources=self._wait_snapshot_sources,
+            sleep=asyncio.sleep,
+            monotonic=time.monotonic,
             logger=logger,
-            **kwargs,
         )
+        return [cast(Source, outcome) for outcome in outcomes]
 
     async def add_url(
         self,
@@ -479,15 +516,33 @@ class SourcesAPI:
                 wait=wait,
                 wait_timeout=wait_timeout,
                 requested_title=title,
-                # ``wait_timeout`` has always budgeted readiness polling, not
-                # baseline/create time. With no outer semantic deadline the
-                # backend poller starts that relative budget after creation.
+                # The public facade remains the sole readiness-polling authority.
                 deadline=None,
             )
         except BackendError as error:
             public_error = project_backend_error(error)
         else:
-            return project_source(result.source)
+            source = project_source(result.source)
+            if wait:
+                source = await self.wait_until_ready(
+                    notebook_id,
+                    source.id,
+                    timeout=wait_timeout,
+                )
+                requested_title = title.strip() if title else ""
+                if requested_title and source.title != requested_title:
+                    try:
+                        finalized = await self._require_url_mutation_service().finalize_title(
+                            notebook_id,
+                            record_source(source),
+                            requested_title,
+                        )
+                    except BackendError as error:
+                        public_error = project_backend_error(error)
+                        raise public_error from None
+                    return project_source(finalized.source)
+                return source
+            return source
         # Raise outside the BackendError catch frame so the reconstructed public
         # cause/context graph is not replaced by the private compatibility error.
         assert public_error is not None
@@ -579,12 +634,19 @@ class SourcesAPI:
                 wait=wait,
                 wait_timeout=wait_timeout,
                 idempotent=idempotent,
-                deadline=(RuntimeDeadline.start(wait_timeout) if wait else None),
+                deadline=None,
             )
         except BackendError as error:
             public_error = project_backend_error(error)
         else:
-            return project_source(result.source)
+            source = project_source(result.source)
+            if wait:
+                return await self.wait_until_ready(
+                    notebook_id,
+                    source.id,
+                    timeout=wait_timeout,
+                )
+            return source
         raise public_error from None
 
     async def add_file(
@@ -647,7 +709,33 @@ class SourcesAPI:
         except BackendError as error:
             public_error = project_backend_error(error)
         else:
-            return project_source(result.source)
+            source = project_source(result.source)
+            if wait:
+                if result.transient_error_types is None:
+                    source = await self.wait_until_ready(
+                        notebook_id, source.id, timeout=wait_timeout
+                    )
+                else:
+                    source = await self.wait_until_ready(
+                        notebook_id,
+                        source.id,
+                        timeout=wait_timeout,
+                        transient_error_types=result.transient_error_types,
+                    )
+                requested_title = title.strip() if title else ""
+                if requested_title and source.title != requested_title:
+                    try:
+                        finalized = await self._require_source_service().finalize_file_title(
+                            notebook_id,
+                            record_source(source),
+                            requested_title,
+                        )
+                    except BackendError as error:
+                        public_error = project_backend_error(error)
+                        raise public_error from None
+                    return project_source(finalized.source)
+                return source
+            return source
         raise public_error from None
 
     async def add_drive(
@@ -692,12 +780,32 @@ class SourcesAPI:
                 mime_type=mime_type,
                 wait=wait,
                 wait_timeout=wait_timeout,
-                deadline=(RuntimeDeadline.start(wait_timeout) if wait else None),
+                deadline=None,
             )
         except BackendError as error:
             public_error = project_backend_error(error)
         else:
-            return project_source(result.source)
+            source = project_source(result.source)
+            if wait:
+                source = await self.wait_until_ready(
+                    notebook_id,
+                    source.id,
+                    timeout=wait_timeout,
+                )
+                requested_title = title.strip()
+                if requested_title and source.title != requested_title:
+                    try:
+                        finalized = await self._require_source_service().finalize_drive_title(
+                            notebook_id,
+                            record_source(source),
+                            requested_title,
+                        )
+                    except BackendError as error:
+                        public_error = project_backend_error(error)
+                        raise public_error from None
+                    return project_source(finalized.source)
+                return source
+            return source
         raise public_error from None
 
     async def add_drive_file(
@@ -745,7 +853,33 @@ class SourcesAPI:
         except BackendError as error:
             public_error = project_backend_error(error)
         else:
-            return project_source(result.source)
+            source = project_source(result.source)
+            if wait:
+                if result.transient_error_types is None:
+                    source = await self.wait_until_ready(
+                        notebook_id, source.id, timeout=wait_timeout
+                    )
+                else:
+                    source = await self.wait_until_ready(
+                        notebook_id,
+                        source.id,
+                        timeout=wait_timeout,
+                        transient_error_types=result.transient_error_types,
+                    )
+                requested_title = title.strip() if title else ""
+                if requested_title and source.title != requested_title:
+                    try:
+                        finalized = await self._require_source_service().finalize_file_title(
+                            notebook_id,
+                            record_source(source),
+                            requested_title,
+                        )
+                    except BackendError as error:
+                        public_error = project_backend_error(error)
+                        raise public_error from None
+                    return project_source(finalized.source)
+                return source
+            return source
         raise public_error from None
 
     async def delete(self, notebook_id: str, source_id: str) -> None:
@@ -1002,34 +1136,12 @@ class SourcesAPI:
         return self._adder.is_valid_video_id(video_id)
 
     async def _add_youtube_source(self, notebook_id: str, url: str) -> Any:
-        """Add a YouTube video as a source.
-
-        ``disable_internal_retries=True``: ADD_SOURCE is a
-        mutating RPC that may have committed server-side even if the
-        client sees a 5xx / network error. The probe-then-retry loop
-        in ``add_url`` owns recovery via ``idempotent_create``.
-        """
-        # allow_null=False (mirrors _register_file_source): ADD_SOURCE returns the
-        # new source row on success. A null result with a status code at wrb.fr[5]
-        # is the #407 / #474 mode; allow_null=True would swallow that diagnostic,
-        # so the decoder raises RPCError with the code for add_url to wrap.
-        return await self._adder.add_youtube_source(
-            notebook_id,
-            url,
-            rpc=self._rpc,
-        )
+        """Compatibility helper delegating to the semantic URL workflow."""
+        return await self.add_url(notebook_id, url)
 
     async def _add_url_source(self, notebook_id: str, url: str) -> Any:
-        """Add a regular URL as a source.
-
-        ``disable_internal_retries=True``: see
-        ``_add_youtube_source`` for the rationale.
-        """
-        return await self._adder.add_url_source(
-            notebook_id,
-            url,
-            rpc=self._rpc,
-        )
+        """Compatibility helper delegating to the semantic URL workflow."""
+        return await self.add_url(notebook_id, url)
 
     async def _register_file_source(self, notebook_id: str, filename: str) -> str:
         """Register a file source intent and get SOURCE_ID."""
@@ -1115,3 +1227,4 @@ class SourcesAPI:
 
 
 _ORIGINAL_SOURCES_LIST: Final = SourcesAPI.list
+_ORIGINAL_SOURCES_GET_OR_NONE: Final = SourcesAPI.get_or_none

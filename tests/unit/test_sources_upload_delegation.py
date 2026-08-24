@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -80,11 +81,19 @@ class _RecordingPipeline:
     def configure_source_lifecycle(self, **kwargs: object) -> None:
         self.calls["configure_source_lifecycle"] = ((), kwargs)
 
+    def configure_source_backend(self, **kwargs: object) -> None:
+        self.calls["configure_source_backend"] = ((), kwargs)
+
     def _record(self, name: str):
         async def _call(*args: object, **kwargs: object) -> object:
             self.calls[name] = (args, kwargs)
             if name == "add_file":
                 return Source(id="uploaded", title="Report")
+            if name == "_add_file_result":
+                return SimpleNamespace(
+                    source=Source(id="uploaded", title="Report"),
+                    transient_error_types=(),
+                )
             return f"<{name}-result>"
 
         return _call
@@ -155,9 +164,10 @@ async def test_uploader_is_the_pipeline() -> None:
 
 
 @pytest.mark.asyncio
-async def test_add_file_delegates_to_pipeline() -> None:
-    """SourcesAPI.add_file forwards its args verbatim to the pipeline."""
+async def test_add_file_delegates_create_then_waits_in_facade() -> None:
+    """The upload stays non-polling and the facade owns readiness."""
     api, pipeline = _make_api_with_recording_pipeline()
+    api.wait_until_ready = AsyncMock(return_value=Source(id="uploaded", title="Report"))
 
     def progress(_done: int, _total: int) -> None:
         return None
@@ -173,17 +183,20 @@ async def test_add_file_delegates_to_pipeline() -> None:
     )
 
     assert (result.id, result.title) == ("uploaded", "Report")
-    # SourcesAPI.add_file forwards notebook_id / file_path positionally and
-    # mime_type / wait / wait_timeout / title / on_progress as keywords.
-    args, kwargs = pipeline.calls["add_file"]
+    # The semantic upload handler never polls.  It also defers a custom title
+    # so the facade preserves the legacy create -> wait -> rename ordering.
+    args, kwargs = pipeline.calls["_add_file_result"]
     assert args == ("nb-1", "/tmp/report.pdf")
     assert kwargs == {
         "mime_type": "application/pdf",
-        "wait": True,
+        "wait": False,
         "wait_timeout": 42.0,
-        "title": "Report",
+        "title": None,
         "on_progress": progress,
     }
+    api.wait_until_ready.assert_awaited_once_with(
+        "nb-1", "uploaded", timeout=42.0, transient_error_types=()
+    )
     # The public surface intentionally does NOT expose the pipeline's
     # ``upload_index`` knob; guard against it being forwarded by accident.
     assert "upload_index" not in kwargs

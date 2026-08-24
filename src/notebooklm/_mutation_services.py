@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from ._backend import BackendAdapter
 from ._deadline import RuntimeDeadline
-from ._records import SOURCE_ADD_URL_DEF, SourceAddUrlInput, SourceAddUrlResult
+from ._records import (
+    SOURCE_ADD_URL_DEF,
+    SourceAddUrlInput,
+    SourceAddUrlResult,
+    SourceRecord,
+)
 
 
 class SourceUrlMutationService:
@@ -36,6 +41,25 @@ class SourceUrlMutationService:
                 requested_title=requested_title,
             ),
             deadline=deadline,
+        )
+
+    async def finalize_title(
+        self,
+        notebook_id: str,
+        source: SourceRecord,
+        requested_title: str,
+    ) -> SourceAddUrlResult:
+        """Apply a waited URL title under the original add operation."""
+
+        return await self._backend.invoke(
+            SOURCE_ADD_URL_DEF,
+            SourceAddUrlInput(
+                notebook_id=notebook_id,
+                url="",
+                requested_title=requested_title,
+                finalize_source=source,
+            ),
+            deadline=None,
         )
 
 

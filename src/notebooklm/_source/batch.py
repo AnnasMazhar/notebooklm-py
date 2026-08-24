@@ -18,22 +18,20 @@ from ipaddress import IPv6Address, ip_address
 from urllib.parse import urlsplit, urlunsplit
 
 from .._idempotency import mark_unconfirmed
-from .._projectors import project_source
-from .._row_adapters.sources import unwrap_add_source_rows
-from .._runtime.contracts import RpcCaller
-from .._web.codec.sources import decode_source, encode_add_url_batch
 from ..exceptions import (
     AuthError,
+    DecodingError,
     NetworkError,
     RateLimitError,
     ServerError,
     SourceAddError,
 )
-from ..rpc import RPCError, RPCMethod
+from ..rpc import RPCError
 from ..rpc.types import GrpcStatusCode, SourceStatus, normalize_rpc_code
 from ..types import Source
 
 ListSources = Callable[..., Awaitable[list[Source]]]
+CreateSources = Callable[[str, Sequence[str], Sequence[bool]], Awaitable[list[Source]]]
 _PERCENT_ESCAPE = re.compile(r"%[0-9a-fA-F]{2}")
 
 
@@ -132,7 +130,7 @@ class SourceBatchAddService:
         notebook_id: str,
         urls: Sequence[str],
         *,
-        rpc: RpcCaller,
+        create_sources: CreateSources,
         list_sources: ListSources,
         extract_youtube_video_id: Callable[[str], str | None],
         logger: logging.Logger,
@@ -149,23 +147,12 @@ class SourceBatchAddService:
         if not urls:
             return []
 
-        params = encode_add_url_batch(
-            notebook_id,
-            list(urls),
-            youtube_flags=[extract_youtube_video_id(url) is not None for url in urls],
-        )
         rpc_error: RPCError | None = None
         try:
-            payload = await rpc.rpc_call(
-                RPCMethod.ADD_SOURCE,
-                params,
-                source_path=f"/notebook/{notebook_id}",
-                allow_null=False,
-                disable_internal_retries=True,
-                # Reuse the established URL idempotency-registry variant while
-                # explicitly disabling its internal replay above.  The outer
-                # single-item probe loop is intentionally not used here.
-                operation_variant="url",
+            sources = await create_sources(
+                notebook_id,
+                urls,
+                [extract_youtube_video_id(url) is not None for url in urls],
             )
         except AuthError:
             # Authentication rejection cannot have committed the write and
@@ -182,6 +169,12 @@ class SourceBatchAddService:
                 f"unknown subset may have committed; no automatic retry was attempted. {original}",
             )
             raise
+        except DecodingError as exc:
+            raise _unresolved_batch_error(
+                urls,
+                "The create response could not be decoded, so the committed subset is unknown.",
+                exc,
+            ) from exc
         except RPCError as exc:
             # Live-characterized all-failed URL batches use the same explicit
             # FAILED_PRECONDITION status as a single rejected URL.  A generic
@@ -200,21 +193,7 @@ class SourceBatchAddService:
             # Preserve the existing per-item adapter contract instead of
             # turning an all-bad input batch into a top-level failure.
             rpc_error = exc
-            payload = []
-
-        try:
-            rows = [] if rpc_error is not None else unwrap_add_source_rows(payload)
-            sources = [
-                project_source(decode_source(row, method_id=RPCMethod.ADD_SOURCE.value))
-                for row in rows
-            ]
-        except Exception as exc:  # noqa: BLE001 - strict decode boundary; fail closed
-            raise _unresolved_batch_error(
-                urls,
-                "The batch response could not be decoded, so its committed subset is unknown; "
-                "no automatic retry was attempted.",
-                exc,
-            ) from exc
+            sources = []
 
         # ``Source.from_api_response`` is deliberately tolerant on listing
         # paths, but a mutating response cannot use that degradation policy:
@@ -224,7 +203,6 @@ class SourceBatchAddService:
         if rpc_error is None and any(not source.id for source in sources):
             error = RPCError(
                 "ADD_SOURCE returned no decodable source rows with non-empty ids",
-                method_id=RPCMethod.ADD_SOURCE.value,
             )
             raise _unresolved_batch_error(
                 urls,
@@ -236,7 +214,6 @@ class SourceBatchAddService:
         if len(sources) > len(urls):
             error = RPCError(
                 f"ADD_SOURCE returned {len(sources)} rows for {len(urls)} requests",
-                method_id=RPCMethod.ADD_SOURCE.value,
             )
             raise _unresolved_batch_error(
                 urls,
@@ -266,7 +243,6 @@ class SourceBatchAddService:
                 if response_identity != requested_identity:
                     error = RPCError(
                         f"ADD_SOURCE returned unexpected positional URL {source.url!r}",
-                        method_id=RPCMethod.ADD_SOURCE.value,
                     )
                     raise _unresolved_batch_error(
                         urls,
@@ -294,7 +270,6 @@ class SourceBatchAddService:
             if identity not in requested_counts:
                 error = RPCError(
                     f"ADD_SOURCE returned an unrequested URL {source.url!r}",
-                    method_id=RPCMethod.ADD_SOURCE.value,
                 )
                 raise _unresolved_batch_error(
                     urls,
@@ -310,7 +285,6 @@ class SourceBatchAddService:
         if sources_without_url:
             error = RPCError(
                 "ADD_SOURCE returned sparse source rows without URL metadata",
-                method_id=RPCMethod.ADD_SOURCE.value,
             )
             raise _unresolved_batch_error(
                 urls,
@@ -328,7 +302,6 @@ class SourceBatchAddService:
             if success_count > count:
                 error = RPCError(
                     f"ADD_SOURCE returned {success_count} rows for {count} request(s) of {url!r}",
-                    method_id=RPCMethod.ADD_SOURCE.value,
                 )
                 raise _unresolved_batch_error(
                     urls,
@@ -339,7 +312,6 @@ class SourceBatchAddService:
             if count > 1 and 0 < success_count < count:
                 error = RPCError(
                     f"ADD_SOURCE partially admitted duplicate URL {url!r}",
-                    method_id=RPCMethod.ADD_SOURCE.value,
                 )
                 raise _unresolved_batch_error(
                     [url] * count,

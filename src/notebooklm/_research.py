@@ -13,13 +13,13 @@ operations encode and decode lives in ``_web/codec/research.py``.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 from . import research as _research_pub
 from ._backend import BackendAdapter
-from ._notebook_metadata import NotebookSourceLister, create_default_source_lister
+from ._notebook_metadata import NotebookSourceLister
 from ._research_service import _INITIAL_INTERVAL_UNSET, ResearchService
 from ._runtime.config import AUTO_READ_TIMEOUT, DEFAULT_TIMEOUT
-from ._runtime.contracts import RpcCaller
 from ._types.research import (
     ResearchSource,
     ResearchSourceInput,
@@ -37,6 +37,17 @@ __all__ = [
     "ResearchStatus",
     "ResearchTask",
 ]
+
+
+class _MissingSourceLister:
+    """Standalone seam that fails only when import verification needs sources."""
+
+    async def list(self, notebook_id: str, *, strict: bool = False) -> list[Any]:
+        del notebook_id, strict
+        raise RuntimeError(
+            "ResearchAPI.import_sources_with_verification requires a "
+            "composition-injected source lister"
+        )
 
 
 class ResearchAPI:
@@ -62,7 +73,6 @@ class ResearchAPI:
 
     def __init__(
         self,
-        rpc: RpcCaller,
         *,
         source_lister: NotebookSourceLister | None = None,
         base_timeout: float | None = DEFAULT_TIMEOUT,
@@ -72,14 +82,11 @@ class ResearchAPI:
         """Initialize the research API.
 
         Args:
-            rpc: RPC dispatch surface (typically the shared client session).
-                Research operations themselves run on the semantic backend; this
-                remains the construction seam for the default source lister.
             base_timeout: The owning client's configured ``timeout=``. The
                 batch-scaled IMPORT_RESEARCH window is floored at it so a
                 caller's larger explicit budget is never silently shortened
-                (#2205). Standalone ``ResearchAPI(rpc)`` keeps the historical
-                behavior via the shared 30 s default.
+                (#2205). Standalone construction keeps the historical behavior
+                via the shared 30 s default.
             import_research_timeout: Per-attempt read window for
                 IMPORT_RESEARCH, read exactly like ``chat_timeout``: unset
                 (default) keeps the batch-scaled, ``base_timeout``-floored
@@ -88,15 +95,14 @@ class ResearchAPI:
             source_lister: Optional :class:`NotebookSourceLister` used by
                 :meth:`import_sources_with_verification` to snapshot baseline
                 source IDs before the import call and probe sources on
-                timeout. When omitted, a default lister is built from
-                ``rpc`` — mirrors the ``NotebooksAPI`` wiring pattern, so
-                ``ResearchAPI(rpc)`` works standalone with no cross-API
-                dependency.
+                timeout. Production construction injects this dependency at
+                the client composition root.
             _backend: Private semantic backend supplied by the client
                 composition root.
         """
-        self._rpc = rpc
-        self._source_lister = source_lister or create_default_source_lister(self._rpc)
+        self._source_lister: NotebookSourceLister = (
+            source_lister if source_lister is not None else _MissingSourceLister()
+        )
         self._base_timeout = base_timeout
         self._import_research_timeout = import_research_timeout
         self._service = (

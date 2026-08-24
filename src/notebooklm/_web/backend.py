@@ -72,9 +72,13 @@ from .._records import (
     NotebookDeleteResult,
     NotebookGetInput,
     NotebookGetResult,
+    NotebookGuideInput,
+    NotebookGuideResult,
     NotebookListInput,
     NotebookListResult,
     NotebookRecord,
+    NotebookRemoveRecentInput,
+    NotebookRemoveRecentResult,
     NotebookUpdateInput,
     NotebookUpdateResult,
     NoteCreateInput,
@@ -99,8 +103,6 @@ from .._row_adapters.artifacts import (
 )
 from .._rpc_executor import RpcExecutor
 from .._runtime.config import assert_resolved_read_timeout
-from .._source.listing import SourceLister
-from .._source.upload_payloads import build_template_block
 from .._transport_errors import (
     TransportAuthExpired,
     TransportRateLimited,
@@ -141,13 +143,19 @@ from .codec.mind_maps import (
     decode_generated_tree,
     decode_interactive_tree,
 )
-from .codec.notebooks import decode_notebook
+from .codec.notebooks import (
+    decode_notebook,
+    decode_notebook_description,
+    encode_notebook_guide,
+    encode_remove_from_recent,
+)
 from .codec.notes import (
     decode_created_note,
     decode_note,
     decode_note_backed_mind_maps,
     decode_notes,
 )
+from .codec.suggestions import decode_prompt_source_ids
 from .error_policy import SAFE_REASON_DIAGNOSTICS, WEB_ERROR_REASONS
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 
@@ -170,6 +178,7 @@ _CHAT_OPERATIONS = frozenset(
         Operation.CHAT_SAVE_NOTE,
     }
 )
+
 
 def _capture_public_failure(
     exc: Exception,
@@ -501,6 +510,11 @@ class WebRpcBackend(ChatWebHandlers):
         self._source_uploader = source_uploader
         if self._source_uploader is not None:
             self._source_uploader.configure_source_limit_lookup(self._source_file_limit)
+            self._source_uploader.configure_source_backend(
+                list_sources=self._source_upload_list,
+                register_file_source=self._source_register_file,
+                rename_source=self._source_upload_rename,
+            )
         self._chat_transport = chat_transport
         self._chat_reqid = chat_reqid
         self._chat_timeout = chat_timeout
@@ -517,14 +531,6 @@ class WebRpcBackend(ChatWebHandlers):
     @property
     def capabilities(self) -> BackendCapabilities:
         return self._capabilities
-
-    def _source_caller(
-        self,
-        deadline: RuntimeDeadline | None,
-        operation: Operation,
-    ) -> _DeadlineRpcCaller:
-        """Bind preserved source collaborators to this operation/deadline pair."""
-        return _DeadlineRpcCaller(self, deadline, operation)
 
     def _capture_public_failure(
         self,
@@ -683,12 +689,13 @@ class WebRpcBackend(ChatWebHandlers):
         value: NotebookListInput,
         *,
         deadline: RuntimeDeadline | None,
+        operation: Operation = Operation.NOTEBOOK_LIST,
     ) -> NotebookListResult:
         del value
         result = await self._rpc_call(
             RPCMethod.LIST_NOTEBOOKS,
             [None, 1, None, [2]],
-            operation=Operation.NOTEBOOK_LIST,
+            operation=operation,
             deadline=deadline,
         )
         if not result:
@@ -724,6 +731,7 @@ class WebRpcBackend(ChatWebHandlers):
             baseline = await self._notebook_list(
                 NotebookListInput(),
                 deadline=deadline,
+                operation=Operation.NOTEBOOK_CREATE,
             )
             baseline_ids = {notebook.id for notebook in baseline.notebooks}
         except Exception as exc:
@@ -759,7 +767,13 @@ class WebRpcBackend(ChatWebHandlers):
                 current = await self._notebook_list(
                     NotebookListInput(),
                     deadline=deadline,
+                    operation=Operation.NOTEBOOK_CREATE,
                 )
+            except RPCTimeoutError:
+                # The outer semantic dispatch owns timeout translation. Let it
+                # retain notebook.create attribution and mark the post-write
+                # reconciliation outcome unknown.
+                raise
             except (AuthError, RateLimitError, ServerError, NetworkError) as exc:
                 notebook_logger.warning(
                     "create: probe list() failed with transport/auth error; "
@@ -851,7 +865,11 @@ class WebRpcBackend(ChatWebHandlers):
         if limit is None:
             return None
         try:
-            listed = await self._notebook_list(NotebookListInput(), deadline=deadline)
+            listed = await self._notebook_list(
+                NotebookListInput(),
+                deadline=deadline,
+                operation=Operation.NOTEBOOK_CREATE,
+            )
         except Exception:
             notebook_logger.debug(
                 "Could not list notebooks after CREATE_NOTEBOOK failure; "
@@ -977,6 +995,61 @@ class WebRpcBackend(ChatWebHandlers):
         )
         return NotebookDeleteResult()
 
+    async def _notebook_remove_recent(
+        self,
+        value: NotebookRemoveRecentInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NotebookRemoveRecentResult:
+        await self._rpc_call(
+            RPCMethod.REMOVE_RECENTLY_VIEWED,
+            encode_remove_from_recent(value.notebook_id),
+            operation=Operation.NOTEBOOK_REMOVE_RECENT,
+            deadline=deadline,
+            allow_null=True,
+        )
+        return NotebookRemoveRecentResult()
+
+    async def _notebook_guide(
+        self,
+        value: NotebookGuideInput,
+        *,
+        operation: Operation,
+        deadline: RuntimeDeadline | None,
+    ) -> NotebookGuideResult:
+        result = await self._rpc_call(
+            RPCMethod.SUMMARIZE,
+            encode_notebook_guide(value.notebook_id),
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+        )
+        return NotebookGuideResult(decode_notebook_description(result))
+
+    async def _notebook_summarize(
+        self,
+        value: NotebookGuideInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NotebookGuideResult:
+        return await self._notebook_guide(
+            value,
+            operation=Operation.NOTEBOOK_SUMMARIZE,
+            deadline=deadline,
+        )
+
+    async def _notebook_describe(
+        self,
+        value: NotebookGuideInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NotebookGuideResult:
+        return await self._notebook_guide(
+            value,
+            operation=Operation.NOTEBOOK_DESCRIBE,
+            deadline=deadline,
+        )
+
     async def _notebook_get(
         self,
         value: NotebookGetInput,
@@ -990,6 +1063,9 @@ class WebRpcBackend(ChatWebHandlers):
             deadline=deadline,
             source_path=f"/notebook/{value.notebook_id}",
         )
+        source_ids = decode_prompt_source_ids(result, notebook_id=value.notebook_id)
+        if not value.include_notebook:
+            return NotebookGetResult(notebook=None, source_ids=source_ids)
         notebook_row = (
             safe_index(
                 result,
@@ -1001,11 +1077,11 @@ class WebRpcBackend(ChatWebHandlers):
             else None
         )
         if not notebook_row:
-            return NotebookGetResult(notebook=None)
+            return NotebookGetResult(notebook=None, source_ids=source_ids)
         notebook = decode_notebook(notebook_row, include_chat_settings=True)
         if not notebook.id and not notebook.title:
-            return NotebookGetResult(notebook=None)
-        return NotebookGetResult(notebook=notebook)
+            return NotebookGetResult(notebook=None, source_ids=source_ids)
+        return NotebookGetResult(notebook=notebook, source_ids=source_ids)
 
     async def _source_list(
         self,
@@ -1013,19 +1089,11 @@ class WebRpcBackend(ChatWebHandlers):
         *,
         deadline: RuntimeDeadline | None,
     ) -> SourceListResult:
-        notebook = await self._rpc_call(
-            RPCMethod.GET_NOTEBOOK,
-            [value.notebook_id, None, build_template_block(), None, 0],
+        records = await self._source_snapshot_records(
+            value.notebook_id,
             operation=Operation.SOURCE_LIST,
             deadline=deadline,
-            source_path=f"/notebook/{value.notebook_id}",
-        )
-        records = tuple(
-            SourceLister(self._executor).normalize_records(
-                value.notebook_id,
-                notebook,
-                strict=value.strict,
-            )
+            strict=value.strict,
         )
         if value.statuses is not None:
             records = tuple(record for record in records if record.status in value.statuses)
@@ -1138,14 +1206,11 @@ class WebRpcBackend(ChatWebHandlers):
         *,
         deadline: RuntimeDeadline | None,
     ) -> SourceGetResult:
-        notebook = await self._rpc_call(
-            RPCMethod.GET_NOTEBOOK,
-            [value.notebook_id, None, build_template_block(), None, 0],
+        records = await self._source_snapshot_records(
+            value.notebook_id,
             operation=Operation.SOURCE_GET,
             deadline=deadline,
-            source_path=f"/notebook/{value.notebook_id}",
         )
-        records = tuple(SourceLister(self._executor).normalize_records(value.notebook_id, notebook))
         return SourceGetResult(
             source=next((source for source in records if source.id == value.source_id), None)
         )

@@ -5,6 +5,8 @@ from __future__ import annotations
 from .._deadline import RuntimeDeadline
 from .._operations import Operation
 from .._records import (
+    LegacyShareArtifactInput,
+    LegacyShareArtifactResult,
     ShareStatusRecord,
     ShareViewScope,
     SharingGetInput,
@@ -19,6 +21,7 @@ from .._records import (
 from ..rpc import RPCMethod
 from .codec.sharing import (
     build_get_share_status_params,
+    build_legacy_share_artifact_params,
     build_share_grants_params,
     build_share_view_level_params,
     build_share_visibility_params,
@@ -29,6 +32,30 @@ from .labels import LabelSetWebHandlers
 
 class SharingWebHandlers(LabelSetWebHandlers):
     """Reusable notebook-sharing handlers mixed into the web backend."""
+
+    async def _legacy_share_artifact(
+        self,
+        value: LegacyShareArtifactInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> LegacyShareArtifactResult:
+        """Set legacy share-link state while preserving status-3/null success."""
+        await self._rpc_call(
+            RPCMethod.SHARE_ARTIFACT,
+            build_legacy_share_artifact_params(
+                value.notebook_id,
+                value.public,
+                value.artifact_id,
+            ),
+            operation=Operation.LEGACY_SHARE_ARTIFACT,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return LegacyShareArtifactResult(
+            public=value.public,
+            artifact_id=value.artifact_id,
+        )
 
     async def _sharing_status(
         self,

@@ -9,8 +9,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from notebooklm._app.errors import ErrorCategory, classify
+from notebooklm._projectors import project_source
 from notebooklm._row_adapters.sources import unwrap_add_source_rows
 from notebooklm._source.batch import SourceBatchAddService
+from notebooklm._web.codec.sources import decode_add_source_records
 from notebooklm.exceptions import (
     AuthError,
     NetworkError,
@@ -46,11 +48,18 @@ class RecordingRpc:
         self.error = error
         self.calls: list[dict[str, Any]] = []
 
-    async def rpc_call(self, method: RPCMethod, params: list[Any], **kwargs: Any) -> Any:
-        self.calls.append({"method": method, "params": params, **kwargs})
+    async def create_sources(
+        self,
+        notebook_id: str,
+        urls: list[str],
+        youtube_flags: list[bool],
+    ) -> list[Source]:
+        self.calls.append(
+            {"notebook_id": notebook_id, "urls": urls, "youtube_flags": youtube_flags}
+        )
         if self.error is not None:
             raise self.error
-        return self.result
+        return [project_source(record) for record in decode_add_source_records(self.result)]
 
 
 @pytest.mark.parametrize(
@@ -71,7 +80,7 @@ def test_unwrap_add_source_rows_accepts_known_repeated_envelopes(payload: Any) -
 
 
 @pytest.mark.asyncio
-async def test_true_batch_uses_one_add_sources_rpc_and_preserves_order() -> None:
+async def test_true_batch_uses_one_create_callback_and_preserves_order() -> None:
     urls = ["https://a.example.com", "https://b.example.com"]
     rpc = RecordingRpc([_url_row("src-a", urls[0]), _url_row("src-b", urls[1])])
     list_sources = AsyncMock()
@@ -79,7 +88,7 @@ async def test_true_batch_uses_one_add_sources_rpc_and_preserves_order() -> None
     outcomes = await SourceBatchAddService().add_urls(
         "nb-1",
         urls,
-        rpc=rpc,
+        create_sources=rpc.create_sources,
         list_sources=list_sources,
         extract_youtube_video_id=_extract_youtube_video_id,
         logger=logging.getLogger(__name__),
@@ -90,26 +99,16 @@ async def test_true_batch_uses_one_add_sources_rpc_and_preserves_order() -> None
     assert [item.error for item in outcomes] == [None, None]
     assert rpc.calls == [
         {
-            "method": RPCMethod.ADD_SOURCE,
-            "params": [
-                [
-                    [None, None, [urls[0]], None, None, None, None, None, None, None, 1],
-                    [None, None, [urls[1]], None, None, None, None, None, None, None, 1],
-                ],
-                "nb-1",
-                [2, None, None, [1, None, None, None, None, None, None, None, None, None, [1]]],
-            ],
-            "source_path": "/notebook/nb-1",
-            "allow_null": False,
-            "disable_internal_retries": True,
-            "operation_variant": "url",
+            "notebook_id": "nb-1",
+            "urls": urls,
+            "youtube_flags": [False, False],
         }
     ]
     list_sources.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_true_batch_preserves_mixed_web_page_and_youtube_wire_shapes() -> None:
+async def test_true_batch_preserves_mixed_web_page_and_youtube_intent() -> None:
     web_url = "https://example.com/article"
     youtube_url = "https://www.youtube.com/watch?v=abc123"
     rpc = RecordingRpc([_url_row("src-web", web_url), _url_row("src-yt", youtube_url)])
@@ -117,17 +116,14 @@ async def test_true_batch_preserves_mixed_web_page_and_youtube_wire_shapes() -> 
     await SourceBatchAddService().add_urls(
         "nb-1",
         [web_url, youtube_url],
-        rpc=rpc,
+        create_sources=rpc.create_sources,
         list_sources=AsyncMock(),
         extract_youtube_video_id=lambda url: "abc123" if url == youtube_url else None,
         logger=logging.getLogger(__name__),
     )
 
-    specs = rpc.calls[0]["params"][0]
-    assert specs == [
-        [None, None, [web_url], None, None, None, None, None, None, None, 1],
-        [None, None, None, None, None, None, None, [youtube_url], None, None, 1],
-    ]
+    assert rpc.calls[0]["urls"] == [web_url, youtube_url]
+    assert rpc.calls[0]["youtube_flags"] == [False, True]
 
 
 @pytest.mark.asyncio
@@ -139,7 +135,7 @@ async def test_complete_legacy_short_rows_are_zipped_positionally() -> None:
     outcomes = await SourceBatchAddService().add_urls(
         "nb-1",
         urls,
-        rpc=rpc,
+        create_sources=rpc.create_sources,
         list_sources=list_sources,
         extract_youtube_video_id=_extract_youtube_video_id,
         logger=logging.getLogger(__name__),
@@ -163,7 +159,7 @@ async def test_complete_canonicalized_urls_are_zipped_in_documented_response_ord
     outcomes = await SourceBatchAddService().add_urls(
         "nb-1",
         urls,
-        rpc=rpc,
+        create_sources=rpc.create_sources,
         list_sources=AsyncMock(),
         extract_youtube_video_id=lambda url: (
             "abc123" if "youtu.be/abc123" in url or "v=abc123" in url else None
@@ -201,7 +197,7 @@ async def test_complete_response_with_wrong_positional_identity_fails_closed(
         await SourceBatchAddService().add_urls(
             "nb-1",
             urls,
-            rpc=rpc,
+            create_sources=rpc.create_sources,
             list_sources=AsyncMock(),
             extract_youtube_video_id=_extract_youtube_video_id,
             logger=logging.getLogger(__name__),
@@ -219,7 +215,7 @@ async def test_sparse_deep_row_preserves_bare_metadata_url_for_attribution() -> 
     outcomes = await SourceBatchAddService().add_urls(
         "nb-1",
         urls,
-        rpc=rpc,
+        create_sources=rpc.create_sources,
         list_sources=AsyncMock(return_value=[]),
         extract_youtube_video_id=_extract_youtube_video_id,
         logger=logging.getLogger(__name__),
@@ -239,7 +235,7 @@ async def test_sparse_canonical_youtube_url_matches_requested_video_identity() -
     outcomes = await SourceBatchAddService().add_urls(
         "nb-1",
         urls,
-        rpc=rpc,
+        create_sources=rpc.create_sources,
         list_sources=AsyncMock(return_value=[]),
         extract_youtube_video_id=lambda url: (
             "abc123" if "youtu.be/abc123" in url or "v=abc123" in url else None
@@ -276,7 +272,7 @@ async def test_sparse_equivalent_url_spellings_share_one_identity(
     outcomes = await SourceBatchAddService().add_urls(
         "nb-1",
         urls,
-        rpc=rpc,
+        create_sources=rpc.create_sources,
         list_sources=AsyncMock(return_value=[]),
         extract_youtube_video_id=_extract_youtube_video_id,
         logger=logging.getLogger(__name__),
@@ -301,7 +297,7 @@ async def test_partial_batch_reconciles_omission_and_keeps_positional_outcomes()
     outcomes = await SourceBatchAddService().add_urls(
         "nb-1",
         urls,
-        rpc=rpc,
+        create_sources=rpc.create_sources,
         list_sources=list_sources,
         extract_youtube_video_id=_extract_youtube_video_id,
         logger=logging.getLogger(__name__),
@@ -329,7 +325,7 @@ async def test_all_failed_rpc_is_still_a_per_item_result_array() -> None:
     outcomes = await SourceBatchAddService().add_urls(
         "nb-1",
         urls,
-        rpc=rpc,
+        create_sources=rpc.create_sources,
         list_sources=list_sources,
         extract_youtube_video_id=_extract_youtube_video_id,
         logger=logging.getLogger(__name__),
@@ -360,7 +356,7 @@ async def test_transport_failure_preserves_type_is_unconfirmed_and_never_replaye
         await SourceBatchAddService().add_urls(
             "nb-1",
             ["https://a.example.com", "https://b.example.com"],
-            rpc=rpc,
+            create_sources=rpc.create_sources,
             list_sources=list_sources,
             extract_youtube_video_id=_extract_youtube_video_id,
             logger=logging.getLogger(__name__),
@@ -385,7 +381,7 @@ async def test_auth_failure_preserves_typed_reauthentication_contract() -> None:
         await SourceBatchAddService().add_urls(
             "nb-1",
             ["https://a.example.com", "https://b.example.com"],
-            rpc=rpc,
+            create_sources=rpc.create_sources,
             list_sources=list_sources,
             extract_youtube_video_id=_extract_youtube_video_id,
             logger=logging.getLogger(__name__),
@@ -407,7 +403,7 @@ async def test_generic_rpc_failure_is_not_misreported_as_all_rejected() -> None:
         await SourceBatchAddService().add_urls(
             "nb-1",
             ["https://a.example.com", "https://b.example.com"],
-            rpc=rpc,
+            create_sources=rpc.create_sources,
             list_sources=AsyncMock(),
             extract_youtube_video_id=_extract_youtube_video_id,
             logger=logging.getLogger(__name__),
@@ -430,7 +426,7 @@ async def test_malformed_success_payload_is_unconfirmed_not_per_item_rejection(
         await SourceBatchAddService().add_urls(
             "nb-1",
             ["https://a.example.com"],
-            rpc=rpc,
+            create_sources=rpc.create_sources,
             list_sources=list_sources,
             extract_youtube_video_id=_extract_youtube_video_id,
             logger=logging.getLogger(__name__),
@@ -450,7 +446,7 @@ async def test_sparse_short_rows_fail_closed_when_omissions_cannot_be_located() 
         await SourceBatchAddService().add_urls(
             "nb-1",
             ["https://a.example.com", "https://b.example.com"],
-            rpc=rpc,
+            create_sources=rpc.create_sources,
             list_sources=AsyncMock(),
             extract_youtube_video_id=_extract_youtube_video_id,
             logger=logging.getLogger(__name__),
@@ -469,7 +465,7 @@ async def test_partially_admitted_duplicate_url_is_reported_as_ambiguous() -> No
         await SourceBatchAddService().add_urls(
             "nb-1",
             [url, url],
-            rpc=rpc,
+            create_sources=rpc.create_sources,
             list_sources=AsyncMock(),
             extract_youtube_video_id=_extract_youtube_video_id,
             logger=logging.getLogger(__name__),
@@ -488,7 +484,7 @@ async def test_sparse_response_with_unrequested_url_fails_closed() -> None:
         await SourceBatchAddService().add_urls(
             "nb-1",
             ["https://a.example.com", "https://b.example.com"],
-            rpc=rpc,
+            create_sources=rpc.create_sources,
             list_sources=AsyncMock(),
             extract_youtube_video_id=_extract_youtube_video_id,
             logger=logging.getLogger(__name__),
@@ -511,7 +507,7 @@ async def test_sparse_response_with_too_many_rows_for_one_identity_fails_closed(
         await SourceBatchAddService().add_urls(
             "nb-1",
             urls,
-            rpc=rpc,
+            create_sources=rpc.create_sources,
             list_sources=AsyncMock(),
             extract_youtube_video_id=_extract_youtube_video_id,
             logger=logging.getLogger(__name__),
@@ -533,7 +529,7 @@ async def test_reconciliation_failure_preserves_known_positional_outcomes(
         outcomes = await SourceBatchAddService().add_urls(
             "nb-1",
             urls,
-            rpc=rpc,
+            create_sources=rpc.create_sources,
             list_sources=list_sources,
             extract_youtube_video_id=_extract_youtube_video_id,
             logger=logging.getLogger(__name__),

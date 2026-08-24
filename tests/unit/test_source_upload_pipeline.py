@@ -22,6 +22,10 @@ from notebooklm._source.upload import (
     _upload_url_origin,
     _validate_resumable_upload_url,
 )
+from notebooklm._web.codec.sources import (
+    decode_file_registration,
+    encode_register_file_source,
+)
 from notebooklm.exceptions import (
     AuthError,
     NetworkError,
@@ -126,6 +130,20 @@ class RecordingRpc:
         if isinstance(self.response, BaseException):
             raise self.response
         return self.response
+
+
+def registration_callback(rpc: Any):
+    async def register(notebook_id: str, filename: str):
+        payload = await rpc(
+            RPCMethod.ADD_SOURCE_FILE,
+            encode_register_file_source(filename, notebook_id),
+            source_path=f"/notebook/{notebook_id}",
+            allow_null=False,
+            disable_internal_retries=True,
+        )
+        return decode_file_registration(payload, filename=filename)
+
+    return register
 
 
 @pytest.fixture
@@ -826,7 +844,7 @@ async def test_register_file_source_uses_rpc_shape_and_wraps_rpc_error(
         await service.register_file_source(
             "nb_123",
             "report.pdf",
-            rpc_call=rpc,
+            register_file_source=registration_callback(rpc),
             list_sources=AsyncMock(return_value=[]),
             logger=MagicMock(),
         )
@@ -867,7 +885,7 @@ async def test_register_file_source_status3_includes_source_limit_context(
         await service.register_file_source(
             "nb_123",
             "report.pdf",
-            rpc_call=rpc,
+            register_file_source=registration_callback(rpc),
             list_sources=AsyncMock(return_value=existing_sources),
             get_source_limit=get_source_limit,
             logger=MagicMock(),
@@ -905,7 +923,7 @@ async def test_register_file_source_uses_configured_source_limit_lookup(
         await service.register_file_source(
             "nb_123",
             "report.pdf",
-            rpc_call=rpc,
+            register_file_source=registration_callback(rpc),
         )
 
     assert "56/50 sources" in str(exc_info.value)
@@ -929,7 +947,7 @@ async def test_register_file_source_ambiguous_response_falls_back_to_probe(
     source_id = await service.register_file_source(
         "nb_123",
         "report.pdf",
-        rpc_call=rpc,
+        register_file_source=registration_callback(rpc),
         list_sources=list_sources,
         logger=MagicMock(),
     )
@@ -959,7 +977,7 @@ async def test_register_file_source_pre_existing_response_id_falls_back_to_probe
     source_id = await service.register_file_source(
         "nb_123",
         "report.pdf",
-        rpc_call=rpc,
+        register_file_source=registration_callback(rpc),
         list_sources=list_sources,
         logger=MagicMock(),
     )
@@ -980,7 +998,7 @@ async def test_register_file_source_probe_failure_is_typed_and_sanitized(
         await service.register_file_source(
             "nb_123",
             "report.pdf",
-            rpc_call=rpc,
+            register_file_source=registration_callback(rpc),
             list_sources=list_sources,
             logger=MagicMock(),
         )
@@ -1018,7 +1036,7 @@ async def test_register_file_source_probe_decode_failure_aborts_instead_of_retry
         await service.register_file_source(
             "nb_123",
             "report.pdf",
-            rpc_call=rpc,
+            register_file_source=registration_callback(rpc),
             list_sources=list_sources,
             logger=logger,
         )
@@ -1051,7 +1069,7 @@ async def test_register_file_source_baseline_failure_warns_but_proceeds(
         source_id = await service.register_file_source(
             "nb_123",
             "report.pdf",
-            rpc_call=rpc,
+            register_file_source=registration_callback(rpc),
             list_sources=list_sources,
             logger=logger,
         )
@@ -1072,7 +1090,7 @@ async def test_register_file_source_sanitizes_untrusted_response_error(
         await service.register_file_source(
             "nb_123",
             "report.pdf",
-            rpc_call=rpc,
+            register_file_source=registration_callback(rpc),
             list_sources=AsyncMock(return_value=[]),
             logger=MagicMock(),
         )

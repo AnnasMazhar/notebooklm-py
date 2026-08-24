@@ -4,7 +4,12 @@ from .artifacts import decode_artifact, decode_mind_map_artifact, decode_report_
 from .collections import decode_collection
 from .documents import decode_structured_document
 from .labels import decode_label, decode_label_create_echo, decode_label_list
-from .notebooks import decode_notebook, decode_notebook_description
+from .notebooks import (
+    decode_notebook,
+    decode_notebook_description,
+    encode_notebook_guide,
+    encode_remove_from_recent,
+)
 from .notes import decode_created_note, decode_note, decode_notes
 from .research import (
     build_report_import_entry,
@@ -28,10 +33,13 @@ from .settings import (
 from .sharing import decode_share_status, decode_shared_user
 from .sources import (
     decode_add_source_records,
+    decode_file_registration,
     decode_source,
+    decode_source_fulltext,
     decode_source_guide,
     decode_source_record,
     decode_source_row,
+    decode_source_snapshot,
     encode_add_drive,
     encode_add_text,
     encode_add_url_batch,
@@ -39,6 +47,9 @@ from .sources import (
     encode_get_fulltext,
     encode_get_guide,
     encode_refresh_or_freshness,
+    encode_register_file_source,
+    encode_source_snapshot,
+    encode_update_source,
 )
 from .studio_documents import (
     decode_generation_status,
@@ -57,6 +68,7 @@ __all__ = [
     "decode_account_limits",
     "decode_created_note",
     "decode_add_source_records",
+    "decode_file_registration",
     "decode_generation_status",
     "decode_get_account_limits",
     "decode_get_user_settings",
@@ -81,13 +93,17 @@ __all__ = [
     "decode_share_status",
     "decode_shared_user",
     "decode_source",
+    "decode_source_fulltext",
     "decode_source_guide",
     "decode_source_record",
     "decode_source_row",
+    "decode_source_snapshot",
     "decode_structured_document",
     "encode_get_user_settings",
+    "encode_notebook_guide",
     "encode_prompt_suggestions",
     "encode_report_generation",
+    "encode_remove_from_recent",
     "encode_research_cancel_params",
     "encode_research_import_params",
     "encode_research_poll_params",
@@ -104,4 +120,7 @@ __all__ = [
     "encode_get_fulltext",
     "encode_get_guide",
     "encode_refresh_or_freshness",
+    "encode_register_file_source",
+    "encode_source_snapshot",
+    "encode_update_source",
 ]

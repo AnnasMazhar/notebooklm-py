@@ -745,11 +745,9 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_research_service.py", "_records", "ResearchPollInput"),
         ("_research_service.py", "_records", "ResearchSearchSource"),
         ("_research_service.py", "_records", "ResearchStartInput"),
-        ("_source/add.py", "_projectors", "project_source"),
-        ("_source/batch.py", "_projectors", "project_source"),
         ("_source/listing.py", "_projectors", "project_source"),
         ("_source/listing.py", "_records", "SourceRecord"),
-        ("_source/upload.py", "_projectors", "project_source"),
+        ("_source/upload.py", "_records", "SourceFileRegistrationRecord"),
         ("_sources.py", "_backend", "BackendAdapter"),
         ("_sources.py", "_backend", "BackendError"),
         ("_sources.py", "_backend_compat", "project_backend_error"),
@@ -1109,6 +1107,7 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
 
 REVIEWED_BACKEND_IMPORTS |= frozenset(
     {
+        ("_mutation_services.py", "_records", "SourceRecord"),
         ("_projectors.py", "_records", "SourceFulltextRecord"),
         ("_projectors.py", "_records", "SourceGuideRecord"),
         ("_source_service.py", "_backend", "BackendAdapter"),
@@ -1122,6 +1121,7 @@ REVIEWED_BACKEND_IMPORTS |= frozenset(
         ("_source_service.py", "_records", "SOURCE_GET_GUIDE_DEF"),
         ("_source_service.py", "_records", "SOURCE_REFRESH_DEF"),
         ("_source_service.py", "_records", "SOURCE_UPDATE_DEF"),
+        ("_source_service.py", "_records", "SOURCE_WAIT_DEF"),
         ("_source_service.py", "_records", "SourceAddDriveInput"),
         ("_source_service.py", "_records", "SourceAddDriveResult"),
         ("_source_service.py", "_records", "SourceAddFileInput"),
@@ -1139,11 +1139,15 @@ REVIEWED_BACKEND_IMPORTS |= frozenset(
         ("_source_service.py", "_records", "SourceGuideResult"),
         ("_source_service.py", "_records", "SourceProgressCallback"),
         ("_source_service.py", "_records", "SourceRefreshInput"),
+        ("_source_service.py", "_records", "SourceRecord"),
         ("_source_service.py", "_records", "SourceUpdateInput"),
         ("_source_service.py", "_records", "SourceUpdateResult"),
+        ("_source_service.py", "_records", "SourceWaitSnapshotInput"),
+        ("_source_service.py", "_records", "SourceWaitSnapshotResult"),
         ("_sources.py", "_backend_compat", "project_source_add_failure"),
         ("_sources.py", "_projectors", "project_source_fulltext"),
         ("_sources.py", "_projectors", "project_source_guide"),
+        ("_sources.py", "_projectors", "record_source"),
         ("_sources.py", "_source_service", "SourceService"),
         ("_web/source_variants.py", "_backend", "BackendContractError"),
         ("_web/source_variants.py", "_backend", "BackendError"),
@@ -1159,14 +1163,13 @@ REVIEWED_BACKEND_IMPORTS |= frozenset(
         ("_web/source_variants.py", "_records", "SourceDeleteInput"),
         ("_web/source_variants.py", "_records", "SourceDeleteResult"),
         ("_web/source_variants.py", "_records", "SourceFileInputKind"),
+        ("_web/source_variants.py", "_records", "SourceFileRegistrationRecord"),
         ("_web/source_variants.py", "_records", "SourceFreshnessInput"),
         ("_web/source_variants.py", "_records", "SourceFreshnessResult"),
         ("_web/source_variants.py", "_records", "SourceFulltextInput"),
-        ("_web/source_variants.py", "_records", "SourceFulltextRecord"),
         ("_web/source_variants.py", "_records", "SourceFulltextResult"),
         ("_web/source_variants.py", "_records", "SourceGetInput"),
         ("_web/source_variants.py", "_records", "SourceGuideInput"),
-        ("_web/source_variants.py", "_records", "SourceGuideRecord"),
         ("_web/source_variants.py", "_records", "SourceGuideResult"),
         ("_web/source_variants.py", "_records", "SourceRefreshInput"),
         ("_web/source_variants.py", "_records", "SourceRefreshResult"),
@@ -1174,6 +1177,10 @@ REVIEWED_BACKEND_IMPORTS |= frozenset(
         ("_web/source_variants.py", "_records", "SourceUpdateResult"),
         ("_web/source_variants.py", "_records", "SourceUrlBatchItemRecord"),
         ("_web/source_variants.py", "codec", "settings"),
+        ("_web/source_variants.py", "_records", "SourceWaitSnapshotInput"),
+        ("_web/source_variants.py", "_records", "SourceWaitSnapshotResult"),
+        ("_web/codec/sources.py", "_records", "SourceFileRegistrationRecord"),
+        ("_web/codec/sources.py", "_records", "SourceFulltextRecord"),
         ("_web/codec/sources.py", "_records", "SourceGuideRecord"),
         ("_web/codec/sources.py", "_records", "SourceRecord"),
         ("_web/registry.py", "_records", "SOURCE_ADD_DRIVE_DEF"),
@@ -1186,6 +1193,7 @@ REVIEWED_BACKEND_IMPORTS |= frozenset(
         ("_web/registry.py", "_records", "SOURCE_GET_GUIDE_DEF"),
         ("_web/registry.py", "_records", "SOURCE_REFRESH_DEF"),
         ("_web/registry.py", "_records", "SOURCE_UPDATE_DEF"),
+        ("_web/registry.py", "_records", "SOURCE_WAIT_DEF"),
     }
 )
 
@@ -1395,11 +1403,14 @@ ACTIVE_BACKEND_INVOKE_SITES = frozenset(
         "_settings_service.py:SettingsService.set_output_language",
         "_suggestion_service.py:SuggestionService.suggest_prompts",
         "_suggestion_service.py:SuggestionService.suggest_reports",
+        "_mutation_services.py:SourceUrlMutationService.finalize_title",
         "_source_service.py:SourceService.add_drive",
         "_source_service.py:SourceService.add_drive_file",
         "_source_service.py:SourceService.add_file",
         "_source_service.py:SourceService.add_text",
         "_source_service.py:SourceService.add_urls_batch",
+        "_source_service.py:SourceService.finalize_drive_title",
+        "_source_service.py:SourceService.finalize_file_title",
         "_source_service.py:SourceService.check_freshness",
         "_source_service.py:SourceService.delete",
         "_source_service.py:SourceService.get_fulltext",
@@ -1412,9 +1423,57 @@ ACTIVE_BACKEND_INVOKE_SITES = frozenset(
         "_chat/service.py:ChatService.get_conversation_id",
         "_chat/service.py:ChatService.get_history",
         "_chat/service.py:ChatService.save_note",
+        "_source_service.py:SourceService.wait_snapshot",
     }
 )
 INERT_P1_BACKEND_INVOKE_SITES: frozenset[str] = frozenset()
+
+# Final notebook semantic slice: guide generation, recent-list removal, and
+# source-id extraction now cross the typed backend boundary instead of the
+# public facade owning raw positional/RPC execution.
+REVIEWED_BACKEND_IMPORTS -= frozenset(
+    {("_notebooks.py", "_projectors", "project_notebook_description")}
+)
+REVIEWED_BACKEND_IMPORTS |= frozenset(
+    {
+        ("_notebook_guide_service.py", "_backend", "BackendAdapter"),
+        ("_notebook_guide_service.py", "_projectors", "project_notebook_description"),
+        ("_notebook_guide_service.py", "_records", "NOTEBOOK_DESCRIBE_DEF"),
+        ("_notebook_guide_service.py", "_records", "NOTEBOOK_SUMMARIZE_DEF"),
+        ("_notebook_guide_service.py", "_records", "NotebookGuideInput"),
+        ("_notebook_mutation_service.py", "_records", "NOTEBOOK_REMOVE_RECENT_DEF"),
+        ("_notebook_mutation_service.py", "_records", "NotebookRemoveRecentInput"),
+        ("_sharing_manager.py", "_backend", "BackendAdapter"),
+        ("_sharing_manager.py", "_backend", "BackendError"),
+        ("_sharing_manager.py", "_backend_compat", "project_backend_error"),
+        ("_sharing_manager.py", "_records", "LEGACY_SHARE_ARTIFACT_DEF"),
+        ("_sharing_manager.py", "_records", "LegacyShareArtifactInput"),
+        ("_web/backend.py", "_records", "NotebookGuideInput"),
+        ("_web/backend.py", "_records", "NotebookGuideResult"),
+        ("_web/backend.py", "_records", "NotebookRemoveRecentInput"),
+        ("_web/backend.py", "_records", "NotebookRemoveRecentResult"),
+        ("_web/registry.py", "_records", "NOTEBOOK_DESCRIBE_DEF"),
+        ("_web/registry.py", "_records", "NOTEBOOK_REMOVE_RECENT_DEF"),
+        ("_web/registry.py", "_records", "NOTEBOOK_SUMMARIZE_DEF"),
+        ("_web/registry.py", "_records", "LEGACY_SHARE_ARTIFACT_DEF"),
+        ("_web/sharing.py", "_records", "LegacyShareArtifactInput"),
+        ("_web/sharing.py", "_records", "LegacyShareArtifactResult"),
+        (
+            "_web/sharing.py",
+            "codec.sharing",
+            "build_legacy_share_artifact_params",
+        ),
+    }
+)
+ACTIVE_BACKEND_INVOKE_SITES |= frozenset(
+    {
+        "_notebook_guide_service.py:NotebookGuideService.get_description",
+        "_notebook_guide_service.py:NotebookGuideService.get_summary",
+        "_notebook_mutation_service.py:NotebookMutationService.remove_from_recent",
+        "_read_services.py:NotebookReadService.get_source_ids",
+        "_sharing_manager.py:ShareManager.share",
+    }
+)
 
 # Facades that still own RpcCaller paths take the backend as the reviewed
 # ``_backend=`` or ``backend=`` keyword beside their executor; a facade whose
@@ -1427,6 +1486,7 @@ _KEYWORD_BACKEND_FACADES = frozenset(
         "NoteService",
         "NotebooksAPI",
         "ResearchAPI",
+        "ShareManager",
         "SettingsAPI",
         "SharingAPI",
         "SourcesAPI",

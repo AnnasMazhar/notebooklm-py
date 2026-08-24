@@ -196,7 +196,7 @@ class TestNoInternalSelfWarn:
                 return []
 
         rpc = _Rpc()
-        api = ResearchAPI(rpc, _backend=build_web_backend(rpc))
+        api = ResearchAPI(_backend=build_web_backend(rpc))
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
             result = await api.poll("nb_1")
@@ -205,12 +205,11 @@ class TestNoInternalSelfWarn:
     @pytest.mark.asyncio
     async def test_get_guide_service_does_not_self_warn(self):
         from notebooklm._source.content import SourceContentRenderer
+        from tests._fixtures.source_content import CodecSourceContentService
 
-        class _Rpc:
-            async def rpc_call(self, *a, **k):
-                return [[[None, ["A summary"], [["kw1", "kw2"]], []]]]
-
-        renderer = SourceContentRenderer(_Rpc())
+        renderer = SourceContentRenderer(
+            CodecSourceContentService([[[None, ["A summary"], [["kw1", "kw2"]], []]]])
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
             guide = await renderer.get_guide("nb_1", "src_1")

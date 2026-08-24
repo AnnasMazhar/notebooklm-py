@@ -84,6 +84,7 @@ from .types import (
     Source,
     SourceFulltext,
     SourceStatus,
+    SourceType,
     SuggestedTopic,
     UnknownArtifactUserState,
     UserSettings,
@@ -338,6 +339,51 @@ def project_research_task(record: ResearchTaskRecord) -> ResearchTask:
         created_at=record.created_at,
         updated_at=record.updated_at,
         account_id=record.account_id,
+    )
+
+
+def record_source(source: Source) -> SourceRecord:
+    """Capture one public source as a transport-neutral semantic record."""
+
+    type_code = source._type_code
+    kind = source.kind
+    unrecognized_kind: int | str | None = (
+        type_code if type_code is not None and kind is SourceType.UNKNOWN else None
+    )
+    status = next(
+        (name for name, candidate in _SOURCE_STATUSES.items() if candidate is source.status),
+        "unknown",
+    )
+    drive_status = (
+        None
+        if source.drive_status is None
+        else next(
+            (
+                name
+                for name, candidate in _DRIVE_STATUSES.items()
+                if candidate is source.drive_status
+            ),
+            "unknown",
+        )
+    )
+    return SourceRecord(
+        id=source.id,
+        title=source.title,
+        url=source.url,
+        kind=kind.value,
+        unrecognized_kind=unrecognized_kind,
+        kind_present=type_code is not None,
+        created_at=source.created_at,
+        status=status,
+        drive_document_id=source.drive_document_id,
+        drive_status=drive_status,
+        download_url=source.download_url,
+        viewer_url=source.viewer_url,
+        content_mime=source.content_mime,
+        word_count=source.word_count,
+        revision_id=source.revision_id,
+        revision_timestamp=source.revision_timestamp,
+        last_modified_at=source.last_modified_at,
     )
 
 

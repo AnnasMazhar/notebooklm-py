@@ -11,37 +11,10 @@ import pytest
 from notebooklm._source.content import SourceContentRenderer
 from notebooklm._types.documents import BlockKind, StructuredDocument
 from notebooklm._web.codec.documents import decode_structured_document
-from notebooklm.rpc import RPCMethod
+from tests._fixtures.source_content import CodecSourceContentService
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CODEC_PATH = PROJECT_ROOT / "src" / "notebooklm" / "_web" / "codec" / "documents.py"
-
-
-class RecordingRpc:
-    def __init__(self, response: Any) -> None:
-        self.response = response
-
-    async def rpc_call(
-        self,
-        method: RPCMethod,
-        params: list[Any],
-        source_path: str = "/",
-        allow_null: bool = False,
-        _is_retry: bool = False,
-        *,
-        disable_internal_retries: bool = False,
-        operation_variant: str | None = None,
-    ) -> Any:
-        del (
-            method,
-            params,
-            source_path,
-            allow_null,
-            _is_retry,
-            disable_internal_retries,
-            operation_variant,
-        )
-        return self.response
 
 
 def test_codec_constructs_the_exempt_utf16_value_graph() -> None:
@@ -73,9 +46,9 @@ async def test_get_source_fulltext_delegates_document_construction_to_web_codec(
         seen.append(body)
         return sentinel
 
-    monkeypatch.setattr("notebooklm._source.content.decode_structured_document", decode)
+    monkeypatch.setattr("notebooklm._web.codec.sources.decode_structured_document", decode)
 
-    fulltext = await SourceContentRenderer(RecordingRpc(response)).get_fulltext(
+    fulltext = await SourceContentRenderer(CodecSourceContentService(response)).get_fulltext(
         "notebook-id", "source-id"
     )
 

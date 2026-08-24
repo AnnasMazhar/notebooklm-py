@@ -14,6 +14,7 @@ from notebooklm._idempotency import IdempotencyPolicy, IdempotencyRegistry
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm.rpc import RPCMethod
 from scripts import _operation_catalog_ast as catalog_ast
+from scripts import _operation_catalog_authorities as catalog_authorities
 from scripts import audit_operation_catalog as catalog
 from tests.unit._rpc_executor_support import _executor, _Owner
 
@@ -233,15 +234,13 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
 
     assert sites[(RPCMethod.GET_NOTEBOOK, None)] == [
         "_notebooks.py:NotebooksAPI.get_raw",
-        "_source/listing.py:SourceLister.list",
         "_web/backend.py:WebRpcBackend._mind_map_generate_interactive",
         "_web/backend.py:WebRpcBackend._mind_map_generate_note",
         "_web/backend.py:WebRpcBackend._notebook_get",
         "_web/backend.py:WebRpcBackend._notebook_update",
-        "_web/backend.py:WebRpcBackend._source_get",
-        "_web/backend.py:WebRpcBackend._source_list",
         "_web/chat.py:ChatWebHandlers._chat_configure",
         "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._notebook_suggest_prompts",
+        "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
         "_web/studio_data.py:StudioDataWebHandlers._data_source_ids",
         "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids",
         "_web/studio_media.py:StudioMediaWebHandlers._audio_generate",
@@ -632,8 +631,11 @@ def test_operation_authorities_are_exact_discriminated_and_include_non_rpc_paths
         for row in rows["source.add_file"]["execution_authorities"]
     )
     public = projection["public_methods"]
-    assert public["sources.add_drive"]["operations"] == ["source.add_drive"]
-    assert public["sources.add_drive_file"]["operations"] == ["source.add_file"]
+    assert public["sources.add_drive"]["operations"] == ["source.add_drive", "source.wait"]
+    assert public["sources.add_drive_file"]["operations"] == [
+        "source.add_file",
+        "source.wait",
+    ]
     assert {
         row["transport_kind"] for row in rows["artifact.download"]["execution_authorities"]
     } >= {
@@ -681,11 +683,63 @@ def test_get_metadata_recency_contract_pins_two_distinct_reads() -> None:
             "unit": "public_call",
             "condition": "always: concurrent notebook.get plus source listing",
             "authority_sites": [
-                "_source/listing.py:SourceLister.list",
                 "_web/backend.py:WebRpcBackend._notebook_get",
+                "_web/source_variants.py:SourceVariantWebHandlers._source_snapshot_records",
             ],
         }
     ]
+
+
+def test_notebook_get_recency_contract_separates_typed_and_raw_authorities() -> None:
+    typed, raw = catalog.RECENCY_CONTRACTS[Operation.NOTEBOOK_GET]
+
+    assert typed.public_methods == (
+        "notebooks.get",
+        "notebooks.get_or_none",
+        "notebooks.get_source_ids",
+    )
+    assert (typed.minimum_calls, typed.maximum_calls, typed.authority_sites) == (
+        1,
+        1,
+        ("_web/backend.py:WebRpcBackend._notebook_get",),
+    )
+    assert raw.public_methods == ("notebooks.get_raw",)
+    assert (raw.minimum_calls, raw.maximum_calls, raw.authority_sites) == (
+        1,
+        1,
+        ("_notebooks.py:NotebooksAPI.get_raw",),
+    )
+
+    notebook_tree = catalog_ast._parse(catalog_ast.SRC_ROOT / "_notebooks.py")
+    raw_get = catalog_ast._find_class_method(notebook_tree, "NotebooksAPI", "get_raw")
+    backend_tree = catalog_ast._parse(catalog_ast.SRC_ROOT / "_web" / "backend.py")
+    typed_get = catalog_ast._find_class_method(backend_tree, "WebRpcBackend", "_notebook_get")
+    assert raw_get is not None
+    assert typed_get is not None
+    assert catalog_ast._rpc_binding_call_count(raw_get, RPCMethod.GET_NOTEBOOK) == 1
+    assert catalog_ast._rpc_binding_call_count(typed_get, RPCMethod.GET_NOTEBOOK) == 1
+
+
+def test_notebook_create_catalog_has_no_phantom_get_notebook_recency() -> None:
+    create = next(
+        spec for spec in catalog.OPERATION_SPECS if spec.operation is Operation.NOTEBOOK_CREATE
+    )
+
+    assert Operation.NOTEBOOK_CREATE not in catalog.RECENCY_CONTRACTS
+    assert (RPCMethod.GET_NOTEBOOK, None) not in create.native_bindings
+    assert (
+        Operation.NOTEBOOK_CREATE,
+        (RPCMethod.GET_NOTEBOOK, None),
+    ) not in catalog_authorities.SHARED_RPC_AUTHORITY_RULES
+
+    backend_tree = catalog_ast._parse(catalog_ast.SRC_ROOT / "_web" / "backend.py")
+    create_handler = catalog_ast._find_class_method(
+        backend_tree,
+        "WebRpcBackend",
+        "_notebook_create",
+    )
+    assert create_handler is not None
+    assert catalog_ast._rpc_binding_call_count(create_handler, RPCMethod.GET_NOTEBOOK) == 0
 
 
 def test_update_and_chat_recency_conditions_are_explicit() -> None:

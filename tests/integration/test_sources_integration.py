@@ -17,6 +17,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 import notebooklm._sources as _sources_mod
+import notebooklm._web.source_variants as _source_variants_mod
 from notebooklm import NotebookLMClient, Source, SourceType
 from notebooklm._source.add import SourceAddService
 from notebooklm.exceptions import DecodingError, RPCError
@@ -803,10 +804,8 @@ class TestSourcesAPI:
         silently returning None.
         """
         async with NotebookLMClient(auth_tokens) as client:
-            rpc = AsyncMock(return_value=None)
+            rpc = AsyncMock(side_effect=[None, [["Notebook", []]]])
             client._rpc_executor.rpc_call = rpc
-            # The existence preflight resolves the source as a genuine miss.
-            client.sources._get_or_none = AsyncMock(return_value=None)
             with pytest.raises(SourceNotFoundError):
                 await client.sources.rename("nb_123", "src_001", "New Title", return_object=False)
 
@@ -1618,32 +1617,25 @@ class TestListSourcesParsingEdgeCases:
 
 
 class TestWaitForSources:
-    """Tests for wait_for_sources() parallel waiting (lines 278-281, 455)."""
+    """Tests for wait_for_sources() shared semantic waiting."""
 
     @pytest.mark.asyncio
-    async def test_wait_for_sources_parallel(
+    async def test_wait_for_sources_shared_snapshot_operation(
         self,
         auth_tokens,
     ):
-        """Test wait_for_sources() calls wait_until_ready for each source in parallel."""
-        ready_source_1 = Source(id="src_1", title="Source 1")
-        ready_source_2 = Source(id="src_2", title="Source 2")
+        """All IDs share one late-bound facade listing per poll tick."""
 
         async with NotebookLMClient(auth_tokens) as client:
-            call_count = 0
-
-            async def mock_wait(notebook_id, source_id, **kwargs):
-                nonlocal call_count
-                call_count += 1
-                if source_id == "src_1":
-                    return ready_source_1
-                return ready_source_2
-
-            with patch.object(client.sources, "wait_until_ready", side_effect=mock_wait):
+            ready = [
+                Source(id="src_1", title="Source 1"),
+                Source(id="src_2", title="Source 2"),
+            ]
+            with patch.object(client.sources, "list", AsyncMock(return_value=ready)) as mock_list:
                 results = await client.sources.wait_for_sources("nb_123", ["src_1", "src_2"])
 
         assert len(results) == 2
-        assert call_count == 2
+        mock_list.assert_awaited_once_with("nb_123")
         assert results[0].id == "src_1"
         assert results[1].id == "src_2"
 
@@ -1727,20 +1719,30 @@ class TestAddUrlErrorPaths:
             content=build_rpc_response(RPCMethod.GET_NOTEBOOK, [["Notebook", []]]).encode()
         )
         source_data = [[[["src_wait_url"], "Example", [None, 11], [None, 2]]]]
-        ready_source = Source(id="src_wait_url", title="Example")
         response = build_rpc_response(RPCMethod.ADD_SOURCE, source_data)
         httpx_mock.add_response(content=response.encode())
+        httpx_mock.add_response(
+            content=build_rpc_response(
+                RPCMethod.GET_NOTEBOOK,
+                [
+                    [
+                        "Notebook",
+                        [
+                            [
+                                ["src_wait_url"],
+                                "Example",
+                                [None, 11, None, None, 5],
+                                [None, 2],
+                            ]
+                        ],
+                    ]
+                ],
+            ).encode()
+        )
 
         async with NotebookLMClient(auth_tokens) as client:
-            with patch.object(
-                client.sources,
-                "wait_until_ready",
-                new_callable=AsyncMock,
-                return_value=ready_source,
-            ) as mock_wait:
-                result = await client.sources.add_url("nb_123", "https://example.com", wait=True)
+            result = await client.sources.add_url("nb_123", "https://example.com", wait=True)
 
-        mock_wait.assert_called_once()
         assert result.id == "src_wait_url"
         urls = [str(request.url) for request in httpx_mock.get_requests()]
         assert any(RPCMethod.GET_NOTEBOOK in url for url in urls), (
@@ -1768,7 +1770,9 @@ class TestAddUrlErrorPaths:
         httpx_mock.add_response(content=response.encode())
 
         async with NotebookLMClient(auth_tokens) as client:
-            with patch.object(_sources_mod, "is_youtube_url", return_value=True) as mock_is_yt:
+            with patch.object(
+                _source_variants_mod, "is_youtube_url", return_value=True
+            ) as mock_is_yt:
                 source = await client.sources.add_url(
                     "nb_123", "https://youtube.com/channel/UCxxxxxxx"
                 )
@@ -1824,26 +1828,29 @@ class TestAddTextErrorPaths:
     ):
         """Test add_text() with wait=True calls wait_until_ready (line 387)."""
         source_data = [[[["src_wait_text"], "My Title", [None, 0], [None, 2]]]]
-        ready_source = Source(id="src_wait_text", title="My Title")
+        ready_snapshot = [
+            [
+                "Notebook",
+                [
+                    [
+                        ["src_wait_text"],
+                        "My Title",
+                        [None, 11, None, None, 4],
+                        [None, 2],
+                    ]
+                ],
+            ]
+        ]
 
         async with NotebookLMClient(auth_tokens) as client:
             with patch.object(
                 client.sources._rpc,
                 "rpc_call",
                 new_callable=AsyncMock,
-                return_value=source_data,
+                side_effect=[source_data, ready_snapshot],
             ):
-                with patch.object(
-                    client.sources,
-                    "wait_until_ready",
-                    new_callable=AsyncMock,
-                    return_value=ready_source,
-                ) as mock_wait:
-                    result = await client.sources.add_text(
-                        "nb_123", "My Title", "content", wait=True
-                    )
+                result = await client.sources.add_text("nb_123", "My Title", "content", wait=True)
 
-        mock_wait.assert_called_once()
         assert result.id == "src_wait_text"
 
 
@@ -1881,14 +1888,14 @@ class TestAddFileWait:
                         new_callable=AsyncMock,
                     ):
                         with patch.object(
-                            client.sources._uploader,
+                            client.sources,
                             "wait_until_ready",
                             new_callable=AsyncMock,
                             return_value=ready_source,
                         ) as mock_wait:
                             result = await client.sources.add_file("nb_123", test_file, wait=True)
 
-        mock_wait.assert_called_once_with(
+        mock_wait.assert_awaited_once_with(
             "nb_123", "file_src_001", timeout=120.0, transient_error_types=()
         )
         assert result.id == "file_src_001"
@@ -1915,23 +1922,33 @@ class TestAddDriveWait:
         )
         httpx_mock.add_response(content=response.encode())
 
-        ready_source = Source(id="drive_src_wait", title="My Drive Doc")
+        httpx_mock.add_response(
+            content=build_rpc_response(
+                RPCMethod.GET_NOTEBOOK,
+                [
+                    [
+                        "Notebook",
+                        [
+                            [
+                                ["drive_src_wait"],
+                                "My Drive Doc",
+                                [None, 0],
+                                [None, 2],
+                            ]
+                        ],
+                    ]
+                ],
+            ).encode()
+        )
 
         async with NotebookLMClient(auth_tokens) as client:
-            with patch.object(
-                client.sources,
-                "wait_until_ready",
-                new_callable=AsyncMock,
-                return_value=ready_source,
-            ) as mock_wait:
-                result = await client.sources.add_drive(
-                    "nb_123",
-                    file_id="drive_file_abc",
-                    title="My Drive Doc",
-                    wait=True,
-                )
+            result = await client.sources.add_drive(
+                "nb_123",
+                file_id="drive_file_abc",
+                title="My Drive Doc",
+                wait=True,
+            )
 
-        mock_wait.assert_called_once()
         assert result.id == "drive_src_wait"
 
 
@@ -2164,8 +2181,14 @@ class TestGetFulltextEdgeCases:
         httpx_mock.add_response(content=response.encode())
 
         async with NotebookLMClient(auth_tokens) as client:
-            with pytest.raises(SourceNotFoundError):
+            with pytest.raises(SourceNotFoundError) as caught:
                 await client.sources.get_fulltext("nb_123", "missing_src")
+
+        error = caught.value
+        assert error.source_id == "Source missing_src not found in notebook nb_123"
+        assert str(error) == ("Source not found: Source missing_src not found in notebook nb_123")
+        assert error.method_id is None
+        assert error.raw_response is None
 
     @pytest.mark.asyncio
     async def test_get_fulltext_result_0_2_short_no_type(
@@ -2993,15 +3016,21 @@ class TestWaitUntilReadyErrorPaths:
         """Test wait_until_ready() raises SourceTimeoutError when timeout expires mid-loop (line 240)."""
         from notebooklm.types import SourceTimeoutError
 
-        # A PROCESSING source that never becomes ready
-        processing_source = Source(id="src_slow", title="Slow Source", status=1)
+        # A PROCESSING source that never becomes ready.
+        snapshot = [
+            [
+                "Notebook",
+                [[["src_slow"], "Slow Source", [None, 0], [None, 1]]],
+                "nb_123",
+            ]
+        ]
 
         async with NotebookLMClient(auth_tokens) as client:
             with patch.object(
-                client.sources,
-                "get_or_none",
+                client._rpc_executor,
+                "rpc_call",
                 new_callable=AsyncMock,
-                return_value=processing_source,
+                return_value=snapshot,
             ):
                 with pytest.raises(SourceTimeoutError):
                     await client.sources.wait_until_ready(
@@ -3027,8 +3056,13 @@ class TestWaitUntilReadyMidLoopTimeout:
         """
         from notebooklm.types import SourceTimeoutError
 
-        # A PROCESSING source
-        processing_source = Source(id="src_race", title="Race Source", status=1)
+        snapshot = [
+            [
+                "Notebook",
+                [[["src_race"], "Race Source", [None, 0], [None, 1]]],
+                "nb_123",
+            ]
+        ]
         timeout_val = 1.0
         # Simulate monotonic times: first call (start), second call (elapsed check in loop),
         # third call (remaining check after get) - make third > timeout
@@ -3044,13 +3078,13 @@ class TestWaitUntilReadyMidLoopTimeout:
 
         async with NotebookLMClient(auth_tokens) as client:
             with patch.object(
-                client.sources,
-                "get_or_none",
+                client._rpc_executor,
+                "rpc_call",
                 new_callable=AsyncMock,
-                return_value=processing_source,
+                return_value=snapshot,
             ):
                 with patch.object(
-                    _sources_mod, "monotonic", side_effect=fake_monotonic
+                    _sources_mod.time, "monotonic", side_effect=fake_monotonic
                 ) as mock_monotonic:
                     with pytest.raises(SourceTimeoutError):
                         await client.sources.wait_until_ready(

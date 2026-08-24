@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import builtins
 import logging
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .._deadline import RuntimeDeadline
@@ -92,7 +91,6 @@ def _expiry_error(
 
 GetSource = Callable[[str, str], Awaitable[Source | None]]
 ListSources = Callable[[str], Awaitable[builtins.list[Source]]]
-WaitUntilReady = Callable[..., Coroutine[Any, Any, Source]]
 Sleep = Callable[[float], Awaitable[Any]]
 Monotonic = Callable[[], float]
 
@@ -238,6 +236,7 @@ class SourcePoller:
         max_interval: float = 10.0,
         backoff_factor: float = 1.5,
         transient_error_types: tuple[int | None, ...] | None = None,
+        fail_fast: bool = False,
         list_sources: ListSources,
         sleep: Sleep,
         monotonic: Monotonic,
@@ -254,6 +253,11 @@ class SourcePoller:
         RETURNED, not raised, so a slow/failed source never discards the
         progress of its siblings. Only an UNEXPECTED transport error (e.g.
         ``RPCError`` from ``list_sources``) propagates out of the single await.
+
+        When ``fail_fast`` is true, the first terminal failure observed in input
+        order is raised immediately. This preserves ``wait_for_sources``'s
+        historical prompt-failure contract without returning to per-source
+        pollers or more than one notebook snapshot per tick.
         """
         deadline = RuntimeDeadline.start(timeout, monotonic=monotonic)
         interval = initial_interval
@@ -274,6 +278,8 @@ class SourcePoller:
         while pending:
             if deadline.expired():
                 self._fill_timeouts(results, pending, last_status, error_streak, timeout)
+                if fail_fast:
+                    self._raise_first_wait_failure(results)
                 break
 
             # ONE whole-notebook snapshot per tick, shared across all pending ids.
@@ -286,7 +292,10 @@ class SourcePoller:
 
                 if source is None:
                     # Parity with wait_until_ready: absent id is not-found.
-                    results[index] = SourceNotFoundError(sid)
+                    failure: SourceNotFoundError | SourceProcessingError = SourceNotFoundError(sid)
+                    if fail_fast:
+                        raise failure
+                    results[index] = failure
                     resolved.append(index)
                     continue
 
@@ -300,7 +309,10 @@ class SourcePoller:
 
                 if source.is_error:
                     if source._type_code not in transient_errors:
-                        results[index] = SourceProcessingError(sid, source.status)
+                        failure = SourceProcessingError(sid, source.status)
+                        if fail_fast:
+                            raise failure
+                        results[index] = failure
                         resolved.append(index)
                         continue
                     logger.debug(
@@ -318,6 +330,8 @@ class SourcePoller:
 
             if deadline.expired():
                 self._fill_timeouts(results, pending, last_status, error_streak, timeout)
+                if fail_fast:
+                    self._raise_first_wait_failure(results)
                 break
 
             sleep_time = deadline.clamp_sleep(interval)
@@ -330,6 +344,16 @@ class SourcePoller:
                 raise AssertionError("wait_all_until_ready left a source unresolved")
             final.append(result)
         return final
+
+    @staticmethod
+    def _raise_first_wait_failure(results: builtins.list[SourceWaitResult | None]) -> None:
+        """Raise the first positional terminal outcome after aggregate expiry."""
+        for result in results:
+            if isinstance(
+                result,
+                (SourceNotFoundError, SourceProcessingError, SourceTimeoutError),
+            ):
+                raise result
 
     @staticmethod
     def _fill_timeouts(
@@ -353,40 +377,6 @@ class SourcePoller:
                 last_status.get(index),
                 error_streak=error_streak.get(index, 0),
             )
-
-    async def wait_for_sources(
-        self,
-        notebook_id: str,
-        source_ids: builtins.list[str],
-        *,
-        timeout: float = 120.0,
-        wait_until_ready: WaitUntilReady,
-        logger: logging.Logger,
-        **kwargs: Any,
-    ) -> builtins.list[Source]:
-        """Wait for multiple sources to become ready in parallel."""
-        # A bare ``asyncio.gather(*coros)`` propagates the first
-        # exception before sibling pollers have necessarily finished their
-        # cleanup, and it does not cancel still-running siblings for us.
-        # Drive the fan-out as explicit tasks so any failure cancels and
-        # drains every pending sibling before re-raising.
-        tasks: builtins.list[asyncio.Task[Source]] = [
-            asyncio.create_task(wait_until_ready(notebook_id, sid, timeout=timeout, **kwargs))
-            for sid in source_ids
-        ]
-        try:
-            return list(await asyncio.gather(*tasks))
-        except BaseException:
-            logger.debug("wait_for_sources: cancelling sibling source pollers", exc_info=True)
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            # Drain cancelled (and any already-failed) siblings before
-            # surfacing the original exception. ``return_exceptions=True``
-            # swallows the cancellations and concurrent failures so the
-            # outer ``raise`` still raises the first task's exception.
-            await asyncio.gather(*tasks, return_exceptions=True)
-            raise
 
 
 __all__ = ["SourcePoller", "SourceWaitResult"]

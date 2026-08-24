@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import time
-from collections.abc import Callable
+from collections.abc import Sequence
 from types import MappingProxyType
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -32,14 +30,13 @@ from .._records import (
     SourceDeleteInput,
     SourceDeleteResult,
     SourceFileInputKind,
+    SourceFileRegistrationRecord,
     SourceFreshnessInput,
     SourceFreshnessResult,
     SourceFulltextInput,
-    SourceFulltextRecord,
     SourceFulltextResult,
     SourceGetInput,
     SourceGuideInput,
-    SourceGuideRecord,
     SourceGuideResult,
     SourceRecord,
     SourceRefreshInput,
@@ -47,26 +44,45 @@ from .._records import (
     SourceUpdateInput,
     SourceUpdateResult,
     SourceUrlBatchItemRecord,
+    SourceWaitSnapshotInput,
+    SourceWaitSnapshotResult,
 )
 from .._row_adapters.sources import interpret_source_freshness
-from .._source.add import SourceAddService, honor_requested_title_if_fresh
+from .._source.add import (
+    SourceAddService,
+    honor_requested_title,
+    honor_requested_title_if_fresh,
+)
 from .._source.batch import SourceBatchAddService
-from .._source.content import SourceContentRenderer
-from .._source.listing import SourceLister
-from .._source.polling import SourcePoller
-from .._source.upload_payloads import build_rename_source_params
+from .._source.drive_import import DriveFetcher, DriveImportService
 from .._types.sources import _SOURCE_TYPE_CODE_MAP, SourceType
 from .._url_utils import is_youtube_url
-from ..exceptions import NotebookLMError, SourceNotFoundError
+from ..exceptions import (
+    NotebookLMError,
+    SourceNotFoundError,
+    ValidationError,
+)
 from ..rpc import RPCMethod
 from ..rpc.types import drive_source_status_to_str, source_status_to_str
 from ..types import Source
 from .codec import settings as settings_codec
 from .codec.sources import (
-    decode_source,
+    decode_add_source_records,
+    decode_file_registration,
+    decode_source_fulltext,
+    decode_source_guide,
     decode_source_record,
+    decode_source_snapshot,
+    encode_add_drive,
+    encode_add_text,
+    encode_add_url_batch,
     encode_delete,
+    encode_get_fulltext,
+    encode_get_guide,
     encode_refresh_or_freshness,
+    encode_register_file_source,
+    encode_source_snapshot,
+    encode_update_source,
 )
 from .studio_facade import StudioFacadeWebHandlers
 
@@ -109,18 +125,26 @@ def _source_record(source: Source) -> SourceRecord:
     )
 
 
+def _first_projected_source(records: Sequence[SourceRecord]) -> Source | None:
+    """Project the first decoded create row without retaining positional wire reads."""
+
+    record = next(iter(records), None)
+    return project_source(record) if record is not None else None
+
+
+async def _facade_owned_wait(*_args: Any, **_kwargs: Any) -> Source:
+    """Fail closed if an adapter create path tries to take over readiness polling."""
+    raise BackendContractError(
+        "source readiness polling belongs to the public source facade",
+        operation=Operation.SOURCE_WAIT,
+    )
+
+
 class SourceVariantWebHandlers(StudioFacadeWebHandlers):
     """Remaining Source workflows mixed into the composed web backend."""
 
     _executor: Any
     _source_uploader: Any
-
-    def _source_caller(
-        self,
-        deadline: RuntimeDeadline | None,
-        operation: Operation,
-    ) -> Any:
-        raise NotImplementedError
 
     def _capture_public_failure(self, exc: Exception, *, operation: Operation) -> Any:
         raise NotImplementedError
@@ -133,6 +157,111 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
     ) -> Any:
         raise NotImplementedError
 
+    async def _source_snapshot_records(
+        self,
+        notebook_id: str,
+        *,
+        operation: Operation,
+        deadline: RuntimeDeadline | None,
+        strict: bool = False,
+    ) -> tuple[SourceRecord, ...]:
+        """Fetch and decode one recency-writing notebook source snapshot."""
+
+        payload = await self._rpc_call(
+            RPCMethod.GET_NOTEBOOK,
+            encode_source_snapshot(notebook_id),
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{notebook_id}",
+        )
+        return decode_source_snapshot(
+            notebook_id,
+            payload,
+            strict=strict,
+            logger=source_logger,
+        )
+
+    async def _source_public_snapshot(
+        self,
+        notebook_id: str,
+        *,
+        operation: Operation,
+        deadline: RuntimeDeadline | None = None,
+    ) -> list[Source]:
+        records = await self._source_snapshot_records(
+            notebook_id,
+            operation=operation,
+            deadline=deadline,
+        )
+        return [project_source(record) for record in records]
+
+    async def _source_public_get_for_operation(
+        self,
+        notebook_id: str,
+        source_id: str,
+        *,
+        operation: Operation,
+    ) -> Source | None:
+        sources = await self._source_public_snapshot(
+            notebook_id,
+            operation=operation,
+            # Public source polling never clamped an in-flight snapshot read.
+            deadline=None,
+        )
+        return next((source for source in sources if source.id == source_id), None)
+
+    async def _create_url_source(
+        self,
+        notebook_id: str,
+        url: str,
+        *,
+        youtube: bool,
+        operation: Operation,
+        deadline: RuntimeDeadline | None,
+    ) -> Source | None:
+        payload = await self._rpc_call(
+            RPCMethod.ADD_SOURCE,
+            encode_add_url_batch(notebook_id, [url], youtube_flags=[youtube]),
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{notebook_id}",
+            disable_internal_retries=True,
+            operation_variant="url",
+        )
+        records = decode_add_source_records(payload)
+        return _first_projected_source(records)
+
+    async def _rename_source_public(
+        self,
+        notebook_id: str,
+        source_id: str,
+        new_title: str,
+        *,
+        operation: Operation,
+        deadline: RuntimeDeadline | None,
+        hydrate_on_null: bool,
+    ) -> Source | None:
+        payload = await self._rpc_call(
+            RPCMethod.UPDATE_SOURCE,
+            encode_update_source(source_id, new_title),
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{notebook_id}",
+            allow_null=True,
+        )
+        if payload:
+            return project_source(decode_source_record(payload, method=RPCMethod.UPDATE_SOURCE))
+        if not hydrate_on_null:
+            return None
+        source = await self._source_public_get_for_operation(
+            notebook_id,
+            source_id,
+            operation=operation,
+        )
+        if source is None:
+            raise SourceNotFoundError(source_id, method_id=RPCMethod.UPDATE_SOURCE.value)
+        return source
+
     async def _source_add_url(
         self,
         value: SourceAddUrlInput,
@@ -140,10 +269,7 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
         deadline: RuntimeDeadline | None,
     ) -> SourceAddUrlResult:
         """Run the live generic/YouTube URL workflow with optional outer budgeting."""
-        caller = self._source_caller(deadline, Operation.SOURCE_ADD_URL)
         adder = SourceAddService()
-        lister = SourceLister(cast(Any, caller))
-        poller = SourcePoller()
 
         def extract_youtube_video_id(url: str) -> str | None:
             return adder.extract_youtube_video_id(
@@ -154,45 +280,43 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
                 logger=source_logger,
             )
 
-        async def wait_until_ready(
-            notebook_id: str,
-            source_id: str,
-            *,
-            timeout: float,
-        ) -> Source:
-            return await poller.wait_until_ready(
-                notebook_id,
-                source_id,
-                timeout=timeout,
-                get_source=lister.get,
-                sleep=asyncio.sleep,
-                monotonic=(deadline.monotonic if deadline is not None else time.monotonic),
-                logger=source_logger,
-                deadline=deadline,
-            )
-
         async def rename_source(
             notebook_id: str,
             source_id: str,
             new_title: str,
         ) -> Source | None:
-            result = await caller.rpc_call(
-                RPCMethod.UPDATE_SOURCE,
-                build_rename_source_params(source_id, new_title),
-                source_path=f"/notebook/{notebook_id}",
-                allow_null=True,
+            return await self._rename_source_public(
+                notebook_id,
+                source_id,
+                new_title,
+                operation=Operation.SOURCE_ADD_URL,
+                deadline=deadline,
+                hydrate_on_null=True,
             )
-            if result:
-                return project_source(
-                    decode_source(result, method_id=RPCMethod.UPDATE_SOURCE.value)
-                )
-            source = await lister.get(notebook_id, source_id)
-            if source is None:
-                raise SourceNotFoundError(
-                    source_id,
-                    method_id=RPCMethod.UPDATE_SOURCE.value,
-                )
-            return source
+
+        if value.finalize_source is not None:
+            source_before_title = project_source(value.finalize_source)
+            source = await honor_requested_title(
+                rename_source,
+                value.notebook_id,
+                source_before_title,
+                value.requested_title,
+                source_logger,
+            )
+            normalized_title = (
+                value.requested_title.strip() if value.requested_title is not None else ""
+            )
+            return SourceAddUrlResult(
+                _source_record(source),
+                SourceAddUrlReceipt(
+                    SourceAddCommitState.CREATED,
+                    (
+                        SourceAddTitleState.RENAMED
+                        if normalized_title and source.title == normalized_title
+                        else SourceAddTitleState.RENAME_FAILED
+                    ),
+                ),
+            )
 
         try:
             create_result = cast(
@@ -200,20 +324,28 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
                 await adder.add_url(
                     value.notebook_id,
                     value.url,
-                    wait=value.wait,
+                    wait=False,
                     wait_timeout=value.wait_timeout,
-                    add_youtube_source=lambda notebook_id, url: adder.add_youtube_source(
+                    add_youtube_source=lambda notebook_id, url: self._create_url_source(
                         notebook_id,
                         url,
-                        rpc=cast(Any, caller),
+                        youtube=True,
+                        operation=Operation.SOURCE_ADD_URL,
+                        deadline=deadline,
                     ),
-                    add_url_source=lambda notebook_id, url: adder.add_url_source(
+                    add_url_source=lambda notebook_id, url: self._create_url_source(
                         notebook_id,
                         url,
-                        rpc=cast(Any, caller),
+                        youtube=False,
+                        operation=Operation.SOURCE_ADD_URL,
+                        deadline=deadline,
                     ),
-                    list_sources=lister.list,
-                    wait_until_ready=wait_until_ready,
+                    list_sources=lambda notebook_id: self._source_public_snapshot(
+                        notebook_id,
+                        operation=Operation.SOURCE_ADD_URL,
+                        deadline=deadline,
+                    ),
+                    wait_until_ready=_facade_owned_wait,
                     extract_youtube_video_id=extract_youtube_video_id,
                     is_youtube_url=is_youtube_url,
                     logger=source_logger,
@@ -248,18 +380,24 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
         source_before_title = create_result.value
         requested_title = value.requested_title
         normalized_title = requested_title.strip() if requested_title is not None else ""
-        source = await honor_requested_title_if_fresh(
-            rename_source,
-            value.notebook_id,
-            create_result,
-            requested_title,
-            source_logger,
-            probe_proves_freshness=True,
+        source = (
+            source_before_title
+            if value.wait
+            else await honor_requested_title_if_fresh(
+                rename_source,
+                value.notebook_id,
+                create_result,
+                requested_title,
+                source_logger,
+                probe_proves_freshness=True,
+            )
         )
         if not normalized_title:
             title_state = SourceAddTitleState.NOT_REQUESTED
         elif source_before_title.title == normalized_title:
             title_state = SourceAddTitleState.UNCHANGED
+        elif value.wait:
+            title_state = SourceAddTitleState.NOT_ATTEMPTED
         elif source.title == normalized_title:
             title_state = SourceAddTitleState.RENAMED
         else:
@@ -284,9 +422,7 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
         deadline: RuntimeDeadline | None,
     ) -> SourceAddUrlBatchResult:
         """Run one non-replayed true-batch URL write and preserve positions."""
-        caller = self._source_caller(deadline, Operation.SOURCE_ADD_URL_BATCH)
         adder = SourceAddService()
-        lister = SourceLister(cast(Any, caller))
 
         def extract_youtube_video_id(url: str) -> str | None:
             return adder.extract_youtube_video_id(
@@ -297,11 +433,44 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
                 logger=source_logger,
             )
 
+        async def create_sources(
+            notebook_id: str,
+            urls: Sequence[str],
+            youtube_flags: Sequence[bool],
+        ) -> list[Source]:
+            payload = await self._rpc_call(
+                RPCMethod.ADD_SOURCE,
+                encode_add_url_batch(
+                    notebook_id,
+                    list(urls),
+                    youtube_flags=list(youtube_flags),
+                ),
+                operation=Operation.SOURCE_ADD_URL_BATCH,
+                deadline=deadline,
+                source_path=f"/notebook/{notebook_id}",
+                disable_internal_retries=True,
+                operation_variant="url",
+            )
+            return [project_source(record) for record in decode_add_source_records(payload)]
+
+        async def list_sources(notebook_id: str, **kwargs: Any) -> list[Source]:
+            sources = await self._source_public_snapshot(
+                notebook_id,
+                operation=Operation.SOURCE_ADD_URL_BATCH,
+                deadline=deadline,
+            )
+            statuses = kwargs.get("statuses")
+            return (
+                sources
+                if statuses is None
+                else [source for source in sources if source.status in statuses]
+            )
+
         outcomes = await SourceBatchAddService().add_urls(
             value.notebook_id,
             value.urls,
-            rpc=cast(Any, caller),
-            list_sources=lister.list,
+            create_sources=create_sources,
+            list_sources=list_sources,
             extract_youtube_video_id=extract_youtube_video_id,
             logger=source_logger,
         )
@@ -323,52 +492,37 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
             )
         )
 
-    def _source_waiter(
-        self,
-        caller: Any,
-        *,
-        deadline: RuntimeDeadline | None,
-    ) -> Callable[..., Any]:
-        lister = SourceLister(cast(Any, caller))
-        poller = SourcePoller()
-
-        async def wait_until_ready(
-            notebook_id: str,
-            source_id: str,
-            *,
-            timeout: float,
-            **kwargs: Any,
-        ) -> Source:
-            return await poller.wait_until_ready(
-                notebook_id,
-                source_id,
-                timeout=timeout,
-                get_source=lister.get,
-                sleep=asyncio.sleep,
-                monotonic=(deadline.monotonic if deadline is not None else time.monotonic),
-                logger=source_logger,
-                deadline=deadline,
-                **kwargs,
-            )
-
-        return wait_until_ready
-
     async def _source_add_text(
         self,
         value: SourceAddTextInput,
         *,
         deadline: RuntimeDeadline | None,
     ) -> SourceAddTextResult:
-        caller = self._source_caller(deadline, Operation.SOURCE_ADD_TEXT)
+        async def create_source(
+            notebook_id: str,
+            title: str,
+            content: str,
+        ) -> Source | None:
+            payload = await self._rpc_call(
+                RPCMethod.ADD_SOURCE,
+                encode_add_text(notebook_id, title, content),
+                operation=Operation.SOURCE_ADD_TEXT,
+                deadline=deadline,
+                source_path=f"/notebook/{notebook_id}",
+                operation_variant="text",
+            )
+            records = decode_add_source_records(payload) if payload is not None else ()
+            return _first_projected_source(records)
+
         source = await SourceAddService().add_text(
             value.notebook_id,
             value.title,
             value.content,
-            wait=value.wait,
+            wait=False,
             wait_timeout=value.wait_timeout,
             idempotent=value.idempotent,
-            rpc=cast(Any, caller),
-            wait_until_ready=self._source_waiter(caller, deadline=deadline),
+            create_source=create_source,
+            wait_until_ready=_facade_owned_wait,
             logger=source_logger,
         )
         return SourceAddTextResult(_source_record(source))
@@ -379,49 +533,138 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
         *,
         deadline: RuntimeDeadline | None,
     ) -> SourceAddDriveResult:
-        caller = self._source_caller(deadline, Operation.SOURCE_ADD_DRIVE)
-        lister = SourceLister(cast(Any, caller))
         adder = SourceAddService()
-        result = await adder.add_drive(
-            value.notebook_id,
-            value.file_id,
-            value.title,
-            mime_type=value.mime_type,
-            wait=value.wait,
-            wait_timeout=value.wait_timeout,
-            rpc=cast(Any, caller),
-            list_sources=lister.list,
-            wait_until_ready=self._source_waiter(caller, deadline=deadline),
-            logger=source_logger,
-            return_result=True,
-        )
+
+        async def create_source(
+            notebook_id: str,
+            file_id: str,
+            title: str,
+            mime_type: str,
+        ) -> Source | None:
+            payload = await self._rpc_call(
+                RPCMethod.ADD_SOURCE,
+                encode_add_drive(notebook_id, file_id, title, mime_type),
+                operation=Operation.SOURCE_ADD_DRIVE,
+                deadline=deadline,
+                source_path=f"/notebook/{notebook_id}",
+                allow_null=True,
+                disable_internal_retries=True,
+                operation_variant="drive",
+            )
+            records = decode_add_source_records(payload) if payload is not None else ()
+            return _first_projected_source(records)
 
         async def rename_source(
             notebook_id: str,
             source_id: str,
             new_title: str,
         ) -> Source | None:
-            renamed = await caller.rpc_call(
-                RPCMethod.UPDATE_SOURCE,
-                build_rename_source_params(source_id, new_title),
-                source_path=f"/notebook/{notebook_id}",
-                allow_null=True,
+            return await self._rename_source_public(
+                notebook_id,
+                source_id,
+                new_title,
+                operation=Operation.SOURCE_ADD_DRIVE,
+                deadline=deadline,
+                hydrate_on_null=False,
             )
-            if renamed:
-                return project_source(
-                    decode_source(renamed, method_id=RPCMethod.UPDATE_SOURCE.value)
-                )
-            return None
 
-        source = await honor_requested_title_if_fresh(
-            rename_source,
-            value.notebook_id,
-            result,
-            value.title,
-            source_logger,
-            probe_proves_freshness=True,
+        if value.finalize_source is not None:
+            source = await honor_requested_title(
+                rename_source,
+                value.notebook_id,
+                project_source(value.finalize_source),
+                value.title,
+                source_logger,
+            )
+            return SourceAddDriveResult(_source_record(source))
+
+        result = cast(
+            _IdempotentCreateResult[Source],
+            await adder.add_drive(
+                value.notebook_id,
+                value.file_id,
+                value.title,
+                mime_type=value.mime_type,
+                wait=False,
+                wait_timeout=value.wait_timeout,
+                create_source=create_source,
+                list_sources=lambda notebook_id: self._source_public_snapshot(
+                    notebook_id,
+                    operation=Operation.SOURCE_ADD_DRIVE,
+                    deadline=deadline,
+                ),
+                wait_until_ready=_facade_owned_wait,
+                logger=source_logger,
+                return_result=True,
+            ),
+        )
+
+        source = (
+            result.value
+            if value.wait
+            else await honor_requested_title_if_fresh(
+                rename_source,
+                value.notebook_id,
+                result,
+                value.title,
+                source_logger,
+                probe_proves_freshness=True,
+            )
         )
         return SourceAddDriveResult(_source_record(source))
+
+    async def _source_wait(
+        self,
+        value: SourceWaitSnapshotInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SourceWaitSnapshotResult:
+        """Fetch exactly one neutral snapshot for one facade-owned poll tick."""
+        records = await self._source_snapshot_records(
+            value.notebook_id,
+            operation=Operation.SOURCE_WAIT,
+            # Source polling historically never clamps an in-flight read.
+            deadline=None,
+        )
+        return SourceWaitSnapshotResult(records)
+
+    async def _source_register_file(
+        self,
+        notebook_id: str,
+        filename: str,
+    ) -> SourceFileRegistrationRecord:
+        payload = await self._rpc_call(
+            RPCMethod.ADD_SOURCE_FILE,
+            encode_register_file_source(filename, notebook_id),
+            operation=Operation.SOURCE_ADD_FILE,
+            deadline=None,
+            source_path=f"/notebook/{notebook_id}",
+            allow_null=False,
+            disable_internal_retries=True,
+        )
+        return decode_file_registration(payload, filename=filename)
+
+    async def _source_upload_list(self, notebook_id: str) -> list[Source]:
+        return await self._source_public_snapshot(
+            notebook_id,
+            operation=Operation.SOURCE_ADD_FILE,
+            deadline=None,
+        )
+
+    async def _source_upload_rename(
+        self,
+        notebook_id: str,
+        source_id: str,
+        new_title: str,
+    ) -> Source | None:
+        return await self._rename_source_public(
+            notebook_id,
+            source_id,
+            new_title,
+            operation=Operation.SOURCE_ADD_FILE,
+            deadline=None,
+            hydrate_on_null=False,
+        )
 
     def _require_source_uploader(self) -> Any:
         if self._source_uploader is None:
@@ -439,37 +682,79 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
     ) -> SourceAddFileResult:
         del deadline  # upload/session timeouts retain their existing independent windows
         uploader = self._require_source_uploader()
+        if value.finalize_source is not None:
+            source = await honor_requested_title(
+                self._source_upload_rename,
+                value.notebook_id,
+                project_source(value.finalize_source),
+                value.title,
+                source_logger,
+            )
+            return SourceAddFileResult(_source_record(source))
+        if value.wait and value.title is not None and not value.title.strip():
+            # The title is deferred until after the facade-owned readiness wait,
+            # but validation must still happen before upload registration.
+            raise ValidationError("Title cannot be empty or whitespace-only")
+        transient_error_types: tuple[int | None, ...] = ()
         if value.kind is SourceFileInputKind.LOCAL:
             if value.file_path is None:
                 raise BackendContractError(
                     "local source.add_file input lacks file_path",
                     operation=Operation.SOURCE_ADD_FILE,
                 )
-            source = await uploader.add_file(
+            upload_result = await uploader._add_file_result(
                 value.notebook_id,
                 value.file_path,
                 mime_type=value.mime_type,
-                wait=value.wait,
+                wait=False,
                 wait_timeout=value.wait_timeout,
-                title=value.title,
+                title=(None if value.wait else value.title),
                 on_progress=value.on_progress,
             )
+            source = upload_result.source
+            transient_error_types = upload_result.transient_error_types
         else:
             if value.document_id is None:
                 raise BackendContractError(
                     "Drive source.add_file input lacks document_id",
                     operation=Operation.SOURCE_ADD_FILE,
                 )
-            service = uploader.create_drive_import_service()
+
+            async def add_downloaded_file(
+                notebook_id: str,
+                file_path: Any,
+                *,
+                title: str | None,
+                wait: bool,
+                wait_timeout: float,
+            ) -> Source:
+                nonlocal transient_error_types
+                upload_result = await uploader._add_file_result(
+                    notebook_id,
+                    file_path,
+                    title=title,
+                    wait=wait,
+                    wait_timeout=wait_timeout,
+                )
+                transient_error_types = upload_result.transient_error_types
+                return upload_result.source
+
+            service = DriveImportService(
+                fetch=DriveFetcher(
+                    cookies_provider=uploader.live_cookies,
+                    authuser=uploader.authuser_value(),
+                ),
+                add_file=add_downloaded_file,
+            )
             async with uploader.get_download_semaphore():
                 source = await service.add_drive_file(
                     value.notebook_id,
                     value.document_id,
-                    title=value.title,
-                    wait=value.wait,
+                    title=(None if value.wait else value.title),
+                    wait=False,
                     wait_timeout=value.wait_timeout,
                 )
-        return SourceAddFileResult(_source_record(source))
+        return SourceAddFileResult(_source_record(source), transient_error_types)
 
     async def _source_file_limit(self) -> int | None:
         result = await self._rpc_call(
@@ -505,7 +790,7 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
     ) -> SourceUpdateResult:
         payload = await self._rpc_call(
             RPCMethod.UPDATE_SOURCE,
-            build_rename_source_params(value.source_id, value.new_title),
+            encode_update_source(value.source_id, value.new_title),
             operation=Operation.SOURCE_UPDATE,
             deadline=deadline,
             source_path=f"/notebook/{value.notebook_id}",
@@ -575,12 +860,15 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
         *,
         deadline: RuntimeDeadline | None,
     ) -> SourceGuideResult:
-        caller = self._source_caller(deadline, Operation.SOURCE_GET_GUIDE)
-        guide = await SourceContentRenderer(cast(Any, caller), logger=source_logger).get_guide(
-            value.notebook_id,
-            value.source_id,
+        payload = await self._rpc_call(
+            RPCMethod.GET_SOURCE_GUIDE,
+            encode_get_guide(value.source_id),
+            operation=Operation.SOURCE_GET_GUIDE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
         )
-        return SourceGuideResult(SourceGuideRecord(summary=guide.summary, keywords=guide.keywords))
+        return SourceGuideResult(decode_source_guide(payload))
 
     async def _source_get_fulltext(
         self,
@@ -588,48 +876,52 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
         *,
         deadline: RuntimeDeadline | None,
     ) -> SourceFulltextResult:
-        caller = self._source_caller(deadline, Operation.SOURCE_GET_FULLTEXT)
-        try:
-            fulltext = await SourceContentRenderer(
-                cast(Any, caller), logger=source_logger
-            ).get_fulltext(
-                value.notebook_id,
-                value.source_id,
-                output_format=cast(Any, value.output_format),
+        if value.output_format not in ("text", "markdown"):
+            raise ValueError(
+                f"Invalid format: '{value.output_format}'. Must be 'text' or 'markdown'."
             )
-        except SourceNotFoundError as exc:
+        if value.output_format == "markdown":
+            try:
+                import markdownify  # noqa: F401
+            except ImportError:
+                raise ImportError(
+                    "The 'markdown' format requires the 'markdownify' package. "
+                    "Install it with: pip install 'notebooklm-py[markdown]'"
+                ) from None
+        payload = await self._rpc_call(
+            RPCMethod.GET_SOURCE,
+            encode_get_fulltext(
+                value.source_id,
+                markdown=value.output_format == "markdown",
+            ),
+            operation=Operation.SOURCE_GET_FULLTEXT,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        fulltext = decode_source_fulltext(
+            payload,
+            source_id=value.source_id,
+            output_format=value.output_format,
+            logger=source_logger,
+        )
+        if fulltext is None:
+            legacy_source_reference = (
+                f"Source {value.source_id} not found in notebook {value.notebook_id}"
+            )
             raise BackendError(
-                message=str(exc.args[0]),
+                message=f"Source not found: {legacy_source_reference}",
                 operation=Operation.SOURCE_GET_FULLTEXT,
                 diagnostics=MappingProxyType(
                     {
-                        "source_id": exc.source_id,
-                        "method_id": exc.method_id,
-                        "raw_response": exc.raw_response,
+                        # Compatibility: the legacy renderer passed this whole
+                        # sentence as SourceNotFoundError's ``source_id`` and did
+                        # not attach GET_SOURCE transport evidence.
+                        "source_id": legacy_source_reference,
+                        "method_id": None,
+                        "raw_response": None,
                     }
                 ),
                 reason=BackendErrorReason.SOURCE_NOT_FOUND,
-            ) from exc
-        type_code = fulltext._type_code
-        kind = (
-            _SOURCE_TYPE_CODE_MAP.get(type_code, SourceType.UNKNOWN)
-            if type_code is not None
-            else SourceType.UNKNOWN
-        )
-        return SourceFulltextResult(
-            SourceFulltextRecord(
-                source_id=fulltext.source_id,
-                title=fulltext.title,
-                content=fulltext.content,
-                kind=kind.value,
-                unrecognized_kind=(
-                    type_code
-                    if type_code is not None and type_code not in _SOURCE_TYPE_CODE_MAP
-                    else None
-                ),
-                kind_present=type_code is not None,
-                url=fulltext.url,
-                char_count=fulltext.char_count,
-                document=fulltext.document,
             )
-        )
+        return SourceFulltextResult(fulltext)

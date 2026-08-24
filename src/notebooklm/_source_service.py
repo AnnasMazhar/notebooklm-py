@@ -17,6 +17,7 @@ from ._records import (
     SOURCE_GET_GUIDE_DEF,
     SOURCE_REFRESH_DEF,
     SOURCE_UPDATE_DEF,
+    SOURCE_WAIT_DEF,
     SourceAddDriveInput,
     SourceAddDriveResult,
     SourceAddFileInput,
@@ -33,9 +34,12 @@ from ._records import (
     SourceGuideInput,
     SourceGuideResult,
     SourceProgressCallback,
+    SourceRecord,
     SourceRefreshInput,
     SourceUpdateInput,
     SourceUpdateResult,
+    SourceWaitSnapshotInput,
+    SourceWaitSnapshotResult,
 )
 
 
@@ -108,6 +112,26 @@ class SourceService:
             deadline=deadline,
         )
 
+    async def finalize_drive_title(
+        self,
+        notebook_id: str,
+        source: SourceRecord,
+        requested_title: str,
+    ) -> SourceAddDriveResult:
+        """Apply a waited Drive title under the original add operation."""
+
+        return await self._backend.invoke(
+            SOURCE_ADD_DRIVE_DEF,
+            SourceAddDriveInput(
+                notebook_id,
+                "",
+                requested_title,
+                "application/vnd.google-apps.document",
+                finalize_source=source,
+            ),
+            deadline=None,
+        )
+
     async def add_file(
         self,
         notebook_id: str,
@@ -156,6 +180,25 @@ class SourceService:
             deadline=None,
         )
 
+    async def finalize_file_title(
+        self,
+        notebook_id: str,
+        source: SourceRecord,
+        requested_title: str,
+    ) -> SourceAddFileResult:
+        """Apply a waited upload title under the original add operation."""
+
+        return await self._backend.invoke(
+            SOURCE_ADD_FILE_DEF,
+            SourceAddFileInput(
+                notebook_id,
+                SourceFileInputKind.LOCAL,
+                title=requested_title,
+                finalize_source=source,
+            ),
+            deadline=None,
+        )
+
     async def delete(self, notebook_id: str, source_id: str) -> None:
         await self._backend.invoke(
             SOURCE_DELETE_DEF,
@@ -196,6 +239,16 @@ class SourceService:
             deadline=None,
         )
         return result.fresh
+
+    async def wait_snapshot(self, notebook_id: str) -> SourceWaitSnapshotResult:
+        """Fetch one neutral snapshot for a facade-owned source poll tick."""
+        return await self._backend.invoke(
+            SOURCE_WAIT_DEF,
+            SourceWaitSnapshotInput(notebook_id),
+            # Source wait historically owns a relative polling budget and does
+            # not clamp an in-flight GET_NOTEBOOK read to the remaining time.
+            deadline=None,
+        )
 
     async def get_guide(self, notebook_id: str, source_id: str) -> SourceGuideResult:
         return await self._backend.invoke(

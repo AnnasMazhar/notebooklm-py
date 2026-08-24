@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -9,6 +10,7 @@ import pytest
 
 from notebooklm._source.listing import SourceLister
 from notebooklm._sources import SourcesAPI
+from notebooklm._web.codec.sources import decode_source_snapshot, encode_source_snapshot
 from notebooklm.exceptions import RPCError
 from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import SourceStatus
@@ -34,6 +36,17 @@ class RecordingRpc:
     ) -> Any:
         self.calls.append((method, params, source_path))
         return self.response
+
+    async def __call__(self, notebook_id: str, strict: bool = False):
+        """Act as the web-decoded neutral snapshot seam consumed by SourceLister."""
+        params = encode_source_snapshot(notebook_id)
+        self.calls.append((RPCMethod.GET_NOTEBOOK, params, f"/notebook/{notebook_id}"))
+        return decode_source_snapshot(
+            notebook_id,
+            self.response,
+            strict=strict,
+            logger=logging.getLogger("notebooklm._sources"),
+        )
 
 
 def source_entry(

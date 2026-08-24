@@ -18,10 +18,13 @@ import pytest
 
 from notebooklm._operations import CallPolicy, Operation
 from notebooklm._records import (
+    LEGACY_SHARE_ARTIFACT_DEF,
     SHARING_GET_DEF,
     SHARING_SET_PUBLIC_DEF,
     SHARING_SET_VIEW_LEVEL_DEF,
     SHARING_UPDATE_USERS_DEF,
+    LegacyShareArtifactInput,
+    LegacyShareArtifactResult,
     ShareAccessLevel,
     SharePermissionLevel,
     ShareViewScope,
@@ -128,6 +131,11 @@ def test_every_sharing_operation_has_one_registered_web_binding() -> None:
             SHARING_UPDATE_USERS_DEF,
             CallPolicy.MUTATION,
         ),
+        Operation.LEGACY_SHARE_ARTIFACT: (
+            "_legacy_share_artifact",
+            LEGACY_SHARE_ARTIFACT_DEF,
+            CallPolicy.MUTATION,
+        ),
     }
     for operation, (handler, definition, policy) in sharing.items():
         binding = WEB_OPERATION_REGISTRY[operation]
@@ -136,9 +144,29 @@ def test_every_sharing_operation_has_one_registered_web_binding() -> None:
         assert binding.definition is definition
         assert definition.policy is policy
         assert operation in WEB_SUPPORTED_OPERATIONS
-    # The legacy private share-link mutator keeps its own disposition; the
-    # migration must not quietly adopt it as a fifth sharing binding.
-    assert not WEB_OPERATION_REGISTRY[Operation.LEGACY_SHARE_ARTIFACT].is_supported
+
+
+@pytest.mark.asyncio
+async def test_legacy_share_artifact_preserves_status_three_null_success() -> None:
+    rpc_call = AsyncMock(return_value=None)
+    backend = WebRpcBackend(
+        MagicMock(rpc_call=rpc_call),
+        transport_factory=lambda **_kwargs: object(),
+    )
+
+    result = await backend.invoke(
+        LEGACY_SHARE_ARTIFACT_DEF,
+        LegacyShareArtifactInput("nb_123", public=True, artifact_id="artifact_456"),
+        deadline=None,
+    )
+
+    assert result == LegacyShareArtifactResult(public=True, artifact_id="artifact_456")
+    rpc_call.assert_awaited_once()
+    request = rpc_call.await_args
+    assert request.args == (RPCMethod.SHARE_ARTIFACT, [[1], "nb_123", "artifact_456"])
+    assert request.kwargs["source_path"] == "/notebook/nb_123"
+    assert request.kwargs["allow_null"] is True
+    assert request.kwargs["raise_on_null_status"] is False
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,14 @@ from typing import Any
 
 import pytest
 
+from notebooklm._projectors import project_source_fulltext, project_source_guide
 from notebooklm._source.content import SourceContentRenderer
+from notebooklm._web.codec.sources import (
+    decode_source_fulltext,
+    decode_source_guide,
+    encode_get_fulltext,
+    encode_get_guide,
+)
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import SourceNotFoundError
 
@@ -41,6 +48,48 @@ class RecordingRpc:
             }
         )
         return self.response
+
+    async def get_fulltext(
+        self,
+        notebook_id: str,
+        source_id: str,
+        *,
+        output_format: str = "text",
+    ):
+        if output_format not in ("text", "markdown"):
+            raise ValueError(f"Invalid format: {output_format!r}. Must be 'text' or 'markdown'.")
+        if output_format == "markdown":
+            try:
+                import markdownify  # noqa: F401
+            except ImportError:
+                raise ImportError(
+                    "The 'markdown' format requires the 'markdownify' package. "
+                    "Install it with: pip install 'notebooklm-py[markdown]'"
+                ) from None
+        await self.rpc_call(
+            RPCMethod.GET_SOURCE,
+            encode_get_fulltext(source_id, markdown=output_format == "markdown"),
+            source_path=f"/notebook/{notebook_id}",
+            allow_null=True,
+        )
+        record = decode_source_fulltext(
+            self.response,
+            source_id=source_id,
+            output_format=output_format,
+            logger=SOURCE_LOGGER,
+        )
+        if record is None:
+            raise SourceNotFoundError(source_id)
+        return project_source_fulltext(record)
+
+    async def get_guide(self, notebook_id: str, source_id: str):
+        await self.rpc_call(
+            RPCMethod.GET_SOURCE_GUIDE,
+            encode_get_guide(source_id),
+            source_path=f"/notebook/{notebook_id}",
+            allow_null=True,
+        )
+        return project_source_guide(decode_source_guide(self.response))
 
 
 @pytest.mark.asyncio
