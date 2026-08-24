@@ -123,7 +123,15 @@ def _build_full_studio_row(
     # [7]=report metadata: [markdown, [None*5, prompt, [report_kind]]]
     row[7] = [
         "# Markdown report",
-        [None, None, None, None, None, "Explain quantum computing in plain terms", ["Concept Explanation"]],
+        [
+            None,
+            None,
+            None,
+            None,
+            None,
+            "Explain quantum computing in plain terms",
+            ["Concept Explanation"],
+        ],
     ]
     # [8]=video metadata: [None, None, [None, None, "Video Prompt"]]
     row[8] = None
@@ -179,10 +187,26 @@ def test_artifacts_api_public_signatures_are_frozen() -> None:
     remains the stable facade with unchanged public signatures.
     """
     # Listing & Discovery
-    assert list(inspect.signature(ArtifactsAPI.list).parameters) == ["self", "notebook_id", "artifact_type"]
-    assert list(inspect.signature(ArtifactsAPI.get).parameters) == ["self", "notebook_id", "artifact_id"]
-    assert list(inspect.signature(ArtifactsAPI.get_or_none).parameters) == ["self", "notebook_id", "artifact_id"]
-    assert list(inspect.signature(ArtifactsAPI.get_prompt).parameters) == ["self", "notebook_id", "artifact_id"]
+    assert list(inspect.signature(ArtifactsAPI.list).parameters) == [
+        "self",
+        "notebook_id",
+        "artifact_type",
+    ]
+    assert list(inspect.signature(ArtifactsAPI.get).parameters) == [
+        "self",
+        "notebook_id",
+        "artifact_id",
+    ]
+    assert list(inspect.signature(ArtifactsAPI.get_or_none).parameters) == [
+        "self",
+        "notebook_id",
+        "artifact_id",
+    ]
+    assert list(inspect.signature(ArtifactsAPI.get_prompt).parameters) == [
+        "self",
+        "notebook_id",
+        "artifact_id",
+    ]
 
     # Family listing shortcuts
     for method_name in (
@@ -195,37 +219,61 @@ def test_artifacts_api_public_signatures_are_frozen() -> None:
         "list_slide_decks",
         "list_data_tables",
     ):
-        assert list(inspect.signature(getattr(ArtifactsAPI, method_name)).parameters) == ["self", "notebook_id"]
+        assert list(inspect.signature(getattr(ArtifactsAPI, method_name)).parameters) == [
+            "self",
+            "notebook_id",
+        ]
 
     # Generation signatures
     gen_audio = inspect.signature(ArtifactsAPI.generate_audio).parameters
     assert list(gen_audio) == [
-        "self", "notebook_id", "source_ids", "language", "instructions",
-        "audio_format", "audio_length",
+        "self",
+        "notebook_id",
+        "source_ids",
+        "language",
+        "instructions",
+        "audio_format",
+        "audio_length",
     ]
     assert gen_audio["source_ids"].default is None
     assert gen_audio["language"].default == "en"
 
     gen_quiz = inspect.signature(ArtifactsAPI.generate_quiz).parameters
     assert list(gen_quiz) == [
-        "self", "notebook_id", "source_ids", "instructions",
-        "quantity", "difficulty",
+        "self",
+        "notebook_id",
+        "source_ids",
+        "instructions",
+        "quantity",
+        "difficulty",
     ]
     assert gen_quiz["quantity"].default is None
     assert gen_quiz["difficulty"].default is None
 
     gen_report = inspect.signature(ArtifactsAPI.generate_report).parameters
     assert list(gen_report) == [
-        "self", "notebook_id", "report_format", "source_ids", "language",
-        "custom_prompt", "extra_instructions",
+        "self",
+        "notebook_id",
+        "report_format",
+        "source_ids",
+        "language",
+        "custom_prompt",
+        "extra_instructions",
     ]
     assert gen_report["report_format"].default is ReportFormat.BRIEFING_DOC
 
     # Polling & Lifecycle
     wait_sig = inspect.signature(ArtifactsAPI.wait_for_completion).parameters
     assert list(wait_sig) == [
-        "self", "notebook_id", "task_id", "initial_interval", "max_interval",
-        "timeout", "max_not_found", "min_not_found_window", "on_status_change",
+        "self",
+        "notebook_id",
+        "task_id",
+        "initial_interval",
+        "max_interval",
+        "timeout",
+        "max_not_found",
+        "min_not_found_window",
+        "on_status_change",
     ]
     assert wait_sig["initial_interval"].default == 2.0
     assert wait_sig["max_interval"].default == 10.0
@@ -240,15 +288,33 @@ def test_artifacts_api_public_signatures_are_frozen() -> None:
     assert rename_sig["return_object"].kind is inspect.Parameter.KEYWORD_ONLY
     assert rename_sig["return_object"].default is True
 
-    assert list(inspect.signature(ArtifactsAPI.delete).parameters) == ["self", "notebook_id", "artifact_id"]
+    assert list(inspect.signature(ArtifactsAPI.delete).parameters) == [
+        "self",
+        "notebook_id",
+        "artifact_id",
+    ]
     assert list(inspect.signature(ArtifactsAPI.export_report).parameters) == [
-        "self", "notebook_id", "artifact_id", "title", "export_type",
+        "self",
+        "notebook_id",
+        "artifact_id",
+        "title",
+        "export_type",
     ]
     assert list(inspect.signature(ArtifactsAPI.export_data_table).parameters) == [
-        "self", "notebook_id", "artifact_id", "title",
+        "self",
+        "notebook_id",
+        "artifact_id",
+        "title",
     ]
     export_sig = inspect.signature(ArtifactsAPI.export).parameters
-    assert list(export_sig) == ["self", "notebook_id", "artifact_id", "title", "export_type", "content"]
+    assert list(export_sig) == [
+        "self",
+        "notebook_id",
+        "artifact_id",
+        "title",
+        "export_type",
+        "content",
+    ]
     assert export_sig["content"].kind is inspect.Parameter.KEYWORD_ONLY
 
 
@@ -258,7 +324,9 @@ def test_artifacts_api_public_signatures_are_frozen() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_and_get_populate_every_artifact_field_and_nested_value_without_extra_fetch() -> None:
+async def test_list_and_get_populate_every_artifact_field_and_nested_value_without_extra_fetch() -> (
+    None
+):
     """P5 compatibility invariant: list and get populate every Artifact field in one RPC pass.
 
     No extra fetches are issued per-artifact; all nested media, slides, infographics,
@@ -439,7 +507,12 @@ async def test_note_backed_mind_map_populates_artifact_from_note_row() -> None:
             ArtifactType.UNKNOWN,
             {"is_unclassified_type4": True, "is_interactive_mind_map": False},
         ),
-        (ArtifactTypeCode.MIND_MAP.value, None, ArtifactType.MIND_MAP, {"is_interactive_mind_map": False}),
+        (
+            ArtifactTypeCode.MIND_MAP.value,
+            None,
+            ArtifactType.MIND_MAP,
+            {"is_interactive_mind_map": False},
+        ),
         (ArtifactTypeCode.FANTASY_MAP.value, None, ArtifactType.FANTASY_MAP, {}),
         (ArtifactTypeCode.INFOGRAPHIC.value, None, ArtifactType.INFOGRAPHIC, {}),
         (ArtifactTypeCode.SLIDE_DECK.value, None, ArtifactType.SLIDE_DECK, {}),
@@ -533,7 +606,11 @@ async def test_wait_for_completion_lifecycle_terminal_and_status_behavior() -> N
     # 1. Immediate completion returns GenerationStatus
     api, _, _ = _make_api()
     api.poll_status = AsyncMock(  # type: ignore[method-assign]
-        return_value=GenerationStatus(task_id="t1", status=GenerationState.COMPLETED, url="https://storage.googleapis.com/audio.mp4")
+        return_value=GenerationStatus(
+            task_id="t1",
+            status=GenerationState.COMPLETED,
+            url="https://storage.googleapis.com/audio.mp4",
+        )
     )
     res = await api.wait_for_completion("nb-1", "t1")
     assert isinstance(res, GenerationStatus)
@@ -543,7 +620,9 @@ async def test_wait_for_completion_lifecycle_terminal_and_status_behavior() -> N
 
     # 2. Immediate failure returns GenerationStatus
     api.poll_status = AsyncMock(  # type: ignore[method-assign]
-        return_value=GenerationStatus(task_id="t2", status=GenerationState.FAILED, error="Model generation failed")
+        return_value=GenerationStatus(
+            task_id="t2", status=GenerationState.FAILED, error="Model generation failed"
+        )
     )
     res = await api.wait_for_completion("nb-1", "t2")
     assert isinstance(res, GenerationStatus)
@@ -568,7 +647,8 @@ async def test_wait_for_completion_lifecycle_terminal_and_status_behavior() -> N
         return_value=GenerationStatus(task_id="t4", status=GenerationState.NOT_FOUND)
     )
     res = await api.wait_for_completion(
-        "nb-1", "t4",
+        "nb-1",
+        "t4",
         initial_interval=0.001,
         max_interval=0.001,
         max_not_found=2,
@@ -583,8 +663,12 @@ async def test_wait_for_completion_lifecycle_terminal_and_status_behavior() -> N
 async def test_poll_status_media_readiness_guards_premature_completion() -> None:
     """Media artifacts with wire status COMPLETED but empty URLs stay in_progress."""
     row_without_url = [
-        "task-media", "Audio Title", ArtifactTypeCode.AUDIO.value,
-        None, ArtifactStatus.COMPLETED.value, False,
+        "task-media",
+        "Audio Title",
+        ArtifactTypeCode.AUDIO.value,
+        None,
+        ArtifactStatus.COMPLETED.value,
+        False,
         [None, None, None, None, None, [], [0, 0]],  # empty media urls
     ]
     api, _, _ = _make_api(rpc_call=AsyncMock(return_value=[[row_without_url]]))
@@ -614,11 +698,16 @@ def test_generation_state_mro_base_order_and_hash_invariants() -> None:
     assert hash(GenerationState.COMPLETED) != hash("COMPLETED")
 
     # _TERMINAL_GENERATION_STATES frozenset contains exact terminal states
-    assert frozenset({
-        GenerationState.COMPLETED,
-        GenerationState.FAILED,
-        GenerationState.REMOVED,
-    }) == _TERMINAL_GENERATION_STATES
+    assert (
+        frozenset(
+            {
+                GenerationState.COMPLETED,
+                GenerationState.FAILED,
+                GenerationState.REMOVED,
+            }
+        )
+        == _TERMINAL_GENERATION_STATES
+    )
 
     # Hash membership lookup works with both enum instances and plain strings
     assert "completed" in _TERMINAL_GENERATION_STATES
@@ -665,7 +754,9 @@ def test_trusted_download_host_allowlist_invariants() -> None:
 
 
 @pytest.mark.asyncio
-async def test_download_client_factory_and_redirect_security_parity_httpx(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_download_client_factory_and_redirect_security_parity_httpx(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """httpx download client enforces allowlist and HTTPS on initial request and redirects."""
     monkeypatch.delenv("NOTEBOOKLM_TRANSPORT", raising=False)
     client, do_get = _make_download_client(httpx.Cookies(), timeout=30.0)
@@ -683,7 +774,9 @@ async def test_download_client_factory_and_redirect_security_parity_httpx(monkey
 
 
 @pytest.mark.asyncio
-async def test_download_client_factory_and_redirect_security_parity_curl_cffi(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_download_client_factory_and_redirect_security_parity_curl_cffi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """curl_cffi download client routes through get_guarded with trusted-host predicate."""
     pytest.importorskip("curl_cffi", reason="requires curl_cffi extra")
     from notebooklm._curl_cffi_transport import CurlCffiAsyncClient
@@ -745,7 +838,9 @@ async def test_drive_export_operations_and_targets() -> None:
 
     # 4. export() with raw content
     rpc_call.reset_mock()
-    await api.export("nb-1", content="# Markdown content", title="Custom Export", export_type=ExportType.DOCS)
+    await api.export(
+        "nb-1", content="# Markdown content", title="Custom Export", export_type=ExportType.DOCS
+    )
     rpc_call.assert_awaited_once_with(
         RPCMethod.EXPORT_ARTIFACT,
         [None, None, "# Markdown content", "Custom Export", 1],
@@ -765,9 +860,16 @@ async def test_drive_export_operations_and_targets() -> None:
 async def test_mind_map_dual_backing_and_partial_availability() -> None:
     """Mind maps merge interactive and note-backed rows; partial outages degrade gracefully."""
     interactive_row = [
-        "mm-studio", "Interactive Map", ArtifactTypeCode.QUIZ.value,
-        None, ArtifactStatus.COMPLETED.value, False,
-        None, None, None, [None, [INTERACTIVE_MIND_MAP_VARIANT, None, "Mind map prompt"]],
+        "mm-studio",
+        "Interactive Map",
+        ArtifactTypeCode.QUIZ.value,
+        None,
+        ArtifactStatus.COMPLETED.value,
+        False,
+        None,
+        None,
+        None,
+        [None, [INTERACTIVE_MIND_MAP_VARIANT, None, "Mind map prompt"]],
     ]
     note_backed_row = [
         "mm-note",
@@ -797,7 +899,9 @@ async def test_mind_map_dual_backing_and_partial_availability() -> None:
     assert degraded[0].id == "mm-studio"
 
     # 3. ADR-0019 schema drift in mind-map sub-fetch propagates DecodingError
-    mock_mind_maps.list_mind_maps = AsyncMock(side_effect=DecodingError("corrupt mind map note shape"))
+    mock_mind_maps.list_mind_maps = AsyncMock(
+        side_effect=DecodingError("corrupt mind map note shape")
+    )
     with pytest.raises(DecodingError, match="corrupt mind map"):
         await api.list("nb-1")
 
@@ -820,12 +924,18 @@ async def test_mind_map_dual_backing_and_partial_availability() -> None:
 async def test_data_table_listing_and_filtering() -> None:
     """Data tables (type code 9) are filtered cleanly by list_data_tables."""
     table_row = [
-        "art-tbl", "Financial Table", ArtifactTypeCode.DATA_TABLE.value,
-        None, ArtifactStatus.COMPLETED.value,
+        "art-tbl",
+        "Financial Table",
+        ArtifactTypeCode.DATA_TABLE.value,
+        None,
+        ArtifactStatus.COMPLETED.value,
     ]
     audio_row = [
-        "art-aud", "Financial Audio", ArtifactTypeCode.AUDIO.value,
-        None, ArtifactStatus.COMPLETED.value,
+        "art-aud",
+        "Financial Audio",
+        ArtifactTypeCode.AUDIO.value,
+        None,
+        ArtifactStatus.COMPLETED.value,
     ]
     api, _, _ = _make_api(rpc_call=AsyncMock(return_value=[[table_row, audio_row]]))
 

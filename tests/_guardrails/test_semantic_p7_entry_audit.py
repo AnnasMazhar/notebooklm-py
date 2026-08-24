@@ -253,9 +253,7 @@ def test_p7_entry_criteria_blockers_enumeration() -> None:
     report = evaluate_p7_entry_readiness()
 
     assert not report.ready, "P7 cannot be ready before P1-P6 migrations complete"
-    assert len(report.blockers) >= 4, (
-        f"Expected at least 4 blocker classes, got: {report.blockers}"
-    )
+    assert len(report.blockers) >= 4, f"Expected at least 4 blocker classes, got: {report.blockers}"
 
     # Check each blocker category is explicitly reported
     blocker_text = "\n".join(report.blockers)
@@ -356,4 +354,6 @@ def test_detector_fails_closed_when_legacy_exception_missing_approver_or_issue()
         )(),
     ]
     report = evaluate_p7_entry_readiness(operation_specs=fake_specs)
-    assert any("must specify both an approver and an open removal issue" in b for b in report.blockers)
+    assert any(
+        "must specify both an approver and an open removal issue" in b for b in report.blockers
+    )

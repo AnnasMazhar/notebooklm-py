@@ -487,7 +487,9 @@ async def test_retry_middleware_rate_limit_and_server_error_retries() -> None:
     """RetryMiddleware retries TransportRateLimited and TransportServerError up to max retries."""
     rate_limit_resp = httpx.Response(429, headers={"Retry-After": "0"})
     fake_req = make_request()
-    fake_http_err = httpx.HTTPStatusError("429 Too Many Requests", request=fake_req, response=rate_limit_resp)
+    fake_http_err = httpx.HTTPStatusError(
+        "429 Too Many Requests", request=fake_req, response=rate_limit_resp
+    )
     terminal = FakeChainTerminal(
         raises=TransportRateLimited(
             "rate limited",
