@@ -491,6 +491,21 @@ async def test_close_without_drain_cancels_a_hung_account_probe(
 
 
 @pytest.mark.asyncio
+async def test_post_close_account_lookup_preserves_network_free_policy() -> None:
+    """Closed providers retain offline identity state but reject live probes."""
+    auth = _auth()
+    auth.account_email = "offline@example.com"
+    client = build_client_shell_for_tests(auth, async_client_factory=_session_factory)
+
+    await client.__aenter__()
+    await client.close(drain=False)
+
+    assert await client.get_account_email(live_fallback=False) == "offline@example.com"
+    with pytest.raises(RuntimeError, match="provider is closing"):
+        await client.get_account_email(live_fallback=True)
+
+
+@pytest.mark.asyncio
 async def test_provider_close_failure_is_retryable() -> None:
     """A failed awaited close must not permanently latch the provider as closed."""
     from notebooklm._web.backend import WebRpcBackend

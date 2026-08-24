@@ -268,7 +268,7 @@ class RuntimeWebCookieProvider:
         for the credential transaction lock.
         """
         async with self._get_identity_lock():
-            if self._identity_closing:
+            if self._identity_closing and live_fallback:
                 raise RuntimeError("web cookie provider is closing")
             task = self._identity_tasks.get(live_fallback)
             if task is None or task.done():
