@@ -557,11 +557,9 @@ def _build_rpc_executor() -> Any:
         captured["rpc_method"] = rpc_method
         return httpx.Response(200, text=")]}'\n[]")
 
-    # ADR-0014 Rule 5 (Wave 4 of session-decoupling): RpcExecutor takes
-    # its four collaborators (kernel/transport/auth_refresh/metrics) as
-    # keyword-only args. Use four MagicMock collaborators so each role
-    # can be inspected independently.
-    kernel = MagicMock()
+    # P8 gives WebExecutionRuntime narrow session-open/provider-refresh
+    # callables instead of retaining the concrete Kernel/auth coordinator.
+    assert_open = MagicMock()
     transport = MagicMock()
     transport.perform_authed_post = AsyncMock(side_effect=_fake_perform_authed_post)
     auth_refresh = MagicMock()
@@ -585,9 +583,9 @@ def _build_rpc_executor() -> Any:
         return False
 
     executor = RpcExecutor(
-        kernel=kernel,
+        assert_open=assert_open,
         transport=transport,
-        auth_refresh=auth_refresh,
+        refresh=auth_refresh.await_refresh,
         metrics=metrics,
         decode_response=_decode,
         is_auth_error=_is_auth_error,
