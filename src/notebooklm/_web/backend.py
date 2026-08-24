@@ -272,11 +272,13 @@ class WebRpcBackend:
         except BackendError:
             raise
         except RPCTimeoutError as exc:
-            if deadline is not None:
+            if deadline is not None and deadline.expired():
+                diagnostics = dict(self._error_diagnostics(exc, BackendErrorReason.TIMEOUT))
+                diagnostics.update({"timeout": deadline.timeout, "remaining": deadline.remaining()})
                 raise BackendDeadlineExceededError(
                     operation.key,
                     outcome_unknown=operation.policy is not CallPolicy.READ,
-                    diagnostics=self._error_diagnostics(exc, BackendErrorReason.TIMEOUT),
+                    diagnostics=MappingProxyType(diagnostics),
                 ) from exc
             raise self._translate_error(operation.key, exc) from exc
         except (RPCError, NetworkError) as exc:

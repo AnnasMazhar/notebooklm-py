@@ -523,9 +523,13 @@ INERT_P1_BACKEND_IMPORTS = frozenset(
     }
 )
 
-_P1_BACKEND_IMPORT_MODULES = frozenset(
-    {"_backend", "_records", "_web.backend", "backend", "registry"}
-)
+_P1_BACKEND_IMPORT_MODULES = frozenset({"_backend", "_records", "_web", "_web.backend"})
+
+
+def _is_p1_backend_import_module(module: str) -> bool:
+    return module in _P1_BACKEND_IMPORT_MODULES or module.startswith(
+        ("notebooklm._backend", "notebooklm._records", "notebooklm._web")
+    )
 
 
 def audit_inert_p1_backend_dataflow(
@@ -547,10 +551,25 @@ def audit_inert_p1_backend_dataflow(
             child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)
         }
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module is not None:
-                if node.module in _P1_BACKEND_IMPORT_MODULES:
+            if isinstance(node, ast.Import):
+                observed_imports.update(
+                    (relative, alias.name, "*")
+                    for alias in node.names
+                    if _is_p1_backend_import_module(alias.name)
+                )
+            if isinstance(node, ast.ImportFrom):
+                if node.module is not None and (
+                    _is_p1_backend_import_module(node.module)
+                    or (relative.startswith("_web/") and node.module in {"backend", "registry"})
+                ):
                     observed_imports.update(
                         (relative, node.module, alias.name) for alias in node.names
+                    )
+                elif node.module is None:
+                    observed_imports.update(
+                        (relative, "." * node.level, alias.name)
+                        for alias in node.names
+                        if alias.name in {"_backend", "_records", "_web"}
                     )
             if isinstance(node, ast.Call) and _attribute_parts(node.func)[-1:] == ("invoke",):
                 invoke_sites.add(f"{relative}:{node.lineno}")
