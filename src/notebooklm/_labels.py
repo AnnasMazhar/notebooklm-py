@@ -22,7 +22,9 @@ from ._label.params import (
     build_update_label_params,
 )
 from ._lookup import unwrap_or_raise
+from ._projectors import project_label
 from ._runtime.contracts import RpcCaller
+from ._web.codec.labels import decode_label
 from .exceptions import LabelError, LabelNotFoundError, UnknownRPCMethodError
 from .rpc import RPCMethod
 from .types import Label, Source
@@ -85,7 +87,7 @@ class LabelsAPI:
                 source=_SRC,
             )
         return [
-            Label.from_api_response(tuple_, notebook_id=notebook_id, method_id=method_id)
+            project_label(decode_label(tuple_, notebook_id=notebook_id, method_id=method_id))
             for tuple_ in raw
         ]
 

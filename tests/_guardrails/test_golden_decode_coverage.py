@@ -225,6 +225,30 @@ GOLDEN_COVERAGE: dict[RPCMethod, tuple[GoldenPointer, ...]] = {
     ),
 }
 
+# P3 wire-codec bindings -> the existing cassette-backed method families that
+# independently pin their decoded values. This is separate from
+# ``GOLDEN_COVERAGE``: that registry classifies the cassette corpus, while this
+# table fails if a live codec loses its protocol proof or starts handling a
+# family with no golden. Collection rows reuse the label RPC family; their
+# distinct member grammar is additionally pinned by strict codec parity tests
+# because no collection cassette exists yet.
+P3_CODEC_GOLDEN_COVERAGE: dict[str, tuple[RPCMethod, ...]] = {
+    "artifacts.decode_artifact": (RPCMethod.LIST_ARTIFACTS,),
+    "artifacts.decode_mind_map_artifact": (RPCMethod.GET_NOTES_AND_MIND_MAPS,),
+    "artifacts.decode_report_suggestion": (RPCMethod.GET_SUGGESTED_REPORTS,),
+    "collections.decode_collection": (RPCMethod.LIST_LABELS, RPCMethod.CREATE_LABEL),
+    "labels.decode_label": (RPCMethod.LIST_LABELS, RPCMethod.CREATE_LABEL),
+    "notebooks.decode_notebook": (
+        RPCMethod.LIST_NOTEBOOKS,
+        RPCMethod.GET_NOTEBOOK,
+        RPCMethod.CREATE_NOTEBOOK,
+    ),
+    "notebooks.decode_notebook_description": (RPCMethod.SUMMARIZE,),
+    "sharing.decode_share_status": (RPCMethod.GET_SHARE_STATUS,),
+    "sources.decode_source": (RPCMethod.ADD_SOURCE, RPCMethod.UPDATE_SOURCE),
+    "sources.decode_source_row": (RPCMethod.GET_NOTEBOOK,),
+}
+
 # Sanctioned exemption reasons (named constants so a typo can't fork them).
 _REASON_NONE_CONTRACT = (
     "success contract returns None; the response carries no decodable row to pin"
@@ -450,6 +474,17 @@ def test_covered_and_exempt_sets_are_disjoint() -> None:
         f"RPC familie(s) appear in BOTH GOLDEN_COVERAGE and GOLDEN_EXEMPT: {overlap}. "
         "A covered family must not also be exempt."
     )
+
+
+def test_every_live_p3_codec_binding_has_cassette_backed_golden_evidence() -> None:
+    """P3 codec ownership cannot outgrow the independent protocol oracle."""
+
+    missing = {
+        codec: sorted(method.name for method in methods if method not in GOLDEN_COVERAGE)
+        for codec, methods in P3_CODEC_GOLDEN_COVERAGE.items()
+        if any(method not in GOLDEN_COVERAGE for method in methods)
+    }
+    assert missing == {}
 
 
 def test_every_exemption_has_a_sanctioned_reason() -> None:

@@ -17,7 +17,9 @@ from .._idempotency import (
 from .._idempotency import (
     mark_unconfirmed as _unconfirmed,
 )
+from .._projectors import project_source
 from .._runtime.contracts import RpcCaller
+from .._web.codec.sources import decode_source
 from ..exceptions import (
     AuthError,
     NetworkError,
@@ -277,7 +279,7 @@ class SourceAddService:
 
             if result is None:
                 raise SourceAddError(url, message=f"API returned no data for URL: {url}")
-            return Source.from_api_response(result, method_id=RPCMethod.ADD_SOURCE.value)
+            return project_source(decode_source(result, method_id=RPCMethod.ADD_SOURCE.value))
 
         # Capture baseline source ids before the first create attempt so the
         # probe can tell "this URL add landed" from "the same URL was already
@@ -492,7 +494,7 @@ class SourceAddService:
         if result is None:
             raise SourceAddError(title, message=f"API returned no data for text source: {title}")
 
-        source = Source.from_api_response(result, method_id=RPCMethod.ADD_SOURCE.value)
+        source = project_source(decode_source(result, method_id=RPCMethod.ADD_SOURCE.value))
 
         if wait:
             return await wait_until_ready(notebook_id, source.id, timeout=wait_timeout)
@@ -642,7 +644,7 @@ class SourceAddService:
                         "download it and add it as a `file` source instead."
                     ),
                 )
-            return Source.from_api_response(result, method_id=RPCMethod.ADD_SOURCE.value)
+            return project_source(decode_source(result, method_id=RPCMethod.ADD_SOURCE.value))
 
         # Capture baseline source ids before the first create attempt so the
         # probe can tell "this Drive add landed" from "the same Drive file was

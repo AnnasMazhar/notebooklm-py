@@ -7,8 +7,11 @@ import logging
 from collections.abc import Awaitable, Callable, Collection
 from typing import Any, TypeVar
 
+from .._projectors import project_source
+from .._records import SourceRecord
 from .._row_adapters.sources import SourceRow
 from .._runtime.contracts import RpcCaller
+from .._web.codec.sources import decode_source_row
 from ..rpc import RPCError, RPCMethod, safe_index
 from ..rpc.types import SourceStatus
 from ..types import Source, SourceType
@@ -108,6 +111,20 @@ class SourceLister:
     ) -> builtins.list[Source]:
         """Normalize one fetched notebook envelope into unique source models."""
 
+        return [
+            project_source(record)
+            for record in self.normalize_records(notebook_id, notebook, strict=strict)
+        ]
+
+    def normalize_records(
+        self,
+        notebook_id: str,
+        notebook: Any,
+        *,
+        strict: bool = False,
+    ) -> builtins.list[SourceRecord]:
+        """Normalize one fetched notebook envelope into unique neutral records."""
+
         sources_list = self._extract_sources_list(notebook_id, notebook, strict=strict)
         if sources_list is None:
             return []
@@ -118,10 +135,10 @@ class SourceLister:
         # echo an existing id — which would otherwise over-count both
         # ``source_list`` and ``metadata.sources``. A collision is a benign
         # backend artifact, so it logs at DEBUG rather than WARNING.
-        seen_sources: dict[str, Source] = {}
-        sources: builtins.list[Source] = []
+        seen_sources: dict[str, SourceRecord] = {}
+        sources: builtins.list[SourceRecord] = []
         for index, src in enumerate(sources_list):
-            source = self._parse_source(
+            source = self._parse_source_record(
                 src,
                 notebook_id=notebook_id,
                 index=index,
@@ -243,13 +260,13 @@ class SourceLister:
         raise RPCError(f"Could not list sources for {notebook_id}: {error_detail}")
 
     @staticmethod
-    def _parse_source(
+    def _parse_source_record(
         src: Any,
         *,
         notebook_id: str,
         index: int,
         strict: bool,
-    ) -> Source | None:
+    ) -> SourceRecord | None:
         if not isinstance(src, builtins.list) or len(src) == 0:
             if strict:
                 raise RPCError(
@@ -283,10 +300,7 @@ class SourceLister:
                 f"incomplete source row at index {index} ({shape_error})"
             )
 
-        # Funnel through the single ``Source`` construction site shared
-        # with ``Source.from_api_response`` so the list/get/poll path and
-        # the ADD_SOURCE/rename path produce identical Sources.
-        return Source.from_row(row)
+        return decode_source_row(row)
 
 
 __all__ = ["SourceLister"]

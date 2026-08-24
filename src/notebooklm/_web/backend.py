@@ -44,9 +44,8 @@ from .._notebook_payloads import (
     build_update_notebook_params,
 )
 from .._operations import CallPolicy, Operation, OperationDef
+from .._projectors import project_source
 from .._records import (
-    NotebookChatSessionRecord,
-    NotebookChatSettingsRecord,
     NotebookCreateInput,
     NotebookCreateResult,
     NotebookDeleteInput,
@@ -55,7 +54,6 @@ from .._records import (
     NotebookGetResult,
     NotebookListInput,
     NotebookListResult,
-    NotebookPremiumFeaturesRecord,
     NotebookRecord,
     NotebookUpdateInput,
     NotebookUpdateResult,
@@ -98,12 +96,10 @@ from ..exceptions import (
     UnknownRPCMethodError,
 )
 from ..rpc import RPCMethod, safe_index
-from ..rpc.types import (
-    drive_source_status_to_str,
-    share_permission_to_str,
-    source_status_to_str,
-)
-from ..types import Notebook, Source
+from ..rpc.types import drive_source_status_to_str, source_status_to_str
+from ..types import Source
+from .codec.notebooks import decode_notebook
+from .codec.sources import decode_source
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
@@ -138,48 +134,6 @@ _SAFE_REASON_DIAGNOSTICS: dict[BackendErrorReason, tuple[str, ...]] = {
 }
 
 
-def _enum_label(value: object | None) -> str | None:
-    """Return a backend-neutral enum label without preserving its wire code."""
-    name = getattr(value, "name", None)
-    return name.lower() if isinstance(name, str) else None
-
-
-def _notebook_record(notebook: Notebook) -> NotebookRecord:
-    premium = notebook.premium_features
-    settings = notebook.chat_settings
-    return NotebookRecord(
-        id=notebook.id,
-        title=notebook.title,
-        created_at=notebook.created_at,
-        sources_count=notebook.sources_count,
-        is_owner=notebook.is_owner,
-        role=(share_permission_to_str(notebook.role) if notebook.role is not None else None),
-        last_viewed_at=notebook.last_viewed_at,
-        emoji=notebook.emoji,
-        premium_features=(
-            NotebookPremiumFeaturesRecord(
-                can_edit_advanced_settings=premium.can_edit_advanced_settings,
-                can_edit_guidebook_config=premium.can_edit_guidebook_config,
-                can_view_analytics=premium.can_view_analytics,
-            )
-            if premium is not None
-            else None
-        ),
-        chat_sessions=tuple(
-            NotebookChatSessionRecord(id=session.id) for session in notebook.chat_sessions
-        ),
-        chat_settings=(
-            NotebookChatSettingsRecord(
-                goal=_enum_label(settings.goal) or "unknown",
-                response_length=_enum_label(settings.response_length) or "unknown",
-                custom_prompt=settings.custom_prompt,
-            )
-            if settings is not None
-            else None
-        ),
-    )
-
-
 def _source_record(source: Source) -> SourceRecord:
     type_code = source._type_code
     kind = (
@@ -211,6 +165,7 @@ def _source_record(source: Source) -> SourceRecord:
         revision_id=source.revision_id,
         revision_timestamp=source.revision_timestamp,
         last_modified_at=source.last_modified_at,
+        kind_present=source._type_code is not None,
     )
 
 
@@ -601,9 +556,7 @@ class WebRpcBackend:
             )
             if isinstance(raw_notebooks, list):
                 return NotebookListResult(
-                    notebooks=tuple(
-                        _notebook_record(Notebook.from_api_response(row)) for row in raw_notebooks
-                    )
+                    notebooks=tuple(decode_notebook(row) for row in raw_notebooks)
                 )
             if raw_notebooks is None:
                 return NotebookListResult(notebooks=())
@@ -653,7 +606,7 @@ class WebRpcBackend:
                 if limit_error is not None:
                     raise limit_error from None
                 raise
-            return _notebook_record(Notebook.from_api_response(result))
+            return decode_notebook(result)
 
         async def probe() -> NotebookRecord | None:
             try:
@@ -819,7 +772,7 @@ class WebRpcBackend:
                 ),
                 reason=BackendErrorReason.NOTEBOOK_NOT_FOUND,
             )
-        notebook = Notebook.from_api_response(notebook_row, include_chat_settings=True)
+        notebook = decode_notebook(notebook_row, include_chat_settings=True)
         if not notebook.id and not notebook.title:
             raise BackendError(
                 message=f"Notebook not found: {value.notebook_id}",
@@ -832,7 +785,7 @@ class WebRpcBackend:
                 ),
                 reason=BackendErrorReason.NOTEBOOK_NOT_FOUND,
             )
-        return NotebookUpdateResult(notebook=_notebook_record(notebook))
+        return NotebookUpdateResult(notebook=notebook)
 
     async def _notebook_delete(
         self,
@@ -873,10 +826,10 @@ class WebRpcBackend:
         )
         if not notebook_row:
             return NotebookGetResult(notebook=None)
-        notebook = Notebook.from_api_response(notebook_row, include_chat_settings=True)
+        notebook = decode_notebook(notebook_row, include_chat_settings=True)
         if not notebook.id and not notebook.title:
             return NotebookGetResult(notebook=None)
-        return NotebookGetResult(notebook=_notebook_record(notebook))
+        return NotebookGetResult(notebook=notebook)
 
     async def _source_list(
         self,
@@ -891,12 +844,13 @@ class WebRpcBackend:
             deadline=deadline,
             source_path=f"/notebook/{value.notebook_id}",
         )
-        sources = SourceLister(self._executor).normalize(
-            value.notebook_id,
-            notebook,
-            strict=value.strict,
+        records = tuple(
+            SourceLister(self._executor).normalize_records(
+                value.notebook_id,
+                notebook,
+                strict=value.strict,
+            )
         )
-        records = tuple(_source_record(source) for source in sources)
         if value.statuses is not None:
             records = tuple(record for record in records if record.status in value.statuses)
         if value.kinds is not None:
@@ -916,8 +870,7 @@ class WebRpcBackend:
             deadline=deadline,
             source_path=f"/notebook/{value.notebook_id}",
         )
-        sources = SourceLister(self._executor).normalize(value.notebook_id, notebook)
-        records = tuple(_source_record(source) for source in sources)
+        records = tuple(SourceLister(self._executor).normalize_records(value.notebook_id, notebook))
         return SourceGetResult(
             source=next((source for source in records if source.id == value.source_id), None)
         )
@@ -972,9 +925,8 @@ class WebRpcBackend:
                 allow_null=True,
             )
             if result:
-                return Source.from_api_response(
-                    result,
-                    method_id=RPCMethod.UPDATE_SOURCE.value,
+                return project_source(
+                    decode_source(result, method_id=RPCMethod.UPDATE_SOURCE.value)
                 )
             source = await lister.get(notebook_id, source_id)
             if source is None:

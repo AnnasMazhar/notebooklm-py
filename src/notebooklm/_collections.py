@@ -29,7 +29,9 @@ from ._collection.params import (
     build_update_collection_notebooks_params,
 )
 from ._lookup import unwrap_or_raise
+from ._projectors import project_collection
 from ._runtime.contracts import RpcCaller
+from ._web.codec.collections import decode_collection
 from .exceptions import CollectionError, CollectionNotFoundError, UnknownRPCMethodError
 from .rpc import RPCMethod
 from .types import Collection, Notebook
@@ -97,7 +99,9 @@ class CollectionsAPI:
                 method_id=method_id,
                 source=_SRC,
             )
-        return [Collection.from_api_response(tuple_, method_id=method_id) for tuple_ in raw]
+        return [
+            project_collection(decode_collection(tuple_, method_id=method_id)) for tuple_ in raw
+        ]
 
     # -- read ---------------------------------------------------------------
 

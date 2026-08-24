@@ -29,6 +29,10 @@ __all__ = [
     "unwrap_mind_map_generation_leaf",
 ]
 
+# Private neutral values consumed by the web codec. They deliberately remain
+# outside ``__all__``: public callers continue to receive the compatibility
+# model objects exposed by ``ArtifactRow``'s historical properties.
+
 
 @dataclass(frozen=True)
 class QuizOptionPair:
@@ -74,6 +78,55 @@ class QuizOptionPair:
 
     quantity: int | None
     difficulty: int | None
+
+
+@dataclass(frozen=True)
+class _ArtifactMediaValue:
+    url: str
+    kind: str
+    type_code: int | None
+    mime_type: str | None
+
+
+@dataclass(frozen=True)
+class _ArtifactSlideValue:
+    image_url: str | None
+    width: int | None
+    height: int | None
+    alt_text: str | None
+    text: str | None
+
+
+@dataclass(frozen=True)
+class _ArtifactInfographicValue:
+    title: str | None
+    image_url: str | None
+    width: int | None
+    height: int | None
+    alt_text: str | None
+    text: str | None
+
+
+@dataclass(frozen=True)
+class _AudioUserStateValue:
+    playback_position_seconds: float
+
+
+@dataclass(frozen=True)
+class _FlashcardUserStateValue:
+    card_acquisitions: tuple[tuple[str, str], ...]
+    current_card_index: int | None
+    hidden_card_indices: tuple[int, ...]
+    last_shown_order: tuple[int, ...]
+    current_view: str | None
+
+
+@dataclass(frozen=True)
+class _UnknownUserStateValue:
+    raw: Any
+
+
+_ArtifactUserStateValue = _AudioUserStateValue | _FlashcardUserStateValue | _UnknownUserStateValue
 
 
 def unwrap_artifact_rows(result: list[Any], *, method_id: str, source: str) -> list[Any]:
@@ -677,11 +730,11 @@ class ArtifactRow:
                 return item[self._MEDIA_URL_POS]
         return fallback_url
 
-    def _media_entries(self, media_list: Any) -> tuple[ArtifactMedia, ...]:
+    def _media_entries(self, media_list: Any) -> tuple[_ArtifactMediaValue, ...]:
         """Decode every URL-bearing entry in one media-list message."""
         if not isinstance(media_list, list):
             return ()
-        entries: list[ArtifactMedia] = []
+        entries: list[_ArtifactMediaValue] = []
         for item in media_list:
             if not isinstance(item, list) or not item:
                 continue
@@ -697,12 +750,12 @@ class ArtifactRow:
             if len(item) > self._MEDIA_MIME_POS and isinstance(item[self._MEDIA_MIME_POS], str):
                 mime_type = item[self._MEDIA_MIME_POS]
             entries.append(
-                ArtifactMedia(
+                _ArtifactMediaValue(
                     url=url,
                     kind=(
-                        self._MEDIA_TYPE_MAP.get(type_code, ArtifactMediaType.UNKNOWN)
+                        self._MEDIA_TYPE_MAP.get(type_code, ArtifactMediaType.UNKNOWN).value
                         if type_code is not None
-                        else ArtifactMediaType.UNKNOWN
+                        else ArtifactMediaType.UNKNOWN.value
                     ),
                     type_code=type_code,
                     mime_type=mime_type,
@@ -711,8 +764,8 @@ class ArtifactRow:
         return tuple(entries)
 
     @property
-    def media_urls(self) -> tuple[ArtifactMedia, ...]:
-        """All streaming/download URLs for an audio or video artifact."""
+    def media_values(self) -> tuple[_ArtifactMediaValue, ...]:
+        """All normalized media values without constructing exported models."""
         if self.type_code == ArtifactTypeCode.AUDIO.value:
             block = self._list_at_top_level(self._AUDIO_METADATA_POS)
             if block is None or len(block) <= self._AUDIO_MEDIA_LIST_POS:
@@ -724,6 +777,19 @@ class ArtifactRow:
                 return ()
             return self._media_entries(block[self._VIDEO_MEDIA_LIST_POS])
         return ()
+
+    @property
+    def media_urls(self) -> tuple[ArtifactMedia, ...]:
+        """All streaming/download URLs for an audio or video artifact."""
+        return tuple(
+            ArtifactMedia(
+                value.url,
+                ArtifactMediaType(value.kind),
+                value.type_code,
+                value.mime_type,
+            )
+            for value in self.media_values
+        )
 
     @property
     def duration_seconds(self) -> float | None:
@@ -772,7 +838,7 @@ class ArtifactRow:
     @property
     def infographic_url(self) -> str | None:
         """Infographic image URL from the first URL-bearing content block."""
-        for item in self.infographics:
+        for item in self.infographic_values:
             if item.image_url is not None:
                 return item.image_url
         # Preserve the permissive private-extractor behavior for historical
@@ -805,15 +871,15 @@ class ArtifactRow:
         )
 
     @property
-    def infographics(self) -> tuple[ArtifactInfographic, ...]:
-        """Rendered infographic images plus their alt and full text."""
+    def infographic_values(self) -> tuple[_ArtifactInfographicValue, ...]:
+        """Normalized infographic values without constructing exported models."""
         block = self._list_at_top_level(self._INFOGRAPHIC_METADATA_POS)
         if block is None or len(block) <= self._INFOGRAPHIC_ITEMS_POS:
             return ()
         items = block[self._INFOGRAPHIC_ITEMS_POS]
         if not isinstance(items, list):
             return ()
-        result: list[ArtifactInfographic] = []
+        result: list[_ArtifactInfographicValue] = []
         for item in items:
             if not isinstance(item, list):
                 continue
@@ -823,8 +889,51 @@ class ArtifactRow:
             alt_text = item[self._INFOGRAPHIC_ALT_TEXT_POS] if len(item) > 2 else None
             text = item[self._INFOGRAPHIC_TEXT_POS] if len(item) > 3 else None
             result.append(
-                ArtifactInfographic(
+                _ArtifactInfographicValue(
                     title=title if isinstance(title, str) else None,
+                    image_url=image_url,
+                    width=width,
+                    height=height,
+                    alt_text=alt_text if isinstance(alt_text, str) else None,
+                    text=text if isinstance(text, str) else None,
+                )
+            )
+        return tuple(result)
+
+    @property
+    def infographics(self) -> tuple[ArtifactInfographic, ...]:
+        """Rendered infographic images plus their alt and full text."""
+        return tuple(
+            ArtifactInfographic(
+                value.title,
+                value.image_url,
+                value.width,
+                value.height,
+                value.alt_text,
+                value.text,
+            )
+            for value in self.infographic_values
+        )
+
+    @property
+    def slide_values(self) -> tuple[_ArtifactSlideValue, ...]:
+        """Normalized slide values without constructing exported models."""
+        block = self._list_at_top_level(self._SLIDE_DECK_METADATA_POS)
+        if block is None or len(block) <= self._SLIDE_ITEMS_POS:
+            return ()
+        items = block[self._SLIDE_ITEMS_POS]
+        if not isinstance(items, list):
+            return ()
+        result: list[_ArtifactSlideValue] = []
+        for item in items:
+            if not isinstance(item, list):
+                continue
+            image = item[self._SLIDE_IMAGE_POS] if item else None
+            image_url, width, height = self._image_fields(image)
+            alt_text = item[self._SLIDE_ALT_TEXT_POS] if len(item) > 1 else None
+            text = item[self._SLIDE_TEXT_POS] if len(item) > 2 else None
+            result.append(
+                _ArtifactSlideValue(
                     image_url=image_url,
                     width=width,
                     height=height,
@@ -837,30 +946,16 @@ class ArtifactRow:
     @property
     def slides(self) -> tuple[ArtifactSlide, ...]:
         """Rendered slide images plus their alt and full text."""
-        block = self._list_at_top_level(self._SLIDE_DECK_METADATA_POS)
-        if block is None or len(block) <= self._SLIDE_ITEMS_POS:
-            return ()
-        items = block[self._SLIDE_ITEMS_POS]
-        if not isinstance(items, list):
-            return ()
-        result: list[ArtifactSlide] = []
-        for item in items:
-            if not isinstance(item, list):
-                continue
-            image = item[self._SLIDE_IMAGE_POS] if item else None
-            image_url, width, height = self._image_fields(image)
-            alt_text = item[self._SLIDE_ALT_TEXT_POS] if len(item) > 1 else None
-            text = item[self._SLIDE_TEXT_POS] if len(item) > 2 else None
-            result.append(
-                ArtifactSlide(
-                    image_url=image_url,
-                    width=width,
-                    height=height,
-                    alt_text=alt_text if isinstance(alt_text, str) else None,
-                    text=text if isinstance(text, str) else None,
-                )
+        return tuple(
+            ArtifactSlide(
+                value.image_url,
+                value.width,
+                value.height,
+                value.alt_text,
+                value.text,
             )
-        return tuple(result)
+            for value in self.slide_values
+        )
 
     @property
     def slide_deck_pdf_url(self) -> str | None:
@@ -929,12 +1024,11 @@ class ArtifactRow:
         return tuple(item for item in value if isinstance(item, int) and not isinstance(item, bool))
 
     @property
-    def user_state(self) -> ArtifactUserState | None:
-        """Per-user playback/study state at ``data[17]``.
+    def user_state_value(self) -> _ArtifactUserStateValue | None:
+        """Normalized playback/study state without exported model construction.
 
-        Known audio and flashcard shapes decode to tagged public dataclasses.
-        Any other populated shape is retained as
-        :class:`UnknownArtifactUserState` for forward compatibility.
+        Known shapes use private row values; unknown payloads are retained
+        losslessly for forward-compatible public projection.
         """
         if len(self._raw) <= self._ARTIFACT_USER_STATE_POS:
             return None
@@ -942,14 +1036,14 @@ class ArtifactRow:
         if raw is None:
             return None
         if not isinstance(raw, list):
-            return UnknownArtifactUserState(raw=raw)
+            return _UnknownUserStateValue(raw=raw)
 
         if self.type_code == ArtifactTypeCode.AUDIO.value and len(raw) > self._AUDIO_USER_STATE_POS:
             audio_state = raw[self._AUDIO_USER_STATE_POS]
             if isinstance(audio_state, list) and len(audio_state) > self._PLAYBACK_POSITION_POS:
                 position = self._duration_seconds(audio_state[self._PLAYBACK_POSITION_POS])
                 if position is not None:
-                    return AudioArtifactUserState(playback_position_seconds=position)
+                    return _AudioUserStateValue(playback_position_seconds=position)
 
         if (
             self.type_code == ArtifactTypeCode.QUIZ.value
@@ -979,8 +1073,8 @@ class ArtifactRow:
                             else {}
                         )
                         current_index = state.get("currentCardIndex")
-                        return FlashcardArtifactUserState(
-                            card_acquisitions=normalized_acquisitions,
+                        return _FlashcardUserStateValue(
+                            card_acquisitions=tuple(normalized_acquisitions.items()),
                             current_card_index=(
                                 current_index
                                 if isinstance(current_index, int)
@@ -996,7 +1090,25 @@ class ArtifactRow:
                             ),
                         )
 
-        return UnknownArtifactUserState(raw=raw)
+        return _UnknownUserStateValue(raw=raw)
+
+    @property
+    def user_state(self) -> ArtifactUserState | None:
+        """Per-user playback/study state at ``data[17]``."""
+        value = self.user_state_value
+        if isinstance(value, _AudioUserStateValue):
+            return AudioArtifactUserState(value.playback_position_seconds)
+        if isinstance(value, _FlashcardUserStateValue):
+            return FlashcardArtifactUserState(
+                card_acquisitions=dict(value.card_acquisitions),
+                current_card_index=value.current_card_index,
+                hidden_card_indices=value.hidden_card_indices,
+                last_shown_order=value.last_shown_order,
+                current_view=value.current_view,
+            )
+        if isinstance(value, _UnknownUserStateValue):
+            return UnknownArtifactUserState(value.raw)
+        return None
 
     @property
     def data_table_raw_payload(self) -> Any:

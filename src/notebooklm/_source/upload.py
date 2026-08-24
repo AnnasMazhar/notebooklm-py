@@ -22,6 +22,7 @@ from .._idempotency import (
 )
 from .._idempotency import mark_unconfirmed as _unconfirmed
 from .._loop_bound import LoopBoundPrimitive
+from .._projectors import project_source
 from .._runtime.config import (
     DEFAULT_MAX_CONCURRENT_UPLOADS,
     normalize_max_concurrent_uploads,
@@ -30,6 +31,7 @@ from .._runtime.contracts import (
     Kernel,
     RpcCaller,
 )
+from .._web.codec.sources import decode_source
 from ..exceptions import (
     AuthError,
     NetworkError,
@@ -844,7 +846,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
             allow_null=True,
         )
         if result:
-            return Source.from_api_response(result, method_id=RPCMethod.UPDATE_SOURCE.value)
+            return project_source(decode_source(result, method_id=RPCMethod.UPDATE_SOURCE.value))
         return None
 
     async def start_resumable_upload(

@@ -9,7 +9,9 @@ decode those positional structures are:
   the home of ``safe_index`` itself; and
 * ``src/notebooklm/_row_adapters/`` -- the typed row views (``ArtifactRow`` /
   ``NoteRow`` / ``SourceRow`` / the chat rows) that centralise position
-  knowledge behind named properties.
+  knowledge behind named properties; and
+* ``src/notebooklm/_web/codec/`` -- the exact P3 web-binding codec directory,
+  which normally reuses those row views and may own terminal envelopes.
 
 Everywhere else, walking a decoded payload with hand-rolled integer-literal
 subscripts re-scatters the position knowledge the adapters exist to contain,
@@ -23,7 +25,8 @@ carries signal for them:
 * **BELOW the facade (the feature/decode layer: ``_chat/``, ``_artifact/``,
   ``_source/``, ``_types/``, the ``_*.py`` facade internals, ...).** This is
   where decoded ``batchexecute`` payloads legitimately flow, so positional
-  decode must live behind ``rpc/`` + ``_row_adapters/`` + ``safe_index``. Both
+  decode must live behind ``rpc/`` + ``_row_adapters/`` / ``_web/codec/`` +
+  ``safe_index``. Both
   positional-indexing gates apply here: the chained-descent gate and the
   single-level ``name[int]`` ratchet (whose allowlist is the remaining
   burndown).
@@ -110,6 +113,12 @@ SRC_ROOT = PROJECT_ROOT / "src" / "notebooklm"
 # Top-level packages under ``src/notebooklm`` that are *allowed* to decode raw
 # positional RPC payloads: the RPC protocol layer and the typed row adapters.
 SANCTIONED_PACKAGES = frozenset({"rpc", "_row_adapters"})
+
+# P3 establishes this exact directory (not the whole ``_web`` package) as the
+# binding-specific codec owner. Most codecs deliberately reuse row adapters;
+# the carve-out permits codecs to own a terminal envelope grammar without
+# weakening the gate for the executor, registry, or backend orchestration.
+SANCTIONED_PATH_PREFIXES = (("_web", "codec"),)
 
 # Baseline of feature files that open-code chained positional descent into RPC
 # payloads (issue #1377). The burndown (#1389) migrated every baselined file
@@ -276,9 +285,20 @@ def _feature_files() -> tuple[Path, ...]:
         sorted(
             p
             for p in SRC_ROOT.rglob("*.py")
-            if p.relative_to(SRC_ROOT).parts[0] not in SANCTIONED_PACKAGES
+            if (
+                p.relative_to(SRC_ROOT).parts[0] not in SANCTIONED_PACKAGES
+                and not any(
+                    p.relative_to(SRC_ROOT).parts[: len(prefix)] == prefix
+                    for prefix in SANCTIONED_PATH_PREFIXES
+                )
+            )
         )
     )
+
+
+def test_only_the_p3_codec_directory_is_sanctioned_under_web() -> None:
+    assert SANCTIONED_PATH_PREFIXES == (("_web", "codec"),)
+    assert "_web" not in SANCTIONED_PACKAGES
 
 
 def _rel(path: Path) -> str:
@@ -352,7 +372,8 @@ def test_no_unbaselined_chained_positional_rpc_indexing() -> None:
     unbaselined = {f: lines for f, lines in offenders.items() if f not in ALLOWLIST}
     assert not unbaselined, (
         "Raw chained positional indexing of RPC payloads (`x[i][j]`) is forbidden "
-        "outside src/notebooklm/rpc/ and src/notebooklm/_row_adapters/ (see ADR-0011, "
+        "outside src/notebooklm/rpc/, src/notebooklm/_row_adapters/, and the exact "
+        "src/notebooklm/_web/codec/ directory (see ADR-0011, "
         "issue #1377). Decode through rpc/_safe_index.safe_index() or a typed "
         "_row_adapters/ view so shape drift RAISES UnknownRPCMethodError instead of "
         "silently degrading to empty/wrong data.\n\n"
@@ -424,7 +445,8 @@ def test_no_unbaselined_single_level_positional_rpc_indexing() -> None:
     unbaselined = {f: lines for f, lines in offenders.items() if f not in SINGLE_LEVEL_ALLOWLIST}
     assert not unbaselined, (
         "Raw single-level positional indexing of RPC payloads (`x[i]`) is forbidden "
-        "outside src/notebooklm/rpc/ and src/notebooklm/_row_adapters/ for files not "
+        "outside src/notebooklm/rpc/, src/notebooklm/_row_adapters/, and the exact "
+        "src/notebooklm/_web/codec/ directory for files not "
         "on SINGLE_LEVEL_ALLOWLIST (see ADR-0011, issue #1491). Decode through a typed "
         "_row_adapters/ view so shape drift RAISES UnknownRPCMethodError instead of "
         "silently degrading to empty/wrong data. NOTE: binding the read to a named local "

@@ -8,9 +8,11 @@ from typing import Any
 
 import httpx
 
+from .._projectors import project_artifact
 from .._row_adapters.artifacts import ArtifactRow, unwrap_artifact_rows
 from .._row_adapters.notes import NoteRow
 from .._runtime.contracts import RpcCaller
+from .._web.codec.artifacts import decode_artifact, decode_mind_map_artifact
 from ..exceptions import DecodingError
 from ..rpc import (
     ARTIFACT_STATUS_SUGGESTED_WIRE_NAME,
@@ -346,7 +348,7 @@ class ArtifactListingService:
         artifacts: list[Artifact] = []
         for art_data in artifacts_data:
             if isinstance(art_data, list) and len(art_data) > 0:
-                artifact = Artifact.from_api_response(art_data)
+                artifact = project_artifact(decode_artifact(art_data))
                 if _matches_artifact_type(artifact, artifact_type):
                     artifacts.append(artifact)
         return artifacts
@@ -359,8 +361,9 @@ class ArtifactListingService:
         artifacts: list[Artifact] = []
         for mm_data in mind_maps:
             if isinstance(mm_data, list):
-                mind_map_artifact = Artifact.from_mind_map(mm_data)
-                if mind_map_artifact is not None:
+                mind_map_record = decode_mind_map_artifact(mm_data)
+                if mind_map_record is not None:
+                    mind_map_artifact = project_artifact(mind_map_record)
                     if _matches_artifact_type(mind_map_artifact, artifact_type):
                         artifacts.append(mind_map_artifact)
         return artifacts

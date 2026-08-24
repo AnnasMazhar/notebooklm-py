@@ -1105,6 +1105,15 @@ size to become a second permanent exception layer.
 and reuses the strict row adapter; scalar fulltext decoding and the existing GET_SOURCE execution
 authority are unchanged. Chat answer/citation construction remains assigned to P6.
 
+**Production decode retirement (2026-08-23):** the remaining live notebook, notebook-guide,
+source, artifact/mind-map/report-suggestion, label, collection, and sharing response paths now use
+`_web.codec` functions that return frozen private records followed by `_projectors` construction
+through the ordinary public initializers. Production has no calls to the retained exported
+`from_api_response()` / `from_row()` / `from_mind_map()` factories. Their signatures and behavior
+remain characterized, unknown discriminator values remain lossless until their historical public
+projection, and every live codec binding names an existing cassette-backed golden family. Research,
+chat/citation, request encoding, and other P4/P5/P6/P8 ownership remain deferred as planned.
+
 #### Changes
 
 - Establish `_web.codec` as the owner of positional request/response grammars for the resources

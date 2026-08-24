@@ -19,8 +19,10 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from .._idempotency import mark_unconfirmed
+from .._projectors import project_source
 from .._row_adapters.sources import unwrap_add_source_rows
 from .._runtime.contracts import RpcCaller
+from .._web.codec.sources import decode_source
 from ..exceptions import (
     AuthError,
     NetworkError,
@@ -212,7 +214,8 @@ class SourceBatchAddService:
         try:
             rows = [] if rpc_error is not None else unwrap_add_source_rows(payload)
             sources = [
-                Source.from_api_response(row, method_id=RPCMethod.ADD_SOURCE.value) for row in rows
+                project_source(decode_source(row, method_id=RPCMethod.ADD_SOURCE.value))
+                for row in rows
             ]
         except Exception as exc:  # noqa: BLE001 - strict decode boundary; fail closed
             raise _unresolved_batch_error(
