@@ -18,7 +18,7 @@ from fastmcp import Client
 from notebooklm import NotebookLMClient
 from notebooklm.mcp.server import create_server
 
-from ._contract import ScenarioResult, require, run_scenario
+from ._contract import ScenarioError, ScenarioResult, require, run_scenario
 
 #: Disposable profile the orchestrator copies the source credentials into.
 PROFILE = "mcp-live"
@@ -46,7 +46,10 @@ async def scenario() -> ScenarioResult:
             "total" in before and "notebooks" in before,
             "MCP baseline response is incomplete",
         )
-        holder["client"]._backend._kernel.get_http_client().cookies.clear()
+        kernel = holder["client"]._backend._kernel
+        if kernel is None:
+            raise ScenarioError("web backend kernel unavailable after client open")
+        kernel.get_http_client().cookies.clear()
         after_result = await mcp.call_tool("notebook_list", {"limit": 50})
         require(
             after_result.structured_content is not None,
@@ -65,7 +68,7 @@ async def scenario() -> ScenarioResult:
             before.get("notebooks") == after.get("notebooks"),
             "MCP recovery changed notebook identity",
         )
-        live = holder["client"]._backend._kernel.get_http_client().cookies
+        live = kernel.get_http_client().cookies
         require(len(live) > 0, "MCP recovery did not restore the live jar")
         return {
             "before": before.get("total"),

@@ -50,7 +50,10 @@ async def scenario() -> ScenarioResult:
     async with NotebookLMClient.from_storage(profile=PROFILE) as c:
         before = await c.notebooks.list()
         before_ids = tuple(sorted(item.id for item in before))
-        live = c._backend._kernel.get_http_client().cookies
+        kernel = c._backend._kernel
+        if kernel is None:
+            raise ScenarioError("web backend kernel unavailable after client open")
+        live = kernel.get_http_client().cookies
         live.clear()
         after = await c.notebooks.list()
         after_ids = tuple(sorted(item.id for item in after))

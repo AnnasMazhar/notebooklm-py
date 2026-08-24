@@ -18,7 +18,7 @@ from typing import Any
 from notebooklm import NotebookLMClient
 from notebooklm._auth import session as auth_session
 
-from ._contract import ScenarioResult, require, run_scenario
+from ._contract import ScenarioError, ScenarioResult, require, run_scenario
 
 #: Disposable profile the orchestrator copies the source credentials into.
 PROFILE = "mid-session-browser"
@@ -52,7 +52,10 @@ async def scenario() -> ScenarioResult:
         # but a credential file must never widen on any path.
         replacement.chmod(0o600)
         os.replace(replacement, storage)
-        live = client._backend._kernel.get_http_client().cookies
+        kernel = client._backend._kernel
+        if kernel is None:
+            raise ScenarioError("web backend kernel unavailable after client open")
+        live = kernel.get_http_client().cookies
         live.clear()
         after = await client.notebooks.list()
         after_ids = tuple(sorted(item.id for item in after))

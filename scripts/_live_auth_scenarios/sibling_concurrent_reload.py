@@ -23,7 +23,7 @@ from typing import Any
 from notebooklm import NotebookLMClient
 from notebooklm._auth import session as auth_session
 
-from ._contract import ScenarioResult, require, run_scenario
+from ._contract import ScenarioError, ScenarioResult, require, run_scenario
 
 #: Disposable profile the orchestrator copies the source credentials into.
 PROFILE = "mid-session-sibling"
@@ -79,7 +79,10 @@ async def scenario() -> ScenarioResult:
             "sibling re-mint did not replace profile state",
         )
         (profile_dir / "master_token.json").unlink()
-        live = client._backend._kernel.get_http_client().cookies
+        kernel = client._backend._kernel
+        if kernel is None:
+            raise ScenarioError("web backend kernel unavailable after client open")
+        live = kernel.get_http_client().cookies
         live.clear()
         recovered = await asyncio.gather(*(client.notebooks.list() for _ in range(4)))
         counts = [len(items) for items in recovered]

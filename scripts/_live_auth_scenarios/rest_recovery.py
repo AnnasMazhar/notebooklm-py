@@ -29,7 +29,7 @@ import httpx
 from notebooklm import NotebookLMClient
 from notebooklm.server.app import create_app
 
-from ._contract import ScenarioResult, require, run_scenario
+from ._contract import ScenarioError, ScenarioResult, require, run_scenario
 
 #: Disposable profile that starts out healthy and loses only its live jar.
 PROFILE = "rest-live"
@@ -63,7 +63,10 @@ async def mid_session() -> tuple[tuple[str, ...], tuple[str, ...]]:
         async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
             before = await http.get("/v1/notebooks", headers=HEADERS)
             require(before.status_code == 200, before.text[-1000:])
-            holder["client"]._backend._kernel.get_http_client().cookies.clear()
+            kernel = holder["client"]._backend._kernel
+            if kernel is None:
+                raise ScenarioError("web backend kernel unavailable after client open")
+            kernel.get_http_client().cookies.clear()
             after = await http.get("/v1/notebooks", headers=HEADERS)
             require(after.status_code == 200, after.text[-1000:])
             return notebook_ids(before), notebook_ids(after)
