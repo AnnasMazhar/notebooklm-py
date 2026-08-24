@@ -39,6 +39,7 @@ import httpx
 import pytest
 
 from notebooklm._chat.transport import chat_aware_authed_post
+from notebooklm._deadline import RuntimeDeadline
 from notebooklm._transport_errors import (
     TransportAuthExpired,
     TransportRateLimited,
@@ -119,6 +120,7 @@ async def test_chat_aware_authed_post_returns_response_and_balances_bookkeeping(
         read_timeout=None,
         max_response_bytes=None,
         disable_read_timeout_retries=False,
+        retry_deadline=None,
     )
 
 
@@ -142,7 +144,27 @@ async def test_chat_aware_authed_post_forwards_response_cap():
         read_timeout=None,
         max_response_bytes=123,
         disable_read_timeout_retries=False,
+        retry_deadline=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_chat_aware_authed_post_forwards_identical_semantic_deadline() -> None:
+    expected_response = httpx.Response(200, request=_make_request())
+    transport = _make_stub_transport(transport_return_value=expected_response)
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 12.0)
+
+    result = await chat_aware_authed_post(
+        transport,  # type: ignore[arg-type]
+        build_request=_noop_build_request,
+        parse_label="chat.ask",
+        read_timeout=3.0,
+        retry_deadline=deadline,
+    )
+
+    assert result is expected_response
+    assert transport.perform_authed_post.await_args.kwargs["retry_deadline"] is deadline
+    assert transport.perform_authed_post.await_args.kwargs["read_timeout"] == 3.0
 
 
 # ---------------------------------------------------------------------------

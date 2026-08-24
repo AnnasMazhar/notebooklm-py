@@ -37,6 +37,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src" / "notebooklm"
 WEB_ROOT = SRC_ROOT / "_web"
+CHAT_STREAM_REQUEST_PATH = SRC_ROOT / "_chat" / "stream_request.py"
 
 pytestmark = pytest.mark.repo_lint
 
@@ -167,6 +168,22 @@ CREDENTIAL_IDENTIFIERS: frozenset[str] = frozenset(
     }
 )
 
+#: Streamed Chat must materialize four already-acquired route/token values into
+#: its request. The builder deliberately sits outside ``_web`` until P8 adds a
+#: provider-owned private session, so this exact transitive boundary is audited
+#: independently rather than escaping the package-only scan above.
+KNOWN_CHAT_STREAM_REQUEST_IMPORTS: frozenset[str] = frozenset(
+    {
+        "_auth.account",
+        "_env",
+        "rpc.encoder",
+        "rpc.types",
+    }
+)
+KNOWN_CHAT_STREAM_CREDENTIAL_IDENTIFIERS: frozenset[str] = frozenset(
+    {"account_email", "authuser", "csrf_token", "session_id"}
+)
+
 # --- Ownership inventories P8 must adapt rather than duplicate ---------------
 
 #: Modules that reach the persisted profile document (``storage_state.json``)
@@ -294,10 +311,15 @@ def _resolve_import(node: ast.ImportFrom | ast.Import, *, package_parts: list[st
     return [".".join([*base, *tail])] if (base or tail) else []
 
 
+def _python_files(path: Path) -> list[Path]:
+    """Return one file or every Python file below a package root."""
+    return [path] if path.is_file() else sorted(path.rglob("*.py"))
+
+
 def collect_first_party_imports(package_root: Path, src_root: Path = SRC_ROOT) -> set[str]:
     """Collect first-party ``notebooklm.*`` imports made by one package."""
     imports: set[str] = set()
-    for path in sorted(package_root.rglob("*.py")):
+    for path in _python_files(package_root):
         package_parts = list(path.relative_to(src_root).parent.parts)
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
@@ -323,7 +345,7 @@ def credential_imports(imports: set[str]) -> set[str]:
 def collect_named_identifiers(package_root: Path) -> set[str]:
     """Collect attribute and bare-name identifiers used anywhere in a package."""
     names: set[str] = set()
-    for path in sorted(package_root.rglob("*.py")):
+    for path in _python_files(package_root):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute):
@@ -459,6 +481,16 @@ def test_web_backend_names_no_credential_identifiers() -> None:
         "src/notebooklm/_web/ names credential identifiers directly:\n  "
         + "\n  ".join(report.backend_credential_identifiers)
     )
+
+
+def test_streamed_chat_credential_materializer_is_exact_and_cannot_acquire_credentials() -> None:
+    """The backend's one credential-aware transitive encoder is explicit and closed."""
+    imports = collect_first_party_imports(CHAT_STREAM_REQUEST_PATH)
+    identifiers = collect_named_identifiers(CHAT_STREAM_REQUEST_PATH) & CREDENTIAL_IDENTIFIERS
+
+    assert imports == KNOWN_CHAT_STREAM_REQUEST_IMPORTS
+    assert identifiers == KNOWN_CHAT_STREAM_CREDENTIAL_IDENTIFIERS
+    assert credential_imports(imports) == {"_auth.account"}
 
 
 def test_profile_document_owner_inventory_is_exact_and_excludes_the_backend() -> None:
@@ -616,6 +648,30 @@ def test_detector_flags_a_backend_that_names_credentials(tmp_path: Path) -> None
     report = evaluate_p8_boundary(src_root=src, web_root=web)
     assert report.backend_credential_identifiers == ["cookie_jar", "csrf_token"]
     assert any("names credential identifiers" in note for note in report.notes)
+
+
+def test_detector_flags_credential_acquisition_moved_behind_chat_stream_import(
+    tmp_path: Path,
+) -> None:
+    """Moving an auth reader one module outside ``_web`` cannot evade P8."""
+    src = tmp_path / "notebooklm"
+    stream_request = src / "_chat" / "stream_request.py"
+    stream_request.parent.mkdir(parents=True)
+    stream_request.write_text(
+        "from .._auth.account import format_authuser_value\n"
+        "from .._auth.storage import load_auth_from_storage\n"
+        "def build(snapshot):\n"
+        "    return snapshot.csrf_token, snapshot.session_id, "
+        "snapshot.authuser, snapshot.account_email\n",
+        encoding="utf-8",
+    )
+
+    imports = collect_first_party_imports(stream_request, src_root=src)
+    identifiers = collect_named_identifiers(stream_request) & CREDENTIAL_IDENTIFIERS
+
+    assert credential_imports(imports) == {"_auth.account", "_auth.storage"}
+    assert "_auth.storage" not in KNOWN_CHAT_STREAM_REQUEST_IMPORTS
+    assert identifiers == KNOWN_CHAT_STREAM_CREDENTIAL_IDENTIFIERS
 
 
 def test_detector_reports_provider_once_defined(tmp_path: Path) -> None:

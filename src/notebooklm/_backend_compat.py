@@ -9,6 +9,11 @@ import httpx
 
 from ._backend import BackendContractError, BackendError, BackendErrorReason
 from ._records import LabelKind, SourceAddFailureKind, SourceAddFailureRecord
+from ._transport_errors import (
+    TransportAuthExpired,
+    TransportRateLimited,
+    TransportServerError,
+)
 from .exceptions import (
     ArtifactFeatureUnavailableError,
     ArtifactNotFoundError,
@@ -52,6 +57,8 @@ def _preserve_outcome(error: BackendError, projected: Exception) -> Exception:
         expected_kind = (
             {
                 BackendErrorReason.AUTH: SourceAddFailureKind.AUTH,
+                BackendErrorReason.CHAT: SourceAddFailureKind.CHAT,
+                BackendErrorReason.CHAT_RESPONSE_PARSE: SourceAddFailureKind.CHAT_RESPONSE_PARSE,
                 BackendErrorReason.CLIENT: SourceAddFailureKind.CLIENT,
                 BackendErrorReason.DECODING: SourceAddFailureKind.DECODING,
                 BackendErrorReason.NETWORK: SourceAddFailureKind.NETWORK,
@@ -582,6 +589,17 @@ def _project_source_add_record(record: SourceAddFailureRecord) -> Exception:
         if record.cause_is_original
         else (_project_source_add_record(record.cause) if record.cause is not None else None)
     )
+    if record.cause_original_is_original_error:
+        if original_error is None or not isinstance(
+            cause,
+            (TransportAuthExpired, TransportRateLimited, TransportServerError),
+        ):
+            raise BackendContractError("failure graph has invalid shared transport original")
+        cause.original = original_error
+        if isinstance(original_error, httpx.HTTPStatusError) and isinstance(
+            cause, (TransportRateLimited, TransportServerError)
+        ):
+            cause.response = original_error.response
     context = (
         cause
         if record.context_is_cause
@@ -623,6 +641,10 @@ def _project_source_add_record(record: SourceAddFailureRecord) -> Exception:
     elif kind is SourceAddFailureKind.AUTH:
         projected = AuthError(record.message, **rpc)
         projected.recoverable = bool(record.recoverable)
+    elif kind is SourceAddFailureKind.CHAT:
+        projected = ChatError(record.message)
+    elif kind is SourceAddFailureKind.CHAT_RESPONSE_PARSE:
+        projected = ChatResponseParseError(record.message)
     elif kind is SourceAddFailureKind.CLIENT:
         projected = ClientError(record.message, status_code=record.status_code, **rpc)
     elif kind is SourceAddFailureKind.DECODING:
@@ -718,6 +740,32 @@ def _project_source_add_record(record: SourceAddFailureRecord) -> Exception:
                 else None
             )
             projected = httpx_type(record.message, request=request)
+        elif kind is SourceAddFailureKind.TRANSPORT_AUTH_EXPIRED:
+            if original_error is None:
+                raise BackendContractError("transport auth failure lacks original error")
+            projected = TransportAuthExpired(record.message, original=original_error)
+        elif kind is SourceAddFailureKind.TRANSPORT_RATE_LIMITED:
+            if not isinstance(original_error, httpx.HTTPStatusError):
+                raise BackendContractError("transport rate-limit failure lacks HTTP status error")
+            projected = TransportRateLimited(
+                record.message,
+                retry_after=record.retry_after,
+                response=original_error.response,
+                original=original_error,
+            )
+        elif kind is SourceAddFailureKind.TRANSPORT_SERVER:
+            if original_error is None:
+                raise BackendContractError("transport server failure lacks original error")
+            projected = TransportServerError(
+                record.message,
+                original=original_error,
+                response=(
+                    original_error.response
+                    if isinstance(original_error, httpx.HTTPStatusError)
+                    else None
+                ),
+                status_code=record.status_code,
+            )
         else:
             builtin_types: dict[SourceAddFailureKind, type[Exception]] = {
                 SourceAddFailureKind.BUILTIN_CONNECTION: ConnectionError,

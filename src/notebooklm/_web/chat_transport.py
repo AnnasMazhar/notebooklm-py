@@ -26,6 +26,7 @@ from .._transport_errors import (
 from ..exceptions import ChatError, NetworkError
 
 if TYPE_CHECKING:
+    from .._deadline import RuntimeDeadline
     from .._request_types import BuildRequest
     from .._runtime.transport import RuntimeTransport
 
@@ -59,6 +60,7 @@ async def chat_aware_authed_post(
     read_timeout: float | None = None,
     max_response_bytes: int | None = None,
     disable_read_timeout_retries: bool = False,
+    retry_deadline: RuntimeDeadline | None = None,
 ) -> httpx.Response:
     """Chat-side semantic owner around :meth:`RuntimeTransport.perform_authed_post`.
 
@@ -85,6 +87,9 @@ async def chat_aware_authed_post(
             context still names it ``log_label``).
         max_response_bytes: Optional per-call response-size cap forwarded to
             the shared streaming transport.
+        retry_deadline: Caller-owned absolute semantic deadline. The shared
+            retry middleware inherits this exact object instead of minting a
+            fresh retry budget for streamed Chat.
     """
     # Drain admission lives in ``DrainMiddleware`` at the outermost chain
     # position around ``perform_authed_post`` — it reads ``log_label``
@@ -98,6 +103,7 @@ async def chat_aware_authed_post(
             read_timeout=read_timeout,
             max_response_bytes=max_response_bytes,
             disable_read_timeout_retries=disable_read_timeout_retries,
+            retry_deadline=retry_deadline,
         )
     except TransportAuthExpired as exc:
         raise ChatError(

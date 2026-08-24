@@ -1237,6 +1237,7 @@ REVIEWED_BACKEND_IMPORTS |= frozenset(
         ("_projectors.py", "_records", "ChatSavedNoteRecord"),
         ("_projectors.py", "_records", "ChatSettingsRecord"),
         ("_web/chat.py", "_backend", "BackendContractError"),
+        ("_web/chat.py", "_backend", "BackendDeadlineExceededError"),
         ("_web/chat.py", "_records", "ChatAskInput"),
         ("_web/chat.py", "_records", "ChatAskResultRecord"),
         ("_web/chat.py", "_records", "ChatConfigureAction"),

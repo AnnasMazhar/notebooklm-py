@@ -16,6 +16,7 @@ from collections.abc import Callable
 from datetime import datetime
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -100,9 +101,15 @@ from .._rpc_executor import RpcExecutor
 from .._runtime.config import assert_resolved_read_timeout
 from .._source.listing import SourceLister
 from .._source.upload_payloads import build_template_block
+from .._transport_errors import (
+    TransportAuthExpired,
+    TransportRateLimited,
+    TransportServerError,
+)
 from ..exceptions import (
     AuthError,
     ChatError,
+    ChatResponseParseError,
     ClientError,
     DecodingError,
     IdempotencyVariantError,
@@ -153,12 +160,23 @@ source_logger = logging.getLogger("notebooklm").getChild("_sources")
 artifact_logger = logging.getLogger("notebooklm._artifact.listing")
 
 _CREATE_NOTEBOOK_QUOTA_RPC_CODE = 3
+_CHAT_OPERATIONS = frozenset(
+    {
+        Operation.CHAT_ASK,
+        Operation.CHAT_GET_CONVERSATION,
+        Operation.CHAT_GET_HISTORY,
+        Operation.CHAT_DELETE_HISTORY,
+        Operation.CHAT_CONFIGURE,
+        Operation.CHAT_SAVE_NOTE,
+    }
+)
 
 def _capture_public_failure(
     exc: Exception,
     *,
     operation: Operation,
     _seen: frozenset[int] = frozenset(),
+    scrub_request_urls: bool = False,
 ) -> SourceAddFailureRecord:
     """Capture the bounded, serializable public library-error graph."""
     if id(exc) in _seen or len(_seen) >= 8:
@@ -174,6 +192,8 @@ def _capture_public_failure(
         SourceProcessingError: SourceAddFailureKind.SOURCE_PROCESSING,
         SourceTimeoutError: SourceAddFailureKind.SOURCE_TIMEOUT,
         AuthError: SourceAddFailureKind.AUTH,
+        ChatError: SourceAddFailureKind.CHAT,
+        ChatResponseParseError: SourceAddFailureKind.CHAT_RESPONSE_PARSE,
         ClientError: SourceAddFailureKind.CLIENT,
         DecodingError: SourceAddFailureKind.DECODING,
         NetworkError: SourceAddFailureKind.NETWORK,
@@ -215,6 +235,9 @@ def _capture_public_failure(
         httpx.UnsupportedProtocol: SourceAddFailureKind.HTTPX_UNSUPPORTED_PROTOCOL,
         httpx.TooManyRedirects: SourceAddFailureKind.HTTPX_TOO_MANY_REDIRECTS,
         httpx.DecodingError: SourceAddFailureKind.HTTPX_DECODING,
+        TransportAuthExpired: SourceAddFailureKind.TRANSPORT_AUTH_EXPIRED,
+        TransportRateLimited: SourceAddFailureKind.TRANSPORT_RATE_LIMITED,
+        TransportServerError: SourceAddFailureKind.TRANSPORT_SERVER,
     }
     kind = kind_by_type.get(type(exc))
     if kind is None:
@@ -263,19 +286,35 @@ def _capture_public_failure(
     # context whenever there is no reviewed explicit cause or it is observable.
     if (
         context is not None
-        and type(context) not in kind_by_type
+        and (
+            type(context) not in kind_by_type
+            or (
+                isinstance(
+                    context,
+                    (TransportAuthExpired, TransportRateLimited, TransportServerError),
+                )
+                and operation not in _CHAT_OPERATIONS
+            )
+        )
         and explicit is not None
         and type(explicit) in kind_by_type
         and exc.__suppress_context__
     ):
         context = None
     original_error = getattr(exc, "original_error", None)
+    if isinstance(exc, (TransportAuthExpired, TransportRateLimited, TransportServerError)):
+        original_error = exc.original
     if original_error is not None and not isinstance(original_error, Exception):
         raise BackendContractError(
             "public failure original_error is not an exception",
             operation=operation,
         ) from exc
     cause_is_original = cause is not None and cause is original_error
+    cause_original_is_original_error = (
+        cause is not None
+        and original_error is not None
+        and getattr(cause, "original", None) is original_error
+    )
     context_is_cause = context is not None and context is cause
     context_is_original = context is not None and context is original_error
 
@@ -299,6 +338,14 @@ def _capture_public_failure(
         except RuntimeError:
             pass
 
+    request_url = str(request.url) if request is not None else None
+    if request_url is not None and scrub_request_urls:
+        parsed = urlsplit(request_url)
+        hostname = parsed.hostname or ""
+        if parsed.port is not None:
+            hostname = f"{hostname}:{parsed.port}"
+        request_url = urlunsplit((parsed.scheme, hostname, parsed.path, "", ""))
+
     return SourceAddFailureRecord(
         kind=kind,
         message=str(exc.args[0]) if exc.args else "",
@@ -313,12 +360,18 @@ def _capture_public_failure(
         found_ids=found_ids,
         recoverable=(getattr(exc, "recoverable", None) if isinstance(exc, AuthError) else None),
         retry_after=(
-            getattr(exc, "retry_after", None) if isinstance(exc, RateLimitError) else None
+            getattr(exc, "retry_after", None)
+            if isinstance(exc, (RateLimitError, TransportRateLimited))
+            else None
         ),
         status_code=(
             getattr(exc, "status_code", None)
             if isinstance(exc, (ClientError, ServerError))
-            else (exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None)
+            else (
+                exc.response.status_code
+                if isinstance(exc, httpx.HTTPStatusError)
+                else (exc.status_code if isinstance(exc, TransportServerError) else None)
+            )
         ),
         timeout_seconds=(exc.timeout_seconds if isinstance(exc, RPCTimeoutError) else None),
         limit_bytes=(exc.limit_bytes if isinstance(exc, RPCResponseTooLargeError) else None),
@@ -330,23 +383,39 @@ def _capture_public_failure(
         source=(exc.source if isinstance(exc, UnknownRPCMethodError) else None),
         data_at_failure=data_at_failure,
         request_method=request.method if request is not None else None,
-        request_url=str(request.url) if request is not None else None,
+        request_url=request_url,
         original_error=(
-            _capture_public_failure(original_error, operation=operation, _seen=seen)
+            _capture_public_failure(
+                original_error,
+                operation=operation,
+                _seen=seen,
+                scrub_request_urls=scrub_request_urls,
+            )
             if isinstance(original_error, Exception)
             else None
         ),
         cause=(
-            _capture_public_failure(cause, operation=operation, _seen=seen)
+            _capture_public_failure(
+                cause,
+                operation=operation,
+                _seen=seen,
+                scrub_request_urls=scrub_request_urls,
+            )
             if isinstance(cause, Exception) and not cause_is_original
             else None
         ),
         context=(
-            _capture_public_failure(context, operation=operation, _seen=seen)
+            _capture_public_failure(
+                context,
+                operation=operation,
+                _seen=seen,
+                scrub_request_urls=scrub_request_urls,
+            )
             if isinstance(context, Exception) and not context_is_cause and not context_is_original
             else None
         ),
         cause_is_original=cause_is_original,
+        cause_original_is_original_error=cause_original_is_original_error,
         context_is_cause=context_is_cause,
         context_is_original=context_is_original,
         explicit_cause=explicit is not None,
@@ -1322,17 +1391,11 @@ class WebRpcBackend(ChatWebHandlers):
                 operation=operation,
             ) from exc
         diagnostics = dict(cls._error_diagnostics(exc, reason))
-        if isinstance(exc, (RPCError, NetworkError)) and operation not in {
-            Operation.CHAT_ASK,
-            Operation.CHAT_GET_CONVERSATION,
-            Operation.CHAT_GET_HISTORY,
-            Operation.CHAT_DELETE_HISTORY,
-            Operation.CHAT_CONFIGURE,
-            Operation.CHAT_SAVE_NOTE,
-        }:
+        if isinstance(exc, (RPCError, NetworkError, ChatError)):
             diagnostics["public_error_failure"] = _capture_public_failure(
                 exc,
                 operation=operation,
+                scrub_request_urls=operation in _CHAT_OPERATIONS,
             )
         return BackendError(
             # Structured subclasses such as UnknownRPCMethodError append their

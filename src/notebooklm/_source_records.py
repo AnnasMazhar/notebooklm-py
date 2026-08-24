@@ -124,6 +124,8 @@ class SourceAddFailureKind(str, Enum):
     SOURCE_PROCESSING = "source_processing"
     SOURCE_TIMEOUT = "source_timeout"
     AUTH = "auth"
+    CHAT = "chat"
+    CHAT_RESPONSE_PARSE = "chat_response_parse"
     CLIENT = "client"
     DECODING = "decoding"
     NETWORK = "network"
@@ -165,6 +167,9 @@ class SourceAddFailureKind(str, Enum):
     HTTPX_UNSUPPORTED_PROTOCOL = "httpx_unsupported_protocol"
     HTTPX_TOO_MANY_REDIRECTS = "httpx_too_many_redirects"
     HTTPX_DECODING = "httpx_decoding"
+    TRANSPORT_AUTH_EXPIRED = "transport_auth_expired"
+    TRANSPORT_RATE_LIMITED = "transport_rate_limited"
+    TRANSPORT_SERVER = "transport_server"
 
 
 ScalarExceptionArg = str | int | float | bool | None
@@ -203,6 +208,7 @@ class SourceAddFailureRecord:
     cause: SourceAddFailureRecord | None = None
     context: SourceAddFailureRecord | None = None
     cause_is_original: bool = False
+    cause_original_is_original_error: bool = False
     context_is_cause: bool = False
     context_is_original: bool = False
     explicit_cause: bool = False

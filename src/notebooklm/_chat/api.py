@@ -152,10 +152,16 @@ class ChatAPI(LoopBoundPrimitive):
 
     async def _invoke(self, operation: Awaitable[ResultT]) -> ResultT:
         """Project the private backend failure vocabulary at the compatibility facade."""
+        public_error: Exception | None = None
         try:
             return await operation
         except BackendError as error:
-            raise project_backend_error(error) from None
+            public_error = project_backend_error(error)
+        # Raise outside the private BackendError frame. ``raise ... from None``
+        # would overwrite the reviewed public cause/context graph restored by
+        # ``project_backend_error``.
+        assert public_error is not None
+        raise public_error
 
     def _on_loop_rebind(
         self,

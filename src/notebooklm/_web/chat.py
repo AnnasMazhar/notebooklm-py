@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from .._backend import BackendContractError
+import httpx
+
+from .._backend import BackendContractError, BackendDeadlineExceededError
 from .._deadline import RuntimeDeadline
 from .._logging import get_request_id, reset_request_id, set_request_id
 from .._operations import Operation
@@ -24,7 +27,7 @@ from .._records import (
     ChatSaveNoteInput,
     ChatSaveNoteResult,
 )
-from ..exceptions import ChatError, NotebookLMError
+from ..exceptions import ChatError, NetworkError, NotebookLMError
 from ..rpc import RPCMethod
 from .chat_transport import chat_aware_authed_post
 from .codec.chat import (
@@ -64,6 +67,7 @@ class ChatWebHandlers(SourceVariantWebHandlers):
         *,
         operation: Operation,
         deadline: RuntimeDeadline | None,
+        outcome_unknown_on_expiry: bool = False,
     ) -> str | None:
         raw = await self._rpc_call(
             RPCMethod.GET_LAST_CONVERSATION_ID,
@@ -71,6 +75,7 @@ class ChatWebHandlers(SourceVariantWebHandlers):
             operation=operation,
             deadline=deadline,
             source_path=f"/notebook/{notebook_id}",
+            outcome_unknown_on_expiry=outcome_unknown_on_expiry,
         )
         conversation_id = decode_get_conversation_result(raw)
         if conversation_id is not None:
@@ -204,19 +209,69 @@ class ChatWebHandlers(SourceVariantWebHandlers):
         def build_request(snapshot: Any) -> tuple[str, str, dict[str, str]]:
             return build_ask_request(snapshot, value, reqid=reqid)
 
+        attempt_timeout = self._chat_timeout
+        if deadline is not None:
+            remaining = deadline.remaining()
+            if remaining <= 0.0:
+                raise BackendDeadlineExceededError(
+                    Operation.CHAT_ASK,
+                    diagnostics=MappingProxyType(
+                        {
+                            "timeout": deadline.timeout,
+                            "remaining": remaining,
+                            "timeout_seconds": deadline.timeout,
+                        }
+                    ),
+                )
+            attempt_timeout = (
+                remaining if attempt_timeout is None else min(attempt_timeout, remaining)
+            )
         reqid_token = None if get_request_id() is not None else set_request_id()
         try:
-            response = await chat_aware_authed_post(
-                self._chat_transport,
-                build_request=build_request,
-                parse_label="chat.ask",
-                read_timeout=self._chat_timeout,
-                max_response_bytes=self._chat_response_max_bytes,
-                disable_read_timeout_retries=True,
-            )
+            try:
+                response = await chat_aware_authed_post(
+                    self._chat_transport,
+                    build_request=build_request,
+                    parse_label="chat.ask",
+                    read_timeout=attempt_timeout,
+                    max_response_bytes=self._chat_response_max_bytes,
+                    disable_read_timeout_retries=True,
+                    retry_deadline=deadline,
+                )
+            except NetworkError as exc:
+                if (
+                    deadline is not None
+                    and deadline.expired()
+                    and isinstance(exc.original_error, httpx.TimeoutException)
+                ):
+                    raise BackendDeadlineExceededError(
+                        Operation.CHAT_ASK,
+                        outcome_unknown=True,
+                        diagnostics=MappingProxyType(
+                            {
+                                "timeout": deadline.timeout,
+                                "remaining": deadline.remaining(),
+                                "timeout_seconds": deadline.timeout,
+                            }
+                        ),
+                    ) from exc
+                raise
         finally:
             if reqid_token is not None:
                 reset_request_id(reqid_token)
+
+        if deadline is not None and deadline.expired():
+            raise BackendDeadlineExceededError(
+                Operation.CHAT_ASK,
+                outcome_unknown=True,
+                diagnostics=MappingProxyType(
+                    {
+                        "timeout": deadline.timeout,
+                        "remaining": deadline.remaining(),
+                        "timeout_seconds": deadline.timeout,
+                    }
+                ),
+            )
 
         streamed = decode_ask_response(response.text)
         resolved_conversation_id = value.resolved_conversation_id
@@ -226,6 +281,7 @@ class ChatWebHandlers(SourceVariantWebHandlers):
                     value.notebook_id,
                     operation=Operation.CHAT_ASK,
                     deadline=deadline,
+                    outcome_unknown_on_expiry=True,
                 )
             except NotebookLMError:
                 chat_logger.error(

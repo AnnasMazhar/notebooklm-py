@@ -1902,7 +1902,7 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
     assert {
         name: translated.diagnostics[name] for name in specific_diagnostics
     } == specific_diagnostics
-    if isinstance(error, (RPCError, NetworkError)):
+    if isinstance(error, (RPCError, NetworkError, ChatError)):
         assert isinstance(translated.diagnostics["public_error_failure"], SourceAddFailureRecord)
     else:
         assert "public_error_failure" not in translated.diagnostics

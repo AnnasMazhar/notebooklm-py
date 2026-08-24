@@ -36,11 +36,15 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
+from notebooklm._backend import BackendDeadlineExceededError
 from notebooklm._chat import ChatAPI
+from notebooklm._deadline import RuntimeDeadline
 from notebooklm._notebook_payloads import build_get_notebook_params
+from notebooklm._records import ChatAskInput
 from notebooklm._streaming_post import stream_post_with_size_cap
+from notebooklm._transport_errors import TransportAuthExpired, TransportServerError
 from notebooklm._web.codec import chat as chat_codec
-from notebooklm.exceptions import ChatError, RPCResponseTooLargeError
+from notebooklm.exceptions import ChatError, NetworkError, RPCResponseTooLargeError
 from notebooklm.rpc import ChatGoal, RPCMethod
 from notebooklm.types import AskResult, ChatMode
 from scripts import audit_operation_catalog as catalog
@@ -208,6 +212,160 @@ async def test_ask_raw_response_is_the_verbatim_first_1000_chars() -> None:
 
     assert len(result.raw_response) == 1000
     assert result.raw_response == body.decode()[:1000]
+
+
+@pytest.mark.asyncio
+async def test_chat_backend_forwards_one_deadline_and_clamps_stream_attempt() -> None:
+    transport = SimpleNamespace(
+        perform_authed_post=AsyncMock(return_value=_response(_stream_body(ANSWER_ROW)))
+    )
+    chat = _chat(transport=transport)
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 12.0)
+
+    result = await chat._service.ask(
+        ChatAskInput(
+            notebook_id="nb-1",
+            question="Q?",
+            source_ids=("source-1",),
+            resolved_conversation_id="conv-1",
+        ),
+        deadline=deadline,
+    )
+
+    assert result.conversation_id == "conv-1"
+    kwargs = transport.perform_authed_post.await_args.kwargs
+    assert kwargs["retry_deadline"] is deadline
+    assert kwargs["read_timeout"] == 3.0
+
+
+@pytest.mark.asyncio
+async def test_chat_backend_marks_expiry_after_stream_commit_as_outcome_unknown() -> None:
+    transport = SimpleNamespace(
+        perform_authed_post=AsyncMock(return_value=_response(_stream_body(ANSWER_ROW)))
+    )
+    chat = _chat(transport=transport)
+    times = iter((10.0, 10.0, 16.0, 16.0))
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: next(times))
+
+    with pytest.raises(BackendDeadlineExceededError) as caught:
+        await chat._service.ask(
+            ChatAskInput(
+                notebook_id="nb-1",
+                question="Q?",
+                source_ids=("source-1",),
+                resolved_conversation_id="conv-1",
+            ),
+            deadline=deadline,
+        )
+
+    assert caught.value.outcome_unknown is True
+    assert caught.value.diagnostics == {
+        "timeout": 5.0,
+        "remaining": 0.0,
+        "timeout_seconds": 5.0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_chat_deadline_clamped_read_timeout_maps_to_semantic_expiry() -> None:
+    request = httpx.Request("POST", "https://notebooklm.google.com/chat")
+    original = httpx.ReadTimeout("stream stalled", request=request)
+    transport = SimpleNamespace(
+        perform_authed_post=AsyncMock(
+            side_effect=TransportServerError("transport failed", original=original)
+        )
+    )
+    chat = _chat(transport=transport)
+    times = iter((10.0, 10.0, 16.0, 16.0))
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: next(times))
+
+    with pytest.raises(BackendDeadlineExceededError) as caught:
+        await chat._service.ask(
+            ChatAskInput(
+                notebook_id="nb-1",
+                question="Q?",
+                source_ids=("source-1",),
+                resolved_conversation_id="conv-1",
+            ),
+            deadline=deadline,
+        )
+
+    assert caught.value.outcome_unknown is True
+    assert caught.value.diagnostics == {
+        "timeout": 5.0,
+        "remaining": 0.0,
+        "timeout_seconds": 5.0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_chat_phase_two_predispatch_expiry_is_outcome_unknown() -> None:
+    transport = SimpleNamespace(
+        perform_authed_post=AsyncMock(return_value=_response(_stream_body(ANSWER_ROW)))
+    )
+    rpc = _RpcRecorder()
+    chat = _chat(rpc=rpc, transport=transport)
+    times = iter((10.0, 10.0, 10.0, 16.0))
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: next(times))
+
+    with pytest.raises(BackendDeadlineExceededError) as caught:
+        await chat._service.ask(
+            ChatAskInput(
+                notebook_id="nb-1",
+                question="Q?",
+                source_ids=("source-1",),
+            ),
+            deadline=deadline,
+        )
+
+    assert caught.value.outcome_unknown is True
+    assert rpc.count(RPCMethod.GET_LAST_CONVERSATION_ID) == 0
+
+
+@pytest.mark.asyncio
+async def test_chat_facade_preserves_bounded_network_error_graph_and_scrubs_url() -> None:
+    request = httpx.Request(
+        "POST",
+        "https://notebooklm.google.com/chat?f.sid=secret-session&authuser=owner@example.com",
+    )
+    original = httpx.ReadTimeout("stream stalled", request=request)
+    transport_error = TransportServerError("transport failed", original=original)
+    transport = SimpleNamespace(perform_authed_post=AsyncMock(side_effect=transport_error))
+    chat = _chat(transport=transport)
+
+    with pytest.raises(NetworkError) as caught:
+        await chat.ask("nb-1", "Q?", source_ids=["source-1"], conversation_id="conv-1")
+
+    projected = caught.value
+    assert isinstance(projected.original_error, httpx.ReadTimeout)
+    assert isinstance(projected.__cause__, TransportServerError)
+    assert projected.__cause__.original is projected.original_error
+    assert projected.__context__ is projected.__cause__
+    assert projected.__suppress_context__ is True
+    assert projected.original_error.request.url.query == b""
+    rendered = repr(projected.original_error.request.url)
+    assert "secret-session" not in rendered
+    assert "owner@example.com" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_chat_facade_preserves_chat_error_transport_cause() -> None:
+    request = httpx.Request("POST", "https://notebooklm.google.com/chat?at=secret-csrf")
+    response = httpx.Response(401, request=request)
+    original = httpx.HTTPStatusError("unauthorized", request=request, response=response)
+    transport_error = TransportAuthExpired("refresh failed", original=original)
+    transport = SimpleNamespace(perform_authed_post=AsyncMock(side_effect=transport_error))
+    chat = _chat(transport=transport)
+
+    with pytest.raises(ChatError) as caught:
+        await chat.ask("nb-1", "Q?", source_ids=["source-1"], conversation_id="conv-1")
+
+    assert isinstance(caught.value.__cause__, TransportAuthExpired)
+    projected_original = caught.value.__cause__.original
+    assert isinstance(projected_original, httpx.HTTPStatusError)
+    assert projected_original.response.status_code == 401
+    assert projected_original.request.url.query == b""
+    assert "secret-csrf" not in repr(projected_original.request.url)
 
 
 # ---------------------------------------------------------------------------

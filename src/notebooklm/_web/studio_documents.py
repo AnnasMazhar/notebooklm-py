@@ -45,6 +45,7 @@ class StudioDocumentWebHandlers:
         disable_internal_retries: bool = False,
         operation_variant: str | None = None,
         raise_on_null_status: bool = False,
+        outcome_unknown_on_expiry: bool = False,
         attempt_timeout: float | None = None,
     ) -> Any:
         """Invoke one native RPC; implemented by the composed web backend."""
