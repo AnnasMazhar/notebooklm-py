@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -12,8 +13,10 @@ import pytest
 
 from notebooklm._auth.cookie_types import CookieJar
 from notebooklm._cookie_persistence import CookiePersistence
+from notebooklm._kernel import Kernel
 from notebooklm._runtime.auth import AuthRefreshCoordinator
 from notebooklm._source.drive_import import DriveFetcher, DriveRef
+from notebooklm._web_cookie_provider import WebCookieGeneration
 from notebooklm.auth import AuthTokens
 from tests._helpers.client_factory import build_client_shell_for_tests
 
@@ -64,6 +67,117 @@ def test_provider_and_backend_own_distinct_kernels_and_narrow_backend_state() ->
         isinstance(value, (AuthTokens, AuthRefreshCoordinator, CookiePersistence))
         for value in backend_state.values()
     )
+
+
+def test_backend_type_surface_is_protocol_narrow_and_shallow_repr_is_redacted() -> None:
+    """Runtime introspection exposes ports and epochs, never credential values."""
+    from notebooklm._runtime.web_backend_session import WebBackendSession
+    from notebooklm._runtime.web_cookie_provider import RuntimeWebCookieProvider
+    from notebooklm._web.backend import WebRpcBackend
+
+    client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
+    backend = client._backend
+    provider = client._provider
+    session = backend._session
+
+    assert type(provider) is RuntimeWebCookieProvider
+    assert type(session) is WebBackendSession
+    signature = inspect.signature(WebRpcBackend.__init__)
+    assert signature.parameters["provider"].annotation == "WebCookieProvider | None"
+    assert signature.parameters["session"].annotation == "WebCookieSession | None"
+
+    introspection = repr((backend, vars(backend), provider, vars(provider), session, vars(session)))
+    for secret in ("cookie-old", "csrf-old", "session-old"):
+        assert secret not in introspection
+
+
+@pytest.mark.asyncio
+async def test_open_time_cookie_reload_publishes_before_backend_session_seed() -> None:
+    """A provider-open cookie change advances one epoch before backend cloning."""
+    factory_calls = 0
+
+    def open_factory(**kwargs: Any) -> httpx.AsyncClient:
+        nonlocal factory_calls
+        factory_calls += 1
+        client = _session_factory(**kwargs)
+        if factory_calls == 1:
+            client.cookies.set("SID", "cookie-open-reload", domain=".google.com", path="/")
+        return client
+
+    client = build_client_shell_for_tests(_auth(), async_client_factory=open_factory)
+    provider = client._provider
+    before = await provider.generation()
+
+    await client.__aenter__()
+    try:
+        after = await provider.generation()
+        assert after.generation == before.generation + 1
+        assert _sid(after.cookies) == "cookie-open-reload"
+        assert client._backend._session.kernel.installed_generation == after.generation
+        assert _sid(client._backend._session.kernel.cookies) == "cookie-open-reload"
+    finally:
+        await client.close(drain=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_type", [RuntimeError, asyncio.CancelledError])
+async def test_failed_or_cancelled_provider_refresh_publishes_no_epoch(
+    error_type: type[BaseException],
+) -> None:
+    """Mutable work that does not succeed never becomes a provider commit."""
+    client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
+    provider = client._provider
+    before = await provider.generation()
+
+    async def fake_refresh(*, allow_headless: bool = False) -> AuthTokens:
+        del allow_headless
+
+        async def work() -> AuthTokens:
+            provider._kernel.cookies.set(
+                "SID", "cookie-uncommitted", domain=".google.com", path="/"
+            )
+            provider.auth.csrf_token = "csrf-uncommitted"
+            raise error_type("refresh did not commit")
+
+        return await provider.run_refresh_transaction(work)
+
+    provider._refresh_session = fake_refresh
+    with pytest.raises(error_type):
+        await provider.refresh()
+
+    after = await provider.generation()
+    assert after is before
+    assert after.generation == before.generation
+    assert (_sid(after.cookies), after.csrf_token) == ("cookie-old", "csrf-old")
+
+
+def test_equal_or_stale_generation_preserves_backend_set_cookie() -> None:
+    """Replaying a seed cannot erase response cookie churn at the same epoch."""
+    kernel = Kernel(auth=_auth())
+    current = WebCookieGeneration(
+        csrf_token="csrf-current",
+        session_id="session-current",
+        authuser=0,
+        account_email=None,
+        cookies=CookieJar.from_httpx(httpx.Cookies({"SID": "cookie-seed"})),
+        generation=4,
+    )
+    stale = WebCookieGeneration(
+        csrf_token="csrf-stale",
+        session_id="session-stale",
+        authuser=0,
+        account_email=None,
+        cookies=CookieJar.from_httpx(httpx.Cookies({"SID": "cookie-stale"})),
+        generation=3,
+    )
+
+    assert kernel.install_generation(current) is True
+    kernel.cookies.set("SID", "cookie-from-response")
+
+    assert kernel.install_generation(current) is False
+    assert kernel.install_generation(stale) is False
+    assert _sid(kernel.cookies) == "cookie-from-response"
+    assert kernel.installed_generation == 4
 
 
 @pytest.mark.asyncio
@@ -128,6 +242,100 @@ async def test_direct_refresh_is_single_flight_and_publishes_one_atomic_epoch(
         after.authuser,
         after.account_email,
     ) == ("cookie-new", "csrf-new", "session-new", 7, "owner@example.com")
+
+
+@pytest.mark.asyncio
+async def test_custom_coordinator_refresh_success_publishes_one_provider_epoch() -> None:
+    """A 401 callback outside ``provider.refresh`` still feeds the retry generation."""
+    auth = _auth()
+
+    async def custom_refresh() -> AuthTokens:
+        auth.csrf_token = "csrf-custom"
+        auth.session_id = "session-custom"
+        auth.authuser = 6
+        auth.account_email = "custom@example.com"
+        return auth
+
+    client = build_client_shell_for_tests(
+        auth,
+        refresh_callback=custom_refresh,
+        async_client_factory=_session_factory,
+    )
+    provider = client._provider
+
+    await client.__aenter__()
+    try:
+        before = await provider.generation()
+        await client._backend._runtime._refresh()
+        after = await provider.generation()
+
+        assert after.generation == before.generation + 1
+        assert (
+            after.csrf_token,
+            after.session_id,
+            after.authuser,
+            after.account_email,
+        ) == ("csrf-custom", "session-custom", 6, "custom@example.com")
+    finally:
+        await client.close(drain=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_type", [RuntimeError, asyncio.CancelledError])
+async def test_custom_coordinator_refresh_failure_publishes_no_provider_epoch(
+    error_type: type[BaseException],
+) -> None:
+    """Only successful custom callback work is eligible for publication."""
+    auth = _auth()
+
+    async def custom_refresh() -> AuthTokens:
+        auth.csrf_token = "csrf-uncommitted-custom"
+        raise error_type("custom refresh did not commit")
+
+    client = build_client_shell_for_tests(
+        auth,
+        refresh_callback=custom_refresh,
+        async_client_factory=_session_factory,
+    )
+    provider = client._provider
+
+    await client.__aenter__()
+    try:
+        before = await provider.generation()
+        with pytest.raises(error_type):
+            await client._backend._runtime._refresh()
+        assert await provider.generation() is before
+    finally:
+        await client.close(drain=False)
+
+
+@pytest.mark.asyncio
+async def test_provider_refresh_callback_is_not_published_twice() -> None:
+    """The production callback already commits inside the provider transaction."""
+    client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
+    provider = client._provider
+
+    async def fake_refresh(*, allow_headless: bool = False) -> AuthTokens:
+        del allow_headless
+
+        async def work() -> AuthTokens:
+            provider.auth.csrf_token = "csrf-provider-success"
+            return provider.auth
+
+        return await provider.run_refresh_transaction(work)
+
+    provider._refresh_session = fake_refresh
+    provider._coordinator._refresh_callback = client.refresh_auth
+
+    await client.__aenter__()
+    try:
+        before = await provider.generation()
+        await client._backend._runtime._refresh()
+        after = await provider.generation()
+        assert after.generation == before.generation + 1
+        assert after.csrf_token == "csrf-provider-success"
+    finally:
+        await client.close(drain=False)
 
 
 @pytest.mark.asyncio
@@ -239,6 +447,45 @@ async def test_provider_close_failure_is_retryable() -> None:
 
 
 @pytest.mark.asyncio
+async def test_direct_backend_reconciles_but_does_not_close_injected_provider() -> None:
+    """A caller-owned provider survives while its detached backend jar is reconciled."""
+    from notebooklm._web.backend import WebRpcBackend
+
+    class Provider:
+        def __init__(self) -> None:
+            self.reconciled = 0
+            self.closed = 0
+
+        async def reconcile(self) -> None:
+            self.reconciled += 1
+
+        async def close(self) -> None:
+            self.closed += 1
+
+    class Session:
+        def __init__(self) -> None:
+            self.closed = 0
+
+        async def close(self) -> None:
+            self.closed += 1
+
+    provider = Provider()
+    session = Session()
+    backend = WebRpcBackend(
+        object(),  # type: ignore[arg-type]
+        transport_factory=lambda **_kwargs: object(),
+        provider=provider,  # type: ignore[arg-type]
+        session=session,  # type: ignore[arg-type]
+    )
+
+    await backend.close()
+
+    assert provider.reconciled == 1
+    assert provider.closed == 0
+    assert session.closed == 1
+
+
+@pytest.mark.asyncio
 async def test_provider_close_waiter_cancellation_does_not_cancel_teardown() -> None:
     """Cancellation detaches one waiter; a later close joins the same teardown."""
     from notebooklm._web.backend import WebRpcBackend
@@ -301,6 +548,33 @@ async def test_owned_provider_and_private_session_support_close_reopen() -> None
         assert client._backend._session.kernel.get_http_client() is not first_backend_client
     finally:
         await client.close(drain=False)
+
+
+def test_owned_provider_and_private_session_reopen_on_a_new_event_loop() -> None:
+    """Close-to-reopen replaces every loop-owned provider/session resource."""
+    client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
+    observations: list[tuple[asyncio.AbstractEventLoop, object, object]] = []
+
+    async def cycle() -> None:
+        await client.__aenter__()
+        try:
+            observations.append(
+                (
+                    asyncio.get_running_loop(),
+                    client._provider._kernel.get_http_client(),
+                    client._backend._session.kernel.get_http_client(),
+                )
+            )
+        finally:
+            await client.close(drain=False)
+
+    asyncio.run(cycle())
+    asyncio.run(cycle())
+
+    first, second = observations
+    assert first[0] is not second[0]
+    assert first[1] is not second[1]
+    assert first[2] is not second[2]
 
 
 @pytest.mark.asyncio
