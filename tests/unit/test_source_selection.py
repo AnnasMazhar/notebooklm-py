@@ -30,6 +30,7 @@ from notebooklm.rpc import (
     VideoFormat,
     VideoStyle,
 )
+from tests._fixtures.web_backend import build_web_backend
 
 
 @pytest.fixture
@@ -206,7 +207,7 @@ def _chat_from_mock_core(mock_core, *, notebooks=None) -> ChatAPI:
 
 
 @pytest.fixture
-def mock_mind_map_service():
+def mock_mind_map_service(mock_core):
     """Bundle of stand-in services required by ``ArtifactsAPI.__init__``.
 
     These tests exercise generation/encoding paths that never call the
@@ -222,6 +223,7 @@ def mock_mind_map_service():
     return {
         "mind_maps": MagicMock(spec=NoteBackedMindMapService),
         "note_service": MagicMock(spec=NoteService),
+        "_backend": build_web_backend(mock_core.rpc_executor),
     }
 
 
@@ -824,6 +826,43 @@ class TestArtifactsSourceSelection:
         flashcard_options = params[2][9][1][6]
         assert flashcard_options == [QuizQuantity.FEWER.value, QuizDifficulty.HARD.value]
         assert flashcard_options == [1, 3]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("method_name", "kwargs", "expected_message"),
+        [
+            (
+                "generate_quiz",
+                {"quantity": 2},
+                "quantity must be a QuizQuantity member or None",
+            ),
+            (
+                "generate_flashcards",
+                {"difficulty": QuizQuantity.FEWER},
+                "difficulty must be a QuizDifficulty member or None",
+            ),
+        ],
+    )
+    async def test_interactive_facade_preserves_typed_option_validation_before_rpc(
+        self,
+        method_name,
+        kwargs,
+        expected_message,
+        mock_core,
+        mock_mind_map_service,
+    ):
+        api = ArtifactsAPI(
+            rpc=mock_core,
+            drain=mock_core,
+            lifecycle=mock_core,
+            notebooks=MagicMock(),
+            **mock_mind_map_service,
+        )
+
+        with pytest.raises(ValidationError, match=expected_message):
+            await getattr(api, method_name)("nb_123", source_ids=["src"], **kwargs)
+
+        mock_core.rpc_executor.rpc_call.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_generate_infographic_source_encoding(self, mock_core, mock_mind_map_service):

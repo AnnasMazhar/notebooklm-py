@@ -1,7 +1,7 @@
 """Closed web dispositions for the semantic operation vocabulary.
 
-P2.1 reads, the P2.2 notebook mutation core, and P5.1 Studio reads have executable bindings; P2.3
-adds a URL-source binding that production dispatch explicitly rejects until its
+P2.1 reads, the P2.2 notebook mutation core, P5.1 Studio reads, and P5.3 Quiz/Flashcards generation
+have executable bindings; P2.3 adds a URL-source binding that production dispatch explicitly rejects until its
 facade delegates. Every other P0 operation has an unsupported disposition, and
 the count assertions force a deliberate registry update when the closed
 :class:`Operation` enum changes.
@@ -16,6 +16,8 @@ from typing import Any, Final
 
 from .._operations import Operation, OperationDef
 from .._records import (
+    ARTIFACT_GENERATE_FLASHCARDS_DEF,
+    ARTIFACT_GENERATE_QUIZ_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
     NOTEBOOK_CREATE_DEF,
@@ -67,6 +69,8 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.SOURCE_GET: SOURCE_GET_DEF,
         Operation.ARTIFACT_LIST: ARTIFACT_LIST_DEF,
         Operation.ARTIFACT_GET: ARTIFACT_GET_DEF,
+        Operation.ARTIFACT_GENERATE_QUIZ: ARTIFACT_GENERATE_QUIZ_DEF,
+        Operation.ARTIFACT_GENERATE_FLASHCARDS: ARTIFACT_GENERATE_FLASHCARDS_DEF,
     }
 )
 
@@ -81,6 +85,8 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.SOURCE_GET: "_source_get",
         Operation.ARTIFACT_LIST: "_artifact_list",
         Operation.ARTIFACT_GET: "_artifact_get",
+        Operation.ARTIFACT_GENERATE_QUIZ: "_quiz_generate",
+        Operation.ARTIFACT_GENERATE_FLASHCARDS: "_flashcards_generate",
     }
 )
 
@@ -96,7 +102,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 9
+_EXPECTED_SUPPORTED_COUNT: Final = 11
 _EXPECTED_STAGED_COUNT: Final = 1
 
 

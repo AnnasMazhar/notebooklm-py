@@ -325,6 +325,47 @@ class ArtifactGetResult:
     artifact: ArtifactRecord | None
 
 
+@dataclass(frozen=True, slots=True)
+class GenerationStatusRecord:
+    """Transport-neutral artifact generation task state."""
+
+    task_id: str
+    status: str
+    url: str | None = field(default=None, repr=False)
+    error: str | None = field(default=None, repr=False)
+    error_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InteractiveGenerateInput:
+    """Quiz or flashcard generation options without web enum vocabulary."""
+
+    notebook_id: str
+    source_ids: tuple[str, ...] | None = None
+    instructions: str | None = field(default=None, repr=False)
+    quantity: str | None = None
+    difficulty: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InteractiveGenerateResult:
+    """Quiz or flashcard generation kickoff result."""
+
+    status: GenerationStatusRecord
+
+
+@dataclass(frozen=True, slots=True)
+class InteractiveMetadataRecord:
+    """Interactive-family readiness and per-user study metadata."""
+
+    artifact_id: str
+    family: str
+    lifecycle_status: str
+    usable: bool
+    generation_prompt: str | None = field(default=None, repr=False)
+    user_state: ArtifactUserStateRecord | None = field(default=None, repr=False)
+
+
 NOTEBOOK_LIST_DEF: OperationDef[NotebookListInput, NotebookListResult] = OperationDef(
     Operation.NOTEBOOK_LIST,
     CallPolicy.READ,
@@ -373,6 +414,22 @@ ARTIFACT_GET_DEF: OperationDef[ArtifactGetInput, ArtifactGetResult] = OperationD
     ArtifactGetInput,
     ArtifactGetResult,
 )
+ARTIFACT_GENERATE_QUIZ_DEF: OperationDef[InteractiveGenerateInput, InteractiveGenerateResult] = (
+    OperationDef(
+        Operation.ARTIFACT_GENERATE_QUIZ,
+        CallPolicy.STATEFUL_START,
+        InteractiveGenerateInput,
+        InteractiveGenerateResult,
+    )
+)
+ARTIFACT_GENERATE_FLASHCARDS_DEF: OperationDef[
+    InteractiveGenerateInput, InteractiveGenerateResult
+] = OperationDef(
+    Operation.ARTIFACT_GENERATE_FLASHCARDS,
+    CallPolicy.STATEFUL_START,
+    InteractiveGenerateInput,
+    InteractiveGenerateResult,
+)
 SOURCE_GET_DEF: OperationDef[SourceGetInput, SourceGetResult] = OperationDef(
     Operation.SOURCE_GET,
     CallPolicy.READ,
@@ -389,6 +446,8 @@ SOURCE_ADD_URL_DEF: OperationDef[SourceAddUrlInput, SourceAddUrlResult] = Operat
 
 __all__ = [
     "ARTIFACT_GET_DEF",
+    "ARTIFACT_GENERATE_FLASHCARDS_DEF",
+    "ARTIFACT_GENERATE_QUIZ_DEF",
     "ARTIFACT_LIST_DEF",
     "NOTEBOOK_GET_DEF",
     "NOTEBOOK_LIST_DEF",
@@ -407,6 +466,10 @@ __all__ = [
     "ArtifactRecord",
     "ArtifactSlideRecord",
     "ArtifactUserStateRecord",
+    "GenerationStatusRecord",
+    "InteractiveGenerateInput",
+    "InteractiveGenerateResult",
+    "InteractiveMetadataRecord",
     "NotebookChatSessionRecord",
     "NotebookChatSettingsRecord",
     "NotebookCreateInput",

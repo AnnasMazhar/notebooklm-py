@@ -1,8 +1,9 @@
 """Web implementation of the private semantic backend port.
 
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
-P2.2 routes three notebook mutation handlers; P5.1 routes Studio catalog list/get;
-and P2.3 stages the facade-inert URL/YouTube source composite. These bindings intentionally reuse
+P2.2 routes three notebook mutation handlers; P5.1 routes Studio catalog list/get; P5.3 routes
+Quiz/Flashcards generation; and P2.3 stages the facade-inert URL/YouTube source composite. These
+bindings intentionally reuse
 the current request builders, strict row adapters, and public-model decoders
 until the P3 codec split.
 Removal: P3 replaces the compatibility model-to-record projections below with
@@ -15,11 +16,15 @@ import asyncio
 import logging
 import reprlib
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, Literal, TypeVar, cast
 from urllib.parse import urlparse
 
+from .._artifact.payloads import (
+    build_flashcards_artifact_params,
+    build_quiz_artifact_params,
+)
 from .._backend import (
     BackendCapabilities,
     BackendContractError,
@@ -54,6 +59,9 @@ from .._records import (
     ArtifactRecord,
     ArtifactSlideRecord,
     ArtifactUserStateRecord,
+    GenerationStatusRecord,
+    InteractiveGenerateInput,
+    InteractiveGenerateResult,
     NotebookChatSessionRecord,
     NotebookChatSettingsRecord,
     NotebookCreateInput,
@@ -80,6 +88,7 @@ from .._records import (
     SourceRecord,
 )
 from .._row_adapters.artifacts import unwrap_artifact_rows
+from .._row_adapters.sources import SourceRow
 from .._rpc_executor import RpcExecutor
 from .._settings import build_get_user_settings_params, extract_account_limits
 from .._source.add import SourceAddService, honor_requested_title_if_fresh
@@ -102,7 +111,13 @@ from ..exceptions import (
     SourceNotFoundError,
     UnknownRPCMethodError,
 )
-from ..rpc import ARTIFACT_STATUS_SUGGESTED_WIRE_NAME, RPCMethod, safe_index
+from ..rpc import (
+    ARTIFACT_STATUS_SUGGESTED_WIRE_NAME,
+    QuizDifficulty,
+    QuizQuantity,
+    RPCMethod,
+    safe_index,
+)
 from ..rpc.types import (
     artifact_status_to_str,
     drive_source_status_to_str,
@@ -241,6 +256,9 @@ _ARTIFACT_FAMILIES = {
 }
 _ARTIFACT_VARIANTS = {1: "flashcards", 2: "quiz", 4: "interactive_mind_map"}
 _MEDIA_KINDS = {1: "progressive", 2: "hls", 3: "dash", 4: "download"}
+_QUIZ_QUANTITIES = {member.name.lower(): member for member in QuizQuantity}
+_QUIZ_DIFFICULTIES = {member.name.lower(): member for member in QuizDifficulty}
+_InteractiveOptionT = TypeVar("_InteractiveOptionT", QuizQuantity, QuizDifficulty)
 
 
 def _artifact_record(artifact: Artifact) -> ArtifactRecord:
@@ -913,6 +931,217 @@ class WebRpcBackend:
         return ArtifactGetResult(
             artifact=next((item for item in records if item.id == value.artifact_id), None)
         )
+
+    async def _quiz_generate(
+        self,
+        value: InteractiveGenerateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> InteractiveGenerateResult:
+        return await self._interactive_generate(
+            value,
+            operation=Operation.ARTIFACT_GENERATE_QUIZ,
+            family="quiz",
+            deadline=deadline,
+        )
+
+    async def _flashcards_generate(
+        self,
+        value: InteractiveGenerateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> InteractiveGenerateResult:
+        return await self._interactive_generate(
+            value,
+            operation=Operation.ARTIFACT_GENERATE_FLASHCARDS,
+            family="flashcards",
+            deadline=deadline,
+        )
+
+    async def _interactive_generate(
+        self,
+        value: InteractiveGenerateInput,
+        *,
+        operation: Operation,
+        family: Literal["quiz", "flashcards"],
+        deadline: RuntimeDeadline | None,
+    ) -> InteractiveGenerateResult:
+        quantity = self._interactive_option(
+            value.quantity,
+            _QUIZ_QUANTITIES,
+            parameter="quantity",
+            operation=operation,
+        )
+        difficulty = self._interactive_option(
+            value.difficulty,
+            _QUIZ_DIFFICULTIES,
+            parameter="difficulty",
+            operation=operation,
+        )
+        source_ids = value.source_ids
+        if source_ids is None:
+            notebook = await self._rpc_call(
+                RPCMethod.GET_NOTEBOOK,
+                build_get_notebook_params(value.notebook_id),
+                operation=operation,
+                deadline=deadline,
+                source_path=f"/notebook/{value.notebook_id}",
+            )
+            source_ids = self._interactive_source_ids(value.notebook_id, notebook)
+
+        if family == "quiz":
+            builder = build_quiz_artifact_params
+        elif family == "flashcards":
+            builder = build_flashcards_artifact_params
+        else:
+            raise BackendContractError(
+                f"unsupported interactive artifact family {family!r}",
+                operation=operation,
+            )
+        result = await self._rpc_call(
+            RPCMethod.CREATE_ARTIFACT,
+            builder(
+                value.notebook_id,
+                list(source_ids),
+                instructions=value.instructions,
+                quantity=quantity,
+                difficulty=difficulty,
+            ),
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+            operation_variant=None,
+            raise_on_null_status=True,
+        )
+        if result is None:
+            raise self._artifact_feature_unavailable(operation, family)
+
+        method_id = RPCMethod.CREATE_ARTIFACT.value
+        artifact_id = safe_index(
+            result,
+            0,
+            0,
+            method_id=method_id,
+            source="_parse_generation_result",
+        )
+        if artifact_id is None:
+            raise self._artifact_feature_unavailable(operation, "artifact")
+        if not artifact_id:
+            raise DecodingError(
+                "No artifact id (source=_parse_generation_result)",
+                method_id=method_id,
+            )
+        status_code = safe_index(
+            result,
+            0,
+            4,
+            method_id=method_id,
+            source="_parse_generation_result",
+        )
+        status = "pending" if status_code is None else artifact_status_to_str(status_code)
+        return InteractiveGenerateResult(
+            GenerationStatusRecord(task_id=cast(str, artifact_id), status=status)
+        )
+
+    @staticmethod
+    def _interactive_option(
+        value: str | None,
+        options: Mapping[str, _InteractiveOptionT],
+        *,
+        parameter: str,
+        operation: Operation,
+    ) -> _InteractiveOptionT | None:
+        if value is None:
+            return None
+        option = options.get(value)
+        if option is None:
+            raise BackendContractError(
+                f"unrecognized interactive {parameter} {value!r}",
+                operation=operation,
+            )
+        return option
+
+    @staticmethod
+    def _artifact_feature_unavailable(
+        operation: Operation,
+        artifact_type: str,
+    ) -> BackendError:
+        return BackendError(
+            message=f"{artifact_type.replace('_', ' ').capitalize()} generation is unavailable",
+            operation=operation,
+            diagnostics=MappingProxyType(
+                {
+                    "artifact_type": artifact_type,
+                    "method_id": RPCMethod.CREATE_ARTIFACT.value,
+                    "raw_response": None,
+                }
+            ),
+            reason=BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
+        )
+
+    @staticmethod
+    def _interactive_source_ids(notebook_id: str, notebook: object) -> tuple[str, ...]:
+        """Preserve the facade's tolerant source-id extraction semantics."""
+
+        source_ids: list[str] = []
+        if not notebook or not isinstance(notebook, list):
+            return tuple(source_ids)
+
+        method_id = RPCMethod.GET_NOTEBOOK.value
+        try:
+            notebook_info = safe_index(
+                notebook,
+                0,
+                method_id=method_id,
+                source="NotebooksAPI.get_source_ids",
+            )
+            if not isinstance(notebook_info, list):
+                notebook_logger.warning(
+                    "get_source_ids: notebook_data[0] shape unexpected for %s "
+                    "(schema drift?). top-type=%s",
+                    notebook_id,
+                    type(notebook_info).__name__,
+                )
+                return tuple(source_ids)
+            if len(notebook_info) <= 1:
+                notebook_logger.warning(
+                    "get_source_ids: notebook_info has no sources slot for %s "
+                    "(schema drift?). len=%d",
+                    notebook_id,
+                    len(notebook_info),
+                )
+                return tuple(source_ids)
+
+            sources = safe_index(
+                notebook_info,
+                1,
+                method_id=method_id,
+                source="NotebooksAPI.get_source_ids",
+            )
+            if sources is None:
+                return tuple(source_ids)
+            if not isinstance(sources, list):
+                notebook_logger.warning(
+                    "get_source_ids: notebook_info[1] not list for %s (schema drift?). len=%d",
+                    notebook_id,
+                    len(notebook_info),
+                )
+                return tuple(source_ids)
+            for source in sources:
+                if not (isinstance(source, list) and source):
+                    continue
+                source_id = SourceRow.from_entry(source, method_id=method_id).id
+                if source_id:
+                    source_ids.append(source_id)
+        except (IndexError, TypeError) as error:
+            notebook_logger.warning(
+                "get_source_ids: unexpected exception despite guards for %s: %s",
+                notebook_id,
+                error,
+                exc_info=True,
+            )
+        return tuple(source_ids)
 
     async def _source_get(
         self,

@@ -235,6 +235,7 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
         "_chat/api.py:ChatAPI.get_settings",
         "_notebooks.py:NotebooksAPI.get_raw",
         "_source/listing.py:SourceLister.list",
+        "_web/backend.py:WebRpcBackend._interactive_generate",
         "_web/backend.py:WebRpcBackend._notebook_get",
         "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
@@ -564,7 +565,8 @@ def test_known_divergences_remain_reported_but_do_not_fail_audit() -> None:
 
 
 def test_operation_authorities_are_exact_discriminated_and_include_non_rpc_paths() -> None:
-    rows = {row["key"]: row for row in catalog.build_operation_catalog()["operations"]}
+    projection = catalog.build_operation_catalog()
+    rows = {row["key"]: row for row in projection["operations"]}
 
     audio = rows["artifact.generate_audio"]["execution_authorities"]
     assert {row["site"] for row in audio} == {
@@ -578,6 +580,14 @@ def test_operation_authorities_are_exact_discriminated_and_include_non_rpc_paths
     assert retry_authority["binding"] == "public_helper"
     assert all(row["discriminator"] for row in audio)
     assert not any("MindMapsAPI.generate" in row["site"] for row in audio)
+
+    for operation in ("artifact.generate_quiz", "artifact.generate_flashcards"):
+        authorities = rows[operation]["execution_authorities"]
+        assert {row["site"] for row in authorities} == {
+            "artifacts.py:with_rate_limit_retry",
+            "_web/backend.py:WebRpcBackend._interactive_generate",
+        }
+        assert all(row["discriminator"] for row in authorities)
 
     note_backed = rows["artifact.generate_mind_map"]
     assert note_backed["native_bindings"] == [
@@ -599,7 +609,7 @@ def test_operation_authorities_are_exact_discriminated_and_include_non_rpc_paths
         row["site"] == "_source/drive_import.py:DriveFetcher._request"
         for row in rows["source.add_file"]["execution_authorities"]
     )
-    public = catalog.build_operation_catalog()["public_methods"]
+    public = projection["public_methods"]
     assert public["sources.add_drive"]["operations"] == ["source.add_drive"]
     assert public["sources.add_drive_file"]["operations"] == ["source.add_file"]
     assert {
