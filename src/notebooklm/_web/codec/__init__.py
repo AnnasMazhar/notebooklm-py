@@ -8,21 +8,29 @@ from .notebooks import decode_notebook, decode_notebook_description
 from .notes import decode_created_note, decode_note, decode_notes
 from .sharing import decode_share_status, decode_shared_user
 from .sources import decode_source, decode_source_row
+from .studio_documents import (
+    decode_generation_status,
+    encode_report_generation,
+    encode_video_generation,
+)
 
 __all__ = [
+    "decode_created_note",
+    "decode_generation_status",
+    "decode_note",
+    "decode_notes",
     "decode_artifact",
     "decode_collection",
     "decode_label",
     "decode_mind_map_artifact",
     "decode_notebook",
     "decode_notebook_description",
-    "decode_note",
-    "decode_notes",
-    "decode_created_note",
     "decode_report_suggestion",
     "decode_share_status",
     "decode_shared_user",
     "decode_source",
     "decode_source_row",
     "decode_structured_document",
+    "encode_report_generation",
+    "encode_video_generation",
 ]

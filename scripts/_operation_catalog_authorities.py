@@ -123,22 +123,28 @@ _GENERATION_OPERATIONS = {
 }
 for _operation, _discriminator in _GENERATION_OPERATIONS.items():
     if _operation is Operation.ARTIFACT_GENERATE_AUDIO:
-        _family_site = "_web/backend.py:WebRpcBackend._audio_generate"
+        _create_site = "_web/backend.py:WebRpcBackend._audio_generate"
+        _source_site = _create_site
     elif _operation in {
         Operation.ARTIFACT_GENERATE_QUIZ,
         Operation.ARTIFACT_GENERATE_FLASHCARDS,
     }:
-        _family_site = "_web/backend.py:WebRpcBackend._interactive_generate"
+        _create_site = "_web/backend.py:WebRpcBackend._interactive_generate"
+        _source_site = _create_site
+    elif _operation in {
+        Operation.ARTIFACT_GENERATE_REPORT,
+        Operation.ARTIFACT_GENERATE_VIDEO,
+    }:
+        _create_site = "_web/studio_documents.py:StudioDocumentWebHandlers._document_generate"
+        _source_site = "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids"
     else:
-        _family_site = None
+        _create_site = "_artifact/generation.py:ArtifactGenerationService._call_generate"
+        _source_site = "_notebooks.py:NotebooksAPI.get_raw"
     SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.CREATE_ARTIFACT))] = _rules(
-        (
-            _family_site or "_artifact/generation.py:ArtifactGenerationService._call_generate",
-            _discriminator,
-        )
+        (_create_site, _discriminator)
     )
     SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.GET_NOTEBOOK))] = _rules(
-        (_family_site or "_notebooks.py:NotebooksAPI.get_raw", "source_ids is None")
+        (_source_site, "source_ids is None")
     )
 
 SHARED_RPC_AUTHORITY_RULES.update(
@@ -458,6 +464,8 @@ for _operation in (*_GENERATION_OPERATIONS, Operation.ARTIFACT_GENERATE_MIND_MAP
         Operation.ARTIFACT_GENERATE_FLASHCARDS,
     }:
         _recency_site = "_web/backend.py:WebRpcBackend._interactive_generate"
+    elif _operation in {Operation.ARTIFACT_GENERATE_REPORT, Operation.ARTIFACT_GENERATE_VIDEO}:
+        _recency_site = "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids"
     else:
         _recency_site = _GET_RAW
     RECENCY_CONTRACTS[_operation] = (

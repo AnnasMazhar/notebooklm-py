@@ -39,6 +39,10 @@ from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._read_services import NotebookReadService, SourceReadService
 from notebooklm._records import (
     ARTIFACT_GENERATE_AUDIO_DEF,
+    ARTIFACT_GENERATE_FLASHCARDS_DEF,
+    ARTIFACT_GENERATE_QUIZ_DEF,
+    ARTIFACT_GENERATE_REPORT_DEF,
+    ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
     NOTE_CREATE_DEF,
@@ -141,6 +145,22 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         ARTIFACT_GET_DEF: (Operation.ARTIFACT_GET, CallPolicy.READ),
         ARTIFACT_GENERATE_AUDIO_DEF: (
             Operation.ARTIFACT_GENERATE_AUDIO,
+            CallPolicy.STATEFUL_START,
+        ),
+        ARTIFACT_GENERATE_QUIZ_DEF: (
+            Operation.ARTIFACT_GENERATE_QUIZ,
+            CallPolicy.STATEFUL_START,
+        ),
+        ARTIFACT_GENERATE_FLASHCARDS_DEF: (
+            Operation.ARTIFACT_GENERATE_FLASHCARDS,
+            CallPolicy.STATEFUL_START,
+        ),
+        ARTIFACT_GENERATE_VIDEO_DEF: (
+            Operation.ARTIFACT_GENERATE_VIDEO,
+            CallPolicy.STATEFUL_START,
+        ),
+        ARTIFACT_GENERATE_REPORT_DEF: (
+            Operation.ARTIFACT_GENERATE_REPORT,
             CallPolicy.STATEFUL_START,
         ),
         NOTE_LIST_DEF: (Operation.NOTE_LIST, CallPolicy.READ),
@@ -251,6 +271,26 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
                 IdempotencyPolicy.IDEMPOTENT_SET_OP,
                 IdempotencyPolicy.PROBE_THEN_CREATE,
             ],
+        ),
+        (
+            ARTIFACT_GENERATE_QUIZ_DEF,
+            [(RPCMethod.GET_NOTEBOOK, None), (RPCMethod.CREATE_ARTIFACT, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP, IdempotencyPolicy.PROBE_THEN_CREATE],
+        ),
+        (
+            ARTIFACT_GENERATE_FLASHCARDS_DEF,
+            [(RPCMethod.GET_NOTEBOOK, None), (RPCMethod.CREATE_ARTIFACT, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP, IdempotencyPolicy.PROBE_THEN_CREATE],
+        ),
+        (
+            ARTIFACT_GENERATE_VIDEO_DEF,
+            [(RPCMethod.GET_NOTEBOOK, None), (RPCMethod.CREATE_ARTIFACT, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP, IdempotencyPolicy.PROBE_THEN_CREATE],
+        ),
+        (
+            ARTIFACT_GENERATE_REPORT_DEF,
+            [(RPCMethod.GET_NOTEBOOK, None), (RPCMethod.CREATE_ARTIFACT, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP, IdempotencyPolicy.PROBE_THEN_CREATE],
         ),
         (
             NOTE_LIST_DEF,

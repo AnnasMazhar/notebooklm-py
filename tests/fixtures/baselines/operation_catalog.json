@@ -54,6 +54,42 @@
         }
       ]
     },
+    "artifact.generate_report": {
+      "call_policy": "stateful_start",
+      "known_divergence": "The exported notebooklm.artifacts.with_rate_limit_retry helper re-invokes the internal facade operation after rate limiting. P4.2 removes that internal use while preserving the public helper and adapter-neutral retry presentation policy.",
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "optional all-source resolution",
+          "rpc_method": "GET_NOTEBOOK",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "probe_then_create",
+          "role": "guarded report kickoff",
+          "rpc_method": "CREATE_ARTIFACT",
+          "variant": null
+        }
+      ]
+    },
+    "artifact.generate_video": {
+      "call_policy": "stateful_start",
+      "known_divergence": "The exported notebooklm.artifacts.with_rate_limit_retry helper re-invokes the internal facade operation after rate limiting. P4.2 removes that internal use while preserving the public helper and adapter-neutral retry presentation policy.",
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "optional all-source resolution",
+          "rpc_method": "GET_NOTEBOOK",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "probe_then_create",
+          "role": "guarded video kickoff",
+          "rpc_method": "CREATE_ARTIFACT",
+          "variant": null
+        }
+      ]
+    },
     "artifact.get": {
       "call_policy": "read",
       "known_divergence": null,
@@ -1078,7 +1114,8 @@
         "_artifact/generation.py:ArtifactGenerationService._call_generate",
         "_mind_maps_api.py:MindMapsAPI.generate",
         "_web/backend.py:WebRpcBackend._audio_generate",
-        "_web/backend.py:WebRpcBackend._interactive_generate"
+        "_web/backend.py:WebRpcBackend._interactive_generate",
+        "_web/studio_documents.py:StudioDocumentWebHandlers._document_generate"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -1869,7 +1906,8 @@
         "_web/backend.py:WebRpcBackend._notebook_get",
         "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
-        "_web/backend.py:WebRpcBackend._source_list"
+        "_web/backend.py:WebRpcBackend._source_list",
+        "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -3957,13 +3995,13 @@
         {
           "binding": "CREATE_ARTIFACT:<default>",
           "discriminator": "artifact_type=report|study-guide",
-          "site": "_artifact/generation.py:ArtifactGenerationService._call_generate",
+          "site": "_web/studio_documents.py:StudioDocumentWebHandlers._document_generate",
           "transport_kind": "rpc"
         },
         {
           "binding": "GET_NOTEBOOK:<default>",
           "discriminator": "source_ids is None",
-          "site": "_notebooks.py:NotebooksAPI.get_raw",
+          "site": "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids",
           "transport_kind": "rpc"
         }
       ],
@@ -3983,7 +4021,7 @@
       "recency_contract": [
         {
           "authority_sites": [
-            "_notebooks.py:NotebooksAPI.get_raw"
+            "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids"
           ],
           "condition": "one only when source_ids is omitted",
           "maximum_calls": 1,
@@ -4083,13 +4121,13 @@
         {
           "binding": "CREATE_ARTIFACT:<default>",
           "discriminator": "artifact_type=video|cinematic-video",
-          "site": "_artifact/generation.py:ArtifactGenerationService._call_generate",
+          "site": "_web/studio_documents.py:StudioDocumentWebHandlers._document_generate",
           "transport_kind": "rpc"
         },
         {
           "binding": "GET_NOTEBOOK:<default>",
           "discriminator": "source_ids is None",
-          "site": "_notebooks.py:NotebooksAPI.get_raw",
+          "site": "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids",
           "transport_kind": "rpc"
         }
       ],
@@ -4109,7 +4147,7 @@
       "recency_contract": [
         {
           "authority_sites": [
-            "_notebooks.py:NotebooksAPI.get_raw"
+            "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids"
           ],
           "condition": "one only when source_ids is omitted",
           "maximum_calls": 1,

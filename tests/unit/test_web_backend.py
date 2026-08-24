@@ -12,8 +12,11 @@ import pytest
 
 from notebooklm._artifact.payloads import (
     build_audio_artifact_params,
+    build_cinematic_video_artifact_params,
     build_flashcards_artifact_params,
     build_quiz_artifact_params,
+    build_report_artifact_params,
+    build_video_artifact_params,
 )
 from notebooklm._backend import (
     BackendContractError,
@@ -35,6 +38,8 @@ from notebooklm._records import (
     ARTIFACT_GENERATE_AUDIO_DEF,
     ARTIFACT_GENERATE_FLASHCARDS_DEF,
     ARTIFACT_GENERATE_QUIZ_DEF,
+    ARTIFACT_GENERATE_REPORT_DEF,
+    ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
     NOTE_CREATE_DEF,
@@ -64,6 +69,7 @@ from notebooklm._records import (
     NoteGetInput,
     NoteListInput,
     NoteUpdateInput,
+    ReportGenerateInput,
     SourceAddCommitState,
     SourceAddFailureKind,
     SourceAddFailureRecord,
@@ -72,6 +78,7 @@ from notebooklm._records import (
     SourceAddUrlReceipt,
     SourceGetInput,
     SourceListInput,
+    VideoGenerateInput,
 )
 from notebooklm._source.upload_payloads import build_template_block
 from notebooklm._web.backend import WebRpcBackend
@@ -96,7 +103,16 @@ from notebooklm.exceptions import (
     ServerError,
     UnknownRPCMethodError,
 )
-from notebooklm.rpc import AudioFormat, AudioLength, QuizDifficulty, QuizQuantity, RPCMethod
+from notebooklm.rpc import (
+    AudioFormat,
+    AudioLength,
+    QuizDifficulty,
+    QuizQuantity,
+    ReportFormat,
+    RPCMethod,
+    VideoFormat,
+    VideoStyle,
+)
 
 
 @dataclass(frozen=True)
@@ -148,6 +164,8 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_GENERATE_AUDIO,
         Operation.ARTIFACT_GENERATE_QUIZ,
         Operation.ARTIFACT_GENERATE_FLASHCARDS,
+        Operation.ARTIFACT_GENERATE_REPORT,
+        Operation.ARTIFACT_GENERATE_VIDEO,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -172,6 +190,8 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_GENERATE_AUDIO: ARTIFACT_GENERATE_AUDIO_DEF,
         Operation.ARTIFACT_GENERATE_QUIZ: ARTIFACT_GENERATE_QUIZ_DEF,
         Operation.ARTIFACT_GENERATE_FLASHCARDS: ARTIFACT_GENERATE_FLASHCARDS_DEF,
+        Operation.ARTIFACT_GENERATE_REPORT: ARTIFACT_GENERATE_REPORT_DEF,
+        Operation.ARTIFACT_GENERATE_VIDEO: ARTIFACT_GENERATE_VIDEO_DEF,
     }
     assert all(
         binding.unsupported_reason
@@ -203,6 +223,148 @@ async def test_every_unsupported_operation_fails_before_executor(operation: Oper
     assert caught.value.operation is operation
     assert caught.value.backend_kind is BackendKind.WEB
     assert executor.calls == []
+
+
+@pytest.mark.asyncio
+async def test_video_generate_uses_exact_payload_and_one_absolute_deadline() -> None:
+    executor = _RecordingExecutor([["video-id", "Video", 3, None, 1]])
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 12.0)
+    value = VideoGenerateInput(
+        "nb-video",
+        ("src-a", "src-b"),
+        "fr",
+        "Focus on the contrast",
+        "brief",
+        "anime",
+    )
+
+    result = await _backend(executor).invoke(
+        ARTIFACT_GENERATE_VIDEO_DEF,
+        value,
+        deadline=deadline,
+    )
+
+    assert (result.status.task_id, result.status.status) == ("video-id", "pending")
+    assert executor.calls[0].params == build_video_artifact_params(
+        "nb-video",
+        ["src-a", "src-b"],
+        language="fr",
+        instructions="Focus on the contrast",
+        video_format=VideoFormat.BRIEF,
+        video_style=VideoStyle.ANIME,
+        style_prompt=None,
+    )
+    assert executor.calls[0].kwargs["read_timeout"] == 3.0
+    assert executor.calls[0].kwargs["_retry_deadline"] is deadline
+    assert executor.calls[0].kwargs["operation_variant"] is None
+
+
+@pytest.mark.asyncio
+async def test_cinematic_video_uses_distinct_exact_payload() -> None:
+    executor = _RecordingExecutor([["cinematic-id", "Video", 3, None, 1]])
+    value = VideoGenerateInput(
+        "nb-video",
+        ("src-a",),
+        "en",
+        "Dramatic pacing",
+        "cinematic",
+        cinematic_route=True,
+    )
+
+    await _backend(executor).invoke(ARTIFACT_GENERATE_VIDEO_DEF, value, deadline=None)
+
+    assert executor.calls[0].params == build_cinematic_video_artifact_params(
+        "nb-video",
+        ["src-a"],
+        language="en",
+        instructions="Dramatic pacing",
+    )
+
+
+@pytest.mark.asyncio
+async def test_report_generate_resolves_sources_once_and_uses_exact_payload() -> None:
+    executor = _RecordingExecutor(
+        [["Notebook", [[["src-a"], "A"], [["src-b"], "B"]], "nb-report"]],
+        [["report-id", "Report", 2, None, 1]],
+    )
+    value = ReportGenerateInput(
+        "nb-report",
+        "study_guide",
+        source_ids=None,
+        language="de",
+        extra_instructions="Emphasize key terms",
+    )
+
+    result = await _backend(executor).invoke(
+        ARTIFACT_GENERATE_REPORT_DEF,
+        value,
+        deadline=None,
+    )
+
+    assert result.status.task_id == "report-id"
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.GET_NOTEBOOK,
+        RPCMethod.CREATE_ARTIFACT,
+    ]
+    assert executor.calls[0].params == build_get_notebook_params("nb-report")
+    assert executor.calls[1].params == build_report_artifact_params(
+        "nb-report",
+        ["src-a", "src-b"],
+        report_format=ReportFormat.STUDY_GUIDE,
+        language="de",
+        custom_prompt=None,
+        extra_instructions="Emphasize key terms",
+    )
+
+
+@pytest.mark.asyncio
+async def test_document_generation_preserves_source_shape_drift_warning(caplog) -> None:
+    executor = _RecordingExecutor(
+        [["Notebook without a sources slot"]],
+        [["video-id", "Video", 3, None, 1]],
+    )
+
+    await _backend(executor).invoke(
+        ARTIFACT_GENERATE_VIDEO_DEF,
+        VideoGenerateInput("nb-video", source_ids=None),
+        deadline=None,
+    )
+
+    assert "get_source_ids: notebook_info has no sources slot for nb-video" in caplog.text
+    assert executor.calls[1].params == build_video_artifact_params(
+        "nb-video",
+        [],
+        language="en",
+        instructions=None,
+        video_format=None,
+        video_style=None,
+        style_prompt=None,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("operation_def", "value", "artifact_type"),
+    [
+        (ARTIFACT_GENERATE_VIDEO_DEF, VideoGenerateInput("nb", ()), "video"),
+        (ARTIFACT_GENERATE_REPORT_DEF, ReportGenerateInput("nb", source_ids=()), "report"),
+    ],
+)
+async def test_document_generation_reconstructs_feature_unavailable_error(
+    operation_def: Any,
+    value: object,
+    artifact_type: str,
+) -> None:
+    executor = _RecordingExecutor(None)
+
+    with pytest.raises(BackendError) as caught:
+        await _backend(executor).invoke(operation_def, value, deadline=None)
+
+    assert caught.value.reason is BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE
+    projected = project_backend_error(caught.value)
+    assert isinstance(projected, ArtifactFeatureUnavailableError)
+    assert projected.artifact_type == artifact_type
+    assert projected.method_id == RPCMethod.CREATE_ARTIFACT.value
 
 
 @pytest.mark.asyncio

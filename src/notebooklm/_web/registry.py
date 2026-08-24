@@ -19,6 +19,8 @@ from .._records import (
     ARTIFACT_GENERATE_AUDIO_DEF,
     ARTIFACT_GENERATE_FLASHCARDS_DEF,
     ARTIFACT_GENERATE_QUIZ_DEF,
+    ARTIFACT_GENERATE_REPORT_DEF,
+    ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
     NOTE_CREATE_DEF,
@@ -85,6 +87,8 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.ARTIFACT_GENERATE_AUDIO: ARTIFACT_GENERATE_AUDIO_DEF,
         Operation.ARTIFACT_GENERATE_QUIZ: ARTIFACT_GENERATE_QUIZ_DEF,
         Operation.ARTIFACT_GENERATE_FLASHCARDS: ARTIFACT_GENERATE_FLASHCARDS_DEF,
+        Operation.ARTIFACT_GENERATE_REPORT: ARTIFACT_GENERATE_REPORT_DEF,
+        Operation.ARTIFACT_GENERATE_VIDEO: ARTIFACT_GENERATE_VIDEO_DEF,
     }
 )
 
@@ -108,6 +112,8 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.ARTIFACT_GENERATE_AUDIO: "_audio_generate",
         Operation.ARTIFACT_GENERATE_QUIZ: "_quiz_generate",
         Operation.ARTIFACT_GENERATE_FLASHCARDS: "_flashcards_generate",
+        Operation.ARTIFACT_GENERATE_REPORT: "_report_generate",
+        Operation.ARTIFACT_GENERATE_VIDEO: "_video_generate",
     }
 )
 
@@ -119,7 +125,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 18
+_EXPECTED_SUPPORTED_COUNT: Final = 20
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

@@ -21,6 +21,7 @@ from notebooklm.exceptions import (
 from notebooklm.rpc.decoder import RPCError
 from notebooklm.rpc.types import VideoFormat, VideoStyle
 from notebooklm.types import ArtifactDownloadError, GenerationStatus
+from tests._fixtures.web_backend import build_web_backend
 
 
 @pytest.fixture
@@ -50,6 +51,7 @@ def mock_artifacts_api():
         notebooks=mock_notebooks,
         mind_maps=mind_maps,
         note_service=note_service,
+        _backend=build_web_backend(mock_core),
     )
     return api, mock_core
 
