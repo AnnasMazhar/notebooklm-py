@@ -117,7 +117,8 @@ def decode_notebook(data: list[Any], *, include_chat_settings: bool = False) -> 
         emoji=project.emoji,
         premium_features=premium,
         chat_sessions=tuple(
-            NotebookChatSessionRecord(session_id) for session_id in project.chat_session_ids
+            NotebookChatSessionRecord(chat_session_id)
+            for chat_session_id in project.chat_session_ids
         ),
         chat_settings=chat_settings,
     )

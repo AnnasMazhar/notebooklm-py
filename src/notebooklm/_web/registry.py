@@ -1,11 +1,9 @@
 """Closed web dispositions for the semantic operation vocabulary.
 
-P2 notebook/source operations, P5 Studio family operations, P6.3 note/mind-map workflows,
-P6.4 source-label/collection operations, and P6.5 Sharing have executable bindings. Every other
-P0 operation has
-an unsupported disposition, and
-the count assertions force a deliberate registry update when the closed
-:class:`Operation` enum changes.
+P2 notebook/source operations, P5 Studio family operations, P6.2 Research, P6.3 note/mind-map
+workflows, P6.4 source-label/collection operations, and P6.5 Sharing have executable bindings.
+Every other P0 operation has an unsupported disposition, and the count assertions force a
+deliberate registry update when the closed :class:`Operation` enum changes.
 """
 
 from __future__ import annotations
@@ -56,6 +54,10 @@ from .._records import (
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
     NOTEBOOK_UPDATE_DEF,
+    RESEARCH_CANCEL_DEF,
+    RESEARCH_IMPORT_DEF,
+    RESEARCH_POLL_DEF,
+    RESEARCH_START_DEF,
     SHARING_GET_DEF,
     SHARING_SET_PUBLIC_DEF,
     SHARING_SET_VIEW_LEVEL_DEF,
@@ -142,6 +144,10 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.SHARING_SET_PUBLIC: SHARING_SET_PUBLIC_DEF,
         Operation.SHARING_SET_VIEW_LEVEL: SHARING_SET_VIEW_LEVEL_DEF,
         Operation.SHARING_UPDATE_USERS: SHARING_UPDATE_USERS_DEF,
+        Operation.RESEARCH_START: RESEARCH_START_DEF,
+        Operation.RESEARCH_POLL: RESEARCH_POLL_DEF,
+        Operation.RESEARCH_CANCEL: RESEARCH_CANCEL_DEF,
+        Operation.RESEARCH_IMPORT: RESEARCH_IMPORT_DEF,
     }
 )
 
@@ -193,6 +199,10 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.SHARING_SET_PUBLIC: "_sharing_set_public",
         Operation.SHARING_SET_VIEW_LEVEL: "_sharing_set_view_level",
         Operation.SHARING_UPDATE_USERS: "_sharing_update_users",
+        Operation.RESEARCH_START: "_research_start",
+        Operation.RESEARCH_POLL: "_research_poll",
+        Operation.RESEARCH_CANCEL: "_research_cancel",
+        Operation.RESEARCH_IMPORT: "_research_import",
     }
 )
 
@@ -204,7 +214,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 46
+_EXPECTED_SUPPORTED_COUNT: Final = 50
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

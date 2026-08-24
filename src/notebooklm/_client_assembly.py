@@ -425,14 +425,18 @@ def _assemble_client(
         notes=note_service,
         studio=mind_map_studio,
     )
-    # Pure-RPC features (typed as ``rpc: RpcCaller``). Pass the
-    # ``RpcExecutor`` collaborator directly, sourced from the composed
-    # executor.
+    # Research runs on the semantic backend; the executor stays its
+    # construction seam for the default source lister used by the
+    # import-verification snapshot/probe.
     client.research = ResearchAPI(
         internals.executor,
         base_timeout=timeout,
         import_research_timeout=import_research_timeout,
+        _backend=client._backend,
     )
+    # Pure-RPC features (typed as ``rpc: RpcCaller``). Pass the
+    # ``RpcExecutor`` collaborator directly, sourced from the composed
+    # executor.
     client.settings = SettingsAPI(internals.executor)
     # Sharing is fully migrated to the semantic backend: it takes the
     # client-owned adapter and no RpcCaller at all (P6.5).

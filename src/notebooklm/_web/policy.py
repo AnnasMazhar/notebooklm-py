@@ -449,6 +449,33 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
                 _native(RPCMethod.GET_SHARE_STATUS, _IDEMPOTENT, "post-mutation read"),
             ),
         ),
+        Operation.RESEARCH_START: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(
+                    RPCMethod.START_FAST_RESEARCH,
+                    _NO_RETRY,
+                    "non-idempotent fast research start",
+                ),
+                _native(
+                    RPCMethod.START_DEEP_RESEARCH,
+                    _NO_RETRY,
+                    "non-idempotent deep research start",
+                ),
+            ),
+        ),
+        Operation.RESEARCH_POLL: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (_native(RPCMethod.POLL_RESEARCH, _IDEMPOTENT, "research task poll"),),
+        ),
+        Operation.RESEARCH_CANCEL: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (_native(RPCMethod.CANCEL_RESEARCH, _IDEMPOTENT, "terminal-state set-op"),),
+        ),
+        Operation.RESEARCH_IMPORT: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (_native(RPCMethod.IMPORT_RESEARCH, _NO_RETRY, "non-idempotent source import"),),
+        ),
     }
 )
 

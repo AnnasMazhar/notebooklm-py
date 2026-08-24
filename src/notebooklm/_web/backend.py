@@ -2,7 +2,7 @@
 
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
 P2.2 routes three notebook mutation handlers; P2.3 routes the live URL/YouTube
-source composite; P5.1–P5.7 route Studio workflows; P6.3 routes note/mind-map
+source composite; P5.1–P5.7 route Studio workflows; P6.2 routes Research; P6.3 routes note/mind-map
 workflows; P6.4 routes labels/collections through a dedicated mixin; and P6.5 routes Sharing.
 These bindings reuse
 current request builders and strict row adapters; P3 web codecs terminate
@@ -159,7 +159,7 @@ from .codec.notes import (
 )
 from .codec.sources import decode_source
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
-from .sharing import SharingWebHandlers
+from .research import ResearchWebHandlers
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
 source_logger = logging.getLogger("notebooklm").getChild("_sources")
@@ -464,7 +464,7 @@ class _DeadlineRpcCaller:
         raise timeout_error
 
 
-class WebRpcBackend(SharingWebHandlers):
+class WebRpcBackend(ResearchWebHandlers):
     """Typed semantic binding over the existing shared :class:`RpcExecutor`."""
 
     def __init__(
@@ -584,11 +584,12 @@ class WebRpcBackend(SharingWebHandlers):
         operation_variant: str | None = None,
         raise_on_null_status: bool = False,
         outcome_unknown_on_expiry: bool = False,
+        attempt_timeout: float | None = None,
     ) -> Any:
-        read_timeout: float | None = None
+        read_timeout: float | None = attempt_timeout
         if deadline is not None:
-            read_timeout = deadline.remaining()
-            if read_timeout <= 0.0:
+            remaining = deadline.remaining()
+            if remaining <= 0.0:
                 raise BackendDeadlineExceededError(
                     operation,
                     # No native call was dispatched in this phase. Uncertainty
@@ -598,12 +599,13 @@ class WebRpcBackend(SharingWebHandlers):
                     diagnostics=MappingProxyType(
                         {
                             "timeout": deadline.timeout,
-                            "remaining": read_timeout,
+                            "remaining": remaining,
                             "timeout_seconds": deadline.timeout,
                             "method_id": method.value,
                         }
                     ),
                 )
+            read_timeout = remaining if read_timeout is None else min(read_timeout, remaining)
         return await self._executor.rpc_call(
             method,
             params,

@@ -77,6 +77,10 @@ from notebooklm._records import (
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
     NOTEBOOK_UPDATE_DEF,
+    RESEARCH_CANCEL_DEF,
+    RESEARCH_IMPORT_DEF,
+    RESEARCH_POLL_DEF,
+    RESEARCH_START_DEF,
     SHARING_GET_DEF,
     SHARING_SET_PUBLIC_DEF,
     SHARING_SET_VIEW_LEVEL_DEF,
@@ -174,6 +178,10 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             CallPolicy.MUTATION,
         ),
         SHARING_UPDATE_USERS_DEF: (Operation.SHARING_UPDATE_USERS, CallPolicy.MUTATION),
+        RESEARCH_START_DEF: (Operation.RESEARCH_START, CallPolicy.STATEFUL_START),
+        RESEARCH_POLL_DEF: (Operation.RESEARCH_POLL, CallPolicy.READ),
+        RESEARCH_CANCEL_DEF: (Operation.RESEARCH_CANCEL, CallPolicy.MUTATION),
+        RESEARCH_IMPORT_DEF: (Operation.RESEARCH_IMPORT, CallPolicy.MUTATION),
         ARTIFACT_LIST_DEF: (Operation.ARTIFACT_LIST, CallPolicy.READ),
         ARTIFACT_GET_DEF: (Operation.ARTIFACT_GET, CallPolicy.READ),
         ARTIFACT_GENERATE_AUDIO_DEF: (
@@ -581,6 +589,32 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
                 IdempotencyPolicy.PROBE_THEN_CREATE,
                 IdempotencyPolicy.IDEMPOTENT_SET_OP,
             ],
+        ),
+        (
+            RESEARCH_START_DEF,
+            [
+                (RPCMethod.START_FAST_RESEARCH, None),
+                (RPCMethod.START_DEEP_RESEARCH, None),
+            ],
+            [
+                IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY,
+                IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY,
+            ],
+        ),
+        (
+            RESEARCH_POLL_DEF,
+            [(RPCMethod.POLL_RESEARCH, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            RESEARCH_CANCEL_DEF,
+            [(RPCMethod.CANCEL_RESEARCH, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            RESEARCH_IMPORT_DEF,
+            [(RPCMethod.IMPORT_RESEARCH, None)],
+            [IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY],
         ),
     ],
 )

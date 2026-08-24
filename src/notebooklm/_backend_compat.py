@@ -23,6 +23,7 @@ from .exceptions import (
     NotebookLimitError,
     NotebookNotFoundError,
     RateLimitError,
+    ResearchStartUnavailableError,
     RPCError,
     RPCResponseTooLargeError,
     RPCTimeoutError,
@@ -151,6 +152,55 @@ def _label_kind(error: BackendError, diagnostics: Mapping[str, object]) -> Label
             f"invalid label kind discriminator {raw!r}",
             operation=error.operation,
         ) from exc
+
+
+def _project_original_rpc_error(
+    error: BackendError,
+    diagnostics: Mapping[str, object],
+    *,
+    label: str,
+) -> RPCError:
+    """Rebuild the RPC failure a diagnosed domain error was raised from.
+
+    A backend that diagnoses a raw RPC rejection into a domain error (the
+    notebook quota and the empty deep-research start) carries the rejecting
+    call's own closed evidence alongside the diagnosis. Replaying it here is
+    what lets the projected public error keep its ``__cause__`` without the
+    backend ever handing an arbitrary exception object across the boundary.
+    """
+    original_reason = _optional(error, diagnostics, "original_reason", str)
+    original_message = _optional(error, diagnostics, "original_message", str)
+    original_diagnostics = diagnostics.get("original_diagnostics")
+    if (
+        original_reason is None
+        or original_message is None
+        or not isinstance(original_diagnostics, Mapping)
+    ):
+        raise BackendContractError(
+            f"{label} compatibility error lacks original RPC evidence",
+            operation=error.operation,
+        )
+    try:
+        nested_reason = BackendErrorReason(original_reason)
+    except ValueError as exc:
+        raise BackendContractError(
+            f"invalid {label} original reason {original_reason!r}",
+            operation=error.operation,
+        ) from exc
+    original = project_backend_error(
+        BackendError(
+            cast(str, original_message),
+            operation=error.operation,
+            diagnostics=original_diagnostics,
+            reason=nested_reason,
+        )
+    )
+    if not isinstance(original, RPCError):
+        raise BackendContractError(
+            f"{label} original evidence does not reconstruct RPCError",
+            operation=error.operation,
+        )
+    return original
 
 
 def project_backend_error(error: BackendError) -> Exception:
@@ -301,38 +351,7 @@ def project_backend_error(error: BackendError) -> Exception:
                 "notebook-limit compatibility error lacks current_count",
                 operation=error.operation,
             )
-        original_reason = _optional(error, diagnostics, "original_reason", str)
-        original_message = _optional(error, diagnostics, "original_message", str)
-        original_diagnostics = diagnostics.get("original_diagnostics")
-        if (
-            original_reason is None
-            or original_message is None
-            or not isinstance(original_diagnostics, Mapping)
-        ):
-            raise BackendContractError(
-                "notebook-limit compatibility error lacks original RPC evidence",
-                operation=error.operation,
-            )
-        try:
-            nested_reason = BackendErrorReason(original_reason)
-        except ValueError as exc:
-            raise BackendContractError(
-                f"invalid notebook-limit original reason {original_reason!r}",
-                operation=error.operation,
-            ) from exc
-        original = project_backend_error(
-            BackendError(
-                cast(str, original_message),
-                operation=error.operation,
-                diagnostics=original_diagnostics,
-                reason=nested_reason,
-            )
-        )
-        if not isinstance(original, RPCError):
-            raise BackendContractError(
-                "notebook-limit original evidence does not reconstruct RPCError",
-                operation=error.operation,
-            )
+        original = _project_original_rpc_error(error, diagnostics, label="notebook-limit")
         limit_projected = NotebookLimitError(
             current_count,
             limit=_required_int(error, diagnostics, "limit"),
@@ -427,6 +446,33 @@ def project_backend_error(error: BackendError) -> Exception:
             else LabelError(error.message)
         )
         return _preserve_outcome(error, ambiguity)
+
+    if reason is BackendErrorReason.RESEARCH_START_UNAVAILABLE:
+        notebook_id = _optional(error, diagnostics, "notebook_id", str)
+        mode = _optional(error, diagnostics, "mode", str)
+        if notebook_id is None or mode is None:
+            raise BackendContractError(
+                "research-start-unavailable compatibility error lacks notebook_id/mode",
+                operation=error.operation,
+            )
+        original = _project_original_rpc_error(
+            error, diagnostics, label="research-start-unavailable"
+        )
+        start_projected = ResearchStartUnavailableError(
+            cast(str, notebook_id),
+            cast(str, mode),
+            method_id=original.method_id,
+            raw_response=original.raw_response,
+            rpc_code=original.rpc_code,
+            found_ids=cast("list[str] | None", original.found_ids or None),
+        )
+        # Legacy diagnosis raised this domain error directly from the rejecting
+        # start RPC. Preserve that traceback relationship without replaying any
+        # arbitrary exception.
+        start_projected.__cause__ = original
+        start_projected.__context__ = original
+        start_projected.__suppress_context__ = True
+        return _preserve_outcome(error, start_projected)
 
     rpc = _rpc_diagnostics(error)
     if reason is BackendErrorReason.AUTH:
