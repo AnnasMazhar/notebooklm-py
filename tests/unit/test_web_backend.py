@@ -18,15 +18,27 @@ from notebooklm._backend import (
     UnsupportedOperationError,
 )
 from notebooklm._deadline import RuntimeDeadline
+from notebooklm._notebook_payloads import (
+    build_create_notebook_params,
+    build_get_notebook_params,
+    build_update_notebook_params,
+)
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._records import (
+    NOTEBOOK_CREATE_DEF,
+    NOTEBOOK_DELETE_DEF,
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
+    NOTEBOOK_TITLE_UPDATE_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
+    NotebookCreateInput,
+    NotebookDeleteInput,
+    NotebookDeleteResult,
     NotebookGetInput,
     NotebookListInput,
     NotebookListResult,
+    NotebookTitleUpdateInput,
     SourceGetInput,
     SourceListInput,
 )
@@ -75,11 +87,14 @@ def _backend(executor: _RecordingExecutor) -> WebRpcBackend:
     return WebRpcBackend(executor, transport_factory=_transport_factory)  # type: ignore[arg-type]
 
 
-def test_registry_is_closed_and_only_exposes_the_p2_1_read_slice() -> None:
+def test_registry_is_closed_and_exposes_only_inert_p2_handlers() -> None:
     assert set(WEB_OPERATION_REGISTRY) == set(Operation)
     assert {
         Operation.NOTEBOOK_LIST,
         Operation.NOTEBOOK_GET,
+        Operation.NOTEBOOK_CREATE,
+        Operation.NOTEBOOK_UPDATE,
+        Operation.NOTEBOOK_DELETE,
         Operation.SOURCE_LIST,
         Operation.SOURCE_GET,
     } == WEB_SUPPORTED_OPERATIONS
@@ -90,6 +105,9 @@ def test_registry_is_closed_and_only_exposes_the_p2_1_read_slice() -> None:
     } == {
         Operation.NOTEBOOK_LIST: NOTEBOOK_LIST_DEF,
         Operation.NOTEBOOK_GET: NOTEBOOK_GET_DEF,
+        Operation.NOTEBOOK_CREATE: NOTEBOOK_CREATE_DEF,
+        Operation.NOTEBOOK_UPDATE: NOTEBOOK_TITLE_UPDATE_DEF,
+        Operation.NOTEBOOK_DELETE: NOTEBOOK_DELETE_DEF,
         Operation.SOURCE_LIST: SOURCE_LIST_DEF,
         Operation.SOURCE_GET: SOURCE_GET_DEF,
     }
@@ -196,6 +214,95 @@ async def test_notebook_get_empty_payload_is_typed_not_found_state() -> None:
         deadline=None,
     )
     assert result.notebook is None
+
+
+@pytest.mark.asyncio
+async def test_notebook_create_uses_baseline_and_disables_executor_retries() -> None:
+    created_row = [
+        "Daily News",
+        None,
+        "nb-new",
+        None,
+        None,
+        [None, False, None, None, None, [1704067200, 0]],
+    ]
+    executor = _RecordingExecutor([], created_row)
+
+    result = await _backend(executor).invoke(
+        NOTEBOOK_CREATE_DEF,
+        NotebookCreateInput("Daily News"),
+        deadline=None,
+    )
+
+    assert (result.notebook.id, result.notebook.title) == ("nb-new", "Daily News")
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.LIST_NOTEBOOKS,
+        RPCMethod.CREATE_NOTEBOOK,
+    ]
+    assert executor.calls[1].params == build_create_notebook_params("Daily News")
+    assert executor.calls[1].kwargs["disable_internal_retries"] is True
+
+
+@pytest.mark.asyncio
+async def test_notebook_create_adopts_unique_baseline_diff_after_transport_loss() -> None:
+    old_row = ["Daily News", [], "nb-old"]
+    new_row = ["Daily News", [], "nb-landed"]
+    executor = _RecordingExecutor(
+        [[old_row]],
+        ServerError("bad gateway", status_code=502),
+        [[old_row, new_row]],
+    )
+
+    result = await _backend(executor).invoke(
+        NOTEBOOK_CREATE_DEF,
+        NotebookCreateInput("Daily News"),
+        deadline=None,
+    )
+
+    assert result.notebook.id == "nb-landed"
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.LIST_NOTEBOOKS,
+        RPCMethod.CREATE_NOTEBOOK,
+        RPCMethod.LIST_NOTEBOOKS,
+    ]
+    assert sum(call.method is RPCMethod.CREATE_NOTEBOOK for call in executor.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_notebook_title_update_mutates_then_reads_back() -> None:
+    executor = _RecordingExecutor(None, [["Renamed", [], "nb-1"]])
+
+    result = await _backend(executor).invoke(
+        NOTEBOOK_TITLE_UPDATE_DEF,
+        NotebookTitleUpdateInput("nb-1", "Renamed"),
+        deadline=None,
+    )
+
+    assert (result.notebook.id, result.notebook.title) == ("nb-1", "Renamed")
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.RENAME_NOTEBOOK,
+        RPCMethod.GET_NOTEBOOK,
+    ]
+    assert executor.calls[0].params == build_update_notebook_params("nb-1", title="Renamed")
+    assert executor.calls[1].params == build_get_notebook_params("nb-1")
+    assert executor.calls[0].kwargs["source_path"] == "/"
+    assert executor.calls[0].kwargs["allow_null"] is True
+    assert executor.calls[1].kwargs["source_path"] == "/notebook/nb-1"
+
+
+@pytest.mark.asyncio
+async def test_notebook_delete_is_one_id_and_returns_empty_result() -> None:
+    executor = _RecordingExecutor(None)
+
+    result = await _backend(executor).invoke(
+        NOTEBOOK_DELETE_DEF,
+        NotebookDeleteInput("nb-1"),
+        deadline=None,
+    )
+
+    assert result == NotebookDeleteResult()
+    assert executor.calls[0].method is RPCMethod.DELETE_NOTEBOOK
+    assert executor.calls[0].params == [["nb-1"], [2]]
 
 
 def _source_entry(source_id: str, *, status: int = 1, kind: int = 5) -> list[Any]:
@@ -478,6 +585,7 @@ def test_only_migrated_feature_runtime_reads_private_backend() -> None:
         package / "_client_assembly.py",
         package / "client.py",  # annotation-only declaration
         package / "_notebooks.py",
+        package / "_notebook_mutation_service.py",
         package / "_read_services.py",
         package / "_sources.py",
     }

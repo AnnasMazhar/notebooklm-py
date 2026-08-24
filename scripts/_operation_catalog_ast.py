@@ -466,14 +466,22 @@ GENERIC_RPC_FORWARDERS = frozenset(
 
 # P1 constructed the semantic web backend with every handler inert. P2 removes
 # each handler from this set in the same slice that delegates its facade. The
-# notebook and source read handlers are live; only the shared forwarder remains
-# inert until every registered operation has a facade delegation.
+# notebook and source read handlers are live; the P2.2 mutation handlers and
+# their create closure remain inert until their facade-delegation commit. The
+# shared forwarder remains inert until every registered operation delegates.
 INERT_P1_WEB_FORWARDERS = frozenset(
     {
         "_web/backend.py:WebRpcBackend._rpc_call",
     }
 )
-INERT_P1_WEB_HANDLERS: frozenset[str] = frozenset()
+INERT_P1_WEB_HANDLERS = frozenset(
+    {
+        "_web/backend.py:WebRpcBackend._notebook_create",
+        "_web/backend.py:WebRpcBackend._notebook_create.create",
+        "_web/backend.py:WebRpcBackend._notebook_delete",
+        "_web/backend.py:WebRpcBackend._notebook_title_update",
+    }
+)
 INERT_P1_WEB_SITES = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
 
 # Removal: P2 deletes one handler exemption and admits the corresponding
@@ -484,6 +492,14 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_backend_compat.py", "_backend", "BackendContractError"),
         ("_backend_compat.py", "_backend", "BackendError"),
         ("_backend_compat.py", "_backend", "BackendErrorReason"),
+        ("_notebook_mutation_service.py", "_backend", "BackendAdapter"),
+        ("_notebook_mutation_service.py", "_projectors", "project_notebook"),
+        ("_notebook_mutation_service.py", "_records", "NOTEBOOK_CREATE_DEF"),
+        ("_notebook_mutation_service.py", "_records", "NOTEBOOK_DELETE_DEF"),
+        ("_notebook_mutation_service.py", "_records", "NOTEBOOK_TITLE_UPDATE_DEF"),
+        ("_notebook_mutation_service.py", "_records", "NotebookCreateInput"),
+        ("_notebook_mutation_service.py", "_records", "NotebookDeleteInput"),
+        ("_notebook_mutation_service.py", "_records", "NotebookTitleUpdateInput"),
         ("_client_assembly.py", "_web.backend", "WebRpcBackend"),
         ("client.py", "_backend", "BackendAdapter"),
         ("_notebooks.py", "_backend", "BackendAdapter"),
@@ -517,12 +533,18 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/backend.py", "_backend", "UnsupportedOperationError"),
         ("_web/backend.py", "_records", "NotebookChatSessionRecord"),
         ("_web/backend.py", "_records", "NotebookChatSettingsRecord"),
+        ("_web/backend.py", "_records", "NotebookCreateInput"),
+        ("_web/backend.py", "_records", "NotebookCreateResult"),
+        ("_web/backend.py", "_records", "NotebookDeleteInput"),
+        ("_web/backend.py", "_records", "NotebookDeleteResult"),
         ("_web/backend.py", "_records", "NotebookGetInput"),
         ("_web/backend.py", "_records", "NotebookGetResult"),
         ("_web/backend.py", "_records", "NotebookListInput"),
         ("_web/backend.py", "_records", "NotebookListResult"),
         ("_web/backend.py", "_records", "NotebookPremiumFeaturesRecord"),
         ("_web/backend.py", "_records", "NotebookRecord"),
+        ("_web/backend.py", "_records", "NotebookTitleUpdateInput"),
+        ("_web/backend.py", "_records", "NotebookTitleUpdateResult"),
         ("_web/backend.py", "_records", "SourceGetInput"),
         ("_web/backend.py", "_records", "SourceGetResult"),
         ("_web/backend.py", "_records", "SourceListInput"),
@@ -532,6 +554,9 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/backend.py", "registry", "WEB_SUPPORTED_OPERATIONS"),
         ("_web/registry.py", "_records", "NOTEBOOK_GET_DEF"),
         ("_web/registry.py", "_records", "NOTEBOOK_LIST_DEF"),
+        ("_web/registry.py", "_records", "NOTEBOOK_CREATE_DEF"),
+        ("_web/registry.py", "_records", "NOTEBOOK_DELETE_DEF"),
+        ("_web/registry.py", "_records", "NOTEBOOK_TITLE_UPDATE_DEF"),
         ("_web/registry.py", "_records", "SOURCE_GET_DEF"),
         ("_web/registry.py", "_records", "SOURCE_LIST_DEF"),
     }
@@ -574,7 +599,13 @@ ACTIVE_P2_BACKEND_INVOKE_SITES = frozenset(
         "_read_services.py:SourceReadService.list",
     }
 )
-INERT_P1_BACKEND_INVOKE_SITES: frozenset[str] = frozenset()
+INERT_P1_BACKEND_INVOKE_SITES = frozenset(
+    {
+        "_notebook_mutation_service.py:NotebookMutationService.create",
+        "_notebook_mutation_service.py:NotebookMutationService.delete",
+        "_notebook_mutation_service.py:NotebookMutationService.update_title",
+    }
+)
 
 
 def audit_inert_p1_backend_dataflow(
