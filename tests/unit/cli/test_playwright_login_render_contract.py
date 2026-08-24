@@ -776,6 +776,9 @@ class TestLoginErrorRender:
             "notebooklm login --browser chrome to reuse that session "
             "(often detects immediately; also avoids bundled-Chromium "
             "issues on macOS).\n"
+            "Or skip the browser launch entirely and read cookies from a browser "
+            "you are already signed in to: notebooklm login --browser-cookies "
+            "(needs the 'cookies' extra).\n"
         )
 
     @pytest.mark.requires_playwright
