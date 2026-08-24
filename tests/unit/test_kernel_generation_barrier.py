@@ -211,6 +211,49 @@ async def test_drain_false_close_bypasses_a_reconciler_waiting_on_a_hung_attempt
 
 
 @pytest.mark.asyncio
+async def test_drain_timeout_closes_without_rejoining_the_hung_attempt() -> None:
+    """Timed-out drain tears down immediately before re-raising its timeout."""
+    request_entered = asyncio.Event()
+    release_request = asyncio.Event()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        request_entered.set()
+        await release_request.wait()
+        return httpx.Response(200, request=request)
+
+    def factory(**kwargs: Any) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler), **kwargs)
+
+    client = build_client_shell_for_tests(_auth(), async_client_factory=factory)
+    await client.__aenter__()
+    transport = client._backend._runtime._transport
+    assert isinstance(transport, RuntimeTransport)
+
+    def build(snapshot: WebCookieGeneration) -> tuple[str, bytes, dict[str, str]]:
+        return (
+            "https://notebooklm.google.com/_/rpc",
+            b"body",
+            {"x-generation": str(snapshot.generation)},
+        )
+
+    post = asyncio.create_task(
+        transport.perform_authed_post(build_request=build, log_label="hung-drain-timeout")
+    )
+    await request_entered.wait()
+    try:
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(
+                client.close(drain=True, drain_timeout=0.01),
+                timeout=0.5,
+            )
+        assert not client.is_connected
+        assert not post.done()
+    finally:
+        release_request.set()
+        await asyncio.gather(post, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_new_epoch_waiter_closes_old_epoch_admission_without_serializing_peers() -> None:
     """Same-epoch attempts overlap, while a queued transition cannot starve."""
     kernel = Kernel(auth=_auth())

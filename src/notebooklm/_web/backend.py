@@ -323,13 +323,13 @@ class WebRpcBackend(ChatWebHandlers):
             drain_timeout_exc = exc
         except asyncio.CancelledError:
             try:
-                await asyncio.shield(close_lifecycle())
+                await asyncio.shield(close_lifecycle(reconcile_backend=False))
             except (Exception, asyncio.CancelledError):
                 pass
             raise
 
         try:
-            await asyncio.shield(close_lifecycle())
+            await asyncio.shield(close_lifecycle(reconcile_backend=drain_timeout_exc is None))
         except Exception as close_exc:
             if drain_timeout_exc is not None:
                 logging.getLogger(__name__).warning(
