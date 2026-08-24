@@ -310,6 +310,51 @@ async def test_custom_coordinator_refresh_failure_publishes_no_provider_epoch(
 
 
 @pytest.mark.asyncio
+async def test_cancelled_custom_refresh_waiter_cannot_drop_leader_success() -> None:
+    """Publication belongs to the shared leader, not to one cancellable waiter."""
+    auth = _auth()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def custom_refresh() -> AuthTokens:
+        started.set()
+        await release.wait()
+        auth.csrf_token = "csrf-custom-after-cancel"
+        finished.set()
+        return auth
+
+    client = build_client_shell_for_tests(
+        auth,
+        refresh_callback=custom_refresh,
+        async_client_factory=_session_factory,
+    )
+    provider = client._provider
+
+    await client.__aenter__()
+    waiter = asyncio.create_task(client._backend._runtime._refresh())
+    await started.wait()
+    before = await provider.generation()
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+
+    release.set()
+    try:
+        await asyncio.wait_for(finished.wait(), timeout=0.5)
+        coordinator_leader = provider._coordinator._refresh_task
+        assert coordinator_leader is not None
+        await asyncio.gather(coordinator_leader, return_exceptions=True)
+        await _wait_until(lambda: provider._current_generation.generation > before.generation)
+        after = await provider.generation()
+        assert after.generation == before.generation + 1
+        assert after.csrf_token == "csrf-custom-after-cancel"
+    finally:
+        release.set()
+        await client.close(drain=False)
+
+
+@pytest.mark.asyncio
 async def test_provider_refresh_callback_is_not_published_twice() -> None:
     """The production callback already commits inside the provider transaction."""
     client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
