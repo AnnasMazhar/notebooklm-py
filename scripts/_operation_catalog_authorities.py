@@ -234,7 +234,7 @@ NON_RPC_AUTHORITY_RULES: Mapping[Operation, tuple[tuple[str, str, str, str], ...
         (
             "download",
             "artifact_https_download",
-            "_artifact/downloads.py:ArtifactDownloadService.download_url",
+            "_studio/downloads.py:StudioDownloadClient.download",
             "HTTPS media representation; inline/locally formatted representations skip this path",
         ),
     ),
@@ -250,7 +250,7 @@ NON_RPC_SOURCE_CONTRACTS: Mapping[str, tuple[tuple[str, ...], ...]] = {
         ("stream_upload",),
     ),
     "_source/upload.py:SourceUploadPipeline.cancel_upload_session": (("post",),),
-    "_artifact/downloads.py:ArtifactDownloadService.download_url": (
+    "_studio/downloads.py:StudioDownloadClient.download": (
         ("get_guarded",),
         ("stream",),
     ),

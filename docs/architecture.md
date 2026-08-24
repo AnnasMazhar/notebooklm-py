@@ -101,7 +101,7 @@ private `WebRpcBackend` at the shared client-assembly seam and registers typed h
 the P2.1 notebook/source reads, P2.2 notebook mutations, P2.3 URL/YouTube registration, P5.1 Studio
 catalog reads, P5.2 Audio, P5.3 Quiz/Flashcards, P5.4 Report/Video, P5.5
 Infographic/Slide Deck generation, P5.6 Data Table/Mind Map generation and Drive export,
-and P6.3 plain-note CRUD.
+P5.7 Studio representation retrieval/serialization boundaries, and P6.3 plain-note CRUD.
 These public paths delegate through
 transport-neutral semantic services and that client-owned backend. Audio discovery and download
 selection reuse the Studio catalog rather than adding a second listing authority. The URL-source
@@ -586,7 +586,9 @@ Beyond the client-owned runtime graph, several feature APIs are implemented via 
 |-------------------|--------|----------------|
 | `NoteService` | [`_note_service.py`](../src/notebooklm/_note_service.py) | Backend-neutral plain-note list/get/create/update/delete workflow, including shielded create finalization and cancellation cleanup. The same module's private `LegacyNoteBackedService` is restricted to deferred mind-map/artifact callers. |
 | `NoteBackedMindMapService` | [`_mind_map.py`](../src/notebooklm/_mind_map.py) | Specific adapter service representing mind-maps, backed by standard notebook notes. |
-| `ArtifactDownloadService` | [`_artifact/downloads.py`](../src/notebooklm/_artifact/downloads.py) | Asynchronous download coordinator for finished artifacts. |
+| `ArtifactDownloadService` | [`_artifact/downloads.py`](../src/notebooklm/_artifact/downloads.py) | Artifact selection/orchestration facade; delegates remote bytes and local representation writes to the Studio clients below. |
+| `StudioDownloadClient` | [`_studio/downloads.py`](../src/notebooklm/_studio/downloads.py) | Trusted remote byte retrieval with shared factory/allowlist and per-hop redirect validation for both httpx and curl_cffi. |
+| `StudioSerializationClient` | [`_studio/serialization.py`](../src/notebooklm/_studio/serialization.py) | RPC-free local text, JSON, and CSV representation serialization. |
 | `ArtifactGenerationService` | [`_artifact/generation.py`](../src/notebooklm/_artifact/generation.py) | Generation kickoff service (`generate_*`, `revise_slide`, `retry_failed`) extracted from `ArtifactsAPI`. |
 | `ReportFamilyService` / `VideoFamilyService` | [`_studio/documents.py`](../src/notebooklm/_studio/documents.py) | Backend-neutral P5.4 report/video generation, catalog filtering, and family metadata/availability rules. |
 | `VisualFamilyService` | [`_studio/visuals.py`](../src/notebooklm/_studio/visuals.py) | Backend-neutral P5.5 infographic/slide-deck generation, catalog filtering, usable readiness, and accessibility metadata. |
@@ -1069,7 +1071,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_notebook_mutation_service.py` | Private P2.2 transport-neutral notebook create/title-update/delete service; validates semantic input and invokes only typed backend definitions. |
 | `_mutation_services.py` | Private live P2.3 transport-neutral URL-source mutation service; carries the ordinary/YouTube request and uncertainty receipt through `BackendAdapter` without wire dependencies. |
 | `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
-| `_studio/` | Private transport-neutral Studio boundary: the P5.1 heterogeneous catalog/classifier plus P5.2 Audio, P5.3 Quiz/Flashcards, P5.4 Report/Video, P5.5 Infographic/Slide Deck, and P5.6 Data Table/Mind Map/Drive-export services. |
+| `_studio/` | Private transport-neutral Studio boundary: the P5.1 heterogeneous catalog/classifier; P5.2–P5.6 family/generation/export services; and P5.7 trusted representation retrieval plus local serialization clients. |
 | `_studio/interactive.py` | Private P5.3 Quiz/Flashcards family service: typed generation dispatch, catalog-backed discovery, and family-usable readiness/user-state metadata without wire vocabulary. |
 | `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; 25 active handlers cover P2 notebook/source operations, P5.1 Studio catalog reads, P5.2–P5.6 Studio families/Drive export, and P6.3 plain-note CRUD. |
 | `_web/policy.py` | Exact P4 ledger, extended to all 25 active web workflows: semantic policy, every reachable native method/variant, reviewed native idempotency, and optional reported divergence. It audits parity but never controls retry execution. |
@@ -1134,9 +1136,11 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_note_service.py` | Semantic plain-note workflow plus bounded legacy note-backed persistence owner |
 | `_mind_map.py` | Specific adapter service representing mind-maps, backed by standard notes |
 | `_mind_maps_api.py` | `client.mind_maps` API — unified surface over both mind-map backends (note-backed JSON + interactive studio-artifact), dispatching each op to the correct RPC family (#1256) |
-| `_artifact/downloads.py` | Asynchronous download coordinator for finished artifacts |
+| `_artifact/downloads.py` | Artifact selection/orchestration coordinator for finished artifacts |
 | `_artifact/_redirect_guard.py` | Per-redirect-hop host/scheme revalidation for downloads — rejects off-allowlist / non-HTTPS redirect targets before the request is sent (#1521) |
 | `_artifact/_download_client.py` | Download trusted-host allowlist + transport-aware client factory — wires the #1521 redirect guard for httpx (event hook) or the opt-in curl_cffi (`get_guarded` manual loop) |
+| `_studio/downloads.py` | Representation byte retrieval client; reuses the canonical download-client factory, trusted-host predicate, and per-hop redirect guard |
+| `_studio/serialization.py` | RPC-free local serializers for Studio text, JSON, and CSV representations |
 | `_artifact/formatters.py` | Markdown, HTML, and plain text formatters for artifacts |
 | `_artifact/payloads.py` | Stable CREATE_ARTIFACT / GENERATE_MIND_MAP request payload builders |
 | `_artifact/validation.py` | Input-validation guards for the `ArtifactsAPI` facade (`generate_report` format coercion, `export` exactly-one-of target), kept in a sibling module so the facade stays under the module-size ratchet (#1874) |
@@ -1267,7 +1271,9 @@ src/notebooklm/
 │   ├── documents.py             # Report/video generation and metadata families (P5.4)
 │   ├── visuals.py               # Infographic/slide-deck generation/readiness family (P5.5)
 │   ├── data_views.py            # Data-table/mind-map generation and catalog family (P5.6)
-│   └── exports.py               # Explicit Drive companion export service (P5.6)
+│   ├── exports.py               # Explicit Drive companion export service (P5.6)
+│   ├── downloads.py             # Trusted remote representation byte client (P5.7)
+│   └── serialization.py         # RPC-free local representation serializers (P5.7)
 ├── _url_utils.py                # URL validation helpers
 ├── _sharing_manager.py          # Sharing management logic
 ├── _version_check.py            # Deprecation version guard

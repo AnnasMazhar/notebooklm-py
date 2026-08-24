@@ -212,7 +212,7 @@ async def test_download_mind_map_runs_write_off_loop_thread(
     ``Path.write_text`` would silently miss the production ``json.dump``
     path.
     """
-    import notebooklm._artifact.downloads as artifact_downloads
+    import notebooklm._studio.serialization as studio_serialization
 
     api, _ = mock_artifacts_api
     output_path = tmp_path / "mindmap.json"
@@ -250,9 +250,9 @@ async def test_download_mind_map_runs_write_off_loop_thread(
             "list_mind_maps",
             new=AsyncMock(return_value=mind_map_rows),
         ),
-        # Patch the `json` module as imported by `_artifact.downloads` so the
+        # Patch the `json` module owned by the representation serializer so the
         # closure inside `download_mind_map` resolves to the stub.
-        patch.object(artifact_downloads.json, "dump", recording_json_dump),
+        patch.object(studio_serialization.json, "dump", recording_json_dump),
         # Cover the legacy ``Path.write_text``-based path too so a
         # rewrite either direction is caught by this test.
         patch.object(Path, "write_text", recording_write_text),
@@ -289,7 +289,7 @@ async def test_concurrent_downloads_both_offload_writes(
     thread. A regression on either path leaves its capture matching the
     loop thread and fails the assertion.
     """
-    import notebooklm._artifact.downloads as artifact_downloads
+    import notebooklm._studio.serialization as studio_serialization
 
     api, _ = mock_artifacts_api
     report_path = tmp_path / "report.md"
@@ -338,7 +338,7 @@ async def test_concurrent_downloads_both_offload_writes(
             new=AsyncMock(return_value=mind_map_rows),
         ),
         patch.object(Path, "write_text", recording_write_text),
-        patch.object(artifact_downloads.json, "dump", recording_json_dump),
+        patch.object(studio_serialization.json, "dump", recording_json_dump),
     ):
         report_result, mindmap_result = await asyncio.gather(
             api.download_report("nb_t7d4", str(report_path), artifacts_data=report_artifact_list),
@@ -515,6 +515,7 @@ async def test_download_url_uses_single_writer_thread_for_all_chunks(
     import httpx as real_httpx
 
     import notebooklm._artifact.downloads as artifact_downloads
+    import notebooklm._studio.downloads as studio_downloads
 
     # 32 chunks of 64 KiB. Anything > ~2 demonstrates the regression
     # signal cleanly; 32 keeps the test fast while making the
@@ -597,7 +598,7 @@ async def test_download_url_uses_single_writer_thread_for_all_chunks(
         # (ADR-0007): the cookie-load seam and the module's ``threading``
         # reference whose ``Thread`` the writer-thread construction uses.
         patch.object(artifact_downloads, "load_httpx_cookies", return_value=MagicMock()),
-        patch.object(artifact_downloads.threading, "Thread", new=_RecordingThread),
+        patch.object(studio_downloads.threading, "Thread", new=_RecordingThread),
         patch.object(builtins, "open", new=_patched_open),
     ):
         result = await api._download_url(
