@@ -2,7 +2,7 @@
 
 Governed by ADR-0035 and docs/plan/2026-08-13-semantic-backend-refactor.md.
 P7 runs last: no runtime collapse is authorized until P1-P6 have isolated
-semantic feature callers from RpcCaller (or recorded explicit legacy exceptions),
+semantic feature callers from RpcCaller (or recorded explicit legacy exceptions).
 The ErrorInjectionMiddleware and mutable-test-seam prerequisites are complete;
 remaining semantic RpcCaller consumers still have to migrate.
 

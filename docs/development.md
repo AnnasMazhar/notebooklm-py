@@ -1089,7 +1089,10 @@ The `NOTEBOOKLM_VCR_RECORD_ERRORS` env var opts a VCR recording session into
 replacing the next returned batchexecute response with a synthetic error. The
 real request still reaches the recording target; the test-only VCR seam then
 returns the synthetic response to the live client and stores the identical
-shape in the cassette. Three modes are supported:
+shape in the cassette. Only POST requests to the batchexecute endpoint carrying
+an `rpcids` query parameter are armed: bootstrap, authentication, chat, and
+other HTTP traffic remain real. Existing interactions loaded in `new_episodes`
+mode are unarmed and are never rewritten. Three modes are supported:
 
 | Mode            | HTTP status | Maps to                                         |
 |-----------------|-------------|-------------------------------------------------|

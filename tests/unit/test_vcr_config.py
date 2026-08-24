@@ -19,6 +19,7 @@ Two surfaces are covered here:
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import os
@@ -27,7 +28,7 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlsplit
 
 import httpx
 import pytest
@@ -468,10 +469,8 @@ def test_vcr_get_error_injection_mode_typo_returns_none(monkeypatch):
 
 
 @pytest.mark.parametrize("mode", ["429", "5xx", "expired_csrf"])
-def test_scrub_response_substitutes_when_env_var_set(monkeypatch, mode):
-    """When the env var resolves to a valid mode, ``scrub_response`` rewrites
-    the response shape to the canonical synthetic body, regardless of what
-    came in. This is the VCR hook layer used while recording."""
+def test_sync_wrapper_arms_cassette_and_live_substitution_for_batchexecute(monkeypatch, mode):
+    """The sync outer wrapper and hook handshake on one qualifying request."""
     monkeypatch.setenv("NOTEBOOKLM_VCR_RECORD", "1")
     monkeypatch.setenv(ERROR_INJECT_ENV_VAR, mode)
     incoming = {
@@ -479,14 +478,30 @@ def test_scrub_response_substitutes_when_env_var_set(monkeypatch, mode):
         "headers": {"Content-Type": ["text/plain"]},
         "body": {"string": b"original wire response"},
     }
-    out = scrub_response(incoming)
-    expected_status, expected_body, _ = build_synthetic_error_response(mode)
-    assert out["status"]["code"] == expected_status
+    recorded: dict[str, Any] = {}
+    request = httpx.Request(
+        "POST",
+        "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute?rpcids=testRpc",
+    )
+
+    def inner(_transport: object, current: httpx.Request) -> httpx.Response:
+        recorded.update(scrub_response(incoming))
+        return httpx.Response(200, content=b"original wire response", request=current)
+
+    response = _vcr_config._wrap_sync_recording_transport(inner)(object(), request)
+    response.read()
+
+    expected_status, expected_body, expected_headers = build_synthetic_error_response(mode)
+    assert response.status_code == expected_status
+    assert response.content == expected_body
+    assert response.headers["Content-Type"] == expected_headers["Content-Type"]
+    assert recorded["status"]["code"] == expected_status
     # Byte-for-byte equality — synthetic bodies never trigger scrub patterns or
     # chunk-prefix rewrites, so any mutation downstream is a regression.
-    assert out["body"]["string"] == expected_body
+    assert recorded["body"]["string"] == expected_body
     # Content-Type was overlaid with the synthetic value.
-    assert any("json" in v.lower() for v in out["headers"]["Content-Type"])
+    assert any("json" in v.lower() for v in recorded["headers"]["Content-Type"])
+    assert _vcr_config._synthetic_recording_scope.get() is None
 
 
 def test_scrub_response_noop_when_env_var_unset(monkeypatch):
@@ -505,8 +520,9 @@ def test_scrub_response_noop_when_env_var_unset(monkeypatch):
     assert b"original wire response" in out["body"]["string"]
 
 
-def test_scrub_response_does_not_substitute_outside_record_mode(monkeypatch):
-    monkeypatch.delenv("NOTEBOOKLM_VCR_RECORD", raising=False)
+def test_scrub_response_does_not_substitute_when_unarmed(monkeypatch):
+    """Cassette loading is unarmed even during a synthetic recording run."""
+    monkeypatch.setenv("NOTEBOOKLM_VCR_RECORD", "1")
     monkeypatch.setenv(ERROR_INJECT_ENV_VAR, "429")
     incoming = {
         "status": {"code": 200, "message": "OK"},
@@ -521,11 +537,9 @@ def test_scrub_response_does_not_substitute_outside_record_mode(monkeypatch):
 
 
 class _LocalRecordingHandler(BaseHTTPRequestHandler):
-    calls = 0
+    calls: list[str] = []
 
-    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        type(self).calls += 1
-        body = b"local server success"
+    def _send_body(self, body: bytes) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")
         self.send_header("Content-Length", str(len(body)))
@@ -533,52 +547,210 @@ class _LocalRecordingHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        type(self).calls.append(self.path)
+        self._send_body(f"bootstrap response for {self.path}".encode())
+
+    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        content_length = int(self.headers.get("Content-Length", "0"))
+        self.rfile.read(content_length)
+        type(self).calls.append(self.path)
+        parsed = urlsplit(self.path)
+        rpc_id = parse_qs(parsed.query).get("rpcids", ["no-rpcids"])[0]
+        self._send_body(f"wire response for {rpc_id}".encode())
+
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002
         return
 
 
-@pytest.mark.asyncio
-async def test_recording_substitutes_live_response_and_persisted_cassette(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """The recording seam changes the caller response as well as VCR storage."""
-    monkeypatch.setenv("NOTEBOOKLM_VCR_RECORD", "1")
-    monkeypatch.setenv(ERROR_INJECT_ENV_VAR, "429")
-    _LocalRecordingHandler.calls = 0
+@pytest.fixture
+def local_recording_server() -> Any:
+    """Run a deterministic loopback server for VCR recording regressions."""
+    _LocalRecordingHandler.calls = []
     server = HTTPServer(("127.0.0.1", 0), _LocalRecordingHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     host, port = server.server_address
-    cassette_name = "error_synthetic_429_local_recording.yaml"
-
     try:
-        with _vcr_config.notebooklm_vcr.use_cassette(
-            cassette_name,
-            cassette_library_dir=str(tmp_path),
-            record_mode="all",
-        ) as cassette:
-            async with httpx.AsyncClient(trust_env=False) as client:
-                response = await client.get(f"http://{host}:{port}/rpc")
-
-            expected_status, expected_body, expected_headers = build_synthetic_error_response("429")
-            assert response.status_code == expected_status
-            assert response.content == expected_body
-            assert response.headers["Retry-After"] == expected_headers["Retry-After"]
-            assert cassette.responses[0]["status"]["code"] == expected_status
-            assert cassette.responses[0]["body"]["string"] == expected_body
-            assert "Set-Cookie" not in cassette.responses[0]["headers"]
+        yield f"http://{host}:{port}"
     finally:
         server.shutdown()
         thread.join(timeout=5)
         server.server_close()
 
-    assert _LocalRecordingHandler.calls == 1
-    persisted = yaml.safe_load((tmp_path / cassette_name).read_text(encoding="utf-8"))
-    recorded = persisted["interactions"][0]["response"]
-    assert recorded["status"]["code"] == 429
-    assert recorded["body"]["string"].encode() == expected_body
-    assert "live-secret" not in (tmp_path / cassette_name).read_text(encoding="utf-8")
+
+def _batchexecute_url(base_url: str, rpc_id: str | None) -> str:
+    url = f"{base_url}/_/LabsTailwindUi/data/batchexecute"
+    return url if rpc_id is None else f"{url}?rpcids={rpc_id}"
+
+
+@pytest.mark.asyncio
+async def test_new_synthetic_episode_preserves_preexisting_cassette_interaction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    local_recording_server: str,
+) -> None:
+    """Loading in ``new_episodes`` cannot rewrite an existing normal response."""
+    monkeypatch.setenv("NOTEBOOKLM_VCR_RECORD", "1")
+    monkeypatch.delenv(ERROR_INJECT_ENV_VAR, raising=False)
+    cassette_name = "synthetic_append_preserves_existing.yaml"
+    cassette_path = tmp_path / cassette_name
+
+    with _vcr_config.notebooklm_vcr.use_cassette(
+        cassette_name,
+        cassette_library_dir=str(tmp_path),
+        record_mode="new_episodes",
+    ):
+        async with httpx.AsyncClient(trust_env=False) as client:
+            first_live = await client.post(_batchexecute_url(local_recording_server, "FirstRpc"))
+
+    assert first_live.status_code == 200
+    assert first_live.content == b"wire response for FirstRpc"
+    first_persisted = yaml.safe_load(cassette_path.read_text(encoding="utf-8"))
+    first_response = first_persisted["interactions"][0]["response"]
+    assert first_response["status"]["code"] == 200
+    assert first_response["body"]["string"] == "wire response for FirstRpc"
+
+    monkeypatch.setenv(ERROR_INJECT_ENV_VAR, "429")
+    with _vcr_config.notebooklm_vcr.use_cassette(
+        cassette_name,
+        cassette_library_dir=str(tmp_path),
+        record_mode="new_episodes",
+    ) as cassette:
+        async with httpx.AsyncClient(trust_env=False) as client:
+            second_live = await client.post(_batchexecute_url(local_recording_server, "SecondRpc"))
+
+        expected_status, expected_body, expected_headers = build_synthetic_error_response("429")
+        assert second_live.status_code == expected_status
+        assert second_live.content == expected_body
+        assert second_live.headers["Retry-After"] == expected_headers["Retry-After"]
+        assert cassette.responses[0]["status"]["code"] == 200
+        assert cassette.responses[0]["body"]["string"] == b"wire response for FirstRpc"
+        assert cassette.responses[1]["status"]["code"] == expected_status
+        assert cassette.responses[1]["body"]["string"] == expected_body
+
+    final_persisted = yaml.safe_load(cassette_path.read_text(encoding="utf-8"))
+    assert final_persisted["interactions"][0]["response"] == first_response
+    second_recorded = final_persisted["interactions"][1]["response"]
+    assert second_recorded["status"]["code"] == 429
+    assert second_recorded["body"]["string"].encode() == expected_body
+    assert len(_LocalRecordingHandler.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_non_batchexecute_recording_traffic_remains_real(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    local_recording_server: str,
+) -> None:
+    """Bootstrap, streamed Chat, and missing-rpcids POSTs are never substituted."""
+    monkeypatch.setenv("NOTEBOOKLM_VCR_RECORD", "1")
+    monkeypatch.setenv(ERROR_INJECT_ENV_VAR, "429")
+    cassette_name = "synthetic_non_targets_remain_real.yaml"
+    chat_url = (
+        f"{local_recording_server}/_/LabsTailwindUi/data/"
+        "google.internal.labs.tailwind.orchestration.v1."
+        "LabsTailwindOrchestrationService/GenerateFreeFormStreamed"
+    )
+
+    with _vcr_config.notebooklm_vcr.use_cassette(
+        cassette_name,
+        cassette_library_dir=str(tmp_path),
+        record_mode="all",
+    ) as cassette:
+        async with httpx.AsyncClient(trust_env=False) as client:
+            bootstrap = await client.get(f"{local_recording_server}/bootstrap")
+            chat = await client.post(chat_url)
+            missing_rpcids = await client.post(_batchexecute_url(local_recording_server, None))
+
+        assert bootstrap.status_code == chat.status_code == missing_rpcids.status_code == 200
+        assert bootstrap.content == b"bootstrap response for /bootstrap"
+        assert b"wire response" in chat.content
+        assert missing_rpcids.content == b"wire response for no-rpcids"
+        assert [item["status"]["code"] for item in cassette.responses] == [200, 200, 200]
+
+    assert len(_LocalRecordingHandler.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_async_wrapper_context_is_concurrency_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An armed RPC task cannot substitute a concurrent non-RPC response."""
+    monkeypatch.setenv("NOTEBOOKLM_VCR_RECORD", "1")
+    monkeypatch.setenv(ERROR_INJECT_ENV_VAR, "429")
+    rpc_entered = asyncio.Event()
+    non_rpc_scrubbed = asyncio.Event()
+    recorded: dict[str, dict[str, Any]] = {}
+
+    async def inner(_transport: object, request: httpx.Request) -> httpx.Response:
+        incoming = {
+            "status": {"code": 200, "message": "OK"},
+            "headers": {"Content-Type": ["text/plain"]},
+            "body": {"string": f"real {request.url.path}".encode()},
+        }
+        if _vcr_config._is_synthetic_error_target(request):
+            rpc_entered.set()
+            await non_rpc_scrubbed.wait()
+            recorded["rpc"] = scrub_response(incoming)
+        else:
+            await rpc_entered.wait()
+            recorded["non_rpc"] = scrub_response(incoming)
+            non_rpc_scrubbed.set()
+        return httpx.Response(200, content=b"real live response", request=request)
+
+    wrapped = _vcr_config._wrap_async_recording_transport(inner)
+    rpc_request = httpx.Request(
+        "POST",
+        "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute?rpcids=ScopedRpc",
+    )
+    bootstrap_request = httpx.Request("GET", "https://notebooklm.google.com/bootstrap")
+
+    rpc_response, bootstrap_response = await asyncio.gather(
+        wrapped(object(), rpc_request),
+        wrapped(object(), bootstrap_request),
+    )
+    await rpc_response.aread()
+
+    expected_status, expected_body, _ = build_synthetic_error_response("429")
+    assert rpc_response.status_code == expected_status
+    assert rpc_response.content == expected_body
+    assert bootstrap_response.status_code == 200
+    assert bootstrap_response.content == b"real live response"
+    assert recorded["rpc"]["status"]["code"] == expected_status
+    assert recorded["non_rpc"]["status"]["code"] == 200
+    assert _vcr_config._synthetic_recording_scope.get() is None
+
+
+@pytest.mark.asyncio
+async def test_transport_patches_restore_and_scope_resets_after_exception(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("NOTEBOOKLM_VCR_RECORD", "1")
+    monkeypatch.setenv(ERROR_INJECT_ENV_VAR, "429")
+    original_sync = httpx.HTTPTransport.handle_request
+    original_async = httpx.AsyncHTTPTransport.handle_async_request
+
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline failure", request=request)
+
+    with (
+        pytest.raises(httpx.ConnectError, match="offline failure"),
+        _vcr_config.notebooklm_vcr.use_cassette(
+            "synthetic_transport_exception.yaml",
+            cassette_library_dir=str(tmp_path),
+            record_mode="all",
+        ),
+    ):
+        assert httpx.HTTPTransport.handle_request is not original_sync
+        assert httpx.AsyncHTTPTransport.handle_async_request is not original_async
+        async with httpx.AsyncClient(transport=httpx.MockTransport(fail)) as client:
+            await client.post(
+                "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute?rpcids=FailingRpc"
+            )
+
+    assert httpx.HTTPTransport.handle_request is original_sync
+    assert httpx.AsyncHTTPTransport.handle_async_request is original_async
+    assert _vcr_config._synthetic_recording_scope.get() is None
 
 
 # --- (3) _error_injection.py mode resolver ----------------------------------
