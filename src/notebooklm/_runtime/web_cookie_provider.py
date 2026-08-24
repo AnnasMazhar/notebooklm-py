@@ -22,6 +22,8 @@ from .._auth.cookies import _replace_cookie_jar
 from .._auth.profile_store import ProfileStore
 from .._cookie_persistence import CookiePersistence
 from .._kernel import Kernel
+from .._loop_affinity import assert_bound_loop
+from .._loop_bound import LoopBoundPrimitive
 from .._reqid_counter import ReqidCounter
 from .._rpc_semaphore import RpcSemaphore
 from .._transport_drain import TransportDrainTracker
@@ -38,7 +40,7 @@ RefreshSession = Callable[..., Awaitable[AuthTokens]]
 T = TypeVar("T")
 
 
-class RuntimeWebCookieProvider:
+class RuntimeWebCookieProvider(LoopBoundPrimitive):
     """Adapt the mutable auth graph to one atomic generation authority."""
 
     def __init__(
@@ -81,6 +83,21 @@ class RuntimeWebCookieProvider:
             self.run_cookie_rotation,
         )
 
+    def _on_loop_rebind(
+        self,
+        old: asyncio.AbstractEventLoop | None,
+        new: asyncio.AbstractEventLoop | None,
+    ) -> None:
+        """Discard every provider-owned lock when its loop binding changes."""
+        self.reset_after_open()
+
+    def reset_after_open(self) -> None:
+        """Discard the four lazy locks so reopen rebuilds them on its loop."""
+        self._base_refresh_lock = None
+        self._joined_refresh_lock = None
+        self._identity_lock = None
+        self._refresh_transaction_lock = None
+
     @property
     def auth(self) -> AuthTokens:
         """Preserve ADR-0016's one-object ``AuthTokens`` identity."""
@@ -91,6 +108,7 @@ class RuntimeWebCookieProvider:
         return self._lifecycle.is_open()
 
     def _get_refresh_transaction_lock(self) -> asyncio.Lock:
+        assert_bound_loop(self._bound_loop)
         lock = self._refresh_transaction_lock
         if lock is None:
             lock = asyncio.Lock()
@@ -98,6 +116,7 @@ class RuntimeWebCookieProvider:
         return lock
 
     def _get_base_refresh_lock(self) -> asyncio.Lock:
+        assert_bound_loop(self._bound_loop)
         lock = self._base_refresh_lock
         if lock is None:
             lock = asyncio.Lock()
@@ -105,6 +124,7 @@ class RuntimeWebCookieProvider:
         return lock
 
     def _get_joined_refresh_lock(self) -> asyncio.Lock:
+        assert_bound_loop(self._bound_loop)
         lock = self._joined_refresh_lock
         if lock is None:
             lock = asyncio.Lock()
@@ -112,6 +132,7 @@ class RuntimeWebCookieProvider:
         return lock
 
     def _get_identity_lock(self) -> asyncio.Lock:
+        assert_bound_loop(self._bound_loop)
         lock = self._identity_lock
         if lock is None:
             lock = asyncio.Lock()
@@ -152,14 +173,12 @@ class RuntimeWebCookieProvider:
         """Open the provider-owned acquisition lifecycle."""
         if self.is_open:
             return
-        self._base_refresh_lock = None
+        self.set_bound_loop(asyncio.get_running_loop())
+        self.reset_after_open()
         self._base_refresh_task = None
-        self._joined_refresh_lock = None
         self._joined_refresh_task = None
-        self._identity_lock = None
         self._identity_tasks = {}
         self._identity_closing = False
-        self._refresh_transaction_lock = None
         self._close_task = None
         async with self._get_refresh_transaction_lock():
             await self._lifecycle.open(
@@ -185,6 +204,7 @@ class RuntimeWebCookieProvider:
         direct whole transaction enters here, so the coordinator callback can
         re-enter the base policy without deadlocking.
         """
+        assert_bound_loop(self._bound_loop)
         async with self._get_refresh_transaction_lock():
             await self._reconcile_locked()
             result = await work()
@@ -193,6 +213,7 @@ class RuntimeWebCookieProvider:
 
     async def refresh(self, *, allow_headless: bool = False) -> AuthTokens:
         """Run or join one base flight; preserve the wider join/rerun policy."""
+        assert_bound_loop(self._bound_loop)
         if allow_headless:
             return await self._refresh_session(allow_headless=True)
 
@@ -226,6 +247,7 @@ class RuntimeWebCookieProvider:
         Publication runs inside a provider-owned shared task so cancellation
         of its sole waiter cannot strand a successful coordinator leader.
         """
+        assert_bound_loop(self._bound_loop)
         async with self._get_joined_refresh_lock():
             task = self._joined_refresh_task
             if task is None or task.done():
@@ -267,6 +289,7 @@ class RuntimeWebCookieProvider:
         close can cancel every outstanding identity operation before waiting
         for the credential transaction lock.
         """
+        assert_bound_loop(self._bound_loop)
         async with self._get_identity_lock():
             if self._identity_closing and live_fallback:
                 raise RuntimeError("web cookie provider is closing")
@@ -295,11 +318,13 @@ class RuntimeWebCookieProvider:
 
     async def reconcile(self) -> None:
         """Adopt a matching backend session without exposing its mutable jar."""
+        assert_bound_loop(self._bound_loop)
         async with self._get_refresh_transaction_lock():
             await self._reconcile_locked()
 
     async def publish_cookie_mutation(self) -> None:
         """Publish one successful keepalive mutation when its value changed."""
+        assert_bound_loop(self._bound_loop)
         async with self._get_refresh_transaction_lock():
             live = CookieJar.from_httpx(self._kernel.get_cookies())
             if live != self._current_generation.cookies:
@@ -312,6 +337,7 @@ class RuntimeWebCookieProvider:
         path: Path | None,
     ) -> None:
         """Run the established rotator and publish its mutation atomically."""
+        assert_bound_loop(self._bound_loop)
         async with self._get_refresh_transaction_lock():
             before = CookieJar.from_httpx(self._kernel.get_cookies())
             await self._lifecycle.rotate_cookies(client, path)
@@ -356,6 +382,7 @@ class RuntimeWebCookieProvider:
 
     async def close(self) -> None:
         """Close provider resources once without waiter cancellation tearing down."""
+        assert_bound_loop(self._bound_loop)
         task = self._close_task
         if task is None or (task.done() and not task.cancelled() and task.exception() is not None):
             task = asyncio.create_task(self._close_once())

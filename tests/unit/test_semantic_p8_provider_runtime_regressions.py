@@ -57,11 +57,11 @@ def test_provider_and_backend_own_distinct_kernels_and_narrow_backend_state() ->
     backend = client._backend
     provider = client._provider
 
-    assert backend._session.kernel is not provider._kernel
-    assert backend._kernel is backend._session.kernel
+    assert backend._backend_session.kernel is not provider._kernel
+    assert backend._kernel is backend._backend_session.kernel
 
     backend_state = vars(backend)
-    assert {"_provider", "_session"} <= backend_state.keys()
+    assert {"_provider", "_backend_session"} <= backend_state.keys()
     assert {"_auth_coord", "_cookie_persistence", "_lifecycle"}.isdisjoint(backend_state)
     assert not any(
         isinstance(value, (AuthTokens, AuthRefreshCoordinator, CookiePersistence))
@@ -78,7 +78,7 @@ def test_backend_type_surface_is_protocol_narrow_and_shallow_repr_is_redacted() 
     client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
     backend = client._backend
     provider = client._provider
-    session = backend._session
+    session = backend._backend_session
 
     assert type(provider) is RuntimeWebCookieProvider
     assert type(session) is WebBackendSession
@@ -113,8 +113,8 @@ async def test_open_time_cookie_reload_publishes_before_backend_session_seed() -
         after = await provider.generation()
         assert after.generation == before.generation + 1
         assert _sid(after.cookies) == "cookie-open-reload"
-        assert client._backend._session.kernel.installed_generation == after.generation
-        assert _sid(client._backend._session.kernel.cookies) == "cookie-open-reload"
+        assert client._backend._backend_session.kernel.installed_generation == after.generation
+        assert _sid(client._backend._backend_session.kernel.cookies) == "cookie-open-reload"
     finally:
         await client.close(drain=False)
 
@@ -519,7 +519,7 @@ async def test_provider_close_failure_is_retryable() -> None:
             if self.calls == 1:
                 raise RuntimeError("transient provider close failure")
 
-    class Session:
+    class BackendSession:
         def __init__(self) -> None:
             self.calls = 0
 
@@ -527,7 +527,7 @@ async def test_provider_close_failure_is_retryable() -> None:
             self.calls += 1
 
     provider = Provider()
-    session = Session()
+    session = BackendSession()
     backend = WebRpcBackend(
         object(),  # type: ignore[arg-type]
         transport_factory=lambda **_kwargs: object(),
@@ -560,7 +560,7 @@ async def test_direct_backend_reconciles_but_does_not_close_injected_provider() 
         async def close(self) -> None:
             self.closed += 1
 
-    class Session:
+    class BackendSession:
         def __init__(self) -> None:
             self.closed = 0
 
@@ -568,7 +568,7 @@ async def test_direct_backend_reconciles_but_does_not_close_injected_provider() 
             self.closed += 1
 
     provider = Provider()
-    session = Session()
+    session = BackendSession()
     backend = WebRpcBackend(
         object(),  # type: ignore[arg-type]
         transport_factory=lambda **_kwargs: object(),
@@ -601,7 +601,7 @@ async def test_provider_close_waiter_cancellation_does_not_cancel_teardown() -> 
             await self.release.wait()
             self.finished.set()
 
-    class Session:
+    class BackendSession:
         async def close(self) -> None:
             return None
 
@@ -610,7 +610,7 @@ async def test_provider_close_waiter_cancellation_does_not_cancel_teardown() -> 
         object(),  # type: ignore[arg-type]
         transport_factory=lambda **_kwargs: object(),
         provider=provider,  # type: ignore[arg-type]
-        session=Session(),  # type: ignore[arg-type]
+        session=BackendSession(),  # type: ignore[arg-type]
         owns_provider=True,
     )
 
@@ -633,7 +633,7 @@ async def test_owned_provider_and_private_session_support_close_reopen() -> None
 
     await client.__aenter__()
     first_provider_client = client._provider._kernel.get_http_client()
-    first_backend_client = client._backend._session.kernel.get_http_client()
+    first_backend_client = client._backend._backend_session.kernel.get_http_client()
     assert first_provider_client is not first_backend_client
 
     await client.close(drain=False)
@@ -643,7 +643,7 @@ async def test_owned_provider_and_private_session_support_close_reopen() -> None
     try:
         assert client.is_connected is True
         assert client._provider._kernel.get_http_client() is not first_provider_client
-        assert client._backend._session.kernel.get_http_client() is not first_backend_client
+        assert client._backend._backend_session.kernel.get_http_client() is not first_backend_client
     finally:
         await client.close(drain=False)
 
@@ -651,16 +651,21 @@ async def test_owned_provider_and_private_session_support_close_reopen() -> None
 def test_owned_provider_and_private_session_reopen_on_a_new_event_loop() -> None:
     """Close-to-reopen replaces every loop-owned provider/session resource."""
     client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
-    observations: list[tuple[asyncio.AbstractEventLoop, object, object]] = []
+    observations: list[tuple[asyncio.AbstractEventLoop, ...]] = []
 
     async def cycle() -> None:
         await client.__aenter__()
         try:
+            provider = client._provider
             observations.append(
                 (
                     asyncio.get_running_loop(),
-                    client._provider._kernel.get_http_client(),
-                    client._backend._session.kernel.get_http_client(),
+                    provider._kernel.get_http_client(),
+                    client._backend._backend_session.kernel.get_http_client(),
+                    provider._get_refresh_transaction_lock(),
+                    provider._get_base_refresh_lock(),
+                    provider._get_joined_refresh_lock(),
+                    provider._get_identity_lock(),
                 )
             )
         finally:
@@ -673,6 +678,39 @@ def test_owned_provider_and_private_session_reopen_on_a_new_event_loop() -> None
     assert first[0] is not second[0]
     assert first[1] is not second[1]
     assert first[2] is not second[2]
+    assert all(old is not new for old, new in zip(first[3:], second[3:], strict=True))
+
+
+@pytest.mark.parametrize(
+    ("entry", "kwargs", "untouched_slot"),
+    [
+        ("reconcile", {}, "_refresh_transaction_lock"),
+        ("refresh", {}, "_base_refresh_lock"),
+        ("await_refresh", {}, "_joined_refresh_lock"),
+        ("get_account_email", {"live_fallback": False}, "_identity_lock"),
+        ("close", {}, "_close_task"),
+    ],
+)
+def test_provider_lock_paths_fail_fast_on_a_foreign_event_loop(
+    entry: str,
+    kwargs: dict[str, object],
+    untouched_slot: str,
+) -> None:
+    """Every provider lock path rejects cross-loop use before allocating state."""
+    client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
+    provider = client._provider
+    owner_loop = asyncio.new_event_loop()
+    try:
+        provider.set_bound_loop(owner_loop)
+
+        async def misuse() -> None:
+            await getattr(provider, entry)(**kwargs)
+
+        with pytest.raises(RuntimeError, match="bound to a different event loop"):
+            asyncio.run(misuse())
+        assert getattr(provider, untouched_slot) is None
+    finally:
+        owner_loop.close()
 
 
 @pytest.mark.asyncio
@@ -746,7 +784,7 @@ async def test_direct_upload_uses_one_committed_generation_during_refresh(
         await uploader.start_resumable_upload("nb", "x.pdf", 3, "src", "application/pdf")
         assert observations[-1] == ("cookie-new", "owner@example.com")
         assert (
-            client._backend._session.kernel.installed_generation
+            client._backend._backend_session.kernel.installed_generation
             == (await provider.generation()).generation
         )
     finally:
