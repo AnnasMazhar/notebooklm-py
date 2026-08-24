@@ -461,7 +461,7 @@ class WebRpcBackend:
                     )
                 )
             if len(matches) == 1:
-                return matches[0]
+                return next(iter(matches))
             if len(matches) > 1:
                 raise mark_unconfirmed(
                     RPCError(
