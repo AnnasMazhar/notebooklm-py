@@ -8,12 +8,10 @@ from typing import Any
 
 import httpx
 
-from .._row_adapters.artifacts import ArtifactRow, unwrap_artifact_rows
+from .._row_adapters.artifacts import ArtifactRow
 from .._row_adapters.notes import NoteRow
-from .._runtime.contracts import RpcCaller
 from ..exceptions import DecodingError
 from ..rpc import (
-    ARTIFACT_STATUS_SUGGESTED_WIRE_NAME,
     FLASHCARDS_VARIANT,
     INTERACTIVE_MIND_MAP_VARIANT,
     QUIZ_VARIANT,
@@ -96,43 +94,6 @@ def _matches_artifact_type(artifact: Artifact, artifact_type: ArtifactType | Non
 
 class ArtifactListingService:
     """List, filter, and select artifacts without depending on the facade."""
-
-    async def list_raw(self, notebook_id: str, *, rpc: RpcCaller) -> list[Any]:
-        """Get raw studio artifact rows from NotebookLM."""
-        # Server-side filter: drop suggestion rows (``ArtifactStatus.SUGGESTED``,
-        # code 5) so the listing only carries real artifacts.
-        params = [
-            [2],
-            notebook_id,
-            f'NOT artifact.status = "{ARTIFACT_STATUS_SUGGESTED_WIRE_NAME}"',
-        ]
-        result = await rpc.rpc_call(
-            RPCMethod.LIST_ARTIFACTS,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-        )
-        # LIST_ARTIFACTS returns either a wrapped single-element envelope
-        # (``[[row1, row2, ...]]``) or an already-flat list of rows. The wrap
-        # probe (``result[0]`` / ``inner[0]``) is centralised in
-        # ``unwrap_artifact_rows`` so the envelope-position knowledge lives in
-        # one place (issue #1491); it returns the flat rows unchanged for the
-        # already-flat shape.
-        if isinstance(result, list):
-            return unwrap_artifact_rows(
-                result,
-                method_id=RPCMethod.LIST_ARTIFACTS.value,
-                source="ArtifactListingService.list_raw",
-            )
-        if not result:
-            return []
-        # A truthy non-list payload is schema drift, not an empty notebook —
-        # raise so callers can tell a miss from drift instead of an empty list.
-        raise DecodingError(
-            "Unrecognized LIST_ARTIFACTS payload shape",
-            raw_response=repr(result),
-            method_id=RPCMethod.LIST_ARTIFACTS.value,
-        )
 
     async def list_artifacts(
         self,

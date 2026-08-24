@@ -483,7 +483,8 @@ class GenerationState(str, Enum):
     # when both decoded to ``"unknown"``. That is a statement about how this
     # library handles them, not a claim about what the backend means by code 6.
     #
-    # SUGGESTED has no producer *today*: ``ArtifactListingService.list_raw``
+    # SUGGESTED has no producer *today*: ``ArtifactsAPI._list_raw`` and the
+    # semantic web catalog handler
     # unconditionally sends the server-side ``NOT artifact.status =
     # "ARTIFACT_STATUS_SUGGESTED"`` filter, and every row that reaches a poll
     # comes from that one call, so code 5 cannot reach ``poll_status``. (The

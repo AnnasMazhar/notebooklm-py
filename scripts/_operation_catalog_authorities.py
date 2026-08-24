@@ -456,34 +456,48 @@ for _operation, _kind in (
 SHARED_RPC_AUTHORITY_RULES.update(
     {
         (Operation.ARTIFACT_LIST, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifact/listing.py:ArtifactListingService.list_raw", "heterogeneous list")
+            ("_web/backend.py:WebRpcBackend._artifact_catalog_records", "heterogeneous list")
         ),
         (Operation.ARTIFACT_GET, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifact/listing.py:ArtifactListingService.list_raw", "select artifact/prompt")
+            (
+                "_web/backend.py:WebRpcBackend._artifact_catalog_records",
+                "select artifact for get/get_or_none",
+            ),
+            ("_artifacts.py:ArtifactsAPI._list_raw", "select prompt or poll status"),
+        ),
+        (Operation.ARTIFACT_LIST, _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)): _rules(
+            ("_note_service.py:NoteService.fetch_note_rows", "merge note-backed mind maps")
+        ),
+        (Operation.ARTIFACT_GET, _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)): _rules(
+            ("_note_service.py:NoteService.fetch_note_rows", "select note-backed mind map")
         ),
         (Operation.ARTIFACT_RENAME, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifact/listing.py:ArtifactListingService.list_raw", "return_object=True post-read")
+            ("_artifacts.py:ArtifactsAPI._list_raw", "return_object=True post-read")
         ),
         (Operation.ARTIFACT_DOWNLOAD, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifact/listing.py:ArtifactListingService.list_raw", "select downloadable artifact")
+            ("_artifacts.py:ArtifactsAPI._list_raw", "application download selection"),
+            (
+                "_artifact/downloads.py:ArtifactDownloadService._list_raw",
+                "public family download selection",
+            ),
         ),
         (Operation.ARTIFACT_WAIT, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
             (
-                "_artifact/listing.py:ArtifactListingService.list_raw",
+                "_artifacts.py:ArtifactsAPI._list_raw",
                 "one catalog read per poll tick",
             )
         ),
         (Operation.MIND_MAP_LIST, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifact/listing.py:ArtifactListingService.list_raw", "filter interactive maps")
+            ("_artifacts.py:ArtifactsAPI._list_raw", "filter interactive maps")
         ),
         (Operation.MIND_MAP_GET, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
             (
-                "_artifact/listing.py:ArtifactListingService.list_raw",
+                "_artifacts.py:ArtifactsAPI._list_raw",
                 "auto-detect/select interactive id",
             )
         ),
         (Operation.MIND_MAP_GENERATE_INTERACTIVE, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifact/listing.py:ArtifactListingService.list_raw", "post-create settle/id match")
+            ("_artifacts.py:ArtifactsAPI._list_raw", "post-create settle/id match")
         ),
         (Operation.LABEL_LIST, _b(RPCMethod.LIST_LABELS)): _rules(
             ("_labels.py:LabelsAPI.list", "label_type=source")

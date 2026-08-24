@@ -1714,7 +1714,8 @@
       "override_honored": true,
       "owners": [
         "MindMapService",
-        "NoteService"
+        "NoteService",
+        "StudioCatalog"
       ],
       "response_decoders": [
         "_row_adapters/notes.py:NoteRow"
@@ -1722,12 +1723,15 @@
       "response_projectors": [],
       "route_contexts": [
         "notebook",
+        "notebook+artifact",
         "notebook+mind-map",
         "notebook+note"
       ],
       "rpc_id": "cFji9",
       "rpc_method": "GET_NOTES_AND_MIND_MAPS",
       "semantic_operations": [
+        "artifact.get",
+        "artifact.list",
         "mind_map.get",
         "mind_map.list",
         "note.get",
@@ -2026,7 +2030,9 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_artifact/listing.py:ArtifactListingService.list_raw"
+        "_artifact/downloads.py:ArtifactDownloadService._list_raw",
+        "_artifacts.py:ArtifactsAPI._list_raw",
+        "_web/backend.py:WebRpcBackend._artifact_catalog_records"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -3067,7 +3073,8 @@
       "disposition_reason": null,
       "execution_authorities": [
         "_source/upload.py:SourceUploadPipeline.rename",
-        "_sources.py:SourcesAPI.rename"
+        "_sources.py:SourcesAPI.rename",
+        "_web/backend.py:WebRpcBackend._source_add_url.rename_source"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -3178,8 +3185,14 @@
         },
         {
           "binding": "LIST_ARTIFACTS:<default>",
-          "discriminator": "select downloadable artifact",
-          "site": "_artifact/listing.py:ArtifactListingService.list_raw",
+          "discriminator": "public family download selection",
+          "site": "_artifact/downloads.py:ArtifactDownloadService._list_raw",
+          "transport_kind": "rpc"
+        },
+        {
+          "binding": "LIST_ARTIFACTS:<default>",
+          "discriminator": "application download selection",
+          "site": "_artifacts.py:ArtifactsAPI._list_raw",
           "transport_kind": "rpc"
         }
       ],
@@ -3831,9 +3844,21 @@
       "disposition": "semantic",
       "execution_authorities": [
         {
+          "binding": "GET_NOTES_AND_MIND_MAPS:<default>",
+          "discriminator": "select note-backed mind map",
+          "site": "_note_service.py:NoteService.fetch_note_rows",
+          "transport_kind": "rpc"
+        },
+        {
           "binding": "LIST_ARTIFACTS:<default>",
-          "discriminator": "select artifact/prompt",
-          "site": "_artifact/listing.py:ArtifactListingService.list_raw",
+          "discriminator": "select prompt or poll status",
+          "site": "_artifacts.py:ArtifactsAPI._list_raw",
+          "transport_kind": "rpc"
+        },
+        {
+          "binding": "LIST_ARTIFACTS:<default>",
+          "discriminator": "select artifact for get/get_or_none",
+          "site": "_web/backend.py:WebRpcBackend._artifact_catalog_records",
           "transport_kind": "rpc"
         }
       ],
@@ -3841,6 +3866,7 @@
       "known_divergence": null,
       "known_divergence_kind": null,
       "native_bindings": [
+        "GET_NOTES_AND_MIND_MAPS:<default>",
         "LIST_ARTIFACTS:<default>"
       ],
       "owner": "StudioCatalog",
@@ -3854,7 +3880,8 @@
       "recency_contract": [],
       "recency_effect": "none",
       "response_decoders_projectors": [
-        "_row_adapters/artifacts.py:ArtifactRow"
+        "_row_adapters/artifacts.py:ArtifactRow",
+        "_row_adapters/notes.py:NoteRow"
       ],
       "route_context": "notebook+artifact",
       "web_paths": []
@@ -3867,9 +3894,15 @@
       "disposition": "semantic",
       "execution_authorities": [
         {
+          "binding": "GET_NOTES_AND_MIND_MAPS:<default>",
+          "discriminator": "merge note-backed mind maps",
+          "site": "_note_service.py:NoteService.fetch_note_rows",
+          "transport_kind": "rpc"
+        },
+        {
           "binding": "LIST_ARTIFACTS:<default>",
           "discriminator": "heterogeneous list",
-          "site": "_artifact/listing.py:ArtifactListingService.list_raw",
+          "site": "_web/backend.py:WebRpcBackend._artifact_catalog_records",
           "transport_kind": "rpc"
         }
       ],
@@ -3877,6 +3910,7 @@
       "known_divergence": null,
       "known_divergence_kind": null,
       "native_bindings": [
+        "GET_NOTES_AND_MIND_MAPS:<default>",
         "LIST_ARTIFACTS:<default>"
       ],
       "owner": "StudioCatalog",
@@ -3895,7 +3929,8 @@
       "recency_contract": [],
       "recency_effect": "none",
       "response_decoders_projectors": [
-        "_row_adapters/artifacts.py:ArtifactRow"
+        "_row_adapters/artifacts.py:ArtifactRow",
+        "_row_adapters/notes.py:NoteRow"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -3910,7 +3945,7 @@
         {
           "binding": "LIST_ARTIFACTS:<default>",
           "discriminator": "return_object=True post-read",
-          "site": "_artifact/listing.py:ArtifactListingService.list_raw",
+          "site": "_artifacts.py:ArtifactsAPI._list_raw",
           "transport_kind": "rpc"
         },
         {
@@ -4048,7 +4083,7 @@
         {
           "binding": "LIST_ARTIFACTS:<default>",
           "discriminator": "one catalog read per poll tick",
-          "site": "_artifact/listing.py:ArtifactListingService.list_raw",
+          "site": "_artifacts.py:ArtifactsAPI._list_raw",
           "transport_kind": "rpc"
         }
       ],
@@ -4863,7 +4898,7 @@
         {
           "binding": "LIST_ARTIFACTS:<default>",
           "discriminator": "post-create settle/id match",
-          "site": "_artifact/listing.py:ArtifactListingService.list_raw",
+          "site": "_artifacts.py:ArtifactsAPI._list_raw",
           "transport_kind": "rpc"
         }
       ],
@@ -4989,7 +5024,7 @@
         {
           "binding": "LIST_ARTIFACTS:<default>",
           "discriminator": "auto-detect/select interactive id",
-          "site": "_artifact/listing.py:ArtifactListingService.list_raw",
+          "site": "_artifacts.py:ArtifactsAPI._list_raw",
           "transport_kind": "rpc"
         }
       ],
@@ -5034,7 +5069,7 @@
         {
           "binding": "LIST_ARTIFACTS:<default>",
           "discriminator": "filter interactive maps",
-          "site": "_artifact/listing.py:ArtifactListingService.list_raw",
+          "site": "_artifacts.py:ArtifactsAPI._list_raw",
           "transport_kind": "rpc"
         }
       ],

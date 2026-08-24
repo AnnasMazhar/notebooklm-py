@@ -4,7 +4,7 @@ These cover the two functions that centralise the positional envelope/leaf
 descent the ``_artifact``/``_artifacts`` decode sites previously open-coded:
 
 * :func:`unwrap_artifact_rows` — the ``[[row, ...]]`` envelope probe shared by
-  ``ArtifactListingService.list_raw`` (``LIST_ARTIFACTS``) and
+  the raw ``LIST_ARTIFACTS`` compatibility path and
   ``ArtifactsAPI.suggest_reports`` (``GET_SUGGESTED_REPORTS``); and
 * :func:`unwrap_mind_map_generation_leaf` — the two-level ``result[0][0]`` leaf
   descent of a ``GENERATE_MIND_MAP`` reply.
