@@ -222,6 +222,96 @@ class SourceAddUrlResult:
     receipt: SourceAddUrlReceipt
 
 
+@unique
+class SourceAddFailureKind(str, Enum):
+    """Closed public failure vocabulary for URL-source compatibility replay."""
+
+    SOURCE_ADD = "source_add"
+    SOURCE_NOT_FOUND = "source_not_found"
+    SOURCE_PROCESSING = "source_processing"
+    SOURCE_TIMEOUT = "source_timeout"
+    AUTH = "auth"
+    CLIENT = "client"
+    DECODING = "decoding"
+    NETWORK = "network"
+    RATE_LIMIT = "rate_limit"
+    RESPONSE_TOO_LARGE = "response_too_large"
+    RPC = "rpc"
+    RPC_TIMEOUT = "rpc_timeout"
+    SERVER = "server"
+    UNKNOWN_RPC_METHOD = "unknown_rpc_method"
+    BUILTIN_CONNECTION = "builtin_connection"
+    BUILTIN_BROKEN_PIPE = "builtin_broken_pipe"
+    BUILTIN_CONNECTION_ABORTED = "builtin_connection_aborted"
+    BUILTIN_CONNECTION_REFUSED = "builtin_connection_refused"
+    BUILTIN_CONNECTION_RESET = "builtin_connection_reset"
+    BUILTIN_OS = "builtin_os"
+    BUILTIN_RUNTIME = "builtin_runtime"
+    BUILTIN_TIMEOUT = "builtin_timeout"
+    BUILTIN_VALUE = "builtin_value"
+    HTTPX_REQUEST = "httpx_request"
+    HTTPX_TRANSPORT = "httpx_transport"
+    HTTPX_TIMEOUT = "httpx_timeout"
+    HTTPX_CONNECT_TIMEOUT = "httpx_connect_timeout"
+    HTTPX_READ_TIMEOUT = "httpx_read_timeout"
+    HTTPX_WRITE_TIMEOUT = "httpx_write_timeout"
+    HTTPX_POOL_TIMEOUT = "httpx_pool_timeout"
+    HTTPX_NETWORK = "httpx_network"
+    HTTPX_CONNECT = "httpx_connect"
+    HTTPX_READ = "httpx_read"
+    HTTPX_WRITE = "httpx_write"
+    HTTPX_CLOSE = "httpx_close"
+    HTTPX_PROXY = "httpx_proxy"
+    HTTPX_PROTOCOL = "httpx_protocol"
+    HTTPX_LOCAL_PROTOCOL = "httpx_local_protocol"
+    HTTPX_REMOTE_PROTOCOL = "httpx_remote_protocol"
+    HTTPX_UNSUPPORTED_PROTOCOL = "httpx_unsupported_protocol"
+    HTTPX_TOO_MANY_REDIRECTS = "httpx_too_many_redirects"
+    HTTPX_DECODING = "httpx_decoding"
+
+
+ScalarExceptionArg = str | int | float | bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAddFailureRecord:
+    """Serializable evidence needed to reconstruct one bounded public error graph."""
+
+    kind: SourceAddFailureKind
+    message: str
+    args: tuple[ScalarExceptionArg, ...] = ()
+    url: str | None = None
+    unconfirmed: bool = False
+    source_id: str | None = None
+    stage: str | None = None
+    method_id: str | int | None = None
+    raw_response: str | None = None
+    rpc_code: str | int | None = None
+    found_ids: tuple[str | int, ...] = ()
+    recoverable: bool | None = None
+    retry_after: int | None = None
+    status_code: int | None = None
+    timeout_seconds: float | None = None
+    limit_bytes: int | None = None
+    bytes_read: int | None = None
+    status: int | None = None
+    timeout: float | None = None
+    last_status: int | None = None
+    path: tuple[int, ...] | None = None
+    source: str | None = None
+    data_at_failure: str | None = None
+    request_method: str | None = None
+    request_url: str | None = None
+    original_error: SourceAddFailureRecord | None = None
+    cause: SourceAddFailureRecord | None = None
+    context: SourceAddFailureRecord | None = None
+    cause_is_original: bool = False
+    context_is_cause: bool = False
+    context_is_original: bool = False
+    explicit_cause: bool = False
+    suppress_context: bool = False
+
+
 NOTEBOOK_LIST_DEF: OperationDef[NotebookListInput, NotebookListResult] = OperationDef(
     Operation.NOTEBOOK_LIST,
     CallPolicy.READ,
@@ -298,6 +388,8 @@ __all__ = [
     "SourceGetInput",
     "SourceGetResult",
     "SourceAddCommitState",
+    "SourceAddFailureKind",
+    "SourceAddFailureRecord",
     "SourceAddTitleState",
     "SourceAddUrlInput",
     "SourceAddUrlReceipt",

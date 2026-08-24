@@ -457,6 +457,7 @@ def collect_native_execution_sites() -> dict[NativeKey, list[str]]:
 
 GENERIC_RPC_FORWARDERS = frozenset(
     {
+        "_web/backend.py:_DeadlineRpcCaller.rpc_call",
         "_notebooks.py:NotebooksAPI._rpc_call",
         "_research.py:ResearchAPI._rpc_call",
         "_sources.py:SourcesAPI._rpc_call",
@@ -470,15 +471,10 @@ GENERIC_RPC_FORWARDERS = frozenset(
 # forwarder remains inert until every registered operation delegates.
 INERT_P1_WEB_FORWARDERS = frozenset(
     {
-        "_web/backend.py:_DeadlineRpcCaller.rpc_call",
         "_web/backend.py:WebRpcBackend._rpc_call",
     }
 )
-INERT_P1_WEB_HANDLERS: frozenset[str] = frozenset(
-    {
-        "_web/backend.py:WebRpcBackend._source_add_url",
-    }
-)
+INERT_P1_WEB_HANDLERS: frozenset[str] = frozenset()
 INERT_P1_WEB_SITES = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
 
 # Removal: P2 deletes one handler exemption and admits the corresponding
@@ -489,6 +485,8 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_backend_compat.py", "_backend", "BackendContractError"),
         ("_backend_compat.py", "_backend", "BackendError"),
         ("_backend_compat.py", "_backend", "BackendErrorReason"),
+        ("_backend_compat.py", "_records", "SourceAddFailureKind"),
+        ("_backend_compat.py", "_records", "SourceAddFailureRecord"),
         ("_notebook_mutation_service.py", "_backend", "BackendAdapter"),
         ("_notebook_mutation_service.py", "_projectors", "project_notebook"),
         ("_notebook_mutation_service.py", "_records", "NOTEBOOK_CREATE_DEF"),
@@ -524,6 +522,9 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_sources.py", "_backend", "BackendAdapter"),
         ("_sources.py", "_backend", "BackendError"),
         ("_sources.py", "_backend_compat", "project_backend_error"),
+        ("_sources.py", "_backend_compat", "project_source_add_error"),
+        ("_sources.py", "_mutation_services", "SourceUrlMutationService"),
+        ("_sources.py", "_projectors", "project_source"),
         ("_sources.py", "_read_services", "SourceReadService"),
         ("_web/__init__.py", "backend", "WebRpcBackend"),
         ("_web/backend.py", "_backend", "BackendCapabilities"),
@@ -550,6 +551,8 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/backend.py", "_records", "SourceGetInput"),
         ("_web/backend.py", "_records", "SourceGetResult"),
         ("_web/backend.py", "_records", "SourceAddCommitState"),
+        ("_web/backend.py", "_records", "SourceAddFailureKind"),
+        ("_web/backend.py", "_records", "SourceAddFailureRecord"),
         ("_web/backend.py", "_records", "SourceAddTitleState"),
         ("_web/backend.py", "_records", "SourceAddUrlInput"),
         ("_web/backend.py", "_records", "SourceAddUrlReceipt"),
@@ -612,13 +615,10 @@ ACTIVE_P2_BACKEND_INVOKE_SITES = frozenset(
         "_read_services.py:NotebookReadService.list",
         "_read_services.py:SourceReadService.get",
         "_read_services.py:SourceReadService.list",
-    }
-)
-INERT_P1_BACKEND_INVOKE_SITES = frozenset(
-    {
         "_mutation_services.py:SourceUrlMutationService.add_url",
     }
 )
+INERT_P1_BACKEND_INVOKE_SITES: frozenset[str] = frozenset()
 
 
 def audit_inert_p1_backend_dataflow(

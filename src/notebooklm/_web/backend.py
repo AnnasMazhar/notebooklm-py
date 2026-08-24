@@ -1,7 +1,7 @@
 """Web implementation of the private semantic backend port.
 
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
-P2.2 routes three notebook mutation handlers; and P2.3 stages the facade-inert
+P2.2 routes three notebook mutation handlers; and P2.3 routes the live
 URL/YouTube source composite. These bindings intentionally reuse
 the current request builders, strict row adapters, and public-model decoders
 until the P3 codec split.
@@ -19,6 +19,8 @@ from collections.abc import Callable
 from types import MappingProxyType
 from typing import Any, cast
 from urllib.parse import urlparse
+
+import httpx
 
 from .._backend import (
     BackendCapabilities,
@@ -58,6 +60,8 @@ from .._records import (
     NotebookUpdateInput,
     NotebookUpdateResult,
     SourceAddCommitState,
+    SourceAddFailureKind,
+    SourceAddFailureRecord,
     SourceAddTitleState,
     SourceAddUrlInput,
     SourceAddUrlReceipt,
@@ -81,6 +85,7 @@ from ..exceptions import (
     ClientError,
     DecodingError,
     NetworkError,
+    NotebookLMError,
     RateLimitError,
     RPCError,
     RPCResponseTooLargeError,
@@ -88,6 +93,8 @@ from ..exceptions import (
     ServerError,
     SourceAddError,
     SourceNotFoundError,
+    SourceProcessingError,
+    SourceTimeoutError,
     UnknownRPCMethodError,
 )
 from ..rpc import RPCMethod, safe_index
@@ -204,6 +211,176 @@ def _source_record(source: Source) -> SourceRecord:
         revision_id=source.revision_id,
         revision_timestamp=source.revision_timestamp,
         last_modified_at=source.last_modified_at,
+    )
+
+
+def _capture_source_add_failure(
+    exc: Exception,
+    *,
+    _seen: frozenset[int] = frozenset(),
+) -> SourceAddFailureRecord:
+    """Capture the bounded, serializable public error graph for URL registration."""
+    if id(exc) in _seen or len(_seen) >= 8:
+        raise BackendContractError(
+            "source.add_url failure graph is cyclic or exceeds eight nodes",
+            operation=Operation.SOURCE_ADD_URL,
+        ) from exc
+    seen = _seen | {id(exc)}
+
+    kind_by_type: dict[type[BaseException], SourceAddFailureKind] = {
+        SourceAddError: SourceAddFailureKind.SOURCE_ADD,
+        SourceNotFoundError: SourceAddFailureKind.SOURCE_NOT_FOUND,
+        SourceProcessingError: SourceAddFailureKind.SOURCE_PROCESSING,
+        SourceTimeoutError: SourceAddFailureKind.SOURCE_TIMEOUT,
+        AuthError: SourceAddFailureKind.AUTH,
+        ClientError: SourceAddFailureKind.CLIENT,
+        DecodingError: SourceAddFailureKind.DECODING,
+        NetworkError: SourceAddFailureKind.NETWORK,
+        RateLimitError: SourceAddFailureKind.RATE_LIMIT,
+        RPCResponseTooLargeError: SourceAddFailureKind.RESPONSE_TOO_LARGE,
+        RPCError: SourceAddFailureKind.RPC,
+        RPCTimeoutError: SourceAddFailureKind.RPC_TIMEOUT,
+        ServerError: SourceAddFailureKind.SERVER,
+        UnknownRPCMethodError: SourceAddFailureKind.UNKNOWN_RPC_METHOD,
+        ConnectionError: SourceAddFailureKind.BUILTIN_CONNECTION,
+        BrokenPipeError: SourceAddFailureKind.BUILTIN_BROKEN_PIPE,
+        ConnectionAbortedError: SourceAddFailureKind.BUILTIN_CONNECTION_ABORTED,
+        ConnectionRefusedError: SourceAddFailureKind.BUILTIN_CONNECTION_REFUSED,
+        ConnectionResetError: SourceAddFailureKind.BUILTIN_CONNECTION_RESET,
+        OSError: SourceAddFailureKind.BUILTIN_OS,
+        RuntimeError: SourceAddFailureKind.BUILTIN_RUNTIME,
+        TimeoutError: SourceAddFailureKind.BUILTIN_TIMEOUT,
+        ValueError: SourceAddFailureKind.BUILTIN_VALUE,
+        httpx.RequestError: SourceAddFailureKind.HTTPX_REQUEST,
+        httpx.TransportError: SourceAddFailureKind.HTTPX_TRANSPORT,
+        httpx.TimeoutException: SourceAddFailureKind.HTTPX_TIMEOUT,
+        httpx.ConnectTimeout: SourceAddFailureKind.HTTPX_CONNECT_TIMEOUT,
+        httpx.ReadTimeout: SourceAddFailureKind.HTTPX_READ_TIMEOUT,
+        httpx.WriteTimeout: SourceAddFailureKind.HTTPX_WRITE_TIMEOUT,
+        httpx.PoolTimeout: SourceAddFailureKind.HTTPX_POOL_TIMEOUT,
+        httpx.NetworkError: SourceAddFailureKind.HTTPX_NETWORK,
+        httpx.ConnectError: SourceAddFailureKind.HTTPX_CONNECT,
+        httpx.ReadError: SourceAddFailureKind.HTTPX_READ,
+        httpx.WriteError: SourceAddFailureKind.HTTPX_WRITE,
+        httpx.CloseError: SourceAddFailureKind.HTTPX_CLOSE,
+        httpx.ProxyError: SourceAddFailureKind.HTTPX_PROXY,
+        httpx.ProtocolError: SourceAddFailureKind.HTTPX_PROTOCOL,
+        httpx.LocalProtocolError: SourceAddFailureKind.HTTPX_LOCAL_PROTOCOL,
+        httpx.RemoteProtocolError: SourceAddFailureKind.HTTPX_REMOTE_PROTOCOL,
+        httpx.UnsupportedProtocol: SourceAddFailureKind.HTTPX_UNSUPPORTED_PROTOCOL,
+        httpx.TooManyRedirects: SourceAddFailureKind.HTTPX_TOO_MANY_REDIRECTS,
+        httpx.DecodingError: SourceAddFailureKind.HTTPX_DECODING,
+    }
+    kind = kind_by_type.get(type(exc))
+    if kind is None:
+        raise BackendContractError(
+            f"unsupported source.add_url failure type {type(exc).__module__}.{type(exc).__qualname__}",
+            operation=Operation.SOURCE_ADD_URL,
+        ) from exc
+
+    scalar_args = tuple(exc.args)
+    if not all(isinstance(item, (str, int, float, bool, type(None))) for item in scalar_args):
+        raise BackendContractError(
+            "source.add_url failure args are not scalar",
+            operation=Operation.SOURCE_ADD_URL,
+        ) from exc
+
+    # Preserve the public library graph.  Builtin/httpx leaf internals can
+    # contain arbitrary third-party exception objects; their exact reviewed
+    # leaf type/data is retained below, but that unbounded internal graph is
+    # intentionally not replayed.
+    capture_links = isinstance(exc, NotebookLMError)
+    explicit = exc.__cause__ if capture_links else None
+    context = exc.__context__ if capture_links else None
+    source_add_cause = exc.cause if isinstance(exc, SourceAddError) else None
+    if source_add_cause is not None and explicit is not None and source_add_cause is not explicit:
+        raise BackendContractError(
+            "source.add_url SourceAddError has different cause attribute and explicit cause",
+            operation=Operation.SOURCE_ADD_URL,
+        ) from exc
+    cause = source_add_cause or explicit
+    original_error = getattr(exc, "original_error", None)
+    if original_error is not None and not isinstance(original_error, Exception):
+        raise BackendContractError(
+            "source.add_url original_error is not an exception",
+            operation=Operation.SOURCE_ADD_URL,
+        ) from exc
+    cause_is_original = cause is not None and cause is original_error
+    context_is_cause = context is not None and context is cause
+    context_is_original = context is not None and context is original_error
+
+    found_ids = tuple(getattr(exc, "found_ids", ()) or ())
+    if not all(isinstance(item, (str, int)) for item in found_ids):
+        raise BackendContractError(
+            "source.add_url found_ids are not strings or integers",
+            operation=Operation.SOURCE_ADD_URL,
+        ) from exc
+
+    raw_response = getattr(exc, "raw_response", None)
+    if raw_response is not None and not isinstance(raw_response, str):
+        raw_response = repr(raw_response)
+    data_at_failure = getattr(exc, "data_at_failure", None)
+    if data_at_failure is not None and not isinstance(data_at_failure, str):
+        data_at_failure = repr(data_at_failure)
+    request: httpx.Request | None = None
+    if isinstance(exc, httpx.RequestError):
+        try:
+            request = exc.request
+        except RuntimeError:
+            pass
+
+    return SourceAddFailureRecord(
+        kind=kind,
+        message=str(exc.args[0]) if exc.args else "",
+        args=scalar_args,
+        url=(exc.url if isinstance(exc, SourceAddError) else None),
+        unconfirmed=bool(getattr(exc, "unconfirmed", False)),
+        source_id=getattr(exc, "source_id", None),
+        stage=getattr(exc, "stage", None),
+        method_id=getattr(exc, "method_id", None),
+        raw_response=raw_response,
+        rpc_code=getattr(exc, "rpc_code", None),
+        found_ids=found_ids,
+        recoverable=(getattr(exc, "recoverable", None) if isinstance(exc, AuthError) else None),
+        retry_after=(
+            getattr(exc, "retry_after", None) if isinstance(exc, RateLimitError) else None
+        ),
+        status_code=(
+            getattr(exc, "status_code", None)
+            if isinstance(exc, (ClientError, ServerError))
+            else None
+        ),
+        timeout_seconds=(exc.timeout_seconds if isinstance(exc, RPCTimeoutError) else None),
+        limit_bytes=(exc.limit_bytes if isinstance(exc, RPCResponseTooLargeError) else None),
+        bytes_read=(exc.bytes_read if isinstance(exc, RPCResponseTooLargeError) else None),
+        status=(exc.status if isinstance(exc, SourceProcessingError) else None),
+        timeout=(exc.timeout if isinstance(exc, SourceTimeoutError) else None),
+        last_status=(exc.last_status if isinstance(exc, SourceTimeoutError) else None),
+        path=(exc.path if isinstance(exc, UnknownRPCMethodError) else None),
+        source=(exc.source if isinstance(exc, UnknownRPCMethodError) else None),
+        data_at_failure=data_at_failure,
+        request_method=request.method if request is not None else None,
+        request_url=str(request.url) if request is not None else None,
+        original_error=(
+            _capture_source_add_failure(original_error, _seen=seen)
+            if isinstance(original_error, Exception)
+            else None
+        ),
+        cause=(
+            _capture_source_add_failure(cause, _seen=seen)
+            if isinstance(cause, Exception) and not cause_is_original
+            else None
+        ),
+        context=(
+            _capture_source_add_failure(context, _seen=seen)
+            if isinstance(context, Exception) and not context_is_cause and not context_is_original
+            else None
+        ),
+        cause_is_original=cause_is_original,
+        context_is_cause=context_is_cause,
+        context_is_original=context_is_original,
+        explicit_cause=explicit is not None,
+        suppress_context=exc.__suppress_context__,
     )
 
 
@@ -327,10 +504,17 @@ class WebRpcBackend:
                 ) from exc
             translated = self._translate_error(operation.key, exc)
             raise translated from exc
-        except (RPCError, NetworkError) as exc:
+        except NotebookLMError as exc:
+            # Catch the closed library family rather than a broad ``RPCError``
+            # wrap.  ``_translate_error`` still accepts only the exact reviewed
+            # transport types and fails closed for any semantic exception.
+            if not isinstance(exc, (RPCError, NetworkError)):
+                raise BackendContractError(
+                    f"unclassified web error type {type(exc).__module__}.{type(exc).__qualname__}",
+                    operation=operation.key,
+                ) from exc
             translated = self._translate_error(operation.key, exc)
             raise translated from exc
-
 
         if type(result) is not operation.output_type:
             raise BackendContractError(
@@ -731,7 +915,7 @@ class WebRpcBackend:
         *,
         deadline: RuntimeDeadline | None,
     ) -> SourceAddUrlResult:
-        """Run the staged generic/YouTube URL workflow under one deadline."""
+        """Run the live generic/YouTube URL workflow under one deadline."""
         caller = _DeadlineRpcCaller(self, deadline, Operation.SOURCE_ADD_URL)
         adder = SourceAddService()
         lister = SourceLister(cast(Any, caller))
@@ -813,19 +997,25 @@ class WebRpcBackend:
                     return_result=True,
                 ),
             )
-        except (SourceAddError, RPCError, NetworkError) as exc:
-            if not getattr(exc, "unconfirmed", False):
-                raise
+        except NotebookLMError as exc:
+            outcome_unknown = bool(getattr(exc, "unconfirmed", False))
             receipt = SourceAddUrlReceipt(
-                commit_state=SourceAddCommitState.UNKNOWN,
+                commit_state=(
+                    SourceAddCommitState.UNKNOWN if outcome_unknown else SourceAddCommitState.FAILED
+                ),
                 title_state=SourceAddTitleState.NOT_ATTEMPTED,
-                outcome_unknown=True,
+                outcome_unknown=outcome_unknown,
             )
             raise BackendError(
-                message=str(exc),
+                message=str(exc.args[0]) if exc.args else "",
                 operation=Operation.SOURCE_ADD_URL,
-                outcome_unknown=True,
-                diagnostics=MappingProxyType({"receipt": receipt}),
+                outcome_unknown=outcome_unknown,
+                diagnostics=MappingProxyType(
+                    {
+                        "receipt": receipt,
+                        "source_add_failure": _capture_source_add_failure(exc),
+                    }
+                ),
             ) from exc
 
         source_before_title = create_result.value

@@ -97,7 +97,7 @@ def _backend(executor: _RecordingExecutor) -> WebRpcBackend:
     return WebRpcBackend(executor, transport_factory=_transport_factory)  # type: ignore[arg-type]
 
 
-def test_registry_is_closed_and_exposes_only_inert_p2_handlers() -> None:
+def test_registry_is_closed_and_exposes_only_live_p2_handlers() -> None:
     assert set(WEB_OPERATION_REGISTRY) == set(Operation)
     assert {
         Operation.NOTEBOOK_LIST,
@@ -107,6 +107,7 @@ def test_registry_is_closed_and_exposes_only_inert_p2_handlers() -> None:
         Operation.NOTEBOOK_DELETE,
         Operation.SOURCE_LIST,
         Operation.SOURCE_GET,
+        Operation.SOURCE_ADD_URL,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -120,13 +121,14 @@ def test_registry_is_closed_and_exposes_only_inert_p2_handlers() -> None:
         Operation.NOTEBOOK_DELETE: NOTEBOOK_DELETE_DEF,
         Operation.SOURCE_LIST: SOURCE_LIST_DEF,
         Operation.SOURCE_GET: SOURCE_GET_DEF,
+        Operation.SOURCE_ADD_URL: SOURCE_ADD_URL_DEF,
     }
     assert all(
         binding.unsupported_reason
         for binding in WEB_OPERATION_REGISTRY.values()
         if not binding.is_supported
     )
-    assert {Operation.SOURCE_ADD_URL} == WEB_STAGED_OPERATIONS
+    assert not WEB_STAGED_OPERATIONS
     assert WEB_OPERATION_REGISTRY[Operation.SOURCE_ADD_URL].definition is SOURCE_ADD_URL_DEF
 
 
@@ -417,7 +419,7 @@ async def test_source_handlers_reuse_source_lister_and_apply_semantic_filters() 
         ),
     ],
 )
-async def test_staged_url_handler_preserves_regular_and_hidden_youtube_payloads(
+async def test_live_url_handler_preserves_regular_and_hidden_youtube_payloads(
     url: str,
     kind: int,
     source_spec: list[object],
@@ -427,7 +429,8 @@ async def test_staged_url_handler_preserves_regular_and_hidden_youtube_payloads(
         _source_result("src-new", title="Upstream", url=url, kind=kind),
     )
 
-    result = await _backend(executor)._source_add_url(
+    result = await _backend(executor).invoke(
+        SOURCE_ADD_URL_DEF,
         SourceAddUrlInput("nb", url),
         deadline=None,
     )
@@ -458,7 +461,8 @@ async def test_url_handler_reconciles_only_one_new_exact_url_and_renames_without
         [["src-new"], "Requested"],
     )
 
-    result = await _backend(executor)._source_add_url(
+    result = await _backend(executor).invoke(
+        SOURCE_ADD_URL_DEF,
         SourceAddUrlInput("nb", url, requested_title="  Requested  "),
         deadline=None,
     )
@@ -506,19 +510,22 @@ async def test_url_handler_fails_closed_when_reconciliation_is_ambiguous_or_unan
     )
 
     with pytest.raises(BackendError) as caught:
-        await _backend(executor)._source_add_url(
+        await _backend(executor).invoke(
+            SOURCE_ADD_URL_DEF,
             SourceAddUrlInput("nb", "https://example.com/article"),
             deadline=None,
         )
 
     assert caught.value.outcome_unknown is True
-    assert caught.value.diagnostics == {
-        "receipt": SourceAddUrlReceipt(
-            SourceAddCommitState.UNKNOWN,
-            SourceAddTitleState.NOT_ATTEMPTED,
-            outcome_unknown=True,
-        )
-    }
+    assert caught.value.diagnostics is not None
+    assert caught.value.diagnostics["receipt"] == SourceAddUrlReceipt(
+        SourceAddCommitState.UNKNOWN,
+        SourceAddTitleState.NOT_ATTEMPTED,
+        outcome_unknown=True,
+    )
+    failure = caught.value.diagnostics["source_add_failure"]
+    assert failure.message == str(caught.value)
+    assert failure.unconfirmed is True
     assert sum(call.method is RPCMethod.ADD_SOURCE for call in executor.calls) == 1
 
 
@@ -531,7 +538,8 @@ async def test_url_handler_title_failure_is_best_effort_and_never_reposts() -> N
         ServerError("rename failed", status_code=503),
     )
 
-    result = await _backend(executor)._source_add_url(
+    result = await _backend(executor).invoke(
+        SOURCE_ADD_URL_DEF,
         SourceAddUrlInput("nb", url, requested_title="Requested"),
         deadline=None,
     )
@@ -556,7 +564,8 @@ async def test_url_composite_forwards_one_absolute_deadline_to_baseline_add_and_
     )
     deadline = RuntimeDeadline(timeout=30.0, started_at=10.0, monotonic=lambda: 12.0)
 
-    await _backend(executor)._source_add_url(
+    await _backend(executor).invoke(
+        SOURCE_ADD_URL_DEF,
         SourceAddUrlInput("nb", url, wait=True, wait_timeout=17.0),
         deadline=deadline,
     )

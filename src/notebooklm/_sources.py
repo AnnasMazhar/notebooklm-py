@@ -12,8 +12,11 @@ from urllib.parse import urlparse
 import httpx
 
 from ._backend import BackendAdapter, BackendError
-from ._backend_compat import project_backend_error
+from ._backend_compat import project_backend_error, project_source_add_error
+from ._deadline import RuntimeDeadline
 from ._lookup import unwrap_or_raise
+from ._mutation_services import SourceUrlMutationService
+from ._projectors import project_source
 from ._read_services import SourceReadService
 from ._row_adapters.sources import interpret_source_freshness
 from ._runtime.config import DEFAULT_MAX_CONCURRENT_UPLOADS
@@ -29,7 +32,6 @@ from ._source.polling import SourcePoller, SourceWaitResult
 from ._source.upload import SourceUploadPipeline
 from ._source.upload_payloads import build_rename_source_params
 from ._types.research import SourceGuide
-from ._url_utils import is_youtube_url
 from .exceptions import SourceNotFoundError
 from .rpc import RPCMethod
 from .rpc.types import source_status_to_str
@@ -104,6 +106,9 @@ class SourcesAPI:
         # historical attributes for callers that introspect the instance.
         self._rpc = rpc
         self._read_service = SourceReadService(_backend) if _backend is not None else None
+        self._url_mutation_service = (
+            SourceUrlMutationService(_backend) if _backend is not None else None
+        )
         self._adder = SourceAddService()
         self._batch_adder = SourceBatchAddService()
         self._content = SourceContentRenderer(self._rpc, logger=logger)
@@ -127,6 +132,12 @@ class SourcesAPI:
         if self._read_service is None:
             raise RuntimeError("SourcesAPI semantic read backend was not configured")
         return self._read_service
+
+    def _require_url_mutation_service(self) -> SourceUrlMutationService:
+        """Return the composition-root service for the migrated URL mutation."""
+        if self._url_mutation_service is None:
+            raise RuntimeError("SourcesAPI semantic URL backend was not configured")
+        return self._url_mutation_service
 
     @staticmethod
     def _compat_read_error(error: BackendError) -> Exception:
@@ -477,24 +488,27 @@ class SourcesAPI:
         Example:
             source = await client.sources.add_url(nb_id, url, wait=True)
         """
-        result = await self._adder.add_url(
-            notebook_id,
-            url,
-            wait=wait,
-            wait_timeout=wait_timeout,
-            add_youtube_source=self._add_youtube_source,
-            add_url_source=self._add_url_source,
-            list_sources=self.list,
-            wait_until_ready=self.wait_until_ready,
-            extract_youtube_video_id=self._extract_youtube_video_id,
-            is_youtube_url=is_youtube_url,
-            logger=logger,
-            return_result=True,
-        )
-        # Baseline-filtered probe ⇒ even a PROBED result is ours to rename (#2204).
-        return await honor_requested_title_if_fresh(
-            self.rename, notebook_id, result, title, logger, probe_proves_freshness=True
-        )
+        public_error: Exception | None = None
+        try:
+            result = await self._require_url_mutation_service().add_url(
+                notebook_id,
+                url,
+                wait=wait,
+                wait_timeout=wait_timeout,
+                requested_title=title,
+                deadline=(RuntimeDeadline.start(wait_timeout) if wait else None),
+            )
+        except BackendError as error:
+            if error.diagnostics is not None and "source_add_failure" in error.diagnostics:
+                public_error = project_source_add_error(error)
+            else:
+                public_error = project_backend_error(error)
+        else:
+            return project_source(result.source)
+        # Raise outside the BackendError catch frame so the reconstructed public
+        # cause/context graph is not replaced by the private compatibility error.
+        assert public_error is not None
+        raise public_error
 
     async def _add_urls_batch(
         self,

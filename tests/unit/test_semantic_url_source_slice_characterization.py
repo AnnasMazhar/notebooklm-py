@@ -11,14 +11,22 @@ import inspect
 import logging
 from unittest.mock import AsyncMock, MagicMock, call
 
+import httpx
 import pytest
 
+from notebooklm._records import (
+    SourceAddCommitState,
+    SourceAddTitleState,
+    SourceAddUrlReceipt,
+    SourceAddUrlResult,
+    SourceRecord,
+)
 from notebooklm._source.add import SourceAddService
 from notebooklm._source.upload_payloads import build_template_block
 from notebooklm._sources import SourcesAPI
-from notebooklm.exceptions import ServerError
+from notebooklm.exceptions import NetworkError, RPCError, ServerError, SourceAddError
 from notebooklm.rpc import RPCMethod
-from notebooklm.types import Source
+from tests._fixtures.web_backend import build_web_backend
 
 
 def _source_result(source_id: str, title: str, url: str, *, type_code: int) -> list[object]:
@@ -30,7 +38,7 @@ def _source_result(source_id: str, title: str, url: str, *, type_code: int) -> l
 
 
 def _sources_api() -> SourcesAPI:
-    return SourcesAPI(MagicMock(), uploader=MagicMock())
+    return SourcesAPI(MagicMock(), uploader=MagicMock(), _backend=MagicMock())
 
 
 def test_add_url_public_signature_is_frozen() -> None:
@@ -131,22 +139,106 @@ async def test_add_url_hidden_dispatch_stays_inside_shared_reconciliation(
 @pytest.mark.asyncio
 async def test_recovered_url_add_uses_exact_baseline_diff_and_still_honors_title() -> None:
     url = "https://example.com/article"
-    old = Source(id="src-old", title="Old", url=url)
-    recovered = Source(id="src-new", title="Upstream", url=url)
     api = _sources_api()
-    api.list = AsyncMock(side_effect=[[old], [old, recovered]])  # type: ignore[method-assign]
-    api._add_url_source = AsyncMock(  # type: ignore[method-assign]
-        side_effect=ServerError("bad gateway", status_code=502)
+    api._url_mutation_service = MagicMock(  # type: ignore[assignment]
+        add_url=AsyncMock(
+            return_value=SourceAddUrlResult(
+                SourceRecord(id="src-new", title="Requested", url=url, kind="web_page"),
+                SourceAddUrlReceipt(
+                    SourceAddCommitState.RECONCILED,
+                    SourceAddTitleState.RENAMED,
+                ),
+            )
+        )
     )
+    api._add_url_source = AsyncMock()  # type: ignore[method-assign]
     api._add_youtube_source = AsyncMock()  # type: ignore[method-assign]
-    api.rename = AsyncMock(  # type: ignore[method-assign]
-        return_value=Source(id="src-new", title="Requested")
-    )
 
     source = await api.add_url("nb-1", url, title="  Requested  ")
 
     assert (source.id, source.title, source.url) == ("src-new", "Requested", url)
-    assert api.list.await_args_list == [call("nb-1"), call("nb-1")]
-    api._add_url_source.assert_awaited_once_with("nb-1", url)
+    api._url_mutation_service.add_url.assert_awaited_once_with(
+        "nb-1",
+        url,
+        wait=False,
+        wait_timeout=120.0,
+        requested_title="  Requested  ",
+        deadline=None,
+    )
+    api._add_url_source.assert_not_awaited()
     api._add_youtube_source.assert_not_awaited()
-    api.rename.assert_awaited_once_with("nb-1", "src-new", "Requested")
+
+
+@pytest.mark.asyncio
+async def test_live_url_facade_preserves_bounded_public_failure_chain() -> None:
+    cause = RPCError(
+        "request rejected",
+        method_id=RPCMethod.ADD_SOURCE.value,
+        raw_response="safe excerpt",
+        rpc_code=3,
+        found_ids=[RPCMethod.ADD_SOURCE.value],
+    )
+    rpc_call = AsyncMock(side_effect=[[["Notebook", [], "nb-1"]], cause])
+    rpc = MagicMock(rpc_call=rpc_call)
+    api = SourcesAPI(
+        rpc,
+        uploader=MagicMock(),
+        _backend=build_web_backend(rpc),
+    )
+
+    with pytest.raises(SourceAddError) as caught:
+        await api.add_url("nb-1", "https://example.com/article")
+
+    public = caught.value
+    assert public.url == "https://example.com/article"
+    assert isinstance(public.cause, RPCError)
+    assert public.cause.args == cause.args
+    assert public.cause.method_id == cause.method_id
+    assert public.cause.raw_response == cause.raw_response
+    assert public.cause.rpc_code == cause.rpc_code
+    assert public.cause.found_ids == cause.found_ids
+    assert public.__cause__ is public.cause
+    assert public.__context__ is public.cause
+    assert public.__suppress_context__ is True
+
+
+@pytest.mark.asyncio
+async def test_live_url_facade_preserves_uncertain_leaf_fields_and_context() -> None:
+    create_error = ServerError("create response lost", status_code=503)
+    original_error = httpx.ConnectError(
+        "connection reset",
+        request=httpx.Request(
+            "POST", "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute"
+        ),
+    )
+    probe_error = NetworkError(
+        "probe disconnected",
+        method_id=RPCMethod.GET_NOTEBOOK.value,
+        original_error=original_error,
+    )
+    probe_error.source_id = "src-maybe"  # type: ignore[attr-defined]
+    probe_error.stage = "url-probe"  # type: ignore[attr-defined]
+    rpc_call = AsyncMock(side_effect=[[["Notebook", [], "nb-1"]], create_error, probe_error])
+    rpc = MagicMock(rpc_call=rpc_call)
+    api = SourcesAPI(
+        rpc,
+        uploader=MagicMock(),
+        _backend=build_web_backend(rpc),
+    )
+
+    with pytest.raises(NetworkError) as caught:
+        await api.add_url("nb-1", "https://example.com/article")
+
+    public = caught.value
+    assert public.args == probe_error.args
+    assert public.method_id == probe_error.method_id
+    assert type(public.original_error) is httpx.ConnectError
+    assert public.original_error.args == original_error.args
+    assert public.original_error.request.method == original_error.request.method
+    assert public.original_error.request.url == original_error.request.url
+    assert public.source_id == "src-maybe"  # type: ignore[attr-defined]
+    assert public.stage == "url-probe"  # type: ignore[attr-defined]
+    assert public.unconfirmed is True  # type: ignore[attr-defined]
+    assert isinstance(public.__context__, ServerError)
+    assert public.__context__.args == create_error.args
+    assert public.__cause__ is None

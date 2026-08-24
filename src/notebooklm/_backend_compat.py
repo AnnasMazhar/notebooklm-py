@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
+import httpx
+
 from ._backend import BackendContractError, BackendError, BackendErrorReason
+from ._records import SourceAddFailureKind, SourceAddFailureRecord
 from .exceptions import (
     AuthError,
     ClientError,
@@ -18,6 +21,10 @@ from .exceptions import (
     RPCResponseTooLargeError,
     RPCTimeoutError,
     ServerError,
+    SourceAddError,
+    SourceNotFoundError,
+    SourceProcessingError,
+    SourceTimeoutError,
     UnknownRPCMethodError,
 )
 
@@ -269,4 +276,174 @@ def project_backend_error(error: BackendError) -> Exception:
     )
 
 
-__all__ = ["project_backend_error"]
+def _project_source_add_record(record: SourceAddFailureRecord) -> Exception:
+    original_error = (
+        _project_source_add_record(record.original_error)
+        if record.original_error is not None
+        else None
+    )
+    cause = (
+        original_error
+        if record.cause_is_original
+        else (_project_source_add_record(record.cause) if record.cause is not None else None)
+    )
+    context = (
+        cause
+        if record.context_is_cause
+        else (
+            original_error
+            if record.context_is_original
+            else (
+                _project_source_add_record(record.context) if record.context is not None else None
+            )
+        )
+    )
+    rpc: dict[str, Any] = {
+        "method_id": record.method_id,
+        "raw_response": record.raw_response,
+        "rpc_code": record.rpc_code,
+        "found_ids": list(record.found_ids),
+    }
+    kind = record.kind
+    if kind is SourceAddFailureKind.SOURCE_ADD:
+        if record.url is None:
+            raise BackendContractError("source-add failure lacks url")
+        projected: Exception = SourceAddError(record.url, cause=cause, message=record.message)
+    elif kind is SourceAddFailureKind.SOURCE_NOT_FOUND:
+        if record.source_id is None:
+            raise BackendContractError("source-not-found failure lacks source_id")
+        projected = SourceNotFoundError(
+            record.source_id,
+            method_id=rpc["method_id"],
+            raw_response=record.raw_response,
+        )
+    elif kind is SourceAddFailureKind.SOURCE_PROCESSING:
+        if record.source_id is None or record.status is None:
+            raise BackendContractError("source-processing failure lacks source_id/status")
+        projected = SourceProcessingError(record.source_id, record.status, record.message)
+    elif kind is SourceAddFailureKind.SOURCE_TIMEOUT:
+        if record.source_id is None or record.timeout is None:
+            raise BackendContractError("source-timeout failure lacks source_id/timeout")
+        projected = SourceTimeoutError(record.source_id, record.timeout, record.last_status)
+    elif kind is SourceAddFailureKind.AUTH:
+        projected = AuthError(record.message, **rpc)
+        projected.recoverable = bool(record.recoverable)
+    elif kind is SourceAddFailureKind.CLIENT:
+        projected = ClientError(record.message, status_code=record.status_code, **rpc)
+    elif kind is SourceAddFailureKind.DECODING:
+        projected = DecodingError(record.message, **rpc)
+    elif kind is SourceAddFailureKind.NETWORK:
+        projected = NetworkError(
+            record.message,
+            method_id=rpc["method_id"],
+            original_error=original_error,
+        )
+    elif kind is SourceAddFailureKind.RATE_LIMIT:
+        projected = RateLimitError(
+            record.message,
+            retry_after=record.retry_after,
+            **rpc,
+        )
+    elif kind is SourceAddFailureKind.RESPONSE_TOO_LARGE:
+        projected = RPCResponseTooLargeError(
+            record.message,
+            limit_bytes=record.limit_bytes,
+            bytes_read=record.bytes_read,
+            method_id=rpc["method_id"],
+        )
+    elif kind is SourceAddFailureKind.RPC:
+        projected = RPCError(record.message, **rpc)
+    elif kind is SourceAddFailureKind.RPC_TIMEOUT:
+        projected = RPCTimeoutError(
+            record.message,
+            timeout_seconds=record.timeout_seconds,
+            method_id=rpc["method_id"],
+            original_error=original_error,
+        )
+    elif kind is SourceAddFailureKind.SERVER:
+        projected = ServerError(record.message, status_code=record.status_code, **rpc)
+    elif kind is SourceAddFailureKind.UNKNOWN_RPC_METHOD:
+        projected = UnknownRPCMethodError(
+            record.message,
+            method_id=record.method_id,
+            path=record.path,
+            source=record.source,
+            found_ids=list(record.found_ids) or None,
+            raw_response=record.raw_response,
+            data_at_failure=record.data_at_failure,
+            rpc_code=record.rpc_code,
+        )
+    else:
+        httpx_types: dict[SourceAddFailureKind, type[httpx.RequestError]] = {
+            SourceAddFailureKind.HTTPX_REQUEST: httpx.RequestError,
+            SourceAddFailureKind.HTTPX_TRANSPORT: httpx.TransportError,
+            SourceAddFailureKind.HTTPX_TIMEOUT: httpx.TimeoutException,
+            SourceAddFailureKind.HTTPX_CONNECT_TIMEOUT: httpx.ConnectTimeout,
+            SourceAddFailureKind.HTTPX_READ_TIMEOUT: httpx.ReadTimeout,
+            SourceAddFailureKind.HTTPX_WRITE_TIMEOUT: httpx.WriteTimeout,
+            SourceAddFailureKind.HTTPX_POOL_TIMEOUT: httpx.PoolTimeout,
+            SourceAddFailureKind.HTTPX_NETWORK: httpx.NetworkError,
+            SourceAddFailureKind.HTTPX_CONNECT: httpx.ConnectError,
+            SourceAddFailureKind.HTTPX_READ: httpx.ReadError,
+            SourceAddFailureKind.HTTPX_WRITE: httpx.WriteError,
+            SourceAddFailureKind.HTTPX_CLOSE: httpx.CloseError,
+            SourceAddFailureKind.HTTPX_PROXY: httpx.ProxyError,
+            SourceAddFailureKind.HTTPX_PROTOCOL: httpx.ProtocolError,
+            SourceAddFailureKind.HTTPX_LOCAL_PROTOCOL: httpx.LocalProtocolError,
+            SourceAddFailureKind.HTTPX_REMOTE_PROTOCOL: httpx.RemoteProtocolError,
+            SourceAddFailureKind.HTTPX_UNSUPPORTED_PROTOCOL: httpx.UnsupportedProtocol,
+            SourceAddFailureKind.HTTPX_TOO_MANY_REDIRECTS: httpx.TooManyRedirects,
+            SourceAddFailureKind.HTTPX_DECODING: httpx.DecodingError,
+        }
+        httpx_type = httpx_types.get(kind)
+        if httpx_type is not None:
+            if (record.request_method is None) != (record.request_url is None):
+                raise BackendContractError("httpx failure has incomplete request evidence")
+            request = (
+                httpx.Request(record.request_method, record.request_url)
+                if record.request_method is not None and record.request_url is not None
+                else None
+            )
+            projected = httpx_type(record.message, request=request)
+        else:
+            builtin_types: dict[SourceAddFailureKind, type[Exception]] = {
+                SourceAddFailureKind.BUILTIN_CONNECTION: ConnectionError,
+                SourceAddFailureKind.BUILTIN_BROKEN_PIPE: BrokenPipeError,
+                SourceAddFailureKind.BUILTIN_CONNECTION_ABORTED: ConnectionAbortedError,
+                SourceAddFailureKind.BUILTIN_CONNECTION_REFUSED: ConnectionRefusedError,
+                SourceAddFailureKind.BUILTIN_CONNECTION_RESET: ConnectionResetError,
+                SourceAddFailureKind.BUILTIN_OS: OSError,
+                SourceAddFailureKind.BUILTIN_RUNTIME: RuntimeError,
+                SourceAddFailureKind.BUILTIN_TIMEOUT: TimeoutError,
+                SourceAddFailureKind.BUILTIN_VALUE: ValueError,
+            }
+            builtin = builtin_types.get(kind)
+            if builtin is None:
+                raise BackendContractError(f"unsupported source-add failure kind {kind.value!r}")
+            projected = builtin(*record.args)
+
+    if record.source_id is not None and not hasattr(projected, "source_id"):
+        projected.source_id = record.source_id  # type: ignore[attr-defined]
+    if record.stage is not None:
+        projected.stage = record.stage  # type: ignore[attr-defined]
+    if record.unconfirmed:
+        projected.unconfirmed = True  # type: ignore[attr-defined]
+    projected.__cause__ = cause if record.explicit_cause else None
+    projected.__context__ = context
+    projected.__suppress_context__ = record.suppress_context
+    return projected
+
+
+def project_source_add_error(error: BackendError) -> Exception:
+    """Reconstruct a bounded URL-source public failure outside the catch frame."""
+    diagnostics = _diagnostics(error)
+    record = diagnostics.get("source_add_failure")
+    if not isinstance(record, SourceAddFailureRecord):
+        raise BackendContractError(
+            "source.add_url backend failure lacks SourceAddFailureRecord",
+            operation=error.operation,
+        )
+    return _project_source_add_record(record)
+
+
+__all__ = ["project_backend_error", "project_source_add_error"]

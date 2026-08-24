@@ -550,7 +550,10 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_note_service.py:NoteService.update_note", "kind=NOTE_BACKED")
         ),
         (Operation.SOURCE_ADD_URL, _b(RPCMethod.UPDATE_SOURCE)): _rules(
-            ("_sources.py:SourcesAPI.rename", "optional post-create title")
+            (
+                "_web/backend.py:WebRpcBackend._source_add_url.rename_source",
+                "optional post-create title",
+            )
         ),
         (Operation.SOURCE_ADD_FILE, _b(RPCMethod.UPDATE_SOURCE)): _rules(
             ("_source/upload.py:SourceUploadPipeline.rename", "optional post-upload title")

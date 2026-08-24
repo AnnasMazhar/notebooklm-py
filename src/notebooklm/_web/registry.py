@@ -1,8 +1,7 @@
 """Closed web dispositions for the semantic operation vocabulary.
 
-P2.1 reads and the P2.2 notebook mutation core have executable bindings; P2.3
-adds a URL-source binding that production dispatch explicitly rejects until its
-facade delegates. Every other P0 operation has an unsupported disposition, and
+P2.1 reads, the P2.2 notebook mutations, and P2.3 URL/YouTube registration have
+executable bindings. Every other P0 operation has an unsupported disposition, and
 the count assertions force a deliberate registry update when the closed
 :class:`Operation` enum changes.
 """
@@ -61,6 +60,7 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.NOTEBOOK_CREATE: NOTEBOOK_CREATE_DEF,
         Operation.NOTEBOOK_UPDATE: NOTEBOOK_UPDATE_DEF,
         Operation.NOTEBOOK_DELETE: NOTEBOOK_DELETE_DEF,
+        Operation.SOURCE_ADD_URL: SOURCE_ADD_URL_DEF,
         Operation.SOURCE_LIST: SOURCE_LIST_DEF,
         Operation.SOURCE_GET: SOURCE_GET_DEF,
     }
@@ -73,25 +73,22 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.NOTEBOOK_CREATE: "_notebook_create",
         Operation.NOTEBOOK_UPDATE: "_notebook_update",
         Operation.NOTEBOOK_DELETE: "_notebook_delete",
+        Operation.SOURCE_ADD_URL: "_source_add_url",
         Operation.SOURCE_LIST: "_source_list",
         Operation.SOURCE_GET: "_source_get",
     }
 )
 
-_STAGED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = MappingProxyType(
-    {Operation.SOURCE_ADD_URL: SOURCE_ADD_URL_DEF}
-)
+_STAGED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = MappingProxyType({})
 
-_STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
-    {Operation.SOURCE_ADD_URL: "_source_add_url"}
-)
+_STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 
 # P0 freezes 86 operations.  This local assertion is intentionally repeated at
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 7
-_EXPECTED_STAGED_COUNT: Final = 1
+_EXPECTED_SUPPORTED_COUNT: Final = 8
+_EXPECTED_STAGED_COUNT: Final = 0
 
 
 def _build_web_operation_registry() -> Mapping[Operation, WebOperationBinding]:

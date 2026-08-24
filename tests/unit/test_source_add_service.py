@@ -14,6 +14,13 @@ import pytest
 from notebooklm._app import source_add as cli_source_add
 from notebooklm._app.errors import ErrorCategory, classify
 from notebooklm._idempotency import _CreateResultKind, _IdempotentCreateResult
+from notebooklm._records import (
+    SourceAddCommitState,
+    SourceAddTitleState,
+    SourceAddUrlReceipt,
+    SourceAddUrlResult,
+    SourceRecord,
+)
 from notebooklm._source.add import SourceAddService, honor_requested_title_if_fresh
 from notebooklm._sources import SourcesAPI
 from notebooklm.exceptions import (
@@ -703,21 +710,22 @@ async def test_raw_url_helpers_disable_internal_retries(service: SourceAddServic
 
 
 @pytest.mark.asyncio
-async def test_sources_api_add_url_uses_late_bound_facade_hooks() -> None:
-    core = MagicMock()
-    api = SourcesAPI(core, uploader=MagicMock())
+async def test_sources_api_add_url_uses_only_the_semantic_service() -> None:
+    api = _sources_api_with_mocked_adder()
+    _mock_url_service(api, SourceRecord(id="ready", title="Video"))
     api._extract_youtube_video_id = MagicMock(return_value="video")  # type: ignore[method-assign]
     api._add_youtube_source = AsyncMock(return_value=source_response("yt", "Video"))  # type: ignore[method-assign]
     api._add_url_source = AsyncMock()  # type: ignore[method-assign]
-    api.list = AsyncMock(return_value=[])  # type: ignore[method-assign]
-    api.wait_until_ready = AsyncMock(return_value=Source(id="ready"))  # type: ignore[method-assign]
 
     result = await api.add_url("nb_1", "https://youtu.be/video", wait=True, wait_timeout=3.0)
 
     assert result.id == "ready"
-    api._add_youtube_source.assert_awaited_once_with("nb_1", "https://youtu.be/video")
+    api._url_mutation_service.add_url.assert_awaited_once()
+    assert api._url_mutation_service.add_url.await_args.kwargs["wait"] is True
+    assert api._url_mutation_service.add_url.await_args.kwargs["wait_timeout"] == 3.0
+    assert api._url_mutation_service.add_url.await_args.kwargs["deadline"] is not None
+    api._add_youtube_source.assert_not_awaited()
     api._add_url_source.assert_not_awaited()
-    api.wait_until_ready.assert_awaited_once_with("nb_1", "src_yt", timeout=3.0)
 
 
 # ---------------------------------------------------------------------------
@@ -727,20 +735,32 @@ async def test_sources_api_add_url_uses_late_bound_facade_hooks() -> None:
 
 
 def _sources_api_with_mocked_adder() -> SourcesAPI:
-    api = SourcesAPI(MagicMock(), uploader=MagicMock())
+    api = SourcesAPI(MagicMock(), uploader=MagicMock(), _backend=MagicMock())
     api._adder = MagicMock()  # type: ignore[assignment]
     return api
+
+
+def _url_result(source: SourceRecord) -> SourceAddUrlResult:
+    return SourceAddUrlResult(
+        source,
+        SourceAddUrlReceipt(SourceAddCommitState.CREATED, SourceAddTitleState.NOT_REQUESTED),
+    )
+
+
+def _mock_url_service(api: SourcesAPI, source: SourceRecord) -> None:
+    api._url_mutation_service = MagicMock(  # type: ignore[assignment]
+        add_url=AsyncMock(return_value=_url_result(source))
+    )
 
 
 @pytest.mark.asyncio
 async def test_add_url_honors_title_via_post_add_rename() -> None:
     api = _sources_api_with_mocked_adder()
-    api._adder.add_url = AsyncMock(return_value=Source(id="src_yt", title="Upstream Video Title"))
-    api.rename = AsyncMock(return_value=Source(id="src_yt", title="My Title"))  # type: ignore[method-assign]
+    _mock_url_service(api, SourceRecord(id="src_yt", title="My Title"))
 
     result = await api.add_url("nb_1", "https://youtu.be/video", title="My Title")
 
-    api.rename.assert_awaited_once_with("nb_1", "src_yt", "My Title")
+    assert api._url_mutation_service.add_url.await_args.kwargs["requested_title"] == "My Title"
     assert result.id == "src_yt"
     assert result.title == "My Title"
 
@@ -760,12 +780,11 @@ async def test_add_drive_honors_title_via_post_add_rename() -> None:
 @pytest.mark.asyncio
 async def test_add_url_without_title_skips_rename() -> None:
     api = _sources_api_with_mocked_adder()
-    api._adder.add_url = AsyncMock(return_value=Source(id="s1", title="Upstream"))
-    api.rename = AsyncMock()  # type: ignore[method-assign]
+    _mock_url_service(api, SourceRecord(id="s1", title="Upstream"))
 
     result = await api.add_url("nb_1", "https://example.com")
 
-    api.rename.assert_not_awaited()
+    assert api._url_mutation_service.add_url.await_args.kwargs["requested_title"] is None
     assert result.title == "Upstream"
 
 
@@ -784,13 +803,14 @@ async def test_add_drive_empty_title_skips_rename() -> None:
 @pytest.mark.asyncio
 async def test_add_url_title_matching_upstream_skips_rename() -> None:
     api = _sources_api_with_mocked_adder()
-    api._adder.add_url = AsyncMock(return_value=Source(id="s1", title="Same Title"))
-    api.rename = AsyncMock()  # type: ignore[method-assign]
+    _mock_url_service(api, SourceRecord(id="s1", title="Same Title"))
 
     # A leading/trailing-whitespace-only difference is not a real retitle.
     result = await api.add_url("nb_1", "https://example.com", title="  Same Title  ")
 
-    api.rename.assert_not_awaited()
+    assert (
+        api._url_mutation_service.add_url.await_args.kwargs["requested_title"] == "  Same Title  "
+    )
     assert result.title == "Same Title"
 
 
@@ -816,10 +836,15 @@ async def test_add_url_honor_preserves_metadata_over_sparse_rename_echo() -> Non
     the added source's url/type and only swap in the new title, not return the bare echo
     (which would drop url → kind='unknown'). #1960."""
     api = _sources_api_with_mocked_adder()
-    added = Source(id="s1", title="Upstream Video Title", url="https://youtu.be/v", _type_code=5)
-    api._adder.add_url = AsyncMock(return_value=added)
-    # A sparse UPDATE_SOURCE echo: just id + the renamed title, no url/_type_code.
-    api.rename = AsyncMock(return_value=Source(id="s1", title="My Title"))  # type: ignore[method-assign]
+    _mock_url_service(
+        api,
+        SourceRecord(
+            id="s1",
+            title="My Title",
+            url="https://youtu.be/v",
+            kind="web_page",
+        ),
+    )
 
     result = await api.add_url("nb_1", "https://youtu.be/v", title="My Title")
 

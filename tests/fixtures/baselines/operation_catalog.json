@@ -3067,7 +3067,8 @@
       "disposition_reason": null,
       "execution_authorities": [
         "_source/upload.py:SourceUploadPipeline.rename",
-        "_sources.py:SourcesAPI.rename"
+        "_sources.py:SourcesAPI.rename",
+        "_web/backend.py:WebRpcBackend._source_add_url.rename_source"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -6439,7 +6440,7 @@
         {
           "binding": "UPDATE_SOURCE:<default>",
           "discriminator": "optional post-create title",
-          "site": "_sources.py:SourcesAPI.rename",
+          "site": "_web/backend.py:WebRpcBackend._source_add_url.rename_source",
           "transport_kind": "rpc"
         }
       ],

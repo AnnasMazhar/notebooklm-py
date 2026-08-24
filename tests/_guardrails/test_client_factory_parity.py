@@ -139,6 +139,14 @@ def test_shared_wiring_identities_hold_on_both_paths() -> None:
             getattr(getattr(client.sources, "_read_service", None), "_backend", _missing)
             is client._backend
         ), f"{label}: source reads must share the client-owned semantic backend"
+        assert (
+            getattr(
+                getattr(client.sources, "_url_mutation_service", None),
+                "_backend",
+                _missing,
+            )
+            is client._backend
+        ), f"{label}: URL source mutations must share the client-owned semantic backend"
         assert getattr(client._source_uploader, "_auth", _missing) is client._auth, (
             f"{label}: the upload pipeline (SourceUploadPipeline._auth) must alias "
             "the client-owned AuthTokens (ADR-0016 Auth Instance Invariant)"

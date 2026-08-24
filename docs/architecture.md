@@ -100,17 +100,17 @@ own sake. P0's catalog and contract evidence are implemented and frozen. P1 also
 private `WebRpcBackend` at the shared client-assembly seam and registers typed handlers for
 the P2.1 notebook/source reads and P2.2 notebook mutations. Both list/get slices and notebook
 create/update/delete now delegate through transport-neutral semantic services and that client-owned
-backend. The staged P2.3 core owns both ordinary-URL and hidden YouTube dispatch, exact pre-create
-reconciliation, and best-effort title mutation under one absolute deadline, but its public facade
-does not delegate yet. P3's first live codec routes GET_SOURCE structured documents through the
-strict web codec boundary. The remaining phase descriptions are sequencing decisions, not a claim
-that P2.3 or the rest of P3-P8 are complete. P9 public-surface work and a mobile backend require
+backend. P2.3 routes the complete public URL-source method through one handler that owns both
+ordinary-URL and hidden YouTube dispatch, exact pre-create reconciliation, and best-effort title
+mutation under one absolute deadline. P3's first live codec routes GET_SOURCE structured documents
+through the strict web codec boundary. The remaining phase descriptions are sequencing decisions,
+not a claim that the rest of P3-P8 are complete. P9 public-surface work and a mobile backend require
 separate decisions.
 
-The operation-catalog audit classifies three exact web sites as inert: two bounded RPC forwarders
-and the staged URL-source handler. The four notebook/source read handlers and three notebook-
-mutation handlers (including create's nested one-shot call) are active catalogued authorities.
-This bounded classification is mutation-tested and shrinks as later slices activate handlers.
+The operation-catalog audit classifies only the shared generic web RPC forwarder as inert. The four
+notebook/source read handlers, three notebook-mutation handlers (including create's nested one-shot
+call), and the URL-source composite are active catalogued authorities. This bounded classification
+is mutation-tested and shrinks as later slices activate handlers.
 
 P0 adds four ADR-0022 contract baselines before runtime delegation:
 
@@ -544,7 +544,7 @@ the executor on direct collaborator dependencies.
 | `_transport_errors` | [`_transport_errors.py`](../src/notebooklm/_transport_errors.py) | Owns transport-level exceptions, `Retry-After` parsing, and raw `Kernel.post` error mapping consumed by `RetryMiddleware` and `AuthRefreshMiddleware`. |
 | `_streaming_post` | [`_streaming_post.py`](../src/notebooklm/_streaming_post.py) | Low-level streaming POST helper with the response-size cap used by `Kernel.post`. |
 | `Kernel` | [`_kernel.py`](../src/notebooklm/_kernel.py) | Pure transport core. Owns the `httpx.AsyncClient` and cookie jar; exposes `post()`, the `cookies` property, and `aclose()` (the close path wraps it in `asyncio.shield` from `ClientLifecycle.close()`). Concrete class behind the `Kernel` Protocol in `_runtime/contracts.py`; constructed by `build_collaborators(...)` and called from the middleware leaf via `RuntimeTransport.terminal → Kernel.post`. |
-| `_runtime/init` | [`_runtime/init.py`](../src/notebooklm/_runtime/init.py) | Construction-time helpers for `NotebookLMClient`: `validate_constructor_args` (kwarg validation/normalization), `build_collaborators` (the seven collaborators in dependency order: `metrics`, `drain_tracker`, `reqid`, `auth_coord`, `kernel`, `lifecycle`, `cookie_persistence`), `build_runtime_transport`, `wire_middleware_chain`, and `compose_client_internals`. It binds the runtime graph into `ClientComposed` and returns `ClientInternals(collaborators, executor, web_transport_factory)`; P1 passes that already-resolved factory to the inert web backend without changing transport ownership. |
+| `_runtime/init` | [`_runtime/init.py`](../src/notebooklm/_runtime/init.py) | Construction-time helpers for `NotebookLMClient`: `validate_constructor_args` (kwarg validation/normalization), `build_collaborators` (the seven collaborators in dependency order: `metrics`, `drain_tracker`, `reqid`, `auth_coord`, `kernel`, `lifecycle`, `cookie_persistence`), `build_runtime_transport`, `wire_middleware_chain`, and `compose_client_internals`. It binds the runtime graph into `ClientComposed` and returns `ClientInternals(collaborators, executor, web_transport_factory)`; P1 passes that already-resolved factory to the private web backend without changing transport ownership. |
 | `_loop_affinity` | [`_loop_affinity.py`](../src/notebooklm/_loop_affinity.py) | Tiny free-function `assert_bound_loop(bound_loop)` shared by every helper that captures a loop reference at `open()` time (`TransportDrainTracker`, `ReqidCounter`, `AuthRefreshCoordinator`, `ArtifactPollingService`, `ChatAPI`). Enforces ADR-0004 without coupling those helpers to the public client. |
 
 ### Shipped runtime invariants
@@ -1038,7 +1038,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_deadline.py` | `RuntimeDeadline` helper shared by retry and polling loops so aggregate timeouts clamp sleep consistently |
 | `_backend_compat.py` | Private compatibility projector from closed semantic `BackendErrorReason` + safe diagnostics back to the existing public exception subclasses at migrated facade boundaries. |
 | `_backend.py` | Private protocol-neutral semantic port: backend kind/capabilities, typed `BackendAdapter.invoke`, and the minimal scrubbed error/deadline handoff used by the P2 slice. |
-| `_records.py` | Frozen, slotted, protocol-neutral input/output records and `OperationDef` values for the P2.1 notebook/source reads, P2.2 notebook mutations, and P2.3 URL-source mutation receipt. |
+| `_records.py` | Frozen, slotted, protocol-neutral input/output records and `OperationDef` values for the P2.1 notebook/source reads, P2.2 notebook mutations, and P2.3 URL-source mutation receipt plus closed serializable public-error compatibility evidence. |
 | `_backoff.py` | Shared capped exponential-backoff calculation with deterministic test injection |
 | `_reqid_counter.py` | `ReqidCounter` — monotonic `_reqid` for the chat backend |
 | `_runtime/auth.py` | `AuthRefreshCoordinator` — refresh task + auth-snapshot lock |
@@ -1049,10 +1049,10 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_operations.py` | Closed P0 semantic vocabulary: `Operation` / `CallPolicy` enums and frozen, slotted, typed `OperationDef`, consumed by the private P1 backend port and registries. |
 | `_projectors.py` | Shared P2.1 compatibility projectors from neutral notebook/source records to the existing public `Notebook` / `Source` models, using their normal constructors and no wire adapters. |
 | `_notebook_mutation_service.py` | Private P2.2 transport-neutral notebook create/title-update/delete service; validates semantic input and invokes only typed backend definitions. |
-| `_mutation_services.py` | Private P2.3 transport-neutral URL-source mutation service; carries the ordinary/YouTube request and uncertainty receipt through `BackendAdapter` without wire dependencies. |
+| `_mutation_services.py` | Private live P2.3 transport-neutral URL-source mutation service; carries the ordinary/YouTube request and uncertainty receipt through `BackendAdapter` without wire dependencies. |
 | `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
-| `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; seven active P2.1/P2.2 handlers plus the staged P2.3 URL-source composite reuse current payload/row adapters and return neutral records. |
-| `_web/registry.py` | Closed web disposition registry over every `Operation`: seven executable typed P2.1/P2.2 handlers, one explicitly staged P2.3 URL handler rejected by production dispatch, and an unsupported disposition for every other operation. |
+| `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; eight active P2.1/P2.2/P2.3 handlers reuse current payload/row adapters and return neutral records. |
+| `_web/registry.py` | Closed web disposition registry over every `Operation`: eight executable typed P2.1/P2.2/P2.3 handlers and an unsupported disposition for every other operation. |
 | `_web/codec/documents.py` | First live P3 codec boundary: decodes the GET_SOURCE document body through the strict document row adapter into the exported, transport-neutral `StructuredDocument` value exemption. It owns no backend invocation or HTTP/RPC dispatch; chat and citation callers remain deferred to P6. |
 | `scripts/audit_operation_catalog.py` | Single build/audit CLI for the deterministic ADR-0022 projection: exact semantic authorities, native bindings, public/root-client dispositions, evidence, omissions, and divergences. |
 | `scripts/_operation_catalog_specs.py` | Reviewed semantic operation specifications, owners/policies/routes, native/web bindings, public methods, and dispositions. |
@@ -1226,7 +1226,7 @@ src/notebooklm/
 ├── _operations.py               # Closed semantic operation/call-policy vocabulary (P0)
 ├── _projectors.py               # Neutral record-to-public Notebook/Source compatibility projectors (P2.1)
 ├── _notebook_mutation_service.py # Transport-neutral notebook mutation service (P2.2)
-├── _mutation_services.py        # Transport-neutral URL-source mutation core (P2.3, staged)
+├── _mutation_services.py        # Transport-neutral URL-source mutation service (P2.3, live)
 ├── _read_services.py            # Transport-neutral notebook/source list/get services (P2.1)
 ├── _records.py                  # Neutral P2.1/P2.2/P2.3 backend DTOs and operation definitions
 ├── _url_utils.py                # URL validation helpers
@@ -1238,8 +1238,8 @@ src/notebooklm/
 ├── _redact.py                   # Transport-neutral secret/home-path/file-link scrubber (redact(msg, max_length)); shared chokepoint under both mcp/_errors.py and server/_errors.py
 ├── _web/                        # Private web implementation of the semantic backend port
 │   ├── __init__.py              # Private WebRpcBackend re-export
-│   ├── backend.py               # RpcExecutor-backed P2.1/P2.2 handlers + staged P2.3 URL composite
-│   ├── registry.py              # Closed active/staged/unsupported web dispositions
+│   ├── backend.py               # RpcExecutor-backed P2.1/P2.2/P2.3 handlers
+│   ├── registry.py              # Closed active/unsupported web dispositions
 │   └── codec/                   # P3 web response codecs producing neutral records/value exemptions
 │       ├── __init__.py          # Private codec re-exports
 │       └── documents.py         # Tailwind document body -> exempt StructuredDocument value graph
