@@ -152,6 +152,34 @@ async def test_refresh_adapter_delegates_whole_transaction_without_join_when_una
 
 
 @pytest.mark.asyncio
+async def test_refresh_transaction_uses_provider_kernel_not_backend_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The provider adapter never substitutes the backend's private session."""
+    auth = _auth()
+    provider_kernel = cast(Any, object())
+    backend_kernel = cast(Any, object())
+
+    class _Coordinator:
+        has_refresh_callback = False
+
+    refresh = AsyncMock(return_value=auth)
+    monkeypatch.setattr(web_provider_refresh, "refresh_auth_session", refresh)
+    adapter = WebProviderRefresh(
+        auth=auth,
+        kernel=provider_kernel,
+        coordinator=cast(Any, _Coordinator()),
+        lifecycle=cast(Any, object()),
+        persistence=cast(Any, object()),
+    )
+
+    assert provider_kernel is not backend_kernel
+    assert await adapter.refresh() is auth
+    assert refresh.await_args.kwargs["kernel"] is provider_kernel
+    assert refresh.await_args.kwargs["kernel"] is not backend_kernel
+
+
+@pytest.mark.asyncio
 async def test_wider_refresh_returns_successful_base_flight_without_rerun(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
