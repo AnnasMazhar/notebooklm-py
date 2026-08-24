@@ -29,6 +29,7 @@ from notebooklm._notes import NotesAPI
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 from tests._fixtures.fake_core import FakeSession, make_fake_core
+from tests._fixtures.web_backend import build_web_backend
 from tests._guardrails._ast_reach_in import (
     _assignment_value,
     _call_keyword_value,
@@ -446,6 +447,7 @@ def _build_artifacts_with_real_mind_map_service(core: FakeSession) -> ArtifactsA
         notebooks=MagicMock(get_source_ids=AsyncMock(return_value=["src_1"])),
         mind_maps=mind_maps,
         note_service=note_service,
+        _backend=build_web_backend(core),
     )
 
 

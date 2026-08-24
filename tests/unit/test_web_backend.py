@@ -37,9 +37,12 @@ from notebooklm._notebook_payloads import (
 )
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._records import (
+    ARTIFACT_EXPORT_DEF,
     ARTIFACT_GENERATE_AUDIO_DEF,
+    ARTIFACT_GENERATE_DATA_TABLE_DEF,
     ARTIFACT_GENERATE_FLASHCARDS_DEF,
     ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
+    ARTIFACT_GENERATE_MIND_MAP_DEF,
     ARTIFACT_GENERATE_QUIZ_DEF,
     ARTIFACT_GENERATE_REPORT_DEF,
     ARTIFACT_GENERATE_SLIDE_DECK_DEF,
@@ -179,6 +182,9 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_GENERATE_VIDEO,
         Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
         Operation.ARTIFACT_GENERATE_SLIDE_DECK,
+        Operation.ARTIFACT_GENERATE_DATA_TABLE,
+        Operation.ARTIFACT_GENERATE_MIND_MAP,
+        Operation.ARTIFACT_EXPORT,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -207,6 +213,9 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_GENERATE_VIDEO: ARTIFACT_GENERATE_VIDEO_DEF,
         Operation.ARTIFACT_GENERATE_INFOGRAPHIC: ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
         Operation.ARTIFACT_GENERATE_SLIDE_DECK: ARTIFACT_GENERATE_SLIDE_DECK_DEF,
+        Operation.ARTIFACT_GENERATE_DATA_TABLE: ARTIFACT_GENERATE_DATA_TABLE_DEF,
+        Operation.ARTIFACT_GENERATE_MIND_MAP: ARTIFACT_GENERATE_MIND_MAP_DEF,
+        Operation.ARTIFACT_EXPORT: ARTIFACT_EXPORT_DEF,
     }
     assert all(
         binding.unsupported_reason
@@ -1492,6 +1501,7 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
         }[translated.reason]
     )
     assert set(BackendErrorReason) == {
+        BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
         BackendErrorReason.AUTH,
         BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
         BackendErrorReason.CLIENT,

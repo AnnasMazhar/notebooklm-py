@@ -213,6 +213,39 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
             ),
             known_divergence=_APP_GENERATION_DIVERGENCE,
         ),
+        Operation.ARTIFACT_GENERATE_DATA_TABLE: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "optional source-set read"),
+                _native(RPCMethod.CREATE_ARTIFACT, _PROBE_CREATE, "data-table kickoff"),
+            ),
+            known_divergence=_APP_GENERATION_DIVERGENCE,
+        ),
+        Operation.ARTIFACT_GENERATE_MIND_MAP: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "optional source-set read"),
+                _native(RPCMethod.GENERATE_MIND_MAP, _PROBE_CREATE, "mind-map tree generation"),
+                _native(
+                    RPCMethod.CREATE_NOTE,
+                    _NO_RETRY,
+                    "non-idempotent note allocation",
+                    variant="plain",
+                ),
+                _native(RPCMethod.UPDATE_NOTE, _IDEMPOTENT, "persist tree and title"),
+                _native(RPCMethod.DELETE_NOTE, _IDEMPOTENT, "cancelled create cleanup"),
+            ),
+        ),
+        Operation.ARTIFACT_EXPORT: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(
+                    RPCMethod.EXPORT_ARTIFACT,
+                    _NO_RETRY,
+                    "explicit Google Drive companion export",
+                ),
+            ),
+        ),
         Operation.NOTE_LIST: WebCallPolicyBinding(
             CallPolicy.READ,
             (

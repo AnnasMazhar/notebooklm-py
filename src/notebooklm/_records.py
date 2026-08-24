@@ -715,6 +715,60 @@ class ReportMetadataRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class DataTableGenerateInput:
+    """Data-table generation options without web payload vocabulary."""
+
+    notebook_id: str
+    source_ids: tuple[str, ...] | None = None
+    language: str | None = "en"
+    instructions: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class DataTableGenerateResult:
+    """Data-table generation kickoff result."""
+
+    status: GenerationStatusRecord
+
+
+@dataclass(frozen=True, slots=True)
+class MindMapGenerateInput:
+    """Note-backed mind-map generation options."""
+
+    notebook_id: str
+    source_ids: tuple[str, ...] | None = None
+    language: str | None = "en"
+    instructions: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class MindMapGenerateResult:
+    """Generated mind-map tree plus its persisted note identity."""
+
+    mind_map: object | None = field(default=None, repr=False)
+    note_id: str | None = None
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DriveExportInput:
+    """One explicit web companion export to Google Drive."""
+
+    notebook_id: str
+    artifact_id: str | None = None
+    content: str | None = field(default=None, repr=False)
+    title: str = "Export"
+    destination: str = "docs"
+
+
+@dataclass(frozen=True, slots=True)
+class DriveExportResult:
+    """Opaque decoded export response preserved for facade compatibility."""
+
+    value: object = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
 class InfographicGenerateInput:
     """Infographic options without web enum or payload vocabulary."""
 
@@ -810,6 +864,28 @@ ARTIFACT_GET_DEF: OperationDef[ArtifactGetInput, ArtifactGetResult] = OperationD
     CallPolicy.READ,
     ArtifactGetInput,
     ArtifactGetResult,
+)
+ARTIFACT_GENERATE_DATA_TABLE_DEF: OperationDef[DataTableGenerateInput, DataTableGenerateResult] = (
+    OperationDef(
+        Operation.ARTIFACT_GENERATE_DATA_TABLE,
+        CallPolicy.STATEFUL_START,
+        DataTableGenerateInput,
+        DataTableGenerateResult,
+    )
+)
+ARTIFACT_GENERATE_MIND_MAP_DEF: OperationDef[MindMapGenerateInput, MindMapGenerateResult] = (
+    OperationDef(
+        Operation.ARTIFACT_GENERATE_MIND_MAP,
+        CallPolicy.STATEFUL_START,
+        MindMapGenerateInput,
+        MindMapGenerateResult,
+    )
+)
+ARTIFACT_EXPORT_DEF: OperationDef[DriveExportInput, DriveExportResult] = OperationDef(
+    Operation.ARTIFACT_EXPORT,
+    CallPolicy.MUTATION,
+    DriveExportInput,
+    DriveExportResult,
 )
 ARTIFACT_GENERATE_AUDIO_DEF: OperationDef[AudioGenerateInput, AudioGenerateResult] = OperationDef(
     Operation.ARTIFACT_GENERATE_AUDIO,
@@ -908,10 +984,13 @@ NOTE_DELETE_DEF: OperationDef[NoteDeleteInput, NoteDeleteResult] = OperationDef(
 
 
 __all__ = [
+    "ARTIFACT_EXPORT_DEF",
     "ARTIFACT_GET_DEF",
+    "ARTIFACT_GENERATE_DATA_TABLE_DEF",
     "ARTIFACT_GENERATE_AUDIO_DEF",
     "ARTIFACT_GENERATE_FLASHCARDS_DEF",
     "ARTIFACT_GENERATE_INFOGRAPHIC_DEF",
+    "ARTIFACT_GENERATE_MIND_MAP_DEF",
     "ARTIFACT_GENERATE_QUIZ_DEF",
     "ARTIFACT_GENERATE_REPORT_DEF",
     "ARTIFACT_GENERATE_SLIDE_DECK_DEF",
@@ -939,6 +1018,10 @@ __all__ = [
     "ArtifactRecord",
     "ArtifactSlideRecord",
     "ArtifactUserStateRecord",
+    "DataTableGenerateInput",
+    "DataTableGenerateResult",
+    "DriveExportInput",
+    "DriveExportResult",
     "AudioGenerateInput",
     "AudioGenerateResult",
     "AudioMetadataRecord",
@@ -964,6 +1047,8 @@ __all__ = [
     "NotebookDescriptionRecord",
     "NotebookUpdateInput",
     "NotebookUpdateResult",
+    "MindMapGenerateInput",
+    "MindMapGenerateResult",
     "NoteCreateInput",
     "NoteCreateResult",
     "NoteDeleteInput",

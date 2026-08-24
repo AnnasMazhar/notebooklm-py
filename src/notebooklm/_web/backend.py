@@ -17,6 +17,7 @@ import logging
 import reprlib
 import time
 from collections.abc import Callable
+from datetime import datetime
 from types import MappingProxyType
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -89,7 +90,9 @@ from .._records import (
     SourceListResult,
     SourceRecord,
 )
-from .._row_adapters.artifacts import unwrap_artifact_rows
+from .._row_adapters.artifacts import (
+    unwrap_artifact_rows,
+)
 from .._rpc_executor import RpcExecutor
 from .._settings import build_get_user_settings_params, extract_account_limits
 from .._source.add import SourceAddService, honor_requested_title_if_fresh
@@ -130,7 +133,7 @@ from .codec.notebooks import decode_notebook
 from .codec.notes import decode_created_note, decode_note, decode_notes
 from .codec.sources import decode_source
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
-from .studio_media import StudioMediaWebHandlers
+from .studio_data import StudioDataWebHandlers
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
 source_logger = logging.getLogger("notebooklm").getChild("_sources")
@@ -435,7 +438,7 @@ class _DeadlineRpcCaller:
         raise timeout_error
 
 
-class WebRpcBackend(StudioMediaWebHandlers):
+class WebRpcBackend(StudioDataWebHandlers):
     """Typed semantic binding over the existing shared :class:`RpcExecutor`."""
 
     def __init__(
@@ -1024,6 +1027,23 @@ class WebRpcBackend(StudioMediaWebHandlers):
         return ArtifactGetResult(
             artifact=next((item for item in records if item.id == value.artifact_id), None)
         )
+
+    async def _persist_generated_mind_map(
+        self,
+        notebook_id: str,
+        *,
+        title: str,
+        content: str,
+        operation: Operation,
+        deadline: RuntimeDeadline | None,
+    ) -> tuple[str | None, datetime | None]:
+        caller = _DeadlineRpcCaller(self, deadline, operation)
+        note = await LegacyNoteBackedService(cast(Any, caller)).create_note(
+            notebook_id,
+            title=title,
+            content=content,
+        )
+        return note.id or None, note.created_at
 
     async def _source_get(
         self,

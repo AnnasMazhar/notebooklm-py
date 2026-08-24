@@ -30,8 +30,11 @@ from ._polling_registry import PollRegistry
 from ._projectors import project_artifact, project_generation_status, project_report_suggestion
 from ._records import (
     AudioGenerateInput,
+    DataTableGenerateInput,
+    DriveExportInput,
     InfographicGenerateInput,
     InteractiveGenerateInput,
+    MindMapGenerateInput,
     ReportGenerateInput,
     SlideDeckGenerateInput,
     VideoGenerateInput,
@@ -40,8 +43,11 @@ from ._row_adapters import artifacts as _artifact_rows
 from ._runtime.contracts import RpcCaller
 from ._studio import (
     AudioFamilyService,
+    DataTableFamilyService,
     DocumentOptionError,
+    DriveExportService,
     InteractiveFamilyService,
+    MindMapFamilyService,
     ReportFamilyService,
     StudioCatalog,
     VideoFamilyService,
@@ -164,6 +170,17 @@ class ArtifactsAPI:
         self._mind_maps = mind_maps
         self._note_service = note_service
         self._catalog = StudioCatalog(_backend) if _backend is not None else None
+        self._data_tables = (
+            DataTableFamilyService(_backend, self._catalog)
+            if _backend is not None and self._catalog is not None
+            else None
+        )
+        self._mind_map_family = (
+            MindMapFamilyService(_backend, self._catalog)
+            if _backend is not None and self._catalog is not None
+            else None
+        )
+        self._drive_exports = DriveExportService(_backend) if _backend is not None else None
         self._audio = (
             AudioFamilyService(_backend, self._catalog)
             if _backend is not None and self._catalog is not None
@@ -385,7 +402,14 @@ class ArtifactsAPI:
 
     async def list_data_tables(self, notebook_id: str) -> builtins.list[Artifact]:
         """List data table artifacts."""
-        return await self.list(notebook_id, ArtifactType.DATA_TABLE)
+        if self._data_tables is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            return [
+                project_artifact(record) for record in await self._data_tables.list(notebook_id)
+            ]
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     # =========================================================================
     # Generate Operations
@@ -681,12 +705,20 @@ class ArtifactsAPI:
         instructions: str | None = None,
     ) -> GenerationStatus:
         """Generate a data table."""
-        return await self._generation.generate_data_table(
-            notebook_id,
-            source_ids=source_ids,
-            language=language,
-            instructions=instructions,
-        )
+        if self._data_tables is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            result = await self._data_tables.generate(
+                DataTableGenerateInput(
+                    notebook_id,
+                    None if source_ids is None else tuple(source_ids),
+                    language,
+                    instructions,
+                )
+            )
+            return project_generation_status(result.status)
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def generate_mind_map(
         self,
@@ -701,12 +733,20 @@ class ArtifactsAPI:
         ``mind_map`` (parsed structure, or ``None`` on an empty response) and
         ``note_id`` (the persisted note id, or ``None``).
         """
-        return await self._generation.generate_mind_map(
-            notebook_id,
-            source_ids=source_ids,
-            language=language,
-            instructions=instructions,
-        )
+        if self._mind_map_family is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            result = await self._mind_map_family.generate(
+                MindMapGenerateInput(
+                    notebook_id,
+                    None if source_ids is None else tuple(source_ids),
+                    language,
+                    instructions,
+                )
+            )
+            return MindMapResult(result.mind_map, result.note_id, result.created_at)
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     # =========================================================================
     # Download Operations
@@ -1048,12 +1088,11 @@ class ArtifactsAPI:
         export_type: ExportType = ExportType.DOCS,
     ) -> Any:
         """Export a report to Google Docs (``export_type`` selects DOCS/SHEETS)."""
-        params = [None, artifact_id, None, title, int(export_type)]
-        return await self._rpc.rpc_call(
-            RPCMethod.EXPORT_ARTIFACT,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
+        return await self._export_to_drive(
+            notebook_id,
+            artifact_id=artifact_id,
+            title=title,
+            export_type=export_type,
         )
 
     async def export_data_table(
@@ -1063,12 +1102,11 @@ class ArtifactsAPI:
         title: str = "Export",
     ) -> Any:
         """Export a data table to Google Sheets."""
-        params = [None, artifact_id, None, title, int(ExportType.SHEETS)]
-        return await self._rpc.rpc_call(
-            RPCMethod.EXPORT_ARTIFACT,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
+        return await self._export_to_drive(
+            notebook_id,
+            artifact_id=artifact_id,
+            title=title,
+            export_type=ExportType.SHEETS,
         )
 
     async def export(
@@ -1082,13 +1120,39 @@ class ArtifactsAPI:
     ) -> Any:
         """Export any artifact to Drive; exactly one of ``artifact_id=``/``content=`` (``export_type`` picks Docs/Sheets)."""
         _artifact_validation.check_exactly_one_export_target(artifact_id, content)
-        params = [None, artifact_id, content, title, int(export_type)]
-        return await self._rpc.rpc_call(
-            RPCMethod.EXPORT_ARTIFACT,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
+        return await self._export_to_drive(
+            notebook_id,
+            artifact_id=artifact_id,
+            content=content,
+            title=title,
+            export_type=export_type,
         )
+
+    async def _export_to_drive(
+        self,
+        notebook_id: str,
+        *,
+        artifact_id: str | None,
+        title: str,
+        export_type: ExportType,
+        content: str | None = None,
+    ) -> Any:
+        if self._drive_exports is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        destination = "sheets" if int(export_type) == int(ExportType.SHEETS) else "docs"
+        try:
+            result = await self._drive_exports.export(
+                DriveExportInput(
+                    notebook_id=notebook_id,
+                    artifact_id=artifact_id,
+                    content=content,
+                    title=title,
+                    destination=destination,
+                )
+            )
+            return result.value
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     # =========================================================================
     # Suggestions

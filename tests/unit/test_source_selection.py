@@ -1025,19 +1025,30 @@ class TestArtifactsSourceSelection:
             **mock_mind_map_service,
         )
 
-        # Mock get_source_ids to return source IDs
-        mock_notebooks_api.get_source_ids.return_value = ["src_mm_1", "src_mm_2"]
+        async def mind_map_rpc(method, params, **kwargs):
+            del params, kwargs
+            if method.name == "GET_NOTEBOOK":
+                return [["nb_123", [[["src_mm_1"]], [["src_mm_2"]]]]]
+            if method.name == "GENERATE_MIND_MAP":
+                return [['{"name": "Mind Map", "children": []}']]
+            if method.name == "CREATE_NOTE":
+                return [["note-mm"]]
+            return None
 
-        # Mock the mind map generation RPC call
-        mock_core.rpc_executor.rpc_call.return_value = [['{"name": "Mind Map", "children": []}']]
+        mock_core.rpc_executor.rpc_call.side_effect = mind_map_rpc
 
         await api.generate_mind_map(
             notebook_id="nb_123",
             source_ids=None,  # Will fetch sources
         )
 
-        # Verify get_source_ids was called
-        mock_notebooks_api.get_source_ids.assert_called_once_with("nb_123")
+        assert (
+            sum(
+                call.args[0].name == "GET_NOTEBOOK"
+                for call in mock_core.rpc_executor.rpc_call.call_args_list
+            )
+            == 1
+        )
 
         # After the mind-map relocation, ``generate_mind_map`` also drives the CREATE_NOTE +
         # UPDATE_NOTE calls itself (previously delegated to NotesAPI), so

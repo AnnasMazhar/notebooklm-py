@@ -16,9 +16,12 @@ from typing import Any, Final
 
 from .._operations import Operation, OperationDef
 from .._records import (
+    ARTIFACT_EXPORT_DEF,
     ARTIFACT_GENERATE_AUDIO_DEF,
+    ARTIFACT_GENERATE_DATA_TABLE_DEF,
     ARTIFACT_GENERATE_FLASHCARDS_DEF,
     ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
+    ARTIFACT_GENERATE_MIND_MAP_DEF,
     ARTIFACT_GENERATE_QUIZ_DEF,
     ARTIFACT_GENERATE_REPORT_DEF,
     ARTIFACT_GENERATE_SLIDE_DECK_DEF,
@@ -93,6 +96,9 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.ARTIFACT_GENERATE_VIDEO: ARTIFACT_GENERATE_VIDEO_DEF,
         Operation.ARTIFACT_GENERATE_INFOGRAPHIC: ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
         Operation.ARTIFACT_GENERATE_SLIDE_DECK: ARTIFACT_GENERATE_SLIDE_DECK_DEF,
+        Operation.ARTIFACT_GENERATE_DATA_TABLE: ARTIFACT_GENERATE_DATA_TABLE_DEF,
+        Operation.ARTIFACT_GENERATE_MIND_MAP: ARTIFACT_GENERATE_MIND_MAP_DEF,
+        Operation.ARTIFACT_EXPORT: ARTIFACT_EXPORT_DEF,
     }
 )
 
@@ -120,6 +126,9 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.ARTIFACT_GENERATE_VIDEO: "_video_generate",
         Operation.ARTIFACT_GENERATE_INFOGRAPHIC: "_infographic_generate",
         Operation.ARTIFACT_GENERATE_SLIDE_DECK: "_slide_deck_generate",
+        Operation.ARTIFACT_GENERATE_DATA_TABLE: "_data_table_generate",
+        Operation.ARTIFACT_GENERATE_MIND_MAP: "_mind_map_generate",
+        Operation.ARTIFACT_EXPORT: "_artifact_export",
     }
 )
 
@@ -131,7 +140,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 22
+_EXPECTED_SUPPORTED_COUNT: Final = 25
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

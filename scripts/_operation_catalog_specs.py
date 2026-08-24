@@ -442,6 +442,8 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         (
             _b(RPCMethod.GENERATE_MIND_MAP),
             _b(RPCMethod.CREATE_NOTE, "plain"),
+            _b(RPCMethod.UPDATE_NOTE),
+            _b(RPCMethod.DELETE_NOTE),
             _b(RPCMethod.GET_NOTEBOOK),
         ),
         disposition=Disposition.COMPOSITE,
@@ -488,7 +490,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.ARTIFACT_EXPORT,
         CallPolicy.MUTATION,
-        "StudioCatalog",
+        "DriveExportService",
         "notebook+artifact",
         "Exports report/data-table representations to the supported Drive destination.",
         _p("artifacts", "export", "export_report", "export_data_table"),

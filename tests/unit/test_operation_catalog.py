@@ -239,6 +239,7 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
         "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
         "_web/backend.py:WebRpcBackend._source_list",
+        "_web/studio_data.py:StudioDataWebHandlers._data_source_ids",
         "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids",
         "_web/studio_media.py:StudioMediaWebHandlers._audio_generate",
         "_web/studio_media.py:StudioMediaWebHandlers._interactive_generate",
@@ -594,9 +595,18 @@ def test_operation_authorities_are_exact_discriminated_and_include_non_rpc_paths
     note_backed = rows["artifact.generate_mind_map"]
     assert note_backed["native_bindings"] == [
         "CREATE_NOTE:plain",
+        "DELETE_NOTE:<default>",
         "GENERATE_MIND_MAP:<default>",
         "GET_NOTEBOOK:<default>",
+        "UPDATE_NOTE:<default>",
     ]
+    assert {row["site"] for row in note_backed["execution_authorities"]} == {
+        "_note_service.py:LegacyNoteBackedService.create_note",
+        "_note_service.py:LegacyNoteBackedService.delete_note",
+        "_note_service.py:LegacyNoteBackedService.update_note",
+        "_web/studio_data.py:StudioDataWebHandlers._data_source_ids",
+        "_web/studio_data.py:StudioDataWebHandlers._mind_map_generate",
+    }
     assert "CREATE_ARTIFACT:<default>" not in note_backed["native_bindings"]
     assert {row["transport_kind"] for row in rows["chat.ask"]["execution_authorities"]} >= {
         "rpc",

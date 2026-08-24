@@ -846,6 +846,12 @@ async def test_drive_export_operations_and_targets() -> None:
         [None, "art-report", None, "Quarterly Report", 1],
         source_path="/notebook/nb-1",
         allow_null=True,
+        _is_retry=False,
+        disable_internal_retries=False,
+        operation_variant=None,
+        read_timeout=None,
+        raise_on_null_status=False,
+        _retry_deadline=None,
     )
 
     # 2. export_data_table targets SHEETS (code 2)
@@ -856,6 +862,12 @@ async def test_drive_export_operations_and_targets() -> None:
         [None, "art-table", None, "Quarterly Table", 2],
         source_path="/notebook/nb-1",
         allow_null=True,
+        _is_retry=False,
+        disable_internal_retries=False,
+        operation_variant=None,
+        read_timeout=None,
+        raise_on_null_status=False,
+        _retry_deadline=None,
     )
 
     # 3. export() with artifact_id
@@ -866,6 +878,12 @@ async def test_drive_export_operations_and_targets() -> None:
         [None, "art-1", None, "Export Title", 1],
         source_path="/notebook/nb-1",
         allow_null=True,
+        _is_retry=False,
+        disable_internal_retries=False,
+        operation_variant=None,
+        read_timeout=None,
+        raise_on_null_status=False,
+        _retry_deadline=None,
     )
 
     # 4. export() with raw content
@@ -878,6 +896,12 @@ async def test_drive_export_operations_and_targets() -> None:
         [None, None, "# Markdown content", "Custom Export", 1],
         source_path="/notebook/nb-1",
         allow_null=True,
+        _is_retry=False,
+        disable_internal_retries=False,
+        operation_variant=None,
+        read_timeout=None,
+        raise_on_null_status=False,
+        _retry_deadline=None,
     )
 
     # 5. export() validation: exactly one target required
