@@ -85,6 +85,35 @@ class _FakePage:
         self.url = outcome
 
 
+class _ClockedPage:
+    """Page whose failures consume a scripted amount of *fake* time.
+
+    The streak logic is wall-clock dependent, so testing it with real sleeps is
+    both slow and flaky (a GC pause or a contended CI runner silently changes
+    the outcome). Here the page owns the clock: each scripted entry is
+    ``(elapsed_seconds, outcome)``, and ``monotonic`` is patched to read it.
+    """
+
+    def __init__(self, script: list[Any], *, url: str = SIGNING_IN) -> None:
+        self._script = list(script)
+        self.url = url
+        self.now = 1000.0
+        self.timeouts: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def wait_for_url(self, _matcher: Any, *, wait_until: str, timeout: float) -> None:
+        self.timeouts.append(timeout)
+        if not self._script:
+            raise AssertionError("wait_for_url called more times than the test scripted")
+        elapsed, outcome = self._script.pop(0)
+        self.now += elapsed
+        if isinstance(outcome, BaseException):
+            raise outcome
+        self.url = outcome
+
+
 class _RecordingIO:
     """Captures the user-facing emissions without a Rich console.
 
@@ -227,6 +256,9 @@ def test_beforeunload_cancellation_is_tolerated_by_the_wait() -> None:
 def test_clean_landing_tolerates_nothing() -> None:
     page = _FakePage([LANDED])
     assert wait_for_login_landing(page, timeout_s=300) == 0
+    # The caller's timeout reaches Playwright verbatim on the fast path —
+    # ``--browser-timeout 420`` must arrive as 420_000, not clock noise.
+    assert page.timeouts == [300 * 1000]
 
 
 def test_failed_navigation_is_tolerated_and_the_wait_resumes() -> None:
@@ -322,7 +354,9 @@ def test_the_budget_shrinks_and_is_never_restarted() -> None:
     assert all(t <= 300 * 1000 for t in page.timeouts)
 
 
-def test_a_page_failing_in_a_loop_is_bounded_not_spun_on() -> None:
+def test_a_page_failing_in_a_loop_is_bounded_not_spun_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A page that fails INSTANTLY defeats the deadline as a bound.
 
     ``wait_for_url`` blocks between real navigations, so it is tempting to
@@ -332,7 +366,13 @@ def test_a_page_failing_in_a_loop_is_bounded_not_spun_on() -> None:
     """
     from playwright.sync_api import Error as PlaywrightError
 
-    page = _FakePage([_playwright_error(ABORTED)] * 500)
+    # Fake clock, not real elapsed time: a GC pause or a contended CI runner
+    # would otherwise reset the streak, drain the script, and fail with an
+    # AssertionError that ``pytest.raises(PlaywrightError)`` does not catch.
+    err = _playwright_error(ABORTED)
+    instant = INSTANT_FAILURE_SECONDS / 10
+    page = _ClockedPage([(instant, err)] * 500)
+    monkeypatch.setattr("time.monotonic", page.monotonic)
     with pytest.raises(PlaywrightError, match="ERR_ABORTED"):
         wait_for_login_landing(page, timeout_s=300)
     assert len(page.timeouts) == MAX_TOLERATED_NAVIGATION_FAILURES + 1
@@ -347,7 +387,10 @@ def test_giving_up_explains_itself_before_re_raising() -> None:
     """
     from playwright.sync_api import Error as PlaywrightError
 
-    page = _FakePage([_playwright_error("net::ERR_NAME_NOT_RESOLVED")] * 500)
+    # URL-BEARING on purpose: with a bare code the "no URL" assertion below is a
+    # tautology that would pass even if the raw exception were interpolated.
+    leaky = "net::ERR_NAME_NOT_RESOLVED at https://idp.example.com/sso/SAMLResponse/PAYLOAD"
+    page = _FakePage([_playwright_error(leaky)] * 500)
     io = _RecordingIO()
     with pytest.raises(PlaywrightError):
         wait_for_login_landing(page, timeout_s=300, io=io)
@@ -356,11 +399,13 @@ def test_giving_up_explains_itself_before_re_raising() -> None:
     guidance = next(m for m in io.messages if "could not complete a navigation" in m)
     assert "net::ERR_NAME_NOT_RESOLVED" in guidance
     assert "--browser-cookies" in guidance
-    # No URL material, same rule as the DEBUG trace.
-    assert "http" not in guidance
+    for leaked in ("http", "idp.example.com", "SAMLResponse", "PAYLOAD"):
+        assert leaked not in guidance
 
 
-def test_slow_failures_reset_the_streak_and_never_trip_the_cap() -> None:
+def test_slow_failures_reset_the_streak_and_never_trip_the_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The cap counts CONSECUTIVE IMMEDIATE failures, not failures overall.
 
     A cumulative counter would abort a long, flaky-but-honest sign-in: with
@@ -368,25 +413,55 @@ def test_slow_failures_reset_the_streak_and_never_trip_the_cap() -> None:
     login the human was still completing — the exact class of bug this whole
     function exists to fix. Only a page failing with no delay is pathological.
     """
-    import time as _time
+    err = _playwright_error(ABORTED)
+    slow = INSTANT_FAILURE_SECONDS * 1.4
+    count = MAX_TOLERATED_NAVIGATION_FAILURES + 5
+    page = _ClockedPage([(slow, err)] * count + [(0.0, LANDED)])
+    monkeypatch.setattr("time.monotonic", page.monotonic)
+    assert wait_for_login_landing(page, timeout_s=300) == count, (
+        "slow failures must not trip the cap"
+    )
 
-    slow = _playwright_error(ABORTED)
-    calls = {"n": 0}
 
-    class _SlowFailingPage(_FakePage):
-        def wait_for_url(self, _matcher: Any, *, wait_until: str, timeout: float) -> None:
-            self.timeouts.append(timeout)
-            calls["n"] += 1
-            if calls["n"] > MAX_TOLERATED_NAVIGATION_FAILURES + 5:
-                self.url = LANDED
-                return
-            # Each failure takes real time, so the page is pacing us.
-            _time.sleep(INSTANT_FAILURE_SECONDS * 1.4)
-            raise slow
+def test_one_slow_failure_resets_an_accumulated_streak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The RESET branch, which no other test makes load-bearing.
 
-    page = _SlowFailingPage([])
+    ``test_slow_failures_reset_the_streak_and_never_trip_the_cap`` only proves
+    slow failures do not INCREMENT — its streak never leaves zero, so deleting
+    ``instant_failures = 0`` passes it. This interleaves: 20 immediate failures,
+    one slow one, then 20 more immediate. Cumulative count is 41, far past the
+    cap; with the reset intact none of it trips, because the streak never
+    exceeds 20.
+    """
+    err = _playwright_error(ABORTED)
+    instant = INSTANT_FAILURE_SECONDS / 10
+    slow = INSTANT_FAILURE_SECONDS * 2
+    script: list[Any] = [(instant, err)] * MAX_TOLERATED_NAVIGATION_FAILURES
+    script += [(slow, err)]
+    script += [(instant, err)] * MAX_TOLERATED_NAVIGATION_FAILURES
+    script += [(0.0, LANDED)]
+
+    page = _ClockedPage(script)
+    monkeypatch.setattr("time.monotonic", page.monotonic)
     tolerated = wait_for_login_landing(page, timeout_s=300)
-    assert tolerated == MAX_TOLERATED_NAVIGATION_FAILURES + 5, "slow failures must not trip the cap"
+    assert tolerated == 2 * MAX_TOLERATED_NAVIGATION_FAILURES + 1
+
+
+def test_the_streak_trips_only_on_uninterrupted_immediate_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half: an unbroken run of immediate failures still gives up."""
+    from playwright.sync_api import Error as PlaywrightError
+
+    err = _playwright_error(ABORTED)
+    instant = INSTANT_FAILURE_SECONDS / 10
+    page = _ClockedPage([(instant, err)] * (MAX_TOLERATED_NAVIGATION_FAILURES + 5))
+    monkeypatch.setattr("time.monotonic", page.monotonic)
+    with pytest.raises(PlaywrightError):
+        wait_for_login_landing(page, timeout_s=300)
+    assert len(page.timeouts) == MAX_TOLERATED_NAVIGATION_FAILURES + 1
 
 
 def test_landing_at_the_buzzer_beats_the_timeout() -> None:
