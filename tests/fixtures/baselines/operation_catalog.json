@@ -366,6 +366,72 @@
         }
       ]
     },
+    "sharing.get": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "sharing status read",
+          "rpc_method": "GET_SHARE_STATUS",
+          "variant": null
+        }
+      ]
+    },
+    "sharing.set_public": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "probe_then_create",
+          "role": "guarded link mutation",
+          "rpc_method": "SHARE_NOTEBOOK",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "post-mutation read",
+          "rpc_method": "GET_SHARE_STATUS",
+          "variant": null
+        }
+      ]
+    },
+    "sharing.set_view_level": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "viewer-scope set-op",
+          "rpc_method": "RENAME_NOTEBOOK",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "post-mutation read",
+          "rpc_method": "GET_SHARE_STATUS",
+          "variant": null
+        }
+      ]
+    },
+    "sharing.update_users": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "probe_then_create",
+          "role": "guarded ACL mutation",
+          "rpc_method": "SHARE_NOTEBOOK",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "post-mutation read",
+          "rpc_method": "GET_SHARE_STATUS",
+          "variant": null
+        }
+      ]
+    },
     "source.add_url": {
       "call_policy": "mutation",
       "known_divergence": null,

@@ -396,7 +396,7 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             SHARING_SET_PUBLIC_DEF,
             [(RPCMethod.SHARE_NOTEBOOK, None), (RPCMethod.GET_SHARE_STATUS, None)],
             [
-                IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY,
+                IdempotencyPolicy.PROBE_THEN_CREATE,
                 IdempotencyPolicy.IDEMPOTENT_SET_OP,
             ],
         ),
@@ -412,7 +412,7 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             SHARING_UPDATE_USERS_DEF,
             [(RPCMethod.SHARE_NOTEBOOK, None), (RPCMethod.GET_SHARE_STATUS, None)],
             [
-                IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY,
+                IdempotencyPolicy.PROBE_THEN_CREATE,
                 IdempotencyPolicy.IDEMPOTENT_SET_OP,
             ],
         ),

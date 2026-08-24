@@ -246,11 +246,7 @@ def decode_share_status(
     return ShareStatusRecord(
         notebook_id=notebook_id,
         is_public=is_public,
-        access=(
-            ShareAccessLevel.ANYONE_WITH_LINK
-            if is_public
-            else ShareAccessLevel.RESTRICTED
-        ),
+        access=(ShareAccessLevel.ANYONE_WITH_LINK if is_public else ShareAccessLevel.RESTRICTED),
         view_level=view_level or ShareViewScope.FULL_NOTEBOOK,
         shared_users=users,
         max_individuals_share_limit=limit,
