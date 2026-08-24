@@ -17,6 +17,7 @@ from notebooklm.rpc import RPCMethod
 from notebooklm.types import AccountLimits, PromptSuggestion, ReportSuggestion, UserSettings
 from tests._fixtures.fake_core import make_fake_core
 from tests._fixtures.web_backend import build_web_backend
+from tests._helpers.signature_inspection import signature_parameters
 
 
 def test_p66_public_method_signatures_are_frozen() -> None:
@@ -25,21 +26,19 @@ def test_p66_public_method_signatures_are_frozen() -> None:
         SettingsAPI.get_output_language,
         SettingsAPI.get_account_limits,
     )
-    assert all(
-        list(inspect.signature(method).parameters) == ["self"] for method in settings_methods
-    )
-    assert list(inspect.signature(SettingsAPI.set_output_language).parameters) == [
+    assert all(list(signature_parameters(method)) == ["self"] for method in settings_methods)
+    assert list(signature_parameters(SettingsAPI.set_output_language)) == [
         "self",
         "language",
     ]
 
-    prompt = inspect.signature(NotebooksAPI.suggest_prompts).parameters
+    prompt = signature_parameters(NotebooksAPI.suggest_prompts)
     assert list(prompt) == ["self", "notebook_id", "source_ids", "mode", "query"]
     assert prompt["source_ids"].kind is inspect.Parameter.KEYWORD_ONLY
     assert prompt["source_ids"].default is None
     assert prompt["mode"].default == 4
     assert prompt["query"].default is None
-    assert list(inspect.signature(ArtifactsAPI.suggest_reports).parameters) == [
+    assert list(signature_parameters(ArtifactsAPI.suggest_reports)) == [
         "self",
         "notebook_id",
     ]

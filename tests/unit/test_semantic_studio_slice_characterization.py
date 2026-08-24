@@ -63,6 +63,7 @@ from notebooklm.rpc import (
 )
 from tests._fixtures.fake_core import make_fake_core
 from tests._fixtures.web_backend import build_web_backend
+from tests._helpers.signature_inspection import signature_parameters
 
 
 def _make_api(
@@ -197,22 +198,22 @@ def test_artifacts_api_public_signatures_are_frozen() -> None:
     remains the stable facade with unchanged public signatures.
     """
     # Listing & Discovery
-    assert list(inspect.signature(ArtifactsAPI.list).parameters) == [
+    assert list(signature_parameters(ArtifactsAPI.list)) == [
         "self",
         "notebook_id",
         "artifact_type",
     ]
-    assert list(inspect.signature(ArtifactsAPI.get).parameters) == [
+    assert list(signature_parameters(ArtifactsAPI.get)) == [
         "self",
         "notebook_id",
         "artifact_id",
     ]
-    assert list(inspect.signature(ArtifactsAPI.get_or_none).parameters) == [
+    assert list(signature_parameters(ArtifactsAPI.get_or_none)) == [
         "self",
         "notebook_id",
         "artifact_id",
     ]
-    assert list(inspect.signature(ArtifactsAPI.get_prompt).parameters) == [
+    assert list(signature_parameters(ArtifactsAPI.get_prompt)) == [
         "self",
         "notebook_id",
         "artifact_id",
@@ -229,13 +230,13 @@ def test_artifacts_api_public_signatures_are_frozen() -> None:
         "list_slide_decks",
         "list_data_tables",
     ):
-        assert list(inspect.signature(getattr(ArtifactsAPI, method_name)).parameters) == [
+        assert list(signature_parameters(getattr(ArtifactsAPI, method_name))) == [
             "self",
             "notebook_id",
         ]
 
     # Generation signatures
-    gen_audio = inspect.signature(ArtifactsAPI.generate_audio).parameters
+    gen_audio = signature_parameters(ArtifactsAPI.generate_audio)
     assert list(gen_audio) == [
         "self",
         "notebook_id",
@@ -248,7 +249,7 @@ def test_artifacts_api_public_signatures_are_frozen() -> None:
     assert gen_audio["source_ids"].default is None
     assert gen_audio["language"].default == "en"
 
-    gen_quiz = inspect.signature(ArtifactsAPI.generate_quiz).parameters
+    gen_quiz = signature_parameters(ArtifactsAPI.generate_quiz)
     assert list(gen_quiz) == [
         "self",
         "notebook_id",
@@ -260,7 +261,7 @@ def test_artifacts_api_public_signatures_are_frozen() -> None:
     assert gen_quiz["quantity"].default is None
     assert gen_quiz["difficulty"].default is None
 
-    gen_report = inspect.signature(ArtifactsAPI.generate_report).parameters
+    gen_report = signature_parameters(ArtifactsAPI.generate_report)
     assert list(gen_report) == [
         "self",
         "notebook_id",
@@ -273,7 +274,7 @@ def test_artifacts_api_public_signatures_are_frozen() -> None:
     assert gen_report["report_format"].default is ReportFormat.BRIEFING_DOC
 
     # Polling & Lifecycle
-    wait_sig = inspect.signature(ArtifactsAPI.wait_for_completion).parameters
+    wait_sig = signature_parameters(ArtifactsAPI.wait_for_completion)
     assert list(wait_sig) == [
         "self",
         "notebook_id",
@@ -293,30 +294,30 @@ def test_artifacts_api_public_signatures_are_frozen() -> None:
     assert wait_sig["on_status_change"].default is None
 
     # Mutation & Export
-    rename_sig = inspect.signature(ArtifactsAPI.rename).parameters
+    rename_sig = signature_parameters(ArtifactsAPI.rename)
     assert list(rename_sig) == ["self", "notebook_id", "artifact_id", "new_title", "return_object"]
     assert rename_sig["return_object"].kind is inspect.Parameter.KEYWORD_ONLY
     assert rename_sig["return_object"].default is True
 
-    assert list(inspect.signature(ArtifactsAPI.delete).parameters) == [
+    assert list(signature_parameters(ArtifactsAPI.delete)) == [
         "self",
         "notebook_id",
         "artifact_id",
     ]
-    assert list(inspect.signature(ArtifactsAPI.export_report).parameters) == [
+    assert list(signature_parameters(ArtifactsAPI.export_report)) == [
         "self",
         "notebook_id",
         "artifact_id",
         "title",
         "export_type",
     ]
-    assert list(inspect.signature(ArtifactsAPI.export_data_table).parameters) == [
+    assert list(signature_parameters(ArtifactsAPI.export_data_table)) == [
         "self",
         "notebook_id",
         "artifact_id",
         "title",
     ]
-    export_sig = inspect.signature(ArtifactsAPI.export).parameters
+    export_sig = signature_parameters(ArtifactsAPI.export)
     assert list(export_sig) == [
         "self",
         "notebook_id",

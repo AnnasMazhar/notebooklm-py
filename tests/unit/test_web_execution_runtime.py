@@ -18,7 +18,9 @@ def test_rpc_executor_is_behaviorless_raw_compatibility_name() -> None:
     assert issubclass(RpcExecutor, WebExecutionRuntime)
     assert set(RpcExecutor.__dict__) <= {
         "__doc__",
+        "__firstlineno__",
         "__module__",
+        "__static_attributes__",
     }
     assert "_execute_once" in WebExecutionRuntime.__dict__
     assert "rpc_call" in WebExecutionRuntime.__dict__

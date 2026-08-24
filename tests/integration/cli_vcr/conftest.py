@@ -451,7 +451,7 @@ ERROR_SCHEMA: dict[str, FieldSpec] = {
 
 @pytest.fixture
 def fast_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Monkey-patch ``asyncio.sleep`` to an immediate no-op.
+    """Monkey-patch ``asyncio.sleep`` to one cancellation-safe event-loop turn.
 
     Async generate flows (e.g. interactive mind maps) poll
     ``LIST_ARTIFACTS`` with ``await asyncio.sleep(interval)`` backoff between
@@ -460,7 +460,13 @@ def fast_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
     only ``asyncio.sleep`` is patched. Mirrors ``test_polling_vcr.fast_sleep``.
     """
 
+    real_sleep = asyncio.sleep
+
     async def instant_sleep(_seconds: float) -> None:
-        return None
+        # A coroutine that returns without suspending lets background loops
+        # (notably ``status_with_elapsed``'s ticker) monopolize the event loop,
+        # so their cancellation can never be delivered. Preserve one real
+        # scheduling point while still collapsing every recorded poll delay.
+        await real_sleep(0)
 
     monkeypatch.setattr(asyncio, "sleep", instant_sleep)

@@ -34,6 +34,7 @@ from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import SourceStatus
 from notebooklm.types import Source, SourceType
 from tests._fixtures.web_backend import build_web_backend
+from tests._helpers.signature_inspection import signature_parameters
 
 
 def _source_entry(
@@ -63,26 +64,26 @@ def _sources_api(result: object) -> tuple[SourcesAPI, AsyncMock]:
 
 def test_read_slice_public_signatures_are_frozen() -> None:
     """P2 keeps positional IDs and the source-list keyword-only controls."""
-    assert list(inspect.signature(NotebooksAPI.list).parameters) == ["self"]
-    assert list(inspect.signature(NotebooksAPI.get).parameters) == ["self", "notebook_id"]
-    assert list(inspect.signature(NotebooksAPI.get_or_none).parameters) == [
+    assert list(signature_parameters(NotebooksAPI.list)) == ["self"]
+    assert list(signature_parameters(NotebooksAPI.get)) == ["self", "notebook_id"]
+    assert list(signature_parameters(NotebooksAPI.get_or_none)) == [
         "self",
         "notebook_id",
     ]
 
-    source_list = inspect.signature(SourcesAPI.list).parameters
+    source_list = signature_parameters(SourcesAPI.list)
     assert list(source_list) == ["self", "notebook_id", "strict", "statuses", "types"]
     assert source_list["notebook_id"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
     assert source_list["strict"].kind is inspect.Parameter.KEYWORD_ONLY
     assert source_list["strict"].default is False
     assert source_list["statuses"].default is None
     assert source_list["types"].default is None
-    assert list(inspect.signature(SourcesAPI.get).parameters) == [
+    assert list(signature_parameters(SourcesAPI.get)) == [
         "self",
         "notebook_id",
         "source_id",
     ]
-    assert list(inspect.signature(SourcesAPI.get_or_none).parameters) == [
+    assert list(signature_parameters(SourcesAPI.get_or_none)) == [
         "self",
         "notebook_id",
         "source_id",
