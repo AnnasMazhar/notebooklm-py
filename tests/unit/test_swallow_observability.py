@@ -283,10 +283,10 @@ def test_auth_corrupt_legacy_context_does_not_block_in_band_write(tmp_path):
 
 
 def test_stream_parser_debug_guarded_by_isenabledfor(caplog):
-    """_chat/wire.py — non-JSON chunk debug log is guarded before it fires."""
+    """The canonical streamed-chat codec guards its non-JSON debug log."""
 
     # Direct: ensure the module has a guarded debug call (structural check).
-    src = (SRC_ROOT / "_chat" / "wire.py").read_text(encoding="utf-8")
+    src = (SRC_ROOT / "_web" / "codec" / "chat_stream.py").read_text(encoding="utf-8")
     assert "logger.isEnabledFor(logging.DEBUG)" in src
     assert "Stream parser" in src
 

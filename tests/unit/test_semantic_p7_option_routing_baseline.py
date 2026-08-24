@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -157,9 +158,10 @@ async def test_upload_options_reach_the_public_sources_api_route(tmp_path: Path)
         upload_timeout=upload_timeout,
         max_concurrent_uploads=3,
     )
-    uploaded = Source(id="uploaded-source", title="report.txt")
-    add_file = AsyncMock(return_value=uploaded)
-    client._source_uploader.add_file = add_file
+    uploaded = Source(id="uploaded-source", title="Report")
+    add_file = AsyncMock(return_value=SimpleNamespace(source=uploaded, transient_error_types=()))
+    client._source_uploader._add_file_result = add_file
+    client.sources.wait_until_ready = AsyncMock(return_value=uploaded)  # type: ignore[method-assign]
     path = tmp_path / "report.txt"
 
     result = await client.sources.add_file(
@@ -178,10 +180,16 @@ async def test_upload_options_reach_the_public_sources_api_route(tmp_path: Path)
         "notebook-id",
         path,
         mime_type="text/plain",
-        wait=True,
+        wait=False,
         wait_timeout=41.0,
-        title="Report",
+        title=None,
         on_progress=None,
+    )
+    client.sources.wait_until_ready.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "notebook-id",
+        "uploaded-source",
+        timeout=41.0,
+        transient_error_types=(),
     )
 
 

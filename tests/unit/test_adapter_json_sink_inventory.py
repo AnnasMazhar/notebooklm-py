@@ -144,7 +144,7 @@ def test_private_dto_catalog_covers_every_annotation_proven_public_model_path() 
         "notebooklm.types.Label",
     ) in triples
     assert (
-            "notebooklm._chat_records.ChatAskResultRecord",
+        "notebooklm._chat_records.ChatAskResultRecord",
         "answer_document",
         "notebooklm._types.documents.StructuredDocument",
     ) in triples

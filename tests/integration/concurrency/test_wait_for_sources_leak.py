@@ -10,39 +10,45 @@ leave an orphan poller behind.
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from notebooklm import NotebookLMClient
-from notebooklm._records import SourceRecord
-from notebooklm._web.source_variants import SourceVariantWebHandlers
+from notebooklm._operations import Operation
+from notebooklm._records import (
+    SOURCE_WAIT_DEF,
+    SourceRecord,
+    SourceWaitSnapshotResult,
+)
+from notebooklm._sources import SourcesAPI
 from notebooklm.types import SourceProcessingError
+from tests._fixtures.recording_backend import RecordingBackend
 
 pytestmark = pytest.mark.allow_no_vcr
 
 
 @pytest.mark.asyncio
-async def test_wait_for_sources_has_one_shared_wait_and_no_sibling_tasks(auth_tokens) -> None:
+async def test_wait_for_sources_has_one_shared_wait_and_no_sibling_tasks() -> None:
     """One terminal row fails promptly without polling its PROCESSING sibling."""
-    snapshot = AsyncMock(
-        return_value=(
-            SourceRecord("bad-id", "Bad", kind="pdf", status="error"),
-            SourceRecord("slow-id", "Slow", kind="pdf", status="processing"),
-        )
+    backend = RecordingBackend()
+    backend.set_result(
+        SOURCE_WAIT_DEF,
+        SourceWaitSnapshotResult(
+            (
+                SourceRecord("bad-id", "Bad", kind="pdf", status="error"),
+                SourceRecord("slow-id", "Slow", kind="pdf", status="processing"),
+            )
+        ),
     )
+    sources = SourcesAPI(MagicMock(), uploader=MagicMock(), _backend=backend)
 
-    async with NotebookLMClient(auth_tokens) as client:
-        single_wait = AsyncMock(side_effect=AssertionError("single-source fan-out is forbidden"))
-        with (
-            patch.object(SourceVariantWebHandlers, "_source_snapshot_records", snapshot),
-            patch.object(client.sources, "wait_until_ready", single_wait),
-        ):
-            started = time.monotonic()
-            with pytest.raises(SourceProcessingError):
-                await client.sources.wait_for_sources("nb_123", ["bad-id", "slow-id"])
-            elapsed = time.monotonic() - started
+    single_wait = AsyncMock(side_effect=AssertionError("single-source fan-out is forbidden"))
+    with patch.object(sources, "wait_until_ready", single_wait):
+        started = time.monotonic()
+        with pytest.raises(SourceProcessingError):
+            await sources.wait_for_sources("nb_123", ["bad-id", "slow-id"])
+        elapsed = time.monotonic() - started
 
-    snapshot.assert_awaited_once()
+    assert [invocation.operation for invocation in backend.invocations] == [Operation.SOURCE_WAIT]
     single_wait.assert_not_awaited()
     assert elapsed < 1.0

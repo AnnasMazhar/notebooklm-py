@@ -186,6 +186,8 @@ def test_phase7_artifact_download_patch_seams_are_current() -> None:
     import notebooklm._artifact.formatters as artifact_formatters
     import notebooklm._artifacts as artifacts
     import notebooklm._mind_map as mind_map
+    import notebooklm._studio.representations as artifact_representations
+    import notebooklm._web.codec.artifacts as artifact_codec
     import notebooklm.auth as auth
 
     tree = ast.parse((SRC_ROOT / "_artifact" / "downloads.py").read_text(encoding="utf-8"))
@@ -209,12 +211,13 @@ def test_phase7_artifact_download_patch_seams_are_current() -> None:
     assert artifacts._mind_map is mind_map
     assert not hasattr(artifact_downloads, "_artifact_seams")
     assert artifact_downloads.load_httpx_cookies is auth.load_httpx_cookies
-    assert artifact_downloads._extract_app_data is artifact_formatters._extract_app_data
+    assert not hasattr(artifact_downloads, "_extract_app_data")
+    assert artifact_representations._extract_app_data is artifact_formatters._extract_app_data
     assert (
-        artifact_downloads._format_interactive_content
+        artifact_representations._format_interactive_content
         is artifact_formatters._format_interactive_content
     )
-    assert artifact_downloads._parse_data_table is artifact_formatters._parse_data_table
+    assert artifact_codec._parse_data_table is artifact_formatters._parse_data_table
 
 
 def test_notebooks_api_has_no_hidden_sources_api_runtime_dependency() -> None:

@@ -54,7 +54,6 @@ from .._source.add import (
     honor_requested_title_if_fresh,
 )
 from .._source.batch import SourceBatchAddService
-from .._source.drive_import import DriveFetcher, DriveImportService
 from .._types.sources import _SOURCE_TYPE_CODE_MAP, SourceType
 from .._url_utils import is_youtube_url
 from ..exceptions import (
@@ -739,11 +738,7 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
                 transient_error_types = upload_result.transient_error_types
                 return upload_result.source
 
-            service = DriveImportService(
-                fetch=DriveFetcher(
-                    cookies_provider=uploader.live_cookies,
-                    authuser=uploader.authuser_value(),
-                ),
+            service = uploader.create_drive_import_service(
                 add_file=add_downloaded_file,
             )
             async with uploader.get_download_semaphore():

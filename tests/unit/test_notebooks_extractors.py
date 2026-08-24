@@ -1,9 +1,8 @@
-"""Unit tests for named extraction helpers in ``_notebooks.py``.
+"""Unit tests for notebook-guide extraction in the web codec.
 
-These cover ``_extract_summary`` and ``_extract_suggested_topics`` — the
-named wrappers that replaced raw ``outer[0][0]`` / ``outer[1][0]`` deep
-index access in ``NotebooksAPI.get_description``. Each helper gets a
-happy-path case plus two drift cases (missing index, wrong type).
+These cover the private summary/topic descents used by
+``decode_notebook_description``. Wire decoding belongs to the codec rather
+than ``NotebooksAPI``; each helper keeps its happy-path and drift coverage.
 """
 
 from __future__ import annotations
@@ -12,39 +11,39 @@ import logging
 
 import pytest
 
-from notebooklm._notebooks import _extract_suggested_topics, _extract_summary
+from notebooklm._records import SuggestedTopicRecord
+from notebooklm._web.codec.notebooks import _decode_summary, _decode_topics
 from notebooklm.exceptions import UnknownRPCMethodError
-from notebooklm.types import SuggestedTopic
 
 
-class TestExtractSummary:
-    """Happy path + drift coverage for ``_extract_summary``."""
+class TestDecodeSummary:
+    """Happy path + drift coverage for ``_decode_summary``."""
 
     def test_happy_path_returns_summary_string(self) -> None:
         # Real shape: result[0] = [["the summary"], [[...topics...]]]
         outer = [["the summary"], [[["Q", "P"]]]]
 
-        assert _extract_summary(outer) == "the summary"
+        assert _decode_summary(outer) == "the summary"
 
     def test_none_outer_returns_empty(self) -> None:
         # Regression for #1485: a brand-new, source-less notebook has no
         # summary, so result[0] (== outer) is None. Routine "no summary yet",
         # NOT schema drift.
-        assert _extract_summary(None) == ""
+        assert _decode_summary(None) == ""
 
     def test_empty_outer_list_returns_empty(self) -> None:
         # Regression for #1485: outer with no [0] slot at all is the same
         # routine "no summary yet" state.
-        assert _extract_summary([]) == ""
+        assert _decode_summary([]) == ""
 
     def test_none_at_outer_zero_returns_empty(self) -> None:
         # Regression for #1485: outer[0] is explicitly None (no summary slot)
         # — routine absence, handled by the plain guard, not safe_index drift.
-        assert _extract_summary([None, [[["Q", "P"]]]]) == ""
+        assert _decode_summary([None, [[["Q", "P"]]]]) == ""
 
     def test_nested_summary_string_returns_string(self) -> None:
         # outer[0][0] holds the summary string at the documented shape.
-        assert _extract_summary([["the summary"]]) == "the summary"
+        assert _decode_summary([["the summary"]]) == "the summary"
 
     def test_drift_missing_inner_index_raises(self) -> None:
         # outer[0] is present but an empty list — the inner safe_index descent
@@ -53,7 +52,7 @@ class TestExtractSummary:
         outer: list = [[], [[["Q", "P"]]]]
 
         with pytest.raises(UnknownRPCMethodError) as exc_info:
-            _extract_summary(outer)
+            _decode_summary(outer)
 
         assert exc_info.value.source == "_notebooks._extract_summary"
 
@@ -64,7 +63,7 @@ class TestExtractSummary:
         outer = [42, [[["Q", "P"]]]]
 
         with pytest.raises(UnknownRPCMethodError):
-            _extract_summary(outer)
+            _decode_summary(outer)
 
     def test_drift_scalar_outer_raises(self) -> None:
         # Regression for #1485 codex review: ``outer`` is itself a scalar (not
@@ -74,7 +73,7 @@ class TestExtractSummary:
         # collapse to "". A `not isinstance(outer, list)` short-circuit would
         # wrongly suppress it; the descent must reach safe_index.
         with pytest.raises(UnknownRPCMethodError) as exc_info:
-            _extract_summary(123)
+            _decode_summary(123)
 
         assert exc_info.value.source == "_notebooks._extract_summary"
 
@@ -84,18 +83,18 @@ class TestExtractSummary:
         # ("abc"[0] -> "a") and silently return "a" instead of raising. A string
         # at the outer-payload level is genuine drift, not a 1-char summary.
         with pytest.raises(UnknownRPCMethodError):
-            _extract_summary("abc")
+            _decode_summary("abc")
 
     def test_drift_str_at_outer_zero_raises(self) -> None:
         # And a string at outer[0] (present, non-None, but not the expected
         # [summary_string, ...] list) is drift too — must not collapse to the
         # first character of the string.
         with pytest.raises(UnknownRPCMethodError):
-            _extract_summary(["summary text"])
+            _decode_summary(["summary text"])
 
 
-class TestExtractSuggestedTopics:
-    """Happy path + drift coverage for ``_extract_suggested_topics``."""
+class TestDecodeTopics:
+    """Happy path + drift coverage for ``_decode_topics``."""
 
     def test_happy_path_returns_typed_topics(self) -> None:
         outer = [
@@ -108,12 +107,12 @@ class TestExtractSuggestedTopics:
             ],
         ]
 
-        topics = _extract_suggested_topics(outer)
+        topics = _decode_topics(outer)
 
-        assert topics == [
-            SuggestedTopic(question="What is X?", prompt="Explain X"),
-            SuggestedTopic(question="How does Y work?", prompt="Describe Y"),
-        ]
+        assert topics == (
+            SuggestedTopicRecord(question="What is X?", prompt="Explain X"),
+            SuggestedTopicRecord(question="How does Y work?", prompt="Describe Y"),
+        )
 
     def test_drift_missing_outer_one_returns_empty_with_debug(
         self, caplog: pytest.LogCaptureFixture
@@ -122,9 +121,9 @@ class TestExtractSuggestedTopics:
         outer = [["summary only"]]
 
         with caplog.at_level(logging.DEBUG, logger="notebooklm"):
-            topics = _extract_suggested_topics(outer)
+            topics = _decode_topics(outer)
 
-        assert topics == []
+        assert topics == ()
         debug_records = [
             r
             for r in caplog.records
@@ -142,9 +141,9 @@ class TestExtractSuggestedTopics:
         outer = [["summary text"], "not-a-list"]
 
         with caplog.at_level(logging.DEBUG, logger="notebooklm"):
-            topics = _extract_suggested_topics(outer)
+            topics = _decode_topics(outer)
 
-        assert topics == []
+        assert topics == ()
         debug_records = [
             r
             for r in caplog.records
@@ -160,9 +159,9 @@ class TestExtractSuggestedTopics:
         outer = [["summary text"], ["not-a-topic-list"]]
 
         with caplog.at_level(logging.DEBUG, logger="notebooklm"):
-            topics = _extract_suggested_topics(outer)
+            topics = _decode_topics(outer)
 
-        assert topics == []
+        assert topics == ()
         debug_records = [
             r
             for r in caplog.records
@@ -185,6 +184,6 @@ class TestExtractSuggestedTopics:
             ],
         ]
 
-        topics = _extract_suggested_topics(outer)
+        topics = _decode_topics(outer)
 
-        assert topics == [SuggestedTopic(question="Valid question", prompt="Valid prompt")]
+        assert topics == (SuggestedTopicRecord(question="Valid question", prompt="Valid prompt"),)

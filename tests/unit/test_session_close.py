@@ -109,7 +109,7 @@ async def test_session_close_drains_artifact_poll_hook() -> None:
     )
     assert (
         core._collaborators.drain_tracker._drain_hooks["artifacts.polls"]
-        == artifacts._polling.drain
+        == artifacts._lifecycle_service.drain
     )
     await core.__aenter__()
 

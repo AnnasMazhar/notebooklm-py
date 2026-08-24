@@ -19,6 +19,7 @@ import pytest
 from pytest_httpx import HTTPXMock
 
 from notebooklm import NotebookLMClient
+from notebooklm._records import CHAT_GET_HISTORY_DEF, ChatGetHistoryInput
 from notebooklm.rpc import ChatGoal, ChatResponseLength, RPCMethod
 from notebooklm.types import ChatMode, ChatSettings
 
@@ -1534,44 +1535,38 @@ class TestGetHistoryErrorHandling:
     async def test_get_history_returns_empty_on_chat_error(
         self,
         auth_tokens,
-        httpx_mock: HTTPXMock,
-        build_rpc_response,
     ):
         """Test get_history returns [] when get_conversation_turns raises ChatError."""
         from notebooklm.exceptions import ChatError
 
-        id_response = build_rpc_response(RPCMethod.GET_LAST_CONVERSATION_ID, [[["conv_001"]]])
-        httpx_mock.add_response(content=id_response.encode())
         async with NotebookLMClient(auth_tokens) as client:
-            with patch.object(
-                client.chat,
-                "_get_conversation_turn_records",
-                new_callable=AsyncMock,
-                side_effect=ChatError("API error"),
-            ):
-                result = await client.chat.get_history("nb_123")
+            invoke = AsyncMock(side_effect=ChatError("API error"))
+            with patch.object(client._backend, "invoke", invoke):
+                result = await client.chat.get_history("nb_123", conversation_id="conv_001")
+        invoke.assert_awaited_once_with(
+            CHAT_GET_HISTORY_DEF,
+            ChatGetHistoryInput("nb_123", "conv_001", 100),
+            deadline=None,
+        )
         assert result == []
 
     @pytest.mark.asyncio
     async def test_get_history_returns_empty_on_network_error(
         self,
         auth_tokens,
-        httpx_mock: HTTPXMock,
-        build_rpc_response,
     ):
         """Test get_history returns [] when get_conversation_turns raises NetworkError."""
         from notebooklm.exceptions import NetworkError
 
-        id_response = build_rpc_response(RPCMethod.GET_LAST_CONVERSATION_ID, [[["conv_001"]]])
-        httpx_mock.add_response(content=id_response.encode())
         async with NotebookLMClient(auth_tokens) as client:
-            with patch.object(
-                client.chat,
-                "_get_conversation_turn_records",
-                new_callable=AsyncMock,
-                side_effect=NetworkError("connection error"),
-            ):
-                result = await client.chat.get_history("nb_123")
+            invoke = AsyncMock(side_effect=NetworkError("connection error"))
+            with patch.object(client._backend, "invoke", invoke):
+                result = await client.chat.get_history("nb_123", conversation_id="conv_001")
+        invoke.assert_awaited_once_with(
+            CHAT_GET_HISTORY_DEF,
+            ChatGetHistoryInput("nb_123", "conv_001", 100),
+            deadline=None,
+        )
         assert result == []
 
     @pytest.mark.asyncio

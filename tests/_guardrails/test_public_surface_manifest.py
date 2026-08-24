@@ -402,7 +402,6 @@ _TYPES_PRIVATE_HELPER_SEAMS = [
     "_extract_audio_artifact_url",
     "_extract_infographic_artifact_url",
     "_extract_slide_deck_artifact_url",
-    "_extract_source_url",
     "_extract_video_artifact_url",
     "_is_valid_artifact_url",
     "_warned_artifact_types",
@@ -411,12 +410,12 @@ _TYPES_PRIVATE_HELPER_SEAMS = [
 
 # Private helpers that are no longer imported by first-party code but
 # must remain exportable through ``notebooklm.types`` for downstream
-# compatibility. ``_extract_source_created_at`` moved here when the
-# row-adapter migration (see ``_row_adapters.sources.SourceRow.created_at``)
-# replaced its sole first-party consumer
-# (``_source.listing._parse_source``).
+# compatibility. The row-adapter migration replaced the sole first-party
+# consumers of the two source helpers with ``SourceRow`` properties, while
+# ``notebooklm.types`` keeps both attributes importable for downstream users.
 _TYPES_PRIVATE_EXTERNAL_COMPAT_SEAMS: list[str] = [
     "_extract_source_created_at",
+    "_extract_source_url",
 ]
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]

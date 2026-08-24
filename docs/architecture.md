@@ -1069,6 +1069,8 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_records.py` | Compatibility re-export hub for frozen, slotted, protocol-neutral input/output records and `OperationDef` values for P2 notebook/source operations, P5.1–P5.8 Studio families, and P6.1–P6.7 domain workflows, plus P3 decoded values and closed URL-source error evidence. Large domain families live in sibling record modules so this hub remains under the module-size ratchet. |
 | `_chat_records.py` | P6.1 neutral Chat records and six typed operation definitions, re-exported from `_records.py`. |
 | `_label_records.py` | P6.4 neutral source-label/collection records and eleven typed operation definitions, re-exported from `_records.py`. |
+| `_note_records.py` | P6.3 neutral plain-note records and five typed operation definitions, re-exported from `_records.py`. |
+| `_notebook_records.py` | P2/P6.6 neutral notebook records and nine typed operation definitions, re-exported from `_records.py`. |
 | `_research_records.py` | P6.2 neutral Research records and four typed operation definitions, re-exported from `_records.py`. |
 | `_settings_records.py` | P6.6 neutral account-settings records and three typed operation definitions, re-exported from `_records.py`. |
 | `_sharing_records.py` | P6.5 neutral Sharing records and four typed operation definitions, re-exported from `_records.py` while keeping the shared record module below the size ratchet. |
@@ -1298,13 +1300,20 @@ src/notebooklm/
 ├── _notebook_metadata.py        # Metadata protocols
 ├── _operations.py               # Closed semantic operation/call-policy vocabulary (P0)
 ├── _projectors.py               # Neutral record-to-public compatibility projectors (P2/P3/P5/P6)
+├── _artifact_records.py         # Neutral artifact parse-failure records split from the shared record hub
+├── _notebook_records.py         # Neutral notebook inputs/results/records and typed operation definitions
+├── _note_records.py             # Neutral plain-note inputs/results/records and typed operation definitions
+├── _source_records.py           # Neutral source inputs/results/records and typed operation definitions
 ├── _notebook_mutation_service.py # Transport-neutral notebook mutation service (P2.2)
+├── _notebook_guide_service.py   # Transport-neutral notebook summary/description service
 ├── _mutation_services.py        # Transport-neutral URL-source mutation service (P2.3, live)
 ├── _read_services.py            # Transport-neutral notebook/source list/get services (P2.1)
+├── _source_service.py           # Transport-neutral source content/mutation/wait service
 ├── _label_service.py            # Transport-neutral source-label/collection service (P6.4)
 ├── _label_records.py            # Neutral source-label/collection records/operation definitions (P6.4)
 ├── _research_service.py         # Transport-neutral Research service (P6.2)
 ├── _research_records.py         # Neutral Research records/operation definitions (P6.2)
+├── _research_neutral.py         # Research public-model to neutral-record conversion helpers
 ├── _settings_service.py         # Transport-neutral settings service (P6.6)
 ├── _settings_records.py         # Neutral settings records/operation definitions (P6.6)
 ├── _suggestion_service.py       # Transport-neutral suggestion service (P6.6)
@@ -1342,6 +1351,7 @@ src/notebooklm/
 │   ├── __init__.py              # Lazy private WebRpcBackend re-export (leaf-codec safe)
 │   ├── backend.py               # Composed RpcExecutor-backed semantic handlers
 │   ├── chat.py                  # P6.1 Chat workflow handlers
+│   ├── chat_transport.py        # Streamed Chat transport adapter and bounded error translation
 │   ├── error_policy.py          # Closed web error classification/diagnostics ledger
 │   ├── labels.py                # P6.4 source-label/collection workflow handlers
 │   ├── research.py              # P6.2 Research workflow handlers
@@ -1353,6 +1363,7 @@ src/notebooklm/
 │   ├── studio_media.py          # P5.2/P5.3/P5.5 web family handlers
 │   ├── studio_data.py           # P5.6 data-view generation and Drive-export handlers
 │   ├── studio_facade.py         # P5.8 management/lifecycle/suggestion/representation handlers
+│   ├── source_variants.py       # Source add/content/refresh/Drive/upload/wait workflow handlers
 │   └── codec/                   # P3 web response codecs producing neutral records/value exemptions
 │       ├── __init__.py          # Private codec re-exports
 │       ├── artifacts.py         # Artifact/mind-map/report-suggestion rows -> neutral records
@@ -1453,12 +1464,6 @@ src/notebooklm/
 │   ├── validation.py            # Facade input-validation guards (generate_report coercion, export exactly-one-of) (#1874)
 │   ├── listing.py               # Artifact listing helper
 │   └── polling.py               # Artifact polling coordinator
-├── _label/                      # Source-label feature subpackage: stable RPC payload builders
-│   ├── __init__.py              # Re-exports the label param builders
-│   └── params.py                # Source-label RPC payload builders (CREATE/LIST/UPDATE/DELETE_LABEL)
-├── _collection/                 # Collection feature subpackage: account-level notebook-group payload builders (reuse the label RPCs, type-3)
-│   ├── __init__.py              # Package marker for the collection param builders
-│   └── params.py                # Collection RPC payload builders (null notebook_id, type-3 tail, [1,3] opts)
 ├── _row_adapters/               # Positional-RPC-row adapters subpackage (promoted from flat _row_adapters_*.py, #1328)
 │   ├── __init__.py              # Re-exports the typed row views
 │   ├── artifacts.py             # Artifact + GET_SUGGESTED_REPORTS row adapters (ArtifactRow / ReportSuggestionRow)

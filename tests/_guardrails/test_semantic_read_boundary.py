@@ -57,6 +57,7 @@ def _identifiers(path: Path) -> set[str]:
 def test_read_services_depend_only_on_semantic_port_records_deadline_and_projectors() -> None:
     assert _imported_modules(_SERVICES) <= {
         "__future__",
+        "builtins",
         "typing",
         "_backend",
         "_deadline",

@@ -211,6 +211,7 @@ async def try_selectors(page, selectors: list[str], action="click", timeout=5000
             continue
     raise Exception(f"None of the selectors worked: {selectors}")
 
+
 # Example usage
 await try_selectors(page, HOME_SELECTORS["create_notebook"])
 ```
@@ -272,10 +273,10 @@ The home project action menu is now labeled `Project Actions Menu`; older
 ```python
 # Minimal client builder (`NotebooksAPI.list()`), accepted by the backend:
 params = [
-    None,   # 0
-    1,      # 1: Fixed value
-    None,   # 2
-    [2],    # 3: Fixed flag
+    None,  # 0
+    1,  # 1: Fixed value
+    None,  # 2
+    [2],  # 3: Fixed flag
 ]
 
 # Live web UI/CDP capture on 2026-06-15:
@@ -296,10 +297,10 @@ params = [
 ```python
 params = [
     title,  # 0: Notebook title
-    None,   # 1
-    None,   # 2
+    None,  # 1
+    None,  # 2
     [2, None, None, [1, None, None, None, None, None, None, None, None, None, [1]]],
-            # 3: Shared request-options wrapper (`build_template_block()`)
+    # 3: Shared request-options wrapper (`build_template_block()`)
 ]
 ```
 
@@ -310,7 +311,7 @@ params = [
 ```python
 params = [
     [notebook_id],  # 0: Single-nested notebook ID
-    [2],            # 1: Fixed flag
+    [2],  # 1: Fixed flag
 ]
 ```
 
@@ -320,12 +321,12 @@ params = [
 
 ```python
 params = [
-    notebook_id,                                           # 0
-    None,                                                  # 1
+    notebook_id,  # 0
+    None,  # 1
     [2, None, None, [1, None, None, None, None, None, None, None, None, None, [1]]],
-                                                           # 2: Shared request-options wrapper
-    None,                                                  # 3
-    0,                                                     # 4: Fixed value
+    # 2: Shared request-options wrapper
+    None,  # 3
+    0,  # 4: Fixed value
 ]
 ```
 
@@ -456,9 +457,9 @@ button (`mattooltip='Close source view'`).
 # URL goes at position [2] in an 11-element source spec.
 params = [
     [[None, None, [url], None, None, None, None, None, None, None, 1]],
-    notebook_id,                                           # 1: Notebook ID
+    notebook_id,  # 1: Notebook ID
     [2, None, None, [1, None, None, None, None, None, None, None, None, None, [1]]],
-                                                           # 2: Shared request-options wrapper
+    # 2: Shared request-options wrapper
 ]
 ```
 
@@ -494,9 +495,9 @@ params = [
 # YouTube URL at position [7] in the source spec (different from regular URL).
 params = [
     [[None, None, None, None, None, None, None, [url], None, None, 1]],  # 0
-    notebook_id,                                                          # 1
+    notebook_id,  # 1
     [2, None, None, [1, None, None, None, None, None, None, None, None, None, [1]]],
-                                                                            # 2: Shared wrapper
+    # 2: Shared wrapper
 ]
 ```
 
@@ -508,14 +509,21 @@ params = [
 # Drive source structure - single-wrapped (not double!)
 source_data = [
     [file_id, mime_type, 1, title],  # 0: File info
-    None, None, None, None, None,    # 1-5: Padding
-    None, None, None, None,          # 6-9: Padding
-    1,                               # 10: Trailing flag
+    None,
+    None,
+    None,
+    None,
+    None,  # 1-5: Padding
+    None,
+    None,
+    None,
+    None,  # 6-9: Padding
+    1,  # 10: Trailing flag
 ]
 params = [
     [source_data],  # 0: Single-wrapped (NOT [[source_data]])
-    notebook_id,    # 1: Notebook ID
-    [2],            # 2: Source type flag
+    notebook_id,  # 1: Notebook ID
+    [2],  # 2: Source type flag
     [1, None, None, None, None, None, None, None, None, None, [1]],  # 3: Config
 ]
 ```
@@ -538,10 +546,10 @@ that start request.
 
 ```python
 params = [
-    [[filename]],    # 0: Filename wrapped twice
-    notebook_id,     # 1: Notebook ID
+    [[filename]],  # 0: Filename wrapped twice
+    notebook_id,  # 1: Notebook ID
     [2, None, None, [1, None, None, None, None, None, None, None, None, None, [1]]],
-                     # 2: Shared request-options wrapper
+    # 2: Shared request-options wrapper
 ]
 
 # Called with source_path:
@@ -614,9 +622,9 @@ await rpc_call(
 ```python
 # Different structure: None at [0], source_id at [1], title triple-nested at [2]
 params = [
-    None,               # 0
-    [source_id],        # 1: Single-nested source ID
-    [[[new_title]]],    # 2: Triple-nested title
+    None,  # 0
+    [source_id],  # 1: Single-nested source ID
+    [[[new_title]]],  # 2: Triple-nested title
 ]
 ```
 
@@ -642,8 +650,8 @@ params = [[[[source_id]]]]
 # Position 2: Format selector matching position 1
 params = [
     [source_id],  # 0
-    [2],          # 1
-    [2],          # 2
+    [2],  # 1
+    [2],  # 2
 ]
 
 # Markdown/HTML source rendering uses the same selector in both slots:
@@ -845,8 +853,8 @@ CHAT_SELECTORS = {
         "[role='log']",
     ],
     "message_bubble": [
-        ".to-user-container",      # AI messages
-        ".from-user-container",    # User messages
+        ".to-user-container",  # AI messages
+        ".from-user-container",  # User messages
     ],
     "save_to_note": "button[aria-label='Save message to a note']",
     "copy_response": "button[aria-label='Copy model response to clipboard']",
@@ -857,20 +865,17 @@ CHAT_SELECTORS = {
 CHAT_CONFIG = {
     "modal": "configure-notebook-settings",
     "goal_default": (
-        "configure-notebook-settings .prompt-section-toggles "
-        "button[aria-label='Default button']"
+        "configure-notebook-settings .prompt-section-toggles button[aria-label='Default button']"
     ),
     "goal_learning_guide": (
         "configure-notebook-settings .prompt-section-toggles "
         "button[aria-label='Learning Guide prompt button']"
     ),
     "goal_custom": (
-        "configure-notebook-settings .prompt-section-toggles "
-        "button[aria-label='Custom button']"
+        "configure-notebook-settings .prompt-section-toggles button[aria-label='Custom button']"
     ),
     "length_default": (
-        "configure-notebook-settings .style-section-toggles "
-        "button[aria-label='Default button']"
+        "configure-notebook-settings .style-section-toggles button[aria-label='Default button']"
     ),
     "length_shorter": "configure-notebook-settings button[aria-label='Concise style guide button']",
     "length_longer": "configure-notebook-settings button[aria-label='Verbose style guide button']",
@@ -960,8 +965,8 @@ as `AskResult.turn_key`.
 ```python
 # Just rename, no chat config
 params = [
-    notebook_id,                                    # 0
-    [[None, None, None, [None, new_title]]],        # 1: Nested title at [[[3][1]]]
+    notebook_id,  # 0
+    [[None, None, None, [None, new_title]]],  # 1: Nested title at [[[3][1]]]
 ]
 ```
 
@@ -981,13 +986,13 @@ CHAT_LENGTH_LONGER = 4
 CHAT_LENGTH_SHORTER = 5
 
 # Build goal array
-goal_array = [goal_value]                    # e.g., [1] for DEFAULT
+goal_array = [goal_value]  # e.g., [1] for DEFAULT
 # For CUSTOM: goal_array = [2, custom_prompt]
 
 chat_settings = [goal_array, [response_length_value]]
 
 params = [
-    notebook_id,                                              # 0
+    notebook_id,  # 0
     [[None, None, None, None, None, None, None, chat_settings]],  # 1: Settings at [[[7]]]
 ]
 ```
@@ -1002,10 +1007,10 @@ fetch the actual messages for the returned conversation.
 
 ```python
 params = [
-    [],           # 0: Empty sources array
-    None,         # 1
+    [],  # 0: Empty sources array
+    None,  # 1
     notebook_id,  # 2
-    1,            # 3: Limit (server ignores this; always returns one ID)
+    1,  # 3: Limit (server ignores this; always returns one ID)
 ]
 
 # Live web UI/CDP capture on 2026-06-15:
@@ -1029,11 +1034,11 @@ Returns the Q&A turns for a specific conversation. Turns are ordered newest-firs
 
 ```python
 params = [
-    [],              # 0: Empty
-    None,            # 1
-    None,            # 2
-    conversation_id, # 3
-    limit,           # 4: Max turns to return (e.g., 2 for latest Q&A pair)
+    [],  # 0: Empty
+    None,  # 1
+    None,  # 2
+    conversation_id,  # 3
+    limit,  # 4: Max turns to return (e.g., 2 for latest Q&A pair)
 ]
 
 # Live web UI/CDP capture on 2026-06-15:
@@ -1062,10 +1067,10 @@ starts a brand-new conversation instead of extending the deleted one.
 
 ```python
 params = [
-    [],              # 0: Empty / reserved
-    conversation_id, # 1: Conversation to delete
-    None,            # 2
-    1,               # 3: Always observed as 1; meaning unconfirmed
+    [],  # 0: Empty / reserved
+    conversation_id,  # 1: Conversation to delete
+    None,  # 2
+    1,  # 3: Always observed as 1; meaning unconfirmed
 ]
 # source_path = f"/notebook/{notebook_id}"  — notebook scope rides on the URL
 ```
@@ -1090,12 +1095,12 @@ backend serves it regardless of the web UI's experiment flag.
 params = [
     # 0: client context (capability envelope; same family as artifact RPCs)
     [2, None, None, [1, None, None, None, None, None, None, None, None, None, [1]]],
-    notebook_id,                  # 1: Notebook to suggest prompts for
-    [[source_id], ...],           # 2: Source-id wrappers (one [id] per source)
-    mode,                         # 3: REQUIRED int "mode/surface" enum (1..10;
-                                  #    0/omitted -> server INTERNAL). Default 4.
-    None,                         # 4: Reserved (always null)
-    query,                        # 5: Optional free-text steer (or null)
+    notebook_id,  # 1: Notebook to suggest prompts for
+    [[source_id], ...],  # 2: Source-id wrappers (one [id] per source)
+    mode,  # 3: REQUIRED int "mode/surface" enum (1..10;
+    #    0/omitted -> server INTERNAL). Default 4.
+    None,  # 4: Reserved (always null)
+    query,  # 5: Optional free-text steer (or null)
 ]
 # source_path = f"/notebook/{notebook_id}"
 ```
@@ -1264,11 +1269,11 @@ interactive Mind Map:
 ```python
 result = [
     [
-        artifact_id,      # [0][0]: task/artifact id
-        title,            # [0][1]
-        artifact_type,    # [0][2]
-        None,             # [0][3]
-        status_code,      # [0][4]: 1 in both captures = ARTIFACT_STATUS_INITIALIZED ("pending")
+        artifact_id,  # [0][0]: task/artifact id
+        title,  # [0][1]
+        artifact_type,  # [0][2]
+        None,  # [0][3]
+        status_code,  # [0][4]: 1 in both captures = ARTIFACT_STATUS_INITIALIZED ("pending")
         # ... additional artifact metadata slots; first row len was 20
     ]
 ]
@@ -1283,31 +1288,31 @@ and `result[0][4]`, which matches both live responses.
 
 ```python
 source_ids_triple = [[[sid]] for sid in source_ids]  # [[[s1]], [[s2]], ...]
-source_ids_double = [[sid] for sid in source_ids]    # [[s1], [s2], ...]
+source_ids_double = [[sid] for sid in source_ids]  # [[s1], [s2], ...]
 
 params = [
-    create_artifact_options,          # 0: Client options/capabilities
-    notebook_id,                      # 1
+    create_artifact_options,  # 0: Client options/capabilities
+    notebook_id,  # 1
     [
-        None,                         # [0]
-        None,                         # [1]
-        1,                            # [2]: ArtifactTypeCode.AUDIO
-        source_ids_triple,            # [3]
-        None,                         # [4]
-        None,                         # [5]
+        None,  # [0]
+        None,  # [1]
+        1,  # [2]: ArtifactTypeCode.AUDIO
+        source_ids_triple,  # [3]
+        None,  # [4]
+        None,  # [5]
         [
             None,
             [
-                instructions,         # Focus/instructions text
-                length_code,          # 1=SHORT, 2=DEFAULT, 3=LONG
+                instructions,  # Focus/instructions text
+                length_code,  # 1=SHORT, 2=DEFAULT, 3=LONG
                 None,
                 source_ids_double,
-                language,             # "en"
+                language,  # "en"
                 None,
-                format_code,          # 1=DEEP_DIVE, 2=BRIEF, 3=CRITIQUE, 4=DEBATE
+                format_code,  # 1=DEEP_DIVE, 2=BRIEF, 3=CRITIQUE, 4=DEBATE
             ],
-        ],                            # [6]
-    ],                                # 2: Source config
+        ],  # [6]
+    ],  # 2: Source config
 ]
 ```
 
@@ -1320,11 +1325,11 @@ params = [
 # Cinematic and Short use a fixed style (Short ignores any style code server-side).
 video_config = [
     source_ids_double,
-    language,             # "en"
-    instructions,          # Focus/customization prompt
+    language,  # "en"
+    instructions,  # Focus/customization prompt
     None,
-    format_code,          # 1=EXPLAINER, 2=BRIEF, 3=CINEMATIC, 4=SHORT
-    style_code,           # None=CUSTOM, 1=AUTO_SELECT, 2=CLASSIC, 3=WHITEBOARD, ...
+    format_code,  # 1=EXPLAINER, 2=BRIEF, 3=CINEMATIC, 4=SHORT
+    style_code,  # None=CUSTOM, 1=AUTO_SELECT, 2=CLASSIC, 3=WHITEBOARD, ...
 ]
 if video_style == VideoStyle.CUSTOM and style_prompt:
     video_config.append(style_prompt)
@@ -1333,15 +1338,15 @@ params = [
     create_artifact_options,
     notebook_id,
     [
-        None,                         # [0]
-        None,                         # [1]
-        3,                            # [2]: ArtifactTypeCode.VIDEO
-        source_ids_triple,            # [3]
-        None,                         # [4]
-        None,                         # [5]
-        None,                         # [6]
-        None,                         # [7]
-        [None, None, video_config],   # [8]
+        None,  # [0]
+        None,  # [1]
+        3,  # [2]: ArtifactTypeCode.VIDEO
+        source_ids_triple,  # [3]
+        None,  # [4]
+        None,  # [5]
+        None,  # [6]
+        None,  # [7]
+        [None, None, video_config],  # [8]
     ],
 ]
 ```
@@ -1359,8 +1364,8 @@ custom visual-style prompt in the 7th slot:
     "en",
     "Focus prompt",
     None,
-    2,                    # VideoFormat.BRIEF
-    None,                 # VideoStyle.CUSTOM omitted/defaulted
+    2,  # VideoFormat.BRIEF
+    None,  # VideoStyle.CUSTOM omitted/defaulted
     "Custom visual style",
 ]
 ```
@@ -1379,25 +1384,25 @@ params = [
     create_artifact_options,
     notebook_id,
     [
-        None,                         # [0]
-        None,                         # [1]
-        3,                            # [2]: ArtifactTypeCode.VIDEO
-        source_ids_triple,            # [3]
-        None,                         # [4]
-        None,                         # [5]
-        None,                         # [6]
-        None,                         # [7]
+        None,  # [0]
+        None,  # [1]
+        3,  # [2]: ArtifactTypeCode.VIDEO
+        source_ids_triple,  # [3]
+        None,  # [4]
+        None,  # [5]
+        None,  # [6]
+        None,  # [7]
         [
             None,
             None,
             [
                 source_ids_double,
-                language,             # "en"
+                language,  # "en"
                 instructions,
                 None,
-                3,                    # VideoFormat.CINEMATIC
+                3,  # VideoFormat.CINEMATIC
             ],
-        ],                            # [8]
+        ],  # [8]
     ],
 ]
 ```
@@ -1411,26 +1416,26 @@ params = [
     create_artifact_options,
     notebook_id,
     [
-        None,                         # [0]
-        None,                         # [1]
-        2,                            # [2]: ArtifactTypeCode.REPORT
-        source_ids_triple,            # [3]
-        None,                         # [4]
-        None,                         # [5]
-        None,                         # [6]
+        None,  # [0]
+        None,  # [1]
+        2,  # [2]: ArtifactTypeCode.REPORT
+        source_ids_triple,  # [3]
+        None,  # [4]
+        None,  # [5]
+        None,  # [6]
         [
             None,
             [
-                title,                # "Briefing Doc" / "Study Guide" / etc.
-                description,          # Short description
+                title,  # "Briefing Doc" / "Study Guide" / etc.
+                description,  # Short description
                 None,
                 source_ids_double,
-                language,             # "en"
-                prompt,               # Detailed generation prompt
+                language,  # "en"
+                prompt,  # Detailed generation prompt
                 None,
                 True,
             ],
-        ],                            # [7]
+        ],  # [7]
     ],
 ]
 ```
@@ -1444,19 +1449,19 @@ params = [
     create_artifact_options,
     notebook_id,
     [
-        None,                         # [0]
-        None,                         # [1]
-        4,                            # [2]: ArtifactTypeCode.QUIZ_FLASHCARD
-        source_ids_triple,            # [3]
-        None,                         # [4]
-        None,                         # [5]
-        None,                         # [6]
-        None,                         # [7]
-        None,                         # [8]
+        None,  # [0]
+        None,  # [1]
+        4,  # [2]: ArtifactTypeCode.QUIZ_FLASHCARD
+        source_ids_triple,  # [3]
+        None,  # [4]
+        None,  # [5]
+        None,  # [6]
+        None,  # [7]
+        None,  # [8]
         [
             None,
             [
-                2,                    # Variant: 2=quiz, 1=flashcards, 4=interactive mind map
+                2,  # Variant: 2=quiz, 1=flashcards, 4=interactive mind map
                 None,
                 instructions,
                 None,
@@ -1464,8 +1469,8 @@ params = [
                 None,
                 None,
                 [quantity_code, difficulty_code],  # quantity: 1=FEWER, 2=STANDARD, 3=MORE
-            ],                                     # difficulty: 1=EASY, 2=MEDIUM, 3=HARD
-        ],                            # [9]
+            ],  # difficulty: 1=EASY, 2=MEDIUM, 3=HARD
+        ],  # [9]
     ],
 ]
 ```
@@ -1479,27 +1484,27 @@ params = [
     create_artifact_options,
     notebook_id,
     [
-        None,                         # [0]
-        None,                         # [1]
-        4,                            # [2]: ArtifactTypeCode.QUIZ_FLASHCARD
-        source_ids_triple,            # [3]
-        None,                         # [4]
-        None,                         # [5]
-        None,                         # [6]
-        None,                         # [7]
-        None,                         # [8]
+        None,  # [0]
+        None,  # [1]
+        4,  # [2]: ArtifactTypeCode.QUIZ_FLASHCARD
+        source_ids_triple,  # [3]
+        None,  # [4]
+        None,  # [5]
+        None,  # [6]
+        None,  # [7]
+        None,  # [8]
         [
             None,
             [
-                1,                    # Variant: 1=flashcards (vs 2=quiz, 4=interactive mind map)
+                1,  # Variant: 1=flashcards (vs 2=quiz, 4=interactive mind map)
                 None,
                 instructions,
                 None,
                 None,
                 None,
                 [quantity_code, difficulty_code],  # Same order as quiz (#2116).
-            ],                                     # quantity: 1=FEWER, 2=STANDARD, 3=MORE
-        ],                            # [9]         # difficulty: 1=EASY, 2=MEDIUM, 3=HARD
+            ],  # quantity: 1=FEWER, 2=STANDARD, 3=MORE
+        ],  # [9]         # difficulty: 1=EASY, 2=MEDIUM, 3=HARD
     ],
 ]
 ```
@@ -1519,11 +1524,20 @@ params = [
     create_artifact_options,
     notebook_id,
     [
-        None,                         # [0]
-        None,                         # [1]
-        7,                            # [2]: ArtifactTypeCode.INFOGRAPHIC
-        source_ids_triple,            # [3]
-        None, None, None, None, None, None, None, None, None, None,  # [4-13]
+        None,  # [0]
+        None,  # [1]
+        7,  # [2]: ArtifactTypeCode.INFOGRAPHIC
+        source_ids_triple,  # [3]
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,  # [4-13]
         [[instructions, language, None, orientation_code, detail_code, style_code]],  # [14]
     ],
 ]
@@ -1545,11 +1559,22 @@ params = [
     create_artifact_options,
     notebook_id,
     [
-        None,                         # [0]
-        None,                         # [1]
-        8,                            # [2]: ArtifactTypeCode.SLIDE_DECK
-        source_ids_triple,            # [3]
-        None, None, None, None, None, None, None, None, None, None, None, None,  # [4-15]
+        None,  # [0]
+        None,  # [1]
+        8,  # [2]: ArtifactTypeCode.SLIDE_DECK
+        source_ids_triple,  # [3]
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,  # [4-15]
         [[instructions, language, format_code, length_code]],  # [16]
     ],
 ]
@@ -1564,11 +1589,24 @@ params = [
     create_artifact_options,
     notebook_id,
     [
-        None,                         # [0]
-        None,                         # [1]
-        9,                            # [2]: ArtifactTypeCode.DATA_TABLE
-        source_ids_triple,            # [3]
-        None, None, None, None, None, None, None, None, None, None, None, None, None, None,  # [4-17]
+        None,  # [0]
+        None,  # [1]
+        9,  # [2]: ArtifactTypeCode.DATA_TABLE
+        source_ids_triple,  # [3]
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,  # [4-17]
         [None, [instructions, language]],  # [18]
     ],
 ]
@@ -1585,18 +1623,18 @@ params = [
 # Python signature:
 #   generate_mind_map(notebook_id, source_ids=None, language="en", instructions=None)
 params = [
-    source_ids_nested,                            # 0: [[[sid]] for sid in source_ids]
-    None,                                         # 1
-    None,                                         # 2
-    None,                                         # 3
-    None,                                         # 4
+    source_ids_nested,  # 0: [[[sid]] for sid in source_ids]
+    None,  # 1
+    None,  # 2
+    None,  # 3
+    None,  # 4
     [
-        "interactive_mindmap",                    # 5[0]: command name
-        [["[CONTEXT]", instructions or ""]],      # 5[1]: instructions (added in v0.4.0)
-        language,                                 # 5[2]: language code, e.g. "en" (added in v0.4.0)
+        "interactive_mindmap",  # 5[0]: command name
+        [["[CONTEXT]", instructions or ""]],  # 5[1]: instructions (added in v0.4.0)
+        language,  # 5[2]: language code, e.g. "en" (added in v0.4.0)
     ],
-    None,                                         # 6
-    [2, None, [1]],                               # 7: Fixed config
+    None,  # 6
+    [2, None, [1]],  # 7: Fixed config
 ]
 ```
 
@@ -1618,11 +1656,16 @@ params = [
     create_artifact_options,
     notebook_id,
     [
-        None, None,
-        4,                                        # 2: artifact type (type-4 family)
-        [[[sid]] for sid in source_ids],          # 3: nested source ids
-        None, None, None, None, None,
-        [None, [4]],                              # 9: [_, [variant]] → variant 4 = interactive mind map
+        None,
+        None,
+        4,  # 2: artifact type (type-4 family)
+        [[[sid]] for sid in source_ids],  # 3: nested source ids
+        None,
+        None,
+        None,
+        None,
+        None,
+        [None, [4]],  # 9: [_, [variant]] → variant 4 = interactive mind map
     ],
 ]
 
@@ -1682,10 +1725,10 @@ generation options and returns them on every listing, inside the same type-4
 options block that carries the variant and the free-text prompt:
 
 ```python
-row[9][1][0]   # variant: 1=flashcards, 2=quiz, 4=interactive mind map
-row[9][1][2]   # free-text prompt
-row[9][1][6]   # flashcards [quantity, difficulty] — null on a quiz row
-row[9][1][7]   # quiz       [quantity, difficulty] — null on a flashcards row
+row[9][1][0]  # variant: 1=flashcards, 2=quiz, 4=interactive mind map
+row[9][1][2]  # free-text prompt
+row[9][1][6]  # flashcards [quantity, difficulty] — null on a quiz row
+row[9][1][7]  # quiz       [quantity, difficulty] — null on a flashcards row
 ```
 
 Positions follow `AppArtifactGenerationOptions` in `docs/mobile/schema.proto`
@@ -1720,11 +1763,11 @@ observations worth knowing:
 ```python
 # Creates note with fixed placeholder values
 params = [
-    notebook_id,   # 0
-    "",            # 1: Empty string (ignored)
-    [1],           # 2: Fixed flag
-    None,          # 3
-    "New Note",    # 4: Placeholder title (ignored)
+    notebook_id,  # 0
+    "",  # 1: Empty string (ignored)
+    [1],  # 2: Fixed flag
+    None,  # 3
+    "New Note",  # 4: Placeholder title (ignored)
 ]
 # Then call UPDATE_NOTE to set real title/content
 ```
@@ -1742,13 +1785,13 @@ Reverse-engineered from a captured web-UI "Save to note" request (issue #660). P
 
 ```python
 params = [
-    notebook_id,           # [0]
-    answer_with_markers,   # [1] str — full answer text INCLUDING [N] markers
-    [2],                   # [2] mode flag — [2] = saved-from-chat (vs [1] = blank-note)
-    source_passages,       # [3] list — one descriptor per UNIQUE cited chunk_id
-    title,                 # [4] str — requested title; server may auto-generate a smart one
-    rich_content,          # [5] list — cleaned answer + per-marker anchors (see below)
-    [2],                   # [6] trailer flag
+    notebook_id,  # [0]
+    answer_with_markers,  # [1] str — full answer text INCLUDING [N] markers
+    [2],  # [2] mode flag — [2] = saved-from-chat (vs [1] = blank-note)
+    source_passages,  # [3] list — one descriptor per UNIQUE cited chunk_id
+    title,  # [4] str — requested title; server may auto-generate a smart one
+    rich_content,  # [5] list — cleaned answer + per-marker anchors (see below)
+    [2],  # [6] trailer flag
 ]
 ```
 
@@ -1756,11 +1799,13 @@ params = [
 
 ```python
 [
-    None, None, None,
-    [[None, source_start, source_end]],   # passage span in source document
-    [passage_text_wrapper],                # cited text wrapped with offsets + render flags
-    [[[passage_id], source_id]],           # passage_id + source_id pair
-    [chunk_id],                             # standalone chunk_id
+    None,
+    None,
+    None,
+    [[None, source_start, source_end]],  # passage span in source document
+    [passage_text_wrapper],  # cited text wrapped with offsets + render flags
+    [[[passage_id], source_id]],  # passage_id + source_id pair
+    [chunk_id],  # standalone chunk_id
 ]
 ```
 
@@ -1788,12 +1833,12 @@ params = [
 
 ```python
 [
-    note_id,                                # [0] server-assigned UUID
-    answer_with_markers,                    # [1] echoed
-    [2, user_id, [ts_sec, ts_nanos]],       # [2] metadata: type=2 (saved-from-chat)
-    source_passages,                        # [3] echoed
-    server_title,                           # [4] may differ from request (smart title)
-    rich_content,                           # [5] echoed
+    note_id,  # [0] server-assigned UUID
+    answer_with_markers,  # [1] echoed
+    [2, user_id, [ts_sec, ts_nanos]],  # [2] metadata: type=2 (saved-from-chat)
+    source_passages,  # [3] echoed
+    server_title,  # [4] may differ from request (smart title)
+    rich_content,  # [5] echoed
 ]
 ```
 
@@ -1811,9 +1856,9 @@ params = [
 
 ```python
 params = [
-    notebook_id,                       # 0
-    note_id,                           # 1
-    [[[content, title, [], 0]]],       # 2: Triple-nested [content, title, [], 0]
+    notebook_id,  # 0
+    note_id,  # 1
+    [[[content, title, [], 0]]],  # 2: Triple-nested [content, title, [], 0]
 ]
 ```
 
@@ -1825,9 +1870,9 @@ params = [
 
 ```python
 params = [
-    notebook_id,   # 0
-    None,          # 1
-    [note_id],     # 2: Single-nested note ID
+    notebook_id,  # 0
+    None,  # 1
+    [note_id],  # 2: Single-nested note ID
 ]
 
 # BEFORE delete:
@@ -1865,18 +1910,18 @@ Notes and mind maps share the same storage system and are distinguished by conte
 
 ```python
 [
-    "note_id",           # Position 0: Note ID
+    "note_id",  # Position 0: Note ID
     [
-        "note_id",       # [1][0]: ID (duplicate)
-        "content",       # [1][1]: Note content text
-        [                # [1][2]: Metadata
-            1,           # Type flag
-            "user_id",   # User ID
-            [ts, ns]     # [timestamp_seconds, nanoseconds]
+        "note_id",  # [1][0]: ID (duplicate)
+        "content",  # [1][1]: Note content text
+        [  # [1][2]: Metadata
+            1,  # Type flag
+            "user_id",  # User ID
+            [ts, ns],  # [timestamp_seconds, nanoseconds]
         ],
-        None,            # [1][3]: Unknown
-        "title"          # [1][4]: Note title
-    ]
+        None,  # [1][3]: Unknown
+        "title",  # [1][4]: Note title
+    ],
 ]
 ```
 
@@ -1884,14 +1929,14 @@ Notes and mind maps share the same storage system and are distinguished by conte
 
 ```python
 [
-    "mind_map_id",       # Position 0: Mind map ID
+    "mind_map_id",  # Position 0: Mind map ID
     [
-        "mind_map_id",   # [1][0]: ID (duplicate)
+        "mind_map_id",  # [1][0]: ID (duplicate)
         '{"name": "Root", "children": [...]}',  # [1][1]: JSON with children/nodes
-        [metadata],      # [1][2]: Same as notes
-        None,            # [1][3]: Unknown
-        "Mind Map Title" # [1][4]: Title
-    ]
+        [metadata],  # [1][2]: Same as notes
+        None,  # [1][3]: Unknown
+        "Mind Map Title",  # [1][4]: Title
+    ],
 ]
 ```
 
@@ -1958,7 +2003,7 @@ Gets AI-generated summary and suggested topics for a notebook.
 ```python
 params = [
     notebook_id,  # 0: Notebook ID
-    [2],          # 1: Fixed flag
+    [2],  # 1: Fixed flag
 ]
 
 # Live web UI/CDP capture on 2026-06-15:
@@ -1998,7 +2043,7 @@ Get the current share settings for a notebook, including users with access and p
 ```python
 params = [
     notebook_id,  # 0: Notebook ID
-    [2],          # 1: Fixed flag
+    [2],  # 1: Fixed flag
 ]
 
 # Live web UI/CDP capture on 2026-06-15:
@@ -2079,14 +2124,14 @@ params = [
     [
         [
             notebook_id,
-            None,                  # no user changes
-            [access_value],        # [0]=restricted, [1]=public
-            [access_value, ""]     # [flag, welcome_message]
+            None,  # no user changes
+            [access_value],  # [0]=restricted, [1]=public
+            [access_value, ""],  # [flag, welcome_message]
         ]
     ],
-    1,      # action type
+    1,  # action type
     None,
-    [2]     # fixed flag
+    [2],  # fixed flag
 ]
 
 # Response: [] (empty on success)
@@ -2106,14 +2151,14 @@ params = [
     [
         [
             notebook_id,
-            entries,                       # users to add/update
-            None,                          # no public access change
-            [message_flag, welcome_message]
+            entries,  # users to add/update
+            None,  # no public access change
+            [message_flag, welcome_message],
         ]
     ],
     notify_flag,  # 0 or 1
     None,
-    [2]
+    [2],
 ]
 
 # Response: [] (empty on success)
@@ -2158,12 +2203,12 @@ params = [
             notebook_id,
             [[email, None, 4]],  # 4 = remove permission
             None,
-            [0, ""]
+            [0, ""],
         ]
     ],
-    0,      # no notification
+    0,  # no notification
     None,
-    [2]
+    [2],
 ]
 ```
 
@@ -2182,9 +2227,15 @@ params = [
     notebook_id,  # 0: Notebook ID
     [
         [
-            None, None, None, None,   # indices 0-3
-            None, None, None, None,   # indices 4-7
-            [[view_level]],           # index 8: [[0]] or [[1]]
+            None,
+            None,
+            None,
+            None,  # indices 0-3
+            None,
+            None,
+            None,
+            None,  # indices 4-7
+            [[view_level]],  # index 8: [[0]] or [[1]]
         ]
     ],
 ]
@@ -2254,9 +2305,9 @@ Refresh a source to get updated content (for URL/Drive sources).
 
 ```python
 params = [
-    None,           # 0
-    [source_id],    # 1: Single-nested source ID
-    [2],            # 2: Fixed flag
+    None,  # 0
+    [source_id],  # 1: Single-nested source ID
+    [2],  # 2: Fixed flag
 ]
 
 # Called with source_path:
@@ -2275,9 +2326,9 @@ Check if a source needs to be refreshed.
 
 ```python
 params = [
-    None,           # 0
-    [source_id],    # 1: Single-nested source ID
-    [2],            # 2: Fixed flag
+    None,  # 0
+    [source_id],  # 1: Single-nested source ID
+    [2],  # 2: Fixed flag
 ]
 
 # Called with source_path:
@@ -2317,9 +2368,9 @@ Start a fast research session.
 # source_type: 1=Web, 2=Drive
 params = [
     [query, source_type],  # 0: Query and source type
-    None,                   # 1
-    1,                      # 2: DiscoveryMode — 1 = DEFAULT_LLM_SEARCH
-    notebook_id,            # 3: Notebook ID
+    None,  # 1
+    1,  # 2: DiscoveryMode — 1 = DEFAULT_LLM_SEARCH
+    notebook_id,  # 3: Notebook ID
 ]
 
 # Called with source_path:
@@ -2348,11 +2399,11 @@ Start a deep research session (web only, more thorough).
 ```python
 # Deep research only supports Web (source_type=1)
 params = [
-    None,                   # 0
-    [1],                    # 1: Fixed flag
-    [query, source_type],   # 2: Query and source type
-    5,                      # 3: DiscoveryMode — 5 = DEEP_RESEARCH
-    notebook_id,            # 4: Notebook ID
+    None,  # 0
+    [1],  # 1: Fixed flag
+    [query, source_type],  # 2: Query and source type
+    5,  # 3: DiscoveryMode — 5 = DEEP_RESEARCH
+    notebook_id,  # 4: Notebook ID
 ]
 
 # Called with source_path:
@@ -2384,9 +2435,9 @@ Poll for research results.
 
 ```python
 params = [
-    None,          # 0
-    None,          # 1
-    notebook_id,   # 2: Notebook ID
+    None,  # 0
+    None,  # 1
+    notebook_id,  # 2: Notebook ID
 ]
 
 # Called with source_path:
@@ -2566,41 +2617,45 @@ Import selected research sources into the notebook.
 source_array = []
 
 # Deep research report entry (outgoing import request):
-source_array.append([
-    None,                 # 0
-    [title, markdown],    # 1: Report title and full markdown body
-    None,                 # 2
-    3,                    # 3: Special report marker
-    None,                 # 4
-    None,                 # 5
-    None,                 # 6
-    None,                 # 7
-    None,                 # 8
-    None,                 # 9
-    3,                    # 10: Special report marker
-])
+source_array.append(
+    [
+        None,  # 0
+        [title, markdown],  # 1: Report title and full markdown body
+        None,  # 2
+        3,  # 3: Special report marker
+        None,  # 4
+        None,  # 5
+        None,  # 6
+        None,  # 7
+        None,  # 8
+        None,  # 9
+        3,  # 10: Special report marker
+    ]
+)
 
 # Standard web source entry:
-source_array.append([
-    None,           # 0
-    None,           # 1
-    [url, title],   # 2: URL and title
-    None,           # 3
-    None,           # 4
-    None,           # 5
-    None,           # 6
-    None,           # 7
-    None,           # 8
-    None,           # 9
-    2,              # 10: Standard web-source marker
-])
+source_array.append(
+    [
+        None,  # 0
+        None,  # 1
+        [url, title],  # 2: URL and title
+        None,  # 3
+        None,  # 4
+        None,  # 5
+        None,  # 6
+        None,  # 7
+        None,  # 8
+        None,  # 9
+        2,  # 10: Standard web-source marker
+    ]
+)
 
 params = [
-    None,           # 0
-    [1],            # 1: Fixed flag
-    task_id,        # 2: Research task ID (for deep research, use the polled task ID)
-    notebook_id,    # 3: Notebook ID
-    source_array,   # 4: Array of sources to import
+    None,  # 0
+    [1],  # 1: Fixed flag
+    task_id,  # 2: Research task ID (for deep research, use the polled task ID)
+    notebook_id,  # 3: Notebook ID
+    source_array,  # 4: Array of sources to import
 ]
 
 # Called with source_path:
@@ -2643,8 +2698,8 @@ already-terminal run is a silent no-op.
 
 ```python
 params = [
-    None,    # 0: optional client context — omitted (matches start/poll)
-    None,    # 1
+    None,  # 0: optional client context — omitted (matches start/poll)
+    None,  # 1
     run_id,  # 2: the poll-level run id (== ResearchTask.task_id from poll())
 ]
 
@@ -2686,7 +2741,7 @@ Get user settings including the current output language.
 
 ```python
 params = [
-    None,                                                    # 0
+    None,  # 0
     [1, None, None, None, None, None, None, None, None, None, [1]],  # 1: Fixed config
 ]
 
@@ -2781,7 +2836,7 @@ Rename an artifact.
 ```python
 params = [
     [artifact_id, new_title],  # 0: Artifact ID and new title
-    [["title"]],               # 1: Field mask (update title)
+    [["title"]],  # 1: Field mask (update title)
 ]
 
 # Called with source_path:
@@ -2804,11 +2859,11 @@ Export an artifact to Google Docs or Sheets.
 # 2 = Google Sheets
 
 params = [
-    None,          # 0
-    artifact_id,   # 1: Artifact ID
-    content,       # 2: Content to export (optional, can be None)
-    title,         # 3: Title for exported document
-    export_type,   # 4: 1=Docs, 2=Sheets
+    None,  # 0
+    artifact_id,  # 1: Artifact ID
+    content,  # 2: Content to export (optional, can be None)
+    title,  # 3: Title for exported document
+    export_type,  # 4: 1=Docs, 2=Sheets
 ]
 
 # Called with source_path:
@@ -2832,8 +2887,8 @@ zero-based and must be non-negative.
 
 ```python
 params = [
-    [2],                        # 0: Fixed flag
-    artifact_id,                # 1: Slide deck artifact ID
+    [2],  # 0: Fixed flag
+    artifact_id,  # 1: Slide deck artifact ID
     [[[slide_index, prompt]]],  # 2: Revision request
 ]
 
@@ -2865,7 +2920,7 @@ infographic artifacts (issue #1319).
 ```python
 params = [
     retry_options,  # 0: fixed client capability blob (see below)
-    artifact_id,    # 1: ID of the failed artifact to retry
+    artifact_id,  # 1: ID of the failed artifact to retry
 ]
 
 # retry_options is a type-agnostic literal, sent verbatim regardless of
@@ -2989,8 +3044,8 @@ Get AI-suggested report formats based on notebook content.
 
 ```python
 params = [
-    [2],            # 0: Fixed flag (same pattern as LIST_ARTIFACTS)
-    notebook_id,    # 1: Notebook ID
+    [2],  # 0: Fixed flag (same pattern as LIST_ARTIFACTS)
+    notebook_id,  # 1: Notebook ID
 ]
 
 # Called with source_path:

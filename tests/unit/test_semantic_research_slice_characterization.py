@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from notebooklm import _research_service as research_service_module
 from notebooklm._backend import BackendContractError, BackendError, BackendErrorReason
 from notebooklm._backend_compat import project_backend_error
 from notebooklm._operations import CallPolicy, Operation
@@ -518,7 +519,7 @@ async def test_wait_pins_the_first_task_and_polls_once_per_tick(monkeypatch) -> 
     async def _sleep(delay: float) -> None:
         slept.append(delay)
 
-    monkeypatch.setattr("notebooklm._research_service.asyncio.sleep", _sleep)
+    monkeypatch.setattr(research_service_module.asyncio, "sleep", _sleep)
     rpc = _RecordingRpc(
         [[_task_row("task_a", status_code=1)]],
         [[_task_row("task_a", status_code=1)], [_task_row("task_b", status_code=2)]],

@@ -363,7 +363,7 @@ class TestWaitUntilReady:
             await original_sleep(0.001)  # Minimal actual sleep
 
         with (
-            patch("notebooklm._sources.asyncio.sleep", new=mock_sleep),
+            patch.object(asyncio, "sleep", new=mock_sleep),
             patch.object(sources_api, "get_or_none", side_effect=mock_get),
         ):
             await sources_api.wait_until_ready(

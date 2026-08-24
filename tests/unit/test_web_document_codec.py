@@ -10,6 +10,7 @@ import pytest
 
 from notebooklm._source.content import SourceContentRenderer
 from notebooklm._types.documents import BlockKind, StructuredDocument
+from notebooklm._web.codec import sources as source_codec
 from notebooklm._web.codec.documents import decode_structured_document
 from tests._fixtures.source_content import CodecSourceContentService
 
@@ -46,7 +47,7 @@ async def test_get_source_fulltext_delegates_document_construction_to_web_codec(
         seen.append(body)
         return sentinel
 
-    monkeypatch.setattr("notebooklm._web.codec.sources.decode_structured_document", decode)
+    monkeypatch.setattr(source_codec, "decode_structured_document", decode)
 
     fulltext = await SourceContentRenderer(CodecSourceContentService(response)).get_fulltext(
         "notebook-id", "source-id"

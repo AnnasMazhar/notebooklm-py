@@ -447,6 +447,43 @@ def test_live_cookies_casts_non_cookies_truthy_value() -> None:
     assert pipeline._live_cookies() is sentinel
 
 
+def test_drive_import_service_preserves_falsey_override_and_live_auth_route() -> None:
+    """The Drive bridge keeps explicit seams and resolves cookies from the live pipeline."""
+
+    class FalseyAddFile:
+        def __bool__(self) -> bool:
+            return False
+
+        async def __call__(
+            self,
+            notebook_id: str,
+            file_path: Any,
+            *,
+            title: str | None,
+            wait: bool,
+            wait_timeout: float,
+        ) -> Source:
+            return Source(id=f"{notebook_id}:{file_path}", title=title)
+
+    auth = MagicMock()
+    auth.authuser = 3
+    auth.account_email = "selected@example.com"
+    pipeline = SourceUploadPipeline(
+        rpc=MagicMock(),
+        drain=_Drain(),
+        lifecycle=_Lifecycle(),
+        kernel=MagicMock(),
+        auth=auth,
+    )
+    override = FalseyAddFile()
+
+    service = pipeline.create_drive_import_service(add_file=override)
+
+    assert service._add_file is override
+    assert service._fetch._cookies_provider == pipeline.live_cookies
+    assert service._fetch._authuser == pipeline.authuser_value()
+
+
 @pytest.mark.asyncio
 async def test_list_sources_delegates_to_neutral_callback() -> None:
     pipeline = _make_pipeline()

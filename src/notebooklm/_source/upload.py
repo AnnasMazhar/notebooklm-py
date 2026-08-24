@@ -86,7 +86,7 @@ from ._upload_decode import (  # noqa: F401
     raise_for_upload_status,
     raise_partial_upload_failure,
 )
-from .drive_import import DriveFetcher, DriveImportService
+from .drive_import import AddFile, DriveFetcher, DriveImportService
 from .polling import SourcePoller
 from .upload_payloads import (
     build_resumable_upload_start_request,
@@ -319,14 +319,19 @@ class SourceUploadPipeline(LoopBoundPrimitive):
         """Account-routing value for Google URLs (#1884), matching the upload leg."""
         return format_authuser_value(self._auth.authuser, self._auth.account_email)
 
-    def create_drive_import_service(self) -> DriveImportService:
-        """Build the Drive download bridge without exposing credentials to the web backend."""
+    def create_drive_import_service(self, *, add_file: AddFile | None = None) -> DriveImportService:
+        """Build the Drive bridge without exposing credential material to callers.
+
+        ``add_file`` lets the semantic web handler retain its per-call readiness
+        receipt while this uploader remains the sole owner of the live cookies
+        and selected-account route used by the Drive download leg.
+        """
         return DriveImportService(
             fetch=DriveFetcher(
                 cookies_provider=self.live_cookies,
                 authuser=self.authuser_value(),
             ),
-            add_file=self.add_file,
+            add_file=add_file if add_file is not None else self.add_file,
         )
 
     async def add_file(

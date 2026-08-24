@@ -72,7 +72,6 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
 import yaml
@@ -175,21 +174,19 @@ class TestPollingReplay:
             assert final_status is not None
             assert final_status.is_complete or final_status.is_failed
 
-            # 4. Rename leg — exercises RENAME_ARTIFACT regardless of whether
-            #    the artifact ended ``completed`` or ``failed``. We pass
-            #    ``return_object=False`` so the regression we care about is "the
-            #    rename RPC fires without error".
-            #    v0.8.0 (#1362): return_object=False now runs the existence
-            #    preflight too; stub it as a hit (the artifact was generated
-            #    above, so it exists) so no extra LIST_ARTIFACTS interaction is
-            #    required beyond what the cassette already captured.
-            client.artifacts._listing.get_studio_only = AsyncMock(return_value=final_status)
-            await client.artifacts.rename(
-                MUTABLE_NOTEBOOK_ID,
-                task_id,
-                "Renamed VCR Test",
-                return_object=False,
+            # 4. Rename wire leg — the historical cassette predates the
+            #    semantic facade's mandatory post-mutation catalog read. Keep
+            #    the recording truthful (one recorded RENAME_ARTIFACT and no
+            #    invented LIST_ARTIFACTS response) by replaying that interaction
+            #    through the supported raw-RPC escape hatch. Facade rename's
+            #    typed preflight/readback is covered by the semantic management
+            #    and web-backend suites.
+            renamed = await client.rpc_call(
+                RPCMethod.RENAME_ARTIFACT,
+                [[task_id, "Renamed VCR Test"], [["title"]]],
+                allow_null=True,
             )
+            assert renamed[:2] == [task_id, "Renamed VCR Test"]
 
     def test_cassette_has_multiple_polling_interactions(self) -> None:
         """The cassette must capture a real polling progression.

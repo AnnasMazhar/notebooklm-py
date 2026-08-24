@@ -75,6 +75,7 @@ from notebooklm._records import (
     LABEL_GET_DEF,
     LABEL_LIST_DEF,
     LABEL_UPDATE_DEF,
+    LEGACY_SHARE_ARTIFACT_DEF,
     MIND_MAP_DELETE_DEF,
     MIND_MAP_GENERATE_INTERACTIVE_DEF,
     MIND_MAP_GENERATE_NOTE_DEF,
@@ -165,6 +166,7 @@ from notebooklm._records import (
 )
 from notebooklm._source.upload_payloads import build_template_block
 from notebooklm._transport_errors import TransportRateLimited, TransportServerError
+from notebooklm._web import studio_media as studio_media_module
 from notebooklm._web.backend import WebRpcBackend
 from notebooklm._web.registry import (
     WEB_OPERATION_REGISTRY,
@@ -286,6 +288,7 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.SHARING_SET_PUBLIC,
         Operation.SHARING_SET_VIEW_LEVEL,
         Operation.SHARING_UPDATE_USERS,
+        Operation.LEGACY_SHARE_ARTIFACT,
         Operation.RESEARCH_START,
         Operation.RESEARCH_POLL,
         Operation.RESEARCH_CANCEL,
@@ -373,6 +376,7 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.SHARING_SET_PUBLIC: SHARING_SET_PUBLIC_DEF,
         Operation.SHARING_SET_VIEW_LEVEL: SHARING_SET_VIEW_LEVEL_DEF,
         Operation.SHARING_UPDATE_USERS: SHARING_UPDATE_USERS_DEF,
+        Operation.LEGACY_SHARE_ARTIFACT: LEGACY_SHARE_ARTIFACT_DEF,
         Operation.RESEARCH_START: RESEARCH_START_DEF,
         Operation.RESEARCH_POLL: RESEARCH_POLL_DEF,
         Operation.RESEARCH_CANCEL: RESEARCH_CANCEL_DEF,
@@ -1037,7 +1041,7 @@ async def test_audio_generate_reuses_payload_builder_and_one_absolute_deadline()
 
 @pytest.mark.asyncio
 async def test_audio_generate_none_language_uses_current_profile_default(monkeypatch) -> None:
-    monkeypatch.setattr("notebooklm._web.studio_media.get_default_language", lambda: "ja")
+    monkeypatch.setattr(studio_media_module, "get_default_language", lambda: "ja")
     executor = _RecordingExecutor([["audio-id", "Audio", 1, None, 1]])
 
     await _backend(executor).invoke(

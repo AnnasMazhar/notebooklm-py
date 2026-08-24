@@ -350,7 +350,7 @@
           ]
         },
         "field_path": "answer_document",
-        "private_model": "notebooklm._records.ChatAskResultRecord",
+        "private_model": "notebooklm._chat_records.ChatAskResultRecord",
         "public_model": "notebooklm._types.documents.StructuredDocument"
       },
       {
@@ -367,7 +367,7 @@
           ]
         },
         "field_path": "answer_document",
-        "private_model": "notebooklm._records.ChatStreamAnswerRecord",
+        "private_model": "notebooklm._chat_records.ChatStreamAnswerRecord",
         "public_model": "notebooklm._types.documents.StructuredDocument"
       },
       {
