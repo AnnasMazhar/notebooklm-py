@@ -73,6 +73,16 @@ def test_p1_backend_dataflow_is_client_only_and_alias_mutation_sensitive() -> No
     assert len(errors) == 1
     assert errors[0].startswith("P1 client._backend escapes assembly assignment at lines: ")
 
+    for statement in (
+        "from .._web import WebRpcBackend",
+        "from . import _backend",
+        "import notebooklm._backend",
+    ):
+        import_mutation = notebooks + f"\n{statement}\n"
+        errors = audit_inert_p1_backend_dataflow({"_notebooks.py": import_mutation})
+        assert len(errors) == 1
+        assert errors[0].startswith("inert P1 backend imports changed: ")
+
 
 def test_catalog_projection_covers_the_live_authorities() -> None:
     catalog = build_operation_catalog()

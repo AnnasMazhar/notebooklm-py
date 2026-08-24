@@ -14,6 +14,7 @@ from notebooklm._backend import (
     BackendContractError,
     BackendDeadlineExceededError,
     BackendError,
+    BackendErrorReason,
     BackendKind,
     UnsupportedOperationError,
 )
@@ -184,6 +185,7 @@ def test_backend_error_record_preserves_scrubbed_diagnostics_and_timeout_semanti
     assert error == replace(error)
     assert hash(error) == hash(replace(error))
     assert deadline_error.operation is Operation.SOURCE_GET
+    assert deadline_error.reason is BackendErrorReason.TIMEOUT
     assert deadline_error.outcome_unknown
     assert deadline_error.diagnostics is diagnostics
     assert "source.get" in str(deadline_error)

@@ -265,6 +265,8 @@ async def test_expired_deadline_fails_before_executor() -> None:
         )
 
     assert caught.value.operation is Operation.NOTEBOOK_LIST
+    assert caught.value.reason is BackendErrorReason.TIMEOUT
+    assert caught.value.diagnostics == {"timeout": 2.0, "remaining": 0.0}
     assert executor.calls == []
 
 
@@ -394,7 +396,7 @@ def test_unreviewed_rpc_error_subclass_fails_closed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_deadline_budget_timeout_maps_to_typed_deadline_error() -> None:
+async def test_nonexpired_transport_timeout_remains_a_typed_backend_timeout() -> None:
     timeout = RPCTimeoutError(
         "request timed out",
         method_id=RPCMethod.LIST_NOTEBOOKS.value,
@@ -403,7 +405,7 @@ async def test_deadline_budget_timeout_maps_to_typed_deadline_error() -> None:
     executor = _RecordingExecutor(timeout)
     deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 12.0)
 
-    with pytest.raises(BackendDeadlineExceededError) as caught:
+    with pytest.raises(BackendError) as caught:
         await _backend(executor).invoke(
             NOTEBOOK_LIST_DEF,
             NotebookListInput(),
@@ -411,6 +413,37 @@ async def test_deadline_budget_timeout_maps_to_typed_deadline_error() -> None:
         )
 
     assert caught.value.operation is Operation.NOTEBOOK_LIST
+    assert type(caught.value) is BackendError
+    assert caught.value.reason is BackendErrorReason.TIMEOUT
+    assert caught.value.__cause__ is timeout
+    assert caught.value.diagnostics == {
+        "method_id": RPCMethod.LIST_NOTEBOOKS.value,
+        "rpc_code": None,
+        "found_ids": None,
+        "raw_response": None,
+        "timeout_seconds": 3.0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_expired_midflight_transport_timeout_maps_to_semantic_deadline_error() -> None:
+    timeout = RPCTimeoutError(
+        "request timed out",
+        method_id=RPCMethod.LIST_NOTEBOOKS.value,
+        timeout_seconds=3.0,
+    )
+    executor = _RecordingExecutor(timeout)
+    times = iter((12.0, 12.0, 16.0, 16.0))
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: next(times))
+
+    with pytest.raises(BackendDeadlineExceededError) as caught:
+        await _backend(executor).invoke(
+            NOTEBOOK_LIST_DEF,
+            NotebookListInput(),
+            deadline=deadline,
+        )
+
+    assert caught.value.reason is BackendErrorReason.TIMEOUT
     assert caught.value.outcome_unknown is False
     assert caught.value.__cause__ is timeout
     assert caught.value.diagnostics == {
@@ -419,6 +452,8 @@ async def test_deadline_budget_timeout_maps_to_typed_deadline_error() -> None:
         "found_ids": None,
         "raw_response": None,
         "timeout_seconds": 3.0,
+        "timeout": 5.0,
+        "remaining": 0.0,
     }
 
 

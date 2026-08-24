@@ -152,6 +152,7 @@ class BackendDeadlineExceededError(BackendError):
             operation=operation,
             outcome_unknown=outcome_unknown,
             diagnostics=diagnostics,
+            reason=BackendErrorReason.TIMEOUT,
         )
 
 
