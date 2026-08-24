@@ -49,6 +49,7 @@ KNOWN_ACTIVE_SEMANTIC_OPERATIONS: frozenset[Operation] = frozenset(
         Operation.SOURCE_ADD_URL,
         Operation.ARTIFACT_LIST,
         Operation.ARTIFACT_GET,
+        Operation.ARTIFACT_GENERATE_AUDIO,
         Operation.NOTE_LIST,
         Operation.NOTE_GET,
         Operation.NOTE_CREATE,

@@ -38,6 +38,7 @@ from notebooklm._idempotency import (
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._read_services import NotebookReadService, SourceReadService
 from notebooklm._records import (
+    ARTIFACT_GENERATE_AUDIO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
     NOTE_CREATE_DEF,
@@ -138,6 +139,10 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         SOURCE_ADD_URL_DEF: (Operation.SOURCE_ADD_URL, CallPolicy.MUTATION),
         ARTIFACT_LIST_DEF: (Operation.ARTIFACT_LIST, CallPolicy.READ),
         ARTIFACT_GET_DEF: (Operation.ARTIFACT_GET, CallPolicy.READ),
+        ARTIFACT_GENERATE_AUDIO_DEF: (
+            Operation.ARTIFACT_GENERATE_AUDIO,
+            CallPolicy.STATEFUL_START,
+        ),
         NOTE_LIST_DEF: (Operation.NOTE_LIST, CallPolicy.READ),
         NOTE_GET_DEF: (Operation.NOTE_GET, CallPolicy.READ),
         NOTE_CREATE_DEF: (Operation.NOTE_CREATE, CallPolicy.MUTATION),
@@ -234,6 +239,17 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             [
                 IdempotencyPolicy.IDEMPOTENT_SET_OP,
                 IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
+        ),
+        (
+            ARTIFACT_GENERATE_AUDIO_DEF,
+            [
+                (RPCMethod.GET_NOTEBOOK, None),
+                (RPCMethod.CREATE_ARTIFACT, None),
+            ],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.PROBE_THEN_CREATE,
             ],
         ),
         (

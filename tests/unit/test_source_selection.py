@@ -30,6 +30,7 @@ from notebooklm.rpc import (
     VideoFormat,
     VideoStyle,
 )
+from tests._fixtures.web_backend import build_web_backend
 
 
 @pytest.fixture
@@ -319,6 +320,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
 
@@ -371,6 +373,7 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
         mock_core.rpc_call.return_value = [["artifact_123", "Audio", 1, None, 1]]
@@ -397,14 +400,16 @@ class TestArtifactsSourceSelection:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=mock_notebooks_api,
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
 
-        # Mock get_source_ids to return source IDs
-        mock_notebooks_api.get_source_ids.return_value = ["src_001", "src_002"]
-
-        # Mock the generation RPC call
-        mock_core.rpc_executor.rpc_call.return_value = [["artifact_123", "Audio", 1, None, 1]]
+        # The web backend owns the all-sources resolution and generation under
+        # one semantic deadline: GET_NOTEBOOK followed by CREATE_ARTIFACT.
+        mock_core.rpc_executor.rpc_call.side_effect = [
+            [["Notebook", [[["src_001"], "One"], [["src_002"], "Two"]], "nb_123"]],
+            [["artifact_123", "Audio", 1, None, 1]],
+        ]
 
         result = await api.generate_audio(
             notebook_id="nb_123",
@@ -413,12 +418,11 @@ class TestArtifactsSourceSelection:
 
         assert result.task_id == "artifact_123"
 
-        # Verify get_source_ids was called
-        mock_notebooks_api.get_source_ids.assert_called_once_with("nb_123")
+        mock_notebooks_api.get_source_ids.assert_not_called()
 
         # Verify CREATE_ARTIFACT RPC was called with fetched source IDs
-        mock_core.rpc_executor.rpc_call.assert_called_once()
-        call_args = mock_core.rpc_executor.rpc_call.call_args
+        assert mock_core.rpc_executor.rpc_call.call_count == 2
+        call_args = mock_core.rpc_executor.rpc_call.call_args_list[1]
         params = call_args.args[1]
         inner_params = params[2]
         source_ids_triple = inner_params[3]
@@ -1205,6 +1209,7 @@ class TestEmptySourceIds:
             drain=mock_core,
             lifecycle=mock_core,
             notebooks=MagicMock(),
+            _backend=build_web_backend(mock_core),
             **mock_mind_map_service,
         )
 

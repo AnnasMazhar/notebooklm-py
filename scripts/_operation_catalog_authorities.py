@@ -122,11 +122,21 @@ _GENERATION_OPERATIONS = {
     Operation.ARTIFACT_GENERATE_DATA_TABLE: "artifact_type=data-table",
 }
 for _operation, _discriminator in _GENERATION_OPERATIONS.items():
+    _create_site = (
+        "_web/backend.py:WebRpcBackend._audio_generate"
+        if _operation is Operation.ARTIFACT_GENERATE_AUDIO
+        else "_artifact/generation.py:ArtifactGenerationService._call_generate"
+    )
+    _source_site = (
+        "_web/backend.py:WebRpcBackend._audio_generate"
+        if _operation is Operation.ARTIFACT_GENERATE_AUDIO
+        else "_notebooks.py:NotebooksAPI.get_raw"
+    )
     SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.CREATE_ARTIFACT))] = _rules(
-        ("_artifact/generation.py:ArtifactGenerationService._call_generate", _discriminator)
+        (_create_site, _discriminator)
     )
     SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.GET_NOTEBOOK))] = _rules(
-        ("_notebooks.py:NotebooksAPI.get_raw", "source_ids is None")
+        (_source_site, "source_ids is None")
     )
 
 SHARED_RPC_AUTHORITY_RULES.update(
@@ -438,7 +448,11 @@ for _operation in (*_GENERATION_OPERATIONS, Operation.ARTIFACT_GENERATE_MIND_MAP
             1,
             "public_call",
             "one only when source_ids is omitted",
-            (_GET_RAW,),
+            (
+                "_web/backend.py:WebRpcBackend._audio_generate"
+                if _operation is Operation.ARTIFACT_GENERATE_AUDIO
+                else _GET_RAW,
+            ),
         ),
     )
 for _operation, _kind in (
@@ -484,6 +498,10 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_artifacts.py:ArtifactsAPI._list_raw", "return_object=True post-read")
         ),
         (Operation.ARTIFACT_DOWNLOAD, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
+            (
+                "_web/backend.py:WebRpcBackend._artifact_catalog_records",
+                "audio selection when raw rows are not prefetched",
+            ),
             ("_artifacts.py:ArtifactsAPI._list_raw", "application download selection"),
             (
                 "_artifact/downloads.py:ArtifactDownloadService._list_raw",

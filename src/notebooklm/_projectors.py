@@ -7,6 +7,7 @@ from typing import cast
 from ._records import (
     ArtifactRecord,
     ArtifactUserStateRecord,
+    GenerationStatusRecord,
     NotebookRecord,
     NoteRecord,
     SourceRecord,
@@ -24,8 +25,10 @@ from .types import (
     ChatSettings,
     DriveSourceStatus,
     FlashcardArtifactUserState,
-    Note,
+    GenerationState,
+    GenerationStatus,
     Notebook,
+    Note,
     PremiumFeatureInfo,
     SharePermission,
     Source,
@@ -309,4 +312,26 @@ def project_artifact(record: ArtifactRecord) -> Artifact:
     )
 
 
-__all__ = ["project_artifact", "project_note", "project_notebook", "project_source"]
+def project_generation_status(record: GenerationStatusRecord) -> GenerationStatus:
+    """Construct the existing public generation task value from neutral state."""
+
+    try:
+        state = GenerationState(record.status)
+    except ValueError:
+        state = GenerationState.UNKNOWN
+    return GenerationStatus(
+        task_id=record.task_id,
+        status=state,
+        url=record.url,
+        error=record.error,
+        error_code=record.error_code,
+    )
+
+
+__all__ = [
+    "project_artifact",
+    "project_generation_status",
+    "project_note",
+    "project_notebook",
+    "project_source",
+]

@@ -30,9 +30,10 @@ class BackendKind(str, Enum):
 
 @unique
 class BackendErrorReason(str, Enum):
-    """Closed neutral reasons emitted by the P1 web read bindings."""
+    """Closed neutral reasons emitted by reviewed semantic web bindings."""
 
     AUTH = "auth"
+    ARTIFACT_FEATURE_UNAVAILABLE = "artifact_feature_unavailable"
     CLIENT = "client"
     DECODING = "decoding"
     IDEMPOTENCY_VARIANT = "idempotency_variant"

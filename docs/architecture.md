@@ -99,31 +99,32 @@ it reuses the current strict row-adapter and wire-contract evidence rather than 
 own sake. P0's catalog and contract evidence are implemented and frozen. P1 also constructs the
 private `WebRpcBackend` at the shared client-assembly seam and registers typed handlers for
 the P2.1 notebook/source reads, P2.2 notebook mutations, P2.3 URL/YouTube registration, P5.1 Studio
-catalog reads, and P6.3 plain-note CRUD. These public paths delegate through transport-neutral
-semantic services and that client-owned backend. The URL-source handler owns ordinary and hidden
-YouTube dispatch, exact pre-create reconciliation, and best-effort title mutation. It honors one
-caller-supplied absolute semantic deadline when present; the public `wait_timeout` remains the
-readiness-poll budget and starts after creation. P3's first live codec routes GET_SOURCE structured
-documents through the strict web codec boundary. P4 now converges the eight active P2 bindings: their
-whole-workflow `CallPolicy` values, exact native idempotency expectations, caller-owned absolute
-deadline identity, and closed public-error projection are audited together without moving retry
-authority out of the native registry. Future operation migrations must extend that same ledger. The
-P5.1 and P6.3 integrations already extend it to all 15 current handlers. The remaining phase
+catalog reads, P5.2 Audio generation, and P6.3 plain-note CRUD. These public paths delegate through
+transport-neutral semantic services and that client-owned backend. Audio discovery and download
+selection reuse the Studio catalog rather than adding a second listing authority. The URL-source
+handler owns ordinary and hidden YouTube dispatch, exact pre-create reconciliation, and best-effort
+title mutation. It honors one caller-supplied absolute semantic deadline when present; the public
+`wait_timeout` remains the readiness-poll budget and starts after creation. P3's first live codec
+routes GET_SOURCE structured documents through the strict web codec boundary. P4 converges the
+active bindings: whole-workflow `CallPolicy` values, exact native idempotency expectations,
+caller-owned absolute deadline identity, and closed public-error projection are audited together
+without moving retry authority out of the native registry. Future operation migrations must extend
+that same ledger; P5.1, P5.2, and P6.3 extend it to all 16 current handlers. The remaining phase
 descriptions are sequencing decisions, not a claim that the rest of P3-P8 are complete. P9
 public-surface work and a mobile backend require separate decisions.
 
 The operation-catalog audit classifies only the shared generic web RPC forwarder as inert. The four
 notebook/source read handlers, three notebook-mutation handlers, URL-source composite, two Studio
-catalog handlers, and five plain-note handlers are active catalogued authorities. The note-backed
-mind-map/artifact service remains an explicitly named legacy RPC consumer until the MIND_MAP_*
-slice, so it never borrows NOTE_* authority. This bounded classification is mutation-tested and
-shrinks as later slices activate handlers.
+catalog handlers, Audio generation handler, and five plain-note handlers are active catalogued
+authorities. The note-backed mind-map/artifact service remains an explicitly named legacy RPC
+consumer until the MIND_MAP_* slice, so it never borrows NOTE_* authority. This bounded
+classification is mutation-tested and shrinks as later slices activate handlers.
 
 P0 adds four ADR-0022 contract baselines before runtime delegation:
 
 | Baseline | Freezes |
 | --- | --- |
-| `operation_catalog` | 86 operations with 163 exact authority rows (42 multi-authority); 56 native rows (14 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; the exact 15-operation active web policy/native-idempotency ledger; 146 namespace methods (eight local-only), ten root-client members, and 11 divergences (10 authority, one policy) |
+| `operation_catalog` | 86 operations with 164 exact authority rows (42 multi-authority); 56 native rows (15 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; the exact 16-operation active web policy/native-idempotency ledger; 146 namespace methods (eight local-only), ten root-client members, and 11 divergences (10 authority, one policy) |
 | `public_model_contract` | The 86 exported identities (50 dataclasses, 36 enums): construction, field/member order, behavior flags, export paths, structured pickle success/failure, first-party state hooks, and `Notebook` / `ChatReference` legacy-state restore invariants |
 | `json_envelope` | Exact sink/view-backed projection modes, keys, causal fields, and conditional variants: CLI 31 model identities/133 projections, MCP 32/123, REST 32/57 (313 unique ids). Its closed-world sink inventory covers 350 terminal/error sites: 225 public-projection, 117 reviewed non-public, eight forwarding infrastructure, and 15 conditional non-public variants across 14 sites. Every live id has a terminal allocation; registrations/direct JSON bypasses fail closed. It also pins 36 private DTO -> public dataclass paths (34 linked; `SourceRefreshResult.result` production-dead; `ValidatedSessionConfig.limits` internal-runtime-only), 16 explicit helper fingerprints, and a compact aggregate digest for the bounded 519-node / 1,242-edge transitive helper graph (520 unique helpers overall). Thirty-seven declarations across 28 literal final-dict sites are AST-derived, while 168 explicit declarations remain manually reviewed. The supplemental 49-dataclass inventory excludes `AuthTokens`; only the exact redacted MCP/REST `server_info` identity contributions are allowed. `authuser` / `account_email` may emit, while storage path/profile generation only select control flow; recursive credentials and any extra projection fail closed. |
 | `metrics_contract` | The 14 snapshot and five event fields plus normalized success/transport-error/decode-error observations through composed public `rpc_call()` / `metrics_snapshot()`; direct non-RPC middleware probes are supplemental |
@@ -300,8 +301,8 @@ Some feature workflows intentionally combine RPC with non-RPC HTTP work:
 |------|---------------|
 | Source file upload | `SourcesAPI.add_file()` delegates to `SourceUploadPipeline.add_file()`. The pipeline opens an `operation_scope`, takes its own upload semaphore, registers the file source through `runtime.rpc_call(ADD_SOURCE_FILE)`, then uses a dedicated `httpx.AsyncClient` and live Kernel cookies for the Scotty resumable-upload start/finalize calls. Optional wait/rename steps return to `rpc_call`. |
 | Source URL/text/Drive add | `SourceAddService` wraps URL and Drive mutating RPCs in `idempotent_create(...)` because those flows have stable probes. Text-source adds are intentionally non-idempotent unless the caller handles dedupe externally. |
-| Artifact generation | `ArtifactsAPI` delegates the `generate_*` / `revise_slide` / `retry_failed` kickoff paths to `ArtifactGenerationService` (`_artifact/generation.py`), which builds `CREATE_ARTIFACT` params (via the `_artifact/payloads.py` builders) and uses the normal `rpc_call` path; the facade keeps thin signature-preserving delegators. `ArtifactPollingService` owns leader/follower polling with `operation_scope(...)` and a feature-local `PollRegistry`; `ArtifactsAPI` registers a close-time drain hook for poll cleanup. |
-| Artifact download | `ArtifactDownloadService` lists/selects artifacts through `RpcCaller`, but media downloads use a separate streaming `httpx.AsyncClient` with storage cookies, trusted-host checks, and a producer/writer split. They do not go through `RpcExecutor` or `Kernel.post`. |
+| Artifact generation | P5.2 routes Audio kickoff through `AudioFamilyService` and the typed web backend while preserving the existing payload builder and public `GenerationStatus`; the other `generate_*` / `revise_slide` / `retry_failed` paths remain on `ArtifactGenerationService` (`_artifact/generation.py`). `ArtifactPollingService` still owns public lifecycle-terminal wait semantics with `operation_scope(...)` and a feature-local `PollRegistry`; family-usable readiness does not alter that wait condition. |
+| Artifact download | P5.2 selects non-prefetched Audio metadata through the neutral Studio catalog, including media URLs, duration, prompt, and exact latest-created rule. Byte retrieval still uses `ArtifactDownloadService`'s existing streaming client, storage cookies, trusted-host checks, and per-hop redirect guard; prefetched raw rows remain on its no-refetch path. Other families still list/select through `RpcCaller`. |
 | Notes and mind maps | Backend-neutral `NoteService` invokes typed NOTE_* operations for `NotesAPI`; `WebRpcBackend` owns mixed-row classification and the five note bindings. `LegacyNoteBackedService` remains the bounded `RpcCaller` owner behind `NoteBackedMindMapService` and artifact mind-map persistence until the MIND_MAP_* slice, so the two semantic authorities stay disjoint. |
 
 ## Cross-cutting policies
@@ -1045,7 +1046,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_deadline.py` | `RuntimeDeadline` helper shared by retry and polling loops so aggregate timeouts clamp sleep consistently |
 | `_backend_compat.py` | Private compatibility projector from closed semantic `BackendErrorReason` + safe diagnostics back to the existing public exception subclasses at migrated facade boundaries. |
 | `_backend.py` | Private protocol-neutral semantic port: backend kind/capabilities, typed `BackendAdapter.invoke`, and the minimal scrubbed error/deadline handoff used by the P2 slice. |
-| `_records.py` | Frozen, slotted, protocol-neutral input/output records and `OperationDef` values for P2 notebook/source operations, P5.1 Studio catalog, and P6.3 plain-note CRUD, including the closed URL-source error evidence. |
+| `_records.py` | Frozen, slotted, protocol-neutral input/output records and `OperationDef` values for P2 notebook/source operations, P5.1 Studio catalog, P5.2 Audio generation/readiness metadata, and P6.3 plain-note CRUD, including the closed URL-source error evidence. |
 | `_backoff.py` | Shared capped exponential-backoff calculation with deterministic test injection |
 | `_reqid_counter.py` | `ReqidCounter` — monotonic `_reqid` for the chat backend |
 | `_runtime/auth.py` | `AuthRefreshCoordinator` — refresh task + auth-snapshot lock |
@@ -1058,10 +1059,10 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_notebook_mutation_service.py` | Private P2.2 transport-neutral notebook create/title-update/delete service; validates semantic input and invokes only typed backend definitions. |
 | `_mutation_services.py` | Private live P2.3 transport-neutral URL-source mutation service; carries the ordinary/YouTube request and uncertainty receipt through `BackendAdapter` without wire dependencies. |
 | `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
-| `_studio/` | Private P5.1 transport-neutral heterogeneous Studio catalog and closed family classifier for artifact list/get. |
-| `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; 15 active handlers cover P2 notebook/source operations, P5.1 Studio catalog reads, and P6.3 plain-note CRUD. |
-| `_web/policy.py` | Exact P4 ledger, extended to all 15 active web workflows: semantic policy, every reachable native method/variant, reviewed native idempotency, and optional reported divergence. It audits parity but never controls retry execution. |
-| `_web/registry.py` | Closed web disposition registry over every `Operation`: 15 executable typed handlers and an unsupported disposition for every other operation. |
+| `_studio/` | Private transport-neutral Studio boundary: the P5.1 heterogeneous catalog/classifier plus the P5.2 Audio family service for generation, family reads, usable-readiness, and download-facing metadata selection. |
+| `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; 16 active handlers cover P2 notebook/source operations, P5.1 Studio catalog reads, P5.2 Audio generation, and P6.3 plain-note CRUD. |
+| `_web/policy.py` | Exact P4 ledger, extended to all 16 active web workflows: semantic policy, every reachable native method/variant, reviewed native idempotency, and optional reported divergence. It audits parity but never controls retry execution. |
+| `_web/registry.py` | Closed web disposition registry over every `Operation`: 16 executable typed handlers and an unsupported disposition for every other operation. |
 | `_web/codec/documents.py` | First live P3 codec boundary: decodes the GET_SOURCE document body through the strict document row adapter into the exported, transport-neutral `StructuredDocument` value exemption. It owns no backend invocation or HTTP/RPC dispatch; chat and citation callers remain deferred to P6. |
 | `_web/codec/notes.py` | P6.3 mixed note-row codec: normalizes flat/wrapped envelopes, classifies deleted and note-backed mind-map rows, preserves exact-id selection, and emits only neutral `NoteRecord` values. |
 | `scripts/audit_operation_catalog.py` | Single build/audit CLI for the deterministic ADR-0022 projection: exact semantic authorities, native bindings, public/root-client dispositions, evidence, omissions, and divergences. |
@@ -1238,8 +1239,11 @@ src/notebooklm/
 ├── _notebook_mutation_service.py # Transport-neutral notebook mutation service (P2.2, live)
 ├── _mutation_services.py        # Transport-neutral URL-source mutation service (P2.3, live)
 ├── _read_services.py            # Transport-neutral notebook/source list/get services (P2.1)
-├── _records.py                  # Neutral P2/P5.1/P6.3 backend DTOs and operation definitions
-├── _studio/                     # Transport-neutral Studio catalog and family classifier (P5.1)
+├── _records.py                  # Neutral P2/P5.1/P5.2/P6.3 backend DTOs and operation definitions
+├── _studio/                     # Private Studio family package
+│   ├── catalog.py               # Heterogeneous neutral list/get catalog (P5.1)
+│   ├── classifiers.py           # Closed family classifier (P5.1)
+│   └── audio.py                 # Audio generation/readiness/download metadata service (P5.2)
 ├── _url_utils.py                # URL validation helpers
 ├── _sharing_manager.py          # Sharing management logic
 ├── _version_check.py            # Deprecation version guard
@@ -1249,7 +1253,7 @@ src/notebooklm/
 ├── _redact.py                   # Transport-neutral secret/home-path/file-link scrubber (redact(msg, max_length)); shared chokepoint under both mcp/_errors.py and server/_errors.py
 ├── _web/                        # Private web implementation of the semantic backend port
 │   ├── __init__.py              # Private WebRpcBackend re-export
-│   ├── backend.py               # RpcExecutor-backed P2/P5.1/P6.3 handlers
+│   ├── backend.py               # RpcExecutor-backed P2/P5.1/P5.2/P6.3 handlers
 │   ├── policy.py                # P4 semantic/native policy parity ledger (reporting only)
 │   ├── registry.py              # Closed active/unsupported web dispositions
 │   └── codec/                   # P3 web response codecs producing neutral records/value exemptions
