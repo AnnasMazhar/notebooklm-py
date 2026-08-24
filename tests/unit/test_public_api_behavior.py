@@ -42,6 +42,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -131,19 +132,28 @@ def _make_mind_maps_api() -> MindMapsAPI:
     return MindMapsAPI(notes=notes, studio=studio)
 
 
+def _empty_label_set_backend() -> object:
+    """A semantic backend whose LIST_LABELS echo carries no group at all.
+
+    Labels and collections resolve ``get`` through an exact-ID selection inside
+    the semantic backend rather than through ``self.list``, so — like ``notes``
+    — their miss is arranged in the factory. The two envelopes differ (labels
+    echo the set at index ``0``, collections at index ``1``); an empty echo is a
+    miss under both.
+    """
+    from tests._fixtures.web_backend import build_web_backend
+
+    return build_web_backend(SimpleNamespace(rpc_call=AsyncMock(return_value=None)))
+
+
 def _make_labels_api() -> LabelsAPI:
-    # ``_arrange_list_miss`` overrides ``api.list`` before any RPC path is reached
-    # (``labels.get`` scans ``self.list``), so the rpc collaborator and
-    # ``list_sources`` are never called on the miss path.
-    return LabelsAPI(MagicMock(), list_sources=AsyncMock(return_value=[]))
+    # The empty label set is the miss; ``list_sources`` is never reached.
+    return LabelsAPI(_empty_label_set_backend(), list_sources=AsyncMock(return_value=[]))
 
 
 def _make_collections_api() -> CollectionsAPI:
-    # Account-level sibling of labels: ``collections.get`` scans ``self.list()``
-    # (no notebook scope), so ``_arrange_list_miss`` stubbing ``list`` to ``[]`` is
-    # the same backend-agnostic miss lever; the rpc collaborator and
-    # ``list_notebooks`` are never reached on the miss path.
-    return CollectionsAPI(MagicMock(), list_notebooks=AsyncMock(return_value=[]))
+    # Account-level sibling of labels, missing for the same reason.
+    return CollectionsAPI(_empty_label_set_backend(), list_notebooks=AsyncMock(return_value=[]))
 
 
 def _make_notebooks_api() -> NotebooksAPI:
@@ -167,7 +177,12 @@ def _arrange_list_miss(api: object) -> None:
     ``self.list(...)``, so stubbing ``list`` to ``[]`` is a uniform,
     backend-agnostic miss (the same lever the existing per-namespace tests pull).
 
-    ``notes`` is the exception: ``NotesAPI.get_or_none`` resolves through
+    ``notes``, ``labels`` and ``collections`` are the exceptions: they resolve
+    ``get_or_none`` through a path that is not ``self.list``, so their factories
+    arrange the miss instead and the assigned ``api.list`` stub is a harmless
+    no-op for them.
+
+    ``NotesAPI.get_or_none`` resolves through
     ``_get_all_notes_and_mind_maps`` → ``fetch_note_rows``, **not** ``self.list``,
     so the assigned ``api.list`` stub is a harmless no-op for it. The notes miss
     comes from its factory (``_make_notes_api``) wiring a fake core whose

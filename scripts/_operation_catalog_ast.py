@@ -513,6 +513,73 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_artifacts.py", "_studio", "DataTableFamilyService"),
         ("_artifacts.py", "_studio", "DriveExportService"),
         ("_artifacts.py", "_studio", "NoteBackedMindMapFamilyService"),
+        ("_collections.py", "_backend", "BackendAdapter"),
+        ("_collections.py", "_backend", "BackendError"),
+        ("_collections.py", "_backend_compat", "project_backend_error"),
+        ("_collections.py", "_label_service", "LabelSetService"),
+        ("_collections.py", "_label_service", "require_member_ids"),
+        ("_collections.py", "_projectors", "project_collection"),
+        ("_collections.py", "_records", "LabelKind"),
+        ("_backend_compat.py", "_records", "LabelKind"),
+        ("_labels.py", "_backend", "BackendAdapter"),
+        ("_labels.py", "_backend", "BackendError"),
+        ("_labels.py", "_backend_compat", "project_backend_error"),
+        ("_labels.py", "_label_service", "LabelSetService"),
+        ("_labels.py", "_label_service", "require_member_ids"),
+        ("_labels.py", "_projectors", "project_label"),
+        ("_labels.py", "_records", "LabelKind"),
+        ("_label_service.py", "_backend", "BackendAdapter"),
+        ("_projectors.py", "_records", "LabelKind"),
+        ("_projectors.py", "_records", "LabelRecord"),
+        ("_web/codec/labels.py", "_records", "LabelKind"),
+        ("_web/codec/labels.py", "_records", "LabelRecord"),
+        ("_label_service.py", "_records", "COLLECTION_CREATE_DEF"),
+        ("_label_service.py", "_records", "COLLECTION_DELETE_DEF"),
+        ("_label_service.py", "_records", "COLLECTION_GET_DEF"),
+        ("_label_service.py", "_records", "COLLECTION_LIST_DEF"),
+        ("_label_service.py", "_records", "COLLECTION_UPDATE_DEF"),
+        ("_label_service.py", "_records", "LABEL_CREATE_DEF"),
+        ("_label_service.py", "_records", "LABEL_DELETE_DEF"),
+        ("_label_service.py", "_records", "LABEL_GENERATE_DEF"),
+        ("_label_service.py", "_records", "LABEL_GET_DEF"),
+        ("_label_service.py", "_records", "LABEL_LIST_DEF"),
+        ("_label_service.py", "_records", "LABEL_UPDATE_DEF"),
+        ("_label_service.py", "_records", "LabelCreateInput"),
+        ("_label_service.py", "_records", "LabelDeleteInput"),
+        ("_label_service.py", "_records", "LabelGenerateInput"),
+        ("_label_service.py", "_records", "LabelGetInput"),
+        ("_label_service.py", "_records", "LabelKind"),
+        ("_label_service.py", "_records", "LabelListInput"),
+        ("_label_service.py", "_records", "LabelRecord"),
+        ("_label_service.py", "_records", "LabelUpdateInput"),
+        ("_web/labels.py", "_backend", "BackendContractError"),
+        ("_web/labels.py", "_backend", "BackendError"),
+        ("_web/labels.py", "_backend", "BackendErrorReason"),
+        ("_web/labels.py", "_records", "LabelCreateInput"),
+        ("_web/labels.py", "_records", "LabelCreateResult"),
+        ("_web/labels.py", "_records", "LabelDeleteInput"),
+        ("_web/labels.py", "_records", "LabelDeleteResult"),
+        ("_web/labels.py", "_records", "LabelGenerateInput"),
+        ("_web/labels.py", "_records", "LabelGenerateResult"),
+        ("_web/labels.py", "_records", "LabelGetInput"),
+        ("_web/labels.py", "_records", "LabelGetResult"),
+        ("_web/labels.py", "_records", "LabelKind"),
+        ("_web/labels.py", "_records", "LabelListInput"),
+        ("_web/labels.py", "_records", "LabelListResult"),
+        ("_web/labels.py", "_records", "LabelRecord"),
+        ("_web/labels.py", "_records", "LabelUpdateInput"),
+        ("_web/labels.py", "_records", "LabelUpdateResult"),
+        ("_web/registry.py", "_records", "COLLECTION_CREATE_DEF"),
+        ("_web/registry.py", "_records", "COLLECTION_DELETE_DEF"),
+        ("_web/registry.py", "_records", "COLLECTION_GET_DEF"),
+        ("_web/registry.py", "_records", "COLLECTION_LIST_DEF"),
+        ("_web/registry.py", "_records", "COLLECTION_UPDATE_DEF"),
+        ("_web/registry.py", "_records", "LABEL_CREATE_DEF"),
+        ("_web/registry.py", "_records", "LABEL_DELETE_DEF"),
+        ("_web/registry.py", "_records", "LABEL_GENERATE_DEF"),
+        ("_web/registry.py", "_records", "LABEL_GET_DEF"),
+        ("_web/registry.py", "_records", "LABEL_LIST_DEF"),
+        ("_web/registry.py", "_records", "LABEL_UPDATE_DEF"),
         ("_backend_compat.py", "_backend", "BackendContractError"),
         ("_backend_compat.py", "_backend", "BackendError"),
         ("_backend_compat.py", "_backend", "BackendErrorReason"),
@@ -823,6 +890,7 @@ _REVIEWED_BACKEND_IMPORT_MODULES = frozenset(
     {
         "_backend",
         "_backend_compat",
+        "_label_service",
         "_mutation_services",
         "_note_service",
         "_notebook_mutation_service",
@@ -840,6 +908,7 @@ _REVIEWED_BACKEND_IMPORT_MODULES = frozenset(
 
 _REVIEWED_BACKEND_IMPORT_PREFIXES = (
     "notebooklm._backend",
+    "notebooklm._label_service",
     "notebooklm._mutation_services",
     "notebooklm._notebook_mutation_service",
     "notebooklm._projectors",
@@ -858,6 +927,12 @@ def _is_reviewed_backend_import_module(module: str) -> bool:
 
 ACTIVE_BACKEND_INVOKE_SITES = frozenset(
     {
+        "_label_service.py:LabelSetService.create",
+        "_label_service.py:LabelSetService.delete",
+        "_label_service.py:LabelSetService.generate",
+        "_label_service.py:LabelSetService.get",
+        "_label_service.py:LabelSetService.list",
+        "_label_service.py:LabelSetService.update",
         "_notebook_mutation_service.py:NotebookMutationService.create",
         "_notebook_mutation_service.py:NotebookMutationService.delete",
         "_notebook_mutation_service.py:NotebookMutationService.update",
@@ -893,6 +968,21 @@ ACTIVE_BACKEND_INVOKE_SITES = frozenset(
     }
 )
 INERT_P1_BACKEND_INVOKE_SITES: frozenset[str] = frozenset()
+
+# Facades that still own RpcCaller paths take the backend as the reviewed
+# ``_backend=`` or ``backend=`` keyword beside their executor; a facade whose
+# whole wire surface has migrated takes it as its sole positional collaborator.
+_KEYWORD_BACKEND_FACADES = frozenset(
+    {
+        "ArtifactsAPI",
+        "MindMapFamilyService",
+        "NoteService",
+        "NotebooksAPI",
+        "SourcesAPI",
+        "StudioCatalog",
+    }
+)
+_POSITIONAL_BACKEND_FACADES = frozenset({"CollectionsAPI", "LabelsAPI"})
 
 
 def audit_inert_p1_backend_dataflow(
@@ -965,6 +1055,7 @@ def audit_inert_p1_backend_dataflow(
                         in {
                             "_backend",
                             "_backend_compat",
+                            "_label_service",
                             "_mutation_services",
                             "_notebook_mutation_service",
                             "_projectors",
@@ -980,26 +1071,30 @@ def audit_inert_p1_backend_dataflow(
                     and isinstance(node.ctx, ast.Load)
                 ):
                     parent = parents.get(node)
-                    call = parents.get(parent) if isinstance(parent, ast.keyword) else None
+                    # A facade takes the backend either as the reviewed private
+                    # ``_backend=`` keyword (a facade that still owns RpcCaller
+                    # paths) or as its sole positional collaborator (a fully
+                    # migrated facade, which no longer accepts an RpcCaller).
+                    keyword_parent = parent if isinstance(parent, ast.keyword) else None
+                    call = parents.get(keyword_parent) if keyword_parent is not None else parent
                     facade_name = (
                         _attribute_parts(call.func)[-1]
                         if isinstance(call, ast.Call) and _attribute_parts(call.func)
                         else None
                     )
-                    if (
-                        isinstance(parent, ast.keyword)
-                        and parent.arg in {"_backend", "backend"}
-                        and isinstance(facade_name, str)
-                        and facade_name
-                        in {
-                            "ArtifactsAPI",
-                            "MindMapFamilyService",
-                            "NoteService",
-                            "NotebooksAPI",
-                            "SourcesAPI",
-                            "StudioCatalog",
-                        }
-                    ):
+                    keyword_binding = (
+                        keyword_parent is not None
+                        and keyword_parent.arg in {"_backend", "backend"}
+                        and facade_name in _KEYWORD_BACKEND_FACADES
+                    )
+                    positional_binding = (
+                        keyword_parent is None
+                        and isinstance(call, ast.Call)
+                        and facade_name in _POSITIONAL_BACKEND_FACADES
+                        and bool(call.args)
+                        and call.args[0] is node
+                    )
+                    if isinstance(facade_name, str) and (keyword_binding or positional_binding):
                         assembly_backend_bindings.append(facade_name)
                     else:
                         assembly_backend_escapes.append(node.lineno)
@@ -1030,18 +1125,11 @@ def audit_inert_p1_backend_dataflow(
         errors.append(
             f"P1 WebRpcBackend construction target changed: {assembly_constructor_targets}"
         )
-    expected_facades = [
-        "ArtifactsAPI",
-        "MindMapFamilyService",
-        "NoteService",
-        "NotebooksAPI",
-        "SourcesAPI",
-        "StudioCatalog",
-    ]
-    if sorted(assembly_backend_bindings) != expected_facades:
+    expected_bindings = sorted(_KEYWORD_BACKEND_FACADES | _POSITIONAL_BACKEND_FACADES)
+    if sorted(assembly_backend_bindings) != expected_bindings:
         errors.append(
-            "semantic facade backend bindings changed: "
-            f"expected={expected_facades}, "
+            "migrated facade backend bindings changed: "
+            f"expected={expected_bindings}, "
             f"actual={sorted(assembly_backend_bindings)}"
         )
     if assembly_backend_escapes:

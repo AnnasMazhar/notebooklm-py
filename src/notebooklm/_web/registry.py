@@ -1,7 +1,7 @@
 """Closed web dispositions for the semantic operation vocabulary.
 
-P2 notebook/source operations, P5 Studio family operations,
-and P6.3 note/mind-map workflows have executable bindings. Every other P0 operation has
+P2 notebook/source operations, P5 Studio family operations, P6.3 note/mind-map workflows,
+and P6.4 source-label/collection operations have executable bindings. Every other P0 operation has
 an unsupported disposition, and
 the count assertions force a deliberate registry update when the closed
 :class:`Operation` enum changes.
@@ -28,6 +28,17 @@ from .._records import (
     ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
+    COLLECTION_CREATE_DEF,
+    COLLECTION_DELETE_DEF,
+    COLLECTION_GET_DEF,
+    COLLECTION_LIST_DEF,
+    COLLECTION_UPDATE_DEF,
+    LABEL_CREATE_DEF,
+    LABEL_DELETE_DEF,
+    LABEL_GENERATE_DEF,
+    LABEL_GET_DEF,
+    LABEL_LIST_DEF,
+    LABEL_UPDATE_DEF,
     MIND_MAP_DELETE_DEF,
     MIND_MAP_GENERATE_INTERACTIVE_DEF,
     MIND_MAP_GENERATE_NOTE_DEF,
@@ -111,6 +122,17 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.ARTIFACT_GENERATE_DATA_TABLE: ARTIFACT_GENERATE_DATA_TABLE_DEF,
         Operation.ARTIFACT_GENERATE_MIND_MAP: ARTIFACT_GENERATE_MIND_MAP_DEF,
         Operation.ARTIFACT_EXPORT: ARTIFACT_EXPORT_DEF,
+        Operation.LABEL_LIST: LABEL_LIST_DEF,
+        Operation.LABEL_GET: LABEL_GET_DEF,
+        Operation.LABEL_GENERATE: LABEL_GENERATE_DEF,
+        Operation.LABEL_CREATE: LABEL_CREATE_DEF,
+        Operation.LABEL_UPDATE: LABEL_UPDATE_DEF,
+        Operation.LABEL_DELETE: LABEL_DELETE_DEF,
+        Operation.COLLECTION_LIST: COLLECTION_LIST_DEF,
+        Operation.COLLECTION_GET: COLLECTION_GET_DEF,
+        Operation.COLLECTION_CREATE: COLLECTION_CREATE_DEF,
+        Operation.COLLECTION_UPDATE: COLLECTION_UPDATE_DEF,
+        Operation.COLLECTION_DELETE: COLLECTION_DELETE_DEF,
     }
 )
 
@@ -147,6 +169,17 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.ARTIFACT_GENERATE_DATA_TABLE: "_data_table_generate",
         Operation.ARTIFACT_GENERATE_MIND_MAP: "_mind_map_generate",
         Operation.ARTIFACT_EXPORT: "_artifact_export",
+        Operation.LABEL_LIST: "_label_list",
+        Operation.LABEL_GET: "_label_get",
+        Operation.LABEL_GENERATE: "_label_generate",
+        Operation.LABEL_CREATE: "_label_create",
+        Operation.LABEL_UPDATE: "_label_update",
+        Operation.LABEL_DELETE: "_label_delete",
+        Operation.COLLECTION_LIST: "_collection_list",
+        Operation.COLLECTION_GET: "_collection_get",
+        Operation.COLLECTION_CREATE: "_collection_create",
+        Operation.COLLECTION_UPDATE: "_collection_update",
+        Operation.COLLECTION_DELETE: "_collection_delete",
     }
 )
 
@@ -158,7 +191,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 31
+_EXPECTED_SUPPORTED_COUNT: Final = 42
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

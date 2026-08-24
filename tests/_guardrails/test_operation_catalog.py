@@ -171,12 +171,16 @@ def test_polymorphic_native_surfaces_keep_all_reviewed_dispositions() -> None:
     assert rows["UPDATE_LABEL:add_sources"]["semantic_operations"] == ["label.update"]
     assert rows["UPDATE_LABEL:add_notebooks"]["semantic_operations"] == ["collection.update"]
     assert rows["LIST_LABELS:<default>"]["semantic_operations"] == [
+        "collection.create",
         "collection.get",
         "collection.list",
         "collection.notebooks",
+        "collection.update",
+        "label.create",
         "label.get",
         "label.list",
         "label.sources",
+        "label.update",
     ]
     assert rows["SHARE_ARTIFACT:<default>"]["semantic_operations"] == [
         "sharing.legacy_share_artifact"

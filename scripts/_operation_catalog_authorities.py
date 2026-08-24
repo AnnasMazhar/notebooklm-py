@@ -107,7 +107,7 @@ SHARED_RPC_AUTHORITY_RULES: dict[tuple[Operation, NativeKey], tuple[AuthorityRul
         ("_source/listing.py:SourceLister.list", "pre-import baseline and verification probes")
     ),
     (Operation.LABEL_SOURCES, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_source/listing.py:SourceLister.list", "resolve label source ids")
+        ("_web/backend.py:WebRpcBackend._source_list", "resolve label source ids")
     ),
 }
 
@@ -588,22 +588,37 @@ SHARED_RPC_AUTHORITY_RULES.update(
             )
         ),
         (Operation.LABEL_LIST, _b(RPCMethod.LIST_LABELS)): _rules(
-            ("_labels.py:LabelsAPI.list", "label_type=source")
+            ("_web/labels.py:LabelSetWebHandlers._label_set_list", "label_type=source")
         ),
         (Operation.LABEL_GET, _b(RPCMethod.LIST_LABELS)): _rules(
-            ("_labels.py:LabelsAPI.list", "select source-label id")
+            ("_web/labels.py:LabelSetWebHandlers._label_set_list", "select source-label id")
         ),
         (Operation.LABEL_SOURCES, _b(RPCMethod.LIST_LABELS)): _rules(
-            ("_labels.py:LabelsAPI.list", "resolve source-label membership")
+            (
+                "_web/labels.py:LabelSetWebHandlers._label_set_list",
+                "resolve source-label membership",
+            )
         ),
         (Operation.COLLECTION_LIST, _b(RPCMethod.LIST_LABELS)): _rules(
-            ("_collections.py:CollectionsAPI.list", "label_type=collection")
+            ("_web/labels.py:LabelSetWebHandlers._label_set_list", "label_type=collection")
         ),
         (Operation.COLLECTION_GET, _b(RPCMethod.LIST_LABELS)): _rules(
-            ("_collections.py:CollectionsAPI.list", "select collection id")
+            ("_web/labels.py:LabelSetWebHandlers._label_set_list", "select collection id")
+        ),
+        (Operation.LABEL_CREATE, _b(RPCMethod.LIST_LABELS)): _rules(
+            ("_web/labels.py:LabelSetWebHandlers._label_set_list", "pre-create identity baseline")
+        ),
+        (Operation.LABEL_UPDATE, _b(RPCMethod.LIST_LABELS)): _rules(
+            ("_web/labels.py:LabelSetWebHandlers._label_set_list", "update preflight/readback")
+        ),
+        (Operation.COLLECTION_CREATE, _b(RPCMethod.LIST_LABELS)): _rules(
+            ("_web/labels.py:LabelSetWebHandlers._label_set_list", "baseline/create readback")
+        ),
+        (Operation.COLLECTION_UPDATE, _b(RPCMethod.LIST_LABELS)): _rules(
+            ("_web/labels.py:LabelSetWebHandlers._label_set_list", "update preflight/readback")
         ),
         (Operation.COLLECTION_NOTEBOOKS, _b(RPCMethod.LIST_LABELS)): _rules(
-            ("_collections.py:CollectionsAPI.list", "resolve collection membership")
+            ("_web/labels.py:LabelSetWebHandlers._label_set_list", "resolve collection membership")
         ),
         (Operation.RESEARCH_POLL, _b(RPCMethod.POLL_RESEARCH)): _rules(
             ("_research.py:ResearchAPI._poll_task_models", "single public poll")
@@ -640,10 +655,10 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_notebooks.py:NotebooksAPI.get_description", "description/topics projection")
         ),
         (Operation.LABEL_UPDATE, _b(RPCMethod.UPDATE_LABEL)): _rules(
-            ("_labels.py:LabelsAPI.update", "label field-mask mutation")
+            ("_web/labels.py:LabelSetWebHandlers._label_update", "label field-mask mutation")
         ),
         (Operation.COLLECTION_UPDATE, _b(RPCMethod.UPDATE_LABEL)): _rules(
-            ("_collections.py:CollectionsAPI.rename", "collection name mutation")
+            ("_web/labels.py:LabelSetWebHandlers._collection_update", "collection name mutation")
         ),
         (Operation.NOTE_UPDATE, _b(RPCMethod.UPDATE_NOTE)): _rules(
             ("_web/backend.py:WebRpcBackend._note_update", "public=notes.update")
@@ -678,13 +693,13 @@ SHARED_RPC_AUTHORITY_RULES.update(
 SHARED_RPC_AUTHORITY_RULES.update(
     {
         (Operation.LABEL_GENERATE, _b(RPCMethod.CREATE_LABEL)): _rules(
-            ("_labels.py:LabelsAPI.generate", "label_mode=auto-group")
+            ("_web/labels.py:LabelSetWebHandlers._label_generate", "label_mode=auto-group")
         ),
         (Operation.LABEL_CREATE, _b(RPCMethod.CREATE_LABEL)): _rules(
-            ("_labels.py:LabelsAPI.create", "label_type=source")
+            ("_web/labels.py:LabelSetWebHandlers._label_create", "label_type=source")
         ),
         (Operation.COLLECTION_CREATE, _b(RPCMethod.CREATE_LABEL)): _rules(
-            ("_collections.py:CollectionsAPI.create", "label_type=collection")
+            ("_web/labels.py:LabelSetWebHandlers._collection_create", "label_type=collection")
         ),
         (Operation.ARTIFACT_DELETE, _b(RPCMethod.DELETE_ARTIFACT)): _rules(
             ("_artifacts.py:ArtifactsAPI.delete", "public=artifacts.delete")
@@ -708,10 +723,10 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_web/backend.py:WebRpcBackend._note_delete", "kind=NOTE_BACKED")
         ),
         (Operation.LABEL_DELETE, _b(RPCMethod.DELETE_LABEL)): _rules(
-            ("_labels.py:LabelsAPI.delete", "label_type=source")
+            ("_web/labels.py:LabelSetWebHandlers._label_set_delete", "label_type=source")
         ),
         (Operation.COLLECTION_DELETE, _b(RPCMethod.DELETE_LABEL)): _rules(
-            ("_collections.py:CollectionsAPI.delete", "label_type=collection")
+            ("_web/labels.py:LabelSetWebHandlers._label_set_delete", "label_type=collection")
         ),
         (Operation.ARTIFACT_DOWNLOAD, _b(RPCMethod.GET_INTERACTIVE_HTML)): _rules(
             (

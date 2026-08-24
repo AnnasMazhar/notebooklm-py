@@ -10,9 +10,9 @@ issue #2006 capture for those two shapes reproducibly failed on the wire.
 
 from __future__ import annotations
 
-from notebooklm._collection.params import (
-    _opts,
-    _opts_create,
+from notebooklm._web.codec.labels import (
+    _collection_create_opts,
+    _collection_opts,
     build_create_collection_params,
     build_delete_collections_params,
     build_list_collections_params,
@@ -29,8 +29,8 @@ NBID = "nb_1"
 
 
 def test_opts_is_fresh_each_call() -> None:
-    a = _opts()
-    b = _opts()
+    a = _collection_opts()
+    b = _collection_opts()
     assert a == b == OPTS
     assert a is not b
     assert a[3] is not b[3]  # nested wrapper not aliased either
@@ -38,7 +38,7 @@ def test_opts_is_fresh_each_call() -> None:
 
 def test_opts_tail_is_collection_marker() -> None:
     # The [1, 3] tail is what distinguishes a collection call from a label call.
-    assert _opts()[3][-1] == [1, 3]
+    assert _collection_opts()[3][-1] == [1, 3]
 
 
 def test_list_collections() -> None:
@@ -46,8 +46,8 @@ def test_list_collections() -> None:
 
 
 def test_create_opts_is_fresh_each_call() -> None:
-    a = _opts_create()
-    b = _opts_create()
+    a = _collection_create_opts()
+    b = _collection_create_opts()
     assert a == b == OPTS_CREATE
     assert a is not b
     assert a[3] is not b[3]

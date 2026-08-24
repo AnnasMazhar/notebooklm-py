@@ -50,6 +50,17 @@ from notebooklm._records import (
     ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
+    COLLECTION_CREATE_DEF,
+    COLLECTION_DELETE_DEF,
+    COLLECTION_GET_DEF,
+    COLLECTION_LIST_DEF,
+    COLLECTION_UPDATE_DEF,
+    LABEL_CREATE_DEF,
+    LABEL_DELETE_DEF,
+    LABEL_GENERATE_DEF,
+    LABEL_GET_DEF,
+    LABEL_LIST_DEF,
+    LABEL_UPDATE_DEF,
     MIND_MAP_DELETE_DEF,
     MIND_MAP_GENERATE_INTERACTIVE_DEF,
     MIND_MAP_GENERATE_NOTE_DEF,
@@ -208,6 +219,20 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         ),
         MIND_MAP_UPDATE_DEF: (Operation.MIND_MAP_UPDATE, CallPolicy.MUTATION),
         MIND_MAP_DELETE_DEF: (Operation.MIND_MAP_DELETE, CallPolicy.MUTATION),
+        # P6.4 migrates labels and collections as one slice: they are a single
+        # wire surface addressed through an explicit kind discriminator, so each
+        # dialect's key carries the same policy as its twin.
+        LABEL_LIST_DEF: (Operation.LABEL_LIST, CallPolicy.READ),
+        LABEL_GET_DEF: (Operation.LABEL_GET, CallPolicy.READ),
+        LABEL_GENERATE_DEF: (Operation.LABEL_GENERATE, CallPolicy.STATEFUL_START),
+        LABEL_CREATE_DEF: (Operation.LABEL_CREATE, CallPolicy.MUTATION),
+        LABEL_UPDATE_DEF: (Operation.LABEL_UPDATE, CallPolicy.MUTATION),
+        LABEL_DELETE_DEF: (Operation.LABEL_DELETE, CallPolicy.MUTATION),
+        COLLECTION_LIST_DEF: (Operation.COLLECTION_LIST, CallPolicy.READ),
+        COLLECTION_GET_DEF: (Operation.COLLECTION_GET, CallPolicy.READ),
+        COLLECTION_CREATE_DEF: (Operation.COLLECTION_CREATE, CallPolicy.MUTATION),
+        COLLECTION_UPDATE_DEF: (Operation.COLLECTION_UPDATE, CallPolicy.MUTATION),
+        COLLECTION_DELETE_DEF: (Operation.COLLECTION_DELETE, CallPolicy.MUTATION),
     }
 
     for op_def, (expected_key, expected_policy) in expected_migrated.items():
@@ -435,6 +460,87 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             MIND_MAP_DELETE_DEF,
             [(RPCMethod.DELETE_ARTIFACT, None)],
             [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            LABEL_LIST_DEF,
+            [(RPCMethod.LIST_LABELS, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            LABEL_GET_DEF,
+            [(RPCMethod.LIST_LABELS, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            LABEL_GENERATE_DEF,
+            [(RPCMethod.CREATE_LABEL, None)],
+            [IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY],
+        ),
+        (
+            LABEL_CREATE_DEF,
+            [(RPCMethod.LIST_LABELS, None), (RPCMethod.CREATE_LABEL, None)],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY,
+            ],
+        ),
+        (
+            LABEL_UPDATE_DEF,
+            [
+                (RPCMethod.LIST_LABELS, None),
+                (RPCMethod.UPDATE_LABEL, None),
+                (RPCMethod.UPDATE_LABEL, "add_sources"),
+                (RPCMethod.UPDATE_LABEL, "remove_sources"),
+            ],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
+        ),
+        (
+            LABEL_DELETE_DEF,
+            [(RPCMethod.DELETE_LABEL, None)],
+            [IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY],
+        ),
+        (
+            COLLECTION_LIST_DEF,
+            [(RPCMethod.LIST_LABELS, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            COLLECTION_GET_DEF,
+            [(RPCMethod.LIST_LABELS, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            COLLECTION_CREATE_DEF,
+            [(RPCMethod.LIST_LABELS, None), (RPCMethod.CREATE_LABEL, None)],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY,
+            ],
+        ),
+        (
+            COLLECTION_UPDATE_DEF,
+            [
+                (RPCMethod.LIST_LABELS, None),
+                (RPCMethod.UPDATE_LABEL, None),
+                (RPCMethod.UPDATE_LABEL, "add_notebooks"),
+                (RPCMethod.UPDATE_LABEL, "remove_notebooks"),
+            ],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
+        ),
+        (
+            COLLECTION_DELETE_DEF,
+            [(RPCMethod.DELETE_LABEL, None)],
+            [IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY],
         ),
     ],
 )
