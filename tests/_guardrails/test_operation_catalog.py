@@ -35,7 +35,11 @@ def test_operation_catalog_is_total_and_current() -> None:
 
 def test_p1_inert_web_sites_are_exact_and_mutation_sensitive() -> None:
     """Only web handlers without a P2 facade delegation remain inert."""
-    assert {"_web/backend.py:WebRpcBackend._rpc_call"} == INERT_P1_WEB_SITES
+    assert {
+        "_web/backend.py:_DeadlineRpcCaller.rpc_call",
+        "_web/backend.py:WebRpcBackend._rpc_call",
+        "_web/backend.py:WebRpcBackend._source_add_url",
+    } == INERT_P1_WEB_SITES
     assert audit_inert_p1_web_sites() == []
 
     missing_one = INERT_P1_WEB_SITES - {"_web/backend.py:WebRpcBackend._rpc_call"}

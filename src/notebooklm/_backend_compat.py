@@ -154,7 +154,6 @@ def project_backend_error(error: BackendError) -> Exception:
                 rpc_code=cast(str | int | None, rpc_code),
             ),
         )
-
     if reason is BackendErrorReason.NOTEBOOK_NOT_FOUND:
         notebook_id = _optional(error, diagnostics, "notebook_id", str)
         if notebook_id is None:
@@ -169,7 +168,6 @@ def project_backend_error(error: BackendError) -> Exception:
                 method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
             ),
         )
-
     if reason is BackendErrorReason.NOTEBOOK_LIMIT:
         current_count = _required_int(error, diagnostics, "current_count")
         if current_count is None:

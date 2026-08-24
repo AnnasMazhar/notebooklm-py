@@ -1,19 +1,24 @@
 """Web implementation of the private semantic backend port.
 
-P1 assembles this backend, and P2.1 routes notebook reads through its first two
-handlers. Its four P2.1 bindings intentionally reuse the current request builders,
-strict row adapters, and public-model decoders until the P3 codec split.
+P1 assembles this backend. P2.1 routes four notebook/source reads through it;
+P2.2 routes three notebook mutation handlers; and P2.3 stages the facade-inert
+URL/YouTube source composite. These bindings intentionally reuse
+the current request builders, strict row adapters, and public-model decoders
+until the P3 codec split.
 Removal: P3 replaces the compatibility model-to-record projections below with
 direct wire-to-record codecs; the backend and its semantic port remain.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import reprlib
+import time
 from collections.abc import Callable
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
+from urllib.parse import urlparse
 
 from .._backend import (
     BackendCapabilities,
@@ -25,7 +30,12 @@ from .._backend import (
     UnsupportedOperationError,
 )
 from .._deadline import RuntimeDeadline
-from .._idempotency import idempotent_create, mark_unconfirmed
+from .._idempotency import (
+    _CreateResultKind,
+    _IdempotentCreateResult,
+    idempotent_create,
+    mark_unconfirmed,
+)
 from .._notebook_payloads import (
     build_create_notebook_params,
     build_get_notebook_params,
@@ -47,6 +57,11 @@ from .._records import (
     NotebookRecord,
     NotebookUpdateInput,
     NotebookUpdateResult,
+    SourceAddCommitState,
+    SourceAddTitleState,
+    SourceAddUrlInput,
+    SourceAddUrlReceipt,
+    SourceAddUrlResult,
     SourceGetInput,
     SourceGetResult,
     SourceListInput,
@@ -55,9 +70,12 @@ from .._records import (
 )
 from .._rpc_executor import RpcExecutor
 from .._settings import build_get_user_settings_params, extract_account_limits
+from .._source.add import SourceAddService, honor_requested_title_if_fresh
 from .._source.listing import SourceLister
-from .._source.upload_payloads import build_template_block
+from .._source.polling import SourcePoller
+from .._source.upload_payloads import build_rename_source_params, build_template_block
 from .._types.sources import _SOURCE_TYPE_CODE_MAP, SourceType
+from .._url_utils import is_youtube_url
 from ..exceptions import (
     AuthError,
     ClientError,
@@ -68,6 +86,8 @@ from ..exceptions import (
     RPCResponseTooLargeError,
     RPCTimeoutError,
     ServerError,
+    SourceAddError,
+    SourceNotFoundError,
     UnknownRPCMethodError,
 )
 from ..rpc import RPCMethod, safe_index
@@ -79,7 +99,8 @@ from ..rpc.types import (
 from ..types import Notebook, Source
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 
-logger = logging.getLogger("notebooklm._notebooks")
+notebook_logger = logging.getLogger("notebooklm._notebooks")
+source_logger = logging.getLogger("notebooklm").getChild("_sources")
 
 _CREATE_NOTEBOOK_QUOTA_RPC_CODE = 3
 
@@ -186,6 +207,51 @@ def _source_record(source: Source) -> SourceRecord:
     )
 
 
+class _DeadlineRpcCaller:
+    """Bind one semantic operation and absolute deadline to legacy RPC helpers."""
+
+    __slots__ = ("_backend", "_deadline", "_operation")
+
+    def __init__(
+        self,
+        backend: WebRpcBackend,
+        deadline: RuntimeDeadline | None,
+        operation: Operation,
+    ) -> None:
+        self._backend = backend
+        self._deadline = deadline
+        self._operation = operation
+
+    async def rpc_call(
+        self,
+        method: RPCMethod,
+        params: list[Any],
+        source_path: str = "/",
+        allow_null: bool = False,
+        _is_retry: bool = False,
+        *,
+        disable_internal_retries: bool = False,
+        operation_variant: str | None = None,
+        read_timeout: float | None = None,
+        raise_on_null_status: bool = False,
+    ) -> Any:
+        # The semantic deadline is the only timeout authority for this composite.
+        # A feature helper cannot replace it with a fresh relative timeout.
+        del read_timeout
+        return await self._backend._rpc_call(
+            method,
+            params,
+            operation=self._operation,
+            deadline=self._deadline,
+            source_path=source_path,
+            allow_null=allow_null,
+            _is_retry=_is_retry,
+            disable_internal_retries=disable_internal_retries,
+            operation_variant=operation_variant,
+            raise_on_null_status=raise_on_null_status,
+        )
+
+
 class WebRpcBackend:
     """Typed semantic binding over the existing shared :class:`RpcExecutor`."""
 
@@ -259,9 +325,12 @@ class WebRpcBackend:
                     outcome_unknown=operation.policy is not CallPolicy.READ,
                     diagnostics=MappingProxyType(diagnostics),
                 ) from exc
-            raise self._translate_error(operation.key, exc) from exc
+            translated = self._translate_error(operation.key, exc)
+            raise translated from exc
         except (RPCError, NetworkError) as exc:
-            raise self._translate_error(operation.key, exc) from exc
+            translated = self._translate_error(operation.key, exc)
+            raise translated from exc
+
 
         if type(result) is not operation.output_type:
             raise BackendContractError(
@@ -364,7 +433,7 @@ class WebRpcBackend:
         except Exception as exc:
             baseline_ids = None
             baseline_error = exc
-            logger.warning(
+            notebook_logger.warning(
                 "create: baseline list() failed (%s); the idempotency probe can no "
                 "longer tell a notebook this call created from one that was already "
                 "there, so a transport failure will surface as an ambiguity error "
@@ -396,7 +465,7 @@ class WebRpcBackend:
                     deadline=deadline,
                 )
             except (AuthError, RateLimitError, ServerError, NetworkError) as exc:
-                logger.warning(
+                notebook_logger.warning(
                     "create: probe list() failed with transport/auth error; "
                     "propagating so the caller can avoid a duplicate-resource retry"
                 )
@@ -405,7 +474,7 @@ class WebRpcBackend:
             except BackendError:
                 raise
             except Exception as exc:
-                logger.warning(
+                notebook_logger.warning(
                     "create: probe list() failed with a non-transport error (%s); the "
                     "create cannot be confirmed, so it will not be retried",
                     type(exc).__name__,
@@ -438,7 +507,7 @@ class WebRpcBackend:
                     )
                 )
             if len(matches) == 1:
-                return matches[0]
+                return next(iter(matches))
             if len(matches) > 1:
                 raise mark_unconfirmed(
                     RPCError(
@@ -654,6 +723,141 @@ class WebRpcBackend:
         records = tuple(_source_record(source) for source in sources)
         return SourceGetResult(
             source=next((source for source in records if source.id == value.source_id), None)
+        )
+
+    async def _source_add_url(
+        self,
+        value: SourceAddUrlInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SourceAddUrlResult:
+        """Run the staged generic/YouTube URL workflow under one deadline."""
+        caller = _DeadlineRpcCaller(self, deadline, Operation.SOURCE_ADD_URL)
+        adder = SourceAddService()
+        lister = SourceLister(cast(Any, caller))
+        poller = SourcePoller()
+
+        def extract_youtube_video_id(url: str) -> str | None:
+            return adder.extract_youtube_video_id(
+                url,
+                parse_url=urlparse,
+                extract_video_id_from_parsed_url=adder.extract_video_id_from_parsed_url,
+                is_valid_video_id=adder.is_valid_video_id,
+                logger=source_logger,
+            )
+
+        async def wait_until_ready(
+            notebook_id: str,
+            source_id: str,
+            *,
+            timeout: float,
+        ) -> Source:
+            return await poller.wait_until_ready(
+                notebook_id,
+                source_id,
+                timeout=timeout,
+                get_source=lister.get,
+                sleep=asyncio.sleep,
+                monotonic=(deadline.monotonic if deadline is not None else time.monotonic),
+                logger=source_logger,
+                deadline=deadline,
+            )
+
+        async def rename_source(
+            notebook_id: str,
+            source_id: str,
+            new_title: str,
+        ) -> Source | None:
+            result = await caller.rpc_call(
+                RPCMethod.UPDATE_SOURCE,
+                build_rename_source_params(source_id, new_title),
+                source_path=f"/notebook/{notebook_id}",
+                allow_null=True,
+            )
+            if result:
+                return Source.from_api_response(
+                    result,
+                    method_id=RPCMethod.UPDATE_SOURCE.value,
+                )
+            source = await lister.get(notebook_id, source_id)
+            if source is None:
+                raise SourceNotFoundError(
+                    source_id,
+                    method_id=RPCMethod.UPDATE_SOURCE.value,
+                )
+            return source
+
+        try:
+            create_result = cast(
+                _IdempotentCreateResult[Source],
+                await adder.add_url(
+                    value.notebook_id,
+                    value.url,
+                    wait=value.wait,
+                    wait_timeout=value.wait_timeout,
+                    add_youtube_source=lambda notebook_id, url: adder.add_youtube_source(
+                        notebook_id,
+                        url,
+                        rpc=cast(Any, caller),
+                    ),
+                    add_url_source=lambda notebook_id, url: adder.add_url_source(
+                        notebook_id,
+                        url,
+                        rpc=cast(Any, caller),
+                    ),
+                    list_sources=lister.list,
+                    wait_until_ready=wait_until_ready,
+                    extract_youtube_video_id=extract_youtube_video_id,
+                    is_youtube_url=is_youtube_url,
+                    logger=source_logger,
+                    return_result=True,
+                ),
+            )
+        except (SourceAddError, RPCError, NetworkError) as exc:
+            if not getattr(exc, "unconfirmed", False):
+                raise
+            receipt = SourceAddUrlReceipt(
+                commit_state=SourceAddCommitState.UNKNOWN,
+                title_state=SourceAddTitleState.NOT_ATTEMPTED,
+                outcome_unknown=True,
+            )
+            raise BackendError(
+                message=str(exc),
+                operation=Operation.SOURCE_ADD_URL,
+                outcome_unknown=True,
+                diagnostics=MappingProxyType({"receipt": receipt}),
+            ) from exc
+
+        source_before_title = create_result.value
+        requested_title = value.requested_title
+        normalized_title = requested_title.strip() if requested_title is not None else ""
+        source = await honor_requested_title_if_fresh(
+            rename_source,
+            value.notebook_id,
+            create_result,
+            requested_title,
+            source_logger,
+            probe_proves_freshness=True,
+        )
+        if not normalized_title:
+            title_state = SourceAddTitleState.NOT_REQUESTED
+        elif source_before_title.title == normalized_title:
+            title_state = SourceAddTitleState.UNCHANGED
+        elif source.title == normalized_title:
+            title_state = SourceAddTitleState.RENAMED
+        else:
+            title_state = SourceAddTitleState.RENAME_FAILED
+
+        return SourceAddUrlResult(
+            source=_source_record(source),
+            receipt=SourceAddUrlReceipt(
+                commit_state=(
+                    SourceAddCommitState.CREATED
+                    if create_result.kind is _CreateResultKind.CREATED
+                    else SourceAddCommitState.RECONCILED
+                ),
+                title_state=title_state,
+            ),
         )
 
     @staticmethod

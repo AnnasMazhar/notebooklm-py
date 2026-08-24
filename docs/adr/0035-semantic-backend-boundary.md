@@ -77,6 +77,22 @@ guard must prevent the document type module from importing wire/backend modules.
 graph as private records is rejected because the projection would restate its invariants and
 create a second offset implementation.
 
+The exemption is evidence-backed and fail-closed. The canonical module imports only a closed
+standard-library set; `tests/_guardrails/test_document_value_boundary.py` rejects planted backend,
+row-adapter, RPC, HTTP, or other runtime dependencies. The same guard exercises a non-default,
+nested document through public constructors, UTF-16 slicing, rendering, hashing, and pickle so the
+decision does not rest on the empty default sample in the general public-model baseline. The
+positional grammar remains independently pinned by 39 `documents` mappings in
+`tests/_guardrails/_wire_contract.py`, with no pinned or unmapped document entries.
+
+The three live carriers and their P3 dispositions are:
+
+| Carrier | Current construction and public projection | Independent evidence | P3 disposition |
+|---|---|---|---|
+| `GET_SOURCE` fulltext | `_source/content.py` passes the body to `_web.codec.documents.decode_structured_document`, which reuses the strict document row adapter and produces `SourceFulltext.document` | `TestSourcesGoldenDecoded::test_get_fulltext_decoded_golden` pins the RPC result while `test_citation_alignment.py` pins the captured tree, UTF-16 offsets, and readable rendering | The first P3 source slice is live; scalar fulltext parsing and the GET_SOURCE authority remain unchanged. |
+| Streamed answer `responseDoc.body` | `_row_adapters.chat.AnswerRow.document` delegates to `build_document`, producing `AskResult.answer_document` | Both chat decoded goldens pin the recorded answer document, annotations, extent, anchors, and references; `test_citation_alignment.py` isolates malformed and astral-character cases | `_chat/wire.py` ownership moves with the P6 chat domain, not the P3 decode-path retirement. |
+| Streamed citation `fragment.elements` | `_chat/wire.py::extract_text_passages` delegates to `build_blocks`, then projects document ranges into `ChatReference` | `test_ask_with_references_decoded_golden` pins full cited fragments and offsets; `test_citation_alignment.py` pins fragment clipping and answer-anchor joins | Deferred with the P6 chat domain; it shares the same exempt values and coordinate space. |
+
 All other decoded resources follow `wire -> private record -> public model`. P3 is approved on
 that basis. It should reuse the proven strict row-adapter logic and wire-contract evidence; it is
 not authorization for a cosmetic directory rename or weakened ADR-0011 guard.
