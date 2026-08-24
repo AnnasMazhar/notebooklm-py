@@ -1785,7 +1785,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [],
@@ -1822,7 +1822,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -1870,7 +1870,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -1919,7 +1919,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -1968,7 +1968,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2008,7 +2008,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2057,7 +2057,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2109,7 +2109,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2174,7 +2174,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2216,7 +2216,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [],
@@ -2262,7 +2262,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2309,7 +2309,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2356,7 +2356,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2397,7 +2397,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2440,7 +2440,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2480,7 +2480,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2524,7 +2524,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2572,7 +2572,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2612,7 +2612,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2657,7 +2657,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2703,7 +2703,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2752,7 +2752,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2801,7 +2801,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2859,7 +2859,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -2924,7 +2924,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3030,7 +3030,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3092,7 +3092,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3145,7 +3145,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3192,7 +3192,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3237,7 +3237,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3287,7 +3287,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3340,7 +3340,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3391,7 +3391,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3453,7 +3453,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3511,7 +3511,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3564,7 +3564,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3607,7 +3607,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3647,7 +3647,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3688,7 +3688,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3733,7 +3733,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3782,7 +3782,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3827,7 +3827,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3872,7 +3872,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3914,7 +3914,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -3955,7 +3955,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -4002,7 +4002,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -4047,7 +4047,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -4092,7 +4092,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -4143,7 +4143,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -4189,7 +4189,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -4232,7 +4232,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -4272,7 +4272,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -4312,7 +4312,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -4352,7 +4352,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -4393,7 +4393,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
@@ -4448,7 +4448,7 @@
           "resolved_id_to_decode": true,
           "resolved_id_to_url": true
         },
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once"
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once"
       },
       "override_honored": true,
       "owners": [
