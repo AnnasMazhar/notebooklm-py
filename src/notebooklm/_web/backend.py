@@ -24,7 +24,7 @@ from .._backend import (
 )
 from .._deadline import RuntimeDeadline
 from .._notebook_payloads import build_get_notebook_params
-from .._operations import Operation, OperationDef
+from .._operations import CallPolicy, Operation, OperationDef
 from .._records import (
     NotebookChatSessionRecord,
     NotebookChatSettingsRecord,
@@ -43,7 +43,7 @@ from .._records import (
 from .._rpc_executor import RpcExecutor
 from .._source.listing import SourceLister
 from .._types.sources import _SOURCE_TYPE_CODE_MAP, SourceType
-from ..exceptions import DecodingError, NetworkError, RPCError
+from ..exceptions import DecodingError, NetworkError, RPCError, RPCTimeoutError
 from ..rpc import RPCMethod, safe_index
 from ..rpc.types import (
     drive_source_status_to_str,
@@ -233,6 +233,14 @@ class WebRpcBackend:
             result = await handler(value, deadline=deadline)
         except BackendError:
             raise
+        except RPCTimeoutError as exc:
+            if deadline is not None:
+                raise BackendDeadlineExceededError(
+                    operation.key,
+                    outcome_unknown=operation.policy is not CallPolicy.READ,
+                    diagnostics=self._error_diagnostics(exc),
+                ) from exc
+            raise self._translate_error(operation.key, exc) from exc
         except (RPCError, NetworkError) as exc:
             raise self._translate_error(operation.key, exc) from exc
 
@@ -281,6 +289,7 @@ class WebRpcBackend:
             operation_variant=operation_variant,
             read_timeout=read_timeout,
             raise_on_null_status=raise_on_null_status,
+            _retry_deadline=deadline,
         )
 
     async def _notebook_list(
@@ -381,20 +390,23 @@ class WebRpcBackend:
         )
 
     @staticmethod
-    def _translate_error(operation: Operation, exc: RPCError | NetworkError) -> BackendError:
-        diagnostics = MappingProxyType(
+    def _error_diagnostics(exc: RPCError | NetworkError) -> MappingProxyType[str, object]:
+        return MappingProxyType(
             {
                 "method_id": getattr(exc, "method_id", None),
                 "rpc_code": getattr(exc, "rpc_code", None),
-                "found_ids": tuple(getattr(exc, "found_ids", ()) or ()),
+                "found_ids": getattr(exc, "found_ids", None),
                 "raw_response": getattr(exc, "raw_response", None),
             }
         )
+
+    @classmethod
+    def _translate_error(cls, operation: Operation, exc: RPCError | NetworkError) -> BackendError:
         return BackendError(
             message=str(exc),
             operation=operation,
             outcome_unknown=False,
-            diagnostics=diagnostics,
+            diagnostics=cls._error_diagnostics(exc),
         )
 
 

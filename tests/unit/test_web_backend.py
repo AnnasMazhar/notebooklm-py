@@ -31,7 +31,7 @@ from notebooklm._records import (
 )
 from notebooklm._web.backend import WebRpcBackend
 from notebooklm._web.registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
-from notebooklm.exceptions import RPCError
+from notebooklm.exceptions import RPCError, RPCTimeoutError
 from notebooklm.rpc import RPCMethod
 
 
@@ -230,13 +230,14 @@ async def test_source_handlers_reuse_source_lister_and_apply_semantic_filters() 
 
 
 @pytest.mark.asyncio
-async def test_absolute_deadline_is_forwarded_as_executor_read_timeout() -> None:
+async def test_absolute_deadline_is_forwarded_unchanged_with_remaining_read_timeout() -> None:
     executor = _RecordingExecutor([[]])
     deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 12.0)
 
     await _backend(executor).invoke(NOTEBOOK_LIST_DEF, NotebookListInput(), deadline=deadline)
 
     assert executor.calls[0].kwargs["read_timeout"] == 3.0
+    assert executor.calls[0].kwargs["_retry_deadline"] is deadline
 
 
 @pytest.mark.asyncio
@@ -257,15 +258,14 @@ async def test_expired_deadline_fails_before_executor() -> None:
 
 @pytest.mark.asyncio
 async def test_rpc_error_is_translated_with_scrubbed_diagnostics() -> None:
-    executor = _RecordingExecutor(
-        RPCError(
-            "decode failed",
-            method_id=RPCMethod.LIST_NOTEBOOKS.value,
-            rpc_code=13,
-            found_ids=["other"],
-            raw_response="already-scrubbed",
-        )
+    error = RPCError(
+        "decode failed",
+        method_id=RPCMethod.LIST_NOTEBOOKS.value,
+        rpc_code=13,
+        found_ids=["other"],
+        raw_response="already-scrubbed",
     )
+    executor = _RecordingExecutor(error)
 
     with pytest.raises(BackendError) as caught:
         await _backend(executor).invoke(
@@ -280,8 +280,38 @@ async def test_rpc_error_is_translated_with_scrubbed_diagnostics() -> None:
     assert caught.value.diagnostics == {
         "method_id": RPCMethod.LIST_NOTEBOOKS.value,
         "rpc_code": 13,
-        "found_ids": ("other",),
+        "found_ids": ["other"],
         "raw_response": "already-scrubbed",
+    }
+    assert caught.value.diagnostics["found_ids"] is error.found_ids
+    assert isinstance(caught.value.diagnostics["found_ids"], list)
+
+
+@pytest.mark.asyncio
+async def test_deadline_budget_timeout_maps_to_typed_deadline_error() -> None:
+    timeout = RPCTimeoutError(
+        "request timed out",
+        method_id=RPCMethod.LIST_NOTEBOOKS.value,
+        timeout_seconds=3.0,
+    )
+    executor = _RecordingExecutor(timeout)
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 12.0)
+
+    with pytest.raises(BackendDeadlineExceededError) as caught:
+        await _backend(executor).invoke(
+            NOTEBOOK_LIST_DEF,
+            NotebookListInput(),
+            deadline=deadline,
+        )
+
+    assert caught.value.operation is Operation.NOTEBOOK_LIST
+    assert caught.value.outcome_unknown is False
+    assert caught.value.__cause__ is timeout
+    assert caught.value.diagnostics == {
+        "method_id": RPCMethod.LIST_NOTEBOOKS.value,
+        "rpc_code": None,
+        "found_ids": None,
+        "raw_response": None,
     }
 
 
