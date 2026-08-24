@@ -1026,6 +1026,8 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_runtime/transport.py` | `RuntimeTransport` — authed-POST transport wrapper that drives the middleware chain and typed transport response handling |
 | `_rpc_executor.py` | RPC dispatch executor. Takes its `Kernel`, `RuntimeTransport`, `AuthRefreshCoordinator`, and `ClientMetrics` collaborators directly via keyword-only constructor parameters (ADR-0014 Rule 5). Defines a single local `DecodeResponse` Protocol. |
 | `_operations.py` | Closed P0 semantic vocabulary: `Operation` / `CallPolicy` enums and frozen, slotted, typed `OperationDef`, consumed by the private P1 backend port and registries. |
+| `_projectors.py` | Shared P2.1 compatibility projectors from neutral notebook/source records to the existing public `Notebook` / `Source` models, using their normal constructors and no wire adapters. |
+| `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
 | `_web/backend.py` | P1 web semantic backend over the existing `RpcExecutor`; its first four handlers reuse current payload/row adapters and return neutral records. Existing feature facades do not delegate through it until P2. |
 | `_web/registry.py` | Closed web disposition registry over every `Operation`: four P2.1 read handlers and an explicit unsupported disposition for every other operation. |
 | `scripts/audit_operation_catalog.py` | Single build/audit CLI for the deterministic ADR-0022 projection: exact semantic authorities, native bindings, public/root-client dispositions, evidence, omissions, and divergences. |
@@ -1197,6 +1199,8 @@ src/notebooklm/
 ├── _mind_maps_api.py            # MindMapsAPI — unified mind-map surface over both backends (#1256)
 ├── _notebook_metadata.py        # Metadata protocols
 ├── _operations.py               # Closed semantic operation/call-policy vocabulary (P0)
+├── _projectors.py               # Neutral record-to-public Notebook/Source compatibility projectors (P2.1)
+├── _read_services.py            # Transport-neutral notebook/source list/get services (P2.1)
 ├── _records.py                  # Neutral P2.1 notebook/source backend DTOs and operation definitions
 ├── _url_utils.py                # URL validation helpers
 ├── _sharing_manager.py          # Sharing management logic
