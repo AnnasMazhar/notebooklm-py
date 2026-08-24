@@ -1999,6 +1999,11 @@
       "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse('Upload could not be processed.', status_code=400, headers=_CORS_ORIGIN)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
     },
     {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_uploadwidget.py|register_upload_widget._upload_widget_html|return|1",
+      "non_public_category": "non-json-mcp-resource",
+      "review_note": "Audited notebooklm/mcp/_uploadwidget.py:register_upload_widget._upload_widget_html as the registered MCP application resource terminal; it returns the constant HTML widget document and no public dataclass field can reach the resource response."
+    },
+    {
       "locator": "rest response|notebooklm/server/_errors.py|http_error_response|json-response-return|1",
       "infrastructure_category": "central-json-forwarder",
       "review_note": "Audited notebooklm/server/_errors.py:http_error_response `{'error': body}` as one of the six pinned central renderer/error forwarding sites; it delegates caller-owned payloads and is covered by owner/expression fingerprints."

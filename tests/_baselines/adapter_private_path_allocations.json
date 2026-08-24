@@ -192,6 +192,137 @@
       "public_model": "notebooklm.types.CitedSourceSelection",
       "projection_ids": ["cli.CitedSourceSelection.manual-direct-import-projection"],
       "terminal_locators": ["cli --json|notebooklm/cli/research_cmd.py|_render_import_result|json_output_response|1"]
+    },
+    {
+      "private_model": "notebooklm._auth.tokens.FileLoadedAuth",
+      "field_path": "auth",
+      "public_model": "notebooklm.auth.AuthTokens",
+      "projection_ids": ["mcp.AuthTokens.redacted-server-info-account-identity-contribution", "rest.AuthTokens.redacted-server-info-account-identity-contribution"],
+      "terminal_locators": ["mcp tool result|notebooklm/mcp/tools/meta.py|register.server_info|return|1", "rest response|notebooklm/server/routes/meta.py|server_info|return|1"]
+    },
+    {
+      "private_model": "notebooklm._auth.tokens.InlineLoadedAuth",
+      "field_path": "auth",
+      "public_model": "notebooklm.auth.AuthTokens",
+      "projection_ids": ["mcp.AuthTokens.redacted-server-info-account-identity-contribution", "rest.AuthTokens.redacted-server-info-account-identity-contribution"],
+      "terminal_locators": ["mcp tool result|notebooklm/mcp/tools/meta.py|register.server_info|return|1", "rest response|notebooklm/server/routes/meta.py|server_info|return|1"]
+    },
+    {
+      "private_model": "notebooklm._chat.api._PostedAsk",
+      "field_path": "answer_document",
+      "public_model": "notebooklm._types.documents.StructuredDocument",
+      "projection_ids": ["cli.StructuredDocument.transitive-chat-reference-full-contribution", "mcp.StructuredDocument.transitive-chat-reference-full-contribution", "rest.StructuredDocument.transitive-chat-reference-full-contribution"],
+      "terminal_locators": ["cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1", "rest response|notebooklm/server/routes/chat.py|ask|return|1"]
+    },
+    {
+      "private_model": "notebooklm._chat.api._PostedAsk",
+      "field_path": "next_steps[]",
+      "public_model": "notebooklm.types.NextStepSuggestion",
+      "projection_ids": ["cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion", "mcp.AskResult.app-view-mcp-final-lite-references.nested-next_steps-NextStepSuggestion", "mcp.AskResult.app-view-mcp-final-full-references.nested-next_steps-NextStepSuggestion", "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion"],
+      "terminal_locators": ["cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1", "rest response|notebooklm/server/routes/chat.py|ask|return|1"]
+    },
+    {
+      "private_model": "notebooklm._chat.api._PostedAsk",
+      "field_path": "references[]",
+      "public_model": "notebooklm.types.ChatReference",
+      "projection_ids": ["cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference", "mcp.AskResult.app-view-mcp-final-full-references.nested-references-ChatReference", "mcp.ChatReference.nested-lite-projection", "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference"],
+      "terminal_locators": ["cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1", "rest response|notebooklm/server/routes/chat.py|ask|return|1"]
+    },
+    {
+      "private_model": "notebooklm._chat.api._PostedAsk",
+      "field_path": "turn_key",
+      "public_model": "notebooklm.types.ConversationTurnKey",
+      "projection_ids": ["cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey", "mcp.AskResult.app-view-mcp-final-lite-references.nested-turn_key-ConversationTurnKey", "mcp.AskResult.app-view-mcp-final-full-references.nested-turn_key-ConversationTurnKey", "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey"],
+      "terminal_locators": ["cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1", "rest response|notebooklm/server/routes/chat.py|ask|return|1"]
+    },
+    {
+      "private_model": "notebooklm._chat.wire.StreamingChatParseResult",
+      "field_path": "answer_document",
+      "public_model": "notebooklm._types.documents.StructuredDocument",
+      "projection_ids": ["cli.StructuredDocument.transitive-chat-reference-full-contribution", "mcp.StructuredDocument.transitive-chat-reference-full-contribution", "rest.StructuredDocument.transitive-chat-reference-full-contribution"],
+      "terminal_locators": ["cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1", "rest response|notebooklm/server/routes/chat.py|ask|return|1"]
+    },
+    {
+      "private_model": "notebooklm._chat.wire.StreamingChatParseResult",
+      "field_path": "next_steps[]",
+      "public_model": "notebooklm.types.NextStepSuggestion",
+      "projection_ids": ["cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion", "mcp.AskResult.app-view-mcp-final-lite-references.nested-next_steps-NextStepSuggestion", "mcp.AskResult.app-view-mcp-final-full-references.nested-next_steps-NextStepSuggestion", "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion"],
+      "terminal_locators": ["cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1", "rest response|notebooklm/server/routes/chat.py|ask|return|1"]
+    },
+    {
+      "private_model": "notebooklm._chat.wire.StreamingChatParseResult",
+      "field_path": "references[]",
+      "public_model": "notebooklm.types.ChatReference",
+      "projection_ids": ["cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference", "mcp.AskResult.app-view-mcp-final-full-references.nested-references-ChatReference", "mcp.ChatReference.nested-lite-projection", "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference"],
+      "terminal_locators": ["cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1", "rest response|notebooklm/server/routes/chat.py|ask|return|1"]
+    },
+    {
+      "private_model": "notebooklm._chat.wire.StreamingChatParseResult",
+      "field_path": "turn_key",
+      "public_model": "notebooklm.types.ConversationTurnKey",
+      "projection_ids": ["cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey", "mcp.AskResult.app-view-mcp-final-lite-references.nested-turn_key-ConversationTurnKey", "mcp.AskResult.app-view-mcp-final-full-references.nested-turn_key-ConversationTurnKey", "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey"],
+      "terminal_locators": ["cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1", "rest response|notebooklm/server/routes/chat.py|ask|return|1"]
+    },
+    {
+      "private_model": "notebooklm._chat.wire._ChunkExtraction",
+      "field_path": "document",
+      "public_model": "notebooklm._types.documents.StructuredDocument",
+      "projection_ids": ["cli.StructuredDocument.transitive-chat-reference-full-contribution", "mcp.StructuredDocument.transitive-chat-reference-full-contribution", "rest.StructuredDocument.transitive-chat-reference-full-contribution"],
+      "terminal_locators": ["cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1", "rest response|notebooklm/server/routes/chat.py|ask|return|1"]
+    },
+    {
+      "private_model": "notebooklm._chat.wire._ChunkExtraction",
+      "field_path": "next_steps[]",
+      "public_model": "notebooklm.types.NextStepSuggestion",
+      "projection_ids": ["cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion", "mcp.AskResult.app-view-mcp-final-lite-references.nested-next_steps-NextStepSuggestion", "mcp.AskResult.app-view-mcp-final-full-references.nested-next_steps-NextStepSuggestion", "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion"],
+      "terminal_locators": ["cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1", "rest response|notebooklm/server/routes/chat.py|ask|return|1"]
+    },
+    {
+      "private_model": "notebooklm._chat.wire._ChunkExtraction",
+      "field_path": "references[]",
+      "public_model": "notebooklm.types.ChatReference",
+      "projection_ids": ["cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference", "mcp.AskResult.app-view-mcp-final-full-references.nested-references-ChatReference", "mcp.ChatReference.nested-lite-projection", "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference"],
+      "terminal_locators": ["cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1", "rest response|notebooklm/server/routes/chat.py|ask|return|1"]
+    },
+    {
+      "private_model": "notebooklm._chat.wire._ChunkExtraction",
+      "field_path": "turn_key",
+      "public_model": "notebooklm.types.ConversationTurnKey",
+      "projection_ids": ["cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey", "mcp.AskResult.app-view-mcp-final-lite-references.nested-turn_key-ConversationTurnKey", "mcp.AskResult.app-view-mcp-final-full-references.nested-turn_key-ConversationTurnKey", "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey"],
+      "terminal_locators": ["cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1", "rest response|notebooklm/server/routes/chat.py|ask|return|1"]
+    },
+    {
+      "private_model": "notebooklm._research_import._ImportProbeOutcome",
+      "field_path": "source_models[]",
+      "public_model": "notebooklm.types.ResearchSource",
+      "projection_ids": ["cli.ResearchSource.transitive-import-selection-final-contribution", "mcp.ResearchSource.transitive-import-source-count-contribution", "rest.ResearchSource.transitive-import-source-count-contribution"],
+      "terminal_locators": ["cli --json|notebooklm/cli/research_cmd.py|_render_import_result|json_output_response|1", "mcp tool result|notebooklm/mcp/tools/research.py|register.research_import|return|1", "rest response|notebooklm/server/routes/research.py|import_research|return|1"]
+    },
+    {
+      "private_model": "notebooklm._runtime.init.ValidatedSessionConfig",
+      "field_path": "limits",
+      "public_model": "notebooklm.types.ConnectionLimits",
+      "unreachable_category": "internal-runtime-configuration",
+      "review_note": "ValidatedSessionConfig carries ConnectionLimits only through client runtime construction into the HTTP transport pool; no adapter serializer receives this private configuration DTO or its limits field.",
+      "source_evidence": [
+        {
+          "symbol": "notebooklm._runtime.init.validate_constructor_args",
+          "required_ast_fragments": ["return ValidatedSessionConfig", "limits=_resolved_limits"],
+          "semantic_fingerprint": "sha256:a8795d7865f25119bd13a5a429685f4637f192b84fdc32cc07407edccd03254b"
+        },
+        {
+          "symbol": "notebooklm._runtime.init.build_collaborators",
+          "required_ast_fragments": ["limits=config.limits"],
+          "semantic_fingerprint": "sha256:a085a87225d40d131bf2dd6cee975d4759970779193682796d5d28f14258195a"
+        }
+      ]
+    },
+    {
+      "private_model": "notebooklm._source.batch.SourceUrlBatchItem",
+      "field_path": "source",
+      "public_model": "notebooklm.types.Source",
+      "projection_ids": ["mcp.Source.transitive-batch-added-item-final-wrapper", "rest.Source.transitive-batch-added-item-final-wrapper"],
+      "terminal_locators": ["mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|1", "rest response|notebooklm/server/routes/sources.py|add_batch|return|1"]
     }
   ]
 }

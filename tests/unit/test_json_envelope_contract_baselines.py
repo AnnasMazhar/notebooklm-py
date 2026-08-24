@@ -18,10 +18,16 @@ from tests._baselines.compatibility_contracts import (
     derive_json_envelope_contract,
 )
 from tests._baselines.json_envelope_contracts import (
+    _ast_projection_shape,
     _normalize_conditional_key_groups,
+    _validate_model_contribution_keys,
     _validate_secret_projection,
 )
-from tests._baselines.json_envelope_specs import projection_spec_ids
+from tests._baselines.json_envelope_specs import (
+    _CHANNEL_PROJECTION_SPECS,
+    _LITERAL_DICT_DERIVATIONS,
+    projection_spec_ids,
+)
 
 
 def _exported_models() -> dict[str, type]:
@@ -47,6 +53,53 @@ def _exported_models() -> dict[str, type]:
             ):
                 models[f"{value.__module__}.{value.__qualname__}"] = value
     return models
+
+
+def test_literal_final_dict_projection_shapes_are_ast_derived_and_mutation_proven(
+    tmp_path: Path,
+) -> None:
+    specs = [spec for channel in _CHANNEL_PROJECTION_SPECS.values() for spec in channel]
+    literal_specs = [
+        spec
+        for channel, channel_specs in _CHANNEL_PROJECTION_SPECS.items()
+        for spec in channel_specs
+        if (channel, str(spec["model"]), str(spec["mode"])) in _LITERAL_DICT_DERIVATIONS
+    ]
+    literal_sites = {
+        (
+            str(spec["derive"]["path"]),
+            str(spec["derive"]["function"]),
+            tuple(spec["derive"]["contains"]),
+        )
+        for spec in literal_specs
+    }
+    assert len(_LITERAL_DICT_DERIVATIONS) == len(literal_specs) == 37
+    assert len(literal_sites) == 28
+    assert sum(spec["derive"] == "manual-reviewed+fingerprint" for spec in specs) == 168
+
+    config = _LITERAL_DICT_DERIVATIONS[
+        (
+            "cli --json",
+            "notebooklm.types.Artifact",
+            "transitive-download-no-artifacts-final-wrapper",
+        )
+    ]
+    source_root = Path(notebooklm.__file__).resolve().parents[1]
+    assert _ast_projection_shape(source_root, config, object)["keys"] == [
+        "error",
+        "suggestion",
+    ]
+
+    relative_path = Path(str(config["path"]))
+    source = (source_root / relative_path).read_text(encoding="utf-8")
+    old = 'return {"error": result.error, "suggestion": result.suggestion}'
+    new = 'return {"error": result.error, "next_step": result.suggestion}'
+    assert old in source
+    mutated_path = tmp_path / relative_path
+    mutated_path.parent.mkdir(parents=True, exist_ok=True)
+    mutated_path.write_text(source.replace(old, new, 1), encoding="utf-8")
+    with pytest.raises(ValueError, match="expected one build_download_envelope dict"):
+        _ast_projection_shape(tmp_path, config, object)
 
 
 def test_json_envelope_preserves_original_exact_contract_assertions() -> None:
@@ -1511,6 +1564,11 @@ def test_json_envelope_covers_exported_models_and_exact_adapter_variants() -> No
                 "storage_path",
                 "_profile_session_generation",
             ],
+            "emitted_model_contribution_keys": ["authuser", "account_email"],
+            "control_model_contribution_keys": [
+                "storage_path",
+                "_profile_session_generation",
+            ],
             "projection_condition": (
                 "server_info include_account is true; authuser always comes from the "
                 "in-memory AuthTokens, while account_email contributes only when that "
@@ -1541,6 +1599,11 @@ def test_json_envelope_covers_exported_models_and_exact_adapter_variants() -> No
         "_profile_session_generation",
     ]
     assert rest_auth["redacted_projection"] == "safe-field-contribution"
+    assert rest_auth["emitted_model_contribution_keys"] == ["authuser", "account_email"]
+    assert rest_auth["control_model_contribution_keys"] == [
+        "storage_path",
+        "_profile_session_generation",
+    ]
     assert "bound client exists with no startup error" in rest_auth["projection_condition"]
     assert "persisted-identity branch has no AuthTokens" in rest_auth["contribution_semantics"]
     auth_tokens_policy = contract["secret_bearing_exclusions"]["notebooklm.auth.AuthTokens"]
@@ -1581,6 +1644,11 @@ def test_json_envelope_rejects_secret_bearing_channel_reachability() -> None:
             "storage_path",
             "_profile_session_generation",
         ),
+        "emitted_model_contribution_keys": ("authuser", "account_email"),
+        "control_model_contribution_keys": (
+            "storage_path",
+            "_profile_session_generation",
+        ),
     }
     _validate_secret_projection("notebooklm.auth.AuthTokens", safe_projection)
     with pytest.raises(ValueError, match="require a redacted adapter projection"):
@@ -1608,6 +1676,18 @@ def test_json_envelope_rejects_secret_bearing_channel_reachability() -> None:
         _validate_secret_projection(
             "notebooklm.auth.AuthTokens",
             {**safe_projection, "id": "mcp.AuthTokens.second-safe-looking-projection"},
+        )
+    with pytest.raises(ValueError, match="safe emitted and control-only origins"):
+        _validate_secret_projection(
+            "notebooklm.auth.AuthTokens",
+            {
+                **safe_projection,
+                "emitted_model_contribution_keys": ("authuser", "storage_path"),
+                "control_model_contribution_keys": (
+                    "account_email",
+                    "_profile_session_generation",
+                ),
+            },
         )
 
     safe_channel_model = {"notebooklm.auth.AuthTokens": {"projections": [safe_projection]}}
@@ -1646,6 +1726,75 @@ def leak(client, explicit: AuthTokens):
         "mutation.py:8",
         "mutation.py:9",
     ]
+
+    field_source = """
+from notebooklm.auth import AuthTokens
+
+def leak(tokens: AuthTokens):
+    to_jsonable(tokens.cookies)
+    to_jsonable({"email": tokens.storage_path})
+    copied = {"nested": [tokens["csrf_token"]]}
+    to_jsonable(copied)
+    relabelled = tokens.cookie_jar
+    return {"harmless_name": [relabelled]}
+    to_jsonable({"email": tokens.account_email, "authuser": tokens.authuser})
+"""
+    assert _secret_serialization_violations(field_source, filename="fields.py") == [
+        "fields.py:10",
+        "fields.py:5",
+        "fields.py:6",
+        "fields.py:8",
+    ]
+
+    assigned_source = """
+from notebooklm.auth import AuthTokens
+
+def leak(tokens: AuthTokens):
+    holder = object()
+    holder.value = tokens.bearer_token
+    values = []
+    values.append(tokens.authorization_header)
+    return {"renamed_holder": holder.value, "renamed_values": values}
+"""
+    assert _secret_serialization_violations(assigned_source, filename="assigned.py") == [
+        "assigned.py:9"
+    ]
+
+
+def test_json_envelope_rejects_invalid_model_contribution_keys() -> None:
+    from notebooklm.types import Artifact
+
+    with pytest.raises(ValueError, match="non-empty string list"):
+        _validate_model_contribution_keys(
+            "notebooklm.types.Artifact", Artifact, (), identity="empty"
+        )
+    with pytest.raises(ValueError, match="duplicate model_contribution_keys"):
+        _validate_model_contribution_keys(
+            "notebooklm.types.Artifact", Artifact, ("id", "id"), identity="duplicate"
+        )
+    with pytest.raises(ValueError, match="unknown model_contribution_keys"):
+        _validate_model_contribution_keys(
+            "notebooklm.types.Artifact",
+            Artifact,
+            ("definitely_not_a_model_field",),
+            identity="unknown",
+        )
+
+    @dataclasses.dataclass
+    class FutureModel:
+        value: str
+
+        @property
+        def unreviewed_alias(self) -> str:
+            return self.value
+
+    with pytest.raises(ValueError, match="unknown model_contribution_keys"):
+        _validate_model_contribution_keys(
+            "future.FutureModel",
+            FutureModel,
+            ("unreviewed_alias",),
+            identity="unreviewed-property",
+        )
 
 
 def test_json_envelope_evidence_fingerprint_detects_adapter_shape_mutation() -> None:
@@ -1695,5 +1844,5 @@ def test_json_envelope_allocates_every_live_projection_to_an_exact_terminal() ->
     }
 
     assert allocated_projection_ids == live_projection_ids
-    assert reachability["site_count"] == 349
-    assert len(reachability["private_dataclass_projection_paths"]) == 19
+    assert reachability["site_count"] == 350
+    assert len(reachability["private_dataclass_projection_paths"]) == 36

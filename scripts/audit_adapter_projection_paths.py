@@ -106,11 +106,38 @@ def _public_dataclass_aliases() -> dict[str, str]:
     aliases: dict[str, str] = {}
     for module_name in sorted(module_names):
         module = importlib.import_module(module_name)
+        exported_dataclasses: dict[str, str] = {}
         for name in getattr(module, "__all__", ()):
             value = getattr(module, name)
             if isinstance(value, type) and dataclasses.is_dataclass(value):
-                aliases[f"{module_name}.{name}"] = _model_key(value)
-                aliases[_model_key(value)] = _model_key(value)
+                canonical = _model_key(value)
+                exported_dataclasses[name] = canonical
+                aliases[f"{module_name}.{name}"] = canonical
+                aliases[canonical] = canonical
+
+        module_relative = module_name.removeprefix(f"{public_audit.PUBLIC_PACKAGE}.")
+        if module_name == public_audit.PUBLIC_PACKAGE:
+            source_path = package_dir / "__init__.py"
+            package = public_audit.PUBLIC_PACKAGE
+        else:
+            file_path = package_dir / f"{module_relative.replace('.', '/')}.py"
+            package_path = package_dir / module_relative.replace(".", "/") / "__init__.py"
+            source_path = file_path if file_path.is_file() else package_path
+            package = (
+                module_name if source_path.name == "__init__.py" else module_name.rpartition(".")[0]
+            )
+        if not source_path.is_file():
+            continue
+        tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+        for node in tree.body:
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            imported_module = _resolve_import(node, package)
+            for imported in node.names:
+                local_name = imported.asname or imported.name
+                imported_canonical = exported_dataclasses.get(local_name)
+                if imported_canonical is not None:
+                    aliases[f"{imported_module}.{imported.name}"] = imported_canonical
     return aliases
 
 
@@ -351,12 +378,7 @@ def _paths_from_class(
 def discover_private_dataclass_projection_paths(
     source_root: Path | None = None,
     *,
-    relative_roots: tuple[str, ...] = (
-        "notebooklm/_app",
-        "notebooklm/cli",
-        "notebooklm/mcp",
-        "notebooklm/server",
-    ),
+    relative_roots: tuple[str, ...] = ("notebooklm",),
     public_model_aliases: Mapping[str, str] | None = None,
 ) -> list[PrivateDataclassProjectionPath]:
     """Return the exact source-derived private DTO projection-path catalog."""
@@ -369,7 +391,7 @@ def discover_private_dataclass_projection_paths(
     public_models = set(aliases.values())
     rows: set[PrivateDataclassProjectionPath] = set()
     for cls in classes.values():
-        if not cls.is_dataclass or cls.key in public_models:
+        if not cls.is_dataclass or cls.key in public_models or cls.key in aliases:
             continue
         for field_path, public_model in _paths_from_class(
             cls,

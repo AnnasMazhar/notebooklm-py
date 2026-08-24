@@ -14,6 +14,7 @@ from scripts.audit_adapter_json_sinks import (
 )
 from scripts.audit_adapter_json_sinks import (
     assert_exact_sink_dispositions,
+    assert_no_unreviewed_cli_json_serialization,
     assert_no_unreviewed_direct_json_emissions,
     assert_supported_adapter_registrations,
     discover_adapter_json_sinks,
@@ -69,7 +70,7 @@ def test_inventory_covers_every_current_terminal_adapter_site() -> None:
     assert {channel: len(rows) for channel, rows in by_channel.items()} == {
         "cli --json": 160,
         "mcp tool result": 95,
-        "mcp auxiliary response": 33,
+        "mcp auxiliary response": 34,
         "rest response": 61,
     }
     assert {
@@ -84,13 +85,14 @@ def test_inventory_covers_every_current_terminal_adapter_site() -> None:
     assert all(sink.expression_fingerprint.startswith("sha256:") for sink in sinks)
     assert all(sink.owner_fingerprint.startswith("sha256:") for sink in sinks)
     assert_no_unreviewed_direct_json_emissions(sinks)
+    assert_no_unreviewed_cli_json_serialization(_source_root())
     assert_supported_adapter_registrations(_source_root())
 
 
 def test_private_dto_catalog_covers_every_annotation_proven_public_model_path() -> None:
     rows = discover_private_dataclass_projection_paths()
 
-    assert len(rows) == 19
+    assert len(rows) == 36
     triples = {(row.private_model, row.field_path, row.public_model) for row in rows}
     assert (
         "notebooklm._app.source_mutations.SourceRenameResult",
@@ -112,6 +114,50 @@ def test_private_dto_catalog_covers_every_annotation_proven_public_model_path() 
         "labels[]",
         "notebooklm.types.Label",
     ) in triples
+    assert (
+        "notebooklm._chat.api._PostedAsk",
+        "answer_document",
+        "notebooklm._types.documents.StructuredDocument",
+    ) in triples
+    assert (
+        "notebooklm._chat.wire.StreamingChatParseResult",
+        "references[]",
+        "notebooklm.types.ChatReference",
+    ) in triples
+    assert (
+        "notebooklm._source.batch.SourceUrlBatchItem",
+        "source",
+        "notebooklm.types.Source",
+    ) in triples
+    assert (
+        "notebooklm._auth.tokens.FileLoadedAuth",
+        "auth",
+        "notebooklm.auth.AuthTokens",
+    ) in triples
+    assert not any(row.private_model == "notebooklm._types.chat.AskResult" for row in rows)
+
+
+def test_package_wide_private_path_mutation_requires_an_exact_disposition(
+    tmp_path: Path,
+) -> None:
+    copied_source_root = tmp_path / "src"
+    shutil.copytree(_source_root(), copied_source_root)
+    batch_path = copied_source_root / "notebooklm" / "_source" / "batch.py"
+    source = batch_path.read_text(encoding="utf-8")
+    old = "    source: Source | None = None\n    error: SourceAddError | None = None"
+    new = (
+        "    source: Source | None = None\n"
+        "    secondary_source: Source | None = None\n"
+        "    error: SourceAddError | None = None"
+    )
+    assert old in source
+    batch_path.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="private-path allocations are not exact"):
+        reachability.derive_adapter_sink_reachability_contract(
+            copied_source_root,
+            known_projection_ids=_allocation_projection_ids(),
+        )
 
 
 def test_private_dto_catalog_follows_nested_container_paths_and_mutations(
@@ -445,6 +491,163 @@ def real_route():
     ]
 
 
+def test_framework_instance_aliases_and_all_http_verbs_are_discovered(tmp_path: Path) -> None:
+    _write_adapter_source(
+        tmp_path,
+        "mcp/tools/example.py",
+        """
+from fastmcp import FastMCP as Server
+
+def register(mcp: Server):
+    registry = mcp
+    @registry.tool
+    def aliased_tool():
+        return {"included": True}
+""",
+    )
+    _write_adapter_source(
+        tmp_path,
+        "server/routes/example.py",
+        """
+from fastapi import APIRouter as Router
+
+RouterFactory = Router
+api = RouterFactory()
+
+@api.options("/example")
+def options_route():
+    return {"method": "options"}
+
+@api.head("/example")
+def head_route():
+    return {"method": "head"}
+
+@api.trace("/example")
+def trace_route():
+    return {"method": "trace"}
+""",
+    )
+
+    assert_supported_adapter_registrations(tmp_path)
+    sinks = discover_adapter_json_sinks(tmp_path)
+    assert [(sink.channel, sink.owner) for sink in sinks] == [
+        ("mcp tool result", "register.aliased_tool"),
+        ("rest response", "head_route"),
+        ("rest response", "options_route"),
+        ("rest response", "trace_route"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "source", "registration"),
+    [
+        (
+            "server/routes/websocket.py",
+            """
+from fastapi import APIRouter
+api = APIRouter()
+@api.websocket("/hidden")
+async def hidden(socket):
+    await socket.send_json({"secret": value})
+""",
+            "api.websocket",
+        ),
+        (
+            "server/app.py",
+            """
+from fastapi import FastAPI
+service = FastAPI()
+service.mount("/hidden", hidden_app)
+""",
+            "service.mount",
+        ),
+        (
+            "mcp/prompts.py",
+            """
+from fastmcp import FastMCP
+registry: FastMCP
+@registry.prompt
+def hidden_prompt():
+    return secret
+""",
+            "registry.prompt",
+        ),
+        (
+            "mcp/mounted.py",
+            """
+from fastmcp import FastMCP
+registry = FastMCP()
+registry.mount(child_server)
+""",
+            "registry.mount",
+        ),
+    ],
+)
+def test_unsupported_framework_registration_forms_are_rejected(
+    tmp_path: Path, relative_path: str, source: str, registration: str
+) -> None:
+    _write_adapter_source(tmp_path, relative_path, source)
+
+    with pytest.raises(ValueError, match=registration):
+        assert_supported_adapter_registrations(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "source", "owner"),
+    [
+        (
+            "mcp/tools/error_only.py",
+            """
+from notebooklm.types import Source
+@mcp.tool
+def error_only(source: Source):
+    raise ToolError(json.dumps({"source_id": source.id}))
+""",
+            "error_only",
+        ),
+        (
+            "server/routes/error_only.py",
+            """
+from notebooklm.types import Source
+@router.get("/error-only")
+def error_only(source: Source):
+    raise HTTPException(409, detail={"source_id": source.id})
+""",
+            "error_only",
+        ),
+    ],
+)
+def test_registered_error_only_handler_cannot_have_zero_inventoried_terminals(
+    tmp_path: Path, relative_path: str, source: str, owner: str
+) -> None:
+    _write_adapter_source(tmp_path, relative_path, source)
+
+    with pytest.raises(ValueError, match=rf"no inventoried terminal: .*\|{owner}"):
+        discover_adapter_json_sinks(tmp_path)
+
+
+def test_registered_mcp_error_only_handler_with_reviewed_funnel_is_inventoried(
+    tmp_path: Path,
+) -> None:
+    _write_adapter_source(
+        tmp_path,
+        "mcp/tools/error_funnel.py",
+        """
+from notebooklm.types import Source
+
+@mcp.tool
+def error_only(source: Source):
+    with mcp_errors():
+        raise LookupError(source.id)
+""",
+    )
+
+    sinks = discover_adapter_json_sinks(tmp_path)
+    assert [(sink.owner, sink.kind, sink.site_role) for sink in sinks] == [
+        ("error_only", "tool-error-funnel", "error-projection")
+    ]
+
+
 def test_direct_cli_json_bypass_is_discovered_and_rejected(tmp_path: Path) -> None:
     _write_adapter_source(
         tmp_path,
@@ -464,6 +667,44 @@ def command(payload):
     assert sinks[0].kind == "direct-json-emission"
     with pytest.raises(ValueError, match="unreviewed direct CLI JSON emissions"):
         assert_no_unreviewed_direct_json_emissions(sinks)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        """
+import json
+import click
+
+def command(payload):
+    encoded = json.dumps(payload)
+    click.echo(encoded)
+""",
+        """
+from json import dump as emit_json
+import sys
+
+def command(payload):
+    emit_json(payload, sys.stdout)
+""",
+        """
+import json as codec
+import click
+
+def command(payload):
+    serialize: object = lambda value: codec.dumps(value)
+    encoded = serialize(payload)
+    click.echo(encoded)
+""",
+    ],
+)
+def test_cli_json_serialization_cannot_be_separated_from_stdout_sink(
+    tmp_path: Path, source: str
+) -> None:
+    _write_adapter_source(tmp_path, "cli/example.py", source)
+
+    with pytest.raises(ValueError, match="notebooklm/cli/example.py"):
+        assert_no_unreviewed_cli_json_serialization(tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -753,6 +994,40 @@ def handler(request, exc):
 app.add_exception_handler(Exception, handler)
 """,
         ),
+        (
+            "server/app.py",
+            """
+from fastapi import FastAPI
+service = FastAPI()
+service.include_router(hidden_router)
+""",
+        ),
+        (
+            "server/starlette_alias.py",
+            """
+from starlette.routing import Route as HiddenRoute
+routes = [HiddenRoute("/hidden", hidden_handler)]
+""",
+        ),
+        (
+            "mcp/_oauth.py",
+            """
+from starlette.routing import Route as HiddenRoute
+def routes(self):
+    return [HiddenRoute("/login", self._login, methods=["GET", "POST"])]
+""",
+        ),
+        (
+            "mcp/bound_alias.py",
+            """
+from fastmcp import FastMCP
+server = FastMCP()
+register_tool = server.tool
+@register_tool
+def hidden():
+    return {"hidden": True}
+""",
+        ),
     ],
 )
 def test_non_decorator_registration_forms_are_rejected(
@@ -791,8 +1066,8 @@ def test_checked_in_reachability_allocations_are_exact() -> None:
     contract = reachability.derive_adapter_sink_reachability_contract(
         _source_root(), known_projection_ids=_allocation_projection_ids()
     )
-    assert contract["site_count"] == 349
-    assert len(contract["private_dataclass_projection_paths"]) == 19
+    assert contract["site_count"] == 350
+    assert len(contract["private_dataclass_projection_paths"]) == 36
 
 
 def test_mcp_mind_map_union_projections_are_on_value_carrying_branches() -> None:

@@ -25,8 +25,41 @@ from typing import Literal, cast
 
 Channel = Literal["cli --json", "mcp tool result", "mcp auxiliary response", "rest response"]
 SiteRole = Literal["projection", "error-projection", "forwarding-infrastructure"]
+AdapterOwnerKind = Literal["mcp", "rest-app", "rest-router"]
 
-_REST_DECORATORS = frozenset({"delete", "get", "patch", "post", "put"})
+_REST_HTTP_DECORATORS = frozenset(
+    {"delete", "get", "head", "options", "patch", "post", "put", "trace"}
+)
+_REST_ROUTE_DECORATORS = frozenset({*_REST_HTTP_DECORATORS, "api_route", "route"})
+_REST_REGISTRATION_NAMES = frozenset(
+    {
+        *_REST_ROUTE_DECORATORS,
+        "add_api_route",
+        "add_api_websocket_route",
+        "add_exception_handler",
+        "add_route",
+        "add_websocket_route",
+        "exception_handler",
+        "include_router",
+        "middleware",
+        "mount",
+        "websocket",
+        "websocket_route",
+    }
+)
+_MCP_SUPPORTED_DECORATORS = frozenset({"custom_route", "resource", "tool"})
+_MCP_REGISTRATION_NAMES = frozenset(
+    {
+        *_MCP_SUPPORTED_DECORATORS,
+        "add_custom_route",
+        "add_prompt",
+        "add_resource",
+        "add_tool",
+        "add_tool_transformation",
+        "mount",
+        "prompt",
+    }
+)
 _CLI_ERROR_CALLS = frozenset(
     {"_output_error", "emit_cancelled_and_exit", "json_error_response", "output_error"}
 )
@@ -44,6 +77,27 @@ _CLI_DIRECT_JSON_OWNERS = frozenset(
         ("notebooklm/cli/rendering.py", "json_output_response"),
     }
 )
+_CLI_REVIEWED_JSON_SERIALIZERS = Counter(
+    {
+        ("notebooklm/cli/error_handler.py", "_output_error", "dumps"): 1,
+        ("notebooklm/cli/error_handler.py", "emit_cancelled_and_exit", "dumps"): 1,
+        ("notebooklm/cli/rendering.py", "json_output_response", "dumps"): 1,
+    }
+)
+_REVIEWED_ROUTER_INCLUDES = frozenset(
+    {
+        ("notebooklm/server/app.py", "v1", "notebooks.router"),
+        ("notebooklm/server/app.py", "v1", "sources.router"),
+        ("notebooklm/server/app.py", "v1", "notes.router"),
+        ("notebooklm/server/app.py", "v1", "chat.router"),
+        ("notebooklm/server/app.py", "v1", "artifacts.router"),
+        ("notebooklm/server/app.py", "v1", "research.router"),
+        ("notebooklm/server/app.py", "v1", "share.router"),
+        ("notebooklm/server/app.py", "v1", "meta.router"),
+        ("notebooklm/server/app.py", "app", "v1"),
+    }
+)
+_STARLETTE_ROUTE_CONSTRUCTORS = frozenset({"Mount", "Route", "WebSocketRoute"})
 
 
 @dataclass(frozen=True)
@@ -130,6 +184,15 @@ def _call_owner_name(node: ast.Call) -> str | None:
     return None
 
 
+def _dotted_name(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        owner = _dotted_name(node.value)
+        return f"{owner}.{node.attr}" if owner is not None else None
+    return None
+
+
 def _json_dumps_argument(
     node: ast.Call,
     *,
@@ -179,38 +242,156 @@ def _decorator_owner(node: ast.expr) -> str | None:
     return None
 
 
-def _is_mcp_tool(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+def _annotation_leaf_name(node: ast.expr | None) -> str | None:
+    if node is None:
+        return None
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        try:
+            return _annotation_leaf_name(ast.parse(node.value, mode="eval").body)
+        except SyntaxError:
+            return None
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return _annotation_leaf_name(node.left) or _annotation_leaf_name(node.right)
+    if isinstance(node, ast.Subscript):
+        return _annotation_leaf_name(node.value)
+    return None
+
+
+def _framework_constructor_aliases(tree: ast.Module) -> dict[str, AdapterOwnerKind]:
+    constructors: dict[str, AdapterOwnerKind] = {
+        "APIRouter": "rest-router",
+        "FastAPI": "rest-app",
+        "FastMCP": "mcp",
+    }
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        for alias in node.names:
+            if alias.name in constructors:
+                constructors[alias.asname or alias.name] = constructors[alias.name]
+    changed = True
+    while changed:
+        changed = False
+        for assignment_node in ast.walk(tree):
+            if (
+                not isinstance(assignment_node, ast.Assign)
+                or len(assignment_node.targets) != 1
+                or not isinstance(assignment_node.targets[0], ast.Name)
+                or not isinstance(assignment_node.value, ast.Name)
+            ):
+                continue
+            kind = constructors.get(assignment_node.value.id)
+            if kind is not None and constructors.get(assignment_node.targets[0].id) != kind:
+                constructors[assignment_node.targets[0].id] = kind
+                changed = True
+    return constructors
+
+
+def _adapter_owner_kinds(tree: ast.Module) -> dict[str, AdapterOwnerKind]:
+    """Resolve reviewed framework instances and straightforward local aliases."""
+    constructors = _framework_constructor_aliases(tree)
+    owners: dict[str, AdapterOwnerKind] = {
+        "app": "rest-app",
+        "mcp": "mcp",
+        "router": "rest-router",
+    }
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.arg):
+            annotation_kind = constructors.get(_annotation_leaf_name(node.annotation) or "")
+            if annotation_kind is not None:
+                owners[node.arg] = annotation_kind
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            annotation_kind = constructors.get(_annotation_leaf_name(node.annotation) or "")
+            if annotation_kind is not None:
+                owners[node.target.id] = annotation_kind
+
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            target: ast.Name | None = None
+            value: ast.expr | None = None
+            if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target = node.targets[0] if isinstance(node.targets[0], ast.Name) else None
+                value = node.value
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                target = node.target
+                value = node.value
+            if target is None or value is None:
+                continue
+            resolved_kind: AdapterOwnerKind | None = None
+            if isinstance(value, ast.Name):
+                resolved_kind = owners.get(value.id)
+            elif isinstance(value, ast.Call):
+                resolved_kind = constructors.get(_call_name(value) or "")
+            if resolved_kind is not None and owners.get(target.id) != resolved_kind:
+                owners[target.id] = resolved_kind
+                changed = True
+    return owners
+
+
+def _decorator_kind(
+    decorator: ast.expr, owner_kinds: Mapping[str, AdapterOwnerKind]
+) -> AdapterOwnerKind | None:
+    owner = _decorator_owner(decorator)
+    return owner_kinds.get(owner) if owner is not None else None
+
+
+def _is_mcp_tool(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    owner_kinds: Mapping[str, AdapterOwnerKind],
+) -> bool:
     return any(
-        _decorator_owner(decorator) == "mcp" and _decorator_name(decorator) == "tool"
+        _decorator_kind(decorator, owner_kinds) == "mcp" and _decorator_name(decorator) == "tool"
         for decorator in node.decorator_list
     )
 
 
-def _is_mcp_custom_route(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+def _is_mcp_auxiliary_handler(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    owner_kinds: Mapping[str, AdapterOwnerKind],
+) -> bool:
     return any(
-        _decorator_owner(decorator) == "mcp" and _decorator_name(decorator) == "custom_route"
+        _decorator_kind(decorator, owner_kinds) == "mcp"
+        and _decorator_name(decorator) in {"custom_route", "resource"}
         for decorator in node.decorator_list
     )
 
 
-def _is_rest_handler(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+def _is_rest_handler(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    owner_kinds: Mapping[str, AdapterOwnerKind],
+) -> bool:
     return any(
-        _decorator_owner(decorator) in {"app", "router"}
-        and _decorator_name(decorator) in _REST_DECORATORS
+        _decorator_kind(decorator, owner_kinds) in {"rest-app", "rest-router"}
+        and _decorator_name(decorator) in _REST_ROUTE_DECORATORS
         for decorator in node.decorator_list
     )
 
 
-def _is_rest_exception_handler(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+def _is_rest_exception_handler(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    owner_kinds: Mapping[str, AdapterOwnerKind],
+) -> bool:
     return any(
-        _decorator_owner(decorator) == "app" and _decorator_name(decorator) == "exception_handler"
+        _decorator_kind(decorator, owner_kinds) == "rest-app"
+        and _decorator_name(decorator) == "exception_handler"
         for decorator in node.decorator_list
     )
 
 
-def _is_rest_http_middleware(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+def _is_rest_http_middleware(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    owner_kinds: Mapping[str, AdapterOwnerKind],
+) -> bool:
     return any(
-        _decorator_owner(decorator) == "app" and _decorator_name(decorator) == "middleware"
+        _decorator_kind(decorator, owner_kinds) == "rest-app"
+        and _decorator_name(decorator) == "middleware"
         for decorator in node.decorator_list
     )
 
@@ -475,8 +656,11 @@ def _error_extra_expression(node: ast.Call, call_name: str) -> ast.expr | None:
     return None
 
 
-def _json_import_aliases(tree: ast.Module) -> tuple[frozenset[str], frozenset[str]]:
+def _json_import_aliases(
+    tree: ast.Module,
+) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
     modules: set[str] = set()
+    dump: set[str] = set()
     dumps: set[str] = set()
     for node in tree.body:
         if isinstance(node, ast.Import):
@@ -485,9 +669,145 @@ def _json_import_aliases(tree: ast.Module) -> tuple[frozenset[str], frozenset[st
                     modules.add(alias.asname or "json")
         elif isinstance(node, ast.ImportFrom) and node.module == "json":
             for alias in node.names:
+                if alias.name in {"dump", "*"}:
+                    dump.add(alias.asname or "dump")
                 if alias.name in {"dumps", "*"}:
                     dumps.add(alias.asname or "dumps")
-    return frozenset(modules), frozenset(dumps)
+    changed = True
+    while changed:
+        changed = False
+        for assignment_node in ast.walk(tree):
+            target: ast.expr | None = None
+            value: ast.expr | None = None
+            if isinstance(assignment_node, ast.Assign) and len(assignment_node.targets) == 1:
+                target = assignment_node.targets[0]
+                value = assignment_node.value
+            elif isinstance(assignment_node, ast.AnnAssign):
+                target = assignment_node.target
+                value = assignment_node.value
+            if value is None:
+                continue
+            if not isinstance(target, ast.Name):
+                continue
+            value_name = value.id if isinstance(value, ast.Name) else None
+            value_owner = (
+                value.value.id
+                if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name)
+                else None
+            )
+            value_attr = value.attr if isinstance(value, ast.Attribute) else None
+            destination: set[str] | None = None
+            if value_name in modules:
+                destination = modules
+            elif value_name in dump or (value_owner in modules and value_attr == "dump"):
+                destination = dump
+            elif value_name in dumps or (value_owner in modules and value_attr == "dumps"):
+                destination = dumps
+            elif any(
+                isinstance(child, ast.Name)
+                and child.id in dump
+                or isinstance(child, ast.Attribute)
+                and isinstance(child.value, ast.Name)
+                and child.value.id in modules
+                and child.attr == "dump"
+                for child in ast.walk(value)
+            ):
+                destination = dump
+            elif any(
+                isinstance(child, ast.Name)
+                and child.id in dumps
+                or isinstance(child, ast.Attribute)
+                and isinstance(child.value, ast.Name)
+                and child.value.id in modules
+                and child.attr == "dumps"
+                for child in ast.walk(value)
+            ):
+                destination = dumps
+            if destination is not None and target.id not in destination:
+                destination.add(target.id)
+                changed = True
+    return frozenset(modules), frozenset(dump), frozenset(dumps)
+
+
+def _json_serializer_kind(
+    node: ast.Call,
+    *,
+    module_aliases: frozenset[str],
+    dump_aliases: frozenset[str],
+    dumps_aliases: frozenset[str],
+) -> Literal["dump", "dumps"] | None:
+    call_name = _call_name(node)
+    owner_name = _call_owner_name(node)
+    if owner_name in module_aliases and call_name in {"dump", "dumps"}:
+        return cast(Literal["dump", "dumps"], call_name)
+    if isinstance(node.func, ast.Name):
+        if node.func.id in dump_aliases:
+            return "dump"
+        if node.func.id in dumps_aliases:
+            return "dumps"
+    return None
+
+
+class _QualifiedJsonSerializerCollector(ast.NodeVisitor):
+    def __init__(
+        self,
+        *,
+        module_aliases: frozenset[str],
+        dump_aliases: frozenset[str],
+        dumps_aliases: frozenset[str],
+    ) -> None:
+        self.module_aliases = module_aliases
+        self.dump_aliases = dump_aliases
+        self.dumps_aliases = dumps_aliases
+        self.scope: list[str] = []
+        self.rows: list[tuple[str, Literal["dump", "dumps"], int]] = []
+
+    def _visit_scope(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> None:
+        self.scope.append(node.name)
+        self.generic_visit(node)
+        self.scope.pop()
+
+    visit_FunctionDef = _visit_scope
+    visit_AsyncFunctionDef = _visit_scope
+    visit_ClassDef = _visit_scope
+
+    def visit_Call(self, node: ast.Call) -> None:
+        kind = _json_serializer_kind(
+            node,
+            module_aliases=self.module_aliases,
+            dump_aliases=self.dump_aliases,
+            dumps_aliases=self.dumps_aliases,
+        )
+        if kind is not None:
+            self.rows.append((".".join(self.scope) or "<module>", kind, node.lineno))
+        self.generic_visit(node)
+
+
+def assert_no_unreviewed_cli_json_serialization(source_root: Path) -> None:
+    """Reject any CLI stdlib-JSON serialization outside the three terminal emitters."""
+    observed: Counter[tuple[str, str, str]] = Counter()
+    violations: list[str] = []
+    for path in _python_files(source_root / "notebooklm" / "cli"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        module_aliases, dump_aliases, dumps_aliases = _json_import_aliases(tree)
+        collector = _QualifiedJsonSerializerCollector(
+            module_aliases=module_aliases,
+            dump_aliases=dump_aliases,
+            dumps_aliases=dumps_aliases,
+        )
+        collector.visit(tree)
+        relative = _relative_source_path(path, source_root)
+        for owner, kind, lineno in collector.rows:
+            key = (relative, owner, kind)
+            observed[key] += 1
+            if observed[key] > _CLI_REVIEWED_JSON_SERIALIZERS[key]:
+                violations.append(f"{relative}:{lineno}:{owner}:{kind}")
+    missing = _CLI_REVIEWED_JSON_SERIALIZERS - observed
+    if violations or missing:
+        raise ValueError(
+            "unreviewed CLI stdlib JSON serialization: "
+            f"violations={sorted(violations)}, missing={sorted(missing.elements())}"
+        )
 
 
 def _discover_candidates(source_root: Path) -> list[_Candidate]:
@@ -503,12 +823,14 @@ def _discover_candidates(source_root: Path) -> list[_Candidate]:
     for channel, root in channel_roots:
         for path in _python_files(root):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            json_module_aliases, json_dumps_aliases = _json_import_aliases(tree)
+            json_module_aliases, _json_dump_aliases, json_dumps_aliases = _json_import_aliases(tree)
+            owner_kinds = _adapter_owner_kinds(tree)
             functions = _FunctionCollector()
             functions.visit(tree)
             relative_path = _relative_source_path(path, source_root)
             for qualname, function in functions.rows:
                 visitor: _CliSinkVisitor | _ReturnSinkVisitor
+                require_terminal = False
                 if channel == "cli --json":
                     visitor = _CliSinkVisitor(
                         function,
@@ -518,8 +840,9 @@ def _discover_candidates(source_root: Path) -> list[_Candidate]:
                         json_dumps_aliases=json_dumps_aliases,
                     )
                 elif channel == "mcp tool result":
-                    if not _is_mcp_tool(function):
+                    if not _is_mcp_tool(function, owner_kinds):
                         continue
+                    require_terminal = True
                     visitor = _ReturnSinkVisitor(
                         function,
                         channel=channel,
@@ -534,8 +857,9 @@ def _discover_candidates(source_root: Path) -> list[_Candidate]:
                     errors.visit(function)
                     candidates.extend(errors.rows)
                 elif channel == "mcp auxiliary response":
-                    if not _is_mcp_custom_route(function):
+                    if not _is_mcp_auxiliary_handler(function, owner_kinds):
                         continue
+                    require_terminal = True
                     visitor = _ReturnSinkVisitor(
                         function,
                         channel=channel,
@@ -543,14 +867,18 @@ def _discover_candidates(source_root: Path) -> list[_Candidate]:
                         qualname=qualname,
                     )
                 else:
-                    if _is_rest_handler(function) or _is_rest_exception_handler(function):
+                    if _is_rest_handler(function, owner_kinds) or _is_rest_exception_handler(
+                        function, owner_kinds
+                    ):
+                        require_terminal = True
                         visitor = _ReturnSinkVisitor(
                             function,
                             channel=channel,
                             path=relative_path,
                             qualname=qualname,
                         )
-                    elif _is_rest_http_middleware(function):
+                    elif _is_rest_http_middleware(function, owner_kinds):
+                        require_terminal = True
                         visitor = _NamedResponseSinkVisitor(
                             function,
                             channel=channel,
@@ -561,6 +889,7 @@ def _discover_candidates(source_root: Path) -> list[_Candidate]:
                         "error_response",
                         "http_error_response",
                     }:
+                        require_terminal = True
                         visitor = _JsonResponseSinkVisitor(
                             function,
                             channel=channel,
@@ -571,6 +900,15 @@ def _discover_candidates(source_root: Path) -> list[_Candidate]:
                     else:
                         continue
                 visitor.visit(function)
+                if (
+                    require_terminal
+                    and not visitor.rows
+                    and not (channel == "mcp tool result" and errors.rows)
+                ):
+                    raise ValueError(
+                        "registered adapter handler has no inventoried terminal: "
+                        f"{channel}|{relative_path}|{qualname}"
+                    )
                 candidates.extend(visitor.rows)
     return candidates
 
@@ -719,48 +1057,27 @@ def _is_reviewed_oauth_login_route(relative: str, node: ast.Call) -> bool:
 def assert_supported_adapter_registrations(source_root: Path) -> None:
     """Reject tool/route registration styles the terminal scanner cannot follow."""
     violations: list[str] = []
-    roots = (
-        (
-            source_root / "notebooklm" / "mcp",
-            "mcp",
-            {"add_tool", "tool", "add_custom_route", "custom_route"},
-        ),
-        (
-            source_root / "notebooklm" / "server",
-            "router",
-            {
-                "add_api_route",
-                "api_route",
-                "add_route",
-                "delete",
-                "get",
-                "patch",
-                "post",
-                "put",
-                "route",
-            },
-        ),
-        (
-            source_root / "notebooklm" / "server",
-            "app",
-            {
-                "add_api_route",
-                "add_exception_handler",
-                "api_route",
-                "delete",
-                "exception_handler",
-                "get",
-                "middleware",
-                "patch",
-                "post",
-                "put",
-                "route",
-            },
-        ),
+    roots: tuple[tuple[Path, AdapterOwnerKind, frozenset[str]], ...] = (
+        (source_root / "notebooklm" / "mcp", "mcp", _MCP_REGISTRATION_NAMES),
+        (source_root / "notebooklm" / "server", "rest-router", _REST_REGISTRATION_NAMES),
+        (source_root / "notebooklm" / "server", "rest-app", _REST_REGISTRATION_NAMES),
     )
-    for root, owner_name, rejected_names in roots:
+    for root, owner_kind, registration_names in roots:
         for path in _python_files(root):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            owner_kinds = _adapter_owner_kinds(tree)
+            relative = _relative_source_path(path, source_root)
+            for assignment in (node for node in ast.walk(tree) if isinstance(node, ast.Assign)):
+                if not isinstance(assignment.value, ast.Attribute) or not isinstance(
+                    assignment.value.value, ast.Name
+                ):
+                    continue
+                bound_owner = assignment.value.value.id
+                bound_name = assignment.value.attr
+                if owner_kinds.get(bound_owner) == owner_kind and bound_name in registration_names:
+                    violations.append(
+                        f"{relative}:{assignment.lineno}:{bound_owner}.{bound_name}-alias"
+                    )
             decorator_calls = {
                 id(decorator)
                 for node in ast.walk(tree)
@@ -768,37 +1085,94 @@ def assert_supported_adapter_registrations(source_root: Path) -> None:
                 for decorator in node.decorator_list
                 if isinstance(decorator, ast.Call)
             }
+            for function in (
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+            ):
+                for decorator in function.decorator_list:
+                    if isinstance(decorator, ast.Call):
+                        continue
+                    if not isinstance(decorator, ast.Attribute) or not isinstance(
+                        decorator.value, ast.Name
+                    ):
+                        continue
+                    decorator_owner = decorator.value.id
+                    decorator_name = decorator.attr
+                    if (
+                        owner_kinds.get(decorator_owner) == owner_kind
+                        and decorator_name in registration_names
+                    ):
+                        if owner_kind == "mcp" and decorator_name in _MCP_SUPPORTED_DECORATORS:
+                            continue
+                        violations.append(
+                            f"{relative}:{decorator.lineno}:{decorator_owner}.{decorator_name}"
+                        )
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
-                if _call_owner_name(node) != owner_name or _call_name(node) not in rejected_names:
-                    continue
+                owner_name = _call_owner_name(node)
+                call_name = _call_name(node)
                 if (
-                    owner_name == "mcp"
-                    and _call_name(node) in {"custom_route", "tool"}
-                    and id(node) in decorator_calls
+                    owner_name is None
+                    or owner_kinds.get(owner_name) != owner_kind
+                    or call_name not in registration_names
                 ):
                     continue
-                if owner_name == "app" and id(node) in decorator_calls:
-                    continue
-                if owner_name == "router" and id(node) in decorator_calls:
-                    continue
-                relative = _relative_source_path(path, source_root)
-                violations.append(f"{relative}:{node.lineno}:{owner_name}.{_call_name(node)}")
-    # A Starlette Route(...) constructor is another externally reachable route
-    # registration style.  The OAuth login route is the one reviewed non-JSON
-    # exception; any new constructor would otherwise bypass decorator discovery.
+                is_decorator = id(node) in decorator_calls
+                if owner_kind == "mcp" and is_decorator:
+                    if call_name in _MCP_SUPPORTED_DECORATORS:
+                        continue
+                elif owner_kind in {"rest-app", "rest-router"} and is_decorator:
+                    if call_name in _REST_ROUTE_DECORATORS:
+                        continue
+                    if owner_kind == "rest-app" and call_name in {
+                        "exception_handler",
+                        "middleware",
+                    }:
+                        continue
+                if call_name == "include_router" and node.args:
+                    included = _dotted_name(node.args[0])
+                    if (relative, owner_name, included) in _REVIEWED_ROUTER_INCLUDES:
+                        continue
+                violations.append(f"{relative}:{node.lineno}:{owner_name}.{call_name}")
+    # Starlette route constructors are another externally reachable registration style.
+    # The OAuth login Route is the one exact reviewed non-JSON exception; any new
+    # constructor (including an import alias) would otherwise bypass decorator discovery.
     for path in _python_files(source_root / "notebooklm" / "mcp"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        aliases = set(_STARLETTE_ROUTE_CONSTRUCTORS)
+        for imported in (node for node in tree.body if isinstance(node, ast.ImportFrom)):
+            for alias in imported.names:
+                if alias.name in _STARLETTE_ROUTE_CONSTRUCTORS:
+                    aliases.add(alias.asname or alias.name)
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            if not isinstance(node, ast.Call):
                 continue
-            if node.func.id != "Route":
+            constructor = _call_name(node)
+            if constructor not in aliases:
                 continue
             relative = _relative_source_path(path, source_root)
-            reviewed_oauth_login = _is_reviewed_oauth_login_route(relative, node)
+            reviewed_oauth_login = constructor == "Route" and _is_reviewed_oauth_login_route(
+                relative, node
+            )
             if not reviewed_oauth_login:
-                violations.append(f"{relative}:{node.lineno}:Route")
+                violations.append(f"{relative}:{node.lineno}:{constructor}")
+    for path in _python_files(source_root / "notebooklm" / "server"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        aliases = set(_STARLETTE_ROUTE_CONSTRUCTORS)
+        for imported in (node for node in tree.body if isinstance(node, ast.ImportFrom)):
+            for alias in imported.names:
+                if alias.name in _STARLETTE_ROUTE_CONSTRUCTORS:
+                    aliases.add(alias.asname or alias.name)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            constructor = _call_name(node)
+            if constructor not in aliases:
+                continue
+            relative = _relative_source_path(path, source_root)
+            violations.append(f"{relative}:{node.lineno}:{constructor}")
     if violations:
         raise ValueError(f"unsupported dynamic adapter registrations: {sorted(violations)}")
 
@@ -885,6 +1259,7 @@ def assert_exact_sink_dispositions(
 __all__ = [
     "AdapterJsonSink",
     "assert_exact_sink_dispositions",
+    "assert_no_unreviewed_cli_json_serialization",
     "assert_no_unreviewed_direct_json_emissions",
     "assert_supported_adapter_registrations",
     "discover_adapter_json_sinks",

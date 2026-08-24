@@ -98,6 +98,11 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "storage_path",
             "_profile_session_generation",
         ),
+        "emitted_model_contribution_keys": ("authuser", "account_email"),
+        "control_model_contribution_keys": (
+            "storage_path",
+            "_profile_session_generation",
+        ),
         "projection_condition": (
             "server_info include_account is true and a bound client exists with no startup error"
         ),

@@ -10,6 +10,7 @@ from pathlib import Path
 from scripts.audit_adapter_json_sinks import (
     AdapterJsonSink,
     assert_exact_sink_dispositions,
+    assert_no_unreviewed_cli_json_serialization,
     assert_no_unreviewed_direct_json_emissions,
     assert_supported_adapter_registrations,
     discover_adapter_json_sinks,
@@ -52,6 +53,10 @@ _NON_PUBLIC_CATEGORIES = {
         "reviewed auxiliary HTTP terminal is plain text, HTML, redirect, or streamed file "
         "content; it is inventoried only to prevent a future JSON response bypass"
     ),
+    "non-json-mcp-resource": (
+        "reviewed MCP resource terminal is a static text or HTML document and carries no "
+        "public dataclass; it is inventoried to prevent a future JSON resource bypass"
+    ),
     "production-dead-terminal": (
         "reviewed terminal contains a compatibility branch whose public-typed value is never "
         "populated by its production executor"
@@ -64,10 +69,14 @@ _INFRASTRUCTURE_CATEGORIES = {
     )
 }
 _UNREACHABLE_PRIVATE_PATH_CATEGORIES = {
+    "internal-runtime-configuration": (
+        "reviewed private DTO carries a public configuration dataclass only through internal "
+        "client construction; neither the DTO nor the field reaches an adapter serializer"
+    ),
     "production-dead-public-branch": (
         "reviewed public-typed private DTO field is never populated on any production "
         "return path and therefore cannot reach an adapter channel"
-    )
+    ),
 }
 _GENERIC_REVIEW_NOTES = {
     "reviewed",
@@ -318,6 +327,7 @@ def _allocate_private_paths(
                 projection_id
                 for projection_id in projection_ids
                 if _projection_id_model(projection_id) != public_model_name
+                and not projection_id.endswith(f"-{public_model_name}")
             )
             if wrong_model_ids:
                 raise ValueError(
@@ -359,6 +369,7 @@ def derive_adapter_sink_reachability_contract(
     """Build the exact reviewed terminal/result and private DTO path inventory."""
     sinks = discover_adapter_json_sinks(source_root)
     assert_no_unreviewed_direct_json_emissions(sinks)
+    assert_no_unreviewed_cli_json_serialization(source_root)
     assert_supported_adapter_registrations(source_root)
     discovered = _site_locators(sinks)
     reviewed = _load_reviewed_allocations()
@@ -474,10 +485,10 @@ def derive_adapter_sink_reachability_contract(
     return {
         "schema_version": 1,
         "selection": (
-            "all CLI JSON success/error/direct terminals, all @mcp.tool returns, every return "
-            "from MCP custom connector/file routes (including non-JSON terminals), all REST "
-            "router/app routes and central JSON error terminals, plus source-derived private "
-            "DTO public-dataclass paths"
+            "all CLI JSON success/error/direct terminals, all registered MCP tool/resource "
+            "returns, every return from MCP custom connector/file routes (including non-JSON "
+            "terminals), all REST router/app routes and central JSON error terminals, plus "
+            "package-wide source-derived private DTO public-dataclass paths"
         ),
         "site_count": len(serialized_sites),
         "sites": serialized_sites,

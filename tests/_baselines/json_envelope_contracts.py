@@ -49,6 +49,10 @@ _AUTH_TOKENS_SAFE_CONTRIBUTION_FIELDS = frozenset(
     {"authuser", "account_email", "storage_path", "_profile_session_generation"}
 )
 _AUTH_TOKENS_SAFE_EMITTED_VALUE_FIELDS = frozenset({"authuser", "account_email"})
+_AUTH_TOKENS_CONTROL_CONTRIBUTION_FIELDS = frozenset(
+    {"storage_path", "_profile_session_generation"}
+)
+_REVIEWED_MODEL_CONTRIBUTION_PROPERTIES: dict[str, frozenset[str]] = {}
 _AUTH_TOKENS_CREDENTIAL_OUTPUT_FIELDS = frozenset(
     {
         "cookies",
@@ -136,18 +140,43 @@ def _serializer_name(call: ast.Call) -> str | None:
     return None
 
 
-def _annotation_names(annotation: ast.expr | None) -> set[str]:
+def _annotation_is_secret_value(annotation: ast.expr | None, aliases: set[str]) -> bool:
     if annotation is None:
-        return set()
-    return {
-        node.id if isinstance(node, ast.Name) else node.attr
-        for node in ast.walk(annotation)
-        if isinstance(node, ast.Name | ast.Attribute)
-    }
+        return False
+    if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+        try:
+            return _annotation_is_secret_value(
+                ast.parse(annotation.value, mode="eval").body, aliases
+            )
+        except SyntaxError:
+            return False
+    if isinstance(annotation, ast.Name):
+        return annotation.id in aliases
+    if isinstance(annotation, ast.Attribute):
+        return annotation.attr in aliases
+    if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+        return _annotation_is_secret_value(annotation.left, aliases) or _annotation_is_secret_value(
+            annotation.right, aliases
+        )
+    if isinstance(annotation, ast.Subscript):
+        wrapper = (
+            annotation.value.id
+            if isinstance(annotation.value, ast.Name)
+            else annotation.value.attr
+            if isinstance(annotation.value, ast.Attribute)
+            else None
+        )
+        if wrapper not in {"Annotated", "Optional", "Union"}:
+            return False
+        elements = (
+            annotation.slice.elts if isinstance(annotation.slice, ast.Tuple) else [annotation.slice]
+        )
+        return any(_annotation_is_secret_value(element, aliases) for element in elements)
+    return False
 
 
 def _secret_serialization_violations(source: str, *, filename: str) -> list[str]:
-    """Find credential-model values flowing into recursive dataclass serializers."""
+    """Find unsafe AuthTokens-derived values flowing into adapter serialization sinks."""
     tree = ast.parse(source, filename=filename)
     secret_aliases = {"AuthTokens"}
     for node in ast.walk(tree):
@@ -157,64 +186,204 @@ def _secret_serialization_violations(source: str, *, filename: str) -> list[str]
             if alias.name == "AuthTokens":
                 secret_aliases.add(alias.asname or alias.name)
 
-    secret_variables: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.arg) and _annotation_names(node.annotation) & secret_aliases:
-            secret_variables.add(node.arg)
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            if _annotation_names(node.annotation) & secret_aliases:
-                secret_variables.add(node.target.id)
+    class _ScopeNodes(ast.NodeVisitor):
+        def __init__(self, root: ast.AST) -> None:
+            self.root = root
+            self.rows: list[ast.AST] = []
 
-    def is_secret(expression: ast.expr) -> bool:
-        if isinstance(expression, ast.Name):
-            return expression.id in secret_variables
-        if isinstance(expression, ast.Attribute):
-            return expression.attr == "auth"
-        if isinstance(expression, ast.Call):
-            target = expression.func
-            if isinstance(target, ast.Name):
-                if target.id in secret_aliases:
-                    return True
-            elif isinstance(target, ast.Attribute) and target.attr == "AuthTokens":
-                return True
-            return any(is_secret(argument) for argument in expression.args) or any(
-                keyword.value is not None and is_secret(keyword.value)
-                for keyword in expression.keywords
-            )
-        if isinstance(expression, ast.Dict):
-            return any(is_secret(value) for value in expression.values)
-        if isinstance(expression, ast.List | ast.Tuple | ast.Set):
-            return any(is_secret(element) for element in expression.elts)
-        return False
+        def generic_visit(self, node: ast.AST) -> None:
+            self.rows.append(node)
+            super().generic_visit(node)
 
-    changed = True
-    while changed:
-        changed = False
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign) and is_secret(node.value):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id not in secret_variables:
-                        secret_variables.add(target.id)
-                        changed = True
-            if (
-                isinstance(node, ast.AnnAssign)
-                and isinstance(node.target, ast.Name)
-                and node.value is not None
-                and is_secret(node.value)
-                and node.target.id not in secret_variables
-            ):
-                secret_variables.add(node.target.id)
-                changed = True
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            if node is self.root:
+                self.generic_visit(node)
 
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            if node is self.root:
+                self.generic_visit(node)
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            if node is self.root:
+                self.generic_visit(node)
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            if node is self.root:
+                self.generic_visit(node)
+
+    scopes: list[ast.AST] = [
+        node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    ]
     violations: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not node.args:
-            continue
-        if _serializer_name(node) not in {"asdict", "to_jsonable"}:
-            continue
-        if is_secret(node.args[0]):
-            violations.append(f"{filename}:{node.lineno}")
-    return sorted(violations)
+    for scope in scopes:
+        collector = _ScopeNodes(scope)
+        collector.visit(scope)
+        nodes = collector.rows
+        secret_origins: dict[str, set[str]] = {}
+        for node in nodes:
+            if isinstance(node, ast.arg) and _annotation_is_secret_value(
+                node.annotation, secret_aliases
+            ):
+                secret_origins[node.arg] = {"*"}
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                if _annotation_is_secret_value(node.annotation, secret_aliases):
+                    secret_origins[node.target.id] = {"*"}
+
+        def origin_fields(expression: ast.expr) -> set[str]:
+            if isinstance(expression, ast.Name):
+                return set(secret_origins.get(expression.id, ()))  # noqa: B023
+            if isinstance(expression, ast.Attribute):
+                if expression.attr == "auth":
+                    return {"*"}
+                base = origin_fields(expression.value)
+                if "*" in base:
+                    return {expression.attr}
+                return base
+            if isinstance(expression, ast.Subscript):
+                base = origin_fields(expression.value)
+                if not base:
+                    return set()
+                if "*" in base and isinstance(expression.slice, ast.Constant):
+                    if isinstance(expression.slice.value, str):
+                        return {expression.slice.value}
+                return base
+            if isinstance(expression, ast.Call):
+                target = expression.func
+                target_origins: set[str] = set()
+                if isinstance(target, ast.Name):
+                    if target.id in secret_aliases:
+                        return {"*"}
+                elif isinstance(target, ast.Attribute) and target.attr == "AuthTokens":
+                    return {"*"}
+                elif isinstance(target, ast.Attribute):
+                    target_origins = origin_fields(target.value)
+                return {
+                    field
+                    for origins in [
+                        target_origins,
+                        *(origin_fields(argument) for argument in expression.args),
+                        *(origin_fields(keyword.value) for keyword in expression.keywords),
+                    ]
+                    for field in origins
+                }
+            if isinstance(expression, ast.Dict):
+                return {
+                    field
+                    for item in [
+                        *(key for key in expression.keys if key is not None),
+                        *expression.values,
+                    ]
+                    for field in origin_fields(item)
+                }
+            if isinstance(expression, ast.List | ast.Tuple | ast.Set):
+                return {field for element in expression.elts for field in origin_fields(element)}
+            return {
+                field
+                for child in ast.iter_child_nodes(expression)
+                if isinstance(child, ast.expr)
+                for field in origin_fields(child)
+            }
+
+        def merge_target(target: ast.expr, origins: set[str]) -> bool:
+            if not origins:
+                return False
+            names: set[str] = set()
+
+            def collect_names(candidate: ast.expr) -> None:
+                if isinstance(candidate, ast.Name):
+                    names.add(candidate.id)
+                elif isinstance(candidate, ast.Attribute | ast.Subscript):
+                    collect_names(candidate.value)
+                elif isinstance(candidate, ast.List | ast.Tuple):
+                    for element in candidate.elts:
+                        collect_names(element)
+
+            collect_names(target)
+            if not names:
+                return False
+            target_changed = False
+            for name in names:
+                before = set(secret_origins.get(name, ()))  # noqa: B023
+                after = before | origins
+                if before == after:
+                    continue
+                secret_origins[name] = after  # noqa: B023
+                target_changed = True
+            return target_changed
+
+        changed = True
+        while changed:
+            changed = False
+            for node in nodes:
+                if isinstance(node, ast.Assign):
+                    origins = origin_fields(node.value)
+                    for target in node.targets:
+                        changed = merge_target(target, origins) or changed
+                if isinstance(node, ast.AnnAssign) and node.value is not None:
+                    changed = merge_target(node.target, origin_fields(node.value)) or changed
+                if isinstance(node, ast.AugAssign):
+                    changed = merge_target(node.target, origin_fields(node.value)) or changed
+                if isinstance(node, ast.NamedExpr):
+                    changed = merge_target(node.target, origin_fields(node.value)) or changed
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in {"add", "append", "extend", "insert", "update"}
+                ):
+                    mutation_origins = {
+                        field
+                        for value in [
+                            *node.args,
+                            *(keyword.value for keyword in node.keywords),
+                        ]
+                        for field in origin_fields(value)
+                    }
+                    changed = merge_target(node.func.value, mutation_origins) or changed
+
+        for node in nodes:
+            emitted_expressions: list[ast.expr]
+            if isinstance(node, ast.Call):
+                if _serializer_name(node) not in {
+                    "JSONResponse",
+                    "ToolError",
+                    "asdict",
+                    "dump",
+                    "dumps",
+                    "json_error_response",
+                    "json_output_response",
+                    "output_error",
+                    "to_jsonable",
+                }:
+                    continue
+                emitted_expressions = [
+                    *node.args,
+                    *(keyword.value for keyword in node.keywords),
+                ]
+            elif isinstance(node, ast.Return | ast.Yield | ast.YieldFrom):
+                if node.value is None:
+                    continue
+                if isinstance(node.value, ast.Call) and _serializer_name(node.value) not in {
+                    "JSONResponse",
+                    "ToolError",
+                    "dict",
+                    "list",
+                    "set",
+                    "tuple",
+                    "to_jsonable",
+                }:
+                    # A generic call return is an internal delegation, not proof that its
+                    # AuthTokens-valued argument is itself emitted. Reviewed serializers and
+                    # container constructors remain recursively checked above and here.
+                    continue
+                emitted_expressions = [node.value]
+            else:
+                continue
+            origins = {
+                field for expression in emitted_expressions for field in origin_fields(expression)
+            }
+            if "*" in origins or origins - _AUTH_TOKENS_SAFE_EMITTED_VALUE_FIELDS:
+                violations.append(f"{filename}:{node.lineno}")
+    return sorted(set(violations))
 
 
 def _supplemental_channel_import_references() -> dict[str, dict[str, list[str]]]:
@@ -1221,12 +1390,71 @@ def _validate_secret_projection(model_key: str, projection: typing.Mapping[str, 
             "AuthTokens redacted projection contribution fields must be limited to "
             f"{sorted(_AUTH_TOKENS_SAFE_CONTRIBUTION_FIELDS)}"
         )
+    emitted_keys = set(
+        typing.cast(
+            tuple[str, ...] | list[str],
+            projection.get("emitted_model_contribution_keys", ()),
+        )
+    )
+    control_keys = set(
+        typing.cast(
+            tuple[str, ...] | list[str],
+            projection.get("control_model_contribution_keys", ()),
+        )
+    )
+    if (
+        not emitted_keys
+        or emitted_keys & control_keys
+        or emitted_keys | control_keys != contribution_keys
+        or not emitted_keys <= _AUTH_TOKENS_SAFE_EMITTED_VALUE_FIELDS
+        or not control_keys <= _AUTH_TOKENS_CONTROL_CONTRIBUTION_FIELDS
+    ):
+        raise ValueError(
+            "AuthTokens projection must partition contribution fields into safe emitted and "
+            "control-only origins"
+        )
     credential_keys = _projection_declared_keys(projection) & _AUTH_TOKENS_CREDENTIAL_OUTPUT_FIELDS
     if credential_keys:
         raise ValueError(
             f"AuthTokens redacted projection exposes credential-bearing keys: "
             f"{sorted(credential_keys)}"
         )
+
+
+def _validate_model_contribution_keys(
+    model_key: str,
+    cls: type[typing.Any],
+    value: object,
+    *,
+    identity: str,
+) -> tuple[str, ...]:
+    if (
+        not isinstance(value, tuple | list)
+        or not value
+        or not all(isinstance(key, str) and key for key in value)
+    ):
+        raise ValueError(f"model_contribution_keys must be a non-empty string list at {identity}")
+    keys = tuple(typing.cast(tuple[str, ...] | list[str], value))
+    if len(keys) != len(set(keys)):
+        raise ValueError(f"duplicate model_contribution_keys at {identity}: {keys}")
+    dataclass_fields = {field.name for field in dataclasses.fields(cls)}
+    reviewed_properties = _REVIEWED_MODEL_CONTRIBUTION_PROPERTIES.get(model_key, frozenset())
+    invalid_reviewed_properties = sorted(
+        name
+        for name in reviewed_properties
+        if not any(isinstance(vars(base).get(name), property) for base in cls.__mro__)
+    )
+    if invalid_reviewed_properties:
+        raise ValueError(
+            f"reviewed model contribution properties are stale for {model_key}: "
+            f"{invalid_reviewed_properties}"
+        )
+    unknown = sorted(set(keys) - dataclass_fields - reviewed_properties)
+    if unknown:
+        raise ValueError(
+            f"unknown model_contribution_keys for {model_key} at {identity}: {unknown}"
+        )
+    return keys
 
 
 def _exact_channel_projections(exported_inventory: dict[str, object]) -> dict[str, object]:
@@ -1257,6 +1485,13 @@ def _exact_channel_projections(exported_inventory: dict[str, object]) -> dict[st
             model_key = str(spec["model"])
             if model_key not in model_classes:
                 raise ValueError(f"unknown public projection model: {model_key}")
+            if "model_contribution_keys" in spec:
+                _validate_model_contribution_keys(
+                    model_key,
+                    model_classes[model_key],
+                    spec["model_contribution_keys"],
+                    identity=str(spec["id"]),
+                )
             _validate_secret_projection(model_key, spec)
             cls = model_classes[model_key]
             evidence = typing.cast(tuple[str, ...], spec["evidence"])
@@ -1324,6 +1559,15 @@ def _exact_channel_projections(exported_inventory: dict[str, object]) -> dict[st
                 projection["model_contribution_keys"] = list(
                     typing.cast(tuple[str, ...] | list[str], model_contribution_keys)
                 )
+            for contribution_field in (
+                "emitted_model_contribution_keys",
+                "control_model_contribution_keys",
+            ):
+                contribution_value = spec.get(contribution_field)
+                if contribution_value is not None:
+                    projection[contribution_field] = list(
+                        typing.cast(tuple[str, ...] | list[str], contribution_value)
+                    )
             projection_condition = spec.get("projection_condition")
             if projection_condition is not None:
                 projection["projection_condition"] = str(projection_condition)
@@ -1372,6 +1616,13 @@ def _exact_channel_projections(exported_inventory: dict[str, object]) -> dict[st
                         spec.get("nested_projection_metadata", {}),
                     )
                     metadata = metadata_by_field.get(field_name, {})
+                    if "model_contribution_keys" in metadata:
+                        _validate_model_contribution_keys(
+                            nested_key,
+                            nested,
+                            metadata["model_contribution_keys"],
+                            identity=str(nested_projection["id"]),
+                        )
                     for metadata_key in (
                         "model_contribution_keys",
                         "projection_condition",

@@ -309,6 +309,307 @@
       {
         "allocation": {
           "projection_ids": [
+            "mcp.AuthTokens.redacted-server-info-account-identity-contribution",
+            "rest.AuthTokens.redacted-server-info-account-identity-contribution"
+          ],
+          "terminal_locators": [
+            "mcp tool result|notebooklm/mcp/tools/meta.py|register.server_info|return|1",
+            "rest response|notebooklm/server/routes/meta.py|server_info|return|1"
+          ]
+        },
+        "field_path": "auth",
+        "private_model": "notebooklm._auth.tokens.FileLoadedAuth",
+        "public_model": "notebooklm.auth.AuthTokens"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "mcp.AuthTokens.redacted-server-info-account-identity-contribution",
+            "rest.AuthTokens.redacted-server-info-account-identity-contribution"
+          ],
+          "terminal_locators": [
+            "mcp tool result|notebooklm/mcp/tools/meta.py|register.server_info|return|1",
+            "rest response|notebooklm/server/routes/meta.py|server_info|return|1"
+          ]
+        },
+        "field_path": "auth",
+        "private_model": "notebooklm._auth.tokens.InlineLoadedAuth",
+        "public_model": "notebooklm.auth.AuthTokens"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.StructuredDocument.transitive-chat-reference-full-contribution",
+            "mcp.StructuredDocument.transitive-chat-reference-full-contribution",
+            "rest.StructuredDocument.transitive-chat-reference-full-contribution"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "answer_document",
+        "private_model": "notebooklm._chat.api._PostedAsk",
+        "public_model": "notebooklm._types.documents.StructuredDocument"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion",
+            "mcp.AskResult.app-view-mcp-final-lite-references.nested-next_steps-NextStepSuggestion",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-next_steps-NextStepSuggestion",
+            "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "next_steps[]",
+        "private_model": "notebooklm._chat.api._PostedAsk",
+        "public_model": "notebooklm.types.NextStepSuggestion"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-references-ChatReference",
+            "mcp.ChatReference.nested-lite-projection",
+            "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "references[]",
+        "private_model": "notebooklm._chat.api._PostedAsk",
+        "public_model": "notebooklm.types.ChatReference"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey",
+            "mcp.AskResult.app-view-mcp-final-lite-references.nested-turn_key-ConversationTurnKey",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-turn_key-ConversationTurnKey",
+            "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "turn_key",
+        "private_model": "notebooklm._chat.api._PostedAsk",
+        "public_model": "notebooklm.types.ConversationTurnKey"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.StructuredDocument.transitive-chat-reference-full-contribution",
+            "mcp.StructuredDocument.transitive-chat-reference-full-contribution",
+            "rest.StructuredDocument.transitive-chat-reference-full-contribution"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "answer_document",
+        "private_model": "notebooklm._chat.wire.StreamingChatParseResult",
+        "public_model": "notebooklm._types.documents.StructuredDocument"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion",
+            "mcp.AskResult.app-view-mcp-final-lite-references.nested-next_steps-NextStepSuggestion",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-next_steps-NextStepSuggestion",
+            "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "next_steps[]",
+        "private_model": "notebooklm._chat.wire.StreamingChatParseResult",
+        "public_model": "notebooklm.types.NextStepSuggestion"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-references-ChatReference",
+            "mcp.ChatReference.nested-lite-projection",
+            "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "references[]",
+        "private_model": "notebooklm._chat.wire.StreamingChatParseResult",
+        "public_model": "notebooklm.types.ChatReference"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey",
+            "mcp.AskResult.app-view-mcp-final-lite-references.nested-turn_key-ConversationTurnKey",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-turn_key-ConversationTurnKey",
+            "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "turn_key",
+        "private_model": "notebooklm._chat.wire.StreamingChatParseResult",
+        "public_model": "notebooklm.types.ConversationTurnKey"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.StructuredDocument.transitive-chat-reference-full-contribution",
+            "mcp.StructuredDocument.transitive-chat-reference-full-contribution",
+            "rest.StructuredDocument.transitive-chat-reference-full-contribution"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "document",
+        "private_model": "notebooklm._chat.wire._ChunkExtraction",
+        "public_model": "notebooklm._types.documents.StructuredDocument"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion",
+            "mcp.AskResult.app-view-mcp-final-lite-references.nested-next_steps-NextStepSuggestion",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-next_steps-NextStepSuggestion",
+            "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "next_steps[]",
+        "private_model": "notebooklm._chat.wire._ChunkExtraction",
+        "public_model": "notebooklm.types.NextStepSuggestion"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-references-ChatReference",
+            "mcp.ChatReference.nested-lite-projection",
+            "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "references[]",
+        "private_model": "notebooklm._chat.wire._ChunkExtraction",
+        "public_model": "notebooklm.types.ChatReference"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey",
+            "mcp.AskResult.app-view-mcp-final-lite-references.nested-turn_key-ConversationTurnKey",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-turn_key-ConversationTurnKey",
+            "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "turn_key",
+        "private_model": "notebooklm._chat.wire._ChunkExtraction",
+        "public_model": "notebooklm.types.ConversationTurnKey"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.ResearchSource.transitive-import-selection-final-contribution",
+            "mcp.ResearchSource.transitive-import-source-count-contribution",
+            "rest.ResearchSource.transitive-import-source-count-contribution"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/research_cmd.py|_render_import_result|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/research.py|register.research_import|return|1",
+            "rest response|notebooklm/server/routes/research.py|import_research|return|1"
+          ]
+        },
+        "field_path": "source_models[]",
+        "private_model": "notebooklm._research_import._ImportProbeOutcome",
+        "public_model": "notebooklm.types.ResearchSource"
+      },
+      {
+        "allocation": {
+          "review_note": "ValidatedSessionConfig carries ConnectionLimits only through client runtime construction into the HTTP transport pool; no adapter serializer receives this private configuration DTO or its limits field.",
+          "source_evidence": [
+            {
+              "required_ast_fragments": [
+                "return ValidatedSessionConfig",
+                "limits=_resolved_limits"
+              ],
+              "semantic_fingerprint": "sha256:a8795d7865f25119bd13a5a429685f4637f192b84fdc32cc07407edccd03254b",
+              "symbol": "notebooklm._runtime.init.validate_constructor_args"
+            },
+            {
+              "required_ast_fragments": [
+                "limits=config.limits"
+              ],
+              "semantic_fingerprint": "sha256:a085a87225d40d131bf2dd6cee975d4759970779193682796d5d28f14258195a",
+              "symbol": "notebooklm._runtime.init.build_collaborators"
+            }
+          ],
+          "unreachable_category": "internal-runtime-configuration"
+        },
+        "field_path": "limits",
+        "private_model": "notebooklm._runtime.init.ValidatedSessionConfig",
+        "public_model": "notebooklm.types.ConnectionLimits"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "mcp.Source.transitive-batch-added-item-final-wrapper",
+            "rest.Source.transitive-batch-added-item-final-wrapper"
+          ],
+          "terminal_locators": [
+            "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|1",
+            "rest response|notebooklm/server/routes/sources.py|add_batch|return|1"
+          ]
+        },
+        "field_path": "source",
+        "private_model": "notebooklm._source.batch.SourceUrlBatchItem",
+        "public_model": "notebooklm.types.Source"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
             "cli.CitedSourceSelection.manual-direct-import-projection"
           ],
           "terminal_locators": [
@@ -321,8 +622,8 @@
       }
     ],
     "schema_version": 1,
-    "selection": "all CLI JSON success/error/direct terminals, all @mcp.tool returns, every return from MCP custom connector/file routes (including non-JSON terminals), all REST router/app routes and central JSON error terminals, plus source-derived private DTO public-dataclass paths",
-    "site_count": 349,
+    "selection": "all CLI JSON success/error/direct terminals, all registered MCP tool/resource returns, every return from MCP custom connector/file routes (including non-JSON terminals), all REST router/app routes and central JSON error terminals, plus package-wide source-derived private DTO public-dataclass paths",
+    "site_count": 350,
     "sites": [
       {
         "allocation": {
@@ -3689,6 +3990,22 @@
         "owner": "register_file_routes.upload_route",
         "owner_fingerprint": "sha256:40547c88d314d5d7985271525193d67ca3481463c0b5e2efe7d5622b4de831d4",
         "path": "notebooklm/mcp/_fileroutes.py",
+        "resolved_helper_symbols": [],
+        "site_role": "projection"
+      },
+      {
+        "allocation": {
+          "non_public_category": "non-json-mcp-resource",
+          "review_note": "Audited notebooklm/mcp/_uploadwidget.py:register_upload_widget._upload_widget_html as the registered MCP application resource terminal; it returns the constant HTML widget document and no public dataclass field can reach the resource response."
+        },
+        "channel": "mcp auxiliary response",
+        "expression_fingerprint": "sha256:3cd573a21d40269ad6948a0a146eb980fde2976748f316a78d89a58d7c245e68",
+        "id": "mcp auxiliary response:notebooklm/mcp/_uploadwidget.py:register_upload_widget._upload_widget_html:return:projection:sha256:3cd573a21d40269ad6948a0a146eb980fde2976748f316a78d89a58d7c245e68:1",
+        "kind": "return",
+        "locator": "mcp auxiliary response|notebooklm/mcp/_uploadwidget.py|register_upload_widget._upload_widget_html|return|1",
+        "owner": "register_upload_widget._upload_widget_html",
+        "owner_fingerprint": "sha256:a29c77c7c7b4615ed82d1b2e10bceee9b3b02430bf3161db46dc0c04156eb6fe",
+        "path": "notebooklm/mcp/_uploadwidget.py",
         "resolved_helper_symbols": [],
         "site_role": "projection"
       },
@@ -7132,7 +7449,7 @@
               "id"
             ],
             "projection_condition": "interactive mind-map generation finds the newly created public Artifact",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/generate_cmd.py:_output_mind_map_result"
           },
           {
             "evidence": [
@@ -7224,7 +7541,7 @@
               "_variant"
             ],
             "projection_condition": "the Artifact listing is non-empty but every public Artifact is excluded by the requested kind or completed-status filters",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/services/download.py:build_download_envelope"
           },
           {
             "evidence": [
@@ -7274,7 +7591,7 @@
                 "filename"
               ]
             },
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/services/download.py:build_download_envelope"
           },
           {
             "evidence": [
@@ -7329,7 +7646,7 @@
                 "selection_reason"
               ]
             },
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/services/download.py:build_download_envelope"
           },
           {
             "evidence": [
@@ -7353,7 +7670,7 @@
                 "selection_reason"
               ]
             },
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/services/download.py:build_download_envelope"
           },
           {
             "evidence": [
@@ -7820,7 +8137,7 @@
               "metadata"
             ],
             "mode": "manual-poll-projection",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/artifact_cmd.py:artifact_poll"
           },
           {
             "evidence": [
@@ -7839,7 +8156,7 @@
               "error"
             ],
             "mode": "manual-wait-projection",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/artifact_cmd.py:artifact_retry"
           },
           {
             "evidence": [
@@ -7857,7 +8174,7 @@
               "error_code"
             ],
             "mode": "manual-retry-kickoff-projection",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/artifact_cmd.py:artifact_retry"
           },
           {
             "contribution_semantics": "The fresh GenerationStatus.task_id is renamed to artifact_id; timeout status and error text are CLI-owned scalars",
@@ -7898,7 +8215,7 @@
               "url"
             ],
             "mode": "manual-generation-completed-projection",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/generate_cmd.py:_output_generation_outcome"
           },
           {
             "evidence": [
@@ -8362,7 +8679,7 @@
               "id"
             ],
             "projection_condition": "note-backed mind-map generation returns a present leaf and successfully creates a public Note",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/generate_cmd.py:_output_mind_map_result"
           },
           {
             "evidence": [
@@ -8439,7 +8756,7 @@
               "created"
             ],
             "mode": "manual-create-projection",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/note_cmd.py:note_create"
           },
           {
             "evidence": [
@@ -9744,7 +10061,7 @@
               "status"
             ],
             "projection_condition": "Source.status is a terminal processing error",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/_source_render.py:_render_source_wait_outcome"
           },
           {
             "contribution_semantics": "The last public Source.status is preserved through SourceTimeoutError.last_status and emitted as last_status_code",
@@ -9769,7 +10086,7 @@
               "status"
             ],
             "projection_condition": "polling expires after observing a Source.status",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/_source_render.py:_render_source_wait_outcome"
           },
           {
             "evidence": [
@@ -10003,7 +10320,7 @@
               "title"
             ],
             "mode": "transitive-research-import-new-source-projection",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/_research_import.py:_imported_source_entry"
           },
           {
             "evidence": [
@@ -10021,7 +10338,7 @@
               "url"
             ],
             "mode": "transitive-research-import-existing-source-projection",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/_research_import.py:_partition_requested_sources"
           },
           {
             "evidence": [
@@ -10207,7 +10524,7 @@
               "url",
               "char_count"
             ],
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/services/source_serializers.py:source_fulltext_payload"
           },
           {
             "evidence": [
@@ -10231,7 +10548,7 @@
               "content",
               "_type_code"
             ],
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/_source_render.py:_render_source_fulltext_result"
           }
         ]
       },
@@ -10255,7 +10572,7 @@
               "summary",
               "keywords"
             ],
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/cli/_source_render.py:_render_source_guide_result"
           }
         ]
       },
@@ -10659,6 +10976,14 @@
           {
             "adapter_surface": "MCP explicitly redacted safe-field identity contribution",
             "contribution_semantics": "Only AuthTokens.authuser and account_email may supply emitted account values; storage_path and _profile_session_generation only select persisted/cache/live fallback behavior, and the account unions expose no credential-bearing fields",
+            "control_model_contribution_keys": [
+              "storage_path",
+              "_profile_session_generation"
+            ],
+            "emitted_model_contribution_keys": [
+              "authuser",
+              "account_email"
+            ],
             "evidence": [
               "notebooklm/client.py:return self._auth.authuser",
               "notebooklm/client.py:auth=self._auth",
@@ -11019,7 +11344,7 @@
               "_variant"
             ],
             "projection_condition": "resolve_studio_item returns a listed public Artifact",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/mcp/tools/_studio_payloads.py:_artifact_rename_payload"
           },
           {
             "contribution_semantics": "Artifact id and interactive kind (backed by _artifact_type/_variant) construct the matching MindMap whose membership sets is_mind_map and the fallback type; this scan can contribute on the full-UUID resolver-miss branch as well as the resolved-Artifact branch",
@@ -11916,7 +12241,7 @@
               "id"
             ],
             "projection_condition": "mind_maps.list returns a MindMap whose id matches the target",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/mcp/tools/_studio_payloads.py:_artifact_rename_payload"
           },
           {
             "contribution_semantics": "MindMap.id membership selects the note-backed path and determines type and was_note_backed; regular or missing full-id artifacts use the terminal without it",
@@ -13676,7 +14001,7 @@
               }
             },
             "projection_condition": "batch contains at least one successfully added public Source",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/mcp/tools/sources.py:_add_url_batch"
           },
           {
             "evidence": [
@@ -13701,7 +14026,7 @@
                 "title"
               ]
             },
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/mcp/_confirm.py:needs_confirmation"
           },
           {
             "evidence": [
@@ -13718,7 +14043,7 @@
               "title"
             ],
             "mode": "transitive-research-import-new-source-projection",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/_research_import.py:_imported_source_entry"
           },
           {
             "evidence": [
@@ -13736,7 +14061,7 @@
               "url"
             ],
             "mode": "transitive-research-import-existing-source-projection",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/_research_import.py:_partition_requested_sources"
           },
           {
             "contribution_semantics": "Each Source title/url and kind (backed by _type_code) constructs a public SourceSummary recursively serialized under metadata.sources; an empty metadata source list has no Source contribution",
@@ -14224,6 +14549,14 @@
           {
             "adapter_surface": "REST explicitly redacted safe-field identity contribution",
             "contribution_semantics": "Only AuthTokens.authuser and account_email may supply emitted account values; storage_path and _profile_session_generation only select persisted/cache/live fallback behavior. The startup-error persisted-identity branch has no AuthTokens contribution, and no credential-bearing field reaches either account union",
+            "control_model_contribution_keys": [
+              "storage_path",
+              "_profile_session_generation"
+            ],
+            "emitted_model_contribution_keys": [
+              "authuser",
+              "account_email"
+            ],
             "evidence": [
               "notebooklm/client.py:return self._auth.authuser",
               "notebooklm/client.py:auth=self._auth",
@@ -14485,7 +14818,7 @@
               ]
             },
             "projection_condition": "REST artifact download lists at least one public Artifact, but every row is excluded by requested kind or completion state",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/_errors.py:http_error_response"
           },
           {
             "contribution_semantics": "Artifact id/title/created_at construct the recursively emitted MindMap while _artifact_type/_variant qualify the row as interactive (or the known-id unclassified settling case); the raw create-id fallback has no Artifact",
@@ -14551,7 +14884,7 @@
               "_variant"
             ],
             "projection_condition": "mind_maps.list converts a listed interactive Artifact whose id matches the target",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/routes/artifacts.py:rename"
           }
         ]
       },
@@ -14751,7 +15084,7 @@
               "status"
             ],
             "mode": "manual-retry-projection",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/routes/artifacts.py:retry"
           },
           {
             "evidence": [
@@ -14794,7 +15127,7 @@
                 "message"
               ]
             },
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/_errors.py:http_error_response"
           },
           {
             "evidence": [
@@ -14816,7 +15149,7 @@
                 "message"
               ]
             },
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/_errors.py:http_error_response"
           }
         ]
       },
@@ -14871,7 +15204,7 @@
               "id"
             ],
             "projection_condition": "mind_maps.list returns a MindMap whose id matches the target",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/routes/artifacts.py:rename"
           }
         ]
       },
@@ -15193,7 +15526,7 @@
             ],
             "mode": "transitive-import-source-count-contribution",
             "projection_condition": "an importable ResearchTask contains at least one ResearchSource",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/routes/research.py:import_research"
           }
         ]
       },
@@ -15300,7 +15633,7 @@
               "created_at",
               "updated_at"
             ],
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/routes/research.py:research_status"
           },
           {
             "contribution_semantics": "status selects the import success terminal and source membership supplies sources_found",
@@ -15326,7 +15659,7 @@
               "sources"
             ],
             "projection_condition": "ResearchTask is completed and classified as importable",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/routes/research.py:import_research"
           },
           {
             "contribution_semantics": "ResearchTask fields select and populate the ValidationError body; completed-empty uses only source-list membership and no ResearchSource field is projected",
@@ -15657,7 +15990,7 @@
               }
             },
             "projection_condition": "batch contains at least one successfully added public Source",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/routes/sources.py:add_batch"
           },
           {
             "contribution_semantics": "Source.status/is_ready selects fetched content versus the stable null, zero, false response values; the SourceFulltext row covers only the fetched branch",
@@ -15683,7 +16016,7 @@
               "status"
             ],
             "projection_condition": "full source-content response after the public Source readiness gate",
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/routes/sources.py:get_source_content"
           }
         ]
       },
@@ -15710,7 +16043,7 @@
               "content",
               "char_count"
             ],
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/routes/sources.py:get_source_content"
           }
         ]
       },
@@ -15735,7 +16068,7 @@
               "summary",
               "keywords"
             ],
-            "shape_derivation": "manual-reviewed+fingerprint"
+            "shape_derivation": "ast-dict:notebooklm/server/routes/sources.py:get_source_content"
           }
         ]
       },
