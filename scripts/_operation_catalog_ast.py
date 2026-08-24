@@ -446,7 +446,9 @@ def collect_native_execution_sites() -> dict[NativeKey, list[str]]:
         collector = _ReferenceCollector(relative, set())
         collector.visit(_parse(path))
         for method_name, variant, owner in collector.rpc_calls:
-            sites[(RPCMethod[method_name], variant)].add(f"{relative}:{owner}")
+            site = f"{relative}:{owner}"
+            if site not in INERT_P1_WEB_HANDLERS:
+                sites[(RPCMethod[method_name], variant)].add(site)
     return {
         key: sorted(values)
         for key, values in sorted(sites.items(), key=lambda item: _native_key_text(item[0]))
@@ -461,6 +463,44 @@ GENERIC_RPC_FORWARDERS = frozenset(
         "client.py:NotebookLMClient.rpc_call",
     }
 )
+
+# P1 constructs the semantic web backend but deliberately leaves every feature
+# facade wired straight to RpcExecutor.  These six functions are therefore
+# executable only through direct private-object access, not production
+# authorities.  Keep the classification exact and temporary: Removal: P2
+# deletes each handler from this set in the same slice that delegates its
+# facade, at which point the handler becomes the catalogued native authority.
+INERT_P1_WEB_FORWARDERS = frozenset(
+    {
+        "_web/backend.py:_DeadlineRpcCaller.rpc_call",
+        "_web/backend.py:WebRpcBackend._rpc_call",
+    }
+)
+INERT_P1_WEB_HANDLERS = frozenset(
+    {
+        "_web/backend.py:WebRpcBackend._notebook_get",
+        "_web/backend.py:WebRpcBackend._notebook_list",
+        "_web/backend.py:WebRpcBackend._source_get",
+        "_web/backend.py:WebRpcBackend._source_list",
+    }
+)
+INERT_P1_WEB_SITES = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
+
+
+def audit_inert_p1_web_sites(sites: frozenset[str] | None = None) -> list[str]:
+    """Fail closed when the bounded P1 no-authority classification drifts."""
+    actual = INERT_P1_WEB_SITES if sites is None else sites
+    expected = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
+    errors: list[str] = []
+    if actual != expected:
+        errors.append(
+            "inert P1 web site classification changed: "
+            f"missing={sorted(expected - actual)}, extra={sorted(actual - expected)}"
+        )
+    function_sites = collect_function_sites()
+    if missing := sorted(actual - function_sites):
+        errors.append(f"inert P1 web sites no longer exist: {missing}")
+    return errors
 
 
 def collect_unresolved_rpc_dispatches() -> list[str]:
@@ -477,7 +517,7 @@ def collect_unresolved_rpc_dispatches() -> list[str]:
         collector.visit(_parse(path))
         for owner, field in collector.unresolved_rpc_calls:
             site = f"{relative}:{owner}"
-            if site not in GENERIC_RPC_FORWARDERS:
+            if site not in GENERIC_RPC_FORWARDERS | INERT_P1_WEB_FORWARDERS:
                 unresolved.add(f"{site} ({field})")
     return sorted(unresolved)
 
@@ -852,6 +892,7 @@ def audit_operation_authorities() -> list[str]:
                 f"{_native_key_text(binding)} is disposed as callsite-free but now executes at "
                 f"{native_sites[binding]} ({reason})"
             )
+    errors.extend(audit_inert_p1_web_sites())
     if unresolved := collect_unresolved_rpc_dispatches():
         errors.append(f"unresolved feature RPC calls: {unresolved}")
     if unresolved_app := collect_unresolved_app_dispatches():

@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import pytest
+from scripts._operation_catalog_ast import (
+    INERT_P1_WEB_SITES,
+    audit_inert_p1_web_sites,
+)
 from scripts.audit_operation_catalog import (
     CLIENT_PUBLIC_MEMBER_DISPOSITIONS,
     LOCAL_PUBLIC_METHODS,
@@ -24,6 +28,25 @@ pytestmark = pytest.mark.repo_lint
 def test_operation_catalog_is_total_and_current() -> None:
     """Every enum member, native row, and namespace method has a disposition."""
     assert audit_operation_catalog() == []
+
+
+def test_p1_inert_web_sites_are_exact_and_mutation_sensitive() -> None:
+    """P1 web handlers are not authorities until their P2 facade delegates."""
+    assert {
+        "_web/backend.py:_DeadlineRpcCaller.rpc_call",
+        "_web/backend.py:WebRpcBackend._rpc_call",
+        "_web/backend.py:WebRpcBackend._notebook_get",
+        "_web/backend.py:WebRpcBackend._notebook_list",
+        "_web/backend.py:WebRpcBackend._source_get",
+        "_web/backend.py:WebRpcBackend._source_list",
+    } == INERT_P1_WEB_SITES
+    assert audit_inert_p1_web_sites() == []
+
+    missing_one = INERT_P1_WEB_SITES - {"_web/backend.py:WebRpcBackend._notebook_list"}
+    assert audit_inert_p1_web_sites(frozenset(missing_one)) == [
+        "inert P1 web site classification changed: "
+        "missing=['_web/backend.py:WebRpcBackend._notebook_list'], extra=[]"
+    ]
 
 
 def test_catalog_projection_covers_the_live_authorities() -> None:

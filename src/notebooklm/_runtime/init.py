@@ -132,6 +132,7 @@ class ClientInternals:
 
     collaborators: RuntimeCollaborators
     executor: RpcExecutor
+    web_transport_factory: Callable[..., httpx.AsyncClient]
 
 
 def _resolve_async_client_factory(
@@ -608,6 +609,7 @@ def compose_client_internals(
     return ClientInternals(
         collaborators=collaborators,
         executor=executor,
+        web_transport_factory=config.async_client_factory,
     )
 
 

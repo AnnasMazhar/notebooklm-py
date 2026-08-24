@@ -68,6 +68,7 @@ from ._settings import SettingsAPI
 from ._sharing import SharingAPI
 from ._source.upload import SourceUploadPipeline
 from ._sources import SourcesAPI
+from ._web.backend import WebRpcBackend
 from .auth import AuthTokens
 
 if TYPE_CHECKING:
@@ -311,6 +312,17 @@ def _assemble_client(
     # / ``ChatAPI`` / etc., so a test that swaps the executor's
     # ``rpc_call`` sees the swap on every feature consumer).
     client._rpc_executor = internals.executor
+    # P1 constructs the private semantic port at the same composition root as
+    # the executor and every feature facade.  Existing feature paths continue
+    # to receive ``internals.executor`` directly until their bounded migration
+    # phases; merely assembling this backend therefore changes no dispatch
+    # authority.  The resolved web transport factory is retained as a
+    # construction parameter so httpx/curl selection never becomes a backend
+    # kind or capability.
+    client._backend = WebRpcBackend(
+        internals.executor,
+        transport_factory=internals.web_transport_factory,
+    )
 
     # ADR-0014 Rule 2: the upload pipeline takes its three runtime
     # collaborators (``rpc`` + ``drain`` + ``lifecycle``) directly

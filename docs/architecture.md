@@ -96,9 +96,17 @@ or protocol knowledge and owns the shared UTF-16 offset/rendering invariants.
 The migration runs P0 through P8, with the runtime collapse in P7 after feature domains have moved
 and the web cookie-provider extraction in P8 after P7. P3's codec/model separation is approved;
 it reuses the current strict row-adapter and wire-contract evidence rather than renaming it for its
-own sake. P0's catalog and contract evidence are implemented and frozen; the remaining phase
-descriptions are sequencing decisions, not a claim that P1-P8 are complete. P9 public-surface work
-and a mobile backend require separate decisions.
+own sake. P0's catalog and contract evidence are implemented and frozen. P1 also constructs the
+private, inert `WebRpcBackend` at the shared client-assembly seam and registers typed handlers for
+the upcoming P2.1 notebook/source reads; existing feature facades still dispatch directly through
+`RpcExecutor`, so no production operation delegates through the semantic port yet. The remaining
+phase descriptions are sequencing decisions, not a claim that P2-P8 are complete. P9
+public-surface work and a mobile backend require separate decisions.
+
+The P0 operation-catalog audit classifies exactly six P1 web functions (two generic RPC
+forwarders and the four typed handlers) as inert rather than as duplicate execution authorities.
+That bounded classification is mutation-tested and is removed handler-by-handler in P2, in the
+same slice that makes a compatibility facade delegate to the handler.
 
 P0 adds four ADR-0022 contract baselines before runtime delegation:
 
@@ -532,7 +540,7 @@ the executor on direct collaborator dependencies.
 | `_transport_errors` | [`_transport_errors.py`](../src/notebooklm/_transport_errors.py) | Owns transport-level exceptions, `Retry-After` parsing, and raw `Kernel.post` error mapping consumed by `RetryMiddleware` and `AuthRefreshMiddleware`. |
 | `_streaming_post` | [`_streaming_post.py`](../src/notebooklm/_streaming_post.py) | Low-level streaming POST helper with the response-size cap used by `Kernel.post`. |
 | `Kernel` | [`_kernel.py`](../src/notebooklm/_kernel.py) | Pure transport core. Owns the `httpx.AsyncClient` and cookie jar; exposes `post()`, the `cookies` property, and `aclose()` (the close path wraps it in `asyncio.shield` from `ClientLifecycle.close()`). Concrete class behind the `Kernel` Protocol in `_runtime/contracts.py`; constructed by `build_collaborators(...)` and called from the middleware leaf via `RuntimeTransport.terminal → Kernel.post`. |
-| `_runtime/init` | [`_runtime/init.py`](../src/notebooklm/_runtime/init.py) | Construction-time helpers for `NotebookLMClient`: `validate_constructor_args` (kwarg validation/normalization), `build_collaborators` (the seven collaborators in dependency order: `metrics`, `drain_tracker`, `reqid`, `auth_coord`, `kernel`, `lifecycle`, `cookie_persistence`), `build_runtime_transport`, `wire_middleware_chain`, and `compose_client_internals`. It binds the runtime graph into `ClientComposed` and returns `ClientInternals(collaborators, executor)`. |
+| `_runtime/init` | [`_runtime/init.py`](../src/notebooklm/_runtime/init.py) | Construction-time helpers for `NotebookLMClient`: `validate_constructor_args` (kwarg validation/normalization), `build_collaborators` (the seven collaborators in dependency order: `metrics`, `drain_tracker`, `reqid`, `auth_coord`, `kernel`, `lifecycle`, `cookie_persistence`), `build_runtime_transport`, `wire_middleware_chain`, and `compose_client_internals`. It binds the runtime graph into `ClientComposed` and returns `ClientInternals(collaborators, executor, web_transport_factory)`; P1 passes that already-resolved factory to the inert web backend without changing transport ownership. |
 | `_loop_affinity` | [`_loop_affinity.py`](../src/notebooklm/_loop_affinity.py) | Tiny free-function `assert_bound_loop(bound_loop)` shared by every helper that captures a loop reference at `open()` time (`TransportDrainTracker`, `ReqidCounter`, `AuthRefreshCoordinator`, `ArtifactPollingService`, `ChatAPI`). Enforces ADR-0004 without coupling those helpers to the public client. |
 
 ### Shipped runtime invariants
@@ -1008,6 +1016,8 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_client_metrics.py` | `ClientMetrics` — `ClientMetricsSnapshot` counters + `on_rpc_event` callback |
 | `_transport_drain.py` | `TransportDrainTracker` — in-flight transport counters + `_TransportOperationToken` |
 | `_deadline.py` | `RuntimeDeadline` helper shared by retry and polling loops so aggregate timeouts clamp sleep consistently |
+| `_backend.py` | Private protocol-neutral semantic port: backend kind/capabilities, typed `BackendAdapter.invoke`, and the minimal scrubbed error/deadline handoff used by the P2 slice. |
+| `_records.py` | Frozen, slotted, protocol-neutral input/output records and `OperationDef` values for the P2.1 notebook/source list/get slice. |
 | `_backoff.py` | Shared capped exponential-backoff calculation with deterministic test injection |
 | `_reqid_counter.py` | `ReqidCounter` — monotonic `_reqid` for the chat backend |
 | `_runtime/auth.py` | `AuthRefreshCoordinator` — refresh task + auth-snapshot lock |
@@ -1015,9 +1025,11 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_runtime/lifecycle.py` | `ClientLifecycle` — loop-affinity guard + keepalive task |
 | `_runtime/transport.py` | `RuntimeTransport` — authed-POST transport wrapper that drives the middleware chain and typed transport response handling |
 | `_rpc_executor.py` | RPC dispatch executor. Takes its `Kernel`, `RuntimeTransport`, `AuthRefreshCoordinator`, and `ClientMetrics` collaborators directly via keyword-only constructor parameters (ADR-0014 Rule 5). Defines a single local `DecodeResponse` Protocol. |
-| `_operations.py` | Inert P0 semantic vocabulary: closed `Operation` / `CallPolicy` enums and frozen, slotted, typed `OperationDef`; runtime backend types begin in P1. |
+| `_operations.py` | Closed P0 semantic vocabulary: `Operation` / `CallPolicy` enums and frozen, slotted, typed `OperationDef`, consumed by the private P1 backend port and registries. |
 | `_projectors.py` | Shared P2.1 compatibility projectors from neutral notebook/source records to the existing public `Notebook` / `Source` models, using their normal constructors and no wire adapters. |
 | `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
+| `_web/backend.py` | P1 web semantic backend over the existing `RpcExecutor`; its first four handlers reuse current payload/row adapters and return neutral records. Existing feature facades do not delegate through it until P2. |
+| `_web/registry.py` | Closed web disposition registry over every `Operation`: four P2.1 read handlers and an explicit unsupported disposition for every other operation. |
 | `scripts/audit_operation_catalog.py` | Single build/audit CLI for the deterministic ADR-0022 projection: exact semantic authorities, native bindings, public/root-client dispositions, evidence, omissions, and divergences. |
 | `scripts/_operation_catalog_specs.py` | Reviewed semantic operation specifications, owners/policies/routes, native/web bindings, public methods, and dispositions. |
 | `scripts/_operation_catalog_authorities.py` | Exact RPC/stream/upload/download/orchestrator authority allocations, semantic discriminators, and recency contracts. |
@@ -1152,8 +1164,8 @@ src/notebooklm/
 ├── utils.py                     # Public async utility helpers
 ├── _atomic_io.py                # Atomic JSON write/update helpers
 ├── _auth_refresh_retry.py       # Shared auth refresh-and-retry core (RefreshBudget + refresh_and_count) for both retry layers
-├── _backoff.py                  # Shared retry backoff calculation
 ├── _backend.py                  # Private semantic backend port, capabilities, errors, and deadline handoff (P1)
+├── _backoff.py                  # Shared retry backoff calculation
 ├── _callbacks.py                # Sync/async callback invocation helper
 ├── _client_assembly.py          # Shared client-assembly seam (constructor + test factory)
 ├── _client_composed.py          # Client-owned composition holder
@@ -1186,10 +1198,10 @@ src/notebooklm/
 ├── _mind_map.py                 # NoteBackedMindMapService
 ├── _mind_maps_api.py            # MindMapsAPI — unified mind-map surface over both backends (#1256)
 ├── _notebook_metadata.py        # Metadata protocols
-├── _operations.py               # Inert closed semantic operation/call-policy vocabulary (P0)
+├── _operations.py               # Closed semantic operation/call-policy vocabulary (P0)
 ├── _projectors.py               # Neutral record-to-public Notebook/Source compatibility projectors (P2.1)
 ├── _read_services.py            # Transport-neutral notebook/source list/get services (P2.1)
-├── _records.py                  # Neutral notebook/source list/get operation records (P1)
+├── _records.py                  # Neutral P2.1 notebook/source backend DTOs and operation definitions
 ├── _url_utils.py                # URL validation helpers
 ├── _sharing_manager.py          # Sharing management logic
 ├── _version_check.py            # Deprecation version guard
@@ -1197,6 +1209,10 @@ src/notebooklm/
 ├── _research_task_parser.py     # Research task result-type parser
 ├── _research_import.py          # ResearchAPI import/verification helpers + #1961 idempotency pre-filter
 ├── _redact.py                   # Transport-neutral secret/home-path/file-link scrubber (redact(msg, max_length)); shared chokepoint under both mcp/_errors.py and server/_errors.py
+├── _web/                        # Private web implementation of the semantic backend port
+│   ├── __init__.py              # Private WebRpcBackend re-export
+│   ├── backend.py               # RpcExecutor-backed P2.1 semantic handlers
+│   └── registry.py              # Closed per-operation web handler/unsupported dispositions
 ├── _app/                        # Transport-neutral business-logic layer (CLI/MCP/HTTP adapters share it)
 │   ├── __init__.py              # Re-exports the neutral primitives
 │   ├── artifacts.py             # Click-free artifact core: get/rename/delete/export + poll/wait/retry; kind-aware mind-map dispatch (mind_maps.list for rename, notes.list_mind_maps for delete), get_artifact raises ArtifactNotFoundError, typed Rename/Export results + ArtifactStatusView/status_view neutral status DTO (CLI builds every --json envelope from the typed fields)

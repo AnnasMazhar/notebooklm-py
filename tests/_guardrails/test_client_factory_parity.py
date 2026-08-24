@@ -128,6 +128,9 @@ def test_shared_wiring_identities_hold_on_both_paths() -> None:
             f"{label}: notebooks (NotebooksAPI._rpc) must dispatch through the "
             "client's shared RpcExecutor"
         )
+        assert getattr(client._backend, "_executor", _missing) is client._rpc_executor, (
+            f"{label}: the private WebRpcBackend must share the client's RpcExecutor"
+        )
         assert getattr(client._source_uploader, "_auth", _missing) is client._auth, (
             f"{label}: the upload pipeline (SourceUploadPipeline._auth) must alias "
             "the client-owned AuthTokens (ADR-0016 Auth Instance Invariant)"
@@ -135,6 +138,22 @@ def test_shared_wiring_identities_hold_on_both_paths() -> None:
         assert client.auth is client._auth, (
             f"{label}: the public auth property must alias the client-owned AuthTokens"
         )
+
+
+def test_backend_receives_the_resolved_web_transport_factory() -> None:
+    """Transport selection remains construction metadata, not a backend kind."""
+
+    def transport_factory(**_kwargs: object) -> object:
+        return object()
+
+    client = build_client_shell_for_tests(
+        auth=_make_auth(),
+        async_client_factory=transport_factory,  # type: ignore[arg-type]
+    )
+
+    assert client._backend.kind.value == "web"
+    assert client._backend._transport_factory is transport_factory
+    assert client._collaborators.kernel._async_client_factory is transport_factory
 
 
 # --- detector self-tests (non-vacuity, per docs/development.md) ------------
