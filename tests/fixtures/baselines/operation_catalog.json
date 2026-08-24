@@ -366,6 +366,60 @@
         }
       ]
     },
+    "research.cancel": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "terminal-state set-op",
+          "rpc_method": "CANCEL_RESEARCH",
+          "variant": null
+        }
+      ]
+    },
+    "research.import": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "non-idempotent source import",
+          "rpc_method": "IMPORT_RESEARCH",
+          "variant": null
+        }
+      ]
+    },
+    "research.poll": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "research task poll",
+          "rpc_method": "POLL_RESEARCH",
+          "variant": null
+        }
+      ]
+    },
+    "research.start": {
+      "call_policy": "stateful_start",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "non-idempotent fast research start",
+          "rpc_method": "START_FAST_RESEARCH",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "non-idempotent deep research start",
+          "rpc_method": "START_DEEP_RESEARCH",
+          "variant": null
+        }
+      ]
+    },
     "source.add_url": {
       "call_policy": "mutation",
       "known_divergence": null,
