@@ -58,10 +58,13 @@ class NotebookMetadataService:
 
     async def get_metadata(self, notebook_id: str) -> NotebookMetadata:
         """Get notebook metadata and simplified sources concurrently."""
-        tasks = (
-            asyncio.create_task(self._get_notebook(notebook_id)),
-            asyncio.create_task(self._source_lister.list(notebook_id)),
+        notebook_task: asyncio.Future[Notebook] = asyncio.ensure_future(
+            self._get_notebook(notebook_id)
         )
+        sources_task: asyncio.Future[builtins.list[Source]] = asyncio.ensure_future(
+            self._source_lister.list(notebook_id)
+        )
+        tasks = (notebook_task, sources_task)
         try:
             notebook, sources = await asyncio.gather(*tasks)
         except BaseException:
