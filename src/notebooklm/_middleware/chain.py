@@ -112,13 +112,11 @@ class MiddlewareChainBuilder:
                 metrics=self._metrics,
             ),
             # AuthRefresh callbacks: ``refresh_callable`` invokes
-            # ``MiddlewareChainHost.await_refresh``, which dynamically
-            # delegates to ``AuthRefreshCoordinator.await_refresh``, so
-            # the coalesced single-flight refresh contract from the
-            # coordinator is preserved end-to-end.
-            # ``refresh_callback_enabled_provider`` reads the coordinator's
-            # ``has_refresh_callback`` property to skip refresh when no
-            # callback was configured.
+            # ``MiddlewareChainHost.await_refresh``, which delegates through
+            # the provider-owned join/publication boundary. This preserves the
+            # coalesced refresh and immutable-generation contract end-to-end.
+            # ``refresh_callback_enabled_provider`` reads the provider's
+            # callback capability to skip refresh when none was configured.
             # ``refresh_retry_delay_provider`` is callable for
             # live-binding parity with retry budgets.
             # ``is_auth_error`` is supplied as a live-binding callable from

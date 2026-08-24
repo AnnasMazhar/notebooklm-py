@@ -453,9 +453,9 @@ def wire_middleware_chain(
     callable so rebinding ``ClientSeams.is_auth_error`` after construction
     still steers the chain.
     """
-    # ADR-0009 chain construction. PR history, leaf exception shape,
-    # and ``RpcRequest.context`` contract live in
-    # ``_middleware/chain.py`` module docstring.
+    # ADR-0009 chain construction. Envelope ordering lives in
+    # ``_middleware/chain.py``; typed per-call state and auth-generation
+    # publication live in ``_middleware/context.py``.
     chain_builder = MiddlewareChainBuilder(
         drain_tracker=drain_tracker,
         metrics=metrics,

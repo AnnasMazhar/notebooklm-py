@@ -31,12 +31,10 @@ from ..rpc.decoder import strip_anti_xssi
 
 def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResult:
     """Delegate parsing while retaining the historical monkeypatch seam."""
-    previous = _codec.strip_anti_xssi
-    _codec.strip_anti_xssi = strip_anti_xssi
-    try:
-        return _codec.parse_streaming_chat_response(response_text)
-    finally:
-        _codec.strip_anti_xssi = previous
+    return _codec.parse_streaming_chat_response(
+        response_text,
+        _strip_anti_xssi=strip_anti_xssi,
+    )
 
 
 def project_legacy_conversation_history(

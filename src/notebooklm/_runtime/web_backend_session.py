@@ -6,6 +6,8 @@ import asyncio
 
 from .._auth.cookie_types import CookieJar
 from .._kernel import Kernel
+from .._loop_affinity import assert_bound_loop
+from .._loop_bound import LoopBoundPrimitive
 from .._web_cookie_provider import (
     WebCookieGeneration,
     WebCookieSession,
@@ -14,7 +16,7 @@ from .._web_cookie_provider import (
 from ..types import ConnectionLimits
 
 
-class WebBackendSession:
+class WebBackendSession(LoopBoundPrimitive):
     """Own the mutable HTTP session used only for backend execution."""
 
     def __init__(
@@ -47,7 +49,9 @@ class WebBackendSession:
     async def open(self, generation: WebCookieGeneration) -> None:
         """Clone one generation before constructing the private HTTP client."""
         if self.is_open:
+            assert_bound_loop(self._bound_loop)
             return
+        self.set_bound_loop(asyncio.get_running_loop())
         self._close_task = None
         self._kernel.install_generation(generation)
         await self._kernel.open(
@@ -70,6 +74,7 @@ class WebBackendSession:
 
     async def close(self) -> None:
         """Close once; cancellation of a waiter does not cancel teardown."""
+        assert_bound_loop(self._bound_loop)
         task = self._close_task
         if task is None or (task.done() and not task.cancelled() and task.exception() is not None):
             task = asyncio.create_task(self._kernel.aclose())

@@ -26,7 +26,10 @@ def _resolve_reference(
     resolved = _resolve_record(records, citation_number)
     if resolved is None:
         return None
-    return references[records.index(resolved)]
+    for reference, record in zip(references, records, strict=True):
+        if record is resolved:
+            return reference
+    raise AssertionError("resolved reference must belong to the projected record tuple")
 
 
 def build_save_chat_as_note_params(

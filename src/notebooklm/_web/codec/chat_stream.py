@@ -12,6 +12,7 @@ import logging
 import math
 import re
 import reprlib
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any, NoReturn
 
@@ -127,7 +128,11 @@ class _ChunkExtraction:
     next_steps: list[NextStepSuggestion] = field(default_factory=list)
 
 
-def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResult:
+def parse_streaming_chat_response(
+    response_text: str,
+    *,
+    _strip_anti_xssi: Callable[[str], str] | None = None,
+) -> StreamingChatParseResult:
     """Parse a streamed-chat response into answer, references, and conversation ID.
 
     Failure contract (see :class:`notebooklm.exceptions.ChatResponseParseError`):
@@ -162,7 +167,8 @@ def parse_streaming_chat_response(response_text: str) -> StreamingChatParseResul
     # owner of the )]}' prefix removal. For the real chat wire format the
     # prefix is always followed by a newline, so the subsequent ``.strip()``
     # yields a byte-for-byte-identical result to the prior blind ``[4:]`` slice.
-    response_text = strip_anti_xssi(response_text)
+    strip = strip_anti_xssi if _strip_anti_xssi is None else _strip_anti_xssi
+    response_text = strip(response_text)
 
     lines = response_text.strip().split("\n")
     final_marked_answer = ""

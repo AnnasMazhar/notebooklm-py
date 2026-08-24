@@ -18,6 +18,8 @@ from datetime import datetime
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
+import httpx
+
 from .._artifact.payloads import (
     build_interactive_mind_map_artifact_params,
     build_mind_map_params,
@@ -1030,7 +1032,11 @@ class WebRpcBackend(ChatWebHandlers):
                 )
             except DecodingError:
                 raise
-            except RPCError as exc:
+            except (RPCError, httpx.HTTPError) as exc:
+                # Most transport failures are normalized before this composite,
+                # but an auth-refresh failure deliberately re-raises its original
+                # HTTPStatusError. Preserve the legacy partial-availability net
+                # for that raw leaf as well as ordinary RPC failures.
                 artifact_logger.warning("Failed to fetch mind maps: %s", exc)
         return tuple(artifacts)
 
