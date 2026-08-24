@@ -26,6 +26,7 @@ SRC_ROOT = REPO_ROOT / "src" / "notebooklm"
 PERSISTENCE_PATH = SRC_ROOT / "_cookie_persistence.py"
 LIFECYCLE_PATH = SRC_ROOT / "_runtime" / "lifecycle.py"
 INIT_PATH = SRC_ROOT / "_runtime" / "init.py"
+PROVIDER_PATH = SRC_ROOT / "_runtime" / "web_cookie_provider.py"
 CLIENT_PATH = SRC_ROOT / "client.py"
 
 Call = tuple[str, str]
@@ -550,10 +551,20 @@ class _MemberCollector(ast.NodeVisitor):
                     return False
             return False
         return (
-            self.path == CLIENT_PATH
+            self.path == PROVIDER_PATH
+            and self.owner == "RuntimeWebCookieProvider.register_open_baseline"
+            and len(self.functions) == 1
+            and ast.unparse(node) == "self._persistence"
+        )
+
+    def _provider_adapter_receiver(self, node: ast.expr, member: str) -> bool:
+        """Recognize the exact construction hook without granting persistence."""
+        return (
+            member == "register_open_baseline"
+            and self.path == CLIENT_PATH
             and self.owner == "_FromStorageContext._build"
             and len(self.functions) == 1
-            and ast.unparse(node) == "client._collaborators.cookie_persistence"
+            and ast.unparse(node) == "client._provider"
             and self._local_client_is_canonical("client")
         )
 
@@ -862,7 +873,9 @@ class _MemberCollector(ast.NodeVisitor):
             self.escapes.add((self.module, self.owner, "dynamic-access"))
         if isinstance(node.func, ast.Attribute) and node.func.attr in self.members:
             self.callees.add(id(node.func))
-            if self._trusted_receiver(node.func.value, node.func.attr):
+            if self._provider_adapter_receiver(node.func.value, node.func.attr):
+                pass
+            elif self._trusted_receiver(node.func.value, node.func.attr):
                 self.calls.add((self.module, self.owner))
             else:
                 self.escapes.add((self.module, self.owner, f"untrusted-receiver:{node.func.attr}"))
@@ -1041,10 +1054,10 @@ def test_private_persistence_callers_and_capabilities_are_exact() -> None:
         calls.update(found)
         escapes.update(rejected)
     assert calls == {
-        ("_runtime/init.py", "build_collaborators"),
+        ("_runtime/init.py", "_build_runtime_leaves"),
         ("_runtime/lifecycle.py", "ClientLifecycle.open"),
         ("_runtime/lifecycle.py", "ClientLifecycle.save_cookies"),
-        ("client.py", "_FromStorageContext._build"),
+        ("_runtime/web_cookie_provider.py", "RuntimeWebCookieProvider.register_open_baseline"),
     }
     assert escapes == set()
 
@@ -1415,15 +1428,15 @@ def test_global_declaration_anywhere_poisons_deferred_module_provider() -> None:
     }
 
 
-def test_client_registration_requires_exact_sequential_constructor_provenance() -> None:
+def test_client_provider_adapter_requires_exact_sequential_constructor_provenance() -> None:
     live_tree = ast.parse(
         "class _FromStorageContext:\n"
         "    def _build(self):\n"
         "        client = self._cls(auth=None)\n"
-        "        client._collaborators.cookie_persistence.register_open_baseline(None, None)\n"
+        "        client._provider.register_open_baseline(None, None)\n"
     )
     calls, escapes = _member_projection(live_tree, CLIENT_PATH, _PRIVATE_MEMBERS)
-    assert calls == {("client.py", "_FromStorageContext._build")}
+    assert calls == set()
     assert escapes == set()
 
     evil_tree = ast.parse(
@@ -1431,7 +1444,7 @@ def test_client_registration_requires_exact_sequential_constructor_provenance() 
         "    def _build(self):\n"
         "        client = self._cls(auth=None)\n"
         "        client = make_evil()\n"
-        "        client._collaborators.cookie_persistence.register_open_baseline(None, None)\n"
+        "        client._provider.register_open_baseline(None, None)\n"
     )
     calls, escapes = _member_projection(evil_tree, CLIENT_PATH, _PRIVATE_MEMBERS)
     assert calls == set()
@@ -1448,7 +1461,7 @@ def test_client_chain_spelling_without_constructor_provenance_is_untrusted() -> 
     tree = ast.parse(
         "class _FromStorageContext:\n"
         "    def _build(self):\n"
-        "        client._collaborators.cookie_persistence.register_open_baseline(None, None)\n"
+        "        client._provider.register_open_baseline(None, None)\n"
     )
     calls, escapes = _member_projection(tree, CLIENT_PATH, _PRIVATE_MEMBERS)
     assert calls == set()
@@ -1456,6 +1469,34 @@ def test_client_chain_spelling_without_constructor_provenance_is_untrusted() -> 
         (
             "client.py",
             "_FromStorageContext._build",
+            "untrusted-receiver:register_open_baseline",
+        )
+    }
+
+
+def test_provider_adapter_trusts_only_its_exact_persistence_receiver() -> None:
+    live_tree = ast.parse(
+        "class RuntimeWebCookieProvider:\n"
+        "    def register_open_baseline(self):\n"
+        "        self._persistence.register_open_baseline(None, None)\n"
+    )
+    calls, escapes = _member_projection(live_tree, PROVIDER_PATH, _PRIVATE_MEMBERS)
+    assert calls == {
+        ("_runtime/web_cookie_provider.py", "RuntimeWebCookieProvider.register_open_baseline")
+    }
+    assert escapes == set()
+
+    evil_tree = ast.parse(
+        "class RuntimeWebCookieProvider:\n"
+        "    def register_open_baseline(self):\n"
+        "        self._other.register_open_baseline(None, None)\n"
+    )
+    calls, escapes = _member_projection(evil_tree, PROVIDER_PATH, _PRIVATE_MEMBERS)
+    assert calls == set()
+    assert escapes == {
+        (
+            "_runtime/web_cookie_provider.py",
+            "RuntimeWebCookieProvider.register_open_baseline",
             "untrusted-receiver:register_open_baseline",
         )
     }

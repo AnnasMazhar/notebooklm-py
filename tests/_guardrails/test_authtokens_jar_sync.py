@@ -205,8 +205,9 @@ def _cookie_shadow_inventory() -> set[tuple[str, str, str, str, str, int]]:
 # Every statically provable first-party read/write of an AuthTokens cookie
 # compatibility shadow. Roles are documented in ADR-0032's Phase-A audit.
 # Equality-pinned: additions and stale entries both fail review. The kernel's
-# two reads are bootstrap-only; every other entry is contained in the public
-# compatibility owner itself.
+# two reads are bootstrap-only; the runtime coordinator retains one explicitly
+# inventoried compatibility fallback for standalone snapshot callers. Every
+# other entry is contained in the public compatibility owner itself.
 _COOKIE_SHADOW_INVENTORY: frozenset[tuple[str, str, str, str, str, int]] = frozenset(
     {
         (
@@ -266,6 +267,14 @@ _COOKIE_SHADOW_INVENTORY: frozenset[tuple[str, str, str, str, str, int]] = froze
         ),
         ("_kernel.py", "Kernel._bootstrap_cookies", "auth", "cookie_jar", "Load", 1),
         ("_kernel.py", "Kernel._bootstrap_cookies", "auth", "cookies", "Load", 1),
+        (
+            "_runtime/auth.py",
+            "AuthRefreshCoordinator.snapshot",
+            "auth",
+            "cookie_jar",
+            "Load",
+            1,
+        ),
         (
             "_runtime/auth.py",
             "AuthRefreshCoordinator.update_auth_headers",
