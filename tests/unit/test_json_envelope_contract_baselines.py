@@ -1886,4 +1886,4 @@ def test_json_envelope_allocates_every_live_projection_to_an_exact_terminal() ->
 
     assert allocated_projection_ids == live_projection_ids
     assert reachability["site_count"] == 350
-    assert len(reachability["private_dataclass_projection_paths"]) == 36
+    assert len(reachability["private_dataclass_projection_paths"]) == 38

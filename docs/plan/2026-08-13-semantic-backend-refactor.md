@@ -882,9 +882,9 @@ P0 operation inventory + ADR
   public-projection, 117 reviewed non-public, and eight forwarding-infrastructure dispositions,
   including 15 non-public variants across 14 mixed sites. Every live projection id has a terminal
   allocation;
-  adapter registrations and direct JSON bypasses fail closed. It also pins 36 private DTO -> public
+  adapter registrations and direct JSON bypasses fail closed. It also pins 38 private DTO -> public
   dataclass paths, 16 explicit helper fingerprints, and a compact aggregate digest for the bounded
-  519-node / 1,242-edge transitive helper graph (520 unique helpers overall). Thirty-four paths link
+  521-node / 1,245-edge transitive helper graph (522 unique helpers overall). Thirty-four paths link
   to live projections;
   `SourceRefreshResult.result` is production-dead and `ValidatedSessionConfig.limits` is confined
   to internal runtime configuration. `AuthTokens` is excluded from the exported/full-key inventory
@@ -1768,12 +1768,12 @@ terminal/error sites: 225 public-projection, 117 reviewed non-public, and eight 
 infrastructure, with 15 conditional non-public variants across 14 mixed terminals. Discovery
 includes CLI JSON success/error/direct emissions, MCP tool/error funnels and auxiliary connector
 routes, and REST route/app/error sites. Every live projection id is terminal-allocated; a new
-registration or direct JSON bypass fails closed. Thirty-six private DTO -> public dataclass paths
-and a compact digest for the 519-node / 1,242-edge bounded transitive helper graph closes the
-helper gap alongside 16 explicit fingerprints (520 unique helpers overall); 34 paths are linked,
-while
-`SourceRefreshResult.result` is mutation-proven production-dead and
-`ValidatedSessionConfig.limits` is source-proven internal-runtime-only. Thirty-seven declarations
+registration or direct JSON bypass fails closed. Thirty-eight private DTO -> public dataclass paths
+and a compact digest for the 521-node / 1,245-edge bounded transitive helper graph closes the
+helper gap alongside 16 explicit fingerprints (522 unique helpers overall); 34 paths are linked,
+while `SourceRefreshResult.result` is mutation-proven production-dead,
+`ValidatedSessionConfig.limits` is source-proven internal-runtime-only, and the two new
+`StructuredDocument` paths are source-proven dropped by scalar source-content adapters. Thirty-seven declarations
 across 28 literal final-dict sites derive their top-level shape from the AST; 168 explicit rows
 remain honestly manual-reviewed.
 
@@ -1887,16 +1887,16 @@ projections for CLI, 32 / 123 for MCP, and 32 / 57 for REST: 313 unique projecti
 supplemental. `adapter_sink_reachability` closes the adapter graph over 350 exact terminal/error
 sites: 225 carry public projections, 117 are reviewed non-public, and eight are forwarding
 infrastructure. Fifteen conditional non-public variants are pinned across 14 mixed sites. All 313
-live ids are allocated. It also records 36 private DTO -> public dataclass paths (34 linked, one
-production-dead public-valued arm, and one internal-runtime-only path), 16 delegated-helper
-fingerprints, and the aggregate 519-node / 1,242-edge transitive-helper graph digest. Adapter
+live ids are allocated. It also records 38 private DTO -> public dataclass paths (34 linked, one
+production-dead public-valued arm, one internal-runtime-only path, and two adapter-dropped
+structured-document paths), 16 delegated-helper fingerprints, and the aggregate 521-node / 1,245-edge transitive-helper graph digest. Adapter
 registrations and direct JSON emissions are fail-closed. `AuthTokens` remains
 out of the full-key inventory and is reachable only through the exact redacted MCP/REST
 `server_info` identity projections; credential serialization remains forbidden.
 
-The catalog also records 86 semantic operations, 47 RPC ids, 56 native rows, 146 public namespace
-methods (eight local-only), and ten public root-client members. It carries 11 reviewed divergences:
-10 authority and one policy. Golden evidence scope is `variant`, `method_family`, or
+The catalog also records 87 semantic operations, 47 RPC ids, 56 native rows, 146 public namespace
+methods (eight local-only), and ten public root-client members. It carries 12 reviewed divergences:
+11 authority and one policy. Golden evidence scope is `variant`, `method_family`, or
 `method_contract`; four native rows are honestly `not_recorded`:
 `ADD_SOURCE:<default>`, `ADD_SOURCE:drive`, `CREATE_NOTE:<default>`, and
 `CREATE_NOTE:saved_from_chat`. Every native row has source-dataflow plus parameterized runtime
@@ -1956,16 +1956,16 @@ PY
 The registered projections and compatibility gates reproduce the remaining values:
 
 ```bash
-# Catalog totals: 86 operations, 47 RPC ids, 56 native rows, 146 namespace
-# methods (eight local-only), ten root-client members, 157 allocated authority
-# rows, 39 multi-authority operations, 14 multi-site native rows, 11 divergences
-# (10 authority plus one policy), four honest golden gaps, and 56/56 override proof.
+# Catalog totals: 87 operations, 47 RPC ids, 56 native rows, 146 namespace
+# methods (eight local-only), ten root-client members, 173 allocated authority
+# rows, 46 multi-authority operations, 19 multi-site native rows, 12 divergences
+# (11 authority plus one policy), four honest golden gaps, and 56/56 override proof.
 uv run python scripts/audit_operation_catalog.py --json | uv run python -c \
   'import json,sys; c=json.load(sys.stdin); print({"operations": len(c["operations"]), "rpc_ids": len({r["rpc_method"] for r in c["native_bindings"]}), "native_rows": len(c["native_bindings"]), "namespace_methods": len(c["public_methods"]), "namespace_local_only": sum(r["disposition"] == "local_only" for r in c["public_methods"].values()), "root_client_members": len(c["client_members"]), "allocated_authority_rows": sum(len(r["execution_authorities"]) for r in c["operations"]), "multi_authority_operations": sum(len(r["execution_authorities"]) > 1 for r in c["operations"]), "multi_site_native_rows": sum(len(r["execution_authorities"]) > 1 for r in c["native_bindings"]), "authority_divergences": sum(r["kind"] == "authority" for r in c["known_divergences"]), "policy_divergences": sum(r["kind"] == "policy" for r in c["known_divergences"]), "golden_not_recorded": sum(r["golden_disposition"] == "not_recorded" for r in c["native_bindings"]), "override_honored": sum(r["override_honored"] for r in c["native_bindings"])})'
 # JSON envelope totals: CLI 31 models/133 projections, MCP 32/123, REST 32/57;
 # 313 unique ids. Sink totals: 350 = 225 projection + 117 reviewed non-public
-# + 8 infrastructure; 15 conditional non-public variants, 36 private paths,
-# 16 explicit helper fingerprints, and a 519-node / 1,242-edge helper-graph digest.
+# + 8 infrastructure; 15 conditional non-public variants, 38 private paths,
+# 16 explicit helper fingerprints, and a 521-node / 1,245-edge helper-graph digest.
 uv run python - <<'PY'
 import json
 from collections import Counter

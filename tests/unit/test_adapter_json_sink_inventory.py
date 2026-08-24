@@ -121,7 +121,7 @@ def test_inventory_covers_every_current_terminal_adapter_site() -> None:
 def test_private_dto_catalog_covers_every_annotation_proven_public_model_path() -> None:
     rows = discover_private_dataclass_projection_paths()
 
-    assert len(rows) == 36
+    assert len(rows) == 38
     triples = {(row.private_model, row.field_path, row.public_model) for row in rows}
     assert (
         "notebooklm._app.source_mutations.SourceRenameResult",
@@ -543,7 +543,7 @@ def test_transitive_public_error_helper_mutation_changes_reachability_contract(
     assert (
         before["private_dataclass_projection_paths"] == after["private_dataclass_projection_paths"]
     )
-    assert before["transitive_helper_graph"]["node_count"] == 519
+    assert before["transitive_helper_graph"]["node_count"] == 521
     assert (
         before["transitive_helper_graph"]["aggregate_fingerprint"]
         != after["transitive_helper_graph"]["aggregate_fingerprint"]
@@ -1320,12 +1320,12 @@ def test_checked_in_reachability_allocations_are_exact() -> None:
         _source_root(), known_projection_ids=_allocation_projection_ids()
     )
     assert contract["site_count"] == 350
-    assert len(contract["private_dataclass_projection_paths"]) == 36
+    assert len(contract["private_dataclass_projection_paths"]) == 38
     assert contract["transitive_helper_graph"] == {
         "schema_version": 1,
         "root_count": 210,
-        "node_count": 519,
-        "edge_count": 1242,
+        "node_count": 521,
+        "edge_count": 1245,
         "aggregate_fingerprint": contract["transitive_helper_graph"]["aggregate_fingerprint"],
     }
     assert str(contract["transitive_helper_graph"]["aggregate_fingerprint"]).startswith("sha256:")

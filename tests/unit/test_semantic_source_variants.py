@@ -376,7 +376,7 @@ async def test_drive_download_variant_uses_dedicated_gate_and_upload_callback(mo
             events.append(f"route:{notebook_id}:{document_id}:{kwargs['title']}")
             return Source(id="drive-upload", title="Drive file")
 
-    monkeypatch.setattr("notebooklm._web.backend.DriveImportService", _DriveService)
+    monkeypatch.setattr("notebooklm._web.source_variants.DriveImportService", _DriveService)
     result = await _web_backend(_RecordingExecutor(), uploader=uploader).invoke(
         SOURCE_ADD_FILE_DEF,
         SourceAddFileInput(

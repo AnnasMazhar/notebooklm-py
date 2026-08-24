@@ -4418,7 +4418,7 @@
         {
           "transport_kind": "rpc",
           "binding": "UPDATE_SOURCE:<default>",
-          "site": "_web/backend.py:WebRpcBackend._source_add_drive.rename_source",
+          "site": "_web/source_variants.py:SourceVariantWebHandlers._source_add_drive.rename_source",
           "discriminator": "optional post-create title"
         }
       ],
@@ -4495,7 +4495,7 @@
         {
           "transport_kind": "rpc",
           "binding": "GET_USER_SETTINGS:<default>",
-          "site": "_web/backend.py:WebRpcBackend._source_file_limit",
+          "site": "_web/source_variants.py:SourceVariantWebHandlers._source_file_limit",
           "discriminator": "invalid-argument diagnosis only"
         },
         {
@@ -4651,7 +4651,7 @@
         {
           "transport_kind": "rpc",
           "binding": "UPDATE_SOURCE:<default>",
-          "site": "_web/backend.py:WebRpcBackend._source_add_url.rename_source",
+          "site": "_web/source_variants.py:SourceVariantWebHandlers._source_add_url.rename_source",
           "discriminator": "optional post-create title"
         }
       ],
@@ -4750,7 +4750,7 @@
         {
           "transport_kind": "rpc",
           "binding": "CHECK_SOURCE_FRESHNESS:<default>",
-          "site": "_web/backend.py:WebRpcBackend._source_check_freshness",
+          "site": "_web/source_variants.py:SourceVariantWebHandlers._source_check_freshness",
           "discriminator": "direct semantic binding"
         }
       ],
@@ -4782,7 +4782,7 @@
         {
           "transport_kind": "rpc",
           "binding": "DELETE_SOURCE:<default>",
-          "site": "_web/backend.py:WebRpcBackend._source_delete",
+          "site": "_web/source_variants.py:SourceVariantWebHandlers._source_delete",
           "discriminator": "direct semantic binding"
         }
       ],
@@ -4981,7 +4981,7 @@
         {
           "transport_kind": "rpc",
           "binding": "REFRESH_SOURCE:<default>",
-          "site": "_web/backend.py:WebRpcBackend._source_refresh",
+          "site": "_web/source_variants.py:SourceVariantWebHandlers._source_refresh",
           "discriminator": "direct semantic binding"
         }
       ],
@@ -5025,7 +5025,7 @@
         {
           "transport_kind": "rpc",
           "binding": "UPDATE_SOURCE:<default>",
-          "site": "_web/backend.py:WebRpcBackend._source_update",
+          "site": "_web/source_variants.py:SourceVariantWebHandlers._source_update",
           "discriminator": "public=sources.rename"
         }
       ],
@@ -5388,7 +5388,7 @@
         "notebook+source"
       ],
       "execution_authorities": [
-        "_web/backend.py:WebRpcBackend._source_check_freshness"
+        "_web/source_variants.py:SourceVariantWebHandlers._source_check_freshness"
       ],
       "response_decoders": [
         "_row_adapters/sources.py:interpret_source_freshness"
@@ -5952,7 +5952,7 @@
         "notebook+source"
       ],
       "execution_authorities": [
-        "_web/backend.py:WebRpcBackend._source_delete"
+        "_web/source_variants.py:SourceVariantWebHandlers._source_delete"
       ],
       "response_decoders": [],
       "response_projectors": [],
@@ -6628,9 +6628,9 @@
       ],
       "execution_authorities": [
         "_web/backend.py:WebRpcBackend._notebook_limit_error",
-        "_web/backend.py:WebRpcBackend._source_file_limit",
         "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._settings_get",
-        "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._settings_get_limits"
+        "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._settings_get_limits",
+        "_web/source_variants.py:SourceVariantWebHandlers._source_file_limit"
       ],
       "response_decoders": [
         "_web/codec/settings.py:decode_get_user_settings"
@@ -6949,7 +6949,7 @@
         "notebook+source"
       ],
       "execution_authorities": [
-        "_web/backend.py:WebRpcBackend._source_refresh"
+        "_web/source_variants.py:SourceVariantWebHandlers._source_refresh"
       ],
       "response_decoders": [],
       "response_projectors": [],
@@ -7791,9 +7791,9 @@
       ],
       "execution_authorities": [
         "_source/upload.py:SourceUploadPipeline.rename",
-        "_web/backend.py:WebRpcBackend._source_add_drive.rename_source",
-        "_web/backend.py:WebRpcBackend._source_add_url.rename_source",
-        "_web/backend.py:WebRpcBackend._source_update"
+        "_web/source_variants.py:SourceVariantWebHandlers._source_add_drive.rename_source",
+        "_web/source_variants.py:SourceVariantWebHandlers._source_add_url.rename_source",
+        "_web/source_variants.py:SourceVariantWebHandlers._source_update"
       ],
       "response_decoders": [],
       "response_projectors": [],

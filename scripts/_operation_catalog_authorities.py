@@ -734,13 +734,13 @@ SHARED_RPC_AUTHORITY_RULES.update(
         ),
         (Operation.SOURCE_ADD_URL, _b(RPCMethod.UPDATE_SOURCE)): _rules(
             (
-                "_web/backend.py:WebRpcBackend._source_add_url.rename_source",
+                "_web/source_variants.py:SourceVariantWebHandlers._source_add_url.rename_source",
                 "optional post-create title",
             )
         ),
         (Operation.SOURCE_ADD_DRIVE, _b(RPCMethod.UPDATE_SOURCE)): _rules(
             (
-                "_web/backend.py:WebRpcBackend._source_add_drive.rename_source",
+                "_web/source_variants.py:SourceVariantWebHandlers._source_add_drive.rename_source",
                 "optional post-create title",
             )
         ),
@@ -748,7 +748,10 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_source/upload.py:SourceUploadPipeline.rename", "optional post-upload title")
         ),
         (Operation.SOURCE_UPDATE, _b(RPCMethod.UPDATE_SOURCE)): _rules(
-            ("_web/backend.py:WebRpcBackend._source_update", "public=sources.rename")
+            (
+                "_web/source_variants.py:SourceVariantWebHandlers._source_update",
+                "public=sources.rename",
+            )
         ),
     }
 )
@@ -849,7 +852,10 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_web/backend.py:WebRpcBackend._notebook_limit_error", "quota-error diagnosis only")
         ),
         (Operation.SOURCE_ADD_FILE, _b(RPCMethod.GET_USER_SETTINGS)): _rules(
-            ("_web/backend.py:WebRpcBackend._source_file_limit", "invalid-argument diagnosis only")
+            (
+                "_web/source_variants.py:SourceVariantWebHandlers._source_file_limit",
+                "invalid-argument diagnosis only",
+            )
         ),
         (Operation.SETTINGS_GET, _b(RPCMethod.GET_USER_SETTINGS)): _rules(
             (

@@ -323,6 +323,54 @@
       "public_model": "notebooklm.types.Source",
       "projection_ids": ["mcp.Source.transitive-batch-added-item-final-wrapper", "rest.Source.transitive-batch-added-item-final-wrapper"],
       "terminal_locators": ["mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|1", "rest response|notebooklm/server/routes/sources.py|add_batch|return|1"]
+    },
+    {
+      "private_model": "notebooklm._source_records.SourceFulltextRecord",
+      "field_path": "document",
+      "public_model": "notebooklm._types.documents.StructuredDocument",
+      "unreachable_category": "adapter-dropped-public-field",
+      "review_note": "The neutral full-text record carries StructuredDocument into public SourceFulltext, but CLI serialization selects scalar full-text fields and the shared MCP/REST read core selects only content and char_count; no adapter emits the document field.",
+      "source_evidence": [
+        {
+          "symbol": "notebooklm._projectors.project_source_fulltext",
+          "required_ast_fragments": ["document=record.document"],
+          "semantic_fingerprint": "sha256:ce402cb53639687f79157948b1236caca05fae048fb0440ed373751418a4f7fe"
+        },
+        {
+          "symbol": "notebooklm.cli.services.source_serializers.source_fulltext_payload",
+          "required_ast_fragments": ["'content': fulltext.content", "'char_count': fulltext.char_count"],
+          "semantic_fingerprint": "sha256:6c4ea5e04fd2e5775cf4da13cdac7c314e52b219bf4b16758bc48ce5712987b2"
+        },
+        {
+          "symbol": "notebooklm._app.source_content.execute_source_read",
+          "required_ast_fragments": ["content = fulltext_result.fulltext.content", "return SourceReadResult"],
+          "semantic_fingerprint": "sha256:8a410f4679d71302afb154b267af065f4bca01e5deae4ddc2f1fc1fa2e51ac1a"
+        }
+      ]
+    },
+    {
+      "private_model": "notebooklm._source_records.SourceFulltextResult",
+      "field_path": "fulltext.document",
+      "public_model": "notebooklm._types.documents.StructuredDocument",
+      "unreachable_category": "adapter-dropped-public-field",
+      "review_note": "The semantic full-text result forwards its nested StructuredDocument into public SourceFulltext, but CLI serialization and the shared MCP/REST read core consume only scalar content metadata and never serialize the nested document.",
+      "source_evidence": [
+        {
+          "symbol": "notebooklm._projectors.project_source_fulltext",
+          "required_ast_fragments": ["document=record.document"],
+          "semantic_fingerprint": "sha256:ce402cb53639687f79157948b1236caca05fae048fb0440ed373751418a4f7fe"
+        },
+        {
+          "symbol": "notebooklm.cli.services.source_serializers.source_fulltext_payload",
+          "required_ast_fragments": ["'content': fulltext.content", "'char_count': fulltext.char_count"],
+          "semantic_fingerprint": "sha256:6c4ea5e04fd2e5775cf4da13cdac7c314e52b219bf4b16758bc48ce5712987b2"
+        },
+        {
+          "symbol": "notebooklm._app.source_content.execute_source_read",
+          "required_ast_fragments": ["content = fulltext_result.fulltext.content", "return SourceReadResult"],
+          "semantic_fingerprint": "sha256:8a410f4679d71302afb154b267af065f4bca01e5deae4ddc2f1fc1fa2e51ac1a"
+        }
+      ]
     }
   ]
 }

@@ -32,7 +32,6 @@ from ..exceptions import (
 from ..rpc import RPCError, RPCMethod
 from ..rpc.types import GrpcStatusCode, SourceStatus, normalize_rpc_code
 from ..types import Source
-from .add import SourceWireCaller
 
 ListSources = Callable[..., Awaitable[list[Source]]]
 _PERCENT_ESCAPE = re.compile(r"%[0-9a-fA-F]{2}")
@@ -133,7 +132,7 @@ class SourceBatchAddService:
         notebook_id: str,
         urls: Sequence[str],
         *,
-        rpc: SourceWireCaller,
+        rpc: RpcCaller,
         list_sources: ListSources,
         extract_youtube_video_id: Callable[[str], str | None],
         logger: logging.Logger,

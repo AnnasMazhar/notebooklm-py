@@ -6,7 +6,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from typing import Any, Protocol
+from typing import Any
 from urllib.parse import parse_qs
 
 from .._idempotency import (
@@ -41,24 +41,6 @@ ParseUrl = Callable[[str], Any]
 ExtractVideoId = Callable[[Any, str], str | None]
 ValidateVideoId = Callable[[str], bool]
 YoutubeDetector = Callable[[str], bool]
-
-
-class SourceWireCaller(Protocol):
-    """Backend-owned narrow caller used by the preserved source workflows."""
-
-    async def rpc_call(
-        self,
-        method: RPCMethod,
-        params: list[Any],
-        source_path: str = "/",
-        allow_null: bool = False,
-        _is_retry: bool = False,
-        *,
-        disable_internal_retries: bool = False,
-        operation_variant: str | None = None,
-        read_timeout: float | None = None,
-        raise_on_null_status: bool = False,
-    ) -> Any: ...
 
 
 def _describe_sources(sources: list[Source]) -> str:
@@ -463,7 +445,7 @@ class SourceAddService:
         wait: bool = False,
         wait_timeout: float = 120.0,
         idempotent: bool = False,
-        rpc: SourceWireCaller,
+        rpc: RpcCaller,
         wait_until_ready: WaitUntilReady,
         logger: logging.Logger,
     ) -> Source:
@@ -524,7 +506,7 @@ class SourceAddService:
         mime_type: str = "application/vnd.google-apps.document",
         wait: bool = False,
         wait_timeout: float = 120.0,
-        rpc: SourceWireCaller,
+        rpc: RpcCaller,
         list_sources: ListSources,
         wait_until_ready: WaitUntilReady,
         logger: logging.Logger,
@@ -858,7 +840,7 @@ class SourceAddService:
         notebook_id: str,
         url: str,
         *,
-        rpc: SourceWireCaller,
+        rpc: RpcCaller,
     ) -> Any:
         """Add a YouTube video as a source.
 
@@ -886,7 +868,7 @@ class SourceAddService:
         notebook_id: str,
         url: str,
         *,
-        rpc: SourceWireCaller,
+        rpc: RpcCaller,
     ) -> Any:
         """Add a regular URL as a source.
 

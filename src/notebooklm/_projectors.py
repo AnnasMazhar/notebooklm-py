@@ -345,6 +345,7 @@ def project_source_fulltext(record: SourceFulltextRecord) -> SourceFulltext:
                 id=record.source_id,
                 kind=record.kind,
                 unrecognized_kind=record.unrecognized_kind,
+                kind_present=record.kind_present,
             )
         ),
         url=record.url,

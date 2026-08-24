@@ -8,6 +8,7 @@ import reprlib
 from typing import Any, Literal
 
 from .._row_adapters.sources import SourceFulltextRow
+from .._runtime.contracts import RpcCaller
 from .._types.documents import StructuredDocument
 from .._types.research import SourceGuide
 from .._types.sources import _disambiguate_type_code, _pdf_url_title_fallback
@@ -15,13 +16,12 @@ from .._web.codec.documents import decode_structured_document
 from .._web.codec.sources import decode_source_guide, encode_get_fulltext, encode_get_guide
 from ..rpc import RPCMethod
 from ..types import SourceFulltext, SourceNotFoundError, _extract_source_url
-from .add import SourceWireCaller
 
 
 class SourceContentRenderer:
     """Render source guide and fulltext content from source RPC responses."""
 
-    def __init__(self, rpc: SourceWireCaller, logger: logging.Logger | None = None) -> None:
+    def __init__(self, rpc: RpcCaller, logger: logging.Logger | None = None) -> None:
         self._rpc = rpc
         self._logger = logger or logging.getLogger(__name__)
 

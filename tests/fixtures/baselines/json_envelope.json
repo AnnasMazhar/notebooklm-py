@@ -609,6 +609,74 @@
       },
       {
         "allocation": {
+          "review_note": "The neutral full-text record carries StructuredDocument into public SourceFulltext, but CLI serialization selects scalar full-text fields and the shared MCP/REST read core selects only content and char_count; no adapter emits the document field.",
+          "source_evidence": [
+            {
+              "required_ast_fragments": [
+                "document=record.document"
+              ],
+              "semantic_fingerprint": "sha256:ce402cb53639687f79157948b1236caca05fae048fb0440ed373751418a4f7fe",
+              "symbol": "notebooklm._projectors.project_source_fulltext"
+            },
+            {
+              "required_ast_fragments": [
+                "'content': fulltext.content",
+                "'char_count': fulltext.char_count"
+              ],
+              "semantic_fingerprint": "sha256:6c4ea5e04fd2e5775cf4da13cdac7c314e52b219bf4b16758bc48ce5712987b2",
+              "symbol": "notebooklm.cli.services.source_serializers.source_fulltext_payload"
+            },
+            {
+              "required_ast_fragments": [
+                "content = fulltext_result.fulltext.content",
+                "return SourceReadResult"
+              ],
+              "semantic_fingerprint": "sha256:8a410f4679d71302afb154b267af065f4bca01e5deae4ddc2f1fc1fa2e51ac1a",
+              "symbol": "notebooklm._app.source_content.execute_source_read"
+            }
+          ],
+          "unreachable_category": "adapter-dropped-public-field"
+        },
+        "field_path": "document",
+        "private_model": "notebooklm._source_records.SourceFulltextRecord",
+        "public_model": "notebooklm._types.documents.StructuredDocument"
+      },
+      {
+        "allocation": {
+          "review_note": "The semantic full-text result forwards its nested StructuredDocument into public SourceFulltext, but CLI serialization and the shared MCP/REST read core consume only scalar content metadata and never serialize the nested document.",
+          "source_evidence": [
+            {
+              "required_ast_fragments": [
+                "document=record.document"
+              ],
+              "semantic_fingerprint": "sha256:ce402cb53639687f79157948b1236caca05fae048fb0440ed373751418a4f7fe",
+              "symbol": "notebooklm._projectors.project_source_fulltext"
+            },
+            {
+              "required_ast_fragments": [
+                "'content': fulltext.content",
+                "'char_count': fulltext.char_count"
+              ],
+              "semantic_fingerprint": "sha256:6c4ea5e04fd2e5775cf4da13cdac7c314e52b219bf4b16758bc48ce5712987b2",
+              "symbol": "notebooklm.cli.services.source_serializers.source_fulltext_payload"
+            },
+            {
+              "required_ast_fragments": [
+                "content = fulltext_result.fulltext.content",
+                "return SourceReadResult"
+              ],
+              "semantic_fingerprint": "sha256:8a410f4679d71302afb154b267af065f4bca01e5deae4ddc2f1fc1fa2e51ac1a",
+              "symbol": "notebooklm._app.source_content.execute_source_read"
+            }
+          ],
+          "unreachable_category": "adapter-dropped-public-field"
+        },
+        "field_path": "fulltext.document",
+        "private_model": "notebooklm._source_records.SourceFulltextResult",
+        "public_model": "notebooklm._types.documents.StructuredDocument"
+      },
+      {
+        "allocation": {
           "projection_ids": [
             "cli.CitedSourceSelection.manual-direct-import-projection"
           ],
@@ -6886,7 +6954,7 @@
         "kind": "return",
         "locator": "rest response|notebooklm/server/routes/sources.py|add_batch|return|1",
         "owner": "add_batch",
-        "owner_fingerprint": "sha256:9770bb58c3af5f491fd1adb29ed7795494fa6c742dbf5907c33a841f00d9cf03",
+        "owner_fingerprint": "sha256:f4967d12cf5ad625acc6948a75fc8fff2a6d7ad004e4d78a36e8b48bd437fc7f",
         "path": "notebooklm/server/routes/sources.py",
         "resolved_helper_symbols": [],
         "site_role": "projection"
@@ -7109,9 +7177,9 @@
       }
     ],
     "transitive_helper_graph": {
-      "aggregate_fingerprint": "sha256:ae5fe3cd9fa6e736b04df4200fadfbaff95bf324163d44190f93b55fba1308dd",
-      "edge_count": 1242,
-      "node_count": 519,
+      "aggregate_fingerprint": "sha256:a5d46aaf3af06300c3ab96e64b6a89c7469776df70f0e937855bfb1d5f87ad6f",
+      "edge_count": 1245,
+      "node_count": 521,
       "root_count": 210,
       "schema_version": 1
     }
@@ -13581,7 +13649,7 @@
             ],
             "evidence_shape_fingerprints": {
               "notebooklm/_app/views.py:source_view": "sha256:4f63eba4a2f8baff02d4bd2c1753ee0debb0491150878a278a11987fc251c785",
-              "notebooklm/mcp/tools/sources.py:_source_view": "sha256:cdac62d3f6cbfd940929fe5ff7920eb6d0f91e57ed88af809e9f7ad77267c812"
+              "notebooklm/mcp/tools/sources.py:_source_view": "sha256:f64ee8644b22b817c507b413a390a94891c9d659c8347d3c9c68ceaf169cba15"
             },
             "id": "mcp.Source.app-view-source-view",
             "keys": [
@@ -13958,7 +14026,7 @@
               "notebooklm/mcp/tools/sources.py:async def _add_url_batch"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/mcp/tools/sources.py:async def _add_url_batch": "sha256:a146fc8db29f1e58c607cf0d839e52b34a5b20381fbb7bfc178315c260ed6b92"
+              "notebooklm/mcp/tools/sources.py:async def _add_url_batch": "sha256:ec95f264da198ad9bf913fe7af3a4f1e469b3a9ca76053ca280e9f750718d0c5"
             },
             "id": "mcp.Source.transitive-batch-added-item-final-wrapper",
             "keys": [
@@ -15950,7 +16018,7 @@
               "notebooklm/server/routes/sources.py:async def add_batch"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/server/routes/sources.py:async def add_batch": "sha256:42afaebd80f2fcb8654dbaeae7b58f67b0b94f1632115d3b9cd9fef21ff1146a"
+              "notebooklm/server/routes/sources.py:async def add_batch": "sha256:89d6294282af89b5af97e22574485a9afd714d147c9aa5650193b151021850a2"
             },
             "id": "rest.Source.transitive-batch-added-item-final-wrapper",
             "keys": [

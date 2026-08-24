@@ -78,6 +78,10 @@ _UNREACHABLE_PRIVATE_PATH_CATEGORIES = {
         "reviewed public-typed private DTO field is never populated on any production "
         "return path and therefore cannot reach an adapter channel"
     ),
+    "adapter-dropped-public-field": (
+        "reviewed private DTO field reaches a public dataclass but every adapter projection "
+        "drops that field before JSON serialization"
+    ),
 }
 _GENERIC_REVIEW_NOTES = {
     "reviewed",
