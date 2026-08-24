@@ -15,12 +15,6 @@ PRODUCTION_STATE_FILES = [
     *sorted((ROOT / "src/notebooklm/_middleware").glob("*.py")),
     ROOT / "src/notebooklm/_runtime/transport.py",
 ]
-_TEMPORARY_CONTEXT_OWNERS = {
-    "src/notebooklm/_middleware/core.py",
-    "src/notebooklm/_middleware/semaphore.py",
-}
-
-
 def _mutable_context_accesses(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     try:
@@ -34,12 +28,9 @@ def _mutable_context_accesses(path: Path) -> list[str]:
     ]
 
 
-def test_production_uses_typed_state_except_bounded_semaphore_bridge() -> None:
+def test_production_uses_only_typed_call_state() -> None:
     violations: list[str] = []
     for path in PRODUCTION_STATE_FILES:
-        relpath = path.relative_to(ROOT).as_posix()
-        if relpath in _TEMPORARY_CONTEXT_OWNERS:
-            continue
         violations.extend(_mutable_context_accesses(path))
 
     assert violations == []

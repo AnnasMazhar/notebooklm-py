@@ -179,14 +179,18 @@ def _override_honored() -> tuple[bool, dict[str, Any]]:
     the encoded request is handed to the transport's request builder.
     """
     tree = _parse(WEB_EXECUTION_RUNTIME_PATH)
-    execute_once = next(
-        (
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_execute_once"
-        ),
-        None,
-    )
+    runtime_owners = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "WebExecutionRuntime"
+    ]
+    execute_once_methods = [
+        node
+        for owner in runtime_owners
+        for node in owner.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_execute_once"
+    ]
+    execute_once = execute_once_methods[0] if len(runtime_owners) == len(execute_once_methods) == 1 else None
     checks: dict[str, bool] = {
         "method_to_resolver": False,
         "resolved_id_to_body": False,

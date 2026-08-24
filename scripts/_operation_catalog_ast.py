@@ -457,7 +457,7 @@ def collect_native_execution_sites() -> dict[NativeKey, list[str]]:
 
 GENERIC_RPC_FORWARDERS = frozenset(
     {
-        "_web/backend.py:_DeadlineRpcCaller.rpc_call",
+        "_web/deadline_rpc.py:DeadlineRpcCaller.rpc_call",
         "_notebooks.py:NotebooksAPI._rpc_call",
         "client.py:NotebookLMClient.rpc_call",
     }
@@ -480,6 +480,8 @@ INERT_P1_WEB_SITES = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
 # These exact imports are the complete production semantic-backend dataflow.
 REVIEWED_BACKEND_IMPORTS = frozenset(
     {
+        ("_web/deadline_rpc.py", "_backend", "BackendDeadlineExceededError"),
+        ("_web/deadline_rpc.py", "backend", "WebRpcBackend"),
         ("_artifact/listing.py", "_projectors", "project_artifact"),
         ("_artifacts.py", "_backend", "BackendAdapter"),
         ("_artifacts.py", "_backend", "BackendContractError"),
