@@ -321,6 +321,20 @@ def _capture_public_failure(
             operation=operation,
         ) from exc
     cause = source_add_cause or explicit
+    # ``RpcExecutor`` translates exhausted private transport wrappers with
+    # ``raise PublicError(...) from httpx_error``. Python still retains the
+    # wrapper as ``__context__`` even though it is suppressed and the explicit
+    # HTTPX cause is the complete public graph. Do not leak that private runtime
+    # node across the semantic boundary. Keep failing closed for an unsupported
+    # context whenever there is no reviewed explicit cause or it is observable.
+    if (
+        context is not None
+        and type(context) not in kind_by_type
+        and explicit is not None
+        and type(explicit) in kind_by_type
+        and exc.__suppress_context__
+    ):
+        context = None
     original_error = getattr(exc, "original_error", None)
     if original_error is not None and not isinstance(original_error, Exception):
         raise BackendContractError(

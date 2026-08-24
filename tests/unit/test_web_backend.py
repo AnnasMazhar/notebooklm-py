@@ -128,6 +128,7 @@ from notebooklm._records import (
     VideoGenerateInput,
 )
 from notebooklm._source.upload_payloads import build_template_block
+from notebooklm._transport_errors import TransportRateLimited, TransportServerError
 from notebooklm._web.backend import WebRpcBackend
 from notebooklm._web.registry import (
     WEB_OPERATION_REGISTRY,
@@ -1748,6 +1749,65 @@ def test_translated_server_error_preserves_http_status_cause() -> None:
     assert projected.__cause__.request.method == "POST"
     assert str(projected.__cause__.request.url) == str(request.url)
     assert projected.__suppress_context__ is True
+
+
+@pytest.mark.parametrize("public_type", [RateLimitError, ServerError])
+def test_translated_transport_error_drops_suppressed_private_context(
+    public_type: type[RateLimitError] | type[ServerError],
+) -> None:
+    request = httpx.Request(
+        "POST", "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute"
+    )
+    response = httpx.Response(503, request=request)
+    cause = httpx.HTTPStatusError("service unavailable", request=request, response=response)
+    if public_type is RateLimitError:
+        private = TransportRateLimited(
+            "rate limited",
+            retry_after=7,
+            response=response,
+            original=cause,
+        )
+        error: RateLimitError | ServerError = RateLimitError(
+            "rate limited",
+            method_id=RPCMethod.LIST_NOTEBOOKS.value,
+            retry_after=7,
+        )
+    else:
+        private = TransportServerError(
+            "server error",
+            original=cause,
+            response=response,
+            status_code=503,
+        )
+        error = ServerError(
+            "server error",
+            status_code=503,
+            method_id=RPCMethod.LIST_NOTEBOOKS.value,
+        )
+    error.__cause__ = cause
+    error.__context__ = private
+    error.__suppress_context__ = True
+
+    translated = WebRpcBackend._translate_error(Operation.NOTEBOOK_LIST, error)
+    projected = project_backend_error(translated)
+
+    assert type(projected) is public_type
+    assert isinstance(projected.__cause__, httpx.HTTPStatusError)
+    assert projected.__cause__.response.status_code == 503
+    assert projected.__context__ is None
+    assert projected.__suppress_context__ is True
+
+
+def test_translated_error_rejects_unreviewed_context_without_public_cause() -> None:
+    class _PrivateExecutionError(Exception):
+        pass
+
+    error = ServerError("server error", status_code=503)
+    error.__context__ = _PrivateExecutionError("private")
+    error.__suppress_context__ = True
+
+    with pytest.raises(BackendContractError, match="unsupported public failure type"):
+        WebRpcBackend._translate_error(Operation.NOTEBOOK_LIST, error)
 
 
 @pytest.mark.parametrize(
