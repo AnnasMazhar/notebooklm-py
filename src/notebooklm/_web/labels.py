@@ -146,6 +146,7 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
         kind: LabelKind,
         operation: Operation,
         deadline: RuntimeDeadline | None,
+        outcome_unknown_on_expiry: bool = False,
     ) -> LabelListResult:
         """Read one whole label set; the only wire read either dialect has."""
         self._require_label_kind(value.kind, kind, operation)
@@ -168,6 +169,7 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
             deadline=deadline,
             source_path=source_path,
             allow_null=allow_null,
+            outcome_unknown_on_expiry=outcome_unknown_on_expiry,
         )
         return LabelListResult(
             labels=decode_label_list(
@@ -185,6 +187,7 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
         kind: LabelKind,
         operation: Operation,
         deadline: RuntimeDeadline | None,
+        outcome_unknown_on_expiry: bool = False,
     ) -> LabelGetResult:
         """Select one group by exact id from the set read; never by name."""
         self._require_label_kind(value.kind, kind, operation)
@@ -193,6 +196,7 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
             kind=kind,
             operation=operation,
             deadline=deadline,
+            outcome_unknown_on_expiry=outcome_unknown_on_expiry,
         )
         return LabelGetResult(
             label=next(
@@ -412,6 +416,7 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
             kind=LabelKind.COLLECTION,
             operation=Operation.COLLECTION_CREATE,
             deadline=deadline,
+            outcome_unknown_on_expiry=True,
         )
         return LabelCreateResult(
             label=self._reconcile_created_label(
@@ -445,6 +450,7 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
         notebook_id = self._require_notebook_scope(value.notebook_id, Operation.LABEL_UPDATE)
         source_path = f"/notebook/{notebook_id}"
         if value.add_member_ids or value.remove_member_ids:
+            write_may_have_committed = False
             for source_id in value.add_member_ids:
                 await self._rpc_call(
                     RPCMethod.UPDATE_LABEL,
@@ -458,7 +464,9 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
                     source_path=source_path,
                     allow_null=True,
                     operation_variant="add_sources",  # -> NON_IDEMPOTENT_NO_RETRY
+                    outcome_unknown_on_expiry=write_may_have_committed,
                 )
+                write_may_have_committed = True
             for source_id in value.remove_member_ids:
                 await self._rpc_call(
                     RPCMethod.UPDATE_LABEL,
@@ -472,7 +480,9 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
                     source_path=source_path,
                     allow_null=True,
                     operation_variant="remove_sources",  # -> IDEMPOTENT_SET_OP
+                    outcome_unknown_on_expiry=write_may_have_committed,
                 )
+                write_may_have_committed = True
             return LabelUpdateResult(
                 label=await self._label_membership_readback(
                     value,
@@ -527,6 +537,7 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
         """
         self._require_label_kind(value.kind, LabelKind.COLLECTION, Operation.COLLECTION_UPDATE)
         if value.add_member_ids or value.remove_member_ids:
+            write_may_have_committed = False
             for notebook_member_id in value.add_member_ids:
                 await self._rpc_call(
                     RPCMethod.UPDATE_LABEL,
@@ -539,7 +550,9 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
                     source_path=_ACCOUNT_PATH,
                     allow_null=True,
                     operation_variant="add_notebooks",  # -> NON_IDEMPOTENT_NO_RETRY
+                    outcome_unknown_on_expiry=write_may_have_committed,
                 )
+                write_may_have_committed = True
             for notebook_member_id in value.remove_member_ids:
                 await self._rpc_call(
                     RPCMethod.UPDATE_LABEL,
@@ -552,7 +565,9 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
                     source_path=_ACCOUNT_PATH,
                     allow_null=True,
                     operation_variant="remove_notebooks",  # -> IDEMPOTENT_SET_OP
+                    outcome_unknown_on_expiry=write_may_have_committed,
                 )
+                write_may_have_committed = True
             return LabelUpdateResult(
                 label=await self._label_membership_readback(
                     value,
@@ -657,6 +672,7 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
             kind=kind,
             operation=operation,
             deadline=deadline,
+            outcome_unknown_on_expiry=True,
         )
         if updated.label is None:
             raise self._label_not_found(
@@ -688,6 +704,7 @@ class LabelSetWebHandlers(StudioDataWebHandlers):
             kind=kind,
             operation=operation,
             deadline=deadline,
+            outcome_unknown_on_expiry=True,
         )
         if current.label is None:
             raise self._label_not_found(

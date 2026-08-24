@@ -1316,6 +1316,7 @@ class WebRpcBackend(ChatWebHandlers):
         operation: Operation,
         deadline: RuntimeDeadline | None,
         include_mind_maps: bool,
+        outcome_unknown_on_expiry: bool = False,
     ) -> tuple[ArtifactRecord, ...]:
         result = await self._rpc_call(
             RPCMethod.LIST_ARTIFACTS,
@@ -1328,6 +1329,7 @@ class WebRpcBackend(ChatWebHandlers):
             deadline=deadline,
             source_path=f"/notebook/{notebook_id}",
             allow_null=True,
+            outcome_unknown_on_expiry=outcome_unknown_on_expiry,
         )
         if isinstance(result, list):
             rows = unwrap_artifact_rows(
@@ -1413,11 +1415,14 @@ class WebRpcBackend(ChatWebHandlers):
         value: SourceGetInput,
         *,
         deadline: RuntimeDeadline | None,
+        operation: Operation = Operation.SOURCE_GET,
+        outcome_unknown_on_expiry: bool = False,
     ) -> SourceGetResult:
         records = await self._source_snapshot_records(
             value.notebook_id,
-            operation=Operation.SOURCE_GET,
+            operation=operation,
             deadline=deadline,
+            outcome_unknown_on_expiry=outcome_unknown_on_expiry,
         )
         return SourceGetResult(
             source=next((source for source in records if source.id == value.source_id), None)

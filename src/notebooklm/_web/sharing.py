@@ -64,6 +64,7 @@ class SharingWebHandlers(LabelSetWebHandlers):
         operation: Operation,
         deadline: RuntimeDeadline | None,
         view_level: ShareViewScope | None = None,
+        outcome_unknown_on_expiry: bool = False,
     ) -> ShareStatusRecord:
         result = await self._rpc_call(
             RPCMethod.GET_SHARE_STATUS,
@@ -71,6 +72,7 @@ class SharingWebHandlers(LabelSetWebHandlers):
             operation=operation,
             deadline=deadline,
             source_path=f"/notebook/{notebook_id}",
+            outcome_unknown_on_expiry=outcome_unknown_on_expiry,
         )
         return decode_share_status(result, notebook_id, view_level=view_level)
 
@@ -107,6 +109,7 @@ class SharingWebHandlers(LabelSetWebHandlers):
                 value.notebook_id,
                 operation=Operation.SHARING_SET_PUBLIC,
                 deadline=deadline,
+                outcome_unknown_on_expiry=True,
             )
         )
 
@@ -130,6 +133,7 @@ class SharingWebHandlers(LabelSetWebHandlers):
                 operation=Operation.SHARING_SET_VIEW_LEVEL,
                 deadline=deadline,
                 view_level=value.view_level,
+                outcome_unknown_on_expiry=True,
             )
         )
 
@@ -157,6 +161,7 @@ class SharingWebHandlers(LabelSetWebHandlers):
                 value.notebook_id,
                 operation=Operation.SHARING_UPDATE_USERS,
                 deadline=deadline,
+                outcome_unknown_on_expiry=True,
             )
         )
 

@@ -50,6 +50,7 @@ class StudioFacadeWebHandlers(SettingsSuggestionWebHandlers):
         operation: Operation,
         deadline: RuntimeDeadline | None,
         include_mind_maps: bool,
+        outcome_unknown_on_expiry: bool = False,
     ) -> tuple[ArtifactRecord, ...]:
         """Return catalog records from the concrete composed backend."""
 
@@ -90,6 +91,7 @@ class StudioFacadeWebHandlers(SettingsSuggestionWebHandlers):
             operation=Operation.ARTIFACT_RENAME,
             deadline=deadline,
             include_mind_maps=False,
+            outcome_unknown_on_expiry=True,
         )
         artifact = next((item for item in records if item.id == value.artifact_id), None)
         if artifact is None:

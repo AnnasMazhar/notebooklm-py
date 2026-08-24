@@ -153,6 +153,8 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
         value: Any,
         *,
         deadline: RuntimeDeadline | None,
+        operation: Operation = Operation.SOURCE_GET,
+        outcome_unknown_on_expiry: bool = False,
     ) -> Any:
         raise NotImplementedError
 
@@ -163,6 +165,7 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
         operation: Operation,
         deadline: RuntimeDeadline | None,
         strict: bool = False,
+        outcome_unknown_on_expiry: bool = False,
     ) -> tuple[SourceRecord, ...]:
         """Fetch and decode one recency-writing notebook source snapshot."""
 
@@ -172,6 +175,7 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
             operation=operation,
             deadline=deadline,
             source_path=f"/notebook/{notebook_id}",
+            outcome_unknown_on_expiry=outcome_unknown_on_expiry,
         )
         return decode_source_snapshot(
             notebook_id,
@@ -818,6 +822,8 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
         hydrated = await self._source_get(
             SourceGetInput(value.notebook_id, value.source_id),
             deadline=deadline,
+            operation=Operation.SOURCE_UPDATE,
+            outcome_unknown_on_expiry=True,
         )
         if hydrated.source is None:
             raise BackendError(
