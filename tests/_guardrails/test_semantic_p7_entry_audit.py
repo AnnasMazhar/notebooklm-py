@@ -54,6 +54,8 @@ KNOWN_ACTIVE_SEMANTIC_OPERATIONS: frozenset[Operation] = frozenset(
         Operation.ARTIFACT_GENERATE_FLASHCARDS,
         Operation.ARTIFACT_GENERATE_VIDEO,
         Operation.ARTIFACT_GENERATE_REPORT,
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK,
         Operation.NOTE_LIST,
         Operation.NOTE_GET,
         Operation.NOTE_CREATE,

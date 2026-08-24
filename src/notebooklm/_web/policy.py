@@ -197,6 +197,22 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
             ),
             known_divergence=_APP_GENERATION_DIVERGENCE,
         ),
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "optional all-source resolution"),
+                _native(RPCMethod.CREATE_ARTIFACT, _PROBE_CREATE, "guarded infographic kickoff"),
+            ),
+            known_divergence=_APP_GENERATION_DIVERGENCE,
+        ),
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "optional all-source resolution"),
+                _native(RPCMethod.CREATE_ARTIFACT, _PROBE_CREATE, "guarded slide-deck kickoff"),
+            ),
+            known_divergence=_APP_GENERATION_DIVERGENCE,
+        ),
         Operation.NOTE_LIST: WebCallPolicyBinding(
             CallPolicy.READ,
             (

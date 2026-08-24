@@ -40,8 +40,10 @@ from notebooklm._read_services import NotebookReadService, SourceReadService
 from notebooklm._records import (
     ARTIFACT_GENERATE_AUDIO_DEF,
     ARTIFACT_GENERATE_FLASHCARDS_DEF,
+    ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
     ARTIFACT_GENERATE_QUIZ_DEF,
     ARTIFACT_GENERATE_REPORT_DEF,
+    ARTIFACT_GENERATE_SLIDE_DECK_DEF,
     ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
@@ -161,6 +163,14 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         ),
         ARTIFACT_GENERATE_REPORT_DEF: (
             Operation.ARTIFACT_GENERATE_REPORT,
+            CallPolicy.STATEFUL_START,
+        ),
+        ARTIFACT_GENERATE_INFOGRAPHIC_DEF: (
+            Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+            CallPolicy.STATEFUL_START,
+        ),
+        ARTIFACT_GENERATE_SLIDE_DECK_DEF: (
+            Operation.ARTIFACT_GENERATE_SLIDE_DECK,
             CallPolicy.STATEFUL_START,
         ),
         NOTE_LIST_DEF: (Operation.NOTE_LIST, CallPolicy.READ),
@@ -289,6 +299,16 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         ),
         (
             ARTIFACT_GENERATE_REPORT_DEF,
+            [(RPCMethod.GET_NOTEBOOK, None), (RPCMethod.CREATE_ARTIFACT, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP, IdempotencyPolicy.PROBE_THEN_CREATE],
+        ),
+        (
+            ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
+            [(RPCMethod.GET_NOTEBOOK, None), (RPCMethod.CREATE_ARTIFACT, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP, IdempotencyPolicy.PROBE_THEN_CREATE],
+        ),
+        (
+            ARTIFACT_GENERATE_SLIDE_DECK_DEF,
             [(RPCMethod.GET_NOTEBOOK, None), (RPCMethod.CREATE_ARTIFACT, None)],
             [IdempotencyPolicy.IDEMPOTENT_SET_OP, IdempotencyPolicy.PROBE_THEN_CREATE],
         ),

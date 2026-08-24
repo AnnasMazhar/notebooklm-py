@@ -56,6 +56,22 @@ class StudioCatalog:
             record for record in result.artifacts if matches_artifact_family(record, family)
         )
 
+    async def get_record(
+        self,
+        notebook_id: str,
+        artifact_id: str,
+        *,
+        deadline: RuntimeDeadline | None = None,
+    ) -> ArtifactRecord | None:
+        """Return one complete neutral row without public projection."""
+
+        result = await self._backend.invoke(
+            ARTIFACT_GET_DEF,
+            ArtifactGetInput(notebook_id, artifact_id),
+            deadline=deadline,
+        )
+        return result.artifact
+
     async def get_or_none(
         self,
         notebook_id: str,
@@ -65,22 +81,5 @@ class StudioCatalog:
     ) -> Artifact | None:
         record = await self.get_record(notebook_id, artifact_id, deadline=deadline)
         return None if record is None else project_artifact(record)
-
-    async def get_record(
-        self,
-        notebook_id: str,
-        artifact_id: str,
-        *,
-        deadline: RuntimeDeadline | None = None,
-    ) -> ArtifactRecord | None:
-        """Return one neutral catalog record without public-model projection."""
-
-        result = await self._backend.invoke(
-            ARTIFACT_GET_DEF,
-            ArtifactGetInput(notebook_id, artifact_id),
-            deadline=deadline,
-        )
-        return result.artifact
-
 
 __all__ = ["StudioCatalog"]

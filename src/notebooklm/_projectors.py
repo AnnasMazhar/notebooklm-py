@@ -249,6 +249,22 @@ def project_note(record: NoteRecord) -> Note:
     )
 
 
+def project_generation_status(record: GenerationStatusRecord) -> GenerationStatus:
+    """Construct one public generation kickoff state from a neutral record."""
+
+    try:
+        status = GenerationState(record.status)
+    except ValueError:
+        status = GenerationState.UNKNOWN
+    return GenerationStatus(
+        task_id=record.task_id,
+        status=status,
+        url=record.url,
+        error=record.error,
+        error_code=record.error_code,
+    )
+
+
 def _project_artifact_user_state(
     record: ArtifactUserStateRecord | None,
 ) -> AudioArtifactUserState | FlashcardArtifactUserState | UnknownArtifactUserState | None:
@@ -337,22 +353,6 @@ def project_artifact(record: ArtifactRecord) -> Artifact:
         last_modified_at=record.last_modified_at,
         etag=record.etag,
         user_state=_project_artifact_user_state(record.user_state),
-    )
-
-
-def project_generation_status(record: GenerationStatusRecord) -> GenerationStatus:
-    """Construct the existing public generation task value from neutral state."""
-
-    try:
-        state = GenerationState(record.status)
-    except ValueError:
-        state = GenerationState.UNKNOWN
-    return GenerationStatus(
-        task_id=record.task_id,
-        status=state,
-        url=record.url,
-        error=record.error,
-        error_code=record.error_code,
     )
 
 

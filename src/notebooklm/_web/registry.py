@@ -1,6 +1,6 @@
 """Closed web dispositions for the semantic operation vocabulary.
 
-P2 notebook/source operations, P5 Studio catalog/Audio/Quiz/Flashcards operations,
+P2 notebook/source operations, P5 Studio family operations,
 and P6.3 plain-note CRUD have executable bindings. Every other P0 operation has
 an unsupported disposition, and
 the count assertions force a deliberate registry update when the closed
@@ -18,8 +18,10 @@ from .._operations import Operation, OperationDef
 from .._records import (
     ARTIFACT_GENERATE_AUDIO_DEF,
     ARTIFACT_GENERATE_FLASHCARDS_DEF,
+    ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
     ARTIFACT_GENERATE_QUIZ_DEF,
     ARTIFACT_GENERATE_REPORT_DEF,
+    ARTIFACT_GENERATE_SLIDE_DECK_DEF,
     ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
@@ -89,6 +91,8 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.ARTIFACT_GENERATE_FLASHCARDS: ARTIFACT_GENERATE_FLASHCARDS_DEF,
         Operation.ARTIFACT_GENERATE_REPORT: ARTIFACT_GENERATE_REPORT_DEF,
         Operation.ARTIFACT_GENERATE_VIDEO: ARTIFACT_GENERATE_VIDEO_DEF,
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC: ARTIFACT_GENERATE_INFOGRAPHIC_DEF,
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK: ARTIFACT_GENERATE_SLIDE_DECK_DEF,
     }
 )
 
@@ -114,6 +118,8 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.ARTIFACT_GENERATE_FLASHCARDS: "_flashcards_generate",
         Operation.ARTIFACT_GENERATE_REPORT: "_report_generate",
         Operation.ARTIFACT_GENERATE_VIDEO: "_video_generate",
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC: "_infographic_generate",
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK: "_slide_deck_generate",
     }
 )
 
@@ -125,7 +131,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 20
+_EXPECTED_SUPPORTED_COUNT: Final = 22
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

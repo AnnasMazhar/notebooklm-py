@@ -123,13 +123,13 @@ _GENERATION_OPERATIONS = {
 }
 for _operation, _discriminator in _GENERATION_OPERATIONS.items():
     if _operation is Operation.ARTIFACT_GENERATE_AUDIO:
-        _create_site = "_web/backend.py:WebRpcBackend._audio_generate"
+        _create_site = "_web/studio_media.py:StudioMediaWebHandlers._audio_generate"
         _source_site = _create_site
     elif _operation in {
         Operation.ARTIFACT_GENERATE_QUIZ,
         Operation.ARTIFACT_GENERATE_FLASHCARDS,
     }:
-        _create_site = "_web/backend.py:WebRpcBackend._interactive_generate"
+        _create_site = "_web/studio_media.py:StudioMediaWebHandlers._interactive_generate"
         _source_site = _create_site
     elif _operation in {
         Operation.ARTIFACT_GENERATE_REPORT,
@@ -137,6 +137,12 @@ for _operation, _discriminator in _GENERATION_OPERATIONS.items():
     }:
         _create_site = "_web/studio_documents.py:StudioDocumentWebHandlers._document_generate"
         _source_site = "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids"
+    elif _operation in {
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK,
+    }:
+        _create_site = "_web/studio_media.py:StudioMediaWebHandlers._visual_generate"
+        _source_site = "_web/studio_media.py:StudioMediaWebHandlers._visual_source_selection"
     else:
         _create_site = "_artifact/generation.py:ArtifactGenerationService._call_generate"
         _source_site = "_notebooks.py:NotebooksAPI.get_raw"
@@ -354,15 +360,7 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             1,
             "public_call",
             "one only when source_ids is omitted",
-            (
-                "_web/backend.py:WebRpcBackend._interactive_generate"
-                if _operation
-                in {
-                    Operation.ARTIFACT_GENERATE_QUIZ,
-                    Operation.ARTIFACT_GENERATE_FLASHCARDS,
-                }
-                else _GET_RAW,
-            ),
+            (_GET_RAW,),
         ),
     ),
     Operation.SOURCE_LIST: (
@@ -458,14 +456,19 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
 
 for _operation in (*_GENERATION_OPERATIONS, Operation.ARTIFACT_GENERATE_MIND_MAP):
     if _operation is Operation.ARTIFACT_GENERATE_AUDIO:
-        _recency_site = "_web/backend.py:WebRpcBackend._audio_generate"
+        _recency_site = "_web/studio_media.py:StudioMediaWebHandlers._audio_generate"
     elif _operation in {
         Operation.ARTIFACT_GENERATE_QUIZ,
         Operation.ARTIFACT_GENERATE_FLASHCARDS,
     }:
-        _recency_site = "_web/backend.py:WebRpcBackend._interactive_generate"
+        _recency_site = "_web/studio_media.py:StudioMediaWebHandlers._interactive_generate"
     elif _operation in {Operation.ARTIFACT_GENERATE_REPORT, Operation.ARTIFACT_GENERATE_VIDEO}:
         _recency_site = "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids"
+    elif _operation in {
+        Operation.ARTIFACT_GENERATE_INFOGRAPHIC,
+        Operation.ARTIFACT_GENERATE_SLIDE_DECK,
+    }:
+        _recency_site = "_web/studio_media.py:StudioMediaWebHandlers._visual_source_selection"
     else:
         _recency_site = _GET_RAW
     RECENCY_CONTRACTS[_operation] = (

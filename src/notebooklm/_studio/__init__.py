@@ -4,6 +4,7 @@ from .audio import AudioFamilyService
 from .catalog import StudioCatalog
 from .documents import DocumentOptionError, ReportFamilyService, VideoFamilyService
 from .interactive import InteractiveFamilyService
+from .visuals import VisualFamilyService
 
 __all__ = [
     "AudioFamilyService",
@@ -12,4 +13,5 @@ __all__ = [
     "ReportFamilyService",
     "StudioCatalog",
     "VideoFamilyService",
+    "VisualFamilyService",
 ]
