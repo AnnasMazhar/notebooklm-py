@@ -627,10 +627,14 @@ class NotebooksAPI:
             no longer enters its block.
         """
         logger.debug("Deleting notebook: %s", notebook_id)
+        public_error: Exception | None = None
         try:
             await self._require_mutation_service().delete(notebook_id)
+            return
         except BackendError as error:
-            raise project_backend_error(error) from None
+            public_error = project_backend_error(error)
+        assert public_error is not None
+        raise public_error
 
     async def rename(self, notebook_id: str, new_title: str) -> Notebook:
         """Rename a notebook.
@@ -662,6 +666,7 @@ class NotebooksAPI:
         be supplied.
         """
         logger.debug("Updating notebook %s (title=%r, emoji=%r)", notebook_id, title, emoji)
+        public_error: Exception | None = None
         try:
             return await self._require_mutation_service().update(
                 notebook_id,
@@ -669,7 +674,9 @@ class NotebooksAPI:
                 emoji=emoji,
             )
         except BackendError as error:
-            raise project_backend_error(error) from None
+            public_error = project_backend_error(error)
+        assert public_error is not None
+        raise public_error
 
     async def get_summary(self, notebook_id: str) -> str:
         """Get raw summary text for a notebook.

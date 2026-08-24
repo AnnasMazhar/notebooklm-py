@@ -19,8 +19,10 @@ from notebooklm._notebook_payloads import (
 from notebooklm._notebooks import NotebooksAPI
 from notebooklm._web.backend import WebRpcBackend
 from notebooklm.exceptions import (
+    ClientError,
     DecodingError,
     NetworkError,
+    NotebookNotFoundError,
     RPCError,
     ServerError,
     ValidationError,
@@ -185,6 +187,28 @@ async def test_title_update_pins_mutation_then_get_readback() -> None:
             _retry_deadline=None,
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_update_not_found_preserves_reconstructed_public_cause_graph() -> None:
+    original = ClientError(
+        "not found",
+        status_code=404,
+        method_id=RPCMethod.GET_NOTEBOOK.value,
+        raw_response="scrubbed response",
+        rpc_code=5,
+    )
+    api = _api(AsyncMock(side_effect=[None, original]))
+
+    with pytest.raises(NotebookNotFoundError) as caught:
+        await api.update("nb-missing", title="Renamed")
+
+    assert isinstance(caught.value.__cause__, ClientError)
+    assert caught.value.__context__ is caught.value.__cause__
+    assert caught.value.__cause__.status_code == 404
+    assert caught.value.__cause__.rpc_code == 5
+    assert caught.value.__cause__.raw_response == "scrubbed response"
+    assert caught.value.__suppress_context__ is True
 
 
 @pytest.mark.asyncio

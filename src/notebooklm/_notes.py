@@ -79,10 +79,13 @@ class NotesAPI:
             List of Note objects.
         """
         logger.debug("Listing notes in notebook: %s", notebook_id)
+        public_error: Exception | None = None
         try:
             return await self._notes.list_notes(notebook_id)
         except BackendError as error:
-            raise project_backend_error(error) from None
+            public_error = project_backend_error(error)
+        assert public_error is not None
+        raise public_error
 
     async def get(self, notebook_id: str, note_id: str) -> Note:
         """Get a specific note by ID.
@@ -124,10 +127,13 @@ class NotesAPI:
         Returns:
             The :class:`~notebooklm.types.Note`, or ``None`` if not found.
         """
+        public_error: Exception | None = None
         try:
             return await self._notes.get_note_or_none(notebook_id, note_id)
         except BackendError as error:
-            raise project_backend_error(error) from None
+            public_error = project_backend_error(error)
+        assert public_error is not None
+        raise public_error
 
     # Internal optional-lookup alias: a stable private name so internal call
     # sites and tests use the ``None``-on-miss lookup rather than the raising get().
@@ -149,6 +155,7 @@ class NotesAPI:
         Returns:
             The created Note object.
         """
+        public_error: Exception | None = None
         try:
             return await self._notes.create_note(
                 notebook_id,
@@ -156,7 +163,9 @@ class NotesAPI:
                 content=content,
             )
         except BackendError as error:
-            raise project_backend_error(error) from None
+            public_error = project_backend_error(error)
+        assert public_error is not None
+        raise public_error
 
     async def update(
         self,
@@ -191,10 +200,14 @@ class NotesAPI:
         # yields ``None`` (transport/auth/decode faults propagate).
         if await self.get_or_none(notebook_id, note_id) is None:
             raise NoteNotFoundError(note_id)
+        public_error: Exception | None = None
         try:
             await self._notes.update_note(notebook_id, note_id, content, title)
+            return
         except BackendError as error:
-            raise project_backend_error(error) from None
+            public_error = project_backend_error(error)
+        assert public_error is not None
+        raise public_error
 
     async def delete(self, notebook_id: str, note_id: str) -> None:
         """Delete a note from the notebook.
@@ -216,10 +229,14 @@ class NotesAPI:
             no longer enters its block.
         """
         logger.debug("Deleting note %s from notebook %s", note_id, notebook_id)
+        public_error: Exception | None = None
         try:
             await self._notes.delete_note(notebook_id, note_id)
+            return
         except BackendError as error:
-            raise project_backend_error(error) from None
+            public_error = project_backend_error(error)
+        assert public_error is not None
+        raise public_error
 
     async def list_mind_maps(self, notebook_id: str) -> builtins.list[Any]:
         """List all mind maps in the notebook.

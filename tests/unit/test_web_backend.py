@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from notebooklm._artifact.payloads import build_audio_artifact_params
@@ -885,6 +886,26 @@ async def test_expired_deadline_fails_before_executor() -> None:
 
 
 @pytest.mark.asyncio
+async def test_mutation_expiring_before_dispatch_is_not_marked_unconfirmed() -> None:
+    executor = _RecordingExecutor(None)
+    times = iter((11.0, 12.0))
+    deadline = RuntimeDeadline(timeout=1.5, started_at=10.0, monotonic=lambda: next(times))
+
+    with pytest.raises(BackendDeadlineExceededError) as caught:
+        await _backend(executor).invoke(
+            NOTEBOOK_DELETE_DEF,
+            NotebookDeleteInput("nb-1"),
+            deadline=deadline,
+        )
+
+    assert executor.calls == []
+    assert caught.value.outcome_unknown is False
+    projected = project_backend_error(caught.value)
+    assert isinstance(projected, RPCTimeoutError)
+    assert getattr(projected, "unconfirmed", False) is False
+
+
+@pytest.mark.asyncio
 async def test_rpc_error_is_translated_with_scrubbed_diagnostics() -> None:
     error = RPCError(
         "decode failed",
@@ -1081,11 +1102,21 @@ async def test_nonexpired_transport_timeout_remains_a_typed_backend_timeout() ->
 
 @pytest.mark.asyncio
 async def test_expired_midflight_transport_timeout_maps_to_semantic_deadline_error() -> None:
+    leaf = httpx.ReadTimeout(
+        "socket stalled",
+        request=httpx.Request(
+            "POST", "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute"
+        ),
+    )
     timeout = RPCTimeoutError(
         "request timed out",
         method_id=RPCMethod.LIST_NOTEBOOKS.value,
         timeout_seconds=3.0,
+        original_error=leaf,
     )
+    timeout.__cause__ = leaf
+    timeout.__context__ = leaf
+    timeout.__suppress_context__ = True
     executor = _RecordingExecutor(timeout)
     times = iter((12.0, 12.0, 16.0, 16.0))
     deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: next(times))
@@ -1100,7 +1131,15 @@ async def test_expired_midflight_transport_timeout_maps_to_semantic_deadline_err
     assert caught.value.reason is BackendErrorReason.TIMEOUT
     assert caught.value.outcome_unknown is False
     assert caught.value.__cause__ is timeout
-    assert caught.value.diagnostics == {
+    assert caught.value.diagnostics is not None
+    failure = caught.value.diagnostics["public_error_failure"]
+    assert isinstance(failure, SourceAddFailureRecord)
+    assert failure.kind is SourceAddFailureKind.RPC_TIMEOUT
+    assert {
+        key: value
+        for key, value in caught.value.diagnostics.items()
+        if key != "public_error_failure"
+    } == {
         "method_id": RPCMethod.LIST_NOTEBOOKS.value,
         "rpc_code": None,
         "found_ids": None,
@@ -1109,6 +1148,13 @@ async def test_expired_midflight_transport_timeout_maps_to_semantic_deadline_err
         "timeout": 5.0,
         "remaining": 0.0,
     }
+    projected = project_backend_error(caught.value)
+    assert isinstance(projected, RPCTimeoutError)
+    assert isinstance(projected.original_error, httpx.ReadTimeout)
+    assert projected.original_error.args == ("socket stalled",)
+    assert projected.__cause__ is projected.original_error
+    assert projected.__context__ is projected.original_error
+    assert projected.__suppress_context__ is True
 
 
 @pytest.mark.asyncio

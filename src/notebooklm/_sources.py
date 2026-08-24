@@ -216,7 +216,8 @@ class SourcesAPI:
             )
         except BackendError as error:
             public_error = self._compat_read_error(error)
-        raise public_error from None
+        assert public_error is not None
+        raise public_error
 
     async def get(self, notebook_id: str, source_id: str) -> Source:
         """Get details of a specific source.
@@ -269,7 +270,8 @@ class SourcesAPI:
             return await self._require_read_service().get(notebook_id, source_id)
         except BackendError as error:
             public_error = self._compat_read_error(error)
-        raise public_error from None
+        assert public_error is not None
+        raise public_error
 
     # Internal silent lookup for pollers/service code avoiding public ``get()`` misses.
     _get_or_none = get_or_none

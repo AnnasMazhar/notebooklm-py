@@ -172,6 +172,7 @@ class ArtifactsAPI:
         logger.debug("Listing artifacts in notebook %s", notebook_id)
         if self._catalog is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        public_error: Exception | None = None
         try:
             family = (
                 None if artifact_type is None else getattr(artifact_type, "value", artifact_type)
@@ -181,7 +182,9 @@ class ArtifactsAPI:
                 family,
             )
         except BackendError as error:
-            raise project_backend_error(error) from None
+            public_error = project_backend_error(error)
+        assert public_error is not None
+        raise public_error
 
     async def _list_for_download(
         self, notebook_id: str, artifact_type: ArtifactType | None = None
@@ -226,10 +229,13 @@ class ArtifactsAPI:
         logger.debug("Getting artifact %s from notebook %s", artifact_id, notebook_id)
         if self._catalog is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        public_error: Exception | None = None
         try:
             return await self._catalog.get_or_none(notebook_id, artifact_id)
         except BackendError as error:
-            raise project_backend_error(error) from None
+            public_error = project_backend_error(error)
+        assert public_error is not None
+        raise public_error
 
     # Internal optional-lookup alias: stable private name for the ``None``-on-miss lookup (vs. raising ``get()``).
     _get_or_none = get_or_none
@@ -248,10 +254,13 @@ class ArtifactsAPI:
         """List audio overview artifacts."""
         if self._audio is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        public_error: Exception | None = None
         try:
             return [project_artifact(record) for record in await self._audio.list(notebook_id)]
         except BackendError as error:
-            raise project_backend_error(error) from None
+            public_error = project_backend_error(error)
+        assert public_error is not None
+        raise public_error
 
     async def list_video(self, notebook_id: str) -> builtins.list[Artifact]:
         """List video overview artifacts."""
@@ -297,6 +306,7 @@ class ArtifactsAPI:
         """Generate an Audio Overview (podcast)."""
         if self._audio is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        public_error: Exception | None = None
         try:
             result = await self._audio.generate(
                 AudioGenerateInput(
@@ -309,8 +319,11 @@ class ArtifactsAPI:
                 )
             )
         except BackendError as error:
-            raise project_backend_error(error) from None
-        return project_generation_status(result.status)
+            public_error = project_backend_error(error)
+        else:
+            return project_generation_status(result.status)
+        assert public_error is not None
+        raise public_error
 
     async def generate_video(
         self,
@@ -537,19 +550,23 @@ class ArtifactsAPI:
         if artifacts_data is None:
             if self._audio is None:
                 raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+            public_error: Exception | None = None
             try:
                 metadata = await self._audio.select_download(notebook_id, artifact_id)
             except BackendError as error:
-                raise project_backend_error(error) from None
-            if metadata is None:
-                raise ArtifactNotReadyError("audio", artifact_id=artifact_id)
-            if not metadata.preferred_url:
-                raise ArtifactParseError(
-                    "audio",
-                    artifact_id=artifact_id,
-                    details="Could not extract download URL from artifact metadata",
-                )
-            return await self._downloads.download_url(metadata.preferred_url, output_path)
+                public_error = project_backend_error(error)
+            else:
+                if metadata is None:
+                    raise ArtifactNotReadyError("audio", artifact_id=artifact_id)
+                if not metadata.preferred_url:
+                    raise ArtifactParseError(
+                        "audio",
+                        artifact_id=artifact_id,
+                        details="Could not extract download URL from artifact metadata",
+                    )
+                return await self._downloads.download_url(metadata.preferred_url, output_path)
+            assert public_error is not None
+            raise public_error
         return await self._downloads.download_audio(
             notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
         )

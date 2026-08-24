@@ -152,7 +152,6 @@ from ..types import (
     UnknownArtifactUserState,
 )
 from .codec.notes import decode_created_note, decode_note, decode_notes
-from .policy import WEB_CALL_POLICY_BINDINGS
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
@@ -685,6 +684,10 @@ class WebRpcBackend:
             if deadline is not None and deadline.expired():
                 diagnostics = dict(self._error_diagnostics(exc, BackendErrorReason.TIMEOUT))
                 diagnostics.update({"timeout": deadline.timeout, "remaining": deadline.remaining()})
+                diagnostics["public_error_failure"] = _capture_public_failure(
+                    exc,
+                    operation=operation.key,
+                )
                 raise BackendDeadlineExceededError(
                     operation.key,
                     outcome_unknown=operation.policy is not CallPolicy.READ,
@@ -728,6 +731,7 @@ class WebRpcBackend:
         disable_internal_retries: bool = False,
         operation_variant: str | None = None,
         raise_on_null_status: bool = False,
+        outcome_unknown_on_expiry: bool = False,
     ) -> Any:
         read_timeout: float | None = None
         if deadline is not None:
@@ -735,9 +739,10 @@ class WebRpcBackend:
             if read_timeout <= 0.0:
                 raise BackendDeadlineExceededError(
                     operation,
-                    outcome_unknown=(
-                        WEB_CALL_POLICY_BINDINGS[operation].policy is not CallPolicy.READ
-                    ),
+                    # No native call was dispatched in this phase. Uncertainty
+                    # is therefore false unless the composite explicitly says
+                    # an earlier phase may already have committed.
+                    outcome_unknown=outcome_unknown_on_expiry,
                     diagnostics=MappingProxyType(
                         {
                             "timeout": deadline.timeout,
@@ -990,6 +995,7 @@ class WebRpcBackend:
                 operation=Operation.NOTEBOOK_UPDATE,
                 deadline=deadline,
                 source_path=f"/notebook/{value.notebook_id}",
+                outcome_unknown_on_expiry=True,
             )
         except ClientError as exc:
             if normalize_grpc_status(exc.rpc_code) is not GrpcStatusCode.NOT_FOUND:

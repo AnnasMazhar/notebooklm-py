@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call
 
+import httpx
 import pytest
 
 from notebooklm import MindMap, Note
@@ -43,6 +44,7 @@ from notebooklm.exceptions import (
     MindMapNotFoundError,
     NoteNotFoundError,
     RPCError,
+    RPCTimeoutError,
     UnknownRPCMethodError,
 )
 from notebooklm.rpc import RPCMethod
@@ -88,6 +90,37 @@ def test_notes_api_public_signatures_are_frozen() -> None:
         "notebook_id",
         "mind_map_id",
     ]
+
+
+@pytest.mark.asyncio
+async def test_notes_facade_preserves_reconstructed_timeout_cause_graph() -> None:
+    leaf = httpx.ReadTimeout(
+        "socket stalled",
+        request=httpx.Request(
+            "POST", "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute"
+        ),
+    )
+    timeout = RPCTimeoutError(
+        "request timed out",
+        method_id=RPCMethod.GET_NOTES_AND_MIND_MAPS.value,
+        timeout_seconds=3.0,
+        original_error=leaf,
+    )
+    timeout.__cause__ = leaf
+    timeout.__context__ = leaf
+    timeout.__suppress_context__ = True
+    core = make_fake_core(rpc_call=AsyncMock(side_effect=timeout))
+    _notes, _legacy, _mind_maps, api = make_note_stack(core)
+
+    with pytest.raises(RPCTimeoutError) as caught:
+        await api.list("nb-1")
+
+    assert caught.value is not timeout
+    assert isinstance(caught.value.original_error, httpx.ReadTimeout)
+    assert caught.value.original_error.args == ("socket stalled",)
+    assert caught.value.__cause__ is caught.value.original_error
+    assert caught.value.__context__ is caught.value.original_error
+    assert caught.value.__suppress_context__ is True
 
 
 def test_note_service_public_signatures_are_frozen() -> None:
