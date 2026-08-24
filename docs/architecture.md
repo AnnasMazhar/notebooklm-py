@@ -104,9 +104,11 @@ transport-neutral semantic services and that client-owned backend. Audio discove
 selection reuse the Studio catalog rather than adding a second listing authority. The URL-source
 handler owns ordinary and hidden YouTube dispatch, exact pre-create reconciliation, and best-effort
 title mutation. It honors one caller-supplied absolute semantic deadline when present; the public
-`wait_timeout` remains the readiness-poll budget and starts after creation. P3's first live codec
-routes GET_SOURCE structured documents through the strict web codec boundary. P4 converges the
-active bindings: whole-workflow `CallPolicy` values, exact native idempotency expectations,
+`wait_timeout` remains the readiness-poll budget and starts after creation. P3 routes the live notebook, source,
+artifact, label, collection, and sharing response grammars through private records and compatibility
+projectors; GET_SOURCE structured documents retain their explicit transport-neutral value exemption.
+The retained public parsing factories remain callable but have no production callers. P4 converges
+the active bindings: whole-workflow `CallPolicy` values, exact native idempotency expectations,
 caller-owned absolute deadline identity, and closed public-error projection are audited together
 without moving retry authority out of the native registry. Future operation migrations must extend
 that same ledger; P5.1, P5.2, and P6.3 extend it to all 16 current handlers. The remaining phase
@@ -1046,7 +1048,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_deadline.py` | `RuntimeDeadline` helper shared by retry and polling loops so aggregate timeouts clamp sleep consistently |
 | `_backend_compat.py` | Private compatibility projector from closed semantic `BackendErrorReason` + safe diagnostics back to the existing public exception subclasses at migrated facade boundaries. |
 | `_backend.py` | Private protocol-neutral semantic port: backend kind/capabilities, typed `BackendAdapter.invoke`, and the minimal scrubbed error/deadline handoff used by the P2 slice. |
-| `_records.py` | Frozen, slotted, protocol-neutral input/output records and `OperationDef` values for P2 notebook/source operations, P5.1 Studio catalog, P5.2 Audio generation/readiness metadata, and P6.3 plain-note CRUD, including the closed URL-source error evidence. |
+| `_records.py` | Frozen, slotted, protocol-neutral input/output records and `OperationDef` values for P2 notebook/source operations, P5.1 Studio catalog, P5.2 Audio generation/readiness metadata, and P6.3 plain-note CRUD, plus P3 notebook-guide/source/artifact/label/collection/sharing decode values and closed URL-source error evidence. |
 | `_backoff.py` | Shared capped exponential-backoff calculation with deterministic test injection |
 | `_reqid_counter.py` | `ReqidCounter` — monotonic `_reqid` for the chat backend |
 | `_runtime/auth.py` | `AuthRefreshCoordinator` — refresh task + auth-snapshot lock |
@@ -1055,7 +1057,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_runtime/transport.py` | `RuntimeTransport` — authed-POST transport wrapper that drives the middleware chain and typed transport response handling |
 | `_rpc_executor.py` | RPC dispatch executor. Takes its `Kernel`, `RuntimeTransport`, `AuthRefreshCoordinator`, and `ClientMetrics` collaborators directly via keyword-only constructor parameters (ADR-0014 Rule 5). Defines a single local `DecodeResponse` Protocol. |
 | `_operations.py` | Closed P0 semantic vocabulary: `Operation` / `CallPolicy` enums and frozen, slotted, typed `OperationDef`, consumed by the private P1 backend port and registries. |
-| `_projectors.py` | Compatibility projectors from neutral notebook/source/artifact/note records to existing public models, using their normal constructors and no wire adapters. |
+| `_projectors.py` | Shared compatibility projectors from neutral records to the existing public notebook/source/artifact/note/label/collection/sharing models, using normal constructors with no positional indices, RPC IDs, or public parsing factories. |
 | `_notebook_mutation_service.py` | Private P2.2 transport-neutral notebook create/title-update/delete service; validates semantic input and invokes only typed backend definitions. |
 | `_mutation_services.py` | Private live P2.3 transport-neutral URL-source mutation service; carries the ordinary/YouTube request and uncertainty receipt through `BackendAdapter` without wire dependencies. |
 | `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
@@ -1063,7 +1065,9 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; 16 active handlers cover P2 notebook/source operations, P5.1 Studio catalog reads, P5.2 Audio generation, and P6.3 plain-note CRUD. |
 | `_web/policy.py` | Exact P4 ledger, extended to all 16 active web workflows: semantic policy, every reachable native method/variant, reviewed native idempotency, and optional reported divergence. It audits parity but never controls retry execution. |
 | `_web/registry.py` | Closed web disposition registry over every `Operation`: 16 executable typed handlers and an unsupported disposition for every other operation. |
-| `_web/codec/documents.py` | First live P3 codec boundary: decodes the GET_SOURCE document body through the strict document row adapter into the exported, transport-neutral `StructuredDocument` value exemption. It owns no backend invocation or HTTP/RPC dispatch; chat and citation callers remain deferred to P6. |
+| `_studio/catalog.py` | Typed P5.1 Studio list/get service over neutral artifact operation records. |
+| `_studio/classifiers.py` | Closed neutral-artifact family classifier shared by Studio catalog selection. |
+| `_web/codec/` | P3 web response ownership: notebook, source, artifact, label, collection, sharing, and report/guide codecs return frozen neutral records; `documents.py` alone returns the approved exported `StructuredDocument` value exemption. Codec bindings are tied to cassette-backed golden families and never call public parsing factories. |
 | `_web/codec/notes.py` | P6.3 mixed note-row codec: normalizes flat/wrapped envelopes, classifies deleted and note-backed mind-map rows, preserves exact-id selection, and emits only neutral `NoteRecord` values. |
 | `scripts/audit_operation_catalog.py` | Single build/audit CLI for the deterministic ADR-0022 projection: exact semantic authorities, native bindings, public/root-client dispositions, evidence, omissions, and divergences. |
 | `scripts/_operation_catalog_specs.py` | Reviewed semantic operation specifications, owners/policies/routes, native/web bindings, public methods, and dispositions. |
@@ -1235,11 +1239,11 @@ src/notebooklm/
 ├── _mind_maps_api.py            # MindMapsAPI — unified mind-map surface over both backends (#1256)
 ├── _notebook_metadata.py        # Metadata protocols
 ├── _operations.py               # Closed semantic operation/call-policy vocabulary (P0)
-├── _projectors.py               # Neutral record-to-public Notebook/Source/Artifact/Note projectors
-├── _notebook_mutation_service.py # Transport-neutral notebook mutation service (P2.2, live)
+├── _projectors.py               # Neutral record-to-public compatibility projectors (P2/P3/P5/P6)
+├── _notebook_mutation_service.py # Transport-neutral notebook mutation service (P2.2)
 ├── _mutation_services.py        # Transport-neutral URL-source mutation service (P2.3, live)
 ├── _read_services.py            # Transport-neutral notebook/source list/get services (P2.1)
-├── _records.py                  # Neutral P2/P5.1/P5.2/P6.3 backend DTOs and operation definitions
+├── _records.py                  # Neutral P2/P5.1/P5.2/P6.3 DTOs + P3 decoded resource records
 ├── _studio/                     # Private Studio family package
 │   ├── catalog.py               # Heterogeneous neutral list/get catalog (P5.1)
 │   ├── classifiers.py           # Closed family classifier (P5.1)
@@ -1252,14 +1256,20 @@ src/notebooklm/
 ├── _research_import.py          # ResearchAPI import/verification helpers + #1961 idempotency pre-filter
 ├── _redact.py                   # Transport-neutral secret/home-path/file-link scrubber (redact(msg, max_length)); shared chokepoint under both mcp/_errors.py and server/_errors.py
 ├── _web/                        # Private web implementation of the semantic backend port
-│   ├── __init__.py              # Private WebRpcBackend re-export
+│   ├── __init__.py              # Lazy private WebRpcBackend re-export (leaf-codec safe)
 │   ├── backend.py               # RpcExecutor-backed P2/P5.1/P5.2/P6.3 handlers
 │   ├── policy.py                # P4 semantic/native policy parity ledger (reporting only)
 │   ├── registry.py              # Closed active/unsupported web dispositions
 │   └── codec/                   # P3 web response codecs producing neutral records/value exemptions
 │       ├── __init__.py          # Private codec re-exports
-│       ├── documents.py         # Tailwind document body -> exempt StructuredDocument value graph
-│       └── notes.py             # Mixed web note rows -> neutral NoteRecord values
+│       ├── artifacts.py         # Artifact/mind-map/report-suggestion rows -> neutral records
+│       ├── collections.py       # Strict collection tuples -> neutral records
+│       ├── documents.py         # Tailwind body -> exempt StructuredDocument value graph
+│       ├── labels.py            # Strict source-label tuples -> neutral records
+│       ├── notebooks.py         # Project + notebook-guide payloads -> neutral records
+│       ├── notes.py             # Mixed web note rows -> neutral NoteRecord values
+│       ├── sharing.py           # Share status/user rows -> neutral records
+│       └── sources.py           # Source row variants -> neutral records
 ├── _app/                        # Transport-neutral business-logic layer (CLI/MCP/HTTP adapters share it)
 │   ├── __init__.py              # Re-exports the neutral primitives
 │   ├── artifacts.py             # Click-free artifact core: get/rename/delete/export + poll/wait/retry; kind-aware mind-map dispatch (mind_maps.list for rename, notes.list_mind_maps for delete), get_artifact raises ArtifactNotFoundError, typed Rename/Export results + ArtifactStatusView/status_view neutral status DTO (CLI builds every --json envelope from the typed fields)

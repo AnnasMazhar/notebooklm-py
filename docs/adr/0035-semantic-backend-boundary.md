@@ -239,10 +239,11 @@ collected late; phase stop/go reviews must prevent temporary bridges from becomi
 **Run P7 first.** Rejected. It would simplify composition while feature APIs still depend directly
 on the web RPC vocabulary, combining runtime and semantic migrations and weakening rollback.
 
-**Skip P3 and treat all current row adapters as the final boundary.** Rejected. The adapters are
-valuable codec evidence, but most resource paths still construct compatibility models directly.
-P3 is needed for private records and controlled projection; only the immutable document graph is
-exempt.
+**Skip P3 and treat all current row adapters as the final boundary.** Rejected. The adapters were
+valuable codec evidence, but the P3 resource-decode retirement now converts their values to
+private records before controlled compatibility projection. Retained public factories remain
+importable behavioral oracles and have no production decode callers. Only the immutable document
+graph is exempt from private-record projection.
 
 **Defer or skip P8.** Rejected. Backend-owned credential acquisition needs an explicit provider
 boundary before a backend can have a coherent lifecycle. P8 is sequenced after P7 to avoid moving

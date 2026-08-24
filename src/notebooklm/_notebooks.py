@@ -17,11 +17,13 @@ from ._notebook_payloads import (
     build_prompt_suggestions_params,
 )
 from ._notebook_payloads import build_create_notebook_params as build_create_notebook_params
+from ._projectors import project_notebook_description
 from ._read_services import NotebookReadService
 from ._row_adapters.notebooks import PromptSuggestionRow, unwrap_prompt_suggestions
 from ._row_adapters.sources import SourceRow
 from ._runtime.contracts import RpcCaller
 from ._sharing_manager import ShareManager
+from ._web.codec.notebooks import decode_notebook_description
 from .exceptions import (
     ClientError,
     NotebookNotFoundError,
@@ -741,27 +743,7 @@ class NotebooksAPI:
             source_path=f"/notebook/{notebook_id}",
         )
 
-        summary = ""
-        suggested_topics: list[SuggestedTopic] = []
-
-        # Response structure: [[[summary_string], [[topics]], ...]]
-        # Summary is at result[0][0][0], topics at result[0][1][0].
-        # The outer descent and per-slot extraction live in named helpers
-        # (`_extract_summary` / `_extract_suggested_topics`) so the deep
-        # index access stays auditable when Google's shape drifts.
-        if result and isinstance(result, list) and len(result) > 0:
-            # ``result`` is a non-empty list here (guarded); ``safe_index`` keeps
-            # the envelope-unwrap position on the schema-drift seam.
-            outer = safe_index(
-                result,
-                0,
-                method_id=RPCMethod.SUMMARIZE.value,
-                source="NotebooksAPI.get_description",
-            )
-            summary = _extract_summary(outer)
-            suggested_topics = _extract_suggested_topics(outer)
-
-        return NotebookDescription(summary=summary, suggested_topics=suggested_topics)
+        return project_notebook_description(decode_notebook_description(result))
 
     async def remove_from_recent(self, notebook_id: str) -> None:
         """Remove a notebook from the recently viewed list.

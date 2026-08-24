@@ -27,12 +27,13 @@ from ._mind_map import NoteBackedMindMapService
 from ._note_service import LegacyNoteBackedService
 from ._notebook_metadata import NotebookSourceIdProvider
 from ._polling_registry import PollRegistry
-from ._projectors import project_artifact, project_generation_status
+from ._projectors import project_artifact, project_generation_status, project_report_suggestion
 from ._records import AudioGenerateInput
 from ._row_adapters import artifacts as _artifact_rows
 from ._runtime.contracts import RpcCaller
 from ._studio import AudioFamilyService, StudioCatalog
 from ._types.research import MindMapResult
+from ._web.codec.artifacts import decode_report_suggestion
 from .exceptions import (
     ArtifactNotFoundError,
     ArtifactNotReadyError,
@@ -944,14 +945,9 @@ class ArtifactsAPI:
             result, method_id=RPCMethod.GET_SUGGESTED_REPORTS.value, source="suggest_reports"
         )
         return [
-            ReportSuggestion(
-                title=row.title,
-                description=row.description,
-                prompt=row.prompt,
-                audience_level=row.audience_level,
-            )
-            for row in map(_artifact_rows.ReportSuggestionRow, items)
-            if row.is_well_formed
+            project_report_suggestion(decode_report_suggestion(item))
+            for item in items
+            if _artifact_rows.ReportSuggestionRow(item).is_well_formed
         ]
 
     # =========================================================================

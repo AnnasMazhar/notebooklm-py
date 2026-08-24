@@ -31,6 +31,7 @@ from ._source.polling import SourcePoller, SourceWaitResult
 from ._source.upload import SourceUploadPipeline
 from ._source.upload_payloads import build_rename_source_params
 from ._types.research import SourceGuide
+from ._web.codec.sources import decode_source
 from .exceptions import SourceNotFoundError
 from .rpc import RPCMethod
 from .rpc.types import source_status_to_str
@@ -812,7 +813,7 @@ class SourcesAPI:
             allow_null=True,
         )
         if result and return_object:
-            return Source.from_api_response(result, method_id=RPCMethod.UPDATE_SOURCE.value)
+            return project_source(decode_source(result, method_id=RPCMethod.UPDATE_SOURCE.value))
         # Null echo: hydrate via the internal lookup (never public ``get()`` —
         # #1247) so a miss raises; v0.8.0 (#1362) runs it to detect a miss.
         if not return_object and result:

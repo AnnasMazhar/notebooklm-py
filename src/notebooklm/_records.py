@@ -52,6 +52,22 @@ class NotebookRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class SuggestedTopicRecord:
+    """One transport-neutral notebook guide topic."""
+
+    question: str
+    prompt: str
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookDescriptionRecord:
+    """Decoded notebook guide without exported model dependencies."""
+
+    summary: str
+    suggested_topics: tuple[SuggestedTopicRecord, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class NotebookListInput:
     """Input for the parameter-free notebook listing operation."""
 
@@ -140,6 +156,58 @@ class SourceRecord:
     revision_id: str | None = None
     revision_timestamp: datetime | None = None
     last_modified_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReportSuggestionRecord:
+    """Neutral suggested-report row."""
+
+    title: str
+    description: str
+    prompt: str
+    audience_level: int = 2
+
+
+@dataclass(frozen=True, slots=True)
+class LabelRecord:
+    """Neutral notebook-scoped source label."""
+
+    id: str
+    name: str
+    notebook_id: str | None = None
+    emoji: str | None = None
+    source_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class CollectionRecord:
+    """Neutral account-level notebook collection."""
+
+    id: str
+    name: str
+    emoji: str | None = None
+    notebook_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SharedUserRecord:
+    """Neutral collaborator row."""
+
+    email: str
+    permission: str
+    display_name: str | None = None
+    avatar_url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ShareStatusRecord:
+    """Neutral decoded sharing configuration."""
+
+    notebook_id: str
+    is_public: bool
+    shared_users: tuple[SharedUserRecord, ...] = ()
+    max_individuals_share_limit: int | None = None
+    is_public_sharing_allowed: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -673,7 +741,9 @@ __all__ = [
     "AudioGenerateInput",
     "AudioGenerateResult",
     "AudioMetadataRecord",
+    "CollectionRecord",
     "GenerationStatusRecord",
+    "LabelRecord",
     "NotebookChatSessionRecord",
     "NotebookChatSettingsRecord",
     "NotebookCreateInput",
@@ -686,6 +756,7 @@ __all__ = [
     "NotebookListResult",
     "NotebookPremiumFeaturesRecord",
     "NotebookRecord",
+    "NotebookDescriptionRecord",
     "NotebookUpdateInput",
     "NotebookUpdateResult",
     "NoteCreateInput",
@@ -711,4 +782,8 @@ __all__ = [
     "SourceListInput",
     "SourceListResult",
     "SourceRecord",
+    "ReportSuggestionRecord",
+    "ShareStatusRecord",
+    "SharedUserRecord",
+    "SuggestedTopicRecord",
 ]

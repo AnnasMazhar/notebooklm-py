@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 from typing import cast
+from urllib.parse import quote
 
+from ._env import get_base_url
 from ._records import (
     ArtifactRecord,
     ArtifactUserStateRecord,
+    CollectionRecord,
     GenerationStatusRecord,
+    LabelRecord,
+    NotebookDescriptionRecord,
     NotebookRecord,
     NoteRecord,
+    ReportSuggestionRecord,
+    ShareStatusRecord,
     SourceRecord,
 )
 from .types import (
@@ -23,16 +30,25 @@ from .types import (
     ChatResponseLength,
     ChatSession,
     ChatSettings,
+    Collection,
     DriveSourceStatus,
     FlashcardArtifactUserState,
     GenerationState,
     GenerationStatus,
-    Notebook,
+    Label,
     Note,
+    Notebook,
+    NotebookDescription,
     PremiumFeatureInfo,
+    ReportSuggestion,
+    ShareAccess,
+    SharedUser,
     SharePermission,
+    ShareStatus,
+    ShareViewLevel,
     Source,
     SourceStatus,
+    SuggestedTopic,
     UnknownArtifactUserState,
 )
 
@@ -209,6 +225,18 @@ def project_source(record: SourceRecord) -> Source:
     )
 
 
+def project_notebook_description(record: NotebookDescriptionRecord) -> NotebookDescription:
+    """Construct a public notebook guide from its neutral decode."""
+
+    return NotebookDescription(
+        summary=record.summary,
+        suggested_topics=[
+            SuggestedTopic(question=topic.question, prompt=topic.prompt)
+            for topic in record.suggested_topics
+        ],
+    )
+
+
 def project_note(record: NoteRecord) -> Note:
     """Construct one public :class:`Note` from a neutral record."""
 
@@ -328,10 +356,83 @@ def project_generation_status(record: GenerationStatusRecord) -> GenerationStatu
     )
 
 
+def project_report_suggestion(record: ReportSuggestionRecord) -> ReportSuggestion:
+    """Construct one public suggested-report value."""
+
+    return ReportSuggestion(
+        title=record.title,
+        description=record.description,
+        prompt=record.prompt,
+        audience_level=record.audience_level,
+    )
+
+
+def project_label(record: LabelRecord) -> Label:
+    """Construct one public source label."""
+
+    return Label(
+        id=record.id,
+        name=record.name,
+        notebook_id=record.notebook_id,
+        emoji=record.emoji,
+        source_ids=list(record.source_ids),
+    )
+
+
+def project_collection(record: CollectionRecord) -> Collection:
+    """Construct one public notebook collection."""
+
+    return Collection(
+        id=record.id,
+        name=record.name,
+        emoji=record.emoji,
+        notebook_ids=list(record.notebook_ids),
+    )
+
+
+_SHARE_PERMISSIONS = {
+    "owner": SharePermission.OWNER,
+    "editor": SharePermission.EDITOR,
+    "viewer": SharePermission.VIEWER,
+}
+
+
+def project_share_status(record: ShareStatusRecord) -> ShareStatus:
+    """Construct one public sharing status and its collaborator values."""
+
+    return ShareStatus(
+        notebook_id=record.notebook_id,
+        is_public=record.is_public,
+        access=(ShareAccess.ANYONE_WITH_LINK if record.is_public else ShareAccess.RESTRICTED),
+        view_level=ShareViewLevel.FULL_NOTEBOOK,
+        shared_users=[
+            SharedUser(
+                email=user.email,
+                permission=_SHARE_PERMISSIONS.get(user.permission, SharePermission.VIEWER),
+                display_name=user.display_name,
+                avatar_url=user.avatar_url,
+            )
+            for user in record.shared_users
+        ],
+        share_url=(
+            f"{get_base_url()}/notebook/{quote(record.notebook_id, safe='')}"
+            if record.is_public
+            else None
+        ),
+        max_individuals_share_limit=record.max_individuals_share_limit,
+        is_public_sharing_allowed=record.is_public_sharing_allowed,
+    )
+
+
 __all__ = [
     "project_artifact",
+    "project_collection",
     "project_generation_status",
+    "project_label",
     "project_note",
     "project_notebook",
+    "project_notebook_description",
+    "project_report_suggestion",
+    "project_share_status",
     "project_source",
 ]

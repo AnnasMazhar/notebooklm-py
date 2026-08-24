@@ -21,8 +21,10 @@ import httpx
 from .._auth.cookies import load_httpx_cookies
 from .._curl_cffi_transport import resolve_transport_factory
 from .._mind_maps_api import extract_interactive_tree_leaf
+from .._projectors import project_artifact
 from .._row_adapters.artifacts import unwrap_artifact_rows
 from .._row_adapters.notes import NoteRow
+from .._web.codec.artifacts import decode_artifact
 from ..exceptions import DecodingError, UnknownRPCMethodError, ValidationError
 from ..rpc import (
     ARTIFACT_STATUS_SUGGESTED_WIRE_NAME,
@@ -609,7 +611,7 @@ class ArtifactDownloadService:
                 for row in artifacts_data:
                     if not isinstance(row, list):
                         continue
-                    artifact = Artifact.from_api_response(row)
+                    artifact = project_artifact(decode_artifact(row))
                     if artifact.id == artifact_id and artifact.is_interactive_mind_map:
                         interactive = True
                         break

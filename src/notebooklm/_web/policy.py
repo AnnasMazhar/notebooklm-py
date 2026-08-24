@@ -248,6 +248,11 @@ def audit_web_call_policy_bindings(
 
 def web_call_policy_report() -> dict[str, object]:
     """Return the stable catalog projection of active semantic/native parity."""
+
+    def operation_key(item: tuple[Operation, WebCallPolicyBinding]) -> str:
+        operation, _binding = item
+        return operation.value
+
     return {
         operation.value: {
             "call_policy": binding.policy.value,
@@ -262,9 +267,7 @@ def web_call_policy_report() -> dict[str, object]:
                 for native in binding.native_bindings
             ],
         }
-        for operation, binding in sorted(
-            WEB_CALL_POLICY_BINDINGS.items(), key=lambda item: item[0].value
-        )
+        for operation, binding in sorted(WEB_CALL_POLICY_BINDINGS.items(), key=operation_key)
     }
 
 

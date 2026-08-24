@@ -3,7 +3,9 @@
 import logging
 from dataclasses import replace
 
+from ._projectors import project_share_status
 from ._runtime.contracts import RpcCaller
+from ._web.codec.sharing import decode_share_status
 from .rpc import RPCMethod
 from .rpc.types import ShareAccess, SharePermission, ShareViewLevel
 from .types import ShareStatus
@@ -59,7 +61,7 @@ class SharingAPI:
             params,
             source_path=f"/notebook/{notebook_id}",
         )
-        return ShareStatus.from_api_response(result, notebook_id)
+        return project_share_status(decode_share_status(result, notebook_id))
 
     async def set_public(
         self,
