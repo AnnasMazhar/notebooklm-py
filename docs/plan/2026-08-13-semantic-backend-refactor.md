@@ -1381,6 +1381,15 @@ Each domain migration must:
 - migrate tests to fake backend plus codec goldens; and
 - delete the superseded direct feature-to-`RpcCaller` implementation.
 
+#### Slice, module, and test map (P6.3 addendum — Notes & Note-Backed Mind Maps)
+
+| Sub-slice | Boundary & Purpose | Target Modules | Verification & Sentinels |
+|---|---|---|---|
+| **P6.3.0** | Notes & mind-maps characterization baseline | N/A (test-only baseline) | `tests/unit/test_semantic_notes_mind_maps_slice_characterization.py` (pins NoteService CRUD/normalization/shielded cancellation, GET_NOTEBOOK recency counts, MindMapsAPI dual-backing split, auto-detect idempotent delete, and return shapes) |
+| **P6.3.1** | Note row records & semantic note operations | `src/notebooklm/_records.py`, `_note_service.py` | Typed operations for NoteList, NoteGet, NoteCreate, NoteUpdate, NoteDelete; codec bindings in WebRpcBackend; catalog registration |
+| **P6.3.2** | Semantic NoteService migration & reconciliation | `src/notebooklm/_note_service.py` -> `_notes/` | Backend-neutral NoteService consuming BackendAdapter; cancellation cleanup & creation timestamp preservation |
+| **P6.3.3** | MindMapsAPI dual-service delegation & retirement | `src/notebooklm/_mind_maps_api.py`, `_mind_map.py` | MindMapsAPI delegating note-backed operations to semantic NoteService and interactive operations to Studio family service; exact MindMap return shape & auto-detect preservation |
+
 #### Acceptance criteria
 
 - No migrated feature API imports `RPCMethod` or constructs positional RPC arrays.
