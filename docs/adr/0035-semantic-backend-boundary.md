@@ -110,6 +110,12 @@ ADR-0029 through ADR-0034; it does not absorb profile storage, interactive login
 locking, persistence, or account routing. The deprecated awaited `from_storage()` path must not
 leak a provider. A second backend remains out of scope.
 
+Those constraints are inventory claims about who owns what today, so they are gated by
+`tests/_guardrails/test_semantic_p8_provider_boundary_audit.py` (fail-closed ownership
+inventories, and a tripwire that fires the moment `WebCookieProvider` is defined) and
+`tests/unit/test_semantic_p8_provider_characterization.py` (the generation-fence, ownership,
+locking, single-flight, routing, and redaction behaviour P8 must equality-preserve).
+
 ### `_app/` orchestration and budgets
 
 ADR-0021 remains in force: `_app/` never imports private siblings and reaches backend work only

@@ -1501,6 +1501,28 @@ shape.
 - Existing auth storage/concurrency/compatibility guardrails pass or are replaced with equivalent
   provider-boundary tests.
 
+#### Slice, module, and test map (P8 addendum)
+
+P8 is an extraction, not a redesign: every row below names the **existing owner**
+the provider adapts. "Adapt, do not duplicate" is the whole phase, so the map is
+ownership-first.
+
+| Sub-slice | Boundary & purpose | Existing owner P8 adapts | Verification & sentinels |
+|---|---|---|---|
+| **P8.0** | Characterization & fail-closed inventory | N/A (test-only baseline) | `tests/unit/test_semantic_p8_provider_characterization.py`, `tests/_guardrails/test_semantic_p8_provider_boundary_audit.py` |
+| **P8.1** | Immutable cookie/account-route generation | `AuthTokens._replace_profile_session` + `_request_types.AuthSnapshot` + `AuthRefreshCoordinator.install_profile_session` | Generation fencing on all four axes; the frozen snapshot gains the cookie axis that the transport terminal's no-await rule covers today |
+| **P8.2** | `WebCookieProvider` port + generation clone into a private backend session | `_kernel.Kernel._bootstrap_cookies`, `_auth.cookies._clone_cookie_jar` | `tests/unit/test_web_backend.py`; backend `vars()` gains the provider/session and nothing credential-shaped |
+| **P8.3** | Provider ownership & close rules | `_FromStorageContext._owns_close` | Injected provider survives `backend.close()`; a convenience factory closes only what it created |
+| **P8.4** | Profile storage behind the provider (paths, locking, CAS, atomic writes, permissions) | `_auth.profile_store.ProfileStore`, `_auth.storage`, `_auth.paths._lock_sibling`, `_auth.credential_io` | `test_auth_profile_store*.py`, `test_auth_lock_path_derivation.py`, `test_storage_writer_boundary.py`, `test_profile_atomic_write.py` — all unchanged |
+| **P8.5** | Refresh / recovery / master token behind the provider | `_auth.session.refresh_auth_session`, `_auth.recovery`, `_auth.single_flight`, `_auth.master_token_bootstrap.MasterTokenBootstrapper` | Single-flight leader/follower identity, success-epoch fence, four-rung ladder order |
+| **P8.6** | Account routing & secret redaction | `_auth.account.format_authuser_value` / `authuser_query`, `AuthTokens.__repr__`, `_secrets` registry | `test_auth_repr_redaction.py`, `test_runtime_secret_registry_parity.py`; email-over-index precedence |
+| **P8.7** | Out-of-backend surfaces stay out | `cli/services/playwright_login.py`, `_auth.browser_capture`, `cli/doctor_cmd.py`, `_app/profile.py` | Interactive-auth inventory in the P8 audit stays disjoint from `src/notebooklm/_web/` |
+
+The audit's `test_p8_provider_is_not_defined_yet` fails on purpose the moment
+`WebCookieProvider` is introduced. That failure is the checkpoint: re-derive every
+inventory in that module against the new boundary rather than inheriting a stale
+baseline.
+
 ### Deliberately out of scope
 
 **P9 (public vNext surface)** and **P10 (mobile gRPC backend)** are removed from this plan. Neither
