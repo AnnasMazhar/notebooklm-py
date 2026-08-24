@@ -1292,6 +1292,21 @@ existing `client.artifacts` API stable.
   bases leaves every `==`-based predicate working and breaks only that lookup. A family split that
   rebuilds the state enum is exactly what reorders bases.
 
+#### Slice, module, and test map (P5 addendum)
+
+| Sub-slice | Boundary & Purpose | Target Modules | Verification & Sentinels |
+|---|---|---|---|
+| **P5.0** | Characterization & inventory suite | N/A (test-only baseline) | `tests/unit/test_semantic_studio_slice_characterization.py` (pins all 17+ fields/properties, 13 family mappings, terminal frozenset hash lookup, download client security parity, Drive export & ADR-0019 partial-availability) |
+| **P5.1** | Heterogeneous Studio catalog & classifiers | `src/notebooklm/_studio/catalog.py`, `_studio/classifiers.py` | Unit tests for list/get without extra fetch; unknown safe summary preserving metadata |
+| **P5.2** | Audio family service | `src/notebooklm/_studio/audio.py` | `test_artifacts_coverage.py`, `test_artifact_content_metadata.py`, audio media URLs and duration tests |
+| **P5.3** | Quiz & flashcards family service | `src/notebooklm/_studio/interactive.py` | `test_artifact_content_metadata.py` (user state), `test_artifact_generation_prompt.py` (option pair) |
+| **P5.4** | Report & video family service | `src/notebooklm/_studio/documents.py` | `test_artifacts_helpers.py`, `test_artifact_content_metadata.py` (report format/kind, video media) |
+| **P5.5** | Infographic & slide deck family service | `src/notebooklm/_studio/visuals.py` | `test_artifact_content_metadata.py` (accessibility text, slide/infographic dimensions) |
+| **P5.6** | Mind-map & data-table compatibility services | `src/notebooklm/_studio/data_views.py`, `_studio/exports.py` | ADR-0019 partial-availability tests, `test_artifact_downloads.py`, Drive export tests |
+| **P5.7** | Byte retrieval & serialization clients | `src/notebooklm/_studio/downloads.py`, `_studio/serialization.py` | `test_curl_cffi_redirect_guard.py`, `test_artifact_downloads.py`, factory & redirect security parity |
+| **P5.8** | Facade projection & legacy verb retirement | `src/notebooklm/_artifacts.py` -> `_studio/` | Full artifacts test suite; public signatures and `wait_for_completion` lifecycle-terminal return parity |
+
+
 ### P6 — Migrate remaining feature domains
 
 **Purpose:** remove direct native RPC dispatch from feature APIs before simplifying the runtime.
