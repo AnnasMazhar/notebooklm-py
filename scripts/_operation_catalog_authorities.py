@@ -50,6 +50,13 @@ class AppAuthoritySourceContract:
 # discriminator that makes the binding semantic.  Unshared bindings are
 # derived directly; every shared operation/binding must appear here.
 SHARED_RPC_AUTHORITY_RULES: dict[tuple[Operation, NativeKey], tuple[AuthorityRule, ...]] = {
+    (Operation.SOURCE_ADD_URL, _b(RPCMethod.ADD_SOURCE, "url")): _rules(
+        ("_source/add.py:SourceAddService.add_url_source", "web URL payload"),
+        ("_source/add.py:SourceAddService.add_youtube_source", "YouTube URL payload"),
+    ),
+    (Operation.SOURCE_ADD_URL_BATCH, _b(RPCMethod.ADD_SOURCE, "url")): _rules(
+        ("_source/batch.py:SourceBatchAddService.add_urls", "one non-replayed batch payload"),
+    ),
     (Operation.NOTEBOOK_LIST, _b(RPCMethod.LIST_NOTEBOOKS)): _rules(
         ("_web/backend.py:WebRpcBackend._notebook_list", "public=notebooks.list")
     ),
@@ -91,11 +98,20 @@ SHARED_RPC_AUTHORITY_RULES: dict[tuple[Operation, NativeKey], tuple[AuthorityRul
     (Operation.SOURCE_ADD_URL, _b(RPCMethod.GET_NOTEBOOK)): _rules(
         ("_source/listing.py:SourceLister.list", "unconditional baseline plus ambiguity probes")
     ),
+    (Operation.SOURCE_ADD_TEXT, _b(RPCMethod.GET_NOTEBOOK)): _rules(
+        ("_source/listing.py:SourceLister.list", "wait=True readiness poll ticks only")
+    ),
+    (Operation.SOURCE_ADD_URL_BATCH, _b(RPCMethod.GET_NOTEBOOK)): _rules(
+        ("_source/listing.py:SourceLister.list", "one snapshot only for omitted-row reconciliation")
+    ),
     (Operation.SOURCE_ADD_DRIVE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
         ("_source/listing.py:SourceLister.list", "unconditional baseline plus ambiguity probes")
     ),
     (Operation.SOURCE_ADD_FILE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
         ("_source/listing.py:SourceLister.list", "unconditional baseline plus registration probes")
+    ),
+    (Operation.SOURCE_UPDATE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
+        ("_web/backend.py:WebRpcBackend._source_get", "null UPDATE_SOURCE echo only")
     ),
     (Operation.SOURCE_WAIT, _b(RPCMethod.GET_NOTEBOOK)): _rules(
         ("_source/listing.py:SourceLister.list", "one shared source snapshot per poll tick")
@@ -402,7 +418,24 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
         ),
     ),
     Operation.SOURCE_ADD_TEXT: (
-        RecencyRule(_p("sources", "add_text"), 0, 0, "public_call", "always: no probe baseline"),
+        RecencyRule(
+            _p("sources", "add_text"),
+            0,
+            None,
+            "public_call",
+            "zero when wait=False; one snapshot per readiness poll tick when wait=True",
+            (_GET_SOURCES,),
+        ),
+    ),
+    Operation.SOURCE_ADD_URL_BATCH: (
+        RecencyRule(
+            (),
+            0,
+            1,
+            "private_app_call",
+            "one snapshot only when ADD_SOURCE omits positional outcomes",
+            (_GET_SOURCES,),
+        ),
     ),
     Operation.SOURCE_ADD_URL: (
         RecencyRule(
@@ -432,6 +465,16 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             "public_call",
             "one baseline plus registration/reconciliation probes",
             (_GET_SOURCES,),
+        ),
+    ),
+    Operation.SOURCE_UPDATE: (
+        RecencyRule(
+            _p("sources", "rename"),
+            0,
+            1,
+            "public_call",
+            "one exact-id source read only when UPDATE_SOURCE returns a null echo",
+            ("_web/backend.py:WebRpcBackend._source_get",),
         ),
     ),
     Operation.SOURCE_WAIT: (
@@ -695,11 +738,17 @@ SHARED_RPC_AUTHORITY_RULES.update(
                 "optional post-create title",
             )
         ),
+        (Operation.SOURCE_ADD_DRIVE, _b(RPCMethod.UPDATE_SOURCE)): _rules(
+            (
+                "_web/backend.py:WebRpcBackend._source_add_drive.rename_source",
+                "optional post-create title",
+            )
+        ),
         (Operation.SOURCE_ADD_FILE, _b(RPCMethod.UPDATE_SOURCE)): _rules(
             ("_source/upload.py:SourceUploadPipeline.rename", "optional post-upload title")
         ),
         (Operation.SOURCE_UPDATE, _b(RPCMethod.UPDATE_SOURCE)): _rules(
-            ("_sources.py:SourcesAPI.rename", "public=sources.rename")
+            ("_web/backend.py:WebRpcBackend._source_update", "public=sources.rename")
         ),
     }
 )
@@ -800,7 +849,7 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_web/backend.py:WebRpcBackend._notebook_limit_error", "quota-error diagnosis only")
         ),
         (Operation.SOURCE_ADD_FILE, _b(RPCMethod.GET_USER_SETTINGS)): _rules(
-            ("_sources.py:SourcesAPI._get_source_limit", "invalid-argument diagnosis only")
+            ("_web/backend.py:WebRpcBackend._source_file_limit", "invalid-argument diagnosis only")
         ),
         (Operation.SETTINGS_GET, _b(RPCMethod.GET_USER_SETTINGS)): _rules(
             (

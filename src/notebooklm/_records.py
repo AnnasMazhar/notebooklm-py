@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, unique
+from pathlib import Path
 
 from ._label_records import (
     COLLECTION_CREATE_DEF,
@@ -88,6 +90,7 @@ from ._sharing_records import (
     SharingUpdateUsersResult,
     SharingUserGrant,
 )
+from ._types.documents import StructuredDocument
 
 
 @dataclass(frozen=True, slots=True)
@@ -471,6 +474,192 @@ class ArtifactSuggestReportsResult:
     """Report-format suggestions in backend order."""
 
     suggestions: tuple[ReportSuggestionRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SourceUrlBatchItemRecord:
+    """One positional batch-URL outcome without public model dependencies."""
+
+    url: str = field(repr=False)
+    source: SourceRecord | None = None
+    error: SourceAddFailureRecord | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if (self.source is None) == (self.error is None):
+            raise ValueError("exactly one of source or error must be set")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAddUrlBatchInput:
+    """Validated URLs sent in one non-replayed batch mutation."""
+
+    notebook_id: str
+    urls: tuple[str, ...] = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAddUrlBatchResult:
+    """Positional batch URL outcomes in request order."""
+
+    items: tuple[SourceUrlBatchItemRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAddTextInput:
+    """Pasted-text source request."""
+
+    notebook_id: str
+    title: str = field(repr=False)
+    content: str = field(repr=False)
+    wait: bool = False
+    wait_timeout: float = 120.0
+    idempotent: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAddTextResult:
+    """Created pasted-text source."""
+
+    source: SourceRecord
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAddDriveInput:
+    """Native Google Drive source request."""
+
+    notebook_id: str
+    file_id: str = field(repr=False)
+    title: str = field(repr=False)
+    mime_type: str
+    wait: bool = False
+    wait_timeout: float = 120.0
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAddDriveResult:
+    """Created or exactly reconciled native Drive source."""
+
+    source: SourceRecord
+
+
+@unique
+class SourceFileInputKind(str, Enum):
+    """How bytes reach the existing file-upload pipeline."""
+
+    LOCAL = "local"
+    DRIVE_DOWNLOAD = "drive_download"
+
+
+SourceProgressCallback = Callable[[int, int], object]
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAddFileInput:
+    """Local-file or Drive-download upload request."""
+
+    notebook_id: str
+    kind: SourceFileInputKind
+    file_path: str | Path | None = field(default=None, repr=False)
+    document_id: str | None = field(default=None, repr=False)
+    mime_type: str | None = None
+    title: str | None = field(default=None, repr=False)
+    wait: bool = False
+    wait_timeout: float = 120.0
+    on_progress: SourceProgressCallback | None = field(default=None, repr=False, compare=False)
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAddFileResult:
+    """Uploaded file source."""
+
+    source: SourceRecord
+
+
+@dataclass(frozen=True, slots=True)
+class SourceDeleteInput:
+    notebook_id: str
+    source_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SourceDeleteResult:
+    """Successful idempotent source deletion."""
+
+
+@dataclass(frozen=True, slots=True)
+class SourceUpdateInput:
+    notebook_id: str
+    source_id: str
+    new_title: str = field(repr=False)
+    return_object: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class SourceUpdateResult:
+    source: SourceRecord | None
+
+
+@dataclass(frozen=True, slots=True)
+class SourceRefreshInput:
+    notebook_id: str
+    source_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SourceRefreshResult:
+    """Successful source refresh."""
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFreshnessInput:
+    notebook_id: str
+    source_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFreshnessResult:
+    fresh: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SourceGuideInput:
+    notebook_id: str
+    source_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SourceGuideRecord:
+    summary: str = field(default="", repr=False)
+    keywords: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SourceGuideResult:
+    guide: SourceGuideRecord
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFulltextInput:
+    notebook_id: str
+    source_id: str
+    output_format: str = "text"
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFulltextRecord:
+    source_id: str
+    title: str
+    content: str = field(repr=False)
+    kind: str = "unknown"
+    unrecognized_kind: int | str | None = None
+    url: str | None = field(default=None, repr=False)
+    char_count: int = 0
+    document: StructuredDocument = field(default_factory=StructuredDocument, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class SourceFulltextResult:
+    fulltext: SourceFulltextRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -1321,6 +1510,70 @@ NOTEBOOK_SUGGEST_PROMPTS_DEF: OperationDef[
     NotebookSuggestPromptsInput,
     NotebookSuggestPromptsResult,
 )
+SOURCE_ADD_URL_BATCH_DEF: OperationDef[SourceAddUrlBatchInput, SourceAddUrlBatchResult] = (
+    OperationDef(
+        Operation.SOURCE_ADD_URL_BATCH,
+        CallPolicy.MUTATION,
+        SourceAddUrlBatchInput,
+        SourceAddUrlBatchResult,
+    )
+)
+SOURCE_ADD_TEXT_DEF: OperationDef[SourceAddTextInput, SourceAddTextResult] = OperationDef(
+    Operation.SOURCE_ADD_TEXT,
+    CallPolicy.MUTATION,
+    SourceAddTextInput,
+    SourceAddTextResult,
+)
+SOURCE_ADD_DRIVE_DEF: OperationDef[SourceAddDriveInput, SourceAddDriveResult] = OperationDef(
+    Operation.SOURCE_ADD_DRIVE,
+    CallPolicy.MUTATION,
+    SourceAddDriveInput,
+    SourceAddDriveResult,
+)
+SOURCE_ADD_FILE_DEF: OperationDef[SourceAddFileInput, SourceAddFileResult] = OperationDef(
+    Operation.SOURCE_ADD_FILE,
+    CallPolicy.MUTATION,
+    SourceAddFileInput,
+    SourceAddFileResult,
+)
+SOURCE_DELETE_DEF: OperationDef[SourceDeleteInput, SourceDeleteResult] = OperationDef(
+    Operation.SOURCE_DELETE,
+    CallPolicy.MUTATION,
+    SourceDeleteInput,
+    SourceDeleteResult,
+)
+SOURCE_UPDATE_DEF: OperationDef[SourceUpdateInput, SourceUpdateResult] = OperationDef(
+    Operation.SOURCE_UPDATE,
+    CallPolicy.MUTATION,
+    SourceUpdateInput,
+    SourceUpdateResult,
+)
+SOURCE_REFRESH_DEF: OperationDef[SourceRefreshInput, SourceRefreshResult] = OperationDef(
+    Operation.SOURCE_REFRESH,
+    CallPolicy.MUTATION,
+    SourceRefreshInput,
+    SourceRefreshResult,
+)
+SOURCE_CHECK_FRESHNESS_DEF: OperationDef[SourceFreshnessInput, SourceFreshnessResult] = (
+    OperationDef(
+        Operation.SOURCE_CHECK_FRESHNESS,
+        CallPolicy.READ,
+        SourceFreshnessInput,
+        SourceFreshnessResult,
+    )
+)
+SOURCE_GET_GUIDE_DEF: OperationDef[SourceGuideInput, SourceGuideResult] = OperationDef(
+    Operation.SOURCE_GET_GUIDE,
+    CallPolicy.STATEFUL_START,
+    SourceGuideInput,
+    SourceGuideResult,
+)
+SOURCE_GET_FULLTEXT_DEF: OperationDef[SourceFulltextInput, SourceFulltextResult] = OperationDef(
+    Operation.SOURCE_GET_FULLTEXT,
+    CallPolicy.READ,
+    SourceFulltextInput,
+    SourceFulltextResult,
+)
 NOTE_LIST_DEF: OperationDef[NoteListInput, NoteListResult] = OperationDef(
     Operation.NOTE_LIST,
     CallPolicy.READ,
@@ -1444,6 +1697,16 @@ __all__ = [
     "SHARING_SET_PUBLIC_DEF",
     "SHARING_SET_VIEW_LEVEL_DEF",
     "SHARING_UPDATE_USERS_DEF",
+    "SOURCE_ADD_URL_BATCH_DEF",
+    "SOURCE_ADD_TEXT_DEF",
+    "SOURCE_ADD_DRIVE_DEF",
+    "SOURCE_ADD_FILE_DEF",
+    "SOURCE_DELETE_DEF",
+    "SOURCE_UPDATE_DEF",
+    "SOURCE_REFRESH_DEF",
+    "SOURCE_CHECK_FRESHNESS_DEF",
+    "SOURCE_GET_GUIDE_DEF",
+    "SOURCE_GET_FULLTEXT_DEF",
     "NOTE_CREATE_DEF",
     "NOTE_DELETE_DEF",
     "NOTE_GET_DEF",
@@ -1581,6 +1844,31 @@ __all__ = [
     "SourceAddUrlInput",
     "SourceAddUrlReceipt",
     "SourceAddUrlResult",
+    "SourceAddUrlBatchInput",
+    "SourceAddUrlBatchResult",
+    "SourceUrlBatchItemRecord",
+    "SourceAddTextInput",
+    "SourceAddTextResult",
+    "SourceAddDriveInput",
+    "SourceAddDriveResult",
+    "SourceAddFileInput",
+    "SourceAddFileResult",
+    "SourceFileInputKind",
+    "SourceProgressCallback",
+    "SourceDeleteInput",
+    "SourceDeleteResult",
+    "SourceUpdateInput",
+    "SourceUpdateResult",
+    "SourceRefreshInput",
+    "SourceRefreshResult",
+    "SourceFreshnessInput",
+    "SourceFreshnessResult",
+    "SourceGuideInput",
+    "SourceGuideRecord",
+    "SourceGuideResult",
+    "SourceFulltextInput",
+    "SourceFulltextRecord",
+    "SourceFulltextResult",
     "SourceListInput",
     "SourceListResult",
     "SourceRecord",

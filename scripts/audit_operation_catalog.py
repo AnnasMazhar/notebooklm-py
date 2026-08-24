@@ -53,6 +53,7 @@ if __package__:
     )
     from ._operation_catalog_specs import (
         APP_ORCHESTRATOR_DISPOSITIONS,
+        APP_PRIVATE_FACADE_DISPOSITIONS,
         CLIENT_PUBLIC_MEMBER_DISPOSITIONS,
         DIVERGENCE_KINDS,
         GREENFIELD_OMISSION_COVERAGE,
@@ -91,6 +92,7 @@ else:  # pragma: no cover - direct script execution
     )
     from _operation_catalog_specs import (
         APP_ORCHESTRATOR_DISPOSITIONS,
+        APP_PRIVATE_FACADE_DISPOSITIONS,
         CLIENT_PUBLIC_MEMBER_DISPOSITIONS,
         DIVERGENCE_KINDS,
         GREENFIELD_OMISSION_COVERAGE,
@@ -103,7 +105,7 @@ else:  # pragma: no cover - direct script execution
     )
 
 SCHEMA_VERSION = 2
-_EXPECTED_OPERATION_COUNT = 86
+_EXPECTED_OPERATION_COUNT = 87
 _native_key_text = native_key_text
 
 __all__ = [
@@ -243,10 +245,16 @@ def audit_operation_catalog() -> list[str]:
         errors.append(f"root-client dispositions no longer exist: {stale_client}")
 
     app_callers = collect_app_callers({method.split(".", 1)[0] for method in discovered_public})
-    unknown_app_calls = sorted(set(app_callers) - discovered_public)
+    private_app_calls = set(APP_PRIVATE_FACADE_DISPOSITIONS)
+    unknown_app_calls = sorted(set(app_callers) - discovered_public - private_app_calls)
     if unknown_app_calls:
         errors.append(
             f"_app calls namespace methods absent from public inventory: {unknown_app_calls}"
+        )
+    stale_private_app_calls = sorted(private_app_calls - set(app_callers))
+    if stale_private_app_calls:
+        errors.append(
+            f"reviewed private facade app calls no longer exist: {stale_private_app_calls}"
         )
 
     for method, variant, entry in IDEMPOTENCY_REGISTRY.iter_entries():
@@ -429,6 +437,7 @@ def build_operation_catalog(
         "app_callers": app_callers,
         "app_authority_source_evidence": app_authority_source_evidence,
         "app_orchestrator_dispositions": dict(sorted(APP_ORCHESTRATOR_DISPOSITIONS.items())),
+        "app_private_facade_dispositions": dict(sorted(APP_PRIVATE_FACADE_DISPOSITIONS.items())),
         "greenfield_omission_coverage": {
             feature: sorted(operation.value for operation in operations)
             for feature, operations in sorted(GREENFIELD_OMISSION_COVERAGE.items())

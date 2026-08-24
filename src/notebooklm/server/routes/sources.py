@@ -36,7 +36,7 @@ from ..._app import source_add as add_core
 from ..._app import source_content as content_core
 from ..._app import source_mutations as mut_core
 from ..._app import source_wait as wait_core
-from ..._app.source_batch import MAX_BATCH_URLS, batch_item_is_fatal
+from ..._app.source_batch import MAX_BATCH_URLS, batch_item_is_fatal, execute_source_url_batch
 from ..._app.source_wait import (
     MAX_WAIT_SOURCE_IDS,
     MAX_WAIT_TIMEOUT,
@@ -508,7 +508,7 @@ async def add_batch(
             valid_positions.append(index)
             valid_urls.append(entry)
 
-    outcomes = await client.sources._add_urls_batch(notebook_id, valid_urls) if valid_urls else []
+    outcomes = await execute_source_url_batch(client, notebook_id, valid_urls) if valid_urls else []
     if len(outcomes) != len(valid_urls):
         raise RuntimeError("source batch result count did not match validated input count")
 

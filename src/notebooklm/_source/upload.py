@@ -90,6 +90,7 @@ from ._upload_decode import (  # noqa: F401
     raise_for_upload_status,
     raise_partial_upload_failure,
 )
+from .add import SourceWireCaller
 from .listing import SourceLister
 from .polling import SourcePoller
 from .upload_payloads import (
@@ -177,7 +178,7 @@ class SourceUploadPipeline(LoopBoundPrimitive):
     def __init__(
         self,
         *,
-        rpc: RpcCaller,
+        rpc: SourceWireCaller,
         drain: TransportDrainTracker,
         lifecycle: ClientLifecycle,
         kernel: Kernel,

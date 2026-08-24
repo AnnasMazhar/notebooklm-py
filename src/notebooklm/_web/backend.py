@@ -2,11 +2,11 @@
 
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
 P2.2 routes three notebook mutation handlers; P2.3 routes the live URL/YouTube
-source composite; P5.1–P5.7 route Studio workflows; P6.2 routes Research; P6.3 routes note/mind-map
-workflows; P6.4 routes labels/collections; P6.5 routes Sharing; and P6.6 routes settings and
-suggestions. These bindings reuse
-current request builders and strict row adapters; P3 web codecs terminate
-response grammar in neutral records before public compatibility projection.
+source composite; P5.1–P5.8 route Studio workflows; P6.2 routes Research; P6.3 routes
+note/mind-map workflows; P6.4 routes labels/collections; P6.5 routes Sharing; P6.6 routes
+settings/suggestions; and P6.7 adds the remaining source variants. These bindings preserve
+existing workflows behind typed neutral operations. New or migrated wire shapes belong in
+``_web.codec``; the backend owns their execution authority.
 """
 
 from __future__ import annotations
@@ -94,23 +94,51 @@ from .._records import (
     NoteUpdateInput,
     NoteUpdateResult,
     SourceAddCommitState,
+    SourceAddDriveInput,
+    SourceAddDriveResult,
     SourceAddFailureKind,
     SourceAddFailureRecord,
+    SourceAddFileInput,
+    SourceAddFileResult,
+    SourceAddTextInput,
+    SourceAddTextResult,
     SourceAddTitleState,
+    SourceAddUrlBatchInput,
+    SourceAddUrlBatchResult,
     SourceAddUrlInput,
     SourceAddUrlReceipt,
     SourceAddUrlResult,
+    SourceDeleteInput,
+    SourceDeleteResult,
+    SourceFileInputKind,
+    SourceFreshnessInput,
+    SourceFreshnessResult,
+    SourceFulltextInput,
+    SourceFulltextRecord,
+    SourceFulltextResult,
     SourceGetInput,
     SourceGetResult,
+    SourceGuideInput,
+    SourceGuideRecord,
+    SourceGuideResult,
     SourceListInput,
     SourceListResult,
     SourceRecord,
+    SourceRefreshInput,
+    SourceRefreshResult,
+    SourceUpdateInput,
+    SourceUpdateResult,
+    SourceUrlBatchItemRecord,
 )
 from .._row_adapters.artifacts import (
     unwrap_artifact_rows,
 )
+from .._row_adapters.sources import interpret_source_freshness
 from .._rpc_executor import RpcExecutor
 from .._source.add import SourceAddService, honor_requested_title_if_fresh
+from .._source.batch import SourceBatchAddService
+from .._source.content import SourceContentRenderer
+from .._source.drive_import import DriveFetcher, DriveImportService
 from .._source.listing import SourceLister
 from .._source.polling import SourcePoller
 from .._source.upload_payloads import build_rename_source_params, build_template_block
@@ -157,7 +185,12 @@ from .codec.notes import (
     decode_note_backed_mind_maps,
     decode_notes,
 )
-from .codec.sources import decode_source
+from .codec.sources import (
+    decode_source,
+    decode_source_record,
+    encode_delete,
+    encode_refresh_or_freshness,
+)
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 from .studio_facade import StudioFacadeWebHandlers
 
@@ -508,9 +541,13 @@ class WebRpcBackend(StudioFacadeWebHandlers):
         executor: RpcExecutor,
         *,
         transport_factory: Callable[..., object],
+        source_uploader: Any | None = None,
     ) -> None:
         self._executor = executor
         self._transport_factory = transport_factory
+        self._source_uploader = source_uploader
+        if self._source_uploader is not None:
+            self._source_uploader.configure_source_limit_lookup(self._source_file_limit)
         self._capabilities = BackendCapabilities(
             supported_operations=WEB_SUPPORTED_OPERATIONS,
         )
@@ -584,6 +621,18 @@ class WebRpcBackend(StudioFacadeWebHandlers):
             translated = self._translate_error(operation.key, exc)
             raise translated from exc
         except NotebookLMError as exc:
+            # Source registration/upload compatibility requires the original
+            # exception object (not merely its class/payload), especially after
+            # file registration where callers inspect source_id/stage and the
+            # original causal chain. These workflows are backend-owned, but
+            # deliberately re-raise their established public leaves unchanged.
+            if operation.key in {
+                Operation.SOURCE_ADD_URL_BATCH,
+                Operation.SOURCE_ADD_TEXT,
+                Operation.SOURCE_ADD_DRIVE,
+                Operation.SOURCE_ADD_FILE,
+            }:
+                raise
             # Catch the closed library family rather than a broad ``RPCError``
             # wrap.  ``_translate_error`` still accepts only the exact reviewed
             # transport types and fails closed for any semantic exception.
@@ -1483,6 +1532,368 @@ class WebRpcBackend(StudioFacadeWebHandlers):
                 ),
                 title_state=title_state,
             ),
+        )
+
+    async def _source_add_url_batch(
+        self,
+        value: SourceAddUrlBatchInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SourceAddUrlBatchResult:
+        """Run one non-replayed true-batch URL write and preserve positions."""
+        caller = _DeadlineRpcCaller(self, deadline, Operation.SOURCE_ADD_URL_BATCH)
+        adder = SourceAddService()
+        lister = SourceLister(cast(Any, caller))
+
+        def extract_youtube_video_id(url: str) -> str | None:
+            return adder.extract_youtube_video_id(
+                url,
+                parse_url=urlparse,
+                extract_video_id_from_parsed_url=adder.extract_video_id_from_parsed_url,
+                is_valid_video_id=adder.is_valid_video_id,
+                logger=source_logger,
+            )
+
+        outcomes = await SourceBatchAddService().add_urls(
+            value.notebook_id,
+            value.urls,
+            rpc=cast(Any, caller),
+            list_sources=lister.list,
+            extract_youtube_video_id=extract_youtube_video_id,
+            logger=source_logger,
+        )
+        return SourceAddUrlBatchResult(
+            tuple(
+                SourceUrlBatchItemRecord(
+                    url=item.url,
+                    source=(_source_record(item.source) if item.source is not None else None),
+                    error=(
+                        _capture_public_failure(
+                            item.error,
+                            operation=Operation.SOURCE_ADD_URL_BATCH,
+                        )
+                        if item.error is not None
+                        else None
+                    ),
+                )
+                for item in outcomes
+            )
+        )
+
+    def _source_waiter(
+        self,
+        caller: _DeadlineRpcCaller,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> Callable[..., Any]:
+        lister = SourceLister(cast(Any, caller))
+        poller = SourcePoller()
+
+        async def wait_until_ready(
+            notebook_id: str,
+            source_id: str,
+            *,
+            timeout: float,
+            **kwargs: Any,
+        ) -> Source:
+            return await poller.wait_until_ready(
+                notebook_id,
+                source_id,
+                timeout=timeout,
+                get_source=lister.get,
+                sleep=asyncio.sleep,
+                monotonic=(deadline.monotonic if deadline is not None else time.monotonic),
+                logger=source_logger,
+                deadline=deadline,
+                **kwargs,
+            )
+
+        return wait_until_ready
+
+    async def _source_add_text(
+        self,
+        value: SourceAddTextInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SourceAddTextResult:
+        caller = _DeadlineRpcCaller(self, deadline, Operation.SOURCE_ADD_TEXT)
+        source = await SourceAddService().add_text(
+            value.notebook_id,
+            value.title,
+            value.content,
+            wait=value.wait,
+            wait_timeout=value.wait_timeout,
+            idempotent=value.idempotent,
+            rpc=cast(Any, caller),
+            wait_until_ready=self._source_waiter(caller, deadline=deadline),
+            logger=source_logger,
+        )
+        return SourceAddTextResult(_source_record(source))
+
+    async def _source_add_drive(
+        self,
+        value: SourceAddDriveInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SourceAddDriveResult:
+        caller = _DeadlineRpcCaller(self, deadline, Operation.SOURCE_ADD_DRIVE)
+        lister = SourceLister(cast(Any, caller))
+        adder = SourceAddService()
+        result = await adder.add_drive(
+            value.notebook_id,
+            value.file_id,
+            value.title,
+            mime_type=value.mime_type,
+            wait=value.wait,
+            wait_timeout=value.wait_timeout,
+            rpc=cast(Any, caller),
+            list_sources=lister.list,
+            wait_until_ready=self._source_waiter(caller, deadline=deadline),
+            logger=source_logger,
+            return_result=True,
+        )
+
+        async def rename_source(
+            notebook_id: str,
+            source_id: str,
+            new_title: str,
+        ) -> Source | None:
+            renamed = await caller.rpc_call(
+                RPCMethod.UPDATE_SOURCE,
+                build_rename_source_params(source_id, new_title),
+                source_path=f"/notebook/{notebook_id}",
+                allow_null=True,
+            )
+            if renamed:
+                return project_source(
+                    decode_source(renamed, method_id=RPCMethod.UPDATE_SOURCE.value)
+                )
+            return None
+
+        source = await honor_requested_title_if_fresh(
+            rename_source,
+            value.notebook_id,
+            result,
+            value.title,
+            source_logger,
+            probe_proves_freshness=True,
+        )
+        return SourceAddDriveResult(_source_record(source))
+
+    def _require_source_uploader(self) -> Any:
+        if self._source_uploader is None:
+            raise BackendContractError(
+                "source.add_file requires the composition-root upload pipeline",
+                operation=Operation.SOURCE_ADD_FILE,
+            )
+        return self._source_uploader
+
+    async def _source_add_file(
+        self,
+        value: SourceAddFileInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SourceAddFileResult:
+        del deadline  # upload/session timeouts retain their existing independent windows
+        uploader = self._require_source_uploader()
+        if value.kind is SourceFileInputKind.LOCAL:
+            if value.file_path is None:
+                raise BackendContractError(
+                    "local source.add_file input lacks file_path",
+                    operation=Operation.SOURCE_ADD_FILE,
+                )
+            source = await uploader.add_file(
+                value.notebook_id,
+                value.file_path,
+                mime_type=value.mime_type,
+                wait=value.wait,
+                wait_timeout=value.wait_timeout,
+                title=value.title,
+                on_progress=value.on_progress,
+            )
+        else:
+            if value.document_id is None:
+                raise BackendContractError(
+                    "Drive source.add_file input lacks document_id",
+                    operation=Operation.SOURCE_ADD_FILE,
+                )
+            service = DriveImportService(
+                fetch=DriveFetcher(
+                    cookies_provider=uploader.live_cookies,
+                    authuser=uploader.authuser_value(),
+                ),
+                add_file=uploader.add_file,
+            )
+            async with uploader.get_download_semaphore():
+                source = await service.add_drive_file(
+                    value.notebook_id,
+                    value.document_id,
+                    title=value.title,
+                    wait=value.wait,
+                    wait_timeout=value.wait_timeout,
+                )
+        return SourceAddFileResult(_source_record(source))
+
+    async def _source_file_limit(self) -> int | None:
+        result = await self._rpc_call(
+            RPCMethod.GET_USER_SETTINGS,
+            settings_codec.encode_get_user_settings(),
+            operation=Operation.SOURCE_ADD_FILE,
+            deadline=None,
+            source_path="/",
+        )
+        return settings_codec.decode_account_limits(result).source_limit
+
+    async def _source_delete(
+        self,
+        value: SourceDeleteInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SourceDeleteResult:
+        await self._rpc_call(
+            RPCMethod.DELETE_SOURCE,
+            encode_delete(value.source_id),
+            operation=Operation.SOURCE_DELETE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return SourceDeleteResult()
+
+    async def _source_update(
+        self,
+        value: SourceUpdateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SourceUpdateResult:
+        payload = await self._rpc_call(
+            RPCMethod.UPDATE_SOURCE,
+            build_rename_source_params(value.source_id, value.new_title),
+            operation=Operation.SOURCE_UPDATE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        if payload:
+            return SourceUpdateResult(
+                decode_source_record(payload, method=RPCMethod.UPDATE_SOURCE)
+                if value.return_object
+                else None
+            )
+
+        hydrated = await self._source_get(
+            SourceGetInput(value.notebook_id, value.source_id),
+            deadline=deadline,
+        )
+        if hydrated.source is None:
+            raise BackendError(
+                message=f"Source not found: {value.source_id}",
+                operation=Operation.SOURCE_UPDATE,
+                diagnostics=MappingProxyType(
+                    {
+                        "source_id": value.source_id,
+                        "method_id": RPCMethod.UPDATE_SOURCE.value,
+                        "raw_response": None,
+                    }
+                ),
+                reason=BackendErrorReason.SOURCE_NOT_FOUND,
+            )
+        return SourceUpdateResult(hydrated.source if value.return_object else None)
+
+    async def _source_refresh(
+        self,
+        value: SourceRefreshInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SourceRefreshResult:
+        await self._rpc_call(
+            RPCMethod.REFRESH_SOURCE,
+            encode_refresh_or_freshness(value.source_id),
+            operation=Operation.SOURCE_REFRESH,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return SourceRefreshResult()
+
+    async def _source_check_freshness(
+        self,
+        value: SourceFreshnessInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SourceFreshnessResult:
+        payload = await self._rpc_call(
+            RPCMethod.CHECK_SOURCE_FRESHNESS,
+            encode_refresh_or_freshness(value.source_id),
+            operation=Operation.SOURCE_CHECK_FRESHNESS,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return SourceFreshnessResult(interpret_source_freshness(payload))
+
+    async def _source_get_guide(
+        self,
+        value: SourceGuideInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SourceGuideResult:
+        caller = _DeadlineRpcCaller(self, deadline, Operation.SOURCE_GET_GUIDE)
+        guide = await SourceContentRenderer(cast(Any, caller), logger=source_logger).get_guide(
+            value.notebook_id,
+            value.source_id,
+        )
+        return SourceGuideResult(SourceGuideRecord(summary=guide.summary, keywords=guide.keywords))
+
+    async def _source_get_fulltext(
+        self,
+        value: SourceFulltextInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SourceFulltextResult:
+        caller = _DeadlineRpcCaller(self, deadline, Operation.SOURCE_GET_FULLTEXT)
+        try:
+            fulltext = await SourceContentRenderer(
+                cast(Any, caller), logger=source_logger
+            ).get_fulltext(
+                value.notebook_id,
+                value.source_id,
+                output_format=cast(Any, value.output_format),
+            )
+        except SourceNotFoundError as exc:
+            raise BackendError(
+                message=str(exc.args[0]),
+                operation=Operation.SOURCE_GET_FULLTEXT,
+                diagnostics=MappingProxyType(
+                    {
+                        "source_id": exc.source_id,
+                        "method_id": exc.method_id,
+                        "raw_response": exc.raw_response,
+                    }
+                ),
+                reason=BackendErrorReason.SOURCE_NOT_FOUND,
+            ) from exc
+        type_code = fulltext._type_code
+        kind = (
+            _SOURCE_TYPE_CODE_MAP.get(type_code, SourceType.UNKNOWN)
+            if type_code is not None
+            else SourceType.UNKNOWN
+        )
+        return SourceFulltextResult(
+            SourceFulltextRecord(
+                source_id=fulltext.source_id,
+                title=fulltext.title,
+                content=fulltext.content,
+                kind=kind.value,
+                unrecognized_kind=(
+                    type_code
+                    if type_code is not None and type_code not in _SOURCE_TYPE_CODE_MAP
+                    else None
+                ),
+                url=fulltext.url,
+                char_count=fulltext.char_count,
+                document=fulltext.document,
+            )
         )
 
     @staticmethod

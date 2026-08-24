@@ -54,6 +54,7 @@ def _native(
 _IDEMPOTENT = IdempotencyPolicy.IDEMPOTENT_SET_OP
 _PROBE_CREATE = IdempotencyPolicy.PROBE_THEN_CREATE
 _NO_RETRY = IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY
+_AT_LEAST_ONCE = IdempotencyPolicy.AT_LEAST_ONCE_ACCEPTED
 _APP_GENERATION_DIVERGENCE = (
     "The exported notebooklm.artifacts.with_rate_limit_retry helper re-invokes the internal "
     "facade operation after rate limiting. P4.2 removes that internal use while preserving the "
@@ -115,6 +116,101 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
                 ),
                 _native(RPCMethod.UPDATE_SOURCE, _IDEMPOTENT, "optional title readback"),
             ),
+        ),
+        Operation.SOURCE_ADD_URL_BATCH: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(
+                    RPCMethod.ADD_SOURCE,
+                    _PROBE_CREATE,
+                    "single non-replayed URL/YouTube batch write",
+                    variant="url",
+                ),
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "conditional reconciliation read"),
+            ),
+        ),
+        Operation.SOURCE_ADD_TEXT: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(
+                    RPCMethod.ADD_SOURCE,
+                    _NO_RETRY,
+                    "non-idempotent pasted-text allocation",
+                    variant="text",
+                ),
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "conditional readiness poll"),
+            ),
+        ),
+        Operation.SOURCE_ADD_DRIVE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(
+                    RPCMethod.ADD_SOURCE,
+                    _PROBE_CREATE,
+                    "Drive-document allocation with baseline probe",
+                    variant="drive",
+                ),
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "baseline/probe/wait read"),
+                _native(RPCMethod.UPDATE_SOURCE, _IDEMPOTENT, "optional title set-op"),
+            ),
+        ),
+        Operation.SOURCE_ADD_FILE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(RPCMethod.ADD_SOURCE_FILE, _PROBE_CREATE, "file-source registration"),
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "baseline/probe/wait read"),
+                _native(RPCMethod.GET_USER_SETTINGS, _IDEMPOTENT, "source-limit diagnosis"),
+                _native(RPCMethod.UPDATE_SOURCE, _IDEMPOTENT, "optional title set-op"),
+            ),
+        ),
+        Operation.SOURCE_DELETE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (_native(RPCMethod.DELETE_SOURCE, _IDEMPOTENT, "idempotent source delete"),),
+        ),
+        Operation.SOURCE_UPDATE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(RPCMethod.UPDATE_SOURCE, _IDEMPOTENT, "source title set-op"),
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "conditional null-echo readback"),
+            ),
+        ),
+        Operation.SOURCE_REFRESH: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(
+                    RPCMethod.REFRESH_SOURCE,
+                    _AT_LEAST_ONCE,
+                    "accepted duplicate refresh kickoff",
+                ),
+            ),
+            known_divergence=(
+                "Semantic mutation is backed by AT_LEAST_ONCE_ACCEPTED native retry; P4 records "
+                "parity but must not change behavior."
+            ),
+        ),
+        Operation.SOURCE_CHECK_FRESHNESS: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (
+                _native(
+                    RPCMethod.CHECK_SOURCE_FRESHNESS,
+                    _IDEMPOTENT,
+                    "source freshness read",
+                ),
+            ),
+        ),
+        Operation.SOURCE_GET_GUIDE: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(
+                    RPCMethod.GET_SOURCE_GUIDE,
+                    _IDEMPOTENT,
+                    "response-only source-guide generation",
+                ),
+            ),
+        ),
+        Operation.SOURCE_GET_FULLTEXT: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (_native(RPCMethod.GET_SOURCE, _IDEMPOTENT, "source content read"),),
         ),
         Operation.LABEL_LIST: WebCallPolicyBinding(
             CallPolicy.READ,

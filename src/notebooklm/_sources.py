@@ -6,34 +6,32 @@ import logging
 from collections.abc import Callable, Collection
 from pathlib import Path
 from time import monotonic
-from typing import IO, Any, Final, Literal
+from typing import IO, Any, Final, Literal, cast
 from urllib.parse import urlparse
 
 import httpx
 
 from ._backend import BackendAdapter, BackendError
-from ._backend_compat import project_backend_error
+from ._backend_compat import (
+    project_backend_error,
+    project_source_add_failure,
+)
+from ._deadline import RuntimeDeadline
 from ._lookup import unwrap_or_raise
 from ._mutation_services import SourceUrlMutationService
-from ._projectors import project_source
+from ._projectors import project_source, project_source_fulltext, project_source_guide
 from ._read_services import SourceReadService
-from ._row_adapters.sources import interpret_source_freshness
 from ._runtime.config import DEFAULT_MAX_CONCURRENT_UPLOADS
-from ._runtime.contracts import RpcCaller
 from ._source import upload as _source_upload
-from ._source.add import SourceAddService, honor_requested_title_if_fresh
-from ._source.batch import SourceBatchAddService, SourceUrlBatchItem
+from ._source.add import SourceAddService
+from ._source.batch import SourceUrlBatchItem
 from ._source.content import SourceContentRenderer
-from ._source.drive_import import DriveFetcher, DriveImportService
 from ._source.listing import SourceLister, _snapshot_enum_filter
 from ._source.polling import SourcePoller, SourceWaitResult
 from ._source.upload import SourceUploadPipeline
-from ._source.upload_payloads import build_rename_source_params
+from ._source_service import SourceService
 from ._types.research import SourceGuide
-from ._web.codec.settings import decode_account_limits, encode_get_user_settings
-from ._web.codec.sources import decode_source
-from .exceptions import SourceNotFoundError
-from .rpc import RPCMethod
+from .exceptions import SourceAddError, SourceNotFoundError
 from .rpc.types import source_status_to_str
 from .types import (
     Source,
@@ -64,7 +62,7 @@ class SourcesAPI:
 
     def __init__(
         self,
-        rpc: RpcCaller,
+        rpc: Any,
         *,
         uploader: SourceUploadPipeline,
         upload_timeout: httpx.Timeout | None = None,
@@ -74,10 +72,10 @@ class SourcesAPI:
         """Initialize the sources API.
 
         Args:
-            rpc: The narrow :class:`RpcCaller` capability — sources
-                only needs ``rpc_call(...)`` for its own RPC paths
-                (delete, rename, refresh, freshness, drive add, text add).
-                Upload-flow capabilities (``kernel``, ``auth``,
+            rpc: The legacy source-workflow RPC capability retained for list/wait
+                helpers and by the backend-owned upload collaborators. Migrated
+                source variants dispatch through ``_backend`` instead.
+                Upload-flow capabilities (``kernel``, ``auth``, and
                 ``operation_scope``) are owned by ``uploader``.
             uploader: Stateful file-upload pipeline. REQUIRED — wired explicitly
                 by :class:`NotebookLMClient` (the only composition root that
@@ -109,15 +107,14 @@ class SourcesAPI:
         self._url_mutation_service = (
             SourceUrlMutationService(_backend) if _backend is not None else None
         )
+        self._source_service = SourceService(_backend) if _backend is not None else None
         self._adder = SourceAddService()
-        self._batch_adder = SourceBatchAddService()
         self._content = SourceContentRenderer(self._rpc, logger=logger)
         self._lister = SourceLister(self._rpc)
         self._poller = SourcePoller()
         self._upload_timeout = upload_timeout
         self._max_concurrent_uploads = max_concurrent_uploads
         self._uploader = uploader
-        self._uploader.configure_source_limit_lookup(self._get_source_limit)
         # Single owner for the source-lifecycle verbs: the upload pipeline reuses
         # the SAME ``SourceLister`` / ``SourcePoller`` instances this API uses for
         # its ``list_sources`` / ``get_source`` / ``wait_*`` verbs rather than
@@ -139,32 +136,16 @@ class SourcesAPI:
             raise RuntimeError("SourcesAPI semantic URL backend was not configured")
         return self._url_mutation_service
 
+    def _require_source_service(self) -> SourceService:
+        """Return the composition-root service for the migrated Source slice."""
+        if self._source_service is None:
+            raise RuntimeError("SourcesAPI semantic source backend was not configured")
+        return self._source_service
+
     @staticmethod
     def _compat_read_error(error: BackendError) -> Exception:
         """Project one neutral backend error at the public compatibility boundary."""
         return project_backend_error(error)
-
-    async def _rpc_call(
-        self,
-        method: RPCMethod,
-        params: list[Any],
-        source_path: str = "/",
-        allow_null: bool = False,
-        _is_retry: bool = False,
-        *,
-        disable_internal_retries: bool = False,
-        operation_variant: str | None = None,
-    ) -> Any:
-        """Delegate through the current core RPC method for late-bound test overrides."""
-        return await self._rpc.rpc_call(
-            method,
-            params,
-            source_path=source_path,
-            allow_null=allow_null,
-            _is_retry=_is_retry,
-            disable_internal_retries=disable_internal_retries,
-            operation_variant=operation_variant,
-        )
 
     async def list(
         self,
@@ -525,14 +506,28 @@ class SourcesAPI:
         path never replays an uncertain write and returns typed positional
         outcomes after reconciling silently omitted failures.
         """
-        return await self._batch_adder.add_urls(
-            notebook_id,
-            urls,
-            rpc=self._rpc,
-            list_sources=self.list,
-            extract_youtube_video_id=self._extract_youtube_video_id,
-            logger=logger,
-        )
+        public_error: Exception | None = None
+        try:
+            result = await self._require_source_service().add_urls_batch(
+                notebook_id,
+                tuple(urls),
+            )
+        except BackendError as error:
+            public_error = project_backend_error(error)
+        else:
+            return [
+                SourceUrlBatchItem(
+                    url=item.url,
+                    source=(project_source(item.source) if item.source is not None else None),
+                    error=(
+                        cast(SourceAddError, project_source_add_failure(item.error))
+                        if item.error is not None
+                        else None
+                    ),
+                )
+                for item in result.items
+            ]
+        raise public_error from None
 
     async def add_text(
         self,
@@ -575,17 +570,22 @@ class SourcesAPI:
         Raises:
             NonIdempotentRetryError: When ``idempotent=True``.
         """
-        return await self._adder.add_text(
-            notebook_id,
-            title,
-            content,
-            wait=wait,
-            wait_timeout=wait_timeout,
-            idempotent=idempotent,
-            rpc=self._rpc,
-            wait_until_ready=self.wait_until_ready,
-            logger=logger,
-        )
+        public_error: Exception | None = None
+        try:
+            result = await self._require_source_service().add_text(
+                notebook_id,
+                title,
+                content,
+                wait=wait,
+                wait_timeout=wait_timeout,
+                idempotent=idempotent,
+                deadline=(RuntimeDeadline.start(wait_timeout) if wait else None),
+            )
+        except BackendError as error:
+            public_error = project_backend_error(error)
+        else:
+            return project_source(result.source)
+        raise public_error from None
 
     async def add_file(
         self,
@@ -633,15 +633,22 @@ class SourcesAPI:
                 registration raises its real type unwrapped, carrying
                 ``source_id`` / ``stage`` attributes naming the retained row.
         """
-        return await self._uploader.add_file(
-            notebook_id,
-            file_path,
-            mime_type=mime_type,
-            wait=wait,
-            wait_timeout=wait_timeout,
-            title=title,
-            on_progress=on_progress,
-        )
+        public_error: Exception | None = None
+        try:
+            result = await self._require_source_service().add_file(
+                notebook_id,
+                file_path,
+                mime_type=mime_type,
+                wait=wait,
+                wait_timeout=wait_timeout,
+                title=title,
+                on_progress=on_progress,
+            )
+        except BackendError as error:
+            public_error = project_backend_error(error)
+        else:
+            return project_source(result.source)
+        raise public_error from None
 
     async def add_drive(
         self,
@@ -676,23 +683,22 @@ class SourcesAPI:
             source = await client.sources.add_drive(notebook_id, file_id="1abc123xyz",
                 title="My Document", mime_type=DriveMimeType.GOOGLE_DOC.value, wait=True)
         """
-        result = await self._adder.add_drive(
-            notebook_id,
-            file_id,
-            title,
-            mime_type=mime_type,
-            wait=wait,
-            wait_timeout=wait_timeout,
-            rpc=self._rpc,
-            list_sources=self.list,
-            wait_until_ready=self.wait_until_ready,
-            logger=logger,
-            return_result=True,
-        )
-        # Baseline-filtered probe ⇒ even a PROBED result is ours to rename (#2113).
-        return await honor_requested_title_if_fresh(
-            self.rename, notebook_id, result, title, logger, probe_proves_freshness=True
-        )
+        public_error: Exception | None = None
+        try:
+            result = await self._require_source_service().add_drive(
+                notebook_id,
+                file_id,
+                title,
+                mime_type=mime_type,
+                wait=wait,
+                wait_timeout=wait_timeout,
+                deadline=(RuntimeDeadline.start(wait_timeout) if wait else None),
+            )
+        except BackendError as error:
+            public_error = project_backend_error(error)
+        else:
+            return project_source(result.source)
+        raise public_error from None
 
     async def add_drive_file(
         self,
@@ -727,20 +733,20 @@ class SourcesAPI:
             ValidationError: unparseable id/URL, an upload-unsupported type
                 (HTML/other), or a native (non-downloadable) Google Doc/Slides/Sheet.
         """
-        service = DriveImportService(
-            fetch=DriveFetcher(
-                cookies_provider=self._uploader.live_cookies,
-                authuser=self._uploader.authuser_value(),
-            ),
-            add_file=self.add_file,
-        )
-        # Gate the whole download→upload op on a DEDICATED download semaphore;
-        # reusing the upload one would deadlock because ``add_file`` needs it.
-        # It bounds temporary-file fan-out to ``max_concurrent_uploads``.
-        async with self._uploader.get_download_semaphore():
-            return await service.add_drive_file(
-                notebook_id, document_id, title=title, wait=wait, wait_timeout=wait_timeout
+        public_error: Exception | None = None
+        try:
+            result = await self._require_source_service().add_drive_file(
+                notebook_id,
+                document_id,
+                title=title,
+                wait=wait,
+                wait_timeout=wait_timeout,
             )
+        except BackendError as error:
+            public_error = project_backend_error(error)
+        else:
+            return project_source(result.source)
+        raise public_error from None
 
     async def delete(self, notebook_id: str, source_id: str) -> None:
         """Delete a source from a notebook.
@@ -759,13 +765,11 @@ class SourcesAPI:
             no longer enters its block.
         """
         logger.debug("Deleting source %s from notebook %s", source_id, notebook_id)
-        params = [[[source_id]]]
-        await self._rpc.rpc_call(
-            RPCMethod.DELETE_SOURCE,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-        )
+        try:
+            await self._require_source_service().delete(notebook_id, source_id)
+        except BackendError as error:
+            public_error = project_backend_error(error)
+            raise public_error from None
 
     async def rename(
         self,
@@ -805,23 +809,17 @@ class SourcesAPI:
             preflight on a null echo too, raising on a miss (#1362).
         """
         logger.debug("Renaming source %s to: %s", source_id, new_title)
-        params = build_rename_source_params(source_id, new_title)
-        result = await self._rpc.rpc_call(
-            RPCMethod.UPDATE_SOURCE,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-        )
-        if result and return_object:
-            return project_source(decode_source(result, method_id=RPCMethod.UPDATE_SOURCE.value))
-        # Null echo: hydrate via the internal lookup (never public ``get()`` —
-        # #1247) so a miss raises; v0.8.0 (#1362) runs it to detect a miss.
-        if not return_object and result:
-            return None
-        source = await self._get_or_none(notebook_id, source_id)
-        if source is None:
-            raise SourceNotFoundError(source_id, method_id=RPCMethod.UPDATE_SOURCE.value)
-        return None if not return_object else source
+        try:
+            result = await self._require_source_service().update(
+                notebook_id,
+                source_id,
+                new_title,
+                return_object=return_object,
+            )
+        except BackendError as error:
+            public_error = project_backend_error(error)
+            raise public_error from None
+        return project_source(result.source) if result.source is not None else None
 
     async def refresh(self, notebook_id: str, source_id: str) -> None:
         """Refresh a source to get updated content (for URL/Drive sources).
@@ -837,13 +835,11 @@ class SourcesAPI:
             **Breaking change:** returns ``None`` (not always-``True``); the
             ``-> bool`` annotation is dropped (#1290).
         """
-        params = [None, [source_id], [2]]
-        await self._rpc.rpc_call(
-            RPCMethod.REFRESH_SOURCE,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-        )
+        try:
+            await self._require_source_service().refresh(notebook_id, source_id)
+        except BackendError as error:
+            public_error = project_backend_error(error)
+            raise public_error from None
         return None
 
     async def check_freshness(self, notebook_id: str, source_id: str) -> bool:
@@ -861,14 +857,14 @@ class SourcesAPI:
                 unrecognized shape (schema drift) — so callers can tell a miss
                 from drift instead of a silent "stale" (#1344).
         """
-        params = [None, [source_id], [2]]
-        result = await self._rpc.rpc_call(
-            RPCMethod.CHECK_SOURCE_FRESHNESS,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-        )
-        return interpret_source_freshness(result)
+        try:
+            return await self._require_source_service().check_freshness(
+                notebook_id,
+                source_id,
+            )
+        except BackendError as error:
+            public_error = project_backend_error(error)
+            raise public_error from None
 
     async def get_guide(self, notebook_id: str, source_id: str) -> SourceGuide:
         """Get AI-generated summary and keywords for a specific source.
@@ -887,7 +883,12 @@ class SourcesAPI:
 
             Use attribute access (``guide.summary``, ``guide.keywords``).
         """
-        return await self._content.get_guide(notebook_id, source_id)
+        try:
+            result = await self._require_source_service().get_guide(notebook_id, source_id)
+        except BackendError as error:
+            public_error = project_backend_error(error)
+            raise public_error from None
+        return project_source_guide(result.guide)
 
     async def get_fulltext(
         self,
@@ -922,11 +923,16 @@ class SourcesAPI:
             from the API (params ``[3],[3]`` instead of ``[2],[2]``) and
             converting it via *markdownify*.
         """
-        return await self._content.get_fulltext(
-            notebook_id,
-            source_id,
-            output_format=output_format,
-        )
+        try:
+            result = await self._require_source_service().get_fulltext(
+                notebook_id,
+                source_id,
+                output_format=output_format,
+            )
+        except BackendError as error:
+            public_error = project_backend_error(error)
+            raise public_error from None
+        return project_source_fulltext(result.fulltext)
 
     # --- Private helper methods ---
 
@@ -1031,15 +1037,6 @@ class SourcesAPI:
             notebook_id,
             filename,
         )
-
-    async def _get_source_limit(self) -> int | None:
-        """Return the current account's per-notebook source limit when advertised."""
-        result = await self._rpc_call(
-            RPCMethod.GET_USER_SETTINGS,
-            encode_get_user_settings(),
-            source_path="/",
-        )
-        return decode_account_limits(result).source_limit
 
     async def _start_resumable_upload(
         self,

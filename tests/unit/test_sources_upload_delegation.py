@@ -33,7 +33,9 @@ import pytest
 import notebooklm._sources as sources_module
 from notebooklm._source.upload import SourceUploadPipeline
 from notebooklm._sources import SourcesAPI
+from notebooklm.types import Source
 from tests._fixtures.fake_core import make_fake_core
+from tests._fixtures.web_backend import build_web_backend
 
 
 def _parse_sources_module() -> ast.Module:
@@ -72,9 +74,17 @@ class _RecordingPipeline:
     def __init__(self) -> None:
         self.calls: dict[str, tuple[tuple[object, ...], dict[str, object]]] = {}
 
+    def configure_source_limit_lookup(self, callback: object) -> None:
+        self.calls["configure_source_limit_lookup"] = ((callback,), {})
+
+    def configure_source_lifecycle(self, **kwargs: object) -> None:
+        self.calls["configure_source_lifecycle"] = ((), kwargs)
+
     def _record(self, name: str):
-        async def _call(*args: object, **kwargs: object) -> str:
+        async def _call(*args: object, **kwargs: object) -> object:
             self.calls[name] = (args, kwargs)
+            if name == "add_file":
+                return Source(id="uploaded", title="Report")
             return f"<{name}-result>"
 
         return _call
@@ -118,14 +128,22 @@ def _make_sources_api() -> SourcesAPI:
         auth=core.auth,
         record_upload_queue_wait=core.record_upload_queue_wait,
     )
-    return SourcesAPI(core, uploader=uploader)
+    return SourcesAPI(
+        core,
+        uploader=uploader,
+        _backend=build_web_backend(core, source_uploader=uploader),
+    )
 
 
 def _make_api_with_recording_pipeline() -> tuple[SourcesAPI, _RecordingPipeline]:
     """Return a ``SourcesAPI`` whose uploader is swapped for a recording double."""
-    api = _make_sources_api()
+    core = make_fake_core(rpc_call=AsyncMock())
     pipeline = _RecordingPipeline()
-    api._uploader = pipeline  # type: ignore[assignment]
+    api = SourcesAPI(
+        core,
+        uploader=pipeline,  # type: ignore[arg-type]
+        _backend=build_web_backend(core, source_uploader=pipeline),
+    )
     return api, pipeline
 
 
@@ -154,7 +172,7 @@ async def test_add_file_delegates_to_pipeline() -> None:
         on_progress=progress,
     )
 
-    assert result == "<add_file-result>"
+    assert (result.id, result.title) == ("uploaded", "Report")
     # SourcesAPI.add_file forwards notebook_id / file_path positionally and
     # mime_type / wait / wait_timeout / title / on_progress as keywords.
     args, kwargs = pipeline.calls["add_file"]
@@ -330,7 +348,6 @@ def test_sources_upload_helpers_are_pure_delegators() -> None:
         "_start_resumable_upload": "start_resumable_upload",
         "_upload_file_streaming": "upload_file_streaming",
         "_cancel_upload_session": "cancel_upload_session",
-        "add_file": "add_file",
     }
 
     # Completeness guard: ``expected`` must be an exhaustive allowlist of the

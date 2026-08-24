@@ -33,6 +33,7 @@ class Operation(str, Enum):
     SOURCE_LIST = "source.list"
     SOURCE_GET = "source.get"
     SOURCE_ADD_URL = "source.add_url"
+    SOURCE_ADD_URL_BATCH = "source.add_url_batch"
     SOURCE_ADD_TEXT = "source.add_text"
     SOURCE_ADD_DRIVE = "source.add_drive"
     SOURCE_ADD_FILE = "source.add_file"

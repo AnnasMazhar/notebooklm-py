@@ -10,7 +10,6 @@ if TYPE_CHECKING:
 
 def __getattr__(name: str) -> Any:
     """Load the backend lazily so leaf codecs cannot create import cycles."""
-
     if name == "WebRpcBackend":
         from .backend import WebRpcBackend
 

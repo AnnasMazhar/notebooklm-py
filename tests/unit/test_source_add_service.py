@@ -16,6 +16,8 @@ from notebooklm._app.errors import ErrorCategory, classify
 from notebooklm._idempotency import _CreateResultKind, _IdempotentCreateResult
 from notebooklm._records import (
     SourceAddCommitState,
+    SourceAddDriveResult,
+    SourceAddTextResult,
     SourceAddTitleState,
     SourceAddUrlReceipt,
     SourceAddUrlResult,
@@ -737,6 +739,7 @@ async def test_sources_api_add_url_uses_only_the_semantic_service() -> None:
 def _sources_api_with_mocked_adder() -> SourcesAPI:
     api = SourcesAPI(MagicMock(), uploader=MagicMock(), _backend=MagicMock())
     api._adder = MagicMock()  # type: ignore[assignment]
+    api._source_service = MagicMock()  # type: ignore[assignment]
     return api
 
 
@@ -768,12 +771,18 @@ async def test_add_url_honors_title_via_post_add_rename() -> None:
 @pytest.mark.asyncio
 async def test_add_drive_honors_title_via_post_add_rename() -> None:
     api = _sources_api_with_mocked_adder()
-    api._adder.add_drive = AsyncMock(return_value=Source(id="d1", title="Drive Name"))
-    api.rename = AsyncMock(return_value=Source(id="d1", title="My Title"))  # type: ignore[method-assign]
+    api._source_service.add_drive = AsyncMock(  # type: ignore[union-attr]
+        return_value=SourceAddDriveResult(SourceRecord(id="d1", title="My Title"))
+    )
 
     result = await api.add_drive("nb_1", "file123", "My Title")
 
-    api.rename.assert_awaited_once_with("nb_1", "d1", "My Title")
+    api._source_service.add_drive.assert_awaited_once()  # type: ignore[union-attr]
+    assert api._source_service.add_drive.await_args.args[:3] == (  # type: ignore[union-attr]
+        "nb_1",
+        "file123",
+        "My Title",
+    )
     assert result.title == "My Title"
 
 
@@ -791,12 +800,13 @@ async def test_add_url_without_title_skips_rename() -> None:
 @pytest.mark.asyncio
 async def test_add_drive_empty_title_skips_rename() -> None:
     api = _sources_api_with_mocked_adder()
-    api._adder.add_drive = AsyncMock(return_value=Source(id="d1", title="Drive Name"))
-    api.rename = AsyncMock()  # type: ignore[method-assign]
+    api._source_service.add_drive = AsyncMock(  # type: ignore[union-attr]
+        return_value=SourceAddDriveResult(SourceRecord(id="d1", title="Drive Name"))
+    )
 
     result = await api.add_drive("nb_1", "file123", "")
 
-    api.rename.assert_not_awaited()
+    assert api._source_service.add_drive.await_args.args[2] == ""  # type: ignore[union-attr]
     assert result.title == "Drive Name"
 
 
@@ -816,17 +826,22 @@ async def test_add_url_title_matching_upstream_skips_rename() -> None:
 
 @pytest.mark.asyncio
 async def test_add_rename_failure_is_non_fatal(caplog: pytest.LogCaptureFixture) -> None:
-    api = _sources_api_with_mocked_adder()
-    api._adder.add_drive = AsyncMock(return_value=Source(id="d1", title="Drive Name"))
-    api.rename = AsyncMock(side_effect=NetworkError("boom"))  # type: ignore[method-assign]
+    source = Source(id="d1", title="Drive Name")
+    rename = AsyncMock(side_effect=NetworkError("boom"))
 
     with caplog.at_level(logging.WARNING):
-        result = await api.add_drive("nb_1", "file123", "My Title")
+        result = await honor_requested_title_if_fresh(
+            rename,
+            "nb_1",
+            _IdempotentCreateResult(source, _CreateResultKind.CREATED),
+            "My Title",
+            logging.getLogger("tests.source_add"),
+        )
 
     # The add succeeded — a failed rename must not raise; the upstream title is kept.
     assert result.id == "d1"
     assert result.title == "Drive Name"
-    api.rename.assert_awaited_once_with("nb_1", "d1", "My Title")
+    rename.assert_awaited_once_with("nb_1", "d1", "My Title")
     assert "rename" in caplog.text.lower()
 
 
@@ -856,13 +871,16 @@ async def test_add_url_honor_preserves_metadata_over_sparse_rename_echo() -> Non
 @pytest.mark.asyncio
 async def test_add_text_does_not_rename() -> None:
     api = _sources_api_with_mocked_adder()
-    api._adder.add_text = AsyncMock(return_value=Source(id="t1", title="My Notes"))
+    api._source_service.add_text = AsyncMock(  # type: ignore[union-attr]
+        return_value=SourceAddTextResult(SourceRecord(id="t1", title="My Notes"))
+    )
     api.rename = AsyncMock()  # type: ignore[method-assign]
 
     result = await api.add_text("nb_1", "My Notes", "content")
 
     # ``text`` sources honor ``title`` on the wire — no post-add rename.
     api.rename.assert_not_awaited()
+    api._source_service.add_text.assert_awaited_once()  # type: ignore[union-attr]
     assert result.title == "My Notes"
 
 

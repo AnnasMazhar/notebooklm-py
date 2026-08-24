@@ -9,12 +9,20 @@ INDEPENDENT expected table (not a re-import of ``_FATAL_CATEGORIES``).
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 
 from notebooklm import exceptions as exc
 from notebooklm._app import SourceMutationError
 from notebooklm._app.errors import ErrorCategory
-from notebooklm._app.source_batch import MAX_BATCH_URLS, batch_item_is_fatal
+from notebooklm._app.source_batch import (
+    MAX_BATCH_URLS,
+    batch_item_is_fatal,
+    execute_source_url_batch,
+    source_batch_invariant_error,
+)
 
 # One exemplar exception per ErrorCategory (mirrors the classify-consistency gate).
 _EXEMPLARS: list[tuple[ErrorCategory, BaseException]] = [
@@ -78,3 +86,26 @@ def test_batch_item_is_fatal_matches_expected(
 
 def test_max_batch_urls_is_positive() -> None:
     assert isinstance(MAX_BATCH_URLS, int) and MAX_BATCH_URLS > 0
+
+
+@pytest.mark.asyncio
+async def test_batch_execution_reaches_private_client_seam_only_through_app_boundary() -> None:
+    outcomes = [object()]
+    add_batch = AsyncMock(return_value=outcomes)
+    client = SimpleNamespace(sources=SimpleNamespace(_add_urls_batch=add_batch))
+
+    result = await execute_source_url_batch(
+        client,
+        "nb",
+        ["https://example.com"],
+    )
+
+    assert result is outcomes
+    add_batch.assert_awaited_once_with("nb", ["https://example.com"])
+
+
+def test_batch_invariant_error_is_explicitly_non_wire() -> None:
+    error = source_batch_invariant_error("projection mismatch")
+
+    assert isinstance(error, exc.RPCError)
+    assert error.method_id is None

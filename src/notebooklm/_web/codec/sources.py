@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from ..._records import SourceRecord
-from ..._row_adapters.sources import SourceRow
+from typing import Any
+
+from ..._records import SourceGuideRecord, SourceRecord
+from ..._row_adapters.sources import SourceGuideRow, SourceRow, unwrap_add_source_rows
 from ..._url_utils import pdf_url_display_title
+from ...rpc import RPCMethod
 from ...rpc.types import drive_source_status_to_str, source_status_to_str
 
 _SOURCE_KINDS = {
@@ -24,6 +27,11 @@ _SOURCE_KINDS = {
     16: "csv",
     17: "epub",
 }
+
+
+def _template_block() -> list[Any]:
+    """Return the captured create/source request-options wrapper."""
+    return [2, None, None, [1, None, None, None, None, None, None, None, None, None, [1]]]
 
 
 def _effective_type_code(row: SourceRow) -> int | None:
@@ -72,4 +80,115 @@ def decode_source(data: list[object], *, method_id: str | None = None) -> Source
     return decode_source_row(SourceRow.from_unknown_shape(data, method_id=method_id))
 
 
-__all__ = ["decode_source", "decode_source_row"]
+def encode_add_text(notebook_id: str, title: str, content: str) -> list[Any]:
+    """Encode the pasted-text ``ADD_SOURCE`` variant."""
+    return [
+        [[None, [title, content], None, 2, None, None, None, None, None, None, 1]],
+        notebook_id,
+        _template_block(),
+    ]
+
+
+def encode_add_drive(
+    notebook_id: str,
+    file_id: str,
+    title: str,
+    mime_type: str,
+) -> list[Any]:
+    """Encode the live-pinned native Drive ``ADD_SOURCE`` variant."""
+    source_data = [
+        [file_id, mime_type, 1, title],
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        1,
+    ]
+    return [
+        [source_data],
+        notebook_id,
+        [2],
+        [1, None, None, None, None, None, None, None, None, None, [1]],
+    ]
+
+
+def _url_spec(url: str, *, youtube: bool) -> list[Any]:
+    if youtube:
+        return [None, None, None, None, None, None, None, [url], None, None, 1]
+    return [None, None, [url], None, None, None, None, None, None, None, 1]
+
+
+def encode_add_url_batch(
+    notebook_id: str,
+    urls: tuple[str, ...] | list[str],
+    *,
+    youtube_flags: tuple[bool, ...] | list[bool],
+) -> list[Any]:
+    """Encode one true-batch URL/YouTube ``ADD_SOURCE`` request."""
+    if len(urls) != len(youtube_flags):
+        raise ValueError("URL batch and YouTube discriminator counts differ")
+    return [
+        [_url_spec(url, youtube=youtube) for url, youtube in zip(urls, youtube_flags, strict=True)],
+        notebook_id,
+        _template_block(),
+    ]
+
+
+def encode_delete(source_id: str) -> list[Any]:
+    """Encode one source id for the batch-capable delete method."""
+    return [[[source_id]]]
+
+
+def encode_refresh_or_freshness(source_id: str) -> list[Any]:
+    """Encode the shared refresh/freshness identity envelope."""
+    return [None, [source_id], [2]]
+
+
+def encode_get_guide(source_id: str) -> list[Any]:
+    """Encode a source-guide request."""
+    return [[[[source_id]]]]
+
+
+def encode_get_fulltext(source_id: str, *, markdown: bool) -> list[Any]:
+    """Encode a fulltext request for the text or HTML rendition."""
+    return [[source_id], [3], [3]] if markdown else [[source_id], [2], [2]]
+
+
+def decode_source_record(payload: list[Any], *, method: RPCMethod) -> SourceRecord:
+    """Decode one source response through the aggregate source projector grammar."""
+    return decode_source(payload, method_id=method.value)
+
+
+def decode_add_source_records(payload: Any) -> tuple[SourceRecord, ...]:
+    """Strictly decode every identified row in an ``ADD_SOURCE`` response."""
+    return tuple(
+        decode_source_record(row, method=RPCMethod.ADD_SOURCE)
+        for row in unwrap_add_source_rows(payload)
+    )
+
+
+def decode_source_guide(payload: Any) -> SourceGuideRecord:
+    """Soft-decode the optional source guide fields."""
+    row = SourceGuideRow(payload)
+    return SourceGuideRecord(summary=row.summary, keywords=tuple(row.keywords))
+
+
+__all__ = [
+    "decode_add_source_records",
+    "decode_source",
+    "decode_source_guide",
+    "decode_source_record",
+    "decode_source_row",
+    "encode_add_drive",
+    "encode_add_text",
+    "encode_add_url_batch",
+    "encode_delete",
+    "encode_get_fulltext",
+    "encode_get_guide",
+    "encode_refresh_or_freshness",
+]

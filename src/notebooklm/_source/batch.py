@@ -15,14 +15,13 @@ from collections import Counter, defaultdict, deque
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from ipaddress import IPv6Address, ip_address
-from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from .._idempotency import mark_unconfirmed
 from .._projectors import project_source
 from .._row_adapters.sources import unwrap_add_source_rows
 from .._runtime.contracts import RpcCaller
-from .._web.codec.sources import decode_source
+from .._web.codec.sources import decode_source, encode_add_url_batch
 from ..exceptions import (
     AuthError,
     NetworkError,
@@ -33,7 +32,7 @@ from ..exceptions import (
 from ..rpc import RPCError, RPCMethod
 from ..rpc.types import GrpcStatusCode, SourceStatus, normalize_rpc_code
 from ..types import Source
-from .upload_payloads import build_template_block
+from .add import SourceWireCaller
 
 ListSources = Callable[..., Awaitable[list[Source]]]
 _PERCENT_ESCAPE = re.compile(r"%[0-9a-fA-F]{2}")
@@ -50,13 +49,6 @@ class SourceUrlBatchItem:
     def __post_init__(self) -> None:
         if (self.source is None) == (self.error is None):
             raise ValueError("exactly one of source or error must be set")
-
-
-def _url_spec(url: str, *, youtube: bool) -> list[Any]:
-    """Build one repeated web-page or YouTube ``UserContent`` entry."""
-    if youtube:
-        return [None, None, None, None, None, None, None, [url], None, None, 1]
-    return [None, None, [url], None, None, None, None, None, None, None, 1]
 
 
 def _url_identity(
@@ -141,7 +133,7 @@ class SourceBatchAddService:
         notebook_id: str,
         urls: Sequence[str],
         *,
-        rpc: RpcCaller,
+        rpc: SourceWireCaller,
         list_sources: ListSources,
         extract_youtube_video_id: Callable[[str], str | None],
         logger: logging.Logger,
@@ -158,11 +150,11 @@ class SourceBatchAddService:
         if not urls:
             return []
 
-        params = [
-            [_url_spec(url, youtube=extract_youtube_video_id(url) is not None) for url in urls],
+        params = encode_add_url_batch(
             notebook_id,
-            build_template_block(),
-        ]
+            list(urls),
+            youtube_flags=[extract_youtube_video_id(url) is not None for url in urls],
+        )
         rpc_error: RPCError | None = None
         try:
             payload = await rpc.rpc_call(

@@ -26,7 +26,20 @@ from .settings import (
     encode_set_output_language,
 )
 from .sharing import decode_share_status, decode_shared_user
-from .sources import decode_source, decode_source_row
+from .sources import (
+    decode_add_source_records,
+    decode_source,
+    decode_source_guide,
+    decode_source_record,
+    decode_source_row,
+    encode_add_drive,
+    encode_add_text,
+    encode_add_url_batch,
+    encode_delete,
+    encode_get_fulltext,
+    encode_get_guide,
+    encode_refresh_or_freshness,
+)
 from .studio_documents import (
     decode_generation_status,
     encode_report_generation,
@@ -43,6 +56,7 @@ from .suggestions import (
 __all__ = [
     "decode_account_limits",
     "decode_created_note",
+    "decode_add_source_records",
     "decode_generation_status",
     "decode_get_account_limits",
     "decode_get_user_settings",
@@ -67,6 +81,8 @@ __all__ = [
     "decode_share_status",
     "decode_shared_user",
     "decode_source",
+    "decode_source_guide",
+    "decode_source_record",
     "decode_source_row",
     "decode_structured_document",
     "encode_get_user_settings",
@@ -81,4 +97,11 @@ __all__ = [
     "encode_video_generation",
     "build_report_import_entry",
     "build_web_import_entry",
+    "encode_add_drive",
+    "encode_add_text",
+    "encode_add_url_batch",
+    "encode_delete",
+    "encode_get_fulltext",
+    "encode_get_guide",
+    "encode_refresh_or_freshness",
 ]

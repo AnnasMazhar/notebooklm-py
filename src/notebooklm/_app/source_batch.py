@@ -18,13 +18,33 @@ proven equal to that table's 401/429/>=500 partition by
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Protocol, cast
+
+from ..exceptions import RPCError
+from ..types import Source
 from .errors import ErrorCategory, classify
 
-__all__ = ["MAX_BATCH_URLS", "batch_item_is_fatal"]
+if TYPE_CHECKING:
+    from ..client import NotebookLMClient
+
+__all__ = [
+    "MAX_BATCH_URLS",
+    "batch_item_is_fatal",
+    "execute_source_url_batch",
+    "source_batch_invariant_error",
+]
 
 #: Max URL entries accepted by one batch add. Bounds one request's wire payload,
 #: backend work, result projection, and time in the shared source-mutation slot.
 MAX_BATCH_URLS = 20
+
+
+class _SourceUrlBatchItemView(Protocol):
+    """Public-shape view of one private semantic batch result."""
+
+    url: str
+    source: Source | None
+    error: Exception | None
 
 #: Categories whose REST projection (server ``CATEGORY_STATUS``) is 401 / 429 / >=500
 #: — a service/infra failure not specific to one URL. A per-item add hitting one must
@@ -57,3 +77,20 @@ def batch_item_is_fatal(exc: BaseException) -> bool:
     and is never passed here (the adapters catch only ``Exception``).
     """
     return classify(exc).category in _FATAL_CATEGORIES
+
+
+async def execute_source_url_batch(
+    client: NotebookLMClient,
+    notebook_id: str,
+    urls: list[str],
+) -> list[_SourceUrlBatchItemView]:
+    """Run the private typed batch seam behind the transport-neutral app boundary."""
+    return cast(
+        list[_SourceUrlBatchItemView],
+        await client.sources._add_urls_batch(notebook_id, urls),
+    )
+
+
+def source_batch_invariant_error(message: str) -> RPCError:
+    """Build a non-wire adapter-invariant error without naming an RPC method."""
+    return RPCError(message)

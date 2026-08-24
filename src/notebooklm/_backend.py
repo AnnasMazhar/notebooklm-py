@@ -43,6 +43,7 @@ class BackendErrorReason(str, Enum):
     NETWORK = "network"
     NOTEBOOK_LIMIT = "notebook_limit"
     NOTEBOOK_NOT_FOUND = "notebook_not_found"
+    SOURCE_NOT_FOUND = "source_not_found"
     RATE_LIMIT = "rate_limit"
     RESEARCH_START_UNAVAILABLE = "research_start_unavailable"
     RESPONSE_TOO_LARGE = "response_too_large"

@@ -203,14 +203,33 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         recency_effect="one unconditional pre-create GET_NOTEBOOK; probes add further reads",
     ),
     OperationSpec(
+        Operation.SOURCE_ADD_URL_BATCH,
+        CallPolicy.MUTATION,
+        "SourceService",
+        "notebook",
+        "Sends validated URL/YouTube entries once, never blindly replays an uncertain write, "
+        "and reconciles omitted positions against exact URL identities.",
+        native_bindings=(
+            _b(RPCMethod.ADD_SOURCE, "url"),
+            _b(RPCMethod.GET_NOTEBOOK),
+        ),
+        recency_effect=(
+            "zero GET_NOTEBOOK calls for complete responses; exactly one reconciliation snapshot "
+            "when response positions are omitted"
+        ),
+    ),
+    OperationSpec(
         Operation.SOURCE_ADD_TEXT,
         CallPolicy.MUTATION,
         "SourceService",
         "notebook",
         "Creates text without a safe probe key; idempotent=True is rejected up front.",
         _p("sources", "add_text"),
-        (_b(RPCMethod.ADD_SOURCE, "text"),),
-        recency_effect="none; text creation intentionally has no probe baseline",
+        (_b(RPCMethod.ADD_SOURCE, "text"), _b(RPCMethod.GET_NOTEBOOK)),
+        recency_effect=(
+            "zero GET_NOTEBOOK calls when wait=False; one source snapshot per readiness poll "
+            "tick when wait=True"
+        ),
     ),
     OperationSpec(
         Operation.SOURCE_ADD_DRIVE,
@@ -219,7 +238,11 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "notebook",
         "Takes an unconditional source-id baseline and reconciles by new exact Drive document id.",
         _p("sources", "add_drive"),
-        (_b(RPCMethod.ADD_SOURCE, "drive"), _b(RPCMethod.GET_NOTEBOOK)),
+        (
+            _b(RPCMethod.ADD_SOURCE, "drive"),
+            _b(RPCMethod.GET_NOTEBOOK),
+            _b(RPCMethod.UPDATE_SOURCE),
+        ),
         recency_effect="one unconditional pre-create GET_NOTEBOOK; probes add further reads",
     ),
     OperationSpec(
@@ -255,7 +278,8 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "notebook+source",
         "Updates the source title and optionally re-reads the source.",
         _p("sources", "rename"),
-        (_b(RPCMethod.UPDATE_SOURCE),),
+        (_b(RPCMethod.UPDATE_SOURCE), _b(RPCMethod.GET_NOTEBOOK)),
+        recency_effect="zero GET_NOTEBOOK calls on an echo; exactly one on a null echo",
     ),
     OperationSpec(
         Operation.SOURCE_REFRESH,
@@ -1020,6 +1044,16 @@ LOCAL_PUBLIC_METHODS: Mapping[str, str] = {
     "notebooks.get_share_url": "pure URL composition; performs no share mutation",
     "research.extract_report_urls": "pure report-markdown URL extraction helper",
     "research.select_cited_sources": "pure cited-source selection helper",
+}
+
+# Reviewed private facade seams invoked only from transport-neutral application
+# orchestration. These are intentionally absent from the public namespace
+# inventory, but must stay exact and catalogued rather than being silently
+# ignored by the app-call scan.
+APP_PRIVATE_FACADE_DISPOSITIONS: Mapping[str, str] = {
+    "sources._add_urls_batch": (
+        "typed true-batch URL seam; _app/source_batch.py is the sole adapter-neutral caller"
+    ),
 }
 
 

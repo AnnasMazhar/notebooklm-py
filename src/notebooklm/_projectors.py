@@ -28,9 +28,12 @@ from ._records import (
     SharePermissionLevel,
     ShareStatusRecord,
     ShareViewScope,
+    SourceFulltextRecord,
+    SourceGuideRecord,
     SourceRecord,
     UserSettingsRecord,
 )
+from ._types.research import SourceGuide
 from .types import (
     AccountLimits,
     Artifact,
@@ -67,6 +70,7 @@ from .types import (
     ShareStatus,
     ShareViewLevel,
     Source,
+    SourceFulltext,
     SourceStatus,
     SuggestedTopic,
     UnknownArtifactUserState,
@@ -322,6 +326,30 @@ def project_research_task(record: ResearchTaskRecord) -> ResearchTask:
         created_at=record.created_at,
         updated_at=record.updated_at,
         account_id=record.account_id,
+    )
+
+
+def project_source_guide(record: SourceGuideRecord) -> SourceGuide:
+    """Construct the existing frozen source-guide model."""
+    return SourceGuide(summary=record.summary, keywords=record.keywords)
+
+
+def project_source_fulltext(record: SourceFulltextRecord) -> SourceFulltext:
+    """Construct the existing fulltext model from its neutral record."""
+    return SourceFulltext(
+        source_id=record.source_id,
+        title=record.title,
+        content=record.content,
+        _type_code=_source_type_code(
+            SourceRecord(
+                id=record.source_id,
+                kind=record.kind,
+                unrecognized_kind=record.unrecognized_kind,
+            )
+        ),
+        url=record.url,
+        char_count=record.char_count,
+        document=record.document,
     )
 
 
@@ -592,4 +620,6 @@ __all__ = [
     "project_shared_user",
     "project_source",
     "project_user_settings",
+    "project_source_fulltext",
+    "project_source_guide",
 ]

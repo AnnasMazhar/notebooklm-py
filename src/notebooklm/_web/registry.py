@@ -1,9 +1,10 @@
 """Closed web dispositions for the semantic operation vocabulary.
 
 P2 notebook/source operations, P5 Studio family operations, P6.2 Research, P6.3 note/mind-map
-workflows, P6.4 source-label/collection operations, P6.5 Sharing, and P6.6 settings/suggestions
-have executable bindings. Every other P0 operation has an unsupported disposition, and the count
-assertions force a deliberate registry update when the closed :class:`Operation` enum changes.
+workflows, P6.4 source-label/collection operations, P6.5 Sharing, P6.6 settings/suggestions, and
+the P6.7 remaining-source variants have executable bindings. Every other operation has an
+unsupported disposition, and the count assertions force a deliberate registry update when the
+closed :class:`Operation` enum changes.
 """
 
 from __future__ import annotations
@@ -73,9 +74,19 @@ from .._records import (
     SHARING_SET_PUBLIC_DEF,
     SHARING_SET_VIEW_LEVEL_DEF,
     SHARING_UPDATE_USERS_DEF,
+    SOURCE_ADD_DRIVE_DEF,
+    SOURCE_ADD_FILE_DEF,
+    SOURCE_ADD_TEXT_DEF,
+    SOURCE_ADD_URL_BATCH_DEF,
     SOURCE_ADD_URL_DEF,
+    SOURCE_CHECK_FRESHNESS_DEF,
+    SOURCE_DELETE_DEF,
     SOURCE_GET_DEF,
+    SOURCE_GET_FULLTEXT_DEF,
+    SOURCE_GET_GUIDE_DEF,
     SOURCE_LIST_DEF,
+    SOURCE_REFRESH_DEF,
+    SOURCE_UPDATE_DEF,
 )
 from .policy import audit_web_call_policy_bindings
 
@@ -115,6 +126,16 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.NOTEBOOK_UPDATE: NOTEBOOK_UPDATE_DEF,
         Operation.NOTEBOOK_DELETE: NOTEBOOK_DELETE_DEF,
         Operation.SOURCE_ADD_URL: SOURCE_ADD_URL_DEF,
+        Operation.SOURCE_ADD_URL_BATCH: SOURCE_ADD_URL_BATCH_DEF,
+        Operation.SOURCE_ADD_TEXT: SOURCE_ADD_TEXT_DEF,
+        Operation.SOURCE_ADD_DRIVE: SOURCE_ADD_DRIVE_DEF,
+        Operation.SOURCE_ADD_FILE: SOURCE_ADD_FILE_DEF,
+        Operation.SOURCE_DELETE: SOURCE_DELETE_DEF,
+        Operation.SOURCE_UPDATE: SOURCE_UPDATE_DEF,
+        Operation.SOURCE_REFRESH: SOURCE_REFRESH_DEF,
+        Operation.SOURCE_CHECK_FRESHNESS: SOURCE_CHECK_FRESHNESS_DEF,
+        Operation.SOURCE_GET_GUIDE: SOURCE_GET_GUIDE_DEF,
+        Operation.SOURCE_GET_FULLTEXT: SOURCE_GET_FULLTEXT_DEF,
         Operation.SOURCE_LIST: SOURCE_LIST_DEF,
         Operation.SOURCE_GET: SOURCE_GET_DEF,
         Operation.NOTE_LIST: NOTE_LIST_DEF,
@@ -181,6 +202,16 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.NOTEBOOK_UPDATE: "_notebook_update",
         Operation.NOTEBOOK_DELETE: "_notebook_delete",
         Operation.SOURCE_ADD_URL: "_source_add_url",
+        Operation.SOURCE_ADD_URL_BATCH: "_source_add_url_batch",
+        Operation.SOURCE_ADD_TEXT: "_source_add_text",
+        Operation.SOURCE_ADD_DRIVE: "_source_add_drive",
+        Operation.SOURCE_ADD_FILE: "_source_add_file",
+        Operation.SOURCE_DELETE: "_source_delete",
+        Operation.SOURCE_UPDATE: "_source_update",
+        Operation.SOURCE_REFRESH: "_source_refresh",
+        Operation.SOURCE_CHECK_FRESHNESS: "_source_check_freshness",
+        Operation.SOURCE_GET_GUIDE: "_source_get_guide",
+        Operation.SOURCE_GET_FULLTEXT: "_source_get_fulltext",
         Operation.SOURCE_LIST: "_source_list",
         Operation.SOURCE_GET: "_source_get",
         Operation.NOTE_LIST: "_note_list",
@@ -243,11 +274,11 @@ _STAGED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapping
 
 _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 
-# P0 freezes 86 operations.  This local assertion is intentionally repeated at
+# The frozen catalog currently contains 87 operations. This assertion is repeated at
 # the runtime registry boundary: a new enum member must not silently inherit an
-# unsupported disposition without a P1 registry review.
-_EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 61
+# unsupported disposition without a web-registry review.
+_EXPECTED_OPERATION_COUNT: Final = 87
+_EXPECTED_SUPPORTED_COUNT: Final = 71
 _EXPECTED_STAGED_COUNT: Final = 0
 
 
@@ -265,7 +296,7 @@ def _build_web_operation_registry() -> Mapping[Operation, WebOperationBinding]:
         )
     if len(_SUPPORTED_DEFINITIONS) != _EXPECTED_SUPPORTED_COUNT:
         raise RuntimeError(
-            "the P1 web handler set changed; update the reviewed supported-operation count"
+            "the web handler set changed; update the reviewed supported-operation count"
         )
     if len(_STAGED_DEFINITIONS) != _EXPECTED_STAGED_COUNT:
         raise RuntimeError(

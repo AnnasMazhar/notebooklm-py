@@ -97,9 +97,19 @@ from notebooklm._records import (
     SHARING_SET_PUBLIC_DEF,
     SHARING_SET_VIEW_LEVEL_DEF,
     SHARING_UPDATE_USERS_DEF,
+    SOURCE_ADD_DRIVE_DEF,
+    SOURCE_ADD_FILE_DEF,
+    SOURCE_ADD_TEXT_DEF,
+    SOURCE_ADD_URL_BATCH_DEF,
     SOURCE_ADD_URL_DEF,
+    SOURCE_CHECK_FRESHNESS_DEF,
+    SOURCE_DELETE_DEF,
     SOURCE_GET_DEF,
+    SOURCE_GET_FULLTEXT_DEF,
+    SOURCE_GET_GUIDE_DEF,
     SOURCE_LIST_DEF,
+    SOURCE_REFRESH_DEF,
+    SOURCE_UPDATE_DEF,
     ArtifactDeleteInput,
     ArtifactDownloadInput,
     ArtifactPollInput,
@@ -273,6 +283,16 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_RENAME,
         Operation.ARTIFACT_DOWNLOAD,
         Operation.ARTIFACT_WAIT,
+        Operation.SOURCE_ADD_URL_BATCH,
+        Operation.SOURCE_ADD_TEXT,
+        Operation.SOURCE_ADD_DRIVE,
+        Operation.SOURCE_ADD_FILE,
+        Operation.SOURCE_DELETE,
+        Operation.SOURCE_UPDATE,
+        Operation.SOURCE_REFRESH,
+        Operation.SOURCE_CHECK_FRESHNESS,
+        Operation.SOURCE_GET_GUIDE,
+        Operation.SOURCE_GET_FULLTEXT,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -340,6 +360,16 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_RENAME: ARTIFACT_RENAME_DEF,
         Operation.ARTIFACT_DOWNLOAD: ARTIFACT_DOWNLOAD_DEF,
         Operation.ARTIFACT_WAIT: ARTIFACT_WAIT_DEF,
+        Operation.SOURCE_ADD_URL_BATCH: SOURCE_ADD_URL_BATCH_DEF,
+        Operation.SOURCE_ADD_TEXT: SOURCE_ADD_TEXT_DEF,
+        Operation.SOURCE_ADD_DRIVE: SOURCE_ADD_DRIVE_DEF,
+        Operation.SOURCE_ADD_FILE: SOURCE_ADD_FILE_DEF,
+        Operation.SOURCE_DELETE: SOURCE_DELETE_DEF,
+        Operation.SOURCE_UPDATE: SOURCE_UPDATE_DEF,
+        Operation.SOURCE_REFRESH: SOURCE_REFRESH_DEF,
+        Operation.SOURCE_CHECK_FRESHNESS: SOURCE_CHECK_FRESHNESS_DEF,
+        Operation.SOURCE_GET_GUIDE: SOURCE_GET_GUIDE_DEF,
+        Operation.SOURCE_GET_FULLTEXT: SOURCE_GET_FULLTEXT_DEF,
     }
     assert Operation.RESEARCH_WAIT not in WEB_SUPPORTED_OPERATIONS
     assert Operation.RESEARCH_IMPORT_VERIFY not in WEB_SUPPORTED_OPERATIONS
@@ -1832,6 +1862,7 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
         BackendErrorReason.NETWORK,
         BackendErrorReason.NOTEBOOK_LIMIT,
         BackendErrorReason.NOTEBOOK_NOT_FOUND,
+        BackendErrorReason.SOURCE_NOT_FOUND,
         BackendErrorReason.RATE_LIMIT,
         BackendErrorReason.RESEARCH_START_UNAVAILABLE,
         BackendErrorReason.RESPONSE_TOO_LARGE,
@@ -2120,6 +2151,7 @@ def test_only_migrated_feature_runtime_reads_private_backend() -> None:
         package / "_settings_service.py",
         package / "_sources.py",
         package / "_suggestion_service.py",
+        package / "_source_service.py",
     }
     allowed.update((package / "_studio").rglob("*.py"))
     allowed.update((package / "_web").rglob("*.py"))

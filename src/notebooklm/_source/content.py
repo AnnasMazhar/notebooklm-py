@@ -7,26 +7,27 @@ import logging
 import reprlib
 from typing import Any, Literal
 
-from .._row_adapters.sources import SourceFulltextRow, SourceGuideRow
-from .._runtime.contracts import RpcCaller
+from .._row_adapters.sources import SourceFulltextRow
 from .._types.documents import StructuredDocument
 from .._types.research import SourceGuide
 from .._types.sources import _disambiguate_type_code, _pdf_url_title_fallback
 from .._web.codec.documents import decode_structured_document
+from .._web.codec.sources import decode_source_guide, encode_get_fulltext, encode_get_guide
 from ..rpc import RPCMethod
 from ..types import SourceFulltext, SourceNotFoundError, _extract_source_url
+from .add import SourceWireCaller
 
 
 class SourceContentRenderer:
     """Render source guide and fulltext content from source RPC responses."""
 
-    def __init__(self, rpc: RpcCaller, logger: logging.Logger | None = None) -> None:
+    def __init__(self, rpc: SourceWireCaller, logger: logging.Logger | None = None) -> None:
         self._rpc = rpc
         self._logger = logger or logging.getLogger(__name__)
 
     async def get_guide(self, notebook_id: str, source_id: str) -> SourceGuide:
         """Get AI-generated summary and keywords for a specific source."""
-        params = [[[[source_id]]]]
+        params = encode_get_guide(source_id)
         result = await self._rpc.rpc_call(
             RPCMethod.GET_SOURCE_GUIDE,
             params,
@@ -34,13 +35,8 @@ class SourceContentRenderer:
             allow_null=True,
         )
 
-        # Position knowledge for the ``result[0][0]`` envelope unwrap and the
-        # summary / keyword block reads lives in ``SourceGuideRow`` (the
-        # sanctioned row-adapter layer); the adapter preserves the historical
-        # soft contract — an absent / non-list envelope or block leaves the
-        # ``""`` / ``[]`` defaults rather than raising.
-        guide_row = SourceGuideRow(result)
-        return SourceGuide(summary=guide_row.summary, keywords=tuple(guide_row.keywords))
+        record = decode_source_guide(result)
+        return SourceGuide(summary=record.summary, keywords=record.keywords)
 
     async def get_fulltext(
         self,
@@ -63,7 +59,7 @@ class SourceContentRenderer:
                 ) from None
             from .markdown import html_to_markdown
 
-        params = [[source_id], [3], [3]] if output_format == "markdown" else [[source_id], [2], [2]]
+        params = encode_get_fulltext(source_id, markdown=output_format == "markdown")
 
         result = await self._rpc.rpc_call(
             RPCMethod.GET_SOURCE,

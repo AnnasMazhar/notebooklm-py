@@ -6,7 +6,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import parse_qs
 
 from .._idempotency import (
@@ -19,7 +19,7 @@ from .._idempotency import (
 )
 from .._projectors import project_source
 from .._runtime.contracts import RpcCaller
-from .._web.codec.sources import decode_source
+from .._web.codec.sources import decode_source, encode_add_drive, encode_add_text
 from ..exceptions import (
     AuthError,
     NetworkError,
@@ -41,6 +41,24 @@ ParseUrl = Callable[[str], Any]
 ExtractVideoId = Callable[[Any, str], str | None]
 ValidateVideoId = Callable[[str], bool]
 YoutubeDetector = Callable[[str], bool]
+
+
+class SourceWireCaller(Protocol):
+    """Backend-owned narrow caller used by the preserved source workflows."""
+
+    async def rpc_call(
+        self,
+        method: RPCMethod,
+        params: list[Any],
+        source_path: str = "/",
+        allow_null: bool = False,
+        _is_retry: bool = False,
+        *,
+        disable_internal_retries: bool = False,
+        operation_variant: str | None = None,
+        read_timeout: float | None = None,
+        raise_on_null_status: bool = False,
+    ) -> Any: ...
 
 
 def _describe_sources(sources: list[Source]) -> str:
@@ -445,7 +463,7 @@ class SourceAddService:
         wait: bool = False,
         wait_timeout: float = 120.0,
         idempotent: bool = False,
-        rpc: RpcCaller,
+        rpc: SourceWireCaller,
         wait_until_ready: WaitUntilReady,
         logger: logging.Logger,
     ) -> Source:
@@ -465,11 +483,7 @@ class SourceAddService:
         # The literal 2 at slot 3 is a source-type code taken verbatim from the
         # web-UI capture; its exact meaning is undocumented. Verified live
         # against an un-migrated account.
-        params = [
-            [[None, [title, content], None, 2, None, None, None, None, None, None, 1]],
-            notebook_id,
-            build_template_block(),
-        ]
+        params = encode_add_text(notebook_id, title, content)
         try:
             result = await rpc.rpc_call(
                 RPCMethod.ADD_SOURCE,
@@ -510,7 +524,7 @@ class SourceAddService:
         mime_type: str = "application/vnd.google-apps.document",
         wait: bool = False,
         wait_timeout: float = 120.0,
-        rpc: RpcCaller,
+        rpc: SourceWireCaller,
         list_sources: ListSources,
         wait_until_ready: WaitUntilReady,
         logger: logging.Logger,
@@ -588,29 +602,11 @@ class SourceAddService:
             # garbage sources behind.
             raise ValidationError("Drive file_id cannot be empty or whitespace-only")
         logger.debug("Adding Drive source to notebook %s: %s", notebook_id, title)
-        source_data = [
-            [file_id, mime_type, 1, title],
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            1,
-        ]
         # TODO(#1546): Drive add is NOT yet migrated to the nested template
         # block — no live Drive capture/probe yet, so it stays on the old
         # [2], [1,...,[1]] tail. Migrate via build_template_block() once a Drive
         # add is captured from the web UI and verified against a live account.
-        params = [
-            [source_data],
-            notebook_id,
-            [2],
-            [1, None, None, None, None, None, None, None, None, None, [1]],
-        ]
+        params = encode_add_drive(notebook_id, file_id, title, mime_type)
 
         async def _create() -> Source:
             # Preserve transport-level signals so callers can act on the
@@ -862,7 +858,7 @@ class SourceAddService:
         notebook_id: str,
         url: str,
         *,
-        rpc: RpcCaller,
+        rpc: SourceWireCaller,
     ) -> Any:
         """Add a YouTube video as a source.
 
@@ -890,7 +886,7 @@ class SourceAddService:
         notebook_id: str,
         url: str,
         *,
-        rpc: RpcCaller,
+        rpc: SourceWireCaller,
     ) -> Any:
         """Add a regular URL as a source.
 

@@ -362,6 +362,25 @@ def project_backend_error(error: BackendError) -> Exception:
             not_found_projected.__context__ = not_found_original
             not_found_projected.__suppress_context__ = True
         return _preserve_outcome(error, not_found_projected)
+
+    if reason is BackendErrorReason.SOURCE_NOT_FOUND:
+        source_id = _optional(error, diagnostics, "source_id", str)
+        if source_id is None:
+            raise BackendContractError(
+                "source-not-found compatibility error lacks source_id",
+                operation=error.operation,
+            )
+        return _preserve_outcome(
+            error,
+            SourceNotFoundError(
+                cast(str, source_id),
+                method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
+                raw_response=cast(
+                    str | None,
+                    _optional(error, diagnostics, "raw_response", str),
+                ),
+            ),
+        )
     if reason is BackendErrorReason.NOTEBOOK_LIMIT:
         current_count = _required_int(error, diagnostics, "current_count")
         if current_count is None:
@@ -734,4 +753,13 @@ def project_source_add_error(error: BackendError) -> Exception:
     return project_backend_error(error)
 
 
-__all__ = ["project_backend_error", "project_source_add_error"]
+def project_source_add_failure(record: SourceAddFailureRecord) -> Exception:
+    """Reconstruct one positional batch-source failure record."""
+    return _project_source_add_record(record)
+
+
+__all__ = [
+    "project_backend_error",
+    "project_source_add_error",
+    "project_source_add_failure",
+]

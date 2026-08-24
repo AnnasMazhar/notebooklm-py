@@ -34,14 +34,14 @@ from ..._app import source_listing as listing_core
 from ..._app import source_mutations as mut_core
 from ..._app import source_wait as wait_core
 from ..._app.serialize import to_jsonable
-from ..._app.source_batch import MAX_BATCH_URLS, batch_item_is_fatal
-from ..._app.views import source_view as _source_view
-from ...exceptions import (
-    RPCError,
-    SourceNotFoundError,
-    ValidationError,
+from ..._app.source_batch import (
+    MAX_BATCH_URLS,
+    batch_item_is_fatal,
+    execute_source_url_batch,
+    source_batch_invariant_error,
 )
-from ...rpc import RPCMethod
+from ..._app.views import source_view as _source_view
+from ...exceptions import SourceNotFoundError, ValidationError
 from ...types import source_status_to_str
 from ...urls import is_youtube_url
 from .._coerce import coerce_list
@@ -930,11 +930,10 @@ async def _add_url_batch(
             valid_positions.append(index)
             valid_urls.append(entry)
 
-    outcomes = await client.sources._add_urls_batch(notebook_id, valid_urls) if valid_urls else []
+    outcomes = await execute_source_url_batch(client, notebook_id, valid_urls) if valid_urls else []
     if len(outcomes) != len(valid_urls):
-        raise RPCError(
-            "Internal source batch result count did not match validated input count",
-            method_id=RPCMethod.ADD_SOURCE.value,
+        raise source_batch_invariant_error(
+            "Internal source batch result count did not match validated input count"
         )
 
     # Keep each added item's Source alongside its result dict so a synchronously-ready
@@ -953,9 +952,8 @@ async def _add_url_batch(
         else:
             src = outcome.source
             if src is None:  # pragma: no cover - SourceUrlBatchItem invariant
-                raise RPCError(
-                    "Internal source batch outcome had neither source nor error",
-                    method_id=RPCMethod.ADD_SOURCE.value,
+                raise source_batch_invariant_error(
+                    "Internal source batch outcome had neither source nor error"
                 )
             # Deliberately NOT a ``_source_view`` row: this is a per-input
             # RESULT record for a source that was just created, so Drive health
@@ -980,9 +978,8 @@ async def _add_url_batch(
             results[index] = item
     finalized = [item for item in results if item is not None]
     if len(finalized) != len(urls):
-        raise RPCError(
-            "Internal source batch projection lost positional outcomes",
-            method_id=RPCMethod.ADD_SOURCE.value,
+        raise source_batch_invariant_error(
+            "Internal source batch projection lost positional outcomes"
         )
     # Annotate any synchronously-ready web-page items with a thin / soft-404 warning
     # (concurrent; web-page-filtered; degrades any fetch failure to no warning).

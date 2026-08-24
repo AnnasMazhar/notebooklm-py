@@ -313,18 +313,6 @@ def _assemble_client(
     # / ``ChatAPI`` / etc., so a test that swaps the executor's
     # ``rpc_call`` sees the swap on every feature consumer).
     client._rpc_executor = internals.executor
-    # P1 constructs the private semantic port at the same composition root as
-    # the executor and every feature facade.  Existing feature paths continue
-    # to receive ``internals.executor`` directly until their bounded migration
-    # phases; merely assembling this backend therefore changes no dispatch
-    # authority.  The resolved web transport factory is retained as a
-    # construction parameter so httpx/curl selection never becomes a backend
-    # kind or capability.
-    client._backend = WebRpcBackend(
-        internals.executor,
-        transport_factory=internals.web_transport_factory,
-    )
-
     # ADR-0014 Rule 2: the upload pipeline takes its three runtime
     # collaborators (``rpc`` + ``drain`` + ``lifecycle``) directly
     # instead of via a composite-runtime adapter. ``Kernel`` and
@@ -345,6 +333,14 @@ def _assemble_client(
         upload_timeout=upload_timeout,
         max_concurrent_uploads=max_concurrent_uploads,
         record_upload_queue_wait=internals.collaborators.metrics.record_upload_queue_wait,
+    )
+    # Assemble the private semantic port once every backend-owned collaborator
+    # is available. The resolved transport factory remains a construction
+    # parameter rather than a backend kind/capability.
+    client._backend = WebRpcBackend(
+        internals.executor,
+        transport_factory=internals.web_transport_factory,
+        source_uploader=source_uploader,
     )
     # Hold the uploader as a first-class client attribute so the
     # open-time loop-affinity reset (issue #1196 upload variant) can

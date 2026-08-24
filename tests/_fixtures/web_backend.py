@@ -12,11 +12,12 @@ def _unused_transport_factory(**_kwargs: object) -> object:
     return object()
 
 
-def build_web_backend(rpc: object) -> WebRpcBackend:
+def build_web_backend(rpc: object, *, source_uploader: object | None = None) -> WebRpcBackend:
     """Wrap a fake ``rpc_call`` owner exactly as production assembly does."""
     return WebRpcBackend(
         cast(RpcExecutor, rpc),
         transport_factory=_unused_transport_factory,
+        source_uploader=source_uploader,
     )
 
 

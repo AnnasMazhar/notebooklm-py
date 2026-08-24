@@ -11,12 +11,23 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from notebooklm._records import (
+    SourceAddCommitState,
+    SourceAddDriveResult,
+    SourceAddFileResult,
+    SourceAddTextResult,
+    SourceAddTitleState,
+    SourceAddUrlReceipt,
+    SourceAddUrlResult,
+    SourceRecord,
+)
 from notebooklm._source.upload import SourceUploadPipeline
 from notebooklm._sources import SourcesAPI
 from notebooklm.exceptions import NetworkError, RPCError, ValidationError
 from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import SourceStatus
 from notebooklm.types import Source
+from tests._fixtures.web_backend import build_web_backend
 
 
 @pytest.fixture
@@ -97,7 +108,11 @@ def sources_api(mock_core):
         auth=mock_core.auth,
         record_upload_queue_wait=mock_core.record_upload_queue_wait,
     )
-    return SourcesAPI(mock_core, uploader=uploader)
+    return SourcesAPI(
+        mock_core,
+        uploader=uploader,
+        _backend=build_web_backend(mock_core, source_uploader=uploader),
+    )
 
 
 @pytest.mark.asyncio
@@ -216,8 +231,26 @@ class TestWaitArgsKeywordOnly:
         ],
     )
     async def test_keyword_wait_args_forward(self, sources_api, method_name, args):
-        target = sources_api._uploader if method_name == "add_file" else sources_api._adder
-        patched = AsyncMock(return_value=Source(id="src_123", title="Source"))
+        source_record = SourceRecord(id="src_123", title="Source")
+        if method_name == "add_url":
+            sources_api._url_mutation_service = MagicMock()
+            target = sources_api._url_mutation_service
+            response = SourceAddUrlResult(
+                source_record,
+                SourceAddUrlReceipt(
+                    SourceAddCommitState.CREATED,
+                    SourceAddTitleState.NOT_REQUESTED,
+                ),
+            )
+        else:
+            sources_api._source_service = MagicMock()
+            target = sources_api._source_service
+            response = {
+                "add_text": SourceAddTextResult(source_record),
+                "add_file": SourceAddFileResult(source_record),
+                "add_drive": SourceAddDriveResult(source_record),
+            }[method_name]
+        patched = AsyncMock(return_value=response)
         setattr(target, method_name, patched)
         # #1960: add_url/add_drive run a best-effort post-add rename when a requested
         # title differs from the returned one; stub it so this wait-arg forwarding
