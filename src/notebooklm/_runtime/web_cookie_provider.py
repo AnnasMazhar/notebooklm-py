@@ -69,6 +69,7 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
         self._refresh_session = refresh_session
         self._base_refresh_lock: asyncio.Lock | None = None
         self._base_refresh_task: asyncio.Future[AuthTokens] | None = None
+        self._wider_refresh_task: asyncio.Future[AuthTokens] | None = None
         self._joined_refresh_lock: asyncio.Lock | None = None
         self._joined_refresh_task: asyncio.Task[None] | None = None
         self._identity_lock: asyncio.Lock | None = None
@@ -176,6 +177,7 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
         self.set_bound_loop(asyncio.get_running_loop())
         self.reset_after_open()
         self._base_refresh_task = None
+        self._wider_refresh_task = None
         self._joined_refresh_task = None
         self._identity_tasks = {}
         self._identity_closing = False
@@ -212,16 +214,16 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
             return result
 
     async def refresh(self, *, allow_headless: bool = False) -> AuthTokens:
-        """Run or join one base flight; preserve the wider join/rerun policy."""
+        """Run or join one policy flight; preserve wider join-then-rerun."""
         assert_bound_loop(self._bound_loop)
-        if allow_headless:
-            return await self._refresh_session(allow_headless=True)
-
         async with self._get_base_refresh_lock():
-            task = self._base_refresh_task
+            task = self._wider_refresh_task if allow_headless else self._base_refresh_task
             if task is None or task.done():
-                task = asyncio.ensure_future(self._refresh_session(allow_headless=False))
-                self._base_refresh_task = task
+                task = asyncio.ensure_future(self._refresh_session(allow_headless=allow_headless))
+                if allow_headless:
+                    self._wider_refresh_task = task
+                else:
+                    self._base_refresh_task = task
         return await asyncio.shield(task)
 
     @property
@@ -336,9 +338,16 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
         client: httpx.AsyncClient,
         path: Path | None,
     ) -> None:
-        """Run the established rotator and publish its mutation atomically."""
+        """Reconcile response cookies, then rotate and publish atomically.
+
+        ``ClientLifecycle`` persists the provider jar immediately after this
+        runner returns.  Reconciliation must therefore precede rotation so a
+        generation-matching backend ``Set-Cookie`` reaches that periodic save
+        instead of waiting until refresh or close.
+        """
         assert_bound_loop(self._bound_loop)
         async with self._get_refresh_transaction_lock():
+            await self._reconcile_locked()
             before = CookieJar.from_httpx(self._kernel.get_cookies())
             await self._lifecycle.rotate_cookies(client, path)
             after = CookieJar.from_httpx(self._kernel.get_cookies())
@@ -353,6 +362,10 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
         if task is not None and not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+        wider = self._wider_refresh_task
+        if wider is not None and not wider.done():
+            wider.cancel()
+            await asyncio.gather(wider, return_exceptions=True)
         joined = self._joined_refresh_task
         if joined is not None and not joined.done():
             joined.cancel()

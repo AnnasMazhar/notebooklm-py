@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -245,6 +246,51 @@ async def test_direct_refresh_is_single_flight_and_publishes_one_atomic_epoch(
 
 
 @pytest.mark.asyncio
+async def test_wider_refresh_is_single_flight_without_losing_its_policy() -> None:
+    """Concurrent headless-enabled callers share one wider-policy leader."""
+    client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
+    provider = client._provider
+    before = await provider.generation()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def wider_refresh(*, allow_headless: bool = False) -> AuthTokens:
+        assert allow_headless is True
+
+        async def work() -> AuthTokens:
+            nonlocal calls
+            calls += 1
+            started.set()
+            await release.wait()
+            provider.auth.csrf_token = "csrf-wider"
+            return provider.auth
+
+        return await provider.run_refresh_transaction(work)
+
+    provider._refresh_session = wider_refresh
+    cancelled_waiter = asyncio.create_task(provider.refresh(allow_headless=True))
+    surviving_waiter = asyncio.create_task(provider.refresh(allow_headless=True))
+    await started.wait()
+
+    leader = provider._wider_refresh_task
+    assert leader is not None
+    assert provider._base_refresh_task is None
+    cancelled_waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled_waiter
+    assert provider._wider_refresh_task is leader
+    assert not leader.done()
+
+    release.set()
+    assert await surviving_waiter is provider.auth
+    after = await provider.generation()
+    assert calls == 1
+    assert after.generation == before.generation + 1
+    assert after.csrf_token == "csrf-wider"
+
+
+@pytest.mark.asyncio
 async def test_custom_coordinator_refresh_success_publishes_one_provider_epoch() -> None:
     """A 401 callback outside ``provider.refresh`` still feeds the retry generation."""
     auth = _auth()
@@ -417,10 +463,60 @@ async def test_keepalive_rotation_publishes_a_generation(
 
 
 @pytest.mark.asyncio
+async def test_keepalive_save_reconciles_backend_set_cookie_first(tmp_path: Path) -> None:
+    """A matching response cookie reaches the periodic save before client close."""
+    storage = tmp_path / "storage_state.json"
+    storage.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+    saved = asyncio.Event()
+    persisted: list[CookieJar] = []
+    loop = asyncio.get_running_loop()
+
+    def save(cookies: httpx.Cookies, _path: Path, **_kwargs: object) -> bool:
+        persisted.append(CookieJar.from_httpx(cookies))
+        loop.call_soon_threadsafe(saved.set)
+        return True
+
+    async def rotate(_client: httpx.AsyncClient, _path: object) -> None:
+        return None
+
+    client = build_client_shell_for_tests(
+        _auth(),
+        keepalive=0.01,
+        keepalive_min_interval=0.01,
+        keepalive_storage_path=storage,
+        cookie_saver=save,
+        cookie_rotator=rotate,
+        async_client_factory=_session_factory,
+    )
+    provider = client._provider
+
+    await client.__aenter__()
+    try:
+        before = await provider.generation()
+        client._backend._backend_session.kernel.cookies.set(
+            "BACKEND_RESPONSE",
+            "set-cookie-value",
+            domain=".google.com",
+            path="/",
+        )
+
+        await asyncio.wait_for(saved.wait(), timeout=1.0)
+
+        assert persisted[0].to_httpx().get("BACKEND_RESPONSE") == "set-cookie-value"
+        after = await provider.generation()
+        assert after.generation == before.generation + 1
+        assert after.cookies.to_httpx().get("BACKEND_RESPONSE") == "set-cookie-value"
+    finally:
+        await client.close(drain=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allow_headless", [False, True])
 async def test_close_without_drain_cancels_a_hung_direct_refresh(
     monkeypatch: pytest.MonkeyPatch,
+    allow_headless: bool,
 ) -> None:
-    """Provider serialization must not put fire-and-forget close behind refresh I/O."""
+    """Fire-and-forget close cancels either policy's shared refresh leader."""
     client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
     started = asyncio.Event()
     cancelled = asyncio.Event()
@@ -438,7 +534,7 @@ async def test_close_without_drain_cancels_a_hung_direct_refresh(
     monkeypatch.setattr(refresh_module, "refresh_auth_session", refresh_auth_session)
 
     await client.__aenter__()
-    refresh = asyncio.create_task(client.refresh_auth())
+    refresh = asyncio.create_task(client.refresh_auth(allow_headless=allow_headless))
     await started.wait()
     try:
         await asyncio.wait_for(client.close(drain=False), timeout=0.5)
