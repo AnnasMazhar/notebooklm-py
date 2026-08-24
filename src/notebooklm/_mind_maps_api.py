@@ -7,8 +7,7 @@ import json
 from collections.abc import Awaitable
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from ._backend import BackendError
-from ._backend_compat import project_backend_error
+from ._backend_compat import project_backend_call
 from ._lookup import unwrap_or_raise
 from ._types.mind_maps import MindMap, MindMapKind
 from ._web.codec.mind_maps import (
@@ -58,10 +57,7 @@ class MindMapsAPI:
 
     @staticmethod
     async def _backend_call(awaitable: Awaitable[_T]) -> _T:
-        try:
-            return await awaitable
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        return await project_backend_call(awaitable)
 
     async def list_note_backed(self, notebook_id: str) -> builtins.list[MindMap]:
         """List note-backed mind maps without consulting the Studio catalog."""

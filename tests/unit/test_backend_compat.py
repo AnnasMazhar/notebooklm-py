@@ -7,6 +7,7 @@ import inspect
 import textwrap
 from collections import Counter
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -15,7 +16,7 @@ from notebooklm._backend import (
     BackendError,
     BackendErrorReason,
 )
-from notebooklm._backend_compat import project_backend_error
+from notebooklm._backend_compat import project_backend_call, project_backend_error
 from notebooklm._operations import Operation
 from notebooklm._records import SourceAddFailureKind, SourceAddFailureRecord
 from notebooklm._web.backend import WebRpcBackend
@@ -54,6 +55,123 @@ def test_project_backend_error_has_one_explicit_case_per_closed_reason() -> None
     ]
 
     assert Counter(cases) == Counter({reason.name: 1 for reason in BackendErrorReason})
+
+
+_COMPATIBILITY_FACADES = (
+    "_artifacts.py",
+    "_chat/api.py",
+    "_collections.py",
+    "_labels.py",
+    "_mind_maps_api.py",
+    "_notebooks.py",
+    "_notes.py",
+    "_research_service.py",
+    "_settings.py",
+    "_sharing.py",
+    "_sharing_manager.py",
+    "_sources.py",
+)
+
+
+def _is_projector_call(node: ast.AST | None) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "project_backend_error"
+    )
+
+
+def test_compatibility_facades_raise_projections_outside_backend_handlers() -> None:
+    """Private BackendError frames must not rewrite the projected exception graph."""
+    package = Path(__file__).parents[2] / "src" / "notebooklm"
+    offenders: list[str] = []
+    for relative_path in _COMPATIBILITY_FACADES:
+        path = package / relative_path
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        projected_names = {
+            target.id
+            for assignment in ast.walk(tree)
+            if isinstance(assignment, ast.Assign) and _is_projector_call(assignment.value)
+            for target in assignment.targets
+            if isinstance(target, ast.Name)
+        }
+        for handler in (
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ExceptHandler)
+            and isinstance(node.type, ast.Name)
+            and node.type.id == "BackendError"
+        ):
+            for raised in (node for node in ast.walk(handler) if isinstance(node, ast.Raise)):
+                if _is_projector_call(raised.exc) or (
+                    isinstance(raised.exc, ast.Name) and raised.exc.id in projected_names
+                ):
+                    offenders.append(f"{relative_path}:{raised.lineno}:inside handler")
+        for raised in (node for node in ast.walk(tree) if isinstance(node, ast.Raise)):
+            if not (isinstance(raised.cause, ast.Constant) and raised.cause.value is None):
+                continue
+            if _is_projector_call(raised.exc) or (
+                isinstance(raised.exc, ast.Name) and raised.exc.id in projected_names
+            ):
+                offenders.append(f"{relative_path}:{raised.lineno}:from None")
+
+    assert offenders == []
+
+
+def _backend_error_with_public_graph(public_failure: SourceAddFailureRecord) -> BackendError:
+    return BackendError(
+        "rpc failure",
+        operation=Operation.NOTEBOOK_GET,
+        reason=BackendErrorReason.RPC,
+        diagnostics={
+            "method_id": "rpc",
+            "found_ids": [],
+            "public_error_failure": public_failure,
+        },
+    )
+
+
+async def _raise_backend_error(error: BackendError) -> None:
+    raise error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit_cause", [True, False])
+async def test_project_backend_call_preserves_projector_authored_graph(
+    explicit_cause: bool,
+) -> None:
+    leaf = SourceAddFailureRecord(
+        SourceAddFailureKind.BUILTIN_VALUE,
+        "graph leaf",
+        args=("graph leaf",),
+    )
+    public_failure = SourceAddFailureRecord(
+        SourceAddFailureKind.RPC,
+        "rpc failure",
+        method_id="rpc",
+        cause=leaf if explicit_cause else None,
+        context=None if explicit_cause else leaf,
+        context_is_cause=explicit_cause,
+        explicit_cause=explicit_cause,
+        suppress_context=explicit_cause,
+    )
+
+    with pytest.raises(RPCError) as captured:
+        await project_backend_call(
+            _raise_backend_error(_backend_error_with_public_graph(public_failure))
+        )
+
+    projected = captured.value
+    if explicit_cause:
+        assert isinstance(projected.__cause__, ValueError)
+        assert projected.__context__ is projected.__cause__
+        assert projected.__suppress_context__ is True
+    else:
+        assert projected.__cause__ is None
+        assert isinstance(projected.__context__, ValueError)
+        assert projected.__suppress_context__ is False
+    assert not isinstance(projected.__cause__, BackendError)
+    assert not isinstance(projected.__context__, BackendError)
 
 
 def _round_trip(error: RPCError | NetworkError) -> Exception:

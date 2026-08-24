@@ -4,7 +4,7 @@ import logging
 from typing import Any, Protocol
 
 from ._backend import BackendAdapter, BackendError
-from ._backend_compat import project_backend_error
+from ._backend_compat import project_backend_call, project_backend_error
 from ._notebook_guide_service import NotebookGuideService
 from ._notebook_metadata import (
     NotebookMetadataService,
@@ -219,15 +219,14 @@ class NotebooksAPI:
         .. versionadded:: 0.8.0
         """
         logger.debug("Suggesting prompts for notebook %s (mode=%d)", notebook_id, mode)
-        try:
-            return await self._require_suggestion_service().suggest_prompts(
+        return await project_backend_call(
+            self._require_suggestion_service().suggest_prompts(
                 notebook_id,
                 source_ids=source_ids,
                 mode=mode,
                 query=query,
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
 
     async def list(self) -> list[Notebook]:
         """List notebooks (most-recently-viewed first).

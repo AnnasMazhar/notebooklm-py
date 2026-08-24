@@ -20,7 +20,7 @@ from ._artifact import validation as _artifact_validation
 from ._artifact.downloads import DownloadResult
 from ._artifact.listing import ArtifactListingService
 from ._backend import BackendAdapter, BackendContractError, BackendError, BackendErrorReason
-from ._backend_compat import project_backend_error
+from ._backend_compat import project_backend_call, project_backend_error
 from ._lookup import unwrap_or_raise
 from ._mind_map import NoteBackedMindMapService
 from ._note_service import LegacyNoteBackedService
@@ -295,22 +295,25 @@ class ArtifactsAPI:
         """List once and retain neutral representation records for downloads."""
         if self._representations is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            studio = await self._representations._list_representations(notebook_id)
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        studio = await project_backend_call(
+            self._representations._list_representations(notebook_id)
+        )
 
         mind_maps: tuple[MindMapRepresentationRecord, ...] | None = ()
         if artifact_type is None or artifact_type is ArtifactType.MIND_MAP:
+            public_error = None
             try:
                 mind_maps = await self._representations._list_mind_maps(notebook_id)
             except BackendError as error:
                 if error.reason not in _PARTIAL_MIND_MAP_FAILURE_REASONS:
                     if isinstance(error, BackendContractError):
                         raise
-                    raise project_backend_error(error) from None
-                logger.warning("Failed to fetch mind maps: %s", error)
-                mind_maps = None
+                    public_error = project_backend_error(error)
+                else:
+                    logger.warning("Failed to fetch mind maps: %s", error)
+                    mind_maps = None
+            if public_error is not None:
+                raise public_error
 
         records = [item.artifact for item in studio]
         if mind_maps is not None:
@@ -381,10 +384,7 @@ class ArtifactsAPI:
         """
         if self._catalog is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            record = await self._catalog.get_record(notebook_id, artifact_id)
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        record = await project_backend_call(self._catalog.get_record(notebook_id, artifact_id))
         if record is None:
             if self._legacy_constructor:
                 rows = await self._mind_maps.list_mind_maps(notebook_id)
@@ -409,78 +409,64 @@ class ArtifactsAPI:
         """List video overview artifacts."""
         if self._video is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            return [project_artifact(record) for record in await self._video.list(notebook_id)]
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        return [
+            project_artifact(record)
+            for record in await project_backend_call(self._video.list(notebook_id))
+        ]
 
     async def list_reports(self, notebook_id: str) -> builtins.list[Artifact]:
         """List report artifacts (Briefing Doc, Study Guide, Blog Post)."""
         if self._reports is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            return [project_artifact(record) for record in await self._reports.list(notebook_id)]
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        return [
+            project_artifact(record)
+            for record in await project_backend_call(self._reports.list(notebook_id))
+        ]
 
     async def list_quizzes(self, notebook_id: str) -> builtins.list[Artifact]:
         """List quiz artifacts."""
         if self._interactive is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            return [
-                project_artifact(record)
-                for record in await self._interactive.list_quizzes(notebook_id)
-            ]
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        return [
+            project_artifact(record)
+            for record in await project_backend_call(self._interactive.list_quizzes(notebook_id))
+        ]
 
     async def list_flashcards(self, notebook_id: str) -> builtins.list[Artifact]:
         """List flashcard artifacts."""
         if self._interactive is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            return [
-                project_artifact(record)
-                for record in await self._interactive.list_flashcards(notebook_id)
-            ]
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        return [
+            project_artifact(record)
+            for record in await project_backend_call(self._interactive.list_flashcards(notebook_id))
+        ]
 
     async def list_infographics(self, notebook_id: str) -> builtins.list[Artifact]:
         """List infographic artifacts."""
         if self._visuals is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            return [
-                project_artifact(record)
-                for record in await self._visuals.list_infographics(notebook_id)
-            ]
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        return [
+            project_artifact(record)
+            for record in await project_backend_call(self._visuals.list_infographics(notebook_id))
+        ]
 
     async def list_slide_decks(self, notebook_id: str) -> builtins.list[Artifact]:
         """List slide deck artifacts."""
         if self._visuals is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            return [
-                project_artifact(record)
-                for record in await self._visuals.list_slide_decks(notebook_id)
-            ]
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        return [
+            project_artifact(record)
+            for record in await project_backend_call(self._visuals.list_slide_decks(notebook_id))
+        ]
 
     async def list_data_tables(self, notebook_id: str) -> builtins.list[Artifact]:
         """List data table artifacts."""
         if self._data_tables is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            return [
-                project_artifact(record) for record in await self._data_tables.list(notebook_id)
-            ]
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        return [
+            project_artifact(record)
+            for record in await project_backend_call(self._data_tables.list(notebook_id))
+        ]
 
     # =========================================================================
     # Generate Operations
@@ -531,21 +517,21 @@ class ArtifactsAPI:
         if self._video is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
         try:
-            result = await self._video.generate(
-                VideoGenerateInput(
-                    notebook_id=notebook_id,
-                    source_ids=None if source_ids is None else tuple(source_ids),
-                    language=language,
-                    instructions=instructions,
-                    video_format=None if video_format is None else video_format.name.lower(),
-                    video_style=None if video_style is None else video_style.name.lower(),
-                    style_prompt=style_prompt,
+            result = await project_backend_call(
+                self._video.generate(
+                    VideoGenerateInput(
+                        notebook_id=notebook_id,
+                        source_ids=None if source_ids is None else tuple(source_ids),
+                        language=language,
+                        instructions=instructions,
+                        video_format=None if video_format is None else video_format.name.lower(),
+                        video_style=None if video_style is None else video_style.name.lower(),
+                        style_prompt=style_prompt,
+                    )
                 )
             )
         except DocumentOptionError as error:
             raise ValidationError(str(error)) from None
-        except BackendError as error:
-            raise project_backend_error(error) from None
         return project_generation_status(result.status)
 
     async def generate_cinematic_video(
@@ -559,20 +545,20 @@ class ArtifactsAPI:
         if self._video is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
         try:
-            result = await self._video.generate(
-                VideoGenerateInput(
-                    notebook_id=notebook_id,
-                    source_ids=None if source_ids is None else tuple(source_ids),
-                    language=language,
-                    instructions=instructions,
-                    video_format="cinematic",
-                    cinematic_route=True,
+            result = await project_backend_call(
+                self._video.generate(
+                    VideoGenerateInput(
+                        notebook_id=notebook_id,
+                        source_ids=None if source_ids is None else tuple(source_ids),
+                        language=language,
+                        instructions=instructions,
+                        video_format="cinematic",
+                        cinematic_route=True,
+                    )
                 )
             )
         except DocumentOptionError as error:  # pragma: no cover - facade constructs valid input
             raise ValidationError(str(error)) from None
-        except BackendError as error:
-            raise project_backend_error(error) from None
         return project_generation_status(result.status)
 
     async def generate_report(
@@ -588,8 +574,8 @@ class ArtifactsAPI:
         report_format = _artifact_validation.coerce_report_format(report_format)
         if self._reports is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            result = await self._reports.generate(
+        result = await project_backend_call(
+            self._reports.generate(
                 ReportGenerateInput(
                     notebook_id=notebook_id,
                     report_format=report_format.value,
@@ -599,8 +585,7 @@ class ArtifactsAPI:
                     extra_instructions=extra_instructions,
                 )
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
         return project_generation_status(result.status)
 
     async def generate_study_guide(
@@ -645,10 +630,7 @@ class ArtifactsAPI:
                 parameter="difficulty",
             ),
         )
-        try:
-            result = await self._interactive.generate_quiz(value)
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        result = await project_backend_call(self._interactive.generate_quiz(value))
         return project_generation_status(result.status)
 
     async def generate_flashcards(
@@ -677,10 +659,7 @@ class ArtifactsAPI:
                 parameter="difficulty",
             ),
         )
-        try:
-            result = await self._interactive.generate_flashcards(value)
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        result = await project_backend_call(self._interactive.generate_flashcards(value))
         return project_generation_status(result.status)
 
     async def generate_infographic(
@@ -696,8 +675,8 @@ class ArtifactsAPI:
         """Generate an infographic."""
         if self._visuals is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            result = await self._visuals.generate_infographic(
+        result = await project_backend_call(
+            self._visuals.generate_infographic(
                 InfographicGenerateInput(
                     notebook_id=notebook_id,
                     source_ids=None if source_ids is None else tuple(source_ids),
@@ -708,8 +687,7 @@ class ArtifactsAPI:
                     style=None if style is None else style.name.lower(),
                 )
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
         return project_generation_status(result.status)
 
     async def generate_slide_deck(
@@ -724,8 +702,8 @@ class ArtifactsAPI:
         """Generate a slide deck."""
         if self._visuals is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            result = await self._visuals.generate_slide_deck(
+        result = await project_backend_call(
+            self._visuals.generate_slide_deck(
                 SlideDeckGenerateInput(
                     notebook_id=notebook_id,
                     source_ids=None if source_ids is None else tuple(source_ids),
@@ -735,8 +713,7 @@ class ArtifactsAPI:
                     slide_length=None if slide_length is None else slide_length.name.lower(),
                 )
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
         return project_generation_status(result.status)
 
     async def revise_slide(
@@ -751,12 +728,11 @@ class ArtifactsAPI:
             raise ValidationError(f"slide_index must be >= 0, got {slide_index}")
         if self._management is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            result = await self._management.revise_slide(
+        result = await project_backend_call(
+            self._management.revise_slide(
                 ArtifactReviseSlideInput(notebook_id, artifact_id, slide_index, prompt)
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
         return project_generation_status(result.status)
 
     async def retry_failed(self, notebook_id: str, artifact_id: str) -> GenerationStatus:
@@ -778,10 +754,9 @@ class ArtifactsAPI:
         """
         if self._management is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            result = await self._management.retry(ArtifactRetryInput(notebook_id, artifact_id))
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        result = await project_backend_call(
+            self._management.retry(ArtifactRetryInput(notebook_id, artifact_id))
+        )
         return project_generation_status(result.status)
 
     async def generate_data_table(
@@ -794,8 +769,8 @@ class ArtifactsAPI:
         """Generate a data table."""
         if self._data_tables is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            result = await self._data_tables.generate(
+        result = await project_backend_call(
+            self._data_tables.generate(
                 DataTableGenerateInput(
                     notebook_id,
                     None if source_ids is None else tuple(source_ids),
@@ -803,9 +778,8 @@ class ArtifactsAPI:
                     instructions,
                 )
             )
-            return project_generation_status(result.status)
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
+        return project_generation_status(result.status)
 
     async def generate_mind_map(
         self,
@@ -822,8 +796,8 @@ class ArtifactsAPI:
         """
         if self._mind_map_family is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            result = await self._mind_map_family.generate(
+        result = await project_backend_call(
+            self._mind_map_family.generate(
                 MindMapGenerateInput(
                     notebook_id,
                     None if source_ids is None else tuple(source_ids),
@@ -831,9 +805,8 @@ class ArtifactsAPI:
                     instructions,
                 )
             )
-            return MindMapResult(result.mind_map, result.note_id, result.created_at)
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
+        return MindMapResult(result.mind_map, result.note_id, result.created_at)
 
     # =========================================================================
     # Download Operations
@@ -849,15 +822,14 @@ class ArtifactsAPI:
     ) -> str:
         """Download an Audio Overview to a file."""
         service = self._require_representations()
-        try:
-            return await service.download_audio(
+        return await project_backend_call(
+            service.download_audio(
                 notebook_id,
                 output_path,
                 artifact_id,
                 representations=self._representation_records(artifacts_data),
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
 
     async def download_video(
         self,
@@ -869,15 +841,14 @@ class ArtifactsAPI:
     ) -> str:
         """Download a Video Overview to a file."""
         service = self._require_representations()
-        try:
-            return await service.download_video(
+        return await project_backend_call(
+            service.download_video(
                 notebook_id,
                 output_path,
                 artifact_id,
                 representations=self._representation_records(artifacts_data),
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
 
     async def download_infographic(
         self,
@@ -889,15 +860,14 @@ class ArtifactsAPI:
     ) -> str:
         """Download an Infographic to a file."""
         service = self._require_representations()
-        try:
-            return await service.download_infographic(
+        return await project_backend_call(
+            service.download_infographic(
                 notebook_id,
                 output_path,
                 artifact_id,
                 representations=self._representation_records(artifacts_data),
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
 
     async def download_slide_deck(
         self,
@@ -910,16 +880,15 @@ class ArtifactsAPI:
     ) -> str:
         """Download a slide deck as PDF or PPTX."""
         service = self._require_representations()
-        try:
-            return await service.download_slide_deck(
+        return await project_backend_call(
+            service.download_slide_deck(
                 notebook_id,
                 output_path,
                 artifact_id,
                 output_format,
                 representations=self._representation_records(artifacts_data),
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
 
     async def _download_interactive_artifact(
         self,
@@ -933,8 +902,8 @@ class ArtifactsAPI:
     ) -> str:
         """Download quiz or flashcard artifact."""
         service = self._require_representations()
-        try:
-            return await service.download_interactive(
+        return await project_backend_call(
+            service.download_interactive(
                 notebook_id,
                 output_path,
                 artifact_id,
@@ -942,8 +911,7 @@ class ArtifactsAPI:
                 artifact_type,
                 artifacts=self._artifact_records(artifacts),
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
 
     def _format_interactive_content(
         self,
@@ -972,15 +940,14 @@ class ArtifactsAPI:
     ) -> str:
         """Download a report artifact as markdown."""
         service = self._require_representations()
-        try:
-            return await service.download_report(
+        return await project_backend_call(
+            service.download_report(
                 notebook_id,
                 output_path,
                 artifact_id,
                 representations=self._representation_records(artifacts_data),
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
 
     async def download_mind_map(
         self,
@@ -993,16 +960,15 @@ class ArtifactsAPI:
     ) -> str:
         """Download a mind map as JSON."""
         service = self._require_representations()
-        try:
-            return await service.download_mind_map(
+        return await project_backend_call(
+            service.download_mind_map(
                 notebook_id,
                 output_path,
                 artifact_id,
                 mind_maps=self._mind_map_records(mind_maps),
                 representations=self._representation_records(artifacts_data),
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
 
     async def download_data_table(
         self,
@@ -1014,15 +980,14 @@ class ArtifactsAPI:
     ) -> str:
         """Download a data table as CSV."""
         service = self._require_representations()
-        try:
-            return await service.download_data_table(
+        return await project_backend_call(
+            service.download_data_table(
                 notebook_id,
                 output_path,
                 artifact_id,
                 representations=self._representation_records(artifacts_data),
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
 
     async def download_quiz(
         self,
@@ -1071,10 +1036,9 @@ class ArtifactsAPI:
         logger.debug("Deleting artifact %s from notebook %s", artifact_id, notebook_id)
         if self._management is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            await self._management.delete(ArtifactDeleteInput(notebook_id, artifact_id))
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        await project_backend_call(
+            self._management.delete(ArtifactDeleteInput(notebook_id, artifact_id))
+        )
 
     async def rename(
         self,
@@ -1110,12 +1074,9 @@ class ArtifactsAPI:
         """
         if self._management is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            result = await self._management.rename(
-                ArtifactRenameInput(notebook_id, artifact_id, new_title)
-            )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        result = await project_backend_call(
+            self._management.rename(ArtifactRenameInput(notebook_id, artifact_id, new_title))
+        )
         if result.artifact is None:
             raise RuntimeError("artifact.rename backend returned no post-mutation artifact")
         return None if not return_object else project_artifact(result.artifact)
@@ -1135,12 +1096,9 @@ class ArtifactsAPI:
         """
         if self._lifecycle_service is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            return project_generation_status(
-                await self._lifecycle_service.observe(notebook_id, task_id)
-            )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        return project_generation_status(
+            await project_backend_call(self._lifecycle_service.observe(notebook_id, task_id))
+        )
 
     async def wait_for_completion(
         self,
@@ -1258,8 +1216,8 @@ class ArtifactsAPI:
         if self._drive_exports is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
         destination = "sheets" if int(export_type) == int(ExportType.SHEETS) else "docs"
-        try:
-            result = await self._drive_exports.export(
+        result = await project_backend_call(
+            self._drive_exports.export(
                 DriveExportInput(
                     notebook_id=notebook_id,
                     artifact_id=artifact_id,
@@ -1268,9 +1226,8 @@ class ArtifactsAPI:
                     destination=destination,
                 )
             )
-            return result.value
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
+        return result.value
 
     # =========================================================================
     # Suggestions
@@ -1283,10 +1240,9 @@ class ArtifactsAPI:
         """Get AI-suggested report formats for a notebook."""
         if self._suggestions is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-        try:
-            result = await self._suggestions.suggest(ArtifactSuggestReportsInput(notebook_id))
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        result = await project_backend_call(
+            self._suggestions.suggest(ArtifactSuggestReportsInput(notebook_id))
+        )
         return [project_report_suggestion(item) for item in result.suggestions]
 
     # =========================================================================

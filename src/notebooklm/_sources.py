@@ -13,6 +13,7 @@ import httpx
 
 from ._backend import BackendAdapter, BackendError
 from ._backend_compat import (
+    project_backend_call,
     project_backend_error,
     project_source_add_failure,
 )
@@ -258,11 +259,9 @@ class SourcesAPI:
         list_method = self.list
         if getattr(list_method, "__func__", None) is not _ORIGINAL_SOURCES_LIST:
             return await list_method(notebook_id)
-        try:
-            result = await self._require_source_service().wait_snapshot(notebook_id)
-        except BackendError as error:
-            public_error = project_backend_error(error)
-            raise public_error from None
+        result = await project_backend_call(
+            self._require_source_service().wait_snapshot(notebook_id)
+        )
         return [project_source(record) for record in result.sources]
 
     async def _wait_snapshot_source(
@@ -531,15 +530,13 @@ class SourcesAPI:
                 )
                 requested_title = title.strip() if title else ""
                 if requested_title and source.title != requested_title:
-                    try:
-                        finalized = await self._require_url_mutation_service().finalize_title(
+                    finalized = await project_backend_call(
+                        self._require_url_mutation_service().finalize_title(
                             notebook_id,
                             record_source(source),
                             requested_title,
                         )
-                    except BackendError as error:
-                        public_error = project_backend_error(error)
-                        raise public_error from None
+                    )
                     return project_source(finalized.source)
                 return source
             return source
@@ -582,7 +579,7 @@ class SourcesAPI:
                 )
                 for item in result.items
             ]
-        raise public_error from None
+        raise public_error
 
     async def add_text(
         self,
@@ -647,7 +644,7 @@ class SourcesAPI:
                     timeout=wait_timeout,
                 )
             return source
-        raise public_error from None
+        raise public_error
 
     async def add_file(
         self,
@@ -724,19 +721,17 @@ class SourcesAPI:
                     )
                 requested_title = title.strip() if title else ""
                 if requested_title and source.title != requested_title:
-                    try:
-                        finalized = await self._require_source_service().finalize_file_title(
+                    finalized = await project_backend_call(
+                        self._require_source_service().finalize_file_title(
                             notebook_id,
                             record_source(source),
                             requested_title,
                         )
-                    except BackendError as error:
-                        public_error = project_backend_error(error)
-                        raise public_error from None
+                    )
                     return project_source(finalized.source)
                 return source
             return source
-        raise public_error from None
+        raise public_error
 
     async def add_drive(
         self,
@@ -794,19 +789,17 @@ class SourcesAPI:
                 )
                 requested_title = title.strip()
                 if requested_title and source.title != requested_title:
-                    try:
-                        finalized = await self._require_source_service().finalize_drive_title(
+                    finalized = await project_backend_call(
+                        self._require_source_service().finalize_drive_title(
                             notebook_id,
                             record_source(source),
                             requested_title,
                         )
-                    except BackendError as error:
-                        public_error = project_backend_error(error)
-                        raise public_error from None
+                    )
                     return project_source(finalized.source)
                 return source
             return source
-        raise public_error from None
+        raise public_error
 
     async def add_drive_file(
         self,
@@ -868,19 +861,17 @@ class SourcesAPI:
                     )
                 requested_title = title.strip() if title else (result.deferred_title or "")
                 if requested_title and source.title != requested_title:
-                    try:
-                        finalized = await self._require_source_service().finalize_file_title(
+                    finalized = await project_backend_call(
+                        self._require_source_service().finalize_file_title(
                             notebook_id,
                             record_source(source),
                             requested_title,
                         )
-                    except BackendError as error:
-                        public_error = project_backend_error(error)
-                        raise public_error from None
+                    )
                     return project_source(finalized.source)
                 return source
             return source
-        raise public_error from None
+        raise public_error
 
     async def delete(self, notebook_id: str, source_id: str) -> None:
         """Delete a source from a notebook.
@@ -899,11 +890,7 @@ class SourcesAPI:
             no longer enters its block.
         """
         logger.debug("Deleting source %s from notebook %s", source_id, notebook_id)
-        try:
-            await self._require_source_service().delete(notebook_id, source_id)
-        except BackendError as error:
-            public_error = project_backend_error(error)
-            raise public_error from None
+        await project_backend_call(self._require_source_service().delete(notebook_id, source_id))
 
     async def rename(
         self,
@@ -943,16 +930,14 @@ class SourcesAPI:
             preflight on a null echo too, raising on a miss (#1362).
         """
         logger.debug("Renaming source %s to: %s", source_id, new_title)
-        try:
-            result = await self._require_source_service().update(
+        result = await project_backend_call(
+            self._require_source_service().update(
                 notebook_id,
                 source_id,
                 new_title,
                 return_object=return_object,
             )
-        except BackendError as error:
-            public_error = project_backend_error(error)
-            raise public_error from None
+        )
         return project_source(result.source) if result.source is not None else None
 
     async def refresh(self, notebook_id: str, source_id: str) -> None:
@@ -969,11 +954,7 @@ class SourcesAPI:
             **Breaking change:** returns ``None`` (not always-``True``); the
             ``-> bool`` annotation is dropped (#1290).
         """
-        try:
-            await self._require_source_service().refresh(notebook_id, source_id)
-        except BackendError as error:
-            public_error = project_backend_error(error)
-            raise public_error from None
+        await project_backend_call(self._require_source_service().refresh(notebook_id, source_id))
         return None
 
     async def check_freshness(self, notebook_id: str, source_id: str) -> bool:
@@ -991,14 +972,12 @@ class SourcesAPI:
                 unrecognized shape (schema drift) — so callers can tell a miss
                 from drift instead of a silent "stale" (#1344).
         """
-        try:
-            return await self._require_source_service().check_freshness(
+        return await project_backend_call(
+            self._require_source_service().check_freshness(
                 notebook_id,
                 source_id,
             )
-        except BackendError as error:
-            public_error = project_backend_error(error)
-            raise public_error from None
+        )
 
     async def get_guide(self, notebook_id: str, source_id: str) -> SourceGuide:
         """Get AI-generated summary and keywords for a specific source.
@@ -1017,11 +996,9 @@ class SourcesAPI:
 
             Use attribute access (``guide.summary``, ``guide.keywords``).
         """
-        try:
-            result = await self._require_source_service().get_guide(notebook_id, source_id)
-        except BackendError as error:
-            public_error = project_backend_error(error)
-            raise public_error from None
+        result = await project_backend_call(
+            self._require_source_service().get_guide(notebook_id, source_id)
+        )
         return project_source_guide(result.guide)
 
     async def get_fulltext(
@@ -1057,15 +1034,13 @@ class SourcesAPI:
             from the API (params ``[3],[3]`` instead of ``[2],[2]``) and
             converting it via *markdownify*.
         """
-        try:
-            result = await self._require_source_service().get_fulltext(
+        result = await project_backend_call(
+            self._require_source_service().get_fulltext(
                 notebook_id,
                 source_id,
                 output_format=output_format,
             )
-        except BackendError as error:
-            public_error = project_backend_error(error)
-            raise public_error from None
+        )
         return project_source_fulltext(result.fulltext)
 
     # --- Private helper methods ---

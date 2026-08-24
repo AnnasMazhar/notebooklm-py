@@ -2,8 +2,8 @@
 
 import logging
 
-from ._backend import BackendAdapter, BackendError
-from ._backend_compat import project_backend_error
+from ._backend import BackendAdapter
+from ._backend_compat import project_backend_call
 from ._settings_service import SettingsService
 from .types import AccountLimits, UserSettings
 
@@ -48,10 +48,7 @@ class SettingsAPI:
             return None
 
         logger.debug("Setting output language: %s", language)
-        try:
-            current_language = await self._service.set_output_language(language)
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        current_language = await project_backend_call(self._service.set_output_language(language))
         self._log_language_result(current_language, "Output language is now")
         return current_language
 
@@ -66,10 +63,7 @@ class SettingsAPI:
             UserSettings with parsed account limits and output language.
         """
         logger.debug("Fetching user settings")
-        try:
-            settings = await self._service.get_user_settings()
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        settings = await project_backend_call(self._service.get_user_settings())
         self._log_limits(settings.limits)
         self._log_language_result(settings.output_language, "Current output language")
         return settings
@@ -84,10 +78,7 @@ class SettingsAPI:
             or None if not set or couldn't be parsed.
         """
         logger.debug("Fetching user settings")
-        try:
-            language = await self._service.get_output_language()
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        language = await project_backend_call(self._service.get_output_language())
         self._log_language_result(language, "Current output language")
         return language
 
@@ -98,10 +89,7 @@ class SettingsAPI:
             AccountLimits with parsed notebook/source limits when present.
         """
         logger.debug("Fetching user settings")
-        try:
-            limits = await self._service.get_account_limits()
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        limits = await project_backend_call(self._service.get_account_limits())
         self._log_limits(limits)
         return limits
 

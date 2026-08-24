@@ -1,7 +1,7 @@
 """Sharing operations API."""
 
-from ._backend import BackendAdapter, BackendError
-from ._backend_compat import project_backend_error
+from ._backend import BackendAdapter
+from ._backend_compat import project_backend_call
 from ._records import SharePermissionLevel, ShareViewScope
 from ._sharing_service import SharingService
 from .rpc.types import SharePermission, ShareViewLevel
@@ -81,14 +81,7 @@ class SharingAPI:
         Returns:
             ShareStatus with current sharing state and user list.
         """
-        try:
-            return await self._service.get_status(notebook_id)
-        except BackendError as error:
-            # The semantic backend deliberately exposes only the neutral
-            # BackendError vocabulary. At this public compatibility facade,
-            # reconstruct the exact pre-migration RPC/Network exception class
-            # and its reviewed structured diagnostics.
-            raise project_backend_error(error) from None
+        return await project_backend_call(self._service.get_status(notebook_id))
 
     async def set_public(
         self,
@@ -109,10 +102,7 @@ class SharingAPI:
             reflects the state immediately after the operation but may not
             include concurrent changes from other clients.
         """
-        try:
-            return await self._service.set_public(notebook_id, public)
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        return await project_backend_call(self._service.set_public(notebook_id, public))
 
     async def set_view_level(
         self,
@@ -139,10 +129,7 @@ class SharingAPI:
         scope = _VIEW_SCOPES.get(level)
         if scope is None:
             raise ValueError(f"Unknown share view level: {level!r}")
-        try:
-            return await self._service.set_view_level(notebook_id, scope)
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        return await project_backend_call(self._service.set_view_level(notebook_id, scope))
 
     async def add_user(
         self,
@@ -220,15 +207,14 @@ class SharingAPI:
             ValueError: If grants is empty, contains a duplicate email, or a
                 permission is OWNER or _REMOVE.
         """
-        try:
-            return await self._service.set_users(
+        return await project_backend_call(
+            self._service.set_users(
                 notebook_id,
                 [(email, self._permission_level(permission)) for email, permission in grants],
                 notify=notify,
                 welcome_message=welcome_message,
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
 
     async def update_user(
         self,
@@ -249,14 +235,13 @@ class SharingAPI:
         Returns:
             Updated ShareStatus.
         """
-        try:
-            return await self._service.update_user(
+        return await project_backend_call(
+            self._service.update_user(
                 notebook_id,
                 email,
                 self._permission_level(permission),
             )
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        )
 
     async def remove_user(
         self,
@@ -279,7 +264,4 @@ class SharingAPI:
         Returns:
             Updated ShareStatus.
         """
-        try:
-            return await self._service.remove_user(notebook_id, email)
-        except BackendError as error:
-            raise project_backend_error(error) from None
+        return await project_backend_call(self._service.remove_user(notebook_id, email))

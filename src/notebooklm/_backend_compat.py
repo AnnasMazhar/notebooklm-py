@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any, cast
+from collections.abc import Awaitable, Mapping
+from typing import Any, TypeVar, cast
 
 import httpx
 
@@ -42,6 +42,8 @@ from .exceptions import (
     SourceTimeoutError,
     UnknownRPCMethodError,
 )
+
+_T = TypeVar("_T")
 
 
 def _preserve_outcome(error: BackendError, projected: Exception) -> Exception:
@@ -522,6 +524,17 @@ def project_backend_error(error: BackendError) -> Exception:
     )
 
 
+async def project_backend_call(awaitable: Awaitable[_T]) -> _T:
+    """Await one backend call and raise its projection outside the private handler."""
+    public_error: Exception | None = None
+    try:
+        return await awaitable
+    except BackendError as error:
+        public_error = project_backend_error(error)
+    assert public_error is not None
+    raise public_error
+
+
 def _project_source_add_record(record: SourceAddFailureRecord) -> Exception:
     original_error = (
         _project_source_add_record(record.original_error)
@@ -758,6 +771,7 @@ def project_source_add_failure(record: SourceAddFailureRecord) -> Exception:
 
 
 __all__ = [
+    "project_backend_call",
     "project_backend_error",
     "project_source_add_error",
     "project_source_add_failure",
