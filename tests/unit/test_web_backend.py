@@ -15,6 +15,8 @@ from notebooklm._artifact.payloads import (
     build_cinematic_video_artifact_params,
     build_flashcards_artifact_params,
     build_infographic_artifact_params,
+    build_interactive_mind_map_artifact_params,
+    build_mind_map_params,
     build_quiz_artifact_params,
     build_report_artifact_params,
     build_slide_deck_artifact_params,
@@ -49,6 +51,12 @@ from notebooklm._records import (
     ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
+    MIND_MAP_DELETE_DEF,
+    MIND_MAP_GENERATE_INTERACTIVE_DEF,
+    MIND_MAP_GENERATE_NOTE_DEF,
+    MIND_MAP_GET_DEF,
+    MIND_MAP_LIST_DEF,
+    MIND_MAP_UPDATE_DEF,
     NOTE_CREATE_DEF,
     NOTE_DELETE_DEF,
     NOTE_GET_DEF,
@@ -65,6 +73,12 @@ from notebooklm._records import (
     AudioGenerateInput,
     InfographicGenerateInput,
     InteractiveGenerateInput,
+    MindMapDeleteInput,
+    MindMapGenerateInteractiveInput,
+    MindMapGenerateNoteInput,
+    MindMapGetInput,
+    MindMapListInput,
+    MindMapUpdateInput,
     NotebookCreateInput,
     NotebookDeleteInput,
     NotebookDeleteResult,
@@ -185,6 +199,12 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_GENERATE_DATA_TABLE,
         Operation.ARTIFACT_GENERATE_MIND_MAP,
         Operation.ARTIFACT_EXPORT,
+        Operation.MIND_MAP_LIST,
+        Operation.MIND_MAP_GET,
+        Operation.MIND_MAP_GENERATE_NOTE,
+        Operation.MIND_MAP_GENERATE_INTERACTIVE,
+        Operation.MIND_MAP_UPDATE,
+        Operation.MIND_MAP_DELETE,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -216,6 +236,12 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_GENERATE_DATA_TABLE: ARTIFACT_GENERATE_DATA_TABLE_DEF,
         Operation.ARTIFACT_GENERATE_MIND_MAP: ARTIFACT_GENERATE_MIND_MAP_DEF,
         Operation.ARTIFACT_EXPORT: ARTIFACT_EXPORT_DEF,
+        Operation.MIND_MAP_LIST: MIND_MAP_LIST_DEF,
+        Operation.MIND_MAP_GET: MIND_MAP_GET_DEF,
+        Operation.MIND_MAP_GENERATE_NOTE: MIND_MAP_GENERATE_NOTE_DEF,
+        Operation.MIND_MAP_GENERATE_INTERACTIVE: MIND_MAP_GENERATE_INTERACTIVE_DEF,
+        Operation.MIND_MAP_UPDATE: MIND_MAP_UPDATE_DEF,
+        Operation.MIND_MAP_DELETE: MIND_MAP_DELETE_DEF,
     }
     assert all(
         binding.unsupported_reason
@@ -598,6 +624,101 @@ async def test_note_handlers_preserve_classification_exact_id_and_wire_shapes() 
     assert executor.calls[2].params == ["nb", "", [1], None, "Title"]
     assert executor.calls[3].params == ["nb", "note-123", [[["New body", "New title", [], 0]]]]
     assert executor.calls[4].params == ["nb", None, ["note-123"]]
+
+
+@pytest.mark.asyncio
+async def test_mind_map_handlers_preserve_codecs_payloads_and_deadline() -> None:
+    tree_json = '{"name":"Map","children":[]}'
+    interactive_row = [None] * 10
+    interactive_row[9] = [None, None, None, tree_json]
+    executor = _RecordingExecutor(
+        [[["map-note", ["map-note", tree_json, None, None, "Map"]]]],
+        [interactive_row],
+        [[tree_json]],
+        [["map-interactive", "Map", 4]],
+        None,
+        None,
+    )
+    backend = _backend(executor)
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 11.0)
+
+    listed = await backend.invoke(MIND_MAP_LIST_DEF, MindMapListInput("nb"), deadline=deadline)
+    tree = await backend.invoke(
+        MIND_MAP_GET_DEF,
+        MindMapGetInput("nb", "map-interactive"),
+        deadline=deadline,
+    )
+    generated_note = await backend.invoke(
+        MIND_MAP_GENERATE_NOTE_DEF,
+        MindMapGenerateNoteInput("nb", ("src",), "fr", "Focus"),
+        deadline=deadline,
+    )
+    generated_interactive = await backend.invoke(
+        MIND_MAP_GENERATE_INTERACTIVE_DEF,
+        MindMapGenerateInteractiveInput("nb", ("src",), "Focus"),
+        deadline=deadline,
+    )
+    await backend.invoke(
+        MIND_MAP_UPDATE_DEF,
+        MindMapUpdateInput("nb", "map-interactive", "Renamed"),
+        deadline=deadline,
+    )
+    await backend.invoke(
+        MIND_MAP_DELETE_DEF,
+        MindMapDeleteInput("nb", "map-interactive"),
+        deadline=deadline,
+    )
+
+    assert [(record.id, record.title, record.tree_json) for record in listed.mind_maps] == [
+        ("map-note", "Map", tree_json)
+    ]
+    assert tree.tree_json == tree_json
+    assert generated_note.tree_json == tree_json
+    assert generated_interactive.mind_map_id == "map-interactive"
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.GET_NOTES_AND_MIND_MAPS,
+        RPCMethod.GET_INTERACTIVE_HTML,
+        RPCMethod.GENERATE_MIND_MAP,
+        RPCMethod.CREATE_ARTIFACT,
+        RPCMethod.RENAME_ARTIFACT,
+        RPCMethod.DELETE_ARTIFACT,
+    ]
+    assert all(call.kwargs["_retry_deadline"] is deadline for call in executor.calls)
+    assert executor.calls[2].params == build_mind_map_params(
+        ["src"], language="fr", instructions="Focus"
+    )
+    assert executor.calls[3].params == build_interactive_mind_map_artifact_params(
+        "nb", ["src"], instructions="Focus"
+    )
+    assert executor.calls[4].params == [["map-interactive", "Renamed"], [["title"]]]
+    assert executor.calls[5].params == [[2], "map-interactive"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("definition", "value"),
+    [
+        (MIND_MAP_GENERATE_NOTE_DEF, MindMapGenerateNoteInput("nb", None)),
+        (
+            MIND_MAP_GENERATE_INTERACTIVE_DEF,
+            MindMapGenerateInteractiveInput("nb", None),
+        ),
+    ],
+)
+async def test_mind_map_generation_resolves_default_sources_once(
+    definition: OperationDef[Any, Any],
+    value: object,
+) -> None:
+    generated = [["id"]] if definition is MIND_MAP_GENERATE_INTERACTIVE_DEF else [["{}"]]
+    executor = _RecordingExecutor(
+        [["Notebook", [[[["src-a"]]], [["src-b"]]], "nb"]],
+        generated,
+    )
+
+    await _backend(executor).invoke(definition, value, deadline=None)
+
+    assert [call.method for call in executor.calls[:1]] == [RPCMethod.GET_NOTEBOOK]
+    assert len(executor.calls) == 2
 
 
 @pytest.mark.asyncio

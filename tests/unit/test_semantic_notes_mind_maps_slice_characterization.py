@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call
@@ -48,7 +49,7 @@ from notebooklm.exceptions import (
     UnknownRPCMethodError,
 )
 from notebooklm.rpc import RPCMethod
-from notebooklm.types import Artifact, ArtifactType, MindMapResult
+from notebooklm.types import Artifact
 from tests._fixtures.fake_core import make_fake_core
 from tests._fixtures.note_stack import make_note_stack
 
@@ -683,30 +684,61 @@ def _make_mind_maps_api(
     interactive_artifacts: list[Artifact] | None = None,
 ) -> tuple[MindMapsAPI, MagicMock, MagicMock, MagicMock, MagicMock]:
     rpc = MagicMock(rpc_call=rpc_call or AsyncMock(return_value=None))
-    mind_maps_adapter = MagicMock(spec=NoteBackedMindMapService)
-    mind_maps_adapter.list_mind_maps = AsyncMock(return_value=note_rows or [])
-    mind_maps_adapter.extract_content = MagicMock(
-        side_effect=lambda row: row[1] if isinstance(row, list) and len(row) > 1 else None
+    note_maps: list[MindMap] = []
+    for row in note_rows or []:
+        note_row = NoteRow(row)
+        try:
+            parsed = json.loads(note_row.content or "")
+        except json.JSONDecodeError:
+            parsed = None
+        note_maps.append(
+            MindMap(
+                note_row.id,
+                "nb-100",
+                note_row.title,
+                MindMapKind.NOTE_BACKED,
+                note_row.created_at,
+                parsed if isinstance(parsed, dict) else None,
+            )
+        )
+    interactive_maps = [
+        MindMap(
+            artifact.id,
+            "nb-100",
+            artifact.title,
+            MindMapKind.INTERACTIVE,
+            artifact.created_at,
+        )
+        for artifact in interactive_artifacts or []
+        if artifact.is_interactive_mind_map
+    ]
+    mind_maps_adapter = MagicMock()
+    mind_maps_adapter.list_mind_maps = AsyncMock(return_value=note_maps)
+    mind_maps_adapter.get_mind_map_or_none = AsyncMock(
+        side_effect=lambda _notebook_id, item_id: next(
+            (item for item in note_maps if item.id == item_id), None
+        )
     )
     mind_maps_adapter.rename_mind_map = AsyncMock()
     mind_maps_adapter.delete_mind_map = AsyncMock(return_value=None)
+    mind_maps_adapter.generate_mind_map = AsyncMock()
 
     artifacts_api = MagicMock()
-    artifacts_api.list = AsyncMock(return_value=interactive_artifacts or [])
+    artifacts_api.list_mind_maps = AsyncMock(return_value=interactive_maps)
+    artifacts_api.get_or_none = AsyncMock(
+        side_effect=lambda _notebook_id, item_id: next(
+            (item for item in interactive_maps if item.id == item_id), None
+        )
+    )
     artifacts_api.rename = AsyncMock()
     artifacts_api.delete = AsyncMock(return_value=None)
-    artifacts_api.generate_mind_map = AsyncMock()
-    artifacts_api.wait_for_completion = AsyncMock()
+    artifacts_api.generate = AsyncMock()
+    artifacts_api.get_tree = AsyncMock(return_value=None)
 
     notebooks_api = MagicMock()
     notebooks_api.get_source_ids = AsyncMock(return_value=["src-1", "src-2"])
 
-    api = MindMapsAPI(
-        rpc=rpc,
-        mind_maps=mind_maps_adapter,
-        artifacts=artifacts_api,
-        notebooks=notebooks_api,
-    )
+    api = MindMapsAPI(notes=mind_maps_adapter, studio=artifacts_api)
     return api, rpc, mind_maps_adapter, artifacts_api, notebooks_api
 
 
@@ -729,7 +761,7 @@ async def test_mind_maps_api_list_note_backed_single_rpc_isolation() -> None:
     assert mm.notebook_id == "nb-100"
 
     mock_mm.list_mind_maps.assert_awaited_once_with("nb-100")
-    mock_art.list.assert_not_awaited()
+    mock_art.list_mind_maps.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -755,7 +787,7 @@ async def test_mind_maps_api_list_unions_both_backings_with_exact_shapes() -> No
     assert int_mm.kind is MindMapKind.INTERACTIVE
     assert int_mm.tree is None  # lazy tree fetching per ADR-0019
 
-    mock_art.list.assert_awaited_once_with("nb-100", ArtifactType.MIND_MAP)
+    mock_art.list_mind_maps.assert_awaited_once_with("nb-100")
 
 
 @pytest.mark.asyncio
@@ -776,13 +808,16 @@ async def test_mind_maps_api_get_and_get_or_none_diagnostics() -> None:
 @pytest.mark.asyncio
 async def test_mind_maps_api_generate_note_backed_vs_interactive() -> None:
     """generate dispatches to generate_mind_map for NOTE_BACKED and CREATE_ARTIFACT for INTERACTIVE."""
-    api, mock_rpc, _, mock_art, mock_nb = _make_mind_maps_api()
+    api, _, mock_notes, mock_studio, _ = _make_mind_maps_api()
 
     # 1. Note-backed generation
-    mock_art.generate_mind_map.return_value = MindMapResult(
-        mind_map={"name": "Generated Note Map", "children": []},
-        note_id="note-gen-1",
-        created_at=datetime(2023, 11, 14, tzinfo=timezone.utc),
+    mock_notes.generate_mind_map.return_value = MindMap(
+        "note-gen-1",
+        "nb-100",
+        "Generated Note Map",
+        MindMapKind.NOTE_BACKED,
+        datetime(2023, 11, 14, tzinfo=timezone.utc),
+        {"name": "Generated Note Map", "children": []},
     )
     nb_res = await api.generate(
         "nb-100", ["src-1"], kind=MindMapKind.NOTE_BACKED, instructions="Prompt"
@@ -791,18 +826,16 @@ async def test_mind_maps_api_generate_note_backed_vs_interactive() -> None:
     assert nb_res.kind is MindMapKind.NOTE_BACKED
     assert nb_res.title == "Generated Note Map"
     assert nb_res.tree == {"name": "Generated Note Map", "children": []}
-    mock_art.generate_mind_map.assert_awaited_once_with("nb-100", ["src-1"], "en", "Prompt")
+    mock_notes.generate_mind_map.assert_awaited_once_with("nb-100", ["src-1"], "en", "Prompt")
 
     # 2. Interactive generation with wait=True
-    mock_rpc.rpc_call = AsyncMock(return_value=[["art-new-100"]])
-    mock_art.list.return_value = [_interactive_art("art-new-100", "Interactive MindMap")]
-    # get_tree for interactive returns node tree
-    mock_rpc.rpc_call.side_effect = [
-        [["art-new-100"]],  # CREATE_ARTIFACT response
-        [
-            [None] * 9 + [[None, None, None, '{"name": "Tree", "children": []}']]
-        ],  # GET_INTERACTIVE_HTML
-    ]
+    mock_studio.generate.return_value = MindMap(
+        "art-new-100",
+        "nb-100",
+        "Interactive MindMap",
+        MindMapKind.INTERACTIVE,
+        tree={"name": "Tree", "children": []},
+    )
 
     int_res = await api.generate(
         "nb-100", ["src-1"], kind=MindMapKind.INTERACTIVE, instructions="Prompt", wait=True
@@ -810,11 +843,12 @@ async def test_mind_maps_api_generate_note_backed_vs_interactive() -> None:
     assert int_res.id == "art-new-100"
     assert int_res.kind is MindMapKind.INTERACTIVE
     assert int_res.tree == {"name": "Tree", "children": []}
-    mock_art.wait_for_completion.assert_awaited_once_with("nb-100", "art-new-100")
+    mock_studio.generate.assert_awaited_once_with("nb-100", ["src-1"], "Prompt", wait=True)
 
     # 3. Interactive generation null response raises ArtifactFeatureUnavailableError
-    mock_rpc.rpc_call.side_effect = None
-    mock_rpc.rpc_call.return_value = None
+    mock_studio.generate.side_effect = ArtifactFeatureUnavailableError(
+        "mind_map", method_id=RPCMethod.CREATE_ARTIFACT.value
+    )
     with pytest.raises(ArtifactFeatureUnavailableError):
         await api.generate("nb-100", ["src-1"], kind=MindMapKind.INTERACTIVE)
 
@@ -840,9 +874,7 @@ async def test_mind_maps_api_rename_auto_detect_and_explicit_kinds() -> None:
     renamed_int = await api.rename("nb-100", "art-int", "New Studio Title")
     assert renamed_int is not None
     assert renamed_int.id == "art-int"
-    mock_art.rename.assert_awaited_once_with(
-        "nb-100", "art-int", "New Studio Title", return_object=False
-    )
+    mock_art.rename.assert_awaited_once_with("nb-100", "art-int", "New Studio Title")
 
     # 3. Auto-detect missing raises MindMapNotFoundError
     with pytest.raises(MindMapNotFoundError):
@@ -881,7 +913,7 @@ async def test_mind_maps_api_get_tree_semantics_and_drift_diagnostics() -> None:
     mm_row = ["mm-note", '{"name": "NB Tree", "children": []}']
     art_int = _interactive_art("art-int", "Studio")
 
-    api, mock_rpc, _, _, _ = _make_mind_maps_api(
+    api, _, _, mock_studio, _ = _make_mind_maps_api(
         note_rows=[mm_row],
         interactive_artifacts=[art_int],
     )
@@ -891,18 +923,18 @@ async def test_mind_maps_api_get_tree_semantics_and_drift_diagnostics() -> None:
     assert tree_nb == {"name": "NB Tree", "children": []}
 
     # 2. Interactive get_tree (fetched via GET_INTERACTIVE_HTML at [0][9][3])
-    mock_rpc.rpc_call.return_value = [
-        [None] * 9 + [[None, None, None, '{"name": "Studio Tree", "children": []}']]
-    ]
+    mock_studio.get_tree.return_value = {"name": "Studio Tree", "children": []}
     tree_int = await api.get_tree("nb-100", "art-int", kind=MindMapKind.INTERACTIVE)
     assert tree_int == {"name": "Studio Tree", "children": []}
 
     # 3. Absent leaf within list options block is tolerated during settling
-    mock_rpc.rpc_call.return_value = [[None] * 9 + [["too", "short"]]]
+    mock_studio.get_tree.return_value = None
     assert await api.get_tree("nb-100", "art-int", kind=MindMapKind.INTERACTIVE) is None
 
     # 4. Shape drift where options block is not a list raises UnknownRPCMethodError
-    mock_rpc.rpc_call.return_value = [[None] * 9 + ["not-a-list-options-block"]]
+    mock_studio.get_tree.side_effect = UnknownRPCMethodError(
+        "drift", method_id=RPCMethod.GET_INTERACTIVE_HTML.value
+    )
     with pytest.raises(UnknownRPCMethodError) as exc_info:
         await api.get_tree("nb-100", "art-int", kind=MindMapKind.INTERACTIVE)
     assert exc_info.value.method_id == RPCMethod.GET_INTERACTIVE_HTML.value
@@ -991,7 +1023,7 @@ async def test_notes_and_mind_maps_get_notebook_recency_bump_inventory() -> None
     assert _get_notebook_call_count() == 0
 
     # 2. MindMapsAPI operations -> 0 GET_NOTEBOOK calls (when source_ids explicit)
-    api, mock_rpc, _, _, mock_nb = _make_mind_maps_api(
+    api, _, mock_notes, mock_studio, _ = _make_mind_maps_api(
         note_rows=[["mm1", '{"name": "M", "children": []}']],
         interactive_artifacts=[_interactive_art("art1")],
     )
@@ -1005,12 +1037,15 @@ async def test_notes_and_mind_maps_get_notebook_recency_bump_inventory() -> None
     await api.get_tree("nb-1", "mm1")
 
     # generate with explicit source_ids -> 0 get_source_ids calls -> 0 GET_NOTEBOOK
-    mock_rpc.rpc_call.return_value = [["art-new"]]
+    mock_notes.generate_mind_map.return_value = MindMap(
+        "note-new", "nb-1", "Map", MindMapKind.NOTE_BACKED
+    )
+    mock_studio.generate.return_value = MindMap("art-new", "nb-1", "Map", MindMapKind.INTERACTIVE)
     await api.generate("nb-1", ["src-1"], kind=MindMapKind.NOTE_BACKED)
     await api.generate("nb-1", ["src-1"], kind=MindMapKind.INTERACTIVE, wait=False)
-    mock_nb.get_source_ids.assert_not_awaited()
+    assert mock_notes.generate_mind_map.await_args.args[1] == ["src-1"]
+    assert mock_studio.generate.await_args.args[1] == ["src-1"]
 
     # generate with source_ids=None -> exactly 1 get_source_ids call (which issues GET_NOTEBOOK)
-    mock_rpc.rpc_call.return_value = [["art-new-2"]]
     await api.generate("nb-1", source_ids=None, kind=MindMapKind.INTERACTIVE, wait=False)
-    mock_nb.get_source_ids.assert_awaited_once_with("nb-1")
+    assert mock_studio.generate.await_args.args[1] is None

@@ -684,6 +684,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         (
             _b(RPCMethod.GENERATE_MIND_MAP),
             _b(RPCMethod.CREATE_NOTE, "plain"),
+            _b(RPCMethod.UPDATE_NOTE),
             _b(RPCMethod.GET_NOTEBOOK),
         ),
         disposition=Disposition.COMPOSITE,
@@ -703,6 +704,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
             _b(RPCMethod.GET_INTERACTIVE_HTML),
         ),
         disposition=Disposition.COMPOSITE,
+        known_divergence=_APP_GENERATION_DIVERGENCE,
         recency_effect="one GET_NOTEBOOK when source_ids is omitted",
     ),
     OperationSpec(
@@ -993,6 +995,7 @@ DIVERGENCE_KINDS: Mapping[Operation, str] = {
     Operation.ARTIFACT_GENERATE_SLIDE_DECK: "authority",
     Operation.ARTIFACT_GENERATE_VIDEO: "authority",
     Operation.ARTIFACT_REVISE_SLIDE: "authority",
+    Operation.MIND_MAP_GENERATE_INTERACTIVE: "authority",
     Operation.SOURCE_REFRESH: "policy",
 }
 

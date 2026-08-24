@@ -106,6 +106,7 @@ def _make_artifacts_api() -> ArtifactsAPI:
         notebooks=notebooks,
         mind_maps=mind_maps,
         note_service=MagicMock(spec=LegacyNoteBackedService),
+        _backend=build_web_backend(core.rpc_executor),
     )
 
 
@@ -123,17 +124,11 @@ def _make_notes_api() -> NotesAPI:
 
 
 def _make_mind_maps_api() -> MindMapsAPI:
-    mind_maps = MagicMock(spec=NoteBackedMindMapService)
-    mind_maps.list_mind_maps = AsyncMock(return_value=[])
-    artifacts = MagicMock()
-    artifacts.list = AsyncMock(return_value=[])
-    notebooks = MagicMock()
-    return MindMapsAPI(
-        rpc=MagicMock(),
-        mind_maps=mind_maps,
-        artifacts=artifacts,
-        notebooks=notebooks,
-    )
+    notes = MagicMock()
+    notes.list_mind_maps = AsyncMock(return_value=[])
+    studio = MagicMock()
+    studio.list_mind_maps = AsyncMock(return_value=[])
+    return MindMapsAPI(notes=notes, studio=studio)
 
 
 def _make_labels_api() -> LabelsAPI:
@@ -166,10 +161,10 @@ def _make_notebooks_api() -> NotebooksAPI:
 
 
 def _arrange_list_miss(api: object) -> None:
-    """Force a miss for the four non-``notebooks`` namespaces.
+    """Force a list-backed miss for sources and mind maps.
 
-    ``sources`` / ``artifacts`` / ``mind_maps`` resolve a single ``get`` by
-    scanning ``self.list(...)``, so stubbing ``list`` to ``[]`` is a uniform,
+    ``sources`` / ``mind_maps`` resolve a single ``get`` by scanning
+    ``self.list(...)``, so stubbing ``list`` to ``[]`` is a uniform,
     backend-agnostic miss (the same lever the existing per-namespace tests pull).
 
     ``notes`` is the exception: ``NotesAPI.get_or_none`` resolves through
@@ -183,6 +178,11 @@ def _arrange_list_miss(api: object) -> None:
     internal path.
     """
     api.list = AsyncMock(return_value=[])  # type: ignore[attr-defined]
+
+
+def _arrange_artifact_miss(api: object) -> None:
+    """Force a miss through the semantic Studio catalog lookup."""
+    api._catalog = MagicMock(get_or_none=AsyncMock(return_value=None))  # type: ignore[attr-defined]
 
 
 def _arrange_notebooks_miss(api: object) -> None:
@@ -253,7 +253,7 @@ LOOKUP_CASES: tuple[LookupCase, ...] = (
     LookupCase(
         namespace="artifacts",
         factory=_make_artifacts_api,
-        arrange_miss=_arrange_list_miss,
+        arrange_miss=_arrange_artifact_miss,
         get_args=("nb_1", "missing"),
         resource="artifact",
         not_found_error=ArtifactNotFoundError,

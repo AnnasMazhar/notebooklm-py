@@ -94,8 +94,8 @@ CLI_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "fallback emits the same wrapper without a public Artifact contribution"
         ),
         "evidence": (
-            "notebooklm/_mind_maps_api.py:art = await self._find_interactive",
-            "notebooklm/_mind_maps_api.py:if art is not None:",
+            "notebooklm/_studio/mind_maps.py:artifact = project_artifact(record)",
+            "notebooklm/_studio/mind_maps.py:return MindMap(",
             "notebooklm/cli/generate_cmd.py:_output_mind_map_result",
         ),
     },

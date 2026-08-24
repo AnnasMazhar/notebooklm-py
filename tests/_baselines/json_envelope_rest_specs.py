@@ -362,8 +362,8 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "unclassified settling case); the raw create-id fallback has no Artifact"
         ),
         "evidence": (
-            "notebooklm/_mind_maps_api.py:art = await self._find_interactive",
-            "notebooklm/_mind_maps_api.py:if art is not None:",
+            "notebooklm/_studio/mind_maps.py:artifact = project_artifact(record)",
+            "notebooklm/_studio/mind_maps.py:return MindMap(",
             'notebooklm/server/routes/artifacts.py:payload["mind_map"] = to_jsonable',
         ),
     },
@@ -419,7 +419,7 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "artifacts use the same terminal without this contribution"
         ),
         "evidence": (
-            "notebooklm/_mind_maps_api.py:art.is_interactive_mind_map",
+            "notebooklm/_studio/mind_maps.py:artifact = project_artifact(record)",
             "notebooklm/server/routes/artifacts.py:is_mind_map",
         ),
     },

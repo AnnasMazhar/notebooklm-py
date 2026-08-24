@@ -82,4 +82,5 @@ class StudioCatalog:
         record = await self.get_record(notebook_id, artifact_id, deadline=deadline)
         return None if record is None else project_artifact(record)
 
+
 __all__ = ["StudioCatalog"]

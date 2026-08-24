@@ -164,8 +164,8 @@ MCP_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "create-id fallback emits the same wrapper without a public Artifact contribution"
         ),
         "evidence": (
-            "notebooklm/_mind_maps_api.py:art = await self._find_interactive",
-            "notebooklm/_mind_maps_api.py:if art is not None:",
+            "notebooklm/_studio/mind_maps.py:artifact = project_artifact(record)",
+            "notebooklm/_studio/mind_maps.py:return MindMap(",
             "notebooklm/mcp/tools/_studio_payloads.py:_mind_map_id",
         ),
     },
@@ -211,7 +211,7 @@ MCP_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "resolved-Artifact branch"
         ),
         "evidence": (
-            "notebooklm/_mind_maps_api.py:art.is_interactive_mind_map",
+            "notebooklm/_studio/mind_maps.py:artifact = project_artifact(record)",
             "notebooklm/mcp/tools/studio.py:is_mind_map",
         ),
     },

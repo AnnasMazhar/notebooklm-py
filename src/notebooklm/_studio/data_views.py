@@ -56,7 +56,7 @@ class DataTableFamilyService:
         return record if record is not None and record.family == "data_table" else None
 
 
-class MindMapFamilyService:
+class NoteBackedMindMapFamilyService:
     """Mind-map generation and dual-backing catalog selection.
 
     The catalog implements ADR-0019 partial availability: an ordinary RPC
@@ -101,4 +101,4 @@ class MindMapFamilyService:
         return record if record is not None and record.family == "mind_map" else None
 
 
-__all__ = ["DataTableFamilyService", "MindMapFamilyService"]
+__all__ = ["DataTableFamilyService", "NoteBackedMindMapFamilyService"]

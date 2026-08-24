@@ -512,7 +512,7 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_artifacts.py", "_studio", "VisualFamilyService"),
         ("_artifacts.py", "_studio", "DataTableFamilyService"),
         ("_artifacts.py", "_studio", "DriveExportService"),
-        ("_artifacts.py", "_studio", "MindMapFamilyService"),
+        ("_artifacts.py", "_studio", "NoteBackedMindMapFamilyService"),
         ("_backend_compat.py", "_backend", "BackendContractError"),
         ("_backend_compat.py", "_backend", "BackendError"),
         ("_backend_compat.py", "_backend", "BackendErrorReason"),
@@ -521,7 +521,13 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_projectors.py", "_records", "GenerationStatusRecord"),
         ("_client_assembly.py", "_note_service", "LegacyNoteBackedService"),
         ("_client_assembly.py", "_note_service", "NoteService"),
+        ("_client_assembly.py", "_studio", "MindMapFamilyService"),
+        ("_client_assembly.py", "_studio", "StudioCatalog"),
         ("_client_assembly.py", "_web.backend", "WebRpcBackend"),
+        ("_mind_maps_api.py", "_backend", "BackendError"),
+        ("_mind_maps_api.py", "_backend_compat", "project_backend_error"),
+        ("_mind_maps_api.py", "_note_service", "NoteService"),
+        ("_mind_maps_api.py", "_studio", "MindMapFamilyService"),
         ("_mind_map.py", "_note_service", "LegacyNoteBackedService"),
         ("_mind_map.py", "_note_service", "NoteRowKind"),
         ("_notebook_mutation_service.py", "_backend", "BackendAdapter"),
@@ -547,12 +553,18 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_mutation_services.py", "_records", "SourceAddUrlInput"),
         ("_mutation_services.py", "_records", "SourceAddUrlResult"),
         ("_note_service.py", "_backend", "BackendAdapter"),
+        ("_note_service.py", "_projectors", "project_mind_map"),
         ("_note_service.py", "_projectors", "project_note"),
+        ("_note_service.py", "_records", "MIND_MAP_GENERATE_NOTE_DEF"),
+        ("_note_service.py", "_records", "MIND_MAP_LIST_DEF"),
         ("_note_service.py", "_records", "NOTE_CREATE_DEF"),
         ("_note_service.py", "_records", "NOTE_DELETE_DEF"),
         ("_note_service.py", "_records", "NOTE_GET_DEF"),
         ("_note_service.py", "_records", "NOTE_LIST_DEF"),
         ("_note_service.py", "_records", "NOTE_UPDATE_DEF"),
+        ("_note_service.py", "_records", "MindMapGenerateNoteInput"),
+        ("_note_service.py", "_records", "MindMapListInput"),
+        ("_note_service.py", "_records", "MindMapRecord"),
         ("_note_service.py", "_records", "NoteCreateInput"),
         ("_note_service.py", "_records", "NoteDeleteInput"),
         ("_note_service.py", "_records", "NoteGetInput"),
@@ -566,6 +578,7 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_projectors.py", "_records", "CollectionRecord"),
         ("_projectors.py", "_records", "GenerationStatusRecord"),
         ("_projectors.py", "_records", "LabelRecord"),
+        ("_projectors.py", "_records", "MindMapRecord"),
         ("_projectors.py", "_records", "NotebookDescriptionRecord"),
         ("_projectors.py", "_records", "NotebookRecord"),
         ("_projectors.py", "_records", "NoteRecord"),
@@ -642,6 +655,18 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_studio/data_views.py", "_records", "DataTableGenerateResult"),
         ("_studio/data_views.py", "_records", "MindMapGenerateInput"),
         ("_studio/data_views.py", "_records", "MindMapGenerateResult"),
+        ("_studio/mind_maps.py", "_backend", "BackendAdapter"),
+        ("_studio/mind_maps.py", "_projectors", "project_artifact"),
+        ("_studio/mind_maps.py", "_records", "ArtifactRecord"),
+        ("_studio/mind_maps.py", "_records", "MIND_MAP_DELETE_DEF"),
+        ("_studio/mind_maps.py", "_records", "MIND_MAP_GENERATE_INTERACTIVE_DEF"),
+        ("_studio/mind_maps.py", "_records", "MIND_MAP_GET_DEF"),
+        ("_studio/mind_maps.py", "_records", "MIND_MAP_UPDATE_DEF"),
+        ("_studio/mind_maps.py", "_records", "MindMapDeleteInput"),
+        ("_studio/mind_maps.py", "_records", "MindMapGenerateInteractiveInput"),
+        ("_studio/mind_maps.py", "_records", "MindMapGenerateInteractiveResult"),
+        ("_studio/mind_maps.py", "_records", "MindMapGetInput"),
+        ("_studio/mind_maps.py", "_records", "MindMapUpdateInput"),
         ("_studio/exports.py", "_backend", "BackendAdapter"),
         ("_studio/exports.py", "_records", "ARTIFACT_EXPORT_DEF"),
         ("_studio/exports.py", "_records", "DriveExportInput"),
@@ -662,6 +687,18 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/backend.py", "_records", "ArtifactListInput"),
         ("_web/backend.py", "_records", "ArtifactListResult"),
         ("_web/backend.py", "_records", "ArtifactRecord"),
+        ("_web/backend.py", "_records", "MindMapDeleteInput"),
+        ("_web/backend.py", "_records", "MindMapDeleteResult"),
+        ("_web/backend.py", "_records", "MindMapGenerateInteractiveInput"),
+        ("_web/backend.py", "_records", "MindMapGenerateInteractiveResult"),
+        ("_web/backend.py", "_records", "MindMapGenerateNoteInput"),
+        ("_web/backend.py", "_records", "MindMapGenerateNoteResult"),
+        ("_web/backend.py", "_records", "MindMapGetInput"),
+        ("_web/backend.py", "_records", "MindMapGetResult"),
+        ("_web/backend.py", "_records", "MindMapListInput"),
+        ("_web/backend.py", "_records", "MindMapListResult"),
+        ("_web/backend.py", "_records", "MindMapUpdateInput"),
+        ("_web/backend.py", "_records", "MindMapUpdateResult"),
         ("_web/backend.py", "_records", "NotebookCreateInput"),
         ("_web/backend.py", "_records", "NotebookCreateResult"),
         ("_web/backend.py", "_records", "NotebookDeleteInput"),
@@ -684,6 +721,13 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/backend.py", "_records", "NoteUpdateInput"),
         ("_web/backend.py", "_records", "NoteUpdateResult"),
         ("_web/codec/notes.py", "_records", "NoteRecord"),
+        ("_web/codec/notes.py", "_records", "MindMapRecord"),
+        ("_web/registry.py", "_records", "MIND_MAP_DELETE_DEF"),
+        ("_web/registry.py", "_records", "MIND_MAP_GENERATE_INTERACTIVE_DEF"),
+        ("_web/registry.py", "_records", "MIND_MAP_GENERATE_NOTE_DEF"),
+        ("_web/registry.py", "_records", "MIND_MAP_GET_DEF"),
+        ("_web/registry.py", "_records", "MIND_MAP_LIST_DEF"),
+        ("_web/registry.py", "_records", "MIND_MAP_UPDATE_DEF"),
         ("_web/registry.py", "_records", "NOTE_CREATE_DEF"),
         ("_web/registry.py", "_records", "NOTE_DELETE_DEF"),
         ("_web/registry.py", "_records", "NOTE_GET_DEF"),
@@ -826,6 +870,8 @@ ACTIVE_BACKEND_INVOKE_SITES = frozenset(
         "_note_service.py:NoteService.delete_note",
         "_note_service.py:NoteService.get_note_or_none",
         "_note_service.py:NoteService.list_notes",
+        "_note_service.py:NoteService._list_mind_map_records",
+        "_note_service.py:NoteService.generate_mind_map",
         "_note_service.py:NoteService.update_note",
         "_studio/audio.py:AudioFamilyService.generate",
         "_studio/catalog.py:StudioCatalog.get_record",
@@ -837,8 +883,12 @@ ACTIVE_BACKEND_INVOKE_SITES = frozenset(
         "_studio/documents.py:ReportFamilyService.generate",
         "_studio/documents.py:VideoFamilyService.generate",
         "_studio/data_views.py:DataTableFamilyService.generate",
-        "_studio/data_views.py:MindMapFamilyService.generate",
+        "_studio/data_views.py:NoteBackedMindMapFamilyService.generate",
         "_studio/exports.py:DriveExportService.export",
+        "_studio/mind_maps.py:MindMapFamilyService.delete",
+        "_studio/mind_maps.py:MindMapFamilyService.generate",
+        "_studio/mind_maps.py:MindMapFamilyService.get_tree",
+        "_studio/mind_maps.py:MindMapFamilyService.rename",
         "_mutation_services.py:SourceUrlMutationService.add_url",
     }
 )
@@ -941,7 +991,14 @@ def audit_inert_p1_backend_dataflow(
                         and parent.arg in {"_backend", "backend"}
                         and isinstance(facade_name, str)
                         and facade_name
-                        in {"ArtifactsAPI", "NoteService", "NotebooksAPI", "SourcesAPI"}
+                        in {
+                            "ArtifactsAPI",
+                            "MindMapFamilyService",
+                            "NoteService",
+                            "NotebooksAPI",
+                            "SourcesAPI",
+                            "StudioCatalog",
+                        }
                     ):
                         assembly_backend_bindings.append(facade_name)
                     else:
@@ -973,7 +1030,14 @@ def audit_inert_p1_backend_dataflow(
         errors.append(
             f"P1 WebRpcBackend construction target changed: {assembly_constructor_targets}"
         )
-    expected_facades = ["ArtifactsAPI", "NoteService", "NotebooksAPI", "SourcesAPI"]
+    expected_facades = [
+        "ArtifactsAPI",
+        "MindMapFamilyService",
+        "NoteService",
+        "NotebooksAPI",
+        "SourcesAPI",
+        "StudioCatalog",
+    ]
     if sorted(assembly_backend_bindings) != expected_facades:
         errors.append(
             "semantic facade backend bindings changed: "

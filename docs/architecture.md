@@ -101,7 +101,7 @@ private `WebRpcBackend` at the shared client-assembly seam and registers typed h
 the P2.1 notebook/source reads, P2.2 notebook mutations, P2.3 URL/YouTube registration, P5.1 Studio
 catalog reads, P5.2 Audio, P5.3 Quiz/Flashcards, P5.4 Report/Video, P5.5
 Infographic/Slide Deck generation, P5.6 Data Table/Mind Map generation and Drive export,
-P5.7 Studio representation retrieval/serialization boundaries, and P6.3 plain-note CRUD.
+P5.7 Studio representation retrieval/serialization boundaries, and P6.3 note/mind-map workflows.
 These public paths delegate through
 transport-neutral semantic services and that client-owned backend. Audio discovery and download
 selection reuse the Studio catalog rather than adding a second listing authority. The URL-source
@@ -114,23 +114,23 @@ The retained public parsing factories remain callable but have no production cal
 the active bindings: whole-workflow `CallPolicy` values, exact native idempotency expectations,
 caller-owned absolute deadline identity, and closed public-error projection are audited together
 without moving retry authority out of the native registry. Future operation migrations must extend
-that same ledger; P5.1 through P5.6 and P6.3 extend it to all 25 current handlers. The remaining phase
+that same ledger; P5.1 through P5.6 and P6.3 extend it to all 31 current handlers. The remaining phase
 descriptions are sequencing decisions, not a claim that the rest of P3-P8 are complete. P9
 public-surface work and a mobile backend require separate decisions.
 
 The operation-catalog audit classifies only the shared generic web RPC forwarder as inert. The four
 notebook/source read handlers, three notebook-mutation handlers, URL-source composite, two Studio
-catalog handlers, nine family generation handlers, one Drive-export handler, and five plain-note
-handlers are active catalogued authorities. `MindMapsAPI` and the retained note-backed
-listing/download seams remain explicitly named legacy RPC consumers until the MIND_MAP_* slice,
-so they never borrow NOTE_* authority. This bounded
+catalog handlers, nine family generation handlers, one Drive-export handler, five plain-note
+handlers, and six mind-map handlers are active catalogued authorities. `MindMapsAPI` delegates to
+the semantic note and Studio mind-map services; retained saved-chat/artifact compatibility seams
+remain explicitly named legacy RPC consumers and never borrow NOTE_* authority. This bounded
 classification is mutation-tested and shrinks as later slices activate handlers.
 
 P0 adds four ADR-0022 contract baselines before runtime delegation:
 
 | Baseline | Freezes |
 | --- | --- |
-| `operation_catalog` | 86 operations with 164 exact authority rows (41 multi-authority); 56 native rows (19 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; the exact 25-operation active web policy/native-idempotency ledger; 146 namespace methods (eight local-only), ten root-client members, and 11 divergences (10 authority, one policy) |
+| `operation_catalog` | 86 operations with 165 exact authority rows (41 multi-authority); 56 native rows (21 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; the exact 31-operation active web policy/native-idempotency ledger; 146 namespace methods (eight local-only), ten root-client members, and 12 divergences (11 authority, one policy) |
 | `public_model_contract` | The 86 exported identities (50 dataclasses, 36 enums): construction, field/member order, behavior flags, export paths, structured pickle success/failure, first-party state hooks, and `Notebook` / `ChatReference` legacy-state restore invariants |
 | `json_envelope` | Exact sink/view-backed projection modes, keys, causal fields, and conditional variants: CLI 31 model identities/133 projections, MCP 32/123, REST 32/57 (313 unique ids). Its closed-world sink inventory covers 350 terminal/error sites: 225 public-projection, 117 reviewed non-public, eight forwarding infrastructure, and 15 conditional non-public variants across 14 sites. Every live id has a terminal allocation; registrations/direct JSON bypasses fail closed. It also pins 36 private DTO -> public dataclass paths (34 linked; `SourceRefreshResult.result` production-dead; `ValidatedSessionConfig.limits` internal-runtime-only), 16 explicit helper fingerprints, and a compact aggregate digest for the bounded 519-node / 1,242-edge transitive helper graph (520 unique helpers overall). Thirty-seven declarations across 28 literal final-dict sites are AST-derived, while 168 explicit declarations remain manually reviewed. The supplemental 49-dataclass inventory excludes `AuthTokens`; only the exact redacted MCP/REST `server_info` identity contributions are allowed. `authuser` / `account_email` may emit, while storage path/profile generation only select control flow; recursive credentials and any extra projection fail closed. |
 | `metrics_contract` | The 14 snapshot and five event fields plus normalized success/transport-error/decode-error observations through composed public `rpc_call()` / `metrics_snapshot()`; direct non-RPC middleware probes are supplemental |
@@ -167,7 +167,7 @@ The per-module index and the full tree are in [File map](#file-map) below.
 `NotebookLMClient` is the composition root. It constructs the shared runtime
 collaborator graph, wires feature APIs to narrow runtime Protocols, and
 injects stateful services such as `SourceUploadPipeline`, `NoteService`,
-`NoteBackedMindMapService`, and `ArtifactDownloadService`. Feature modules
+`MindMapFamilyService`, and `ArtifactDownloadService`. Feature modules
 build NotebookLM params and parse domain rows; client-owned collaborators own
 dispatch, transport, auth refresh, metrics, and lifecycle.
 
@@ -309,7 +309,7 @@ Some feature workflows intentionally combine RPC with non-RPC HTTP work:
 | Source URL/text/Drive add | `SourceAddService` wraps URL and Drive mutating RPCs in `idempotent_create(...)` because those flows have stable probes. Text-source adds are intentionally non-idempotent unless the caller handles dedupe externally. |
 | Artifact generation | P5.2 routes Audio, P5.3 routes Quiz/Flashcards, and P5.4 routes Report/Video kickoff through transport-neutral family services and the typed web backend while preserving established payload builders and public `GenerationStatus`; the remaining `generate_*` / `revise_slide` / `retry_failed` paths remain on `ArtifactGenerationService` (`_artifact/generation.py`). `ArtifactPollingService` still owns public lifecycle-terminal wait semantics with `operation_scope(...)` and a feature-local `PollRegistry`; family-usable readiness does not alter that wait condition. |
 | Artifact download | P5.2 selects non-prefetched Audio metadata through the neutral Studio catalog, including media URLs, duration, prompt, and exact latest-created rule. Byte retrieval still uses `ArtifactDownloadService`'s existing streaming client, storage cookies, trusted-host checks, and per-hop redirect guard; prefetched raw rows remain on its no-refetch path. Other families still list/select through `RpcCaller`. |
-| Notes and mind maps | Backend-neutral `NoteService` invokes typed NOTE_* operations for `NotesAPI`; `WebRpcBackend` owns mixed-row classification and the five note bindings. `LegacyNoteBackedService` remains the bounded `RpcCaller` owner behind `NoteBackedMindMapService` and artifact mind-map persistence until the MIND_MAP_* slice, so the two semantic authorities stay disjoint. |
+| Notes and mind maps | Backend-neutral `NoteService` invokes typed NOTE_* operations for `NotesAPI` and note-backed MIND_MAP_* workflows for `MindMapsAPI`; `MindMapFamilyService` owns its interactive Studio branch. `WebRpcBackend` owns the six typed mind-map bindings and mixed note-row decoding. `LegacyNoteBackedService` remains bounded to deferred saved-chat/artifact compatibility callers and is absent from `MindMapsAPI`. |
 
 ## Cross-cutting policies
 
@@ -584,15 +584,16 @@ Beyond the client-owned runtime graph, several feature APIs are implemented via 
 
 | Service / Module | Module | Responsibility |
 |-------------------|--------|----------------|
-| `NoteService` | [`_note_service.py`](../src/notebooklm/_note_service.py) | Backend-neutral plain-note list/get/create/update/delete workflow, including shielded create finalization and cancellation cleanup. The same module's private `LegacyNoteBackedService` is restricted to deferred mind-map/artifact callers. |
-| `NoteBackedMindMapService` | [`_mind_map.py`](../src/notebooklm/_mind_map.py) | Specific adapter service representing mind-maps, backed by standard notebook notes. |
+| `NoteService` | [`_note_service.py`](../src/notebooklm/_note_service.py) | Backend-neutral plain-note and note-backed-mind-map workflows, including shielded create finalization and cancellation cleanup. The same module's private `LegacyNoteBackedService` is restricted to deferred saved-chat/artifact compatibility callers. |
+| `NoteBackedMindMapService` | [`_mind_map.py`](../src/notebooklm/_mind_map.py) | Deferred note-backed compatibility adapter retained outside the migrated `MindMapsAPI` path. |
 | `ArtifactDownloadService` | [`_artifact/downloads.py`](../src/notebooklm/_artifact/downloads.py) | Artifact selection/orchestration facade; delegates remote bytes and local representation writes to the Studio clients below. |
 | `StudioDownloadClient` | [`_studio/downloads.py`](../src/notebooklm/_studio/downloads.py) | Trusted remote byte retrieval with shared factory/allowlist and per-hop redirect validation for both httpx and curl_cffi. |
 | `StudioSerializationClient` | [`_studio/serialization.py`](../src/notebooklm/_studio/serialization.py) | RPC-free local text, JSON, and CSV representation serialization. |
 | `ArtifactGenerationService` | [`_artifact/generation.py`](../src/notebooklm/_artifact/generation.py) | Generation kickoff service (`generate_*`, `revise_slide`, `retry_failed`) extracted from `ArtifactsAPI`. |
 | `ReportFamilyService` / `VideoFamilyService` | [`_studio/documents.py`](../src/notebooklm/_studio/documents.py) | Backend-neutral P5.4 report/video generation, catalog filtering, and family metadata/availability rules. |
 | `VisualFamilyService` | [`_studio/visuals.py`](../src/notebooklm/_studio/visuals.py) | Backend-neutral P5.5 infographic/slide-deck generation, catalog filtering, usable readiness, and accessibility metadata. |
-| `DataTableFamilyService` / `MindMapFamilyService` | [`_studio/data_views.py`](../src/notebooklm/_studio/data_views.py) | Backend-neutral P5.6 data-table and note-backed mind-map generation plus complete catalog selection. |
+| `DataTableFamilyService` / `NoteBackedMindMapFamilyService` | [`_studio/data_views.py`](../src/notebooklm/_studio/data_views.py) | Backend-neutral P5.6 data-table and artifact note-backed mind-map generation plus complete catalog selection. |
+| `MindMapFamilyService` | [`_studio/mind_maps.py`](../src/notebooklm/_studio/mind_maps.py) | Backend-neutral P6.3 interactive Studio mind-map generation, discovery, tree, update, and delete workflow. |
 | `DriveExportService` | [`_studio/exports.py`](../src/notebooklm/_studio/exports.py) | Explicit P5.6 Google Drive companion export for report/data-table representations. |
 | `_artifact_formatters` | [`_artifact/formatters.py`](../src/notebooklm/_artifact/formatters.py) | Markdown, HTML, and plain text formatters for artifacts. |
 | `_artifact/listing` | [`_artifact/listing.py`](../src/notebooklm/_artifact/listing.py) | Listing and filtering operations for notebook artifacts. |
@@ -1058,7 +1059,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_deadline.py` | `RuntimeDeadline` helper shared by retry and polling loops so aggregate timeouts clamp sleep consistently |
 | `_backend_compat.py` | Private compatibility projector from closed semantic `BackendErrorReason` + safe diagnostics back to the existing public exception subclasses at migrated facade boundaries. |
 | `_backend.py` | Private protocol-neutral semantic port: backend kind/capabilities, typed `BackendAdapter.invoke`, and the minimal scrubbed error/deadline handoff used by the P2 slice. |
-| `_records.py` | Frozen, slotted, protocol-neutral input/output records and `OperationDef` values for P2 notebook/source operations, P5.1 Studio catalog, P5.2 Audio, P5.3 Quiz/Flashcards, P5.4 Report/Video, P5.5 Infographic/Slide Deck, P5.6 Data Table/Mind Map/Drive export, and P6.3 plain-note CRUD, plus P3 notebook-guide/source/artifact/label/collection/sharing decode values and closed URL-source error evidence. |
+| `_records.py` | Frozen, slotted, protocol-neutral input/output records and `OperationDef` values for P2 notebook/source operations, P5.1 Studio catalog, P5.2 Audio, P5.3 Quiz/Flashcards, P5.4 Report/Video, P5.5 Infographic/Slide Deck, P5.6 Data Table/Mind Map/Drive export, and P6.3 note/mind-map workflows, plus P3 notebook-guide/source/artifact/label/collection/sharing decode values and closed URL-source error evidence. |
 | `_backoff.py` | Shared capped exponential-backoff calculation with deterministic test injection |
 | `_reqid_counter.py` | `ReqidCounter` — monotonic `_reqid` for the chat backend |
 | `_runtime/auth.py` | `AuthRefreshCoordinator` — refresh task + auth-snapshot lock |
@@ -1071,11 +1072,12 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_notebook_mutation_service.py` | Private P2.2 transport-neutral notebook create/title-update/delete service; validates semantic input and invokes only typed backend definitions. |
 | `_mutation_services.py` | Private live P2.3 transport-neutral URL-source mutation service; carries the ordinary/YouTube request and uncertainty receipt through `BackendAdapter` without wire dependencies. |
 | `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
-| `_studio/` | Private transport-neutral Studio boundary: the P5.1 heterogeneous catalog/classifier; P5.2–P5.6 family/generation/export services; and P5.7 trusted representation retrieval plus local serialization clients. |
+| `_studio/` | Private transport-neutral Studio boundary: the P5.1 heterogeneous catalog/classifier; P5.2–P5.6 family/generation/export services; P5.7 trusted representation retrieval plus local serialization clients; and the P6.3 interactive mind-map family. |
 | `_studio/interactive.py` | Private P5.3 Quiz/Flashcards family service: typed generation dispatch, catalog-backed discovery, and family-usable readiness/user-state metadata without wire vocabulary. |
-| `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; 25 active handlers cover P2 notebook/source operations, P5.1 Studio catalog reads, P5.2–P5.6 Studio families/Drive export, and P6.3 plain-note CRUD. |
-| `_web/policy.py` | Exact P4 ledger, extended to all 25 active web workflows: semantic policy, every reachable native method/variant, reviewed native idempotency, and optional reported divergence. It audits parity but never controls retry execution. |
-| `_web/registry.py` | Closed web disposition registry over every `Operation`: 25 executable typed handlers and an unsupported disposition for every other operation. |
+| `_studio/mind_maps.py` | Private P6.3 interactive mind-map family service: catalog-backed discovery plus typed generation/tree/update/delete dispatch. |
+| `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; 31 active handlers cover P2 notebook/source operations, P5.1 Studio catalog reads, P5.2–P5.6 Studio families/Drive export, and P6.3 note/mind-map workflows. |
+| `_web/policy.py` | Exact P4 ledger, extended to all 31 active web workflows: semantic policy, every reachable native method/variant, reviewed native idempotency, and optional reported divergence. It audits parity but never controls retry execution. |
+| `_web/registry.py` | Closed web disposition registry over every `Operation`: 31 executable typed handlers and an unsupported disposition for every other operation. |
 | `_studio/catalog.py` | Typed P5.1 Studio list/get service over neutral artifact operation records. |
 | `_studio/classifiers.py` | Closed neutral-artifact family classifier shared by Studio catalog selection. |
 | `_studio/data_views.py` | P5.6 typed data-table and mind-map generation plus dual-backing catalog selection. |
@@ -1133,9 +1135,9 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_labels.py` | `client.labels` API — source labels (topic groupings); pure-RPC like `SharingAPI`, plus a narrow `list_sources` callable for the membership→`Source` join in `sources()` |
 | `_collections.py` | `client.collections` API — account-level notebook groups; reuses the label RPCs (type-3, null notebook parent, `source_path="/"`), plus a narrow `list_notebooks` callable for the membership→`Notebook` join in `notebooks()` |
 | `_settings.py` | `client.settings` API |
-| `_note_service.py` | Semantic plain-note workflow plus bounded legacy note-backed persistence owner |
-| `_mind_map.py` | Specific adapter service representing mind-maps, backed by standard notes |
-| `_mind_maps_api.py` | `client.mind_maps` API — unified surface over both mind-map backends (note-backed JSON + interactive studio-artifact), dispatching each op to the correct RPC family (#1256) |
+| `_note_service.py` | Semantic note/note-backed-mind-map workflow plus bounded legacy compatibility owner |
+| `_mind_map.py` | Deferred note-backed compatibility adapter outside the migrated mind-map facade |
+| `_mind_maps_api.py` | `client.mind_maps` API — transport-free dual-service facade over semantic note-backed and interactive Studio mind maps (#1256) |
 | `_artifact/downloads.py` | Artifact selection/orchestration coordinator for finished artifacts |
 | `_artifact/_redirect_guard.py` | Per-redirect-hop host/scheme revalidation for downloads — rejects off-allowlist / non-HTTPS redirect targets before the request is sent (#1521) |
 | `_artifact/_download_client.py` | Download trusted-host allowlist + transport-aware client factory — wires the #1521 redirect guard for httpx (event hook) or the opt-in curl_cffi (`get_guarded` manual loop) |
@@ -1254,8 +1256,8 @@ src/notebooklm/
 ├── _polling_registry.py         # Artifact polling helpers
 ├── _cookie_persistence.py       # Cookie-jar persistence + __Secure-1PSIDTS rotation
 ├── _note_service.py             # Semantic NoteService + deferred LegacyNoteBackedService
-├── _mind_map.py                 # NoteBackedMindMapService
-├── _mind_maps_api.py            # MindMapsAPI — unified mind-map surface over both backends (#1256)
+├── _mind_map.py                 # Deferred NoteBackedMindMapService compatibility adapter
+├── _mind_maps_api.py            # MindMapsAPI — semantic dual-service facade (#1256)
 ├── _notebook_metadata.py        # Metadata protocols
 ├── _operations.py               # Closed semantic operation/call-policy vocabulary (P0)
 ├── _projectors.py               # Neutral record-to-public compatibility projectors (P2/P3/P5/P6)
@@ -1273,7 +1275,8 @@ src/notebooklm/
 │   ├── data_views.py            # Data-table/mind-map generation and catalog family (P5.6)
 │   ├── exports.py               # Explicit Drive companion export service (P5.6)
 │   ├── downloads.py             # Trusted remote representation byte client (P5.7)
-│   └── serialization.py         # RPC-free local representation serializers (P5.7)
+│   ├── serialization.py         # RPC-free local representation serializers (P5.7)
+│   └── mind_maps.py             # Interactive Studio mind-map family (P6.3)
 ├── _url_utils.py                # URL validation helpers
 ├── _sharing_manager.py          # Sharing management logic
 ├── _version_check.py            # Deprecation version guard
@@ -1296,7 +1299,8 @@ src/notebooklm/
 │       ├── documents.py         # Tailwind body -> exempt StructuredDocument value graph
 │       ├── labels.py            # Strict source-label tuples -> neutral records
 │       ├── notebooks.py         # Project + notebook-guide payloads -> neutral records
-│       ├── notes.py             # Mixed web note rows -> neutral NoteRecord values
+│       ├── notes.py             # Mixed web note rows -> neutral Note/MindMap records
+│       ├── mind_maps.py         # Interactive mind-map tree/create response codecs
 │       ├── sharing.py           # Share status/user rows -> neutral records
 │       ├── sources.py           # Source row variants -> neutral records
 │       └── studio_documents.py  # Exact report/video request and status codecs

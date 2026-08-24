@@ -64,6 +64,12 @@ KNOWN_ACTIVE_SEMANTIC_OPERATIONS: frozenset[Operation] = frozenset(
         Operation.NOTE_CREATE,
         Operation.NOTE_UPDATE,
         Operation.NOTE_DELETE,
+        Operation.MIND_MAP_LIST,
+        Operation.MIND_MAP_GET,
+        Operation.MIND_MAP_GENERATE_NOTE,
+        Operation.MIND_MAP_GENERATE_INTERACTIVE,
+        Operation.MIND_MAP_UPDATE,
+        Operation.MIND_MAP_DELETE,
     }
 )
 
@@ -78,7 +84,6 @@ KNOWN_RPC_CALLER_CONSUMERS: frozenset[tuple[str, str, str]] = frozenset(
         ("_chat/api.py", "ChatAPI.__init__", "rpc"),
         ("_collections.py", "CollectionsAPI.__init__", "rpc"),
         ("_labels.py", "LabelsAPI.__init__", "rpc"),
-        ("_mind_maps_api.py", "MindMapsAPI.__init__", "rpc"),
         ("_note_service.py", "LegacyNoteBackedService.__init__", "rpc"),
         ("_notebook_metadata.py", "create_default_source_lister", "rpc"),
         ("_notebooks.py", "NotebooksAPI.__init__", "rpc"),

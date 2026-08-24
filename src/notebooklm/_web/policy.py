@@ -285,6 +285,65 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
             CallPolicy.MUTATION,
             (_native(RPCMethod.DELETE_NOTE, _IDEMPOTENT, "idempotent note delete"),),
         ),
+        Operation.MIND_MAP_LIST: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (
+                _native(
+                    RPCMethod.GET_NOTES_AND_MIND_MAPS,
+                    _IDEMPOTENT,
+                    "note-backed mind-map collection read",
+                ),
+            ),
+        ),
+        Operation.MIND_MAP_GET: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (
+                _native(
+                    RPCMethod.GET_INTERACTIVE_HTML,
+                    _IDEMPOTENT,
+                    "interactive tree read",
+                ),
+            ),
+        ),
+        Operation.MIND_MAP_GENERATE_NOTE: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(
+                    RPCMethod.GET_NOTEBOOK,
+                    _IDEMPOTENT,
+                    "conditional default-source resolution",
+                ),
+                _native(
+                    RPCMethod.GENERATE_MIND_MAP,
+                    _PROBE_CREATE,
+                    "note-backed tree generation",
+                ),
+            ),
+        ),
+        Operation.MIND_MAP_GENERATE_INTERACTIVE: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(
+                    RPCMethod.GET_NOTEBOOK,
+                    _IDEMPOTENT,
+                    "conditional default-source resolution",
+                ),
+                _native(
+                    RPCMethod.CREATE_ARTIFACT,
+                    _PROBE_CREATE,
+                    "interactive mind-map allocation",
+                ),
+            ),
+            known_divergence=_APP_GENERATION_DIVERGENCE,
+        ),
+        Operation.MIND_MAP_UPDATE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (_native(RPCMethod.RENAME_ARTIFACT, _IDEMPOTENT, "interactive title set-op"),),
+        ),
+        Operation.MIND_MAP_DELETE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (_native(RPCMethod.DELETE_ARTIFACT, _IDEMPOTENT, "idempotent interactive delete"),),
+        ),
     }
 )
 

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from notebooklm._mind_maps_api import MindMapsAPI, extract_interactive_tree_leaf
+from notebooklm._row_adapters.notes import NoteRow
 from notebooklm.exceptions import (
     ArtifactError,
     ArtifactFeatureUnavailableError,
@@ -15,7 +17,7 @@ from notebooklm.exceptions import (
     UnknownRPCMethodError,
 )
 from notebooklm.rpc.types import RPCMethod
-from notebooklm.types import Artifact, MindMapKind, MindMapResult
+from notebooklm.types import Artifact, MindMap, MindMapKind
 
 
 def _interactive_artifact(artifact_id: str, title: str = "INT") -> Artifact:
@@ -34,20 +36,58 @@ def _make_api(*, note_rows=None, interactive=None):
     # than dotted AsyncMock attribute assignment, which the forbidden-
     # monkeypatch lint rejects on the rpc_call seam.
     rpc = MagicMock(rpc_call=AsyncMock(return_value=None))
+    note_maps = []
+    for row in note_rows or []:
+        note_row = NoteRow(row)
+        try:
+            parsed = json.loads(note_row.content or "")
+        except json.JSONDecodeError:
+            parsed = None
+        note_maps.append(
+            MindMap(
+                id=note_row.id,
+                notebook_id="nb",
+                title=note_row.title,
+                kind=MindMapKind.NOTE_BACKED,
+                created_at=note_row.created_at,
+                tree=parsed if isinstance(parsed, dict) else None,
+            )
+        )
+    interactive_maps = [
+        MindMap(
+            id=artifact.id,
+            notebook_id="nb",
+            title=artifact.title,
+            kind=MindMapKind.INTERACTIVE,
+            created_at=artifact.created_at,
+        )
+        for artifact in interactive or []
+        if artifact.is_interactive_mind_map
+    ]
     mind_maps = MagicMock()
-    mind_maps.list_mind_maps = AsyncMock(return_value=note_rows or [])
-    mind_maps.extract_content = MagicMock(side_effect=lambda row: row[1])
+    mind_maps.list_mind_maps = AsyncMock(return_value=note_maps)
+    mind_maps.get_mind_map_or_none = AsyncMock(
+        side_effect=lambda _notebook_id, item_id: next(
+            (item for item in note_maps if item.id == item_id), None
+        )
+    )
     mind_maps.rename_mind_map = AsyncMock()
-    mind_maps.delete_mind_map = AsyncMock(return_value=True)
+    mind_maps.delete_mind_map = AsyncMock(return_value=None)
+    mind_maps.generate_mind_map = AsyncMock()
     artifacts = MagicMock()
-    artifacts.list = AsyncMock(return_value=interactive or [])
+    artifacts.list_mind_maps = AsyncMock(return_value=interactive_maps)
+    artifacts.get_or_none = AsyncMock(
+        side_effect=lambda _notebook_id, item_id: next(
+            (item for item in interactive_maps if item.id == item_id), None
+        )
+    )
     artifacts.rename = AsyncMock()
-    artifacts.delete = AsyncMock(return_value=True)
-    artifacts.generate_mind_map = AsyncMock()
-    artifacts.wait_for_completion = AsyncMock()
+    artifacts.delete = AsyncMock(return_value=None)
+    artifacts.generate = AsyncMock()
+    artifacts.get_tree = AsyncMock(return_value=None)
     notebooks = MagicMock()
     notebooks.get_source_ids = AsyncMock(return_value=["s1"])
-    api = MindMapsAPI(rpc=rpc, mind_maps=mind_maps, artifacts=artifacts, notebooks=notebooks)
+    api = MindMapsAPI(notes=mind_maps, studio=artifacts)
     return api, rpc, mind_maps, artifacts, notebooks
 
 
@@ -87,7 +127,7 @@ async def test_list_note_backed_returns_only_note_backed_without_artifact_list()
     assert result[0].tree == {"name": "NB", "children": []}
     assert result[0].notebook_id == "nb"
     mind_maps.list_mind_maps.assert_awaited_once_with("nb")
-    artifacts.list.assert_not_awaited()
+    artifacts.list_mind_maps.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -98,7 +138,7 @@ async def test_list_note_backed_empty_when_no_note_backed_rows():
     )
     assert await api.list_note_backed("nb") == []
     mind_maps.list_mind_maps.assert_awaited_once_with("nb")
-    artifacts.list.assert_not_awaited()
+    artifacts.list_mind_maps.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -115,9 +155,7 @@ async def test_rename_dispatches_by_kind():
     artifacts.rename.assert_not_awaited()
 
     await api.rename("nb", "int_mm", "Y", kind=MindMapKind.INTERACTIVE, return_object=False)
-    # The interactive artifact rename is delegated with return_object=False so
-    # the unified API hydrates once (not twice) when an object is requested.
-    artifacts.rename.assert_awaited_once_with("nb", "int_mm", "Y", return_object=False)
+    artifacts.rename.assert_awaited_once_with("nb", "int_mm", "Y")
 
 
 @pytest.mark.asyncio
@@ -198,47 +236,39 @@ async def test_get_tree_note_backed_parses_content():
 
 @pytest.mark.asyncio
 async def test_get_tree_interactive_reads_v9rmvd_position():
-    api, rpc, *_ = _make_api()
-    row = [None] * 10
-    row[9] = [None, None, None, '{"name": "I", "children": []}']  # [0][9][3] = tree
-    rpc.configure_mock(rpc_call=AsyncMock(return_value=[row]))
+    api, _, _, studio, _ = _make_api()
+    studio.get_tree.return_value = {"name": "I", "children": []}
     tree = await api.get_tree("nb", "int_mm", kind=MindMapKind.INTERACTIVE)
     assert tree == {"name": "I", "children": []}
-    assert rpc.rpc_call.call_args[0][0] == RPCMethod.GET_INTERACTIVE_HTML
+    studio.get_tree.assert_awaited_once_with("nb", "int_mm")
 
 
 @pytest.mark.asyncio
 async def test_generate_note_backed_delegates():
-    api, _, _, artifacts, _ = _make_api()
-    artifacts.generate_mind_map = AsyncMock(
-        return_value=MindMapResult(mind_map={"name": "G", "children": []}, note_id="n1")
+    api, _, notes, _, _ = _make_api()
+    notes.generate_mind_map.return_value = MindMap(
+        "n1", "nb", "G", MindMapKind.NOTE_BACKED, tree={"name": "G", "children": []}
     )
     mm = await api.generate("nb", ["s1"], kind=MindMapKind.NOTE_BACKED)
     assert mm.kind == MindMapKind.NOTE_BACKED
     assert mm.id == "n1"
     assert mm.title == "G"
     assert mm.tree == {"name": "G", "children": []}
+    notes.generate_mind_map.assert_awaited_once_with("nb", ["s1"], "en", None)
 
 
 @pytest.mark.asyncio
 async def test_generate_interactive_creates_polls_and_fetches_tree():
-    api, rpc, _, artifacts, notebooks = _make_api(
-        interactive=[_interactive_artifact("new_int", "T")]
-    )
-    tree_row = [None] * 10
-    tree_row[9] = [None, None, None, '{"name": "I", "children": []}']  # [0][9][3] = tree
-    rpc.configure_mock(
-        rpc_call=AsyncMock(
-            side_effect=[
-                [["new_int", "T", 4]],  # 1: CREATE_ARTIFACT echo
-                [tree_row],  # 2: GET_INTERACTIVE_HTML tree (post-completion)
-            ]
-        )
+    api, _, _, studio, _ = _make_api(interactive=[_interactive_artifact("new_int", "T")])
+    studio.generate.return_value = MindMap(
+        "new_int",
+        "nb",
+        "T",
+        MindMapKind.INTERACTIVE,
+        tree={"name": "I", "children": []},
     )
     mm = await api.generate("nb", kind=MindMapKind.INTERACTIVE, wait=True)
-    assert rpc.rpc_call.call_args_list[0][0][0] == RPCMethod.CREATE_ARTIFACT
-    notebooks.get_source_ids.assert_awaited_once_with("nb")  # source ids resolved
-    artifacts.wait_for_completion.assert_awaited_once_with("nb", "new_int")
+    studio.generate.assert_awaited_once_with("nb", None, None, wait=True)
     assert mm.kind == MindMapKind.INTERACTIVE
     assert mm.id == "new_int"
     # Converged surface: interactive generate returns the tree, like note-backed.
@@ -247,12 +277,11 @@ async def test_generate_interactive_creates_polls_and_fetches_tree():
 
 @pytest.mark.asyncio
 async def test_generate_interactive_wait_false_skips_tree():
-    api, rpc, _, artifacts, _ = _make_api(interactive=[_interactive_artifact("new_int")])
-    rpc.configure_mock(rpc_call=AsyncMock(return_value=[["new_int", "T", 4]]))
+    api, _, _, studio, _ = _make_api(interactive=[_interactive_artifact("new_int")])
+    studio.generate.return_value = MindMap("new_int", "nb", "INT", MindMapKind.INTERACTIVE)
     mm = await api.generate("nb", ["s1"], kind=MindMapKind.INTERACTIVE, wait=False)
     assert mm.tree is None  # pending; no tree fetched
-    artifacts.wait_for_completion.assert_not_awaited()
-    assert rpc.rpc_call.await_count == 1  # only CREATE_ARTIFACT, no get_tree
+    studio.generate.assert_awaited_once_with("nb", ["s1"], None, wait=False)
 
 
 @pytest.mark.asyncio
@@ -260,23 +289,21 @@ async def test_generate_interactive_threads_instructions_into_create_params():
     # The interactive CREATE_ARTIFACT payload carries a free-text prompt at
     # [9][1][2] (the slot quiz/flashcards use; server-verified to steer variant
     # 4). generate(instructions=...) must thread it there rather than drop it.
-    api, rpc, _, _, _ = _make_api(interactive=[_interactive_artifact("new_int")])
-    rpc.configure_mock(rpc_call=AsyncMock(return_value=[["new_int", "T", 4]]))
+    api, _, _, studio, _ = _make_api(interactive=[_interactive_artifact("new_int")])
+    studio.generate.return_value = MindMap("new_int", "nb", "T", MindMapKind.INTERACTIVE)
     await api.generate(
         "nb", ["s1"], kind=MindMapKind.INTERACTIVE, instructions="focus on X", wait=False
     )
-    create_params = rpc.rpc_call.call_args_list[0][0][1]
-    assert create_params[2][9] == [None, [4, None, "focus on X"]]
+    studio.generate.assert_awaited_once_with("nb", ["s1"], "focus on X", wait=False)
 
 
 @pytest.mark.asyncio
 async def test_generate_interactive_without_instructions_keeps_bare_variant():
     # No prompt → byte-identical [None, [4]] options block (unchanged request).
-    api, rpc, _, _, _ = _make_api(interactive=[_interactive_artifact("new_int")])
-    rpc.configure_mock(rpc_call=AsyncMock(return_value=[["new_int", "T", 4]]))
+    api, _, _, studio, _ = _make_api(interactive=[_interactive_artifact("new_int")])
+    studio.generate.return_value = MindMap("new_int", "nb", "T", MindMapKind.INTERACTIVE)
     await api.generate("nb", ["s1"], kind=MindMapKind.INTERACTIVE, wait=False)
-    create_params = rpc.rpc_call.call_args_list[0][0][1]
-    assert create_params[2][9] == [None, [4]]
+    studio.generate.assert_awaited_once_with("nb", ["s1"], None, wait=False)
 
 
 @pytest.mark.asyncio
@@ -284,8 +311,10 @@ async def test_generate_interactive_raises_feature_unavailable_when_no_artifact_
     # ADR-0019 async-kickoff null contract (issue #1359): a null/degenerate
     # CREATE_ARTIFACT raises ArtifactFeatureUnavailableError (no task created),
     # matching the sibling generate_* / retry_failed null-create paths.
-    api, rpc, *_ = _make_api()
-    rpc.configure_mock(rpc_call=AsyncMock(return_value=None))  # CREATE_ARTIFACT yields no id
+    api, _, _, studio, _ = _make_api()
+    studio.generate.side_effect = ArtifactFeatureUnavailableError(
+        "mind_map", method_id=RPCMethod.CREATE_ARTIFACT.value
+    )
     with pytest.raises(ArtifactFeatureUnavailableError) as exc_info:
         await api.generate("nb", ["s1"], kind=MindMapKind.INTERACTIVE)
     # Carries the artifact-type + the CREATE_ARTIFACT method id for diagnostics.
@@ -301,10 +330,12 @@ async def test_generate_interactive_raises_feature_unavailable_when_no_artifact_
 @pytest.mark.asyncio
 async def test_get_tree_interactive_absent_leaf_tolerated_with_warning(caplog):
     """A populated options block missing only the [3] tree leaf is 'not ready'."""
-    api, rpc, *_ = _make_api()
+    api, _, _, studio, _ = _make_api()
     row = [None] * 10
     row[9] = [None, None]  # [0][9] present but too short to carry the [3] leaf
-    rpc.configure_mock(rpc_call=AsyncMock(return_value=[row]))
+    studio.get_tree.side_effect = lambda *_args: extract_interactive_tree_leaf(
+        [row], source="MindMapFamilyService.get_tree"
+    )
     import logging
 
     with caplog.at_level(logging.WARNING, logger="notebooklm._mind_maps_api"):
@@ -312,15 +343,17 @@ async def test_get_tree_interactive_absent_leaf_tolerated_with_warning(caplog):
     assert tree is None  # tolerated as not-yet-populated
     # ...but a WARNING with the rpcid/source leaves a drift breadcrumb.
     assert any(RPCMethod.GET_INTERACTIVE_HTML.value in r.message for r in caplog.records)
-    assert any("_mind_maps_api.get_tree" in r.message for r in caplog.records)
+    assert any("MindMapFamilyService.get_tree" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio
 async def test_get_tree_interactive_real_drift_reraises():
     """Genuine [0][9] reshape must fail loud, not masquerade as 'not ready'."""
-    api, rpc, *_ = _make_api()
+    api, _, _, studio, _ = _make_api()
     # [0] is a short row: descent to [0][9] fails before reaching the leaf.
-    rpc.configure_mock(rpc_call=AsyncMock(return_value=[[1, 2, 3]]))
+    studio.get_tree.side_effect = lambda *_args: extract_interactive_tree_leaf(
+        [[1, 2, 3]], source="MindMapFamilyService.get_tree"
+    )
     with pytest.raises(UnknownRPCMethodError):
         await api.get_tree("nb", "int_mm", kind=MindMapKind.INTERACTIVE)
 
@@ -328,8 +361,7 @@ async def test_get_tree_interactive_real_drift_reraises():
 @pytest.mark.asyncio
 async def test_get_tree_interactive_null_response_returns_none():
     """A null GET_INTERACTIVE_HTML response stays 'not ready' (no drift)."""
-    api, rpc, *_ = _make_api()
-    rpc.configure_mock(rpc_call=AsyncMock(return_value=None))
+    api, *_ = _make_api()
     assert await api.get_tree("nb", "int_mm", kind=MindMapKind.INTERACTIVE) is None
 
 
@@ -359,18 +391,13 @@ def test_extract_interactive_tree_leaf_helper():
 @pytest.mark.asyncio
 async def test_find_interactive_matches_pending_variant_none_by_id():
     """generate(wait=True) must keep the real title during the settling window."""
-    api, rpc, _, artifacts, _ = _make_api(
-        interactive=[_pending_type4_artifact("new_int", "Real Title")]
-    )
-    tree_row = [None] * 10
-    tree_row[9] = [None, None, None, '{"name": "I", "children": []}']
-    rpc.configure_mock(
-        rpc_call=AsyncMock(
-            side_effect=[
-                [["new_int", "Real Title", 4]],  # CREATE_ARTIFACT echo
-                [tree_row],  # GET_INTERACTIVE_HTML tree
-            ]
-        )
+    api, _, _, studio, _ = _make_api(interactive=[_pending_type4_artifact("new_int", "Real Title")])
+    studio.generate.return_value = MindMap(
+        "new_int",
+        "nb",
+        "Real Title",
+        MindMapKind.INTERACTIVE,
+        tree={"name": "I", "children": []},
     )
     mm = await api.generate("nb", kind=MindMapKind.INTERACTIVE, wait=True)
     assert mm.id == "new_int"
@@ -382,15 +409,8 @@ async def test_find_interactive_matches_pending_variant_none_by_id():
 @pytest.mark.asyncio
 async def test_generate_interactive_unresolved_id_falls_back_to_placeholder():
     """If even the unfiltered list never shows the id, fall back gracefully."""
-    api, rpc, _, artifacts, _ = _make_api(interactive=[])
-    rpc.configure_mock(
-        rpc_call=AsyncMock(
-            side_effect=[
-                [["ghost_int", "T", 4]],  # CREATE_ARTIFACT echo
-                None,  # GET_INTERACTIVE_HTML tree not ready
-            ]
-        )
-    )
+    api, _, _, studio, _ = _make_api(interactive=[])
+    studio.generate.return_value = MindMap("ghost_int", "nb", "Mind Map", MindMapKind.INTERACTIVE)
     mm = await api.generate("nb", kind=MindMapKind.INTERACTIVE, wait=True)
     assert mm.id == "ghost_int"
     assert mm.title == "Mind Map"  # placeholder fallback preserved
@@ -413,7 +433,7 @@ async def test_rename_interactive_good_id_dispatches():
     await api.rename("nb", "real_int", "X", kind=MindMapKind.INTERACTIVE, return_object=False)
     # The unified API delegates with return_object=False (it hydrates once, here
     # skipped) — the artifact rename is not asked to re-fetch.
-    artifacts.rename.assert_awaited_once_with("nb", "real_int", "X", return_object=False)
+    artifacts.rename.assert_awaited_once_with("nb", "real_int", "X")
 
 
 @pytest.mark.asyncio
@@ -434,10 +454,12 @@ async def test_rename_interactive_rejects_settling_type4_variant_none():
 @pytest.mark.asyncio
 async def test_get_tree_interactive_non_list_options_block_reraises():
     """A non-list [0][9] is genuine drift -> fail loud, not 'not ready'."""
-    api, rpc, *_ = _make_api()
+    api, _, _, studio, _ = _make_api()
     row = [None] * 10
     row[9] = "not-a-list"  # [0][9] is no longer a list -> drift
-    rpc.configure_mock(rpc_call=AsyncMock(return_value=[row]))
+    studio.get_tree.side_effect = lambda *_args: extract_interactive_tree_leaf(
+        [row], source="MindMapFamilyService.get_tree"
+    )
     with pytest.raises(UnknownRPCMethodError):
         await api.get_tree("nb", "int_mm", kind=MindMapKind.INTERACTIVE)
 
@@ -447,9 +469,9 @@ async def test_get_tree_interactive_non_list_options_block_reraises():
 
 @pytest.mark.asyncio
 async def test_generate_note_backed_non_str_name_falls_back_to_placeholder():
-    api, _, _, artifacts, _ = _make_api()
-    artifacts.generate_mind_map = AsyncMock(
-        return_value=MindMapResult(mind_map={"name": 123, "children": []}, note_id="n1")
+    api, _, notes, _, _ = _make_api()
+    notes.generate_mind_map.return_value = MindMap(
+        "n1", "nb", "Mind Map", MindMapKind.NOTE_BACKED, tree={"name": 123, "children": []}
     )
     mm = await api.generate("nb", ["s1"], kind=MindMapKind.NOTE_BACKED)
     assert mm.title == "Mind Map"  # numeric name rejected, placeholder used
@@ -457,9 +479,9 @@ async def test_generate_note_backed_non_str_name_falls_back_to_placeholder():
 
 @pytest.mark.asyncio
 async def test_generate_note_backed_empty_name_falls_back_to_placeholder():
-    api, _, _, artifacts, _ = _make_api()
-    artifacts.generate_mind_map = AsyncMock(
-        return_value=MindMapResult(mind_map={"name": "", "children": []}, note_id="n1")
+    api, _, notes, _, _ = _make_api()
+    notes.generate_mind_map.return_value = MindMap(
+        "n1", "nb", "Mind Map", MindMapKind.NOTE_BACKED, tree={"name": "", "children": []}
     )
     mm = await api.generate("nb", ["s1"], kind=MindMapKind.NOTE_BACKED)
     assert mm.title == "Mind Map"  # empty name rejected, placeholder used
@@ -536,7 +558,7 @@ async def test_rename_auto_detect_interactive_dispatches():
     # artifact -> artifact rename.
     api, _, mind_maps, artifacts, _ = _make_api(interactive=[_interactive_artifact("int_mm")])
     await api.rename("nb", "int_mm", "Y", return_object=False)
-    artifacts.rename.assert_awaited_once_with("nb", "int_mm", "Y", return_object=False)
+    artifacts.rename.assert_awaited_once_with("nb", "int_mm", "Y")
     mind_maps.rename_mind_map.assert_not_awaited()
 
 
@@ -574,10 +596,8 @@ async def test_get_tree_auto_detect_note_backed_returns_tree():
 async def test_get_tree_auto_detect_interactive_falls_through_to_rpc():
     # kind=None, id absent from notes but present as an interactive artifact ->
     # falls through to GET_INTERACTIVE_HTML and parses the tree leaf.
-    api, rpc, *_ = _make_api(interactive=[_interactive_artifact("int_mm")])
-    row = [None] * 10
-    row[9] = [None, None, None, '{"name": "INT", "children": []}']
-    rpc.configure_mock(rpc_call=AsyncMock(return_value=[row]))
+    api, _, _, studio, _ = _make_api(interactive=[_interactive_artifact("int_mm")])
+    studio.get_tree.return_value = {"name": "INT", "children": []}
     assert await api.get_tree("nb", "int_mm") == {"name": "INT", "children": []}
 
 

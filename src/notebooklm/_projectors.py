@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import cast
 from urllib.parse import quote
 
@@ -12,6 +13,7 @@ from ._records import (
     CollectionRecord,
     GenerationStatusRecord,
     LabelRecord,
+    MindMapRecord,
     NotebookDescriptionRecord,
     NotebookRecord,
     NoteRecord,
@@ -36,6 +38,8 @@ from .types import (
     GenerationState,
     GenerationStatus,
     Label,
+    MindMap,
+    MindMapKind,
     Note,
     Notebook,
     NotebookDescription,
@@ -265,6 +269,31 @@ def project_generation_status(record: GenerationStatusRecord) -> GenerationStatu
     )
 
 
+def project_mind_map(record: MindMapRecord) -> MindMap:
+    """Construct a public mind-map value without leaking backend row shapes."""
+
+    tree = None
+    if record.tree_json:
+        try:
+            parsed = json.loads(record.tree_json)
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            tree = parsed
+    return MindMap(
+        id=record.id,
+        notebook_id=record.notebook_id,
+        title=record.title,
+        kind=(
+            MindMapKind.INTERACTIVE
+            if record.kind == MindMapKind.INTERACTIVE.value
+            else MindMapKind.NOTE_BACKED
+        ),
+        created_at=record.created_at,
+        tree=tree,
+    )
+
+
 def _project_artifact_user_state(
     record: ArtifactUserStateRecord | None,
 ) -> AudioArtifactUserState | FlashcardArtifactUserState | UnknownArtifactUserState | None:
@@ -429,6 +458,7 @@ __all__ = [
     "project_collection",
     "project_generation_status",
     "project_label",
+    "project_mind_map",
     "project_note",
     "project_notebook",
     "project_notebook_description",

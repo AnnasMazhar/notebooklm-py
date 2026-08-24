@@ -1,7 +1,7 @@
 """Closed web dispositions for the semantic operation vocabulary.
 
 P2 notebook/source operations, P5 Studio family operations,
-and P6.3 plain-note CRUD have executable bindings. Every other P0 operation has
+and P6.3 note/mind-map workflows have executable bindings. Every other P0 operation has
 an unsupported disposition, and
 the count assertions force a deliberate registry update when the closed
 :class:`Operation` enum changes.
@@ -28,6 +28,12 @@ from .._records import (
     ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
+    MIND_MAP_DELETE_DEF,
+    MIND_MAP_GENERATE_INTERACTIVE_DEF,
+    MIND_MAP_GENERATE_NOTE_DEF,
+    MIND_MAP_GET_DEF,
+    MIND_MAP_LIST_DEF,
+    MIND_MAP_UPDATE_DEF,
     NOTE_CREATE_DEF,
     NOTE_DELETE_DEF,
     NOTE_GET_DEF,
@@ -87,6 +93,12 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.NOTE_CREATE: NOTE_CREATE_DEF,
         Operation.NOTE_UPDATE: NOTE_UPDATE_DEF,
         Operation.NOTE_DELETE: NOTE_DELETE_DEF,
+        Operation.MIND_MAP_LIST: MIND_MAP_LIST_DEF,
+        Operation.MIND_MAP_GET: MIND_MAP_GET_DEF,
+        Operation.MIND_MAP_GENERATE_NOTE: MIND_MAP_GENERATE_NOTE_DEF,
+        Operation.MIND_MAP_GENERATE_INTERACTIVE: MIND_MAP_GENERATE_INTERACTIVE_DEF,
+        Operation.MIND_MAP_UPDATE: MIND_MAP_UPDATE_DEF,
+        Operation.MIND_MAP_DELETE: MIND_MAP_DELETE_DEF,
         Operation.ARTIFACT_LIST: ARTIFACT_LIST_DEF,
         Operation.ARTIFACT_GET: ARTIFACT_GET_DEF,
         Operation.ARTIFACT_GENERATE_AUDIO: ARTIFACT_GENERATE_AUDIO_DEF,
@@ -117,6 +129,12 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.NOTE_CREATE: "_note_create",
         Operation.NOTE_UPDATE: "_note_update",
         Operation.NOTE_DELETE: "_note_delete",
+        Operation.MIND_MAP_LIST: "_mind_map_list",
+        Operation.MIND_MAP_GET: "_mind_map_get",
+        Operation.MIND_MAP_GENERATE_NOTE: "_mind_map_generate_note",
+        Operation.MIND_MAP_GENERATE_INTERACTIVE: "_mind_map_generate_interactive",
+        Operation.MIND_MAP_UPDATE: "_mind_map_update",
+        Operation.MIND_MAP_DELETE: "_mind_map_delete",
         Operation.ARTIFACT_LIST: "_artifact_list",
         Operation.ARTIFACT_GET: "_artifact_get",
         Operation.ARTIFACT_GENERATE_AUDIO: "_audio_generate",
@@ -140,7 +158,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 25
+_EXPECTED_SUPPORTED_COUNT: Final = 31
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

@@ -47,7 +47,7 @@ from ._studio import (
     DocumentOptionError,
     DriveExportService,
     InteractiveFamilyService,
-    MindMapFamilyService,
+    NoteBackedMindMapFamilyService,
     ReportFamilyService,
     StudioCatalog,
     VideoFamilyService,
@@ -176,7 +176,7 @@ class ArtifactsAPI:
             else None
         )
         self._mind_map_family = (
-            MindMapFamilyService(_backend, self._catalog)
+            NoteBackedMindMapFamilyService(_backend, self._catalog)
             if _backend is not None and self._catalog is not None
             else None
         )

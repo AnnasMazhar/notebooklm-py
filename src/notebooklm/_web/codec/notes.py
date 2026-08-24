@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..._records import NoteRecord
+from ..._records import MindMapRecord, NoteRecord
 from ..._row_adapters.notes import NoteRow
 from ...exceptions import DecodingError, RPCError
 from ...rpc import RPCMethod, safe_index
@@ -106,6 +106,27 @@ def decode_note(result: Any, notebook_id: str, note_id: str) -> NoteRecord | Non
     return None
 
 
+def decode_note_backed_mind_maps(result: Any, notebook_id: str) -> tuple[MindMapRecord, ...]:
+    """Decode active note-backed rows without exposing the mixed wire collection."""
+
+    records: list[MindMapRecord] = []
+    for row in _decode_note_rows(result):
+        note = NoteRow(row)
+        if note.is_deleted or not NoteRow.is_mind_map_content(note.content):
+            continue
+        records.append(
+            MindMapRecord(
+                id=note.id,
+                notebook_id=notebook_id,
+                title=note.title,
+                kind="note_backed",
+                created_at=note.created_at,
+                tree_json=note.content,
+            )
+        )
+    return tuple(records)
+
+
 def decode_created_note(result: Any, notebook_id: str, title: str, content: str) -> NoteRecord:
     """Decode CREATE_NOTE's nested or flat identity/timestamp envelope."""
 
@@ -141,4 +162,9 @@ def decode_created_note(result: Any, notebook_id: str, title: str, content: str)
     return NoteRecord(note_id, notebook_id, title, content, created_at)
 
 
-__all__ = ["decode_created_note", "decode_note", "decode_notes"]
+__all__ = [
+    "decode_created_note",
+    "decode_note",
+    "decode_note_backed_mind_maps",
+    "decode_notes",
+]
