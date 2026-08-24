@@ -8,6 +8,7 @@ attempt.  Concrete acquisition/persistence remains in the auth/runtime layers.
 
 from __future__ import annotations
 
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
@@ -62,6 +63,19 @@ class WebCookieSessionState:
         object.__setattr__(self, "cookies", CookieJar(tuple(self.cookies)))
 
 
+class WebCookieSessionTransition(Protocol):
+    """Quiescent private-session state plus its generation installer."""
+
+    @property
+    def state(self) -> WebCookieSessionState | None:
+        """Return cookies after every admitted response has settled."""
+        ...
+
+    def install(self, generation: WebCookieGeneration) -> bool:
+        """Install a provider generation before reopening request admission."""
+        ...
+
+
 class WebCookieSession(Protocol):
     """Backend-private session seeded only from provider generations."""
 
@@ -80,6 +94,10 @@ class WebCookieSession(Protocol):
 
     def detach(self) -> WebCookieSessionState | None:
         """Return a detached final state, or ``None`` before first install."""
+        ...
+
+    def generation_transition(self) -> AbstractAsyncContextManager[WebCookieSessionTransition]:
+        """Close admission and expose one quiescent cookie-jar transaction."""
         ...
 
     async def close(self) -> None:
@@ -146,8 +164,8 @@ class WebCookieProvider(Protocol):
         """Adopt a matching private-session result as one newer generation."""
         ...
 
-    async def close(self) -> None:
-        """Release resources owned by the provider itself."""
+    async def close(self, *, reconcile_backend: bool = True) -> None:
+        """Release owned resources, optionally skipping a blocking reconciliation."""
         ...
 
 
@@ -156,4 +174,5 @@ __all__ = [
     "WebCookieProvider",
     "WebCookieSession",
     "WebCookieSessionState",
+    "WebCookieSessionTransition",
 ]

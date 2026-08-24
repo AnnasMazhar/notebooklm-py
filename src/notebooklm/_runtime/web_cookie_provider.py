@@ -27,7 +27,11 @@ from .._loop_bound import LoopBoundPrimitive
 from .._reqid_counter import ReqidCounter
 from .._rpc_semaphore import RpcSemaphore
 from .._transport_drain import TransportDrainTracker
-from .._web_cookie_provider import WebCookieGeneration, WebCookieSession
+from .._web_cookie_provider import (
+    WebCookieGeneration,
+    WebCookieSession,
+    WebCookieSessionState,
+)
 from ..auth import AuthTokens
 from .auth import AuthRefreshCoordinator
 from .lifecycle import ClientLifecycle
@@ -75,6 +79,7 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
         self._identity_lock: asyncio.Lock | None = None
         self._identity_tasks: dict[bool, asyncio.Task[str | None]] = {}
         self._identity_closing = False
+        self._closing = False
         self._refresh_transaction_lock: asyncio.Lock | None = None
         self._close_task: asyncio.Task[None] | None = None
         self._current_generation = self._capture_generation(0)
@@ -180,8 +185,14 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
         immutable cookie/token/account-route generation they clone.
         """
         assert_bound_loop(self._bound_loop)
+        if self._closing:
+            raise RuntimeError("web cookie provider is closing")
         async with self._get_refresh_transaction_lock():
+            if self._closing:
+                raise RuntimeError("web cookie provider is closing")
             await self._reconcile_locked()
+            if self._closing:
+                raise RuntimeError("web cookie provider is closing")
             return self._current_generation
 
     async def open(self, *, uploader: SourceUploadPipeline, chat: ChatAPI) -> None:
@@ -195,6 +206,7 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
         self._joined_refresh_task = None
         self._identity_tasks = {}
         self._identity_closing = False
+        self._closing = False
         self._close_task = None
         async with self._get_refresh_transaction_lock():
             await self._lifecycle.open(
@@ -222,7 +234,15 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
         """
         assert_bound_loop(self._bound_loop)
         async with self._get_refresh_transaction_lock():
-            await self._reconcile_locked()
+            # Adopt response cookies already visible before acquisition starts,
+            # but do not wait for in-flight backend attempts here: refresh I/O
+            # remains concurrent with same-generation RPCs. Publication itself
+            # need not wait for a late old response: before any newer backend
+            # attempt installs the successful refresh generation, the backend
+            # barrier drains the old attempt and then overwrites its jar. The
+            # same barrier prevents reconciliation from labeling that response
+            # as the newer epoch.
+            self._adopt_detached(self._backend_session.detach(), publish=False)
             result = await work()
             self._publish_next_generation()
             return result
@@ -249,9 +269,10 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
         """Run the shared refresh finalizer independently of its waiters."""
         await self._coordinator.await_refresh()
         async with self._get_refresh_transaction_lock():
-            await self._reconcile_locked()
             if self._provider_state_changed():
                 self._publish_next_generation()
+            else:
+                await self._reconcile_locked()
 
     async def await_refresh(self) -> None:
         """Join one shielded provider flight and atomically publish its outcome.
@@ -319,24 +340,50 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
     def register_open_baseline(self, store: ProfileStore, baseline: CookieJar) -> None:
         self._persistence.register_open_baseline(store, baseline)
 
-    async def _reconcile_locked(self) -> bool:
+    async def _reconcile_locked(self, *, allow_closing: bool = False) -> bool:
         """Adopt matching response mutations from the detached backend jar."""
-        detached = self._backend_session.detach()
-        if detached is None or detached.generation != self._current_generation.generation:
-            return False
-        if detached.cookies == self._current_generation.cookies:
+        async with self._backend_session.generation_transition() as transition:
+            if self._closing and not allow_closing:
+                return False
+            changed = self._adopt_detached(transition.state, publish=True)
+
+            # Keep admission closed until the private backend has the exact
+            # generation just published (or retained). An older response can
+            # no longer land after this installation and masquerade as it.
+            transition.install(self._current_generation)
+            return changed
+
+    def _adopt_detached(
+        self,
+        detached: WebCookieSessionState | None,
+        *,
+        publish: bool,
+    ) -> bool:
+        """Copy one matching detached jar, optionally publishing its epoch."""
+        if (
+            detached is None
+            or detached.generation != self._current_generation.generation
+            or detached.cookies == self._current_generation.cookies
+        ):
             return False
         replacement = detached.cookies.to_httpx()
         _replace_cookie_jar(self._kernel.get_cookies(), replacement)
         self._coordinator.update_auth_headers(auth=self._auth, kernel=self._kernel)
-        self._publish_next_generation()
+        if publish:
+            self._publish_next_generation()
         return True
 
     async def reconcile(self) -> None:
         """Adopt a matching backend session without exposing its mutable jar."""
         assert_bound_loop(self._bound_loop)
+        if self._closing:
+            raise RuntimeError("web cookie provider is closing")
         async with self._get_refresh_transaction_lock():
+            if self._closing:
+                raise RuntimeError("web cookie provider is closing")
             await self._reconcile_locked()
+            if self._closing:
+                raise RuntimeError("web cookie provider is closing")
 
     async def publish_cookie_mutation(self) -> None:
         """Publish one successful keepalive mutation when its value changed."""
@@ -395,24 +442,37 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
 
-    async def _close_once(self) -> None:
+    async def _close_once(self, *, reconcile_backend: bool) -> None:
+        self._closing = True
         await self._cancel_refresh_leaders()
         await self._lifecycle.cancel_keepalive()
         await self._cancel_identity_tasks()
+        if not reconcile_backend:
+            # ``drain=False`` promises immediate teardown. Snapshot any response
+            # cookies already visible, but do not wait behind either the provider
+            # transaction lock or the backend generation barrier.
+            self._adopt_detached(self._backend_session.detach(), publish=True)
+            await self._lifecycle.close(
+                auth_coord=self._coordinator,
+                drain_tracker=self._drain_tracker,
+                cookie_persistence=self._persistence,
+            )
+            return
+
         async with self._get_refresh_transaction_lock():
-            await self._reconcile_locked()
+            await self._reconcile_locked(allow_closing=True)
             await self._lifecycle.close(
                 auth_coord=self._coordinator,
                 drain_tracker=self._drain_tracker,
                 cookie_persistence=self._persistence,
             )
 
-    async def close(self) -> None:
+    async def close(self, *, reconcile_backend: bool = True) -> None:
         """Close provider resources once without waiter cancellation tearing down."""
         assert_bound_loop(self._bound_loop)
         task = self._close_task
         if task is None or (task.done() and not task.cancelled() and task.exception() is not None):
-            task = asyncio.create_task(self._close_once())
+            task = asyncio.create_task(self._close_once(reconcile_backend=reconcile_backend))
             self._close_task = task
         try:
             await asyncio.shield(task)

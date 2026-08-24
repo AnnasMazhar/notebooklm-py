@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 from .._auth.cookie_types import CookieJar
 from .._kernel import Kernel
@@ -12,8 +15,22 @@ from .._web_cookie_provider import (
     WebCookieGeneration,
     WebCookieSession,
     WebCookieSessionState,
+    WebCookieSessionTransition,
 )
 from ..types import ConnectionLimits
+
+
+@dataclass(frozen=True, slots=True)
+class _BackendSessionTransition:
+    state: WebCookieSessionState | None
+    _kernel: Kernel
+
+    def install(self, generation: WebCookieGeneration) -> bool:
+        installed = self._kernel.installed_generation
+        if installed is not None and generation.generation <= installed:
+            return False
+        self._kernel._install_generation_unchecked(generation)
+        return True
 
 
 class WebBackendSession(LoopBoundPrimitive):
@@ -71,6 +88,12 @@ class WebBackendSession(LoopBoundPrimitive):
             cookies=CookieJar.from_httpx(self._kernel.get_cookies()),
             generation=generation,
         )
+
+    @asynccontextmanager
+    async def generation_transition(self) -> AsyncIterator[WebCookieSessionTransition]:
+        """Drain older attempts and keep admission closed through installation."""
+        async with self._kernel.generation_transition():
+            yield _BackendSessionTransition(self.detach(), self._kernel)
 
     async def close(self) -> None:
         """Close once; cancellation of a waiter does not cancel teardown."""

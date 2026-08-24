@@ -300,17 +300,17 @@ class WebRpcBackend(ChatWebHandlers):
         if drain_tracker is None or session is None or self._provider is None:
             raise RuntimeError("WebRpcBackend has no complete client lifecycle")
 
-        async def close_lifecycle() -> None:
+        async def close_lifecycle(*, reconcile_backend: bool = True) -> None:
             try:
                 if self._owns_provider:
-                    await self._close_owned_provider()
-                else:
+                    await self._close_owned_provider(reconcile_backend=reconcile_backend)
+                elif reconcile_backend:
                     await self.provider.reconcile()
             finally:
                 await session.close()
 
         if not drain:
-            await close_lifecycle()
+            await close_lifecycle(reconcile_backend=False)
             return
 
         drain_timeout_exc: TimeoutError | None = None
@@ -493,13 +493,16 @@ class WebRpcBackend(ChatWebHandlers):
             if self._backend_session is not None:
                 await self._backend_session.close()
 
-    async def _close_owned_provider(self) -> None:
+    async def _close_owned_provider(self, *, reconcile_backend: bool = True) -> None:
         provider = self._provider
         if not self._owns_provider or provider is None or self._provider_closed:
             return
         task = self._provider_close_task
         if task is None or (task.done() and not task.cancelled() and task.exception() is not None):
-            task = asyncio.create_task(provider.close())
+            close = (
+                provider.close() if reconcile_backend else provider.close(reconcile_backend=False)
+            )
+            task = asyncio.create_task(close)
             self._provider_close_task = task
         try:
             await asyncio.shield(task)

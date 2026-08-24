@@ -166,11 +166,11 @@ class RuntimeTransport:
         AST guarded — see
         :func:`tests.unit.test_concurrency_refresh_race.test_terminal_freshness_check_has_no_await_after_materialization`
         which reads the source of this method to assert no ``await``
-        follows :func:`materialize_rpc_request`. Any restructuring here
-        must keep that invariant: the snapshot and the rebuilt envelope
-        must be produced together with no suspension point between them
-        so a concurrent refresh cannot move the cookie jar between the
-        rebuild and :meth:`Kernel.post`.
+        follows :func:`materialize_rpc_request` *inside this helper*. The
+        terminal may then await the generation-attempt barrier; that lease
+        installs exactly this snapshot or rejects it as stale and rebuilds.
+        Once admitted, the matching cookie jar cannot move until Kernel.post
+        has completed response-cookie extraction.
         """
         state = request.state
         build_request = state.build_request
@@ -184,11 +184,6 @@ class RuntimeTransport:
             snapshot=current_snapshot,
             state=state,
         )
-        # P8: clone only a newer immutable provider generation into the
-        # backend-private session.  This is synchronous and stays after the
-        # final snapshot await but before the terminal POST, so cancellation
-        # cannot mix one generation's route/tokens with another's cookies.
-        self._kernel.install_generation(current_snapshot)
         return request
 
     async def terminal(self, request: RpcRequest) -> RpcResponse:
@@ -202,34 +197,46 @@ class RuntimeTransport:
 
         AST guarded — see
         :func:`tests.unit.test_concurrency_refresh_race.test_kernel_post_terminal_has_no_await_before_post_per_attempt`
-        which reads the source of this method to assert no ``await``
-        precedes the ``self._kernel.post(...)`` call inside the protective
-        ``try`` block. A concurrent refresh between freshness rebuild and
-        the POST would otherwise mismatch the cookie jar against the
-        materialized headers.
+        which reads the source of this method to assert no unrelated ``await``
+        precedes ``self._kernel.post(...)`` after the generation attempt is
+        admitted. Barrier acquisition may wait before that ``try``; a stale
+        snapshot is then rebuilt rather than sent with newer cookies.
         """
-        request = await self.refresh_request_for_current_auth(request)
-        state = request.state
+        rejected_generation: int | None = None
+        while True:
+            request = await self.refresh_request_for_current_auth(request)
+            state = request.state
+            snapshot = state.auth_snapshot
+            attempt = await self._kernel.begin_generation_attempt(snapshot)
+            if attempt is not None:
+                break
+            if snapshot is not None and rejected_generation == snapshot.generation:
+                raise RuntimeError("cookie provider generation fell behind the backend session")
+            rejected_generation = snapshot.generation if snapshot is not None else None
+
         post_kwargs: dict[str, Any] = {}
         if state.max_response_bytes is not None:
             post_kwargs["max_response_bytes"] = state.max_response_bytes
         start = time.perf_counter()
         try:
-            response = await self._kernel.post(
-                request.url,
-                headers=request.headers,
-                body=request.body,
-                read_timeout=state.read_timeout,
-                **post_kwargs,
-            )
-        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-            state.record_failure(exc)
-            raise_mapped_post_error(
-                log_label=state.log_label or "<unknown-chain-call>",
-                exc=exc,
-                start=start,
-                logger=self._logger,
-            )
+            try:
+                response = await self._kernel.post(
+                    request.url,
+                    headers=request.headers,
+                    body=request.body,
+                    read_timeout=state.read_timeout,
+                    **post_kwargs,
+                )
+            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+                state.record_failure(exc)
+                raise_mapped_post_error(
+                    log_label=state.log_label or "<unknown-chain-call>",
+                    exc=exc,
+                    start=start,
+                    logger=self._logger,
+                )
+        finally:
+            await attempt.release()
         state.record_response(response.status_code)
         return RpcResponse(response=response, state=state)
 

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import asyncio
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
 
+from ._loop_affinity import assert_bound_loop
+from ._loop_bound import LoopBoundPrimitive
 from ._request_types import PostBody
 from ._streaming_post import stream_post_with_size_cap
 from ._web_cookie_provider import WebCookieGeneration
@@ -14,7 +18,29 @@ from .auth import AuthTokens, build_cookie_jar
 from .types import ConnectionLimits
 
 
-class Kernel:
+class KernelGenerationAttempt:
+    """One response-cookie lease for a backend generation."""
+
+    def __init__(self, kernel: Kernel, generation: int | None) -> None:
+        self._kernel = kernel
+        self.generation = generation
+        self._released = False
+
+    async def release(self) -> None:
+        """Release exactly once, even when the request task is cancelled."""
+        if self._released:
+            return
+        self._released = True
+        release = asyncio.create_task(self._kernel._release_generation_attempt(self.generation))
+        try:
+            await asyncio.shield(release)
+        except asyncio.CancelledError:
+            # The release task owns no network work and will promptly wake a
+            # generation transition even if this waiter is cancelled again.
+            raise
+
+
+class Kernel(LoopBoundPrimitive):
     """Own the live HTTP transport and cookie jar.
 
     Client lifecycle code decides when to open and close. The kernel owns the
@@ -39,6 +65,17 @@ class Kernel:
         # values belong to the provider and per-call request state, never the
         # mutable backend session owner.
         self._installed_generation: int | None = None
+        # Same-generation requests share the transport concurrently.  A newer
+        # generation or a reconciliation snapshot crosses this small barrier:
+        # it closes admission, waits for older responses to finish extracting
+        # cookies, then replaces/snapshots the jar.  Keeping the fence here is
+        # transport-agnostic: Kernel.post returns only after either httpx or
+        # curl_cffi has merged response cookies into its public jar.
+        self._generation_condition: asyncio.Condition | None = None
+        self._generation_active_count = 0
+        self._generation_active_epoch: int | None = None
+        self._generation_transition_waiters = 0
+        self._generation_transition_active = False
         self._timeout: float | None = None
         self._connect_timeout: float | None = None
 
@@ -111,6 +148,22 @@ class Kernel:
         if installed is not None and generation.generation <= installed:
             return False
 
+        # Synchronous compatibility callers may install only while the jar is
+        # quiescent. Runtime HTTP attempts use begin_generation_attempt(), and
+        # provider reconciliation installs inside generation_transition().
+        if (
+            self._generation_active_count
+            or self._generation_transition_active
+            or self._generation_transition_waiters
+        ):
+            raise RuntimeError("cannot install a generation while the barrier is active")
+
+        self._install_generation_unchecked(generation)
+        return True
+
+    def _install_generation_unchecked(self, generation: WebCookieGeneration) -> None:
+        """Install while the caller owns the generation transition barrier."""
+
         replacement = generation.cookies.to_httpx()
         target = self._http_client.cookies if self._http_client is not None else self._cookies
         if target is None:
@@ -121,7 +174,153 @@ class Kernel:
             _replace_cookie_jar(target, replacement)
             self._cookies = target
         self._installed_generation = generation.generation
-        return True
+
+    def _get_generation_condition(self) -> asyncio.Condition:
+        assert_bound_loop(self._bound_loop)
+        condition = self._generation_condition
+        if condition is None:
+            condition = asyncio.Condition()
+            self._generation_condition = condition
+        return condition
+
+    def _on_loop_rebind(
+        self,
+        old: asyncio.AbstractEventLoop | None,
+        new: asyncio.AbstractEventLoop | None,
+    ) -> None:
+        """Discard the lazy generation barrier when its owning loop changes."""
+        if (
+            self._generation_active_count
+            or self._generation_transition_active
+            or self._generation_transition_waiters
+        ):
+            raise RuntimeError("cannot rebind a kernel with active generation attempts")
+        self._generation_condition = None
+
+    def reset_after_open(self) -> None:
+        """Rebuild the quiescent generation barrier lazily after every open."""
+        if (
+            self._generation_active_count
+            or self._generation_transition_active
+            or self._generation_transition_waiters
+        ):
+            raise RuntimeError("cannot reset a kernel with active generation attempts")
+        self._generation_condition = None
+
+    async def begin_generation_attempt(
+        self,
+        generation: WebCookieGeneration | None,
+    ) -> KernelGenerationAttempt | None:
+        """Admit one attempt, or reject a snapshot made stale while waiting.
+
+        Attempts at the installed epoch overlap freely.  Once a newer epoch is
+        waiting, admission at the older epoch closes so the transition cannot
+        starve behind a stream of same-generation requests.
+        """
+        condition = self._get_generation_condition()
+        requested = generation.generation if generation is not None else None
+        registered_transition = False
+        async with condition:
+            installed = self._installed_generation
+            if requested is not None and (installed is None or requested > installed):
+                self._generation_transition_waiters += 1
+                registered_transition = True
+            try:
+                while True:
+                    installed = self._installed_generation
+                    if requested is not None and installed is not None and requested < installed:
+                        return None
+
+                    if requested is not None and (installed is None or requested > installed):
+                        if (
+                            not self._generation_transition_active
+                            and not self._generation_active_count
+                        ):
+                            assert generation is not None
+                            self._generation_transition_active = True
+                            self._generation_transition_waiters -= 1
+                            registered_transition = False
+                            try:
+                                self._install_generation_unchecked(generation)
+                            except BaseException:
+                                self._generation_transition_active = False
+                                condition.notify_all()
+                                raise
+                            self._generation_transition_active = False
+                            self._generation_active_epoch = requested
+                            self._generation_active_count = 1
+                            condition.notify_all()
+                            return KernelGenerationAttempt(self, requested)
+                        await condition.wait()
+                        continue
+
+                    if registered_transition:
+                        self._generation_transition_waiters -= 1
+                        registered_transition = False
+                        condition.notify_all()
+                    if self._generation_transition_active or self._generation_transition_waiters:
+                        await condition.wait()
+                        continue
+
+                    admitted = installed if requested is None else requested
+                    if self._generation_active_count:
+                        assert self._generation_active_epoch == admitted
+                    else:
+                        self._generation_active_epoch = admitted
+                    self._generation_active_count += 1
+                    return KernelGenerationAttempt(self, admitted)
+            finally:
+                if registered_transition:
+                    self._generation_transition_waiters -= 1
+                    condition.notify_all()
+
+    async def _release_generation_attempt(self, generation: int | None) -> None:
+        condition = self._get_generation_condition()
+        async with condition:
+            if not self._generation_active_count or self._generation_active_epoch != generation:
+                raise RuntimeError("generation attempt barrier release mismatch")
+            self._generation_active_count -= 1
+            if not self._generation_active_count:
+                self._generation_active_epoch = None
+                condition.notify_all()
+
+    async def _acquire_generation_transition(self) -> None:
+        condition = self._get_generation_condition()
+        async with condition:
+            self._generation_transition_waiters += 1
+            registered = True
+            try:
+                while self._generation_transition_active or self._generation_active_count:
+                    await condition.wait()
+                self._generation_transition_waiters -= 1
+                registered = False
+                self._generation_transition_active = True
+            finally:
+                if registered:
+                    self._generation_transition_waiters -= 1
+                    condition.notify_all()
+
+    async def _release_generation_transition(self) -> None:
+        condition = self._get_generation_condition()
+        async with condition:
+            if not self._generation_transition_active:
+                raise RuntimeError("generation transition barrier release mismatch")
+            self._generation_transition_active = False
+            condition.notify_all()
+
+    @asynccontextmanager
+    async def generation_transition(self) -> AsyncIterator[None]:
+        """Yield exclusive, quiescent access to the backend cookie jar."""
+        await self._acquire_generation_transition()
+        try:
+            yield
+        finally:
+            release = asyncio.create_task(self._release_generation_transition())
+            try:
+                await asyncio.shield(release)
+            except asyncio.CancelledError:
+                # The detached release task promptly reopens admission.
+                raise
 
     @property
     def installed_generation(self) -> int | None:
@@ -142,6 +341,17 @@ class Kernel:
         # secondary guard so direct Kernel callers also preserve the live client.
         if self._http_client is not None:
             return
+
+        if (
+            self._generation_active_count
+            or self._generation_transition_active
+            or self._generation_transition_waiters
+        ):
+            raise RuntimeError("cannot reopen a kernel with active generation attempts")
+        # A closed kernel may reopen on another event loop. Bind the barrier to
+        # this open's loop, then lazy-build a fresh Condition on first use.
+        self.set_bound_loop(asyncio.get_running_loop())
+        self.reset_after_open()
 
         http_timeout = httpx.Timeout(
             connect=connect_timeout,
