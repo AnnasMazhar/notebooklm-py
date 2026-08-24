@@ -3,7 +3,7 @@
 The chain wraps ``Kernel.post`` through
 ``MiddlewareChainHost._authed_post_chain_terminal`` (the shared seam
 covering ``RuntimeTransport.perform_authed_post`` and
-``RpcExecutor._execute_once``'s dispatch into the transport).
+``WebExecutionRuntime._execute_once``'s dispatch into the transport).
 
 The current ADR-0009 ordering is ``[Drain, Metrics, Semaphore, Retry,
 AuthRefresh, Tracing]`` (outermost → innermost). ``build_chain``

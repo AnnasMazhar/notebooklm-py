@@ -16,15 +16,14 @@ sees exactly what the leaf returned.
 Trace record fields (emitted via ``logger.<level>(..., extra={...})`` so
 structured-logging consumers see them as ``LogRecord`` attributes):
 
-- ``rpc_method`` — value of ``RPC_CONTEXT_RPC_METHOD``, supplied via the
-  ``rpc_method`` kwarg passed by ``RpcExecutor._execute_once``. ``None`` only
-  for the chat streaming path (``_web.chat_transport.chat_aware_authed_post`` —
-  chat-side requests are not classified RPCs) and for ``__new__``-built fixtures
-  driving the chain directly.
-- ``log_label`` — value of ``RPC_CONTEXT_LOG_LABEL``. The middleware chain
-  always populates this key (it is one of the three transport-call kwargs).
-  May be ``None`` only for a ``__new__``-built fixture exercising a malformed
-  request.
+- ``rpc_method`` — value of ``RpcCallState.rpc_method``, supplied by
+  ``WebExecutionRuntime._execute_once`` through the transport entry point.
+  ``None`` only for the chat streaming path
+  (``_web.chat_transport.chat_aware_authed_post`` — chat-side requests are
+  not classified RPCs) and for fixtures driving the chain directly.
+- ``log_label`` — value of ``RpcCallState.log_label``. The production
+  transport entry point always populates this field. It may be ``None`` only
+  for a fixture exercising a malformed request.
 - ``status_code`` — ``response.response.status_code`` on the success
   record (omitted from "starting" and "failed" records).
 - ``duration_ms`` — wall-clock duration of the ``next_call`` invocation
@@ -79,11 +78,11 @@ class TracingMiddleware:
         The ``extra=`` mapping turns each key into a ``LogRecord``
         attribute (e.g. ``record.rpc_method``) for structured-logging
         consumers. The message strings themselves stay short and stable
-        so a string-matching grep is also possible. Keys absent from
-        ``request.context`` surface as ``None`` rather than raising
-        ``KeyError`` — the chain always carries ``log_label``; ``rpc_method``
-        is populated by ``RpcExecutor._execute_once`` for the RPC path and
-        left ``None`` for the chat streaming path.
+        so a string-matching grep is also possible. Optional typed-state
+        fields surface as ``None`` — the production chain always carries
+        ``log_label``; ``rpc_method`` is populated by
+        ``WebExecutionRuntime._execute_once`` for the RPC path and left
+        ``None`` for the chat streaming path.
         """
         rpc_method = request.state.rpc_method
         log_label = request.state.log_label

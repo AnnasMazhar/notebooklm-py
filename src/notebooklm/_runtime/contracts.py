@@ -67,10 +67,12 @@ class RpcCaller(Protocol):
     ``disable_internal_retries`` / ``operation_variant`` parameters are
     preserved as-is.
 
-    ``NotebookLMClient`` and ``RpcExecutor`` structurally satisfy this
-    Protocol; features that only need to issue RPC calls depend on this
-    narrow surface so they are not coupled to
-    transport, loop affinity, or close-time-hook concerns.
+    The backend-owned ``WebExecutionRuntime`` structurally satisfies this
+    Protocol; the behaviorless ``RpcExecutor`` compatibility subclass does as
+    well. Features that only need to issue RPC calls depend on this narrow
+    surface so they are not coupled to transport, loop affinity, or close-time
+    hook concerns. ``NotebookLMClient.rpc_call`` deliberately exposes a
+    narrower public signature and delegates through ``WebRpcBackend``.
     """
 
     async def rpc_call(

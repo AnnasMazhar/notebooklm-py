@@ -30,17 +30,18 @@ Behavior:
 - **Same metrics** — ``rpc_rate_limit_retries`` and
   ``rpc_server_error_retries`` are incremented per retry attempt, same as
   the legacy code.
-- **Same disable_internal_retries gate** — read from
-  ``RPC_CONTEXT_DISABLE_INTERNAL_RETRIES`` (post-resolution bool produced
-  by ``_idempotency.resolve_effective_disable_internal_retries`` before
-  chain entry; see ADR-0009 §"Per-request behavior").
+- **Same disable_internal_retries gate** — read from the immutable
+  ``RpcCallState.disable_internal_retries`` field (the post-resolution bool
+  produced by ``_idempotency.resolve_effective_disable_internal_retries``
+  before chain entry; see ADR-0009 §"Per-request behavior").
 - **Optional read-timeout retry gate** —
-  ``RPC_CONTEXT_DISABLE_READ_TIMEOUT_RETRIES`` suppresses retries for read-side
-  *post-transmission* failures (``_NON_REPLAYABLE_POST_SEND_ERRORS``: read
-  timeout, read error, remote protocol error) on non-idempotent long-running
-  calls such as streamed chat, where a retry would re-run generation from
-  scratch and risk a duplicate answer. Connect/Write/Pool failures (request not
-  fully sent) stay retryable, and HTTP 401 auth refresh is unaffected.
+  ``RpcCallState.disable_read_timeout_retries`` suppresses retries for
+  read-side *post-transmission* failures
+  (``_NON_REPLAYABLE_POST_SEND_ERRORS``: read timeout, read error, remote
+  protocol error) on non-idempotent long-running calls such as streamed chat,
+  where a retry would re-run generation from scratch and risk a duplicate
+  answer. Connect/Write/Pool failures (request not fully sent) stay retryable,
+  and HTTP 401 auth refresh is unaffected.
 - **Same exception types on exhaustion** —
   :class:`TransportRateLimited` /
   :class:`TransportServerError` re-raised verbatim so
@@ -182,12 +183,12 @@ class RetryMiddleware:
     ) -> RpcResponse:
         """Retry inner chain calls on 429 / 5xx / network failures.
 
-        Reads ``log_label`` and ``disable_internal_retries`` from
-        ``request.context``. A missing ``log_label`` falls back to a
-        defensive sentinel so a ``__new__``-built fixture driving the
-        chain raw doesn't trip on a ``KeyError`` (matches DrainMiddleware's
-        same fallback). ``disable_internal_retries`` defaults to ``False``
-        — the production path always populates it from
+        Reads ``log_label`` and retry gates from the typed ``request.state``.
+        A missing ``log_label`` falls back to a defensive sentinel so a
+        ``__new__``-built fixture driving the chain raw still produces a
+        useful label (matching DrainMiddleware's fallback).
+        ``disable_internal_retries`` defaults to ``False`` — the production
+        path always populates it from
         :func:`_idempotency.resolve_effective_disable_internal_retries`.
         """
         state = request.state
@@ -197,8 +198,8 @@ class RetryMiddleware:
 
         rate_limit_retries = 0
         server_error_retries = 0
-        # Prefer an aggregate deadline threaded in by the RPC executor
-        # (``RPC_CONTEXT_RETRY_DEADLINE``) so a decode-time auth-refresh retry
+        # Prefer the aggregate deadline threaded in by WebExecutionRuntime via
+        # ``RpcCallState.retry_deadline`` so a decode-time auth-refresh retry
         # re-enters the chain with the SAME T0-anchored budget instead of
         # restarting the retry clock (issue #1873). Only when absent (e.g. the
         # chat path) do we mint a fresh per-chain deadline. ``RuntimeDeadline``

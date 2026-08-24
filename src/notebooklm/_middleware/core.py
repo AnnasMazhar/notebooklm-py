@@ -4,7 +4,7 @@ This module defines:
 
 - :class:`RpcRequest` / :class:`RpcResponse` — the HTTP-shape envelopes the
   chain passes around (NOT RPC-shape; encoding/decoding lives above the
-  chain in :meth:`RpcExecutor.rpc_call`).
+  chain in :meth:`WebExecutionRuntime.rpc_call`).
 - :data:`NextCall` — the call-the-next-link type alias used by middlewares
   and by the chain builder.
 - :class:`Middleware` — the ``Protocol`` every middleware satisfies. Around-
@@ -45,9 +45,9 @@ class RpcRequest:
     """HTTP-shape request envelope passed through the middleware chain.
 
     The chain wraps ``Kernel.post``. Every middleware sees an already-encoded
-    HTTP request — encoding lives *above* the chain in :meth:`RpcExecutor.rpc_call`.
-    RPC-level metadata that middlewares need travels through the typed
-    :attr:`state` carrier.
+    HTTP request — encoding lives *above* the chain in
+    :meth:`WebExecutionRuntime.rpc_call`. RPC-level metadata that middlewares
+    need travels through the typed :attr:`state` carrier.
 
     Frozen: middlewares that want to alter the request build a new
     :class:`RpcRequest`. Some can use :func:`dataclasses.replace`;

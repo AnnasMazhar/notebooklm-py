@@ -7,10 +7,10 @@ the OUTERMOST position of the chain
 Pure observer of the transport leg with bookkeeping side-effects: brackets
 ``next_call`` with calls to :meth:`TransportDrainTracker.begin_transport_post`
 and :meth:`TransportDrainTracker.finish_transport_post`, propagating the
-``log_label`` from ``request.context`` as the tracker label. The chain
-caller (``RuntimeTransport.perform_authed_post``) always populates ``log_label``,
-so the middleware reads it via ``RPC_CONTEXT_LOG_LABEL`` and falls back
-to a synthetic ``"<unknown-chain-call>"`` only for malformed requests.
+``log_label`` from ``request.state`` as the tracker label. The chain caller
+(``RuntimeTransport.perform_authed_post``) always populates
+``RpcCallState.log_label``, so the middleware falls back to a synthetic
+``"<unknown-chain-call>"`` only for malformed requests.
 
 Drain admission is owned by the chain rather than by the logical RPC wrapper
 or ``_web.chat_transport.chat_aware_authed_post`` (the chat-streaming entry);
@@ -59,12 +59,12 @@ class DrainMiddleware:
     ``__call__`` signature matches the Protocol so mypy treats instances
     as assignable into a ``Sequence[Middleware]``.
 
-    Holds a reference to the shared :class:`TransportDrainTracker` owned
-    by :class:`NotebookLMClient`. The middleware does not own drain state; it
-    is a write-through into the host's counters. This keeps
-    ``drain()``'s view of in-flight work authoritative even when tests
-    swap a middleware out (the explicit ``_begin/_finish_transport_post``
-    calls in the upload + polling paths still feed the same tracker).
+    Holds a reference to the shared :class:`TransportDrainTracker` runtime
+    leaf owned by :class:`WebRpcBackend`. The middleware does not own drain
+    state; it is a write-through into the backend-owned counters. This keeps
+    ``NotebookLMClient.drain()`` authoritative through backend delegation
+    (the explicit ``_begin/_finish_transport_post`` calls in the upload and
+    polling paths still feed the same tracker).
     """
 
     def __init__(self, drain_tracker: TransportDrainTracker) -> None:
@@ -77,13 +77,12 @@ class DrainMiddleware:
     ) -> RpcResponse:
         """Admit + finalize one transport operation around ``next_call``.
 
-        Reads ``log_label`` from ``request.context``: the value is the
+        Reads ``log_label`` from ``request.state``: the value is the
         same string callers used to pass directly to
         ``_begin_transport_post`` (e.g. ``"RPC LIST_NOTEBOOKS"`` from the
-        RPC path, ``"chat.ask"`` from the chat path). A missing key
-        surfaces as a defensive sentinel rather than a ``KeyError`` —
-        ``__new__``-built fixtures driving the chain raw might omit it,
-        and the operation should still admit + count.
+        RPC path, ``"chat.ask"`` from the chat path). An absent optional
+        field uses a defensive sentinel; fixtures driving the chain raw can
+        omit the label and the operation should still admit and count.
 
         ``await begin_transport_post`` may raise ``RuntimeError`` when
         the tracker is in draining mode and the current task has no

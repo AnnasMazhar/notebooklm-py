@@ -37,9 +37,8 @@ terminal consumes that envelope through ``Kernel.post``. After a successful
 refresh this middleware re-snapshots auth state and replaces the request
 envelope before retrying so the terminal never sends stale URL/body/header
 values. See :meth:`AuthRefreshMiddleware._rebuild_request_after_refresh`
-for the full in-place context-mutation contract and the paired terminal
-rebuild invariant that keeps the post-refresh 429 retry from sending a
-stale envelope.
+for the typed-state publication contract and the paired terminal rebuild
+invariant that keeps the post-refresh 429 retry from sending a stale envelope.
 
 Refresh is a chain-level concern: ``RetryMiddleware`` is unaware of
 refreshes, and the once-per-call contract holds because
@@ -149,7 +148,7 @@ class AuthRefreshMiddleware:
     ) -> RpcResponse:
         """Catch auth-error ``HTTPStatusError``, refresh, retry exactly once.
 
-        Reads ``log_label`` from ``request.context`` for log lines (defensive
+        Reads ``request.state.log_label`` for log lines (the defensive
         sentinel fallback matches DrainMiddleware / RetryMiddleware /
         the retired test-only error-injection stage).
 
@@ -161,23 +160,24 @@ class AuthRefreshMiddleware:
         propagates without a redundant refresh, matching the
         "one refresh max per logical call" contract.
 
-        The guard reads a shared
+        The guard reads the shared
         :class:`notebooklm._auth_refresh_retry.RefreshBudget` from
-        ``request.context[RPC_CONTEXT_REFRESH_BUDGET]`` when present — the
-        executor seeds one per logical ``rpc_call`` so this HTTP-status layer
-        and the decoded-RPC layer in :class:`RpcExecutor` share ONE refresh
-        allowance and a ``wire-401 → refresh → decoded-auth-error`` sequence
-        cannot drive two refreshes (issue #1205). The per-chain
-        ``RPC_CONTEXT_AUTH_REFRESHED`` boolean is still written (and read as a
-        fallback when no budget is threaded, e.g. the chat path) so the
-        RetryMiddleware-re-entry suppression and the terminal freshness
-        rebuild keep observing the post-refresh marker on the shared context.
+        ``request.state.refresh_budget`` when present. The backend-owned
+        :class:`notebooklm._web.runtime.WebExecutionRuntime` seeds one per
+        logical ``rpc_call`` so this HTTP-status layer and the decoded-RPC
+        layer share ONE refresh allowance and a
+        ``wire-401 → refresh → decoded-auth-error`` sequence cannot drive two
+        refreshes (issue #1205). ``request.state.auth_refreshed`` is the
+        fallback when no budget is threaded (for example, the chat path).
+        Because retries retain the exact same :class:`RpcCallState` object,
+        RetryMiddleware re-entry and the terminal freshness rebuild both
+        observe the published post-refresh state.
 
         Pass-through paths:
         - No refresh callback configured → propagate any exception unchanged.
         - Exception is not an auth error → propagate.
         - Refresh already done for this logical call → propagate.
-        - ``disable_internal_retries`` is set on the context → propagate.
+        - ``request.state.disable_internal_retries`` is set → propagate.
           The flag is the post-resolution effective bool produced by
           :func:`_idempotency.resolve_effective_disable_internal_retries`
           before chain entry, so a non-idempotent / probe-then-create
@@ -194,13 +194,13 @@ class AuthRefreshMiddleware:
            ``disable_internal_retries`` is not set.
         2. Call ``refresh_callable()`` (coalesced single-flight via
            :class:`AuthRefreshCoordinator`).
-        3. Mark ``RPC_CONTEXT_AUTH_REFRESHED`` on success.
+        3. Publish ``auth_refreshed`` on the shared typed state after success.
         4. If the refresh callable itself raises, wrap in
            ``TransportAuthExpired(original=exc)`` and propagate.
         5. Optional post-refresh sleep (``refresh_retry_delay``).
         6. Increment ``rpc_auth_retries`` metric.
         7. Rebuild the request envelope when a ``snapshot_provider`` and
-           ``RPC_CONTEXT_BUILD_REQUEST`` are available.
+           ``request.state.build_request`` are available.
         8. Re-invoke ``next_call(retry_request)`` — exactly once. If the
            retry also raises, propagate unchanged (no second refresh,
            no recursion).
@@ -232,12 +232,12 @@ class AuthRefreshMiddleware:
             # closure must keep it after that point.
             original_auth_error = exc
 
-            # The logical call's aggregate deadline, seeded by the RPC executor
+            # The logical call's aggregate deadline, seeded by WebExecutionRuntime
             # (issue #1873). Passing it clamps the post-refresh sleep to the
             # time remaining since T0 so a ``refresh_retry_delay`` larger than
             # the remaining budget cannot re-POST past the logical call's
             # deadline — mirroring the decode-time refresh path in
-            # ``RpcExecutor.try_refresh_and_retry``. Absent (chat path) → the
+            # ``WebExecutionRuntime.try_refresh_and_retry``. Absent (chat path) → the
             # historical unclamped delay is slept.
             retry_deadline = state.retry_deadline
 
@@ -261,7 +261,7 @@ class AuthRefreshMiddleware:
 
             # Mark AFTER a successful refresh (a refresh failure raised above
             # and never reaches here). Consuming the shared budget is what
-            # blocks the decoded-RPC layer in ``RpcExecutor`` from refreshing
+            # blocks the decoded-RPC layer in ``WebExecutionRuntime`` from refreshing
             # a second time on the SAME logical call (issue #1205). The
             # per-chain boolean is also set so a 429 thrown by the retry then
             # caught by ``RetryMiddleware`` (outside us) doesn't trigger a
@@ -282,41 +282,33 @@ class AuthRefreshMiddleware:
     async def _rebuild_request_after_refresh(self, request: RpcRequest) -> RpcRequest:
         """Return a refreshed request envelope when production collaborators exist.
 
-        After the fresh snapshot await returns, keep the context update and
+        After the fresh snapshot await returns, keep the state publication and
         envelope materialization synchronous. The terminal still performs a
         final freshness check immediately before ``Kernel.post`` because inner
         middlewares may await between this retry rebuild and the wire.
 
-        **In-place context mutation is the deliberate cross-boundary carrier
-        for refreshed auth state and the once-per-call refresh guard.** This
-        method (and its caller :meth:`__call__`) intentionally mutates the
-        inbound ``request.context`` rather than copying it, because two
-        pieces of shared state must survive the ``Retry`` ↔ ``AuthRefresh``
-        boundary:
+        **The identity-shared :class:`RpcCallState` is the deliberate
+        cross-boundary carrier for refreshed auth state and the once-per-call
+        refresh guard.** :meth:`__call__` publishes ``auth_refreshed`` on the
+        state carried by the original request. ``RetryMiddleware`` lives one
+        layer *outside* this middleware and, on a 429 / 5xx caught after the
+        refresh, re-invokes the chain with that original ``RpcRequest``. The
+        published marker suppresses a second refresh and preserves the
+        "exactly one refresh per logical call" contract pinned in ADR-0009
+        §"Retry semantics".
 
-        - ``RPC_CONTEXT_AUTH_REFRESHED`` is written by :meth:`__call__` on
-          the **original** ``request.context`` just before this rebuild
-          runs. ``RetryMiddleware`` lives one layer *outside* this
-          middleware and, on a 429 / 5xx caught after the refresh, re-invokes
-          the chain with that same original ``RpcRequest``. The marker on
-          the shared context suppresses a second refresh on the
-          original-request retry, preserving the "exactly one refresh per
-          logical call" contract pinned in ADR-0009 §"Retry semantics".
+        This method publishes the fresh ``auth_snapshot`` through
+        :meth:`RpcCallState.publish_auth_snapshot`. Because
+        :func:`materialize_rpc_request` retains the exact state object, the
+        returned ``retry_request`` and the original request observe the same
+        snapshot. That bounded publication lets the terminal freshness guard
+        (:meth:`RuntimeTransport.refresh_request_for_current_auth`) observe
+        the post-refresh snapshot when ``RetryMiddleware`` later retries the
+        original request after a 429.
 
-        - ``RPC_CONTEXT_AUTH_SNAPSHOT`` is updated below to the freshly
-          captured snapshot. Because :func:`materialize_rpc_request`
-          retains the inbound ``context`` dict by reference (see
-          :func:`notebooklm._middleware.core.materialize_rpc_request`), the
-          returned ``retry_request`` and the original ``request`` share
-          that same context dict and therefore see the same updated
-          snapshot. This mutation is what lets the terminal freshness
-          guard (:meth:`RuntimeTransport.refresh_request_for_current_auth`)
-          observe the post-refresh snapshot when ``RetryMiddleware`` later
-          retries the original request after a 429.
-
-        The companion invariant — and the reason the in-place mutation is
-        safe even though the original request's ``url`` / ``headers`` /
-        ``body`` are still pre-refresh — is that
+        The companion invariant — and the reason this shared state is safe
+        even though the original request's ``url`` / ``headers`` / ``body``
+        are still pre-refresh — is that
         :meth:`RuntimeTransport.refresh_request_for_current_auth` rebuilds
         URL / body / cookies from the current snapshot on **every** terminal
         attempt, unconditionally. Both halves are load-bearing and must be

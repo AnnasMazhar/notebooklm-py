@@ -926,41 +926,47 @@ These validations run in `NotebookLMClient.__init__` /
 
 ## Internal module map
 
-Kernel owns the `httpx.AsyncClient`; `NotebookLMClient` constructs the
-runtime graph and owns the public surface. Per the
-[ADR-0010](adr/0010-session-kernel-split.md) split, `Kernel.__init__` in
-`src/notebooklm/_kernel.py` constructs the `httpx.AsyncClient` and is
-responsible for closing it on `aclose()`. `_runtime/init.py` constructs
-the collaborator bundle, `RuntimeTransport`, middleware chain, and
-`RpcExecutor`, then binds them into `ClientComposed`. The supporting state
-(metrics, drain bookkeeping, request-id counter, transport plumbing,
-conversation cache, etc.) is split across single-responsibility runtime
-and kernel collaborator modules such as `notebooklm._rpc_executor`,
-`notebooklm._transport_drain`, and `notebooklm._transport_errors`. The
-split is internal — module-level constants and helpers live in canonical
-seam modules (`_runtime/config.py`, `_runtime/helpers.py`, `_error_injection`,
+Kernel owns the `httpx.AsyncClient`; `NotebookLMClient` owns the public
+surface and delegates web execution and lifecycle operations through
+`WebRpcBackend`. Per the [ADR-0010](adr/0010-session-kernel-split.md)
+split, `Kernel.__init__` in `src/notebooklm/_kernel.py` constructs the
+`httpx.AsyncClient` and is responsible for closing it on `aclose()`.
+`_runtime/init.py` constructs the runtime leaves and returns them in a
+frozen `ClientInternals` construction receipt. `_client_assembly.py`
+passes that receipt directly to `WebRpcBackend`, which unpacks the leaves
+and does not retain the receipt. `WebExecutionRuntime` is the sole
+encode/dispatch/decode implementation; the historical `RpcExecutor` name
+is a behaviorless compatibility subclass.
+
+Supporting state (metrics, drain bookkeeping, request-id counter,
+transport plumbing, conversation cache, etc.) remains split across
+single-responsibility modules, but the backend owns the assembled runtime
+leaves. Module-level constants and helpers live in canonical seam modules
+(`_runtime/config.py`, `_runtime/helpers.py`, `_error_injection`,
 `_request_types`, `_transport_errors`, `_streaming_post`) and are imported
 from those modules directly. The historical `notebooklm._core`
 compatibility shim was removed in v0.5.0.
 
 | Module | Owns | Notes |
 |---|---|---|
-| `_client_composed` | `ClientComposed`: bound runtime holder for transport, executor, middleware chain metadata, and the collaborator bundle. | The composition root binds this once; public methods read the bound collaborators from the client. |
+| `_web/backend.py` | `WebRpcBackend`: typed semantic web port plus the client-facing auth, lifecycle, metrics, and raw-RPC delegation surface. | Unpacks the construction receipt and owns the assembled runtime leaves; `NotebookLMClient` delegates through this backend. |
+| `_web/runtime.py` | `WebExecutionRuntime`: batchexecute encoding, policy-stack dispatch, decoding, and decoded-auth retry. | Sole execution authority for semantic web operations and the public raw-RPC escape hatch. |
 | `_kernel` | Concrete `Kernel` transport core; owns the `httpx.AsyncClient` (constructed in `Kernel.__init__`, closed in `Kernel.aclose()`) and the cookie jar. | Pure transport surface (see `Kernel` Protocol in `_runtime/contracts.py`). |
-| `_runtime/init.py` | Client composition root helpers: constructor validation, collaborator construction, `RuntimeTransport`, middleware chain, and `RpcExecutor` wiring. | `NotebookLMClient` calls this during construction and stores the result directly. |
-| `_runtime/transport.py` | Authenticated transport leg used by `RpcExecutor` and the middleware chain terminal. | Routes through `Kernel.post` and centralizes request-envelope materialization. |
+| `_runtime/init.py` | Constructor validation plus construction of runtime leaves, `RuntimeTransport`, the middleware chain, and `WebExecutionRuntime`. | Returns a frozen `ClientInternals` construction-only receipt; assembly passes it directly to `WebRpcBackend`, and neither client nor backend retains the container. |
+| `_runtime/transport.py` | Authenticated transport leg used by `WebExecutionRuntime` and the middleware chain terminal. | Routes through `Kernel.post` and centralizes request-envelope materialization. |
 | `_runtime/config.py` | Module-level constants: `DEFAULT_TIMEOUT`, `DEFAULT_CHAT_TIMEOUT`, `DEFAULT_IMPORT_RESEARCH_BASE_TIMEOUT`/`_PER_SOURCE_TIMEOUT`/`_MAX_TIMEOUT`, `DEFAULT_KEEPALIVE_MIN_INTERVAL`, `DEFAULT_MAX_CONCURRENT_RPCS`, `DEFAULT_MAX_CONCURRENT_UPLOADS`, `CORE_LOGGER_NAME`, `normalize_max_concurrent_uploads`. | Pure constants; importable without side effects. |
 | `_runtime/helpers.py` | `is_auth_error`, `AUTH_ERROR_PATTERNS`, `_resolve_keepalive_interval`. | Cross-seam pure helpers; behaviour-bearing (and therefore unit-tested). |
 | `_error_injection` | `ERROR_INJECT_ENV_VAR`, `_get_error_injection_mode`, `_refuse_synthetic_error_outside_test_context`. | Env-var resolver + startup guard for the synthetic-error harness. |
-| `_runtime/auth.py` | `AuthRefreshCoordinator`: refresh-task lifecycle, refresh lock, `AuthSnapshot` rotation. | Lazy `asyncio.Lock` construction; never instantiated outside a running loop. |
+| `_runtime/auth.py` | `AuthRefreshCoordinator`: refresh-task lifecycle, refresh lock, `AuthSnapshot` rotation. | Backend-owned runtime leaf with lazy `asyncio.Lock` construction; never instantiated outside a running loop. |
 | `_conversation_cache` | Per-instance true-LRU `_conversation_cache` for `ChatAPI` continuity; bounds the conversation count and the turns retained per conversation. | Pure in-process state; not shared across client instances. |
 | `_cookie_persistence` | Cookie-jar → storage-state serialization, `__Secure-1PSIDTS` rotation. | Exposes a `SaveCookiesToStorage` Protocol host. |
 | `_transport_drain` | `TransportDrainTracker`: in-flight transport counters, `_TransportOperationToken`, lazy `asyncio.Condition` powering `client.drain(...)`. | Construction is event-loop-agnostic; the `Condition` is allocated on first use. |
-| `_runtime/lifecycle.py` | `ClientLifecycle`: loop-affinity guard, `aclose` plumbing, keepalive task wiring. | Client lifecycle collaborator. |
-| `_client_metrics` | `ClientMetrics`: `ClientMetricsSnapshot` counters, `_metrics_lock`, `on_rpc_event` callback, queue-wait recorders. | `__init__` is event-loop-agnostic; `emit_rpc_event` is `async` and intentionally awaits the user callback (back-pressure). |
+| `_runtime/lifecycle.py` | `ClientLifecycle`: loop-affinity guard, `aclose` plumbing, keepalive task wiring. | Backend-owned lifecycle leaf. |
+| `_client_metrics` | `ClientMetrics`: `ClientMetricsSnapshot` counters, `_metrics_lock`, `on_rpc_event` callback, queue-wait recorders. | Backend-owned runtime leaf; `__init__` is event-loop-agnostic, and `emit_rpc_event` is `async` and intentionally awaits the user callback (back-pressure). |
 | `_polling_registry` | Pending-poll registry shared by long-running artifact generations. | Used by artifacts to coordinate and cancel pending polls. |
 | `_reqid_counter` | `ReqidCounter`: monotonic `_reqid` for the chat backend, lazy `asyncio.Lock` for concurrent `ChatAPI.ask` callers. | Baseline `_value=100000`, default `step=100000` — both are chat-API contract values; do not change. |
-| `_rpc_executor` | RPC dispatch executor; exposes `DecodeResponse` Protocol so callers can be unit-tested against a stub. | `NotebookLMClient.rpc_call` dispatches here directly. |
+| `_rpc_executor` | Behaviorless `RpcExecutor` compatibility subclass and `DecodeResponse` re-export. | Retains private import/construction compatibility; all execution behavior lives in `WebExecutionRuntime`. |
+| `_middleware/context.py` | `RpcCallState`: immutable per-call configuration plus bounded progress publication. | The exact state object is shared by identity across retries; it replaces the retired string-key request-context protocol. |
 | `_request_types` | `AuthSnapshot`, `BuildRequest`, `BuildRequestResult`, and request materialization helpers. | Shared request Interface for RPC, chat, auth refresh, and the chain terminal. |
 | `_transport_errors` | Transport exceptions, `Retry-After` parsing, and raw `Kernel.post` error mapping. | Keeps terminal error mapping out of `Kernel` callers and lets the middleware chain consume a narrow exception Interface. |
 | `_streaming_post` | Streaming POST helper with the response-size cap. | Keeps low-level buffered HTTP read behavior local to the `Kernel.post` implementation. |
@@ -1073,8 +1079,9 @@ class NotebookLMClient:
 
 `RPCMethod` is imported from `notebooklm.rpc` for raw-RPC calls; `Any` is
 `typing.Any`. The default-shape call (`client.rpc_call(method, params)`)
-forwards to the underlying `RpcExecutor.rpc_call` with its canonical
-defaults. `read_timeout` (added in #2187) overrides the client-wide read
+delegates to `WebRpcBackend.public_rpc_call`, which dispatches through the
+backend-owned `WebExecutionRuntime.rpc_call` with its canonical defaults.
+`read_timeout` (added in #2187) overrides the client-wide read
 timeout for this one call — internal callers use it for RPCs known to run
 long (e.g. `ResearchAPI.import_sources`'s batch-scaled IMPORT_RESEARCH
 timeout); `None` (the default) inherits the client's configured `timeout`.

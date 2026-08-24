@@ -75,16 +75,16 @@ async def chat_aware_authed_post(
     Args:
         transport: :class:`RuntimeTransport` collaborator that owns the
             authed POST entry point on the shared transport pipeline.
-            Passed directly via constructor injection from
-            ``NotebookLMClient.__init__`` (ADR-0014 Rule 2 Corollary) — no
-            chat-local Protocol intermediates.
+            Passed through the composition root into ``WebRpcBackend``
+            (ADR-0014 Rule 2 Corollary) — no chat-local Protocol
+            intermediates.
         build_request: Request builder forwarded to
             :meth:`RuntimeTransport.perform_authed_post`.
         parse_label: Caller-friendly label used in log lines and error
             messages (e.g. ``"chat.ask"``). Threaded through to the
             transport as ``log_label`` — the two names refer to the same
-            value (``parse_label`` is the chat-domain spelling; the chain
-            context still names it ``log_label``).
+            value (``parse_label`` is the chat-domain spelling;
+            ``RpcCallState.log_label`` is the transport spelling).
         max_response_bytes: Optional per-call response-size cap forwarded to
             the shared streaming transport.
         retry_deadline: Caller-owned absolute semantic deadline. The shared
@@ -93,7 +93,7 @@ async def chat_aware_authed_post(
     """
     # Drain admission lives in ``DrainMiddleware`` at the outermost chain
     # position around ``perform_authed_post`` — it reads ``log_label``
-    # from ``RpcRequest.context`` (passed below as ``parse_label``), so a
+    # from ``RpcRequest.state`` (passed below as ``parse_label``), so a
     # drained client still surfaces ``RuntimeError`` with the chat-friendly
     # label without explicit bracketing here.
     try:

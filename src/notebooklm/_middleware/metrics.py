@@ -9,8 +9,8 @@ which keeps Metrics outside the semaphore.
 Pure observer: never mutates ``request`` or transforms ``response``. Around
 ``next_call`` it captures the wall-clock elapsed time of the chain-inner
 operation (which includes whatever HTTP/auth/retry behavior the inner
-middlewares + transport leaf perform) and emits exactly one terminal record
-per logical RPC:
+middlewares + transport leaf perform) and emits one terminal record per
+dispatch through the chain:
 
 - Increments ``rpc_calls_succeeded`` / ``rpc_calls_failed`` and
   ``rpc_latency_seconds_total`` on the shared :class:`ClientMetrics` snapshot.
@@ -18,12 +18,11 @@ per logical RPC:
   :class:`RpcTelemetryEvent` so application-level ``on_rpc_event``
   callbacks fire (Prometheus exporter, OTEL bridge, custom logger, …).
 
-The emit fires only when ``RPC_CONTEXT_RPC_METHOD`` is present in
-``request.context``.
-Other code paths through the chain (e.g. the chat streaming path in
+The emit fires only when ``RpcCallState.rpc_method`` is present on
+``request.state``. Other code paths through the chain (e.g. the chat streaming path in
 ``_web.chat_transport.chat_aware_authed_post``, which calls
 ``RuntimeTransport.perform_authed_post`` directly without minting an
-``RpcExecutor`` telemetry frame) leave the key absent and skip emission —
+RPC telemetry frame) leave the field absent and skip emission —
 so chat-side requests do not appear in the RPC counters or telemetry
 stream. This invariant is pinned
 by ``test_skips_emit_when_rpc_method_absent`` in
@@ -37,15 +36,19 @@ caller-initiated unwinds, not RPC failures; they propagate without
 incrementing counters or emitting events. Same scope as TracingMiddleware,
 same reason.
 
-The chain owns per-RPC telemetry emission, and ``RpcExecutor.rpc_call``
-keeps only the ``rpc_calls_started`` counter plus the reqid plumbing —
-concerns that live OUTSIDE the chain and are not transport-layer events.
+The chain owns per-dispatch telemetry emission, and
+``WebExecutionRuntime.rpc_call`` keeps only the ``rpc_calls_started`` counter
+plus the reqid plumbing — concerns that live OUTSIDE the chain and are not
+transport-layer events. A decode-time auth refresh recursively dispatches a
+second transport leg with the same logical request id, so it can produce a
+second success event while ``rpc_calls_started`` remains one. This preserves
+the established transport-observability behavior.
 
 Decode-time errors (e.g. ``NoData`` raised after a 200-OK transport return)
 do not increment ``rpc_calls_failed``: the chain wraps only the transport
-leg, and :meth:`RpcExecutor.rpc_call` decodes AFTER the chain returns. This
-disentangles two failure modes — chain failures = transport failures, decode
-failures track separately if anyone wants to add them.
+leg, and :meth:`WebExecutionRuntime.rpc_call` decodes AFTER the chain returns.
+This disentangles two failure modes — chain failures = transport failures,
+while decode failures use the separate ``rpc_decode_errors`` counter.
 
 See ``docs/adr/0009-middleware-chain.md`` for the chain contract.
 """
@@ -70,11 +73,10 @@ class MetricsMiddleware:
     ``__call__`` signature matches the Protocol so mypy treats instances
     as assignable into a ``Sequence[Middleware]``.
 
-    Holds a reference to the shared :class:`ClientMetrics` instance owned
-    by :class:`NotebookLMClient`. The middleware does not own metric state; it
-    is purely a write-through into the host's accumulator. This keeps the
-    ``client.metrics`` snapshot view authoritative — a test that swaps a
-    middleware out can still observe the counters.
+    Holds a reference to the shared :class:`ClientMetrics` runtime leaf owned
+    by :class:`WebRpcBackend`. The middleware does not own metric state; it is
+    purely a write-through into the backend-owned accumulator. This keeps the
+    client snapshot view authoritative through backend delegation.
     """
 
     def __init__(self, metrics: ClientMetrics) -> None:
@@ -87,7 +89,7 @@ class MetricsMiddleware:
     ) -> RpcResponse:
         """Time ``next_call``, then increment + emit on its terminal status.
 
-        Reads ``rpc_method`` from ``request.context``: when absent
+        Reads ``rpc_method`` from ``request.state``: when absent
         (chat-side path; ``__new__``-built fixture) the middleware
         becomes a pure pass-through with no observable effect. When present,
         the value flows into :attr:`RpcTelemetryEvent.method`.

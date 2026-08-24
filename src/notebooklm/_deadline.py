@@ -69,10 +69,11 @@ class RuntimeDeadline:
 class RuntimeDeadlineFactory:
     """Start one caller-bound deadline from the owning client's timeout.
 
-    The factory is injected at composition instead of making a backend reach
-    into ``RpcExecutor`` for its per-attempt timeout. A semantic invocation can
-    therefore capture one absolute identity before its first native call while
-    explicitly supplied deadlines and workflow-owned budgets stay authoritative.
+    The factory is injected at composition instead of making semantic handlers
+    reach into ``WebExecutionRuntime`` for its per-attempt timeout. A semantic
+    invocation can therefore capture one absolute identity before its first
+    native call while explicitly supplied deadlines and workflow-owned budgets
+    stay authoritative.
     """
 
     timeout_provider: TimeoutProvider

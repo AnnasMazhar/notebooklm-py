@@ -11,10 +11,10 @@ This module hosts two cooperating pieces:
    then probe for a server-side commit before re-issuing.
 
 2. :class:`IdempotencyRegistry` — the 5-policy classification layer that
-   :class:`~notebooklm._rpc_executor.RpcExecutor` consults to compute the
-   *effective* ``disable_internal_retries`` value. The registry is a
-   single source of truth for every ``RPCMethod`` without touching the
-   executor.
+   :class:`~notebooklm._web.runtime.WebExecutionRuntime` consults to compute
+   the *effective* ``disable_internal_retries`` value. The registry is a
+   single source of truth for every ``RPCMethod`` without spreading policy
+   into the execution implementation.
 
    The production registry is complete: every active ``RPCMethod`` has
    an explicit default classification, with variant rows for wire shapes
@@ -29,8 +29,8 @@ Drive ``documentId``-match + baseline-diff; ``add_text``: no probe
 possible — see :class:`~notebooklm.exceptions.NonIdempotentRetryError`).
 
 This module is private (``_idempotency.py``); call sites live in the
-domain APIs (``_notebooks.py``, ``_sources.py``) and the RPC executor
-(``_rpc_executor.py``). The canonical home for the taxonomy itself and
+domain APIs (``_notebooks.py``, ``_sources.py``) and the backend-owned web
+runtime (``_web/runtime.py``). The canonical home for the taxonomy itself and
 the per-RPC classification rationale is ADR-0005
 (``docs/adr/0005-idempotency-taxonomy.md``).
 """
@@ -277,8 +277,8 @@ async def idempotent_create(
 # ============================================================================
 #
 # The registry is the single source of truth for "how should this RPC behave
-# under retry?" It is consulted by ``RpcExecutor`` to compute the *effective*
-# ``disable_internal_retries`` value before request encoding.
+# under retry?" It is consulted by ``WebExecutionRuntime`` to compute the
+# *effective* ``disable_internal_retries`` value before request encoding.
 #
 # IMPORTANT — complete production registry:
 #   The module-level registry seeds missing methods with UNCLASSIFIED only as a

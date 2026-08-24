@@ -7,7 +7,8 @@ issue #1205 flagged that they were implemented as divergent copies:
   catches a raw ``httpx.HTTPStatusError`` 400/401/403 from ``Kernel.post``,
   refreshes, rebuilds the request envelope, and re-invokes the chain leaf
   once.
-* **Decoded-RPC layer** — :meth:`notebooklm._rpc_executor.RpcExecutor.try_refresh_and_retry`
+* **Decoded-RPC layer** —
+  :meth:`notebooklm._web.runtime.WebExecutionRuntime.try_refresh_and_retry`
   catches an auth-shaped decoded ``RPCError`` (HTTP 200 carrying an auth
   error in the batchexecute payload), refreshes, and re-calls ``rpc_call``
   once.
@@ -22,14 +23,15 @@ HTTP-status copy incremented ``rpc_auth_retries``.
 This module owns that common core exactly once:
 
 * :class:`RefreshBudget` — a single-consume token that bounds a *logical*
-  RPC call to **one** refresh across BOTH layers. The executor mints one
-  budget per logical ``rpc_call`` and threads it through the chain context
-  (so :class:`AuthRefreshMiddleware` sees it) AND keeps a reference for the
-  decode-time leg. Without the shared budget a ``wire-401 → refresh →
-  decoded-auth-error`` sequence would refresh twice — the HTTP-status copy's
-  per-chain ``auth_refreshed`` flag and the decode copy's ``_is_retry`` flag
-  could not see each other (issue #1205, the audit's named double-refresh
-  concern).
+  RPC call to **one** refresh across BOTH layers. ``WebExecutionRuntime``
+  mints one budget per logical ``rpc_call``, publishes it through the
+  identity-shared ``RpcCallState.refresh_budget`` field (so
+  :class:`AuthRefreshMiddleware` sees it), and keeps the same reference for
+  the decode-time leg. Without the shared budget a
+  ``wire-401 → refresh → decoded-auth-error`` sequence would refresh twice —
+  the HTTP-status layer's bounded ``auth_refreshed`` publication and the
+  decode layer's ``_is_retry`` recursion guard could not see each other
+  (issue #1205, the audit's named double-refresh concern).
 * :func:`refresh_and_count` — the shared refresh body. It performs the log
   lines, the coalesced single-flight refresh, the refresh-failure raise
   (delegated to a caller-supplied ``on_refresh_failure`` so each layer keeps
@@ -72,8 +74,9 @@ class RefreshBudget:
     coroutine-safe in the sense of guarding against interleaved ``await``
     across tasks — it is single-threaded asyncio state read and written
     synchronously within one logical call's control flow, mirroring the
-    pre-consolidation ``_is_retry`` recursion flag and the per-chain
-    ``RPC_CONTEXT_AUTH_REFRESHED`` boolean it unifies.
+    pre-consolidation ``_is_retry`` recursion flag. The complementary
+    ``RpcCallState.auth_refreshed`` publication handles chain re-entry when no
+    budget is present.
     """
 
     __slots__ = ("_available",)
