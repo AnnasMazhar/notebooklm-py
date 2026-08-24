@@ -1678,6 +1678,7 @@ def collect_unresolved_rpc_dispatches() -> list[str]:
         if relative.startswith(("rpc/", "_row_adapters/", "_types/")) or relative in {
             "_idempotency_policy.py",
             "_rpc_executor.py",
+            "_web/runtime.py",
         }:
             continue
         collector = _ReferenceCollector(relative, set())

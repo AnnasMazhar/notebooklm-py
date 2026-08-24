@@ -22,7 +22,7 @@ else:  # pragma: no cover - direct script execution
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src" / "notebooklm"
 GOLDEN_PATH = REPO_ROOT / "tests" / "_guardrails" / "test_golden_decode_coverage.py"
-RPC_EXECUTOR_PATH = SRC_ROOT / "_rpc_executor.py"
+WEB_EXECUTION_RUNTIME_PATH = SRC_ROOT / "_web" / "runtime.py"
 RPC_REGISTRY_EVIDENCE_PATH = REPO_ROOT / "scripts" / "operation_catalog_rpc_registry.json"
 
 _OMISSION_DISPOSITIONS: Mapping[str, str] = {
@@ -178,7 +178,7 @@ def _override_honored() -> tuple[bool, dict[str, Any]]:
     local must feed the encoded request body, URL builder, and decoder, while
     the encoded request is handed to the transport's request builder.
     """
-    tree = _parse(RPC_EXECUTOR_PATH)
+    tree = _parse(WEB_EXECUTION_RUNTIME_PATH)
     execute_once = next(
         (
             node
@@ -247,7 +247,7 @@ def _override_honored() -> tuple[bool, dict[str, Any]]:
                     and node.args[1].id == "resolved_id"
                 )
     return all(checks.values()), {
-        "source_contract": "_rpc_executor.py:RpcExecutor._execute_once",
+        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once",
         "dataflow": checks,
         "behavior_test": (
             "tests/unit/test_operation_catalog.py::"

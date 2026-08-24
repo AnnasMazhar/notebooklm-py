@@ -158,6 +158,7 @@ from .codec.notes import (
 from .codec.suggestions import decode_prompt_source_ids
 from .error_policy import SAFE_REASON_DIAGNOSTICS, WEB_ERROR_REASONS
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
+from .runtime import WebExecutionRuntime
 
 if TYPE_CHECKING:
     from .._reqid_counter import ReqidCounter
@@ -491,11 +492,11 @@ class _DeadlineRpcCaller:
 
 
 class WebRpcBackend(ChatWebHandlers):
-    """Typed semantic binding over the existing shared :class:`RpcExecutor`."""
+    """Typed semantic binding owning web execution through its runtime."""
 
     def __init__(
         self,
-        executor: RpcExecutor,
+        runtime: WebExecutionRuntime,
         *,
         transport_factory: Callable[..., object],
         source_uploader: Any | None = None,
@@ -505,7 +506,15 @@ class WebRpcBackend(ChatWebHandlers):
         chat_response_max_bytes: int | None = None,
     ) -> None:
         assert_resolved_read_timeout(chat_timeout, name="chat_timeout")
-        self._executor = executor
+        # The raw ``RpcExecutor`` name remains the compatibility object exposed
+        # by ``NotebookLMClient.rpc_call``. Its implementation is the focused
+        # backend runtime, and semantic dispatch uses that runtime-owned alias
+        # directly so execution authority no longer resides in the general
+        # client adapter.
+        self._runtime = runtime
+        # Transitional compatibility for callers/tests that still inspect the
+        # pre-P7 collaborator name. Semantic dispatch never reads this alias.
+        self._executor: RpcExecutor = cast(RpcExecutor, runtime)
         self._transport_factory = transport_factory
         self._source_uploader = source_uploader
         if self._source_uploader is not None:
@@ -671,7 +680,7 @@ class WebRpcBackend(ChatWebHandlers):
                     ),
                 )
             read_timeout = remaining if read_timeout is None else min(read_timeout, remaining)
-        return await self._executor.rpc_call(
+        return await self._runtime.rpc_call(
             method,
             params,
             source_path=source_path,
