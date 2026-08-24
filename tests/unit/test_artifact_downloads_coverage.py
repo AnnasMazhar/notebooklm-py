@@ -29,6 +29,7 @@ from notebooklm._artifact.downloads import (
     _download_display_host,
     _is_trusted_download_host,
 )
+from notebooklm._studio import downloads as studio_downloads
 from notebooklm.exceptions import UnknownRPCMethodError
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import (
@@ -615,8 +616,8 @@ async def test_download_url_error_path_drains_full_queue(tmp_path):
         with (
             patch.object(httpx, "AsyncClient", return_value=mock_client),
             patch.object(artifact_downloads, "load_httpx_cookies", return_value=MagicMock()),
-            patch.object(artifact_downloads, "open", blocking_open, create=True),
-            patch.object(artifact_downloads.queue, "Queue", _capturing_queue),
+            patch.object(studio_downloads, "open", blocking_open, create=True),
+            patch.object(studio_downloads.queue, "Queue", _capturing_queue),
             pytest.raises(RuntimeError, match="connection dropped"),
         ):
             await service.download_url("https://storage.googleapis.com/x.bin", str(output_path))
@@ -627,7 +628,7 @@ async def test_download_url_error_path_drains_full_queue(tmp_path):
     assert not output_path.exists()
     assert list(tmp_path.glob("out.bin.*.tmp")) == []
     # Sanity: the bounded queue size constant is what we relied on.
-    assert artifact_downloads._DOWNLOAD_WRITER_QUEUE_SIZE < 50
+    assert studio_downloads._DOWNLOAD_WRITER_QUEUE_SIZE < 50
 
 
 # ---------------------------------------------------------------------------
@@ -668,7 +669,7 @@ async def test_download_url_writer_failure_surfaced(tmp_path):
     with (
         patch.object(httpx, "AsyncClient", return_value=mock_client),
         patch.object(artifact_downloads, "load_httpx_cookies", return_value=MagicMock()),
-        patch.object(artifact_downloads, "open", failing_open, create=True),
+        patch.object(studio_downloads, "open", failing_open, create=True),
         pytest.raises(OSError, match="disk full"),
     ):
         await service.download_url("https://storage.googleapis.com/x.bin", str(output_path))
@@ -736,7 +737,7 @@ async def test_download_url_backpressure_to_thread_put(tmp_path):
     with (
         patch.object(httpx, "AsyncClient", return_value=mock_client),
         patch.object(artifact_downloads, "load_httpx_cookies", return_value=MagicMock()),
-        patch.object(artifact_downloads, "open", slow_open, create=True),
+        patch.object(studio_downloads, "open", slow_open, create=True),
     ):
         result = await service.download_url(
             "https://storage.googleapis.com/x.bin", str(output_path)
@@ -976,7 +977,7 @@ async def test_download_url_error_path_drain_observes_empty_queue(tmp_path):
     with (
         patch.object(httpx, "AsyncClient", return_value=mock_client),
         patch.object(artifact_downloads, "load_httpx_cookies", return_value=MagicMock()),
-        patch.object(artifact_downloads.queue, "Queue", _RacyQueue),
+        patch.object(studio_downloads.queue, "Queue", _RacyQueue),
         pytest.raises(RuntimeError, match="connection dropped"),
     ):
         await service.download_url("https://storage.googleapis.com/x.bin", str(output_path))
