@@ -8,6 +8,7 @@ from typing import TypeVar, cast
 from notebooklm._backend import (
     BackendCapabilities,
     BackendContractError,
+    BackendError,
     BackendKind,
     UnsupportedOperationError,
 )
@@ -37,6 +38,7 @@ class RecordingBackend:
         self.closed = False
         self._definitions: dict[Operation, OperationDef[object, object]] = {}
         self._results: dict[Operation, object] = {}
+        self._errors: dict[Operation, BackendError] = {}
 
     def set_result(
         self,
@@ -52,6 +54,29 @@ class RecordingBackend:
             )
         self._definitions[operation.key] = cast(OperationDef[object, object], operation)
         self._results[operation.key] = result
+        self._errors.pop(operation.key, None)
+        self.capabilities = BackendCapabilities(frozenset(self._definitions))
+
+    def set_error(
+        self,
+        operation: OperationDef[InputT, OutputT],
+        error: BackendError,
+    ) -> None:
+        """Register one neutral failure for an operation.
+
+        Error-path tests use this backend seam instead of inserting a
+        test-only stage into the production HTTP middleware chain.  The
+        operation field may be omitted by a generic fixture, but a conflicting
+        operation is rejected immediately so failure evidence cannot be
+        attributed to the wrong semantic call.
+        """
+        if error.operation not in {None, operation.key}:
+            raise ValueError(
+                f"{operation.key.value} cannot raise an error for {error.operation.value}"
+            )
+        self._definitions[operation.key] = cast(OperationDef[object, object], operation)
+        self._errors[operation.key] = error
+        self._results.pop(operation.key, None)
         self.capabilities = BackendCapabilities(frozenset(self._definitions))
 
     async def invoke(
@@ -80,6 +105,9 @@ class RecordingBackend:
             )
 
         self.invocations.append(BackendInvocation(operation.key, value, deadline))
+        error = self._errors.get(operation.key)
+        if error is not None:
+            raise error
         result = self._results[operation.key]
         if not isinstance(result, operation.output_type):
             raise BackendContractError(

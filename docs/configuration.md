@@ -272,7 +272,7 @@ be audited from one location.
 | `NOTEBOOKLM_SERVER_DOWNLOAD_CONCURRENCY` | Max concurrent REST artifact download handlers. | Env var → `2`; blank uses default; must be integer `>=1`. | `server._limits.ServerLimiters.from_env` |
 | `NOTEBOOKLM_SERVER_RESEARCH_CONCURRENCY` | Max concurrent REST research start/cancel/import handlers. | Env var → `2`; blank uses default; must be integer `>=1`. | `server._limits.ServerLimiters.from_env` |
 | `NOTEBOOKLM_SERVER_CHAT_CONCURRENCY` | Max concurrent REST blocking chat ask handlers. | Env var → `4`; blank uses default; must be integer `>=1`. | `server._limits.ServerLimiters.from_env` |
-| `NOTEBOOKLM_VCR_RECORD_ERRORS` | Synthetic-error injection mode for VCR test cassettes. Lowercase-normalized; valid values are `429` (rate limit), `5xx` (server error), or `expired_csrf` (CSRF token expiration). Used to record synthetic error cassettes under VCR. | Process env on each request, evaluated by `ErrorInjectionMiddleware` to intercept and synthesize failures. | `_error_injection._get_error_injection_mode` |
+| `NOTEBOOKLM_VCR_RECORD_ERRORS` | Synthetic-error injection mode for VCR test cassettes. Lowercase-normalized; valid values are `429` (rate limit), `5xx` (server error), or `expired_csrf` (CSRF token expiration). Used to return and record matching synthetic error responses while VCR is recording. | Test-suite VCR live/cassette response seam; production client construction rejects a recognized value outside pytest. | `_error_injection._get_error_injection_mode` |
 
 **Boolean handling.** `NOTEBOOKLM_DEBUG_RPC` treats `1` / `true` / `yes`
 (case-insensitive) as truthy; everything else is falsy.

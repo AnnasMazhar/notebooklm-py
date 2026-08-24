@@ -30,24 +30,19 @@ a real-world error shape (e.g. a quota-exhaustion 429 with a real
 
 Recording note (maintainers)
 ----------------------------
-As of Tier-12 PR 12.6, synthetic-error substitution lives in
-:class:`notebooklm._middleware.error_injection.ErrorInjectionMiddleware`
-at the chain layer — well above the ``httpx`` transport. VCR's record
-hook patches ``httpcore.AsyncConnectionPool.handle_async_request`` (below
-httpx), so the chain short-circuit happens before VCR ever sees the
-request: the wrapper bypasses the record hook entirely. As a consequence
-these cassettes are hand-written from the canonical synthetic shapes in
-``tests/cassette_patterns.py`` rather than captured by running the tests
-under ``NOTEBOOKLM_VCR_RECORD=1``. The replay path is unaffected — VCR
-returns the cassette's synthetic response to the client's httpx pipeline
-normally, and the exception-mapping branches fire as they would for a
-real upstream error.
+Synthetic-error substitution is owned by the test-only VCR recording seam in
+``tests/vcr_config.py``: its outer transport wrapper changes the live response,
+and its response hook stores the identical cassette shape. It is not part of
+the production middleware chain.
+These historical cassettes are hand-written from the canonical synthetic
+shapes in ``tests/cassette_patterns.py``. The replay path is unaffected —
+VCR returns the cassette's synthetic response to the client's httpx pipeline
+normally, and the exception-mapping branches fire as they would for a real
+upstream error.
 
-The ``@pytest.mark.synthetic_error("<mode>")`` marker is intentionally NOT
-used here: it would activate the chain middleware during replay too,
-short-circuiting VCR and making the cassette decorative. Leaving the env
-var unset lets VCR's cassette drive the response, which is the behavior
-we want the replay tests to exercise.
+The ``@pytest.mark.synthetic_error("<mode>")`` marker is intentionally not
+used here: leaving the env var unset lets the recorded cassette drive the
+response, which is the behavior these replay tests exercise.
 
 See ``docs/development.md`` (section "Synthetic error cassettes") and
 ``tests/cassette_patterns.py:build_synthetic_error_response`` for the canonical

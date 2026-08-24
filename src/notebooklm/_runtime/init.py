@@ -3,7 +3,7 @@
 Splits the client-runtime constructor into three concerns:
 :func:`validate_constructor_args` (kwarg validation + normalization),
 :func:`build_collaborators` (the seven collaborators in dependency order),
-and :func:`wire_middleware_chain` (the seven-middleware ADR-0009 chain).
+and :func:`wire_middleware_chain` (the six-middleware ADR-0009 chain).
 Dependency-ordering and seam-resolution comments live inside the helpers so
 future readers see *why* the order matters.
 
@@ -430,7 +430,7 @@ def wire_middleware_chain(
     rpc_semaphore_factory: Callable[[], AbstractAsyncContextManager[Any]],
     is_auth_error: Callable[[Exception], bool],
 ) -> WiredMiddleware:
-    """Construct the :class:`MiddlewareChainBuilder`, build the seven-middleware
+    """Construct the :class:`MiddlewareChainBuilder`, build the six-middleware
     list, and wire the final chain via :func:`build_chain`.
 
     Two narrow host parameters:

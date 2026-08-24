@@ -1,41 +1,21 @@
-"""Synthetic HTTP error injection for VCR cassette playback (test-only).
+"""Synthetic-error configuration guard for VCR tests.
 
-When ``NOTEBOOKLM_VCR_RECORD_ERRORS`` is set to ``429`` / ``5xx`` /
-``expired_csrf`` AND
-:class:`notebooklm._middleware.error_injection.ErrorInjectionMiddleware`
-has been constructed with an injected ``builder`` callable (canonical:
-``tests/cassette_patterns.py:build_synthetic_error_response``), the
-middleware short-circuits each chain invocation with the synthetic
-response so the client's exception-mapping branches (429 →
-``RateLimitError``, 5xx → ``ServerError``, 400-CSRF → ``AuthError``) fire
-end-to-end.
-
-**The env var is a no-op without an injected builder.** Production code
-(``MiddlewareChainBuilder`` in ``_middleware/chain.py``) instantiates
-``ErrorInjectionMiddleware()`` with no builder argument, so a leaked
-``NOTEBOOKLM_VCR_RECORD_ERRORS`` env var on a user install cannot trigger
-any synthetic substitution — the middleware passes through. Tests that
-exercise the substitution path construct the middleware directly with an
-explicit ``builder=`` argument (issue #1005).
-
-**Production behavior is also unchanged when the env var is unset.** The
-middleware delegates straight to ``next_call``; the ``Kernel.post`` chain
-terminal runs exactly as it would without the middleware in the chain.
-
-``ErrorInjectionMiddleware`` substitutes responses at the chain level
-(ABOVE VCR), so recording synthetic errors into cassettes is not supported
-— replay-only is the documented contract: the synthetic-error cassettes in
-``tests/cassettes/`` are hand-written from the canonical shapes in
-``tests/cassette_patterns.py``.
+``NOTEBOOKLM_VCR_RECORD_ERRORS`` selects the ``429`` / ``5xx`` /
+``expired_csrf`` response shape used by the VCR live/cassette recording seam in
+``tests/vcr_config.py``.  The former production
+``ErrorInjectionMiddleware`` was permanently pass-through in installed
+clients and was removed before the P7 runtime collapse.  Semantic service
+tests now register neutral failures on ``tests._fixtures.RecordingBackend``;
+no test-only response substitution remains in the production HTTP chain.
 
 Public surface kept:
 
 - :func:`_get_error_injection_mode` — env-var → mode normalization.
 - :func:`_refuse_synthetic_error_outside_test_context` — client
   construction (``NotebookLMClient.__init__``) calls this so a leaked
-  deploy env raises ``RuntimeError`` instead of silently activating the
-  chain middleware. The guard fires only when ``PYTEST_CURRENT_TEST`` is
-  unset (pytest sets it for every test).
+  deploy env raises ``RuntimeError`` instead of silently carrying test-only
+  recording configuration. The guard fires only when
+  ``PYTEST_CURRENT_TEST`` is unset (pytest sets it for every test).
 - :data:`ERROR_INJECT_ENV_VAR` — env-var name (canonical string).
 """
 
@@ -54,7 +34,7 @@ from ._runtime.config import CORE_LOGGER_NAME
 
 # Logger name pinned via :data:`CORE_LOGGER_NAME` so log filters in
 # tests — e.g. ``caplog.at_level(..., logger=CORE_LOGGER_NAME)`` — keep
-# matching. Client collaborators and middleware seams share the same name.
+# matching. Client collaborators share the same historical name.
 logger = logging.getLogger(CORE_LOGGER_NAME)
 
 
@@ -69,14 +49,11 @@ def _get_error_injection_mode() -> str | None:
     cassette-recording run on a typo — the unit tests catch the typo path,
     and the VCR config validates the value separately).
 
-    Returning a non-``None`` mode does NOT by itself activate any synthetic
-    substitution: the production ``ErrorInjectionMiddleware`` is
-    constructed without a builder (see
-    :class:`notebooklm._middleware.error_injection.ErrorInjectionMiddleware`),
-    which makes the middleware a pass-through regardless of this mode.
-    Tests that exercise the substitution wire a builder explicitly. Issue
-    #1005 closes the prior dynamic-load attack surface where a leaked env
-    var would trigger an ``importlib`` walk of ``tests/cassette_patterns.py``.
+    Returning a non-``None`` mode does not affect production requests. The
+    value is consumed by the test-suite VCR recording seam, while semantic
+    tests inject neutral failures through the recording fake backend. Issue #1005 closed
+    the prior dynamic-load attack surface where a leaked env var triggered an
+    ``importlib`` walk of ``tests/cassette_patterns.py``.
 
     The valid-mode set is hardcoded here (rather than imported from
     ``tests.cassette_patterns``) so production import time never reaches into
@@ -104,9 +81,9 @@ def _refuse_synthetic_error_outside_test_context() -> None:
     """Refuse client instantiation when the test-only env var leaks.
 
     ``NOTEBOOKLM_VCR_RECORD_ERRORS`` is documented as test-only. Production
-    wiring constructs ``ErrorInjectionMiddleware`` without a builder, so the
-    env var alone cannot substitute responses; this guard still fail-fast
-    rejects leaked cassette-recording config before the client starts.
+    runtime has no response-injection stage, so the env var cannot substitute
+    production responses; this guard still rejects leaked cassette-recording
+    config before the client starts.
 
     The guard fires only when:
 
@@ -131,10 +108,10 @@ def _refuse_synthetic_error_outside_test_context() -> None:
     message = (
         f"{ERROR_INJECT_ENV_VAR}={mode!r} is set but no pytest context was "
         f"detected (PYTEST_CURRENT_TEST unset). This env var is test-only — "
-        f"it substitutes synthetic error responses for every batchexecute "
-        f"RPC and must not be set in production. Unset {ERROR_INJECT_ENV_VAR} "
-        f"to restore normal behavior, or run under pytest if synthetic-error "
-        f"recording is intended."
+        f"it selects synthetic VCR response shapes and must not be set in "
+        f"production. Unset {ERROR_INJECT_ENV_VAR} to restore normal "
+        f"behavior, or run under pytest if synthetic-error recording is "
+        f"intended."
     )
     logger.warning(message)
     raise RuntimeError(message)

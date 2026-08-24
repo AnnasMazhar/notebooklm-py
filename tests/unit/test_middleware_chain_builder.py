@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 
 from notebooklm._middleware.auth_refresh import AuthRefreshMiddleware
 from notebooklm._middleware.drain import DrainMiddleware
-from notebooklm._middleware.error_injection import ErrorInjectionMiddleware
 from notebooklm._middleware.metrics import MetricsMiddleware
 from notebooklm._middleware.retry import RetryMiddleware
 from notebooklm._middleware.semaphore import SemaphoreMiddleware
@@ -40,11 +39,10 @@ def test_builder_returns_adr_009_order():
 
     chain = MiddlewareChainBuilder(**_builder_kwargs()).build()
 
-    assert len(chain) == 7
+    assert len(chain) == 6
     assert isinstance(chain[0], DrainMiddleware)
     assert isinstance(chain[1], MetricsMiddleware)
     assert isinstance(chain[2], SemaphoreMiddleware)
     assert isinstance(chain[3], RetryMiddleware)
     assert isinstance(chain[4], AuthRefreshMiddleware)
-    assert isinstance(chain[5], ErrorInjectionMiddleware)
-    assert isinstance(chain[6], TracingMiddleware)
+    assert isinstance(chain[5], TracingMiddleware)

@@ -891,8 +891,6 @@ RetryMiddleware              429 / 5xx with Retry-After honor
    ↓
 AuthRefreshMiddleware        refresh-on-auth-error; capped retries
    ↓
-ErrorInjectionMiddleware     synthetic-error harness; no-op in prod
-   ↓
 TracingMiddleware            innermost — structured-logging boundary
                              (OpenTelemetry export is future work)
    ↓
@@ -1211,7 +1209,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_chat/transport.py` | Chat-specific error mapping over the shared transport pipeline |
 | `_chat/deleted_tracker.py` | Bounded `RecentlyDeletedConversations` set — `delete_conversation` records the id (under the conversation lock) so a concurrent null-conversation ask, after acquiring that lock, detects a mid-flight delete and drops `resolved_id_override` to recover the server's real conversation id post-POST (#1875) |
 | `_middleware/chain.py` | Constructs the middleware chain in the canonical ADR-0009 order |
-| `_middleware/*.py` | Modular middleware implementations (drain, metrics, semaphore, retry, auth, error injection, tracing) |
+| `_middleware/*.py` | Modular middleware implementations (drain, metrics, semaphore, retry, auth, tracing) |
 | `rpc/types.py` | RPC method IDs (source of truth) |
 | `auth.py` | Authentication facade — **almost pure re-exports** (the only remaining function body is `async def enumerate_accounts`, which binds `_poke_session` as a default dependency; ADR-0003 records the optional-`async` audit command). Every other top-level name forwards from the relevant `_auth/*` module: `auth._validate_required_cookies` is identity-equal to `_auth.cookie_policy._validate_required_cookies`, and `load_auth_from_storage` / `AuthTokens` live in `_auth/tokens.py`. **ADR-0003's flat-re-export goal was closed by ADR-0014.** Tests that need to rebind policy names patch `_auth.cookie_policy.X` directly. |
 | `_auth/paths.py` | Storage paths and filesystem helpers |
@@ -1429,7 +1427,6 @@ src/notebooklm/
 │   ├── tracing.py               # Tracing middleware
 │   ├── metrics.py               # Metrics middleware
 │   ├── drain.py                 # Drain middleware
-│   ├── error_injection.py       # Error injection middleware
 │   ├── retry.py                 # Retry middleware
 │   ├── auth_refresh.py          # Auth refresh middleware
 │   └── semaphore.py             # Concurrency semaphore middleware

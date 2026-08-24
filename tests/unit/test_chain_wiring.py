@@ -270,25 +270,17 @@ async def test_chain_terminal_log_label_defaults_for_direct_calls() -> None:
 async def test_chain_seeded_with_final_adr_009_ordering() -> None:
     """``NotebookLMClient.__init__`` seeds the chain with the FINAL ADR-0009 ordering.
 
-    PR 12.3 landed ``TracingMiddleware`` at the innermost position; PR 12.4
-    prepended ``MetricsMiddleware``; PR 12.5 prepended ``DrainMiddleware``
-    outermost; PR 12.6 inserted ``ErrorInjectionMiddleware`` between
-    Metrics and Tracing; PR 12.7 inserted ``RetryMiddleware`` between
-    Metrics and ErrorInjection; PR 12.8 inserted ``AuthRefreshMiddleware``
-    between Retry and ErrorInjection; PR 12.9 inserted
-    ``SemaphoreMiddleware`` between Metrics and Retry (codex catch — see
-    ADR-0009 close-out notes). The list now reads the final ADR-0009
-    ordering
-    ``[Drain, Metrics, Semaphore, Retry, AuthRefresh, ErrorInjection, Tracing]``
-    (outermost → innermost).
+    The historical seven-stage chain included a permanently pass-through
+    ``ErrorInjectionMiddleware``. The pre-P7 prerequisite retired that
+    test-only stage, leaving the behavior-bearing ADR-0009 ordering
+    ``[Drain, Metrics, Semaphore, Retry, AuthRefresh, Tracing]`` (outermost →
+    innermost).
 
     Order rationale (per ADR-0009):
     - Drain outermost — every in-flight call counts toward shutdown wait
     - Metrics outside Semaphore — latency includes queue wait
     - Semaphore outside Retry — retry attempts stay in one slot
     - Retry outside AuthRefresh — orthogonal failure modes
-    - AuthRefresh outside ErrorInjection — test-injected 401s exercise refresh
-    - ErrorInjection inside Retry — synthetic transient failures trigger retry
     - Tracing innermost — logs actual HTTP attempts including retries
 
     The list is exposed as ``self._middlewares`` so the cleanup audit can
@@ -296,21 +288,19 @@ async def test_chain_seeded_with_final_adr_009_ordering() -> None:
     """
     from notebooklm._middleware.auth_refresh import AuthRefreshMiddleware
     from notebooklm._middleware.drain import DrainMiddleware
-    from notebooklm._middleware.error_injection import ErrorInjectionMiddleware
     from notebooklm._middleware.metrics import MetricsMiddleware
     from notebooklm._middleware.retry import RetryMiddleware
     from notebooklm._middleware.semaphore import SemaphoreMiddleware
     from notebooklm._middleware.tracing import TracingMiddleware
 
     core = _make_core()
-    assert len(core._composed.middlewares) == 7
+    assert len(core._composed.middlewares) == 6
     assert isinstance(core._composed.middlewares[0], DrainMiddleware)
     assert isinstance(core._composed.middlewares[1], MetricsMiddleware)
     assert isinstance(core._composed.middlewares[2], SemaphoreMiddleware)
     assert isinstance(core._composed.middlewares[3], RetryMiddleware)
     assert isinstance(core._composed.middlewares[4], AuthRefreshMiddleware)
-    assert isinstance(core._composed.middlewares[5], ErrorInjectionMiddleware)
-    assert isinstance(core._composed.middlewares[6], TracingMiddleware)
+    assert isinstance(core._composed.middlewares[5], TracingMiddleware)
 
 
 @pytest.mark.asyncio

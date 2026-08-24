@@ -39,7 +39,6 @@ from notebooklm._middleware.core import (
     build_chain,
 )
 from notebooklm._middleware.drain import DrainMiddleware
-from notebooklm._middleware.error_injection import ErrorInjectionMiddleware
 from notebooklm._middleware.metrics import MetricsMiddleware
 from notebooklm._middleware.retry import RetryMiddleware
 from notebooklm._middleware.semaphore import SemaphoreMiddleware
@@ -173,7 +172,7 @@ def test_rpc_executor_and_middleware_chain_ordering_invariants() -> None:
     assert client.chat._service._backend is client._backend
 
     # Canonical middleware chain ordering per ADR-0009:
-    # [Drain, Metrics, Semaphore, Retry, AuthRefresh, ErrorInjection, Tracing]
+    # [Drain, Metrics, Semaphore, Retry, AuthRefresh, Tracing]
     middlewares = client._composed.middlewares
     middleware_types = [type(mw) for mw in middlewares]
     expected_order = [
@@ -182,7 +181,6 @@ def test_rpc_executor_and_middleware_chain_ordering_invariants() -> None:
         SemaphoreMiddleware,
         RetryMiddleware,
         AuthRefreshMiddleware,
-        ErrorInjectionMiddleware,
         TracingMiddleware,
     ]
     assert middleware_types == expected_order

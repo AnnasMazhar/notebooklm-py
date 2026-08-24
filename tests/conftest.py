@@ -171,11 +171,9 @@ def _synthetic_error_mode(request, monkeypatch):
     auto-reverted on teardown). Without the marker, the env var is left
     untouched — preserving the spec's "opt-in" contract.
 
-    Set before the client constructs its runtime and enters the middleware chain
-    (markers are read at setup time): ``_error_injection._get_error_injection_mode``
-    is consulted by the construction guard and by ``ErrorInjectionMiddleware``, so
-    the var must be in place before the fixture under test enters its
-    ``async with`` block.
+    Markers are read at setup time so the VCR response hook and the client
+    construction guard see the same normalized mode. Runtime service tests use
+    ``RecordingBackend.set_error`` instead of this marker.
 
     Production behavior is unchanged when the marker is absent.
     """

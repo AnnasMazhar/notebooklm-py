@@ -56,15 +56,21 @@ the ``@pytest.mark.no_keepalive_disable`` marker — the autouse fixture will
 leave the env var alone and let the poke fire.
 """
 
+import contextlib
+import functools
 import importlib.util
 import json
 import os
 import re
 from pathlib import Path
 from typing import Any
+from unittest import mock
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import vcr
+from vcr.cassette import Cassette, CassetteContextDecorator
+from vcr.patch import CassettePatcherBuilder
 
 
 def _load_sibling(module_name: str, file_name: str) -> Any:
@@ -142,6 +148,114 @@ def get_error_injection_mode() -> str | None:
     return raw if raw in VALID_ERROR_MODES else None
 
 
+def _build_live_synthetic_response(request: httpx.Request, mode: str) -> httpx.Response:
+    """Build the response returned to a live httpx caller during VCR recording."""
+    status_code, body_bytes, headers = build_synthetic_error_response(mode)
+    return httpx.Response(
+        status_code,
+        headers=headers,
+        stream=httpx.ByteStream(body_bytes),
+        request=request,
+    )
+
+
+def _wrap_async_recording_transport(handler: Any) -> Any:
+    """Wrap one VCR-patched async httpx transport with live substitution."""
+
+    @functools.wraps(handler)
+    async def wrapped(self: Any, request: httpx.Request) -> httpx.Response:
+        response = await handler(self, request)
+        mode = get_error_injection_mode()
+        if mode is None:
+            return response
+        await response.aclose()
+        return _build_live_synthetic_response(request, mode)
+
+    return wrapped
+
+
+def _wrap_sync_recording_transport(handler: Any) -> Any:
+    """Wrap one VCR-patched sync httpx transport with live substitution."""
+
+    @functools.wraps(handler)
+    def wrapped(self: Any, request: httpx.Request) -> httpx.Response:
+        response = handler(self, request)
+        mode = get_error_injection_mode()
+        if mode is None:
+            return response
+        response.close()
+        return _build_live_synthetic_response(request, mode)
+
+    return wrapped
+
+
+class _SyntheticRecordingPatcherBuilder(CassettePatcherBuilder):
+    """Install live substitution outside VCR's own record/playback wrapper.
+
+    ``before_record_response`` receives a defensive copy and therefore can
+    only alter cassette storage.  These outer wrappers are yielded *after*
+    vcrpy's standard httpx patchers have been entered, so the original call
+    still reaches VCR (and the real/local server in recording mode) before the
+    returned response is replaced for the live client.
+    """
+
+    def build(self):  # type: ignore[no-untyped-def]
+        yield from super().build()
+        if not _is_vcr_record_mode():
+            return
+
+        targets = (
+            (httpx.HTTPTransport, "handle_request", False),
+            (httpx.AsyncHTTPTransport, "handle_async_request", True),
+            (httpx.WSGITransport, "handle_request", False),
+            (httpx.ASGITransport, "handle_async_request", True),
+            (httpx.MockTransport, "handle_request", False),
+            (httpx.MockTransport, "handle_async_request", True),
+        )
+        for transport_type, attribute, is_async in targets:
+            handler = getattr(transport_type, attribute, None)
+            if handler is None:  # pragma: no cover - version compatibility
+                continue
+            replacement = (
+                _wrap_async_recording_transport(handler)
+                if is_async
+                else _wrap_sync_recording_transport(handler)
+            )
+            yield mock.patch.object(transport_type, attribute, replacement)
+
+
+class _SyntheticRecordingCassetteContext(CassetteContextDecorator):
+    """Cassette context using the live-response recording patcher."""
+
+    def _patch_generator(self, cassette: Cassette):  # type: ignore[no-untyped-def]
+        with contextlib.ExitStack() as exit_stack:
+            for patcher in _SyntheticRecordingPatcherBuilder(cassette).build():
+                exit_stack.enter_context(patcher)
+            yield cassette
+
+
+class _SyntheticRecordingCassette(Cassette):
+    """Cassette whose contexts install the test-only live recording seam."""
+
+    @classmethod
+    def use_arg_getter(cls, arg_getter: Any) -> _SyntheticRecordingCassetteContext:
+        return _SyntheticRecordingCassetteContext(cls, arg_getter)
+
+    @classmethod
+    def use(cls, **kwargs: Any) -> _SyntheticRecordingCassetteContext:
+        return _SyntheticRecordingCassetteContext.from_args(cls, **kwargs)
+
+
+class _SyntheticRecordingVCR(vcr.VCR):
+    """VCR variant that changes both recorded and live synthetic responses."""
+
+    def _use_cassette(self, with_current_defaults: bool = False, **kwargs: Any):  # type: ignore[no-untyped-def]
+        if with_current_defaults:
+            return _SyntheticRecordingCassette.use(**self.get_merged_config(**kwargs))
+        args_getter = functools.partial(self.get_merged_config, **kwargs)
+        return _SyntheticRecordingCassette.use_arg_getter(args_getter)
+
+
 def scrub_request(request: Any) -> Any:
     """Scrub sensitive data from recorded HTTP request.
 
@@ -179,18 +293,18 @@ def scrub_request(request: Any) -> Any:
 
 
 def _substitute_synthetic_error(response: dict[str, Any]) -> dict[str, Any]:
-    """defense-in-depth synthetic-error substitution.
+    """Substitute the cassette copy of a synthetic recording response.
 
     When ``NOTEBOOKLM_VCR_RECORD_ERRORS`` resolves to a valid mode (see
     :data:`VALID_ERROR_MODES`), rewrite the response shape to the canonical
     synthetic-error shape from :mod:`tests.cassette_patterns`.
 
-    The error-injection middleware in
-    :mod:`notebooklm._middleware.error_injection` already substitutes
-    the live response BEFORE it reaches VCR, so in normal recording this hook
-    sees the synthetic shape already. This pass exists so that:
+    This hook owns cassette storage after the inert production
+    ``ErrorInjectionMiddleware`` was retired. The companion outer transport
+    wrapper above owns the live response seen by the recording test. Together
+    they ensure that:
 
-    1. Tests that bypass the production transport (e.g. direct
+    1. Tests that use a direct
        ``notebooklm_vcr.use_cassette`` with a hand-built ``httpx.AsyncClient``)
        still record synthetic shapes when the env var is set.
     2. The substitution is observable from cassette-only paths in CI without
@@ -199,21 +313,21 @@ def _substitute_synthetic_error(response: dict[str, Any]) -> dict[str, Any]:
     Returns ``response`` unchanged when the env var is unset or the value is
     not a recognized mode.
     """
+    if not _is_vcr_record_mode():
+        return response
     mode = get_error_injection_mode()
     if mode is None:
         return response
     status_code, body_bytes, headers = build_synthetic_error_response(mode)
-    response["status"] = {"code": status_code, "message": ""}
+    response["status"] = {
+        "code": status_code,
+        "message": httpx.codes.get_reason_phrase(status_code),
+    }
     response["body"] = {"string": body_bytes}
-    # Preserve any incoming headers (e.g. Content-Length VCR fills in) but
-    # overlay our synthetic ones so the Content-Type / Retry-After hints land
-    # on the recorded shape.
-    out_headers = response.get("headers", {})
-    if not isinstance(out_headers, dict):
-        out_headers = {}
-    for k, v in headers.items():
-        out_headers[k] = [v]
-    response["headers"] = out_headers
+    # The real response is discarded, so its headers must be discarded too:
+    # retaining Content-Length or Set-Cookie would attach stale or sensitive
+    # wire metadata to a body that no longer exists.
+    response["headers"] = {key: [value] for key, value in headers.items()}
     return response
 
 
@@ -251,12 +365,12 @@ def scrub_response(response: dict[str, Any]) -> dict[str, Any]:
     no-op on bodies that don't look chunked, so it's safe to call
     unconditionally.
 
-    Synthetic-error recording: when ``NOTEBOOKLM_VCR_RECORD_ERRORS`` is set to a valid mode,
-    :func:`_substitute_synthetic_error` runs FIRST so that downstream scrub
-    steps see the canonical synthetic shape rather than whatever the wire
-    produced (the error-injection middleware in
-    :mod:`notebooklm._middleware.error_injection` normally already
-    substituted, but this pass closes the loop for VCR-only test paths).
+    Synthetic-error recording: when ``NOTEBOOKLM_VCR_RECORD_ERRORS`` is set to
+    a valid mode, :func:`_substitute_synthetic_error` runs FIRST so downstream
+    scrub steps see the canonical synthetic shape rather than whatever the
+    wire produced. The recording context's outer transport wrapper returns the
+    identical shape to the live client; production middleware does not
+    participate.
     """
     # synthetic-error substitution (no-op when env var unset).
     response = _substitute_synthetic_error(response)
@@ -767,7 +881,7 @@ def _freq_body_matcher(r1: Any, r2: Any) -> bool:
 _record_mode = "new_episodes" if _is_vcr_record_mode() else "none"
 
 # Main VCR instance for notebooklm-py tests
-notebooklm_vcr = vcr.VCR(
+notebooklm_vcr = _SyntheticRecordingVCR(
     # Cassette storage location
     cassette_library_dir="tests/cassettes",
     # Record mode: 'none' = only replay (CI), 'new_episodes' = record if missing

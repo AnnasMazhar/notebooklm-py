@@ -9,14 +9,19 @@ item on the v0.6 architecture-deepening backlog, §6.1): the
 chain-metadata carrier — see §"Decision: `RpcRequest.context: dict[str,
 Any]` is the long-term shape" below for the rationale and the policy
 governing additions to the vocabulary table.
+Amended by the semantic-backend pre-P7 prerequisite: the production
+`ErrorInjectionMiddleware` was permanently pass-through and is deleted. Tests
+inject semantic failures through `RecordingBackend`; VCR response substitution
+is owned by the test-only live/cassette recording seam in `tests/vcr_config.py`.
+The current chain therefore has six stages.
 
 This ADR shipped in PR 12.1 of the Tier-12/13 greenfield migration as
 type-only scaffolding: the Protocol, dataclasses, and `build_chain` helper
 landed without production wiring. PR 12.2 wired an empty chain into
 `Session`. PRs 12.3 through 12.8 each extracted one cross-cutting
 concern into a dedicated middleware. **PR 12.9 closes the tier** — the
-seven-middleware chain `[Drain, Metrics, Semaphore, Retry, AuthRefresh,
-ErrorInjection, Tracing]` is fully wired, the leaf
+historical seven-middleware chain `[Drain, Metrics, Semaphore, Retry,
+AuthRefresh, ErrorInjection, Tracing]` was fully wired, the leaf
 is a pure POST, and the underscore-prefixed compatibility aliases were
 removed. Later architecture cleanup retired the interim authed-transport
 Adapter; the current terminal path is
@@ -52,9 +57,8 @@ The post-remediation `Session` orchestrates six cross-cutting concerns
 across every authenticated POST. The "Today" column below describes the
 pre-Tier-12 state (when ADR-0009 was written, before any chain extraction
 landed); the "Post-Tier-12" column describes where each concern lives
-after PR 12.9 closed the tier. `_SyntheticErrorTransport` was deleted by
-PR 12.9; the chain-layer `ErrorInjectionMiddleware` is the only
-substitution path going forward.
+after PR 12.9 closed the tier. The final column states the current owner after
+the pre-P7 error-injection isolation.
 
 | Concern | Pre-Tier-12 | Post-Tier-12 (PR 12.9 → today) |
 |---|---|---|
@@ -63,8 +67,8 @@ substitution path going forward.
 | RPC concurrency gate | `asyncio.Semaphore` inside the legacy transport POST loop | `SemaphoreMiddleware` (chain pos 2) |
 | Retry on 5xx / 429 | inline loops inside the legacy transport POST loop | `RetryMiddleware` (chain pos 3) |
 | Auth refresh on 401 | inline branch inside the legacy transport POST loop (`_session_auth.py`) | `AuthRefreshMiddleware` (chain pos 4) |
-| Synthetic error injection (tests) | `_SyntheticErrorTransport` wraps the httpx client (`_error_injection.py`) — DELETED PR 12.9 | `ErrorInjectionMiddleware` (chain pos 5) |
-| Per-attempt tracing/logging | scattered `logger.debug` calls inside the retry loop | `TracingMiddleware` (chain pos 6) |
+| Synthetic error injection (tests) | `_SyntheticErrorTransport` wraps the httpx client (`_error_injection.py`) — DELETED PR 12.9 | `RecordingBackend.set_error` for semantic tests; `tests/vcr_config.py` for identical live/cassette recording responses; no production chain stage |
+| Per-attempt tracing/logging | scattered `logger.debug` calls inside the retry loop | `TracingMiddleware` (chain pos 5) |
 
 Before the chain extraction, adding another concern (e.g. an
 idempotency-routing wrapper for retry safety, ADR-0005) required touching
@@ -140,7 +144,7 @@ chain operates on already-encoded HTTP requests; encoding/decoding lives
 The chain is composed in this exact order (outermost → innermost):
 
 ```text
-Drain → Metrics → Semaphore → Retry → AuthRefresh → ErrorInjection → Tracing → terminal
+Drain → Metrics → Semaphore → Retry → AuthRefresh → Tracing → terminal
 ```
 
 Where `terminal` is
@@ -154,14 +158,14 @@ middleware is wrapped first around `terminal`).
 "PR 12.9 close-out notes" below) after the first cut of the audit-find
 moved the `max_concurrent_rpcs` slot to `Session._perform_authed_post`
 (outside the chain) and codex caught the resulting Drain-admission
-regression. PR 12.1 originally pinned six middlewares; the chain is seven
-post-PR-12.9.
+regression. PR 12.9 historically shipped seven middlewares; the inert
+error-injection stage was removed by the pre-P7 prerequisite, leaving six.
 
 Per-position rationale:
 
 - **Drain outermost.** Every in-flight call — including ones that haven't
-  reached the transport yet because Semaphore / Retry / AuthRefresh /
-  ErrorInjection haven't released them — must count toward shutdown
+  reached the transport yet because Semaphore / Retry / AuthRefresh haven't
+  released them — must count toward shutdown
   drain. Putting Drain inside any of those would let a stuck retry (or a
   queued call waiting for the semaphore) escape the drain accounting.
 - **Metrics outside Semaphore.** Metrics measure end-to-end timing
@@ -188,18 +192,6 @@ Per-position rationale:
   probe-then-create write is neither retried on 5xx/429 nor replayed
   after an auth refresh, because a mid-flight 401/403 can land *after*
   the server committed the write (issue #1157).
-- **AuthRefresh outside ErrorInjection.** Test-injected 401s exercise the
-  refresh path realistically — a test that injects a 401 expects the
-  refresh middleware to run, not for the injection to short-circuit
-  before refresh sees it. Putting AuthRefresh inside ErrorInjection would
-  invert that.
-- **ErrorInjection inside Retry.** Synthetic transient failures should
-  look like network errors to `RetryMiddleware`. Putting ErrorInjection
-  outside Retry would make the retry path invisible to the test,
-  defeating the purpose. Pre-PR-12.6 this was a transport-layer wrapper
-  (`_SyntheticErrorTransport`); PR 12.6 lifted it into the chain and PR
-  12.9 deleted the transport class — substitution is now exclusively a
-  chain-layer concern.
 - **Tracing innermost.** Tracing logs every actual HTTP attempt, including
   retried ones. Putting Tracing outside Retry would log only one entry
   per logical call regardless of retries, losing the per-attempt
@@ -212,7 +204,7 @@ Per-position rationale:
 | `rpc_method` | `str \| None` | `RuntimeTransport.perform_authed_post` (receives the resolved method-name string from `RpcExecutor._execute_once`, which passes `method.name` — never the `RPCMethod` enum itself; chat-side callers pass `None`) | `MetricsMiddleware`, `TracingMiddleware` |
 | `disable_internal_retries` | `bool` | `RuntimeTransport.perform_authed_post` (receives the post-resolution boolean from `RpcExecutor._execute_once`, which calls `_idempotency.resolve_effective_disable_internal_retries(...)` before invoking the chain) | `RetryMiddleware`, `AuthRefreshMiddleware` (when set, skips the auth-refresh-and-retry replay so a non-idempotent / probe-then-create write is not re-issued after a mid-flight 401/403 — issue #1157) |
 | `build_request` | `BuildRequest` | `RuntimeTransport.perform_authed_post` (stashed before chain entry as the rebuild recipe) | `AuthRefreshMiddleware._rebuild_request_after_refresh`, `RuntimeTransport.refresh_request_for_current_auth`, `RuntimeTransport.terminal` |
-| `log_label` | `str` | `RuntimeTransport.perform_authed_post` | `DrainMiddleware`, `RetryMiddleware`, `ErrorInjectionMiddleware`, `AuthRefreshMiddleware`, `TracingMiddleware`, `RuntimeTransport.terminal` |
+| `log_label` | `str` | `RuntimeTransport.perform_authed_post` | `DrainMiddleware`, `RetryMiddleware`, `AuthRefreshMiddleware`, `TracingMiddleware`, `RuntimeTransport.terminal` |
 | `auth_snapshot` | `AuthSnapshot` | `RuntimeTransport.perform_authed_post` (initial snapshot before chain entry); refreshed by `AuthRefreshMiddleware._rebuild_request_after_refresh` after a successful refresh, and replaced by `RuntimeTransport.refresh_request_for_current_auth` at the chain leaf when a freshness check detects auth moved while the request was queued | `RuntimeTransport.refresh_request_for_current_auth` (chain-terminal pre-POST freshness check); pair-mutated with the materialized envelope so middlewares never observe a torn `(snapshot, request)` pair |
 | `auth_refreshed` | `bool` | `AuthRefreshMiddleware` (sets to `True` after a successful refresh, **before** the retry leg) | `AuthRefreshMiddleware` (skip-on-replay guard so a `RetryMiddleware` retry on the post-refresh leg cannot drive a second refresh on a fresh 401) |
 | `rpc_queue_wait_seconds` | `float` | `SemaphoreMiddleware` (writes queue-wait duration on slot acquire — also exported as `RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS` from `_middleware/context.py`; `RPC_QUEUE_WAIT_CONTEXT_KEY` remains a compatibility alias in `_middleware/semaphore.py`) | `RuntimeTransport.perform_authed_post` (forwards to `ClientMetrics.record_rpc_queue_wait` after the chain returns) |
@@ -408,7 +400,7 @@ of the two callbacks, the retry semantics, the types) is fixed here.
   chain ordering — no transport-leaf surgery, no growth of a host
   Protocol.
 - The chain ordering becomes a single line of code (`[Drain, Metrics,
-  Semaphore, Retry, AuthRefresh, ErrorInjection, Tracing]`) instead of an
+  Semaphore, Retry, AuthRefresh, Tracing]`) instead of an
   implicit invariant scattered across one transport function.
 
 **Unwanted:**

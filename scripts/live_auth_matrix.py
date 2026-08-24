@@ -919,7 +919,7 @@ class Matrix:
             "run",
             "pytest",
             "-q",
-            "tests/unit/test_error_injection_middleware.py",
+            "tests/unit/test_error_injection_backend.py",
             "tests/unit/test_retry_middleware.py",
             "tests/unit/test_auth_refresh_middleware.py",
         ]

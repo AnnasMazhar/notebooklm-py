@@ -3,7 +3,7 @@
 Per ADR-0009 §"Chain ordering", ``RetryMiddleware`` sits just *inside*
 ``SemaphoreMiddleware`` and just *outside* ``AuthRefreshMiddleware``. The
 chain is
-``[Drain, Metrics, Semaphore, Retry, AuthRefresh, ErrorInjection, Tracing]``.
+``[Drain, Metrics, Semaphore, Retry, AuthRefresh, Tracing]``.
 
 This middleware owns the **retry-on-429** and **retry-on-5xx/network** loops.
 The chain leaf is a single ``Kernel.post`` attempt that raises

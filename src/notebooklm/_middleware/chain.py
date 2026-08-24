@@ -5,8 +5,8 @@ The chain wraps ``Kernel.post`` through
 covering ``RuntimeTransport.perform_authed_post`` and
 ``RpcExecutor._execute_once``'s dispatch into the transport).
 
-The ADR-0009 ordering is ``[Drain, Metrics, Semaphore, Retry, AuthRefresh,
-ErrorInjection, Tracing]`` (outermost → innermost). ``build_chain``
+The current ADR-0009 ordering is ``[Drain, Metrics, Semaphore, Retry,
+AuthRefresh, Tracing]`` (outermost → innermost). ``build_chain``
 composes the leftmost entry as the outermost wrapper, so keeping
 ``TracingMiddleware`` at the RIGHT end of the list preserves Tracing as
 the innermost wrapper.
@@ -39,7 +39,6 @@ from typing import Any
 from .auth_refresh import AuthRefreshMiddleware
 from .core import Middleware
 from .drain import DrainMiddleware
-from .error_injection import ErrorInjectionMiddleware
 from .metrics import MetricsMiddleware
 from .retry import RetryMiddleware
 from .semaphore import SemaphoreMiddleware
@@ -47,7 +46,7 @@ from .tracing import TracingMiddleware
 
 
 class MiddlewareChainBuilder:
-    """Builds the seven-middleware ADR-0009 chain.
+    """Builds the six-middleware ADR-0009 chain.
 
     Provider callables (``rate_limit_max_retries_provider`` etc.) are
     used by ``RetryMiddleware`` / ``AuthRefreshMiddleware`` so
@@ -139,6 +138,5 @@ class MiddlewareChainBuilder:
                 snapshot_provider=self._auth_snapshot_provider,
                 metrics=self._metrics,
             ),
-            ErrorInjectionMiddleware(),
             TracingMiddleware(),
         ]

@@ -116,7 +116,6 @@ CARVE_OUT_MODULES: frozenset[str] = frozenset(
         "src/notebooklm/_middleware/auth_refresh.py",
         "src/notebooklm/_middleware/chain.py",
         "src/notebooklm/_middleware/drain.py",
-        "src/notebooklm/_middleware/error_injection.py",
         "src/notebooklm/_middleware/metrics.py",
         "src/notebooklm/_middleware/retry.py",
         "src/notebooklm/_middleware/semaphore.py",

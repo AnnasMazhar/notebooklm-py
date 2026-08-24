@@ -225,8 +225,8 @@ def build_chain(
     ``C.__call__(request, →T)``.
 
     This matches the chain ordering documented in ADR-0009: ``[Drain,
-    Metrics, Semaphore, Retry, AuthRefresh, ErrorInjection, Tracing]`` —
-    Drain at index 0 is the outermost wrapper, Tracing at index 6 is the
+    Metrics, Semaphore, Retry, AuthRefresh, Tracing]`` —
+    Drain at index 0 is the outermost wrapper, Tracing at index 5 is the
     innermost wrapper around the terminal.
 
     Implementation: wrap in reverse, so the last middleware in the sequence

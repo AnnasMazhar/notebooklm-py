@@ -36,12 +36,9 @@ Design constraints (load-bearing — see ``tests/unit/test_client_keepalive.py``
   mid-close leaks the underlying httpx transport.
 
 * :meth:`open` does not wrap the inner transport for synthetic-error
-  injection — that path lives in the chain
-  (:class:`notebooklm._middleware.error_injection.ErrorInjectionMiddleware`,
-  wired by client internals composition). When
-  ``NOTEBOOKLM_VCR_RECORD_ERRORS`` is set, the chain middleware
-  short-circuits before the chain leaf reaches httpx, so the httpx-layer
-  transport stays a real, unwrapped transport at all times.
+  injection. Error-path service tests use the recording fake backend and VCR
+  recording uses a test-suite live/cassette response seam, so the httpx-layer transport
+  stays a real, unwrapped transport at all times.
 
 * :meth:`save_cookies` always uses the typed ``ProfileStore`` path when no
   callback was injected. An explicit ``cookie_saver=`` is isolated behind the
@@ -257,10 +254,8 @@ class ClientLifecycle:
         intentionally replaces the binding — ``open()`` is the only binding
         moment.
 
-        Synthetic-error injection lives in the chain, not this layer — see
-        :class:`notebooklm._middleware.error_injection.ErrorInjectionMiddleware`
-        for the substitution point. The httpx transport built here is
-        always a real, unwrapped transport.
+        Synthetic-error injection is not part of the production runtime. The
+        httpx transport built here is always a real, unwrapped transport.
 
         This signature takes explicit keyword-only collaborators rather than
         the legacy ``host`` Protocol so the lifecycle never reaches into

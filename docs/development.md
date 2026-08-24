@@ -1085,9 +1085,11 @@ hits a few non-obvious snags. Lessons from the v0.8 full-lifecycle re-record
 > shapes. If you need to validate a real-world error shape, capture a live
 > recording instead — these synthetic shapes are intentionally minimal.
 
-The `NOTEBOOKLM_VCR_RECORD_ERRORS` env var opts a recording session into
-substituting the next outgoing batchexecute RPC with a synthetic error
-response. Three modes are supported:
+The `NOTEBOOKLM_VCR_RECORD_ERRORS` env var opts a VCR recording session into
+replacing the next returned batchexecute response with a synthetic error. The
+real request still reaches the recording target; the test-only VCR seam then
+returns the synthetic response to the live client and stores the identical
+shape in the cassette. Three modes are supported:
 
 | Mode            | HTTP status | Maps to                                         |
 |-----------------|-------------|-------------------------------------------------|
@@ -1097,9 +1099,9 @@ response. Three modes are supported:
 
 The plumbing has three opt-in layers:
 
-1. **Env var**: `NOTEBOOKLM_VCR_RECORD_ERRORS=<mode>` activates the
-   `ErrorInjectionMiddleware` in the middleware chain (the env var is
-   consulted when the client opens).
+1. **Env var**: `NOTEBOOKLM_VCR_RECORD_ERRORS=<mode>` selects the synthetic
+   response produced by the test-suite VCR recording seam. Production runtime
+   requests and VCR replay do not consult it for substitution.
 2. **Pytest marker**: `@pytest.mark.synthetic_error("<mode>")` sets the env
    var for the duration of a single test (auto-reverted on teardown). Note
    that the `synthetic_error` marker is registered dynamically in
@@ -1110,9 +1112,8 @@ The plumbing has three opt-in layers:
    build the filename so reviewers can tell synthetic shapes apart from
    real recordings at a glance.
 
-Example recording session (this is the workflow a maintainer uses to
-record the actual error cassettes — the transport-wrapper module itself
-ships only the plumbing):
+Example recording session (the substitution is performed by
+`tests/vcr_config.py`):
 
 ```bash
 NOTEBOOKLM_VCR_RECORD=1 \
@@ -1120,10 +1121,10 @@ NOTEBOOKLM_VCR_RECORD_ERRORS=429 \
   uv run pytest tests/integration/test_error_paths_vcr.py
 ```
 
-Production behavior is unchanged when `NOTEBOOKLM_VCR_RECORD_ERRORS` is
-unset — the transport wrapper is only constructed when the env var resolves
-to a recognized mode, and a typo'd value resolves to `None` (the recording
-session continues without substitution).
+Production behavior is unchanged: the live-response wrapper exists only while
+a VCR cassette is open in recording mode. When `NOTEBOOKLM_VCR_RECORD_ERRORS`
+is unset or misspelled, the wrapper passes the recorded response through
+unchanged (the recording session continues without substitution).
 
 ### Per-method RPC coverage gate
 

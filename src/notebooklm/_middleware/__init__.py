@@ -12,7 +12,6 @@ from . import (
     context,
     core,
     drain,
-    error_injection,
     metrics,
     retry,
     semaphore,
@@ -43,7 +42,6 @@ from .core import (
     materialize_rpc_request,
 )
 from .drain import DrainMiddleware
-from .error_injection import ErrorInjectionMiddleware
 from .metrics import MetricsMiddleware
 from .retry import RetryMiddleware
 from .semaphore import RPC_QUEUE_WAIT_CONTEXT_KEY, SemaphoreMiddleware
@@ -56,7 +54,6 @@ __all__ = [
     "context",
     "core",
     "drain",
-    "error_injection",
     "metrics",
     "retry",
     "semaphore",
@@ -82,7 +79,6 @@ __all__ = [
     "build_chain",
     "materialize_rpc_request",
     "DrainMiddleware",
-    "ErrorInjectionMiddleware",
     "MetricsMiddleware",
     "RetryMiddleware",
     "RPC_QUEUE_WAIT_CONTEXT_KEY",

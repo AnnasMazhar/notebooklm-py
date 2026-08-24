@@ -1,8 +1,8 @@
 """AuthRefreshMiddleware — 401/403/400-CSRF retry-with-refresh for the chain.
 
 Per ADR-0009 §"Chain ordering", ``AuthRefreshMiddleware`` sits just *inside*
-``RetryMiddleware`` and just *outside* ``ErrorInjectionMiddleware``. The chain
-is ``[Drain, Metrics, Semaphore, Retry, AuthRefresh, ErrorInjection, Tracing]``.
+``RetryMiddleware`` and just *outside* ``TracingMiddleware``. The chain is
+``[Drain, Metrics, Semaphore, Retry, AuthRefresh, Tracing]``.
 
 This middleware owns the **auth-refresh-once retry** loop. The leaf is a
 *pure* ``Kernel.post`` terminal that lets ``httpx.HTTPStatusError`` /
@@ -161,7 +161,7 @@ class AuthRefreshMiddleware:
 
         Reads ``log_label`` from ``request.context`` for log lines (defensive
         sentinel fallback matches DrainMiddleware / RetryMiddleware /
-        ErrorInjectionMiddleware).
+        the retired test-only error-injection stage).
 
         Enforces **at most one refresh per logical call** even when
         ``RetryMiddleware`` (outside this middleware) re-invokes the chain on

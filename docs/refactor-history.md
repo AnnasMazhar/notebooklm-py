@@ -161,7 +161,7 @@ not change, only their home module did.
 | `notebooklm._core.DEFAULT_*` (timeouts, concurrency knobs) | `notebooklm._runtime.config.DEFAULT_*` | |
 | `notebooklm._core.AUTH_ERROR_PATTERNS`, `notebooklm._core.is_auth_error` | `notebooklm._runtime.helpers` | |
 | `notebooklm._core.ERROR_INJECT_ENV_VAR` | `notebooklm._error_injection.ERROR_INJECT_ENV_VAR` | |
-| `notebooklm._core._SyntheticErrorTransport` (class) | _Removed_ | Synthetic-error substitution moved into `notebooklm._middleware.error_injection.ErrorInjectionMiddleware`. The env-var resolver (`_get_error_injection_mode`) and startup guard (`_refuse_synthetic_error_outside_test_context`) survive in `notebooklm._error_injection`. |
+| `notebooklm._core._SyntheticErrorTransport` (class) | _Removed_ | Synthetic-error substitution first moved into `ErrorInjectionMiddleware`; that permanently pass-through production stage later retired before P7. The env-var resolver and startup guard survive in `notebooklm._error_injection`; VCR substitution is test-suite-owned. |
 | `notebooklm._core.AuthRefreshCoordinator` | `notebooklm._runtime.auth.AuthRefreshCoordinator` | Class unchanged; only the home module moved. |
 | `notebooklm._core.TransportDrainTracker` | `notebooklm._transport_drain.TransportDrainTracker` | Same. |
 | `notebooklm._core.ClientMetrics` | `notebooklm._client_metrics.ClientMetrics` | Same. |
@@ -183,7 +183,7 @@ These modules did not exist before Tier 12 began:
 | `notebooklm._middleware_tracing` | Tier 12 PR 12.3 — request tracing middleware. |
 | `notebooklm._middleware_metrics` | Tier 12 PR 12.4 — metrics collection middleware. |
 | `notebooklm._middleware_drain` | Tier 12 PR 12.5 — drain bookkeeping middleware. |
-| `notebooklm._middleware.error_injection` | Test-only error-injection middleware. |
+| `notebooklm._middleware.error_injection` | Historical test-only error-injection middleware; retired by the pre-P7 prerequisite after consumers moved to the fake backend. |
 | `notebooklm._middleware_retry` | Tier 12 PR 12.7 — 429 / 5xx retry middleware. |
 | `notebooklm._middleware_auth_refresh` | Tier 12 PR 12.8 — auth-refresh-on-401 middleware. |
 | `notebooklm._middleware_semaphore` | Tier 12 PR 12.9 — global RPC concurrency cap. |
@@ -196,7 +196,7 @@ These modules did not exist before Tier 12 began:
 
 | Symbol or default | Replacement / new behavior |
 |---|---|
-| `notebooklm._core._SyntheticErrorTransport` (deleted) | `notebooklm._middleware.error_injection.ErrorInjectionMiddleware` (chain-resident; mode is still resolved from `NOTEBOOKLM_VCR_RECORD_ERRORS` via `_error_injection._get_error_injection_mode`). |
+| `notebooklm._core._SyntheticErrorTransport` (deleted) | No production replacement remains. Semantic tests use `RecordingBackend.set_error`; cassette recording uses `tests/vcr_config.py`; mode normalization remains in `_error_injection._get_error_injection_mode`. |
 | Strict-decode soft mode | Strict decoding is now the only mode. The legacy lenient opt-out was removed in v0.7.0; setting old lenient-decode environment toggles no longer restores legacy behavior. See [ADR-0011](adr/0011-schema-validation-policy.md). |
 
 ## Design intent

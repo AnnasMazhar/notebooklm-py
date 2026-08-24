@@ -19,12 +19,10 @@ Specifically pinned here:
 * :meth:`ClientLifecycle.save_cookies` routes the untouched default through
   :class:`CookiePersistence`'s typed canonical path and preserves the explicit
   constructor-injected saver override.
-* The httpx ``AsyncClient`` **always uses httpx's default transport** —
-  Tier-12 PR 12.6 lifted synthetic-error injection into the chain
-  (:class:`notebooklm._middleware.error_injection.ErrorInjectionMiddleware`)
-  and PR 12.9 deleted the legacy ``_SyntheticErrorTransport`` class.
-  The lifecycle constructs a plain transport regardless of
-  ``NOTEBOOKLM_VCR_RECORD_ERRORS``.
+* The httpx ``AsyncClient`` **always uses httpx's default transport** — the
+  legacy ``_SyntheticErrorTransport`` and its permanently pass-through
+  middleware replacement are both retired. The lifecycle constructs a plain
+  transport regardless of ``NOTEBOOKLM_VCR_RECORD_ERRORS``.
 * :meth:`ClientLifecycle._keepalive_loop` **respects the min-interval
   clamp** — ``_resolve_keepalive_interval`` floors the configured interval
   at ``keepalive_min_interval`` so a sub-floor user value gets bumped up.
@@ -365,7 +363,7 @@ async def test_open_captures_cookie_snapshot() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Synthetic-error injection — lifted to the chain in PR 12.6
+# Synthetic-error injection — production transport remains uninvolved
 # ---------------------------------------------------------------------------
 
 
@@ -374,11 +372,9 @@ async def test_open_uses_default_httpx_transport_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Default path: httpx's default ``AsyncHTTPTransport`` is in place
-    (no custom transport wrapping). Post-Tier-12 the synthetic-error
-    substitution lives in ``ErrorInjectionMiddleware``; the lifecycle
-    constructs a plain transport regardless of any env var, so the test
-    asserts the lifecycle's transport construction directly without
-    monkeypatching the now-middleware-only error-injection seam.
+    (no custom transport wrapping). Synthetic failures are injected through
+    the recording fake backend or the VCR response hook; the lifecycle always
+    constructs a plain transport regardless of any env var.
     """
     from notebooklm import _error_injection
 
@@ -402,9 +398,9 @@ async def test_open_uses_default_httpx_transport_when_env_var_set(
     """``AsyncClient`` uses httpx's default transport even with env var set.
 
     Pre-Tier-12 the lifecycle wrapped the inner transport in a synthetic
-    httpx transport (deleted in PR 12.9). After Tier-12 the substitution
-    lives in the chain (``ErrorInjectionMiddleware``); the lifecycle
-    constructs a plain transport regardless of the env var.
+    httpx transport (deleted in PR 12.9). The production replacement was
+    permanently pass-through and is now retired; the lifecycle constructs a
+    plain transport regardless of the env var.
     """
     from notebooklm import _error_injection
 

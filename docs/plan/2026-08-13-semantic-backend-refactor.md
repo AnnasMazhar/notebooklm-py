@@ -1557,7 +1557,12 @@ shape.
 - [ ] **P0 through P6 operations migrated:** All operations in the catalog are migrated, or carry a `legacy_exception` catalog row naming an approver and an open removal issue. The catalog audit fails above **5** such rows -- otherwise this criterion is a paragraph the author writes and approves.
 - [ ] **Zero semantic-service `RpcCaller` consumers:** No semantic service consumes `RpcCaller` (audited by `tests/_guardrails/test_semantic_p7_entry_audit.py`).
 - [ ] **Suites green:** Backend contract, codec golden, compatibility, VCR, concurrency, cancellation, and auth-refresh suites are green.
-- [ ] **`ErrorInjectionMiddleware` isolated:** `ErrorInjectionMiddleware` is migrated, deleted, or rehomed first. It is declared out of P7's scope, yet it imports the chain's `NextCall`, `RpcRequest`, and `RpcResponse` -- the very types P7 collapses. P7 may not begin while it still imports `_middleware.core`, so that migration is its own pre-P7 PR (audited by `tests/_guardrails/test_semantic_p7_entry_audit.py`).
+- [x] **`ErrorInjectionMiddleware` isolated:** the permanently pass-through production middleware
+  was deleted in the dedicated pre-P7 prerequisite. Synthetic semantic failures now use
+  `tests._fixtures.RecordingBackend.set_error`, while cassette recording keeps its test-suite VCR
+  seam that returns and records the same synthetic response. No production error-injection module
+  imports the chain's `NextCall`, `RpcRequest`, or `RpcResponse`;
+  `tests/_guardrails/test_semantic_p7_entry_audit.py` fails closed on regression.
 - [ ] **Test seams migrated:** No test outside `tests/_guardrails/` constructs or mutates `ClientComposed`, `MiddlewareChainHost`, or `RpcRequest.context`. Roughly 35 test files reach that runtime today. `test_client_factory_parity.py` and `test_middleware_context_contract.py` are the last consumers and retire in the same PR as the structure (migration rule 9). Green suites alone are not the criterion -- Risk 5 requires the seams migrated *before* P7, which "green" does not imply (audited by `tests/_guardrails/test_semantic_p7_entry_audit.py`).
 - [ ] **Runtime invariants equality-preserved:** Characterization tests (`tests/unit/test_semantic_p7_runtime_characterization.py`) pass, verifying `ClientComposed`/`RpcExecutor`/middleware holder parity, constructor `vars()` parity and option routing, loop affinity, drain/close lifecycle, retry/auth-refresh single-flight, error lattice, and metrics/telemetry snapshot/event invariants.
 
@@ -1576,9 +1581,8 @@ shape.
   - concurrency semaphore;
   - transient retry;
   - auth refresh;
-  - test error injection (`_error_injection.py` is a 140-line *production* module serving the test
-    suite; it is **out of scope for P7** and moves only in a separate PR that migrates its consumers
-    to the fake-backend seam first); and
+  - the synthetic-error startup guard and VCR mode resolver (the chain middleware already retired
+    in the pre-P7 prerequisite after consumers moved to the fake-backend seam); and
   - tracing.
 - Preserve behaviors that remain useful, but do not preserve a generic middleware container solely
   because tests inspect or mutate it.

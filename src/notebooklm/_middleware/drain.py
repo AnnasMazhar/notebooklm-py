@@ -2,7 +2,7 @@
 
 Per ADR-0009 §"Chain ordering", ``DrainMiddleware`` sits at
 the OUTERMOST position of the chain
-``[Drain, Metrics, Semaphore, Retry, AuthRefresh, ErrorInjection, Tracing]``.
+``[Drain, Metrics, Semaphore, Retry, AuthRefresh, Tracing]``.
 
 Pure observer of the transport leg with bookkeeping side-effects: brackets
 ``next_call`` with calls to :meth:`TransportDrainTracker.begin_transport_post`

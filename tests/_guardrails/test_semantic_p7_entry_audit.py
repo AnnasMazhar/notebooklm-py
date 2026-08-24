@@ -3,8 +3,8 @@
 Governed by ADR-0035 and docs/plan/2026-08-13-semantic-backend-refactor.md.
 P7 runs last: no runtime collapse is authorized until P1-P6 have isolated
 semantic feature callers from RpcCaller (or recorded explicit legacy exceptions),
-ErrorInjectionMiddleware is rehomed, and test mutations of mutable chain internals
-have migrated.
+The ErrorInjectionMiddleware prerequisite is complete; remaining test mutations
+of mutable chain internals still have to migrate.
 
 This audit checks all P7 entry criteria, enumerates current blockers, and fails
 closed if entry criteria or internal consumer inventories drift unexpectedly.
@@ -263,8 +263,17 @@ def check_error_injection_middleware_dependency(
     tree = ast.parse(middleware_path.read_text(encoding="utf-8"), filename=str(middleware_path))
     core_imports = {"NextCall", "RpcRequest", "RpcResponse", "core"}
     for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(
+            alias.name == "notebooklm._middleware.core" for alias in node.names
+        ):
+            return True
         if isinstance(node, ast.ImportFrom):
-            if node.module in {".core", "notebooklm._middleware.core", "._middleware.core"}:
+            if node.module in {
+                "core",
+                ".core",
+                "notebooklm._middleware.core",
+                "._middleware.core",
+            }:
                 return True
             if any(alias.name in core_imports for alias in node.names):
                 return True
@@ -371,12 +380,12 @@ def test_p7_entry_criteria_blockers_enumeration() -> None:
     report = evaluate_p7_entry_readiness()
 
     assert not report.ready, "P7 cannot be ready before P1-P6 migrations complete"
-    assert len(report.blockers) >= 4, f"Expected at least 4 blocker classes, got: {report.blockers}"
+    assert len(report.blockers) >= 3, f"Expected at least 3 blocker classes, got: {report.blockers}"
 
     # Check each blocker category is explicitly reported
     blocker_text = "\n".join(report.blockers)
     assert "semantic-service call sites still consume RpcCaller" in blocker_text
-    assert "ErrorInjectionMiddleware still imports from _middleware.core" in blocker_text
+    assert "ErrorInjectionMiddleware still imports from _middleware.core" not in blocker_text
     assert "ClientComposed" in blocker_text
     assert "MiddlewareChainHost" in blocker_text
 
@@ -414,9 +423,10 @@ def test_legacy_exception_policy_and_ceiling() -> None:
         assert exc.issue, f"Legacy exception {exc.operation} missing issue"
 
 
-def test_error_injection_middleware_imports_blocked_for_p7() -> None:
-    """ErrorInjectionMiddleware is confirmed dependent on _middleware.core (blocker for P7)."""
-    assert check_error_injection_middleware_dependency() is True
+def test_error_injection_middleware_isolated_for_p7() -> None:
+    """The retired test-only middleware is no longer a P7 core-type blocker."""
+    assert not (SRC_ROOT / "_middleware" / "error_injection.py").exists()
+    assert check_error_injection_middleware_dependency() is False
 
 
 def test_mutable_runtime_test_reach_inventory_is_baselined_and_fails_closed() -> None:
@@ -480,3 +490,27 @@ def test_detector_fails_closed_when_legacy_exception_missing_approver_or_issue()
     assert any(
         "must specify both an approver and an open removal issue" in b for b in report.blockers
     )
+
+
+def test_error_injection_detector_catches_reintroduced_relative_core_import(
+    tmp_path: Path,
+) -> None:
+    middleware_path = tmp_path / "error_injection.py"
+    middleware_path.write_text(
+        "from .core import NextCall, RpcRequest, RpcResponse\n",
+        encoding="utf-8",
+    )
+
+    assert check_error_injection_middleware_dependency(middleware_path) is True
+
+
+def test_error_injection_detector_catches_reintroduced_absolute_core_import(
+    tmp_path: Path,
+) -> None:
+    middleware_path = tmp_path / "error_injection.py"
+    middleware_path.write_text(
+        "import notebooklm._middleware.core as core\n",
+        encoding="utf-8",
+    )
+
+    assert check_error_injection_middleware_dependency(middleware_path) is True

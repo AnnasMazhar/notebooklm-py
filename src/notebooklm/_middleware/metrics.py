@@ -3,7 +3,7 @@
 Per ADR-0009 §"Chain ordering", ``MetricsMiddleware`` sits
 just inside ``DrainMiddleware`` (and just outside ``SemaphoreMiddleware``) in
 the chain ordering
-``[Drain, Metrics, Semaphore, Retry, AuthRefresh, ErrorInjection, Tracing]``,
+``[Drain, Metrics, Semaphore, Retry, AuthRefresh, Tracing]``,
 which keeps Metrics outside the semaphore.
 
 Pure observer: never mutates ``request`` or transforms ``response``. Around

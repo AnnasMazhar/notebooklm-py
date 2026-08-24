@@ -22,18 +22,21 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import threading
 from collections.abc import Callable
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+import httpx
 import pytest
+import yaml
 
 from notebooklm._error_injection import (
     ERROR_INJECT_ENV_VAR,
     _get_error_injection_mode,
 )
-from tests._helpers.client_factory import build_client_shell_for_tests
 
 # Load ``tests/vcr_config.py`` via ``importlib`` by file path to keep the
 # dependency localized and avoid module-load-time ``sys.path`` mutation.
@@ -370,11 +373,9 @@ def test_scrub_response_does_not_corrupt_non_chunked_html_body():
 # 1. The cassette-patterns response builders return the right shapes for each
 #    valid mode and raise on invalid mode.
 # 2. The ``before_record_response`` hook in vcr_config.py performs a
-#    defense-in-depth substitution when the env var is set, and is a no-op
-#    when unset.
-# 3. The runtime chain includes ``ErrorInjectionMiddleware`` with
-#    ``builder=None``; substitution behavior is covered by direct middleware
-#    tests.
+#    cassette-copy substitution when recording and is a no-op otherwise.
+# 3. A loopback server proves recording returns the same synthetic response
+#    to the live client and stores it in the persisted cassette.
 
 build_synthetic_error_response = _cassette_patterns.build_synthetic_error_response
 synthetic_error_cassette_name = _cassette_patterns.synthetic_error_cassette_name
@@ -471,6 +472,7 @@ def test_scrub_response_substitutes_when_env_var_set(monkeypatch, mode):
     """When the env var resolves to a valid mode, ``scrub_response`` rewrites
     the response shape to the canonical synthetic body, regardless of what
     came in. This is the VCR hook layer used while recording."""
+    monkeypatch.setenv("NOTEBOOKLM_VCR_RECORD", "1")
     monkeypatch.setenv(ERROR_INJECT_ENV_VAR, mode)
     incoming = {
         "status": {"code": 200, "message": "OK"},
@@ -503,6 +505,82 @@ def test_scrub_response_noop_when_env_var_unset(monkeypatch):
     assert b"original wire response" in out["body"]["string"]
 
 
+def test_scrub_response_does_not_substitute_outside_record_mode(monkeypatch):
+    monkeypatch.delenv("NOTEBOOKLM_VCR_RECORD", raising=False)
+    monkeypatch.setenv(ERROR_INJECT_ENV_VAR, "429")
+    incoming = {
+        "status": {"code": 200, "message": "OK"},
+        "headers": {"Content-Type": ["text/plain"]},
+        "body": {"string": b"replay response"},
+    }
+
+    out = scrub_response(incoming)
+
+    assert out["status"]["code"] == 200
+    assert out["body"]["string"] == b"replay response"
+
+
+class _LocalRecordingHandler(BaseHTTPRequestHandler):
+    calls = 0
+
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        type(self).calls += 1
+        body = b"local server success"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Set-Cookie", "SID=live-secret; Path=/; HttpOnly")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+        return
+
+
+@pytest.mark.asyncio
+async def test_recording_substitutes_live_response_and_persisted_cassette(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The recording seam changes the caller response as well as VCR storage."""
+    monkeypatch.setenv("NOTEBOOKLM_VCR_RECORD", "1")
+    monkeypatch.setenv(ERROR_INJECT_ENV_VAR, "429")
+    _LocalRecordingHandler.calls = 0
+    server = HTTPServer(("127.0.0.1", 0), _LocalRecordingHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    cassette_name = "error_synthetic_429_local_recording.yaml"
+
+    try:
+        with _vcr_config.notebooklm_vcr.use_cassette(
+            cassette_name,
+            cassette_library_dir=str(tmp_path),
+            record_mode="all",
+        ) as cassette:
+            async with httpx.AsyncClient(trust_env=False) as client:
+                response = await client.get(f"http://{host}:{port}/rpc")
+
+            expected_status, expected_body, expected_headers = build_synthetic_error_response("429")
+            assert response.status_code == expected_status
+            assert response.content == expected_body
+            assert response.headers["Retry-After"] == expected_headers["Retry-After"]
+            assert cassette.responses[0]["status"]["code"] == expected_status
+            assert cassette.responses[0]["body"]["string"] == expected_body
+            assert "Set-Cookie" not in cassette.responses[0]["headers"]
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+    assert _LocalRecordingHandler.calls == 1
+    persisted = yaml.safe_load((tmp_path / cassette_name).read_text(encoding="utf-8"))
+    recorded = persisted["interactions"][0]["response"]
+    assert recorded["status"]["code"] == 429
+    assert recorded["body"]["string"].encode() == expected_body
+    assert "live-secret" not in (tmp_path / cassette_name).read_text(encoding="utf-8")
+
+
 # --- (3) _error_injection.py mode resolver ----------------------------------
 
 
@@ -528,35 +606,6 @@ def test_core_get_error_injection_mode_typo_returns_none(monkeypatch):
     in-flight cassette session."""
     monkeypatch.setenv(ERROR_INJECT_ENV_VAR, "ratelimit")
     assert _get_error_injection_mode() is None
-
-
-# --- Client-runtime wiring after PR 12.6/12.9 -----------------------------
-#
-# The runtime chain includes ``ErrorInjectionMiddleware`` with ``builder=None``;
-# substitution behavior is covered by direct middleware tests in
-# ``tests/unit/test_error_injection_middleware.py``.
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["429", "5xx", "expired_csrf"])
-async def test_error_injection_middleware_present_when_env_var_set_in_session(monkeypatch, mode):
-    """Client startup wires pass-through ``ErrorInjectionMiddleware`` into the chain."""
-    monkeypatch.setenv(ERROR_INJECT_ENV_VAR, mode)
-    from notebooklm._middleware.error_injection import ErrorInjectionMiddleware
-    from notebooklm.auth import AuthTokens
-
-    auth = AuthTokens(cookies={"SID": "t"}, csrf_token="c", session_id="s")
-    core = build_client_shell_for_tests(auth)
-    try:
-        await core.__aenter__()
-        assert core._collaborators.kernel.http_client is not None
-        # The middleware reads the env var per call; env-var-to-mode
-        # resolution is covered by the dedicated middleware tests in
-        # ``test_error_injection_middleware.py``.
-        assert any(isinstance(mw, ErrorInjectionMiddleware) for mw in core._composed.middlewares)
-    finally:
-        if core._collaborators.kernel.http_client is not None:
-            await core._collaborators.kernel.get_http_client().aclose()
 
 
 # --- (5) marker plumbing in tests/conftest.py --------------------------------

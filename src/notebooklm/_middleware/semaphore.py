@@ -2,8 +2,7 @@
 
 Per ADR-0009 §"Chain ordering", ``SemaphoreMiddleware``
 sits between ``MetricsMiddleware`` and ``RetryMiddleware``. The chain
-ordering is ``[Drain, Metrics, Semaphore, Retry, AuthRefresh, ErrorInjection,
-Tracing]``.
+ordering is ``[Drain, Metrics, Semaphore, Retry, AuthRefresh, Tracing]``.
 
 Placing the semaphore here (rather than around the chain dispatch in
 ``RuntimeTransport.perform_authed_post``) keeps two contracts intact: queued tasks
@@ -19,7 +18,7 @@ and Metrics latency includes RPC queue wait:
   shape includes queue wait.
 - **Retry stays in one slot** — ``RetryMiddleware`` sits INSIDE this
   middleware, so its retry attempts re-invoke the inner chain (AuthRefresh,
-  ErrorInjection, Tracing, terminal) WITHOUT releasing the semaphore. This
+  Tracing, terminal) WITHOUT releasing the semaphore. This
   preserves the "one slot per logical RPC" backpressure contract.
 
 The semaphore is supplied as a zero-arg async-context-manager factory rather
