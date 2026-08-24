@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from notebooklm._artifact.payloads import build_audio_artifact_params
 from notebooklm._backend import (
     BackendContractError,
     BackendDeadlineExceededError,
@@ -17,6 +18,7 @@ from notebooklm._backend import (
     BackendKind,
     UnsupportedOperationError,
 )
+from notebooklm._backend_compat import project_backend_error
 from notebooklm._deadline import RuntimeDeadline
 from notebooklm._notebook_payloads import (
     build_create_notebook_params,
@@ -25,6 +27,7 @@ from notebooklm._notebook_payloads import (
 )
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._records import (
+    ARTIFACT_GENERATE_AUDIO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
     NOTEBOOK_CREATE_DEF,
@@ -35,6 +38,7 @@ from notebooklm._records import (
     SOURCE_ADD_URL_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
+    AudioGenerateInput,
     NotebookCreateInput,
     NotebookDeleteInput,
     NotebookDeleteResult,
@@ -57,6 +61,7 @@ from notebooklm._web.registry import (
     WEB_SUPPORTED_OPERATIONS,
 )
 from notebooklm.exceptions import (
+    ArtifactFeatureUnavailableError,
     AuthError,
     ClientError,
     DecodingError,
@@ -68,7 +73,7 @@ from notebooklm.exceptions import (
     ServerError,
     UnknownRPCMethodError,
 )
-from notebooklm.rpc import RPCMethod
+from notebooklm.rpc import AudioFormat, AudioLength, RPCMethod
 
 
 @dataclass(frozen=True)
@@ -111,6 +116,7 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.SOURCE_GET,
         Operation.ARTIFACT_LIST,
         Operation.ARTIFACT_GET,
+        Operation.ARTIFACT_GENERATE_AUDIO,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -126,6 +132,7 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.SOURCE_GET: SOURCE_GET_DEF,
         Operation.ARTIFACT_LIST: ARTIFACT_LIST_DEF,
         Operation.ARTIFACT_GET: ARTIFACT_GET_DEF,
+        Operation.ARTIFACT_GENERATE_AUDIO: ARTIFACT_GENERATE_AUDIO_DEF,
     }
     assert all(
         binding.unsupported_reason
@@ -157,6 +164,122 @@ async def test_every_unsupported_operation_fails_before_executor(operation: Oper
     assert caught.value.operation is operation
     assert caught.value.backend_kind is BackendKind.WEB
     assert executor.calls == []
+
+
+@pytest.mark.asyncio
+async def test_audio_generate_reuses_payload_builder_and_one_absolute_deadline() -> None:
+    executor = _RecordingExecutor([["audio-id", "Audio", 1, None, 1]])
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 12.0)
+    value = AudioGenerateInput(
+        notebook_id="nb-audio",
+        source_ids=("src-a", "src-b"),
+        language="fr",
+        instructions="Compare the sources",
+        audio_format="debate",
+        audio_length="long",
+    )
+
+    result = await _backend(executor).invoke(
+        ARTIFACT_GENERATE_AUDIO_DEF,
+        value,
+        deadline=deadline,
+    )
+
+    assert (result.status.task_id, result.status.status) == ("audio-id", "pending")
+    assert [call.method for call in executor.calls] == [RPCMethod.CREATE_ARTIFACT]
+    assert executor.calls[0].params == build_audio_artifact_params(
+        "nb-audio",
+        ["src-a", "src-b"],
+        language="fr",
+        instructions="Compare the sources",
+        audio_format=AudioFormat.DEBATE,
+        audio_length=AudioLength.LONG,
+    )
+    assert executor.calls[0].kwargs["read_timeout"] == 3.0
+    assert executor.calls[0].kwargs["disable_internal_retries"] is False
+    assert executor.calls[0].kwargs["operation_variant"] is None
+
+
+@pytest.mark.asyncio
+async def test_audio_generate_none_language_uses_current_profile_default(monkeypatch) -> None:
+    monkeypatch.setattr("notebooklm._web.backend.get_default_language", lambda: "ja")
+    executor = _RecordingExecutor([["audio-id", "Audio", 1, None, 1]])
+
+    await _backend(executor).invoke(
+        ARTIFACT_GENERATE_AUDIO_DEF,
+        AudioGenerateInput("nb", (), language=None),
+        deadline=None,
+    )
+
+    assert executor.calls[0].params[2][6][1][4] == "ja"
+
+
+@pytest.mark.asyncio
+async def test_audio_generate_resolves_all_sources_once_inside_backend() -> None:
+    executor = _RecordingExecutor(
+        [["Notebook", [[["src-a"], "A"], [["src-b"], "B"]], "nb-audio"]],
+        [["audio-id", "Audio", 1, None, 1]],
+    )
+
+    await _backend(executor).invoke(
+        ARTIFACT_GENERATE_AUDIO_DEF,
+        AudioGenerateInput("nb-audio", source_ids=None),
+        deadline=None,
+    )
+
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.GET_NOTEBOOK,
+        RPCMethod.CREATE_ARTIFACT,
+    ]
+    assert executor.calls[0].params == build_get_notebook_params("nb-audio")
+    assert executor.calls[1].params[2][3] == [[["src-a"]], [["src-b"]]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "value",
+    [
+        AudioGenerateInput("nb", (), audio_format="future_format"),
+        AudioGenerateInput("nb", (), audio_length="future_length"),
+    ],
+)
+async def test_audio_generate_rejects_unreviewed_options_before_executor(
+    value: AudioGenerateInput,
+) -> None:
+    executor = _RecordingExecutor([])
+
+    with pytest.raises(BackendContractError, match="unrecognized audio"):
+        await _backend(executor).invoke(ARTIFACT_GENERATE_AUDIO_DEF, value, deadline=None)
+
+    assert executor.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("response", "artifact_type"),
+    [
+        (None, "audio"),
+        ([[None, "Audio", 1, None, 1]], "artifact"),
+    ],
+)
+async def test_audio_generate_feature_unavailable_reconstructs_public_error(
+    response: object,
+    artifact_type: str,
+) -> None:
+    executor = _RecordingExecutor(response)
+
+    with pytest.raises(BackendError) as caught:
+        await _backend(executor).invoke(
+            ARTIFACT_GENERATE_AUDIO_DEF,
+            AudioGenerateInput("nb", ()),
+            deadline=None,
+        )
+
+    assert caught.value.reason is BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE
+    projected = project_backend_error(caught.value)
+    assert isinstance(projected, ArtifactFeatureUnavailableError)
+    assert projected.artifact_type == artifact_type
+    assert projected.method_id == RPCMethod.CREATE_ARTIFACT.value
 
 
 @pytest.mark.asyncio
@@ -707,6 +830,7 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
     )
     assert set(BackendErrorReason) == {
         BackendErrorReason.AUTH,
+        BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
         BackendErrorReason.CLIENT,
         BackendErrorReason.DECODING,
         BackendErrorReason.NETWORK,

@@ -325,6 +325,50 @@ class ArtifactGetResult:
     artifact: ArtifactRecord | None
 
 
+@dataclass(frozen=True, slots=True)
+class GenerationStatusRecord:
+    """Transport-neutral artifact generation task state."""
+
+    task_id: str
+    status: str
+    url: str | None = field(default=None, repr=False)
+    error: str | None = field(default=None, repr=False)
+    error_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AudioGenerateInput:
+    """Audio generation options without web enum or payload vocabulary."""
+
+    notebook_id: str
+    source_ids: tuple[str, ...] | None = None
+    language: str | None = "en"
+    instructions: str | None = field(default=None, repr=False)
+    audio_format: str | None = None
+    audio_length: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AudioGenerateResult:
+    """Audio generation kickoff result."""
+
+    status: GenerationStatusRecord
+
+
+@dataclass(frozen=True, slots=True)
+class AudioMetadataRecord:
+    """Audio readiness and representation metadata derived from one catalog row."""
+
+    artifact_id: str
+    lifecycle_status: str
+    usable: bool
+    preferred_url: str | None = field(default=None, repr=False)
+    media_urls: tuple[ArtifactMediaRecord, ...] = field(default=(), repr=False)
+    duration_seconds: float | None = None
+    generation_prompt: str | None = field(default=None, repr=False)
+    created_at: datetime | None = None
+
+
 NOTEBOOK_LIST_DEF: OperationDef[NotebookListInput, NotebookListResult] = OperationDef(
     Operation.NOTEBOOK_LIST,
     CallPolicy.READ,
@@ -373,6 +417,12 @@ ARTIFACT_GET_DEF: OperationDef[ArtifactGetInput, ArtifactGetResult] = OperationD
     ArtifactGetInput,
     ArtifactGetResult,
 )
+ARTIFACT_GENERATE_AUDIO_DEF: OperationDef[AudioGenerateInput, AudioGenerateResult] = OperationDef(
+    Operation.ARTIFACT_GENERATE_AUDIO,
+    CallPolicy.STATEFUL_START,
+    AudioGenerateInput,
+    AudioGenerateResult,
+)
 SOURCE_GET_DEF: OperationDef[SourceGetInput, SourceGetResult] = OperationDef(
     Operation.SOURCE_GET,
     CallPolicy.READ,
@@ -389,6 +439,7 @@ SOURCE_ADD_URL_DEF: OperationDef[SourceAddUrlInput, SourceAddUrlResult] = Operat
 
 __all__ = [
     "ARTIFACT_GET_DEF",
+    "ARTIFACT_GENERATE_AUDIO_DEF",
     "ARTIFACT_LIST_DEF",
     "NOTEBOOK_GET_DEF",
     "NOTEBOOK_LIST_DEF",
@@ -407,6 +458,10 @@ __all__ = [
     "ArtifactRecord",
     "ArtifactSlideRecord",
     "ArtifactUserStateRecord",
+    "AudioGenerateInput",
+    "AudioGenerateResult",
+    "AudioMetadataRecord",
+    "GenerationStatusRecord",
     "NotebookChatSessionRecord",
     "NotebookChatSettingsRecord",
     "NotebookCreateInput",

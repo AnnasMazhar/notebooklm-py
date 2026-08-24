@@ -8,12 +8,14 @@ import pytest
 
 from notebooklm._artifact import downloads as artifact_downloads
 from notebooklm._artifacts import ArtifactsAPI
+from notebooklm.rpc import RPCMethod
 from notebooklm.types import (
     ArtifactDownloadError,
     ArtifactNotFoundError,
     ArtifactNotReadyError,
     ArtifactParseError,
 )
+from tests._fixtures.web_backend import build_web_backend
 
 
 @pytest.fixture
@@ -53,6 +55,7 @@ def mock_artifacts_api():
         notebooks=mock_notebooks,
         mind_maps=mind_maps,
         note_service=note_service,
+        _backend=build_web_backend(mock_core),
     )
     return api, mock_core
 
@@ -157,6 +160,8 @@ class TestDownloadAudio:
                 result = await api.download_audio("nb_123", output_path)
 
             assert result == output_path
+            mock_core.rpc_executor.rpc_call.assert_awaited_once()
+            assert mock_core.rpc_executor.rpc_call.await_args.args[0] is RPCMethod.LIST_ARTIFACTS
 
     @pytest.mark.asyncio
     async def test_download_audio_no_audio_found(self, mock_artifacts_api):

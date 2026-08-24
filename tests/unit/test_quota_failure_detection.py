@@ -53,6 +53,7 @@ from tests._fixtures.rpc_error_frames import (
     raw_batchexecute_body,
     user_displayable_rejection_chunks,
 )
+from tests._fixtures.web_backend import build_web_backend
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -86,6 +87,7 @@ def _make_api(rpc_call: AsyncMock | None = None):
         notebooks=notebooks,
         mind_maps=mind_maps,
         note_service=note_service,
+        _backend=build_web_backend(core),
     )
 
 
@@ -596,7 +598,7 @@ class TestRejectionAtGenerationTime:
         )
 
         with pytest.raises(RateLimitError) as exc_info:
-            await api.generate_audio("nb1")
+            await api.generate_audio("nb1", source_ids=[])
 
         assert exc_info.value.rpc_code == "USER_DISPLAYABLE_ERROR"
         message = str(exc_info.value)
@@ -620,7 +622,7 @@ class TestRejectionAtGenerationTime:
         api = self._api_answering_with(decoded)
 
         with pytest.raises(RateLimitError):
-            await api.generate_audio("nb1")
+            await api.generate_audio("nb1", source_ids=[])
 
         assert seen == [RPCMethod.CREATE_ARTIFACT.value]
 
@@ -645,7 +647,7 @@ class TestRejectionAtGenerationTime:
         )
 
         with pytest.raises(RPCError) as exc_info:
-            await api.generate_audio("nb1")
+            await api.generate_audio("nb1", source_ids=[])
 
         assert not isinstance(exc_info.value, ArtifactFeatureUnavailableError)
         assert exc_info.value.rpc_code == 3
@@ -712,7 +714,7 @@ class TestRejectionAtGenerationTime:
         )
 
         with pytest.raises(ArtifactFeatureUnavailableError) as exc_info:
-            await api.generate_audio("nb1")
+            await api.generate_audio("nb1", source_ids=[])
 
         assert exc_info.value.artifact_type == "audio"
 

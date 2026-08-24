@@ -20,6 +20,7 @@ from types import MappingProxyType
 from typing import Any, cast
 from urllib.parse import urlparse
 
+from .._artifact.payloads import build_audio_artifact_params
 from .._backend import (
     BackendCapabilities,
     BackendContractError,
@@ -30,6 +31,7 @@ from .._backend import (
     UnsupportedOperationError,
 )
 from .._deadline import RuntimeDeadline
+from .._env import get_default_language
 from .._idempotency import (
     _CreateResultKind,
     _IdempotentCreateResult,
@@ -54,6 +56,9 @@ from .._records import (
     ArtifactRecord,
     ArtifactSlideRecord,
     ArtifactUserStateRecord,
+    AudioGenerateInput,
+    AudioGenerateResult,
+    GenerationStatusRecord,
     NotebookChatSessionRecord,
     NotebookChatSettingsRecord,
     NotebookCreateInput,
@@ -80,6 +85,7 @@ from .._records import (
     SourceRecord,
 )
 from .._row_adapters.artifacts import unwrap_artifact_rows
+from .._row_adapters.sources import SourceRow
 from .._rpc_executor import RpcExecutor
 from .._settings import build_get_user_settings_params, extract_account_limits
 from .._source.add import SourceAddService, honor_requested_title_if_fresh
@@ -102,7 +108,13 @@ from ..exceptions import (
     SourceNotFoundError,
     UnknownRPCMethodError,
 )
-from ..rpc import ARTIFACT_STATUS_SUGGESTED_WIRE_NAME, RPCMethod, safe_index
+from ..rpc import (
+    ARTIFACT_STATUS_SUGGESTED_WIRE_NAME,
+    AudioFormat,
+    AudioLength,
+    RPCMethod,
+    safe_index,
+)
 from ..rpc.types import (
     artifact_status_to_str,
     drive_source_status_to_str,
@@ -241,6 +253,17 @@ _ARTIFACT_FAMILIES = {
 }
 _ARTIFACT_VARIANTS = {1: "flashcards", 2: "quiz", 4: "interactive_mind_map"}
 _MEDIA_KINDS = {1: "progressive", 2: "hls", 3: "dash", 4: "download"}
+_AUDIO_FORMATS = {
+    "deep_dive": AudioFormat.DEEP_DIVE,
+    "brief": AudioFormat.BRIEF,
+    "critique": AudioFormat.CRITIQUE,
+    "debate": AudioFormat.DEBATE,
+}
+_AUDIO_LENGTHS = {
+    "short": AudioLength.SHORT,
+    "default": AudioLength.DEFAULT,
+    "long": AudioLength.LONG,
+}
 
 
 def _artifact_record(artifact: Artifact) -> ArtifactRecord:
@@ -913,6 +936,133 @@ class WebRpcBackend:
         return ArtifactGetResult(
             artifact=next((item for item in records if item.id == value.artifact_id), None)
         )
+
+    async def _audio_generate(
+        self,
+        value: AudioGenerateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> AudioGenerateResult:
+        if value.audio_format is not None and value.audio_format not in _AUDIO_FORMATS:
+            raise BackendContractError(
+                f"unrecognized audio format {value.audio_format!r}",
+                operation=Operation.ARTIFACT_GENERATE_AUDIO,
+            )
+        if value.audio_length is not None and value.audio_length not in _AUDIO_LENGTHS:
+            raise BackendContractError(
+                f"unrecognized audio length {value.audio_length!r}",
+                operation=Operation.ARTIFACT_GENERATE_AUDIO,
+            )
+
+        source_ids = value.source_ids
+        if source_ids is None:
+            notebook = await self._rpc_call(
+                RPCMethod.GET_NOTEBOOK,
+                build_get_notebook_params(value.notebook_id),
+                operation=Operation.ARTIFACT_GENERATE_AUDIO,
+                deadline=deadline,
+                source_path=f"/notebook/{value.notebook_id}",
+            )
+            source_ids = self._audio_source_ids(notebook)
+
+        result = await self._rpc_call(
+            RPCMethod.CREATE_ARTIFACT,
+            build_audio_artifact_params(
+                value.notebook_id,
+                list(source_ids),
+                language=(get_default_language() if value.language is None else value.language),
+                instructions=value.instructions,
+                audio_format=(
+                    None if value.audio_format is None else _AUDIO_FORMATS[value.audio_format]
+                ),
+                audio_length=(
+                    None if value.audio_length is None else _AUDIO_LENGTHS[value.audio_length]
+                ),
+            ),
+            operation=Operation.ARTIFACT_GENERATE_AUDIO,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+            operation_variant=None,
+            raise_on_null_status=True,
+        )
+        if result is None:
+            raise self._artifact_feature_unavailable("audio")
+
+        method_id = RPCMethod.CREATE_ARTIFACT.value
+        artifact_id = safe_index(
+            result,
+            0,
+            0,
+            method_id=method_id,
+            source="_parse_generation_result",
+        )
+        if artifact_id is None:
+            raise self._artifact_feature_unavailable("artifact")
+        if not artifact_id:
+            raise DecodingError(
+                "No artifact id (source=_parse_generation_result)",
+                method_id=method_id,
+            )
+        status_code = safe_index(
+            result,
+            0,
+            4,
+            method_id=method_id,
+            source="_parse_generation_result",
+        )
+        status = "pending" if status_code is None else artifact_status_to_str(status_code)
+        return AudioGenerateResult(
+            GenerationStatusRecord(task_id=cast(str, artifact_id), status=status)
+        )
+
+    @staticmethod
+    def _artifact_feature_unavailable(artifact_type: str) -> BackendError:
+        return BackendError(
+            message=f"{artifact_type.replace('_', ' ').capitalize()} generation is unavailable",
+            operation=Operation.ARTIFACT_GENERATE_AUDIO,
+            diagnostics=MappingProxyType(
+                {
+                    "artifact_type": artifact_type,
+                    "method_id": RPCMethod.CREATE_ARTIFACT.value,
+                    "raw_response": None,
+                }
+            ),
+            reason=BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
+        )
+
+    @staticmethod
+    def _audio_source_ids(notebook: object) -> tuple[str, ...]:
+        """Preserve the facade's tolerant source-id extraction semantics."""
+
+        if not notebook or not isinstance(notebook, list):
+            return ()
+        notebook_info = safe_index(
+            notebook,
+            0,
+            method_id=RPCMethod.GET_NOTEBOOK.value,
+            source="NotebooksAPI.get_source_ids",
+        )
+        if not isinstance(notebook_info, list) or len(notebook_info) <= 1:
+            return ()
+        sources = safe_index(
+            notebook_info,
+            1,
+            method_id=RPCMethod.GET_NOTEBOOK.value,
+            source="NotebooksAPI.get_source_ids",
+        )
+        if not isinstance(sources, list):
+            return ()
+        source_ids: list[str] = []
+        for source in sources:
+            if isinstance(source, list) and source:
+                source_id = SourceRow.from_entry(
+                    source,
+                    method_id=RPCMethod.GET_NOTEBOOK.value,
+                ).id
+                if source_id:
+                    source_ids.append(source_id)
+        return tuple(source_ids)
 
     async def _source_get(
         self,

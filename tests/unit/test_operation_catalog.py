@@ -235,6 +235,7 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
         "_chat/api.py:ChatAPI.get_settings",
         "_notebooks.py:NotebooksAPI.get_raw",
         "_source/listing.py:SourceLister.list",
+        "_web/backend.py:WebRpcBackend._audio_generate",
         "_web/backend.py:WebRpcBackend._notebook_get",
         "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
@@ -569,8 +570,7 @@ def test_operation_authorities_are_exact_discriminated_and_include_non_rpc_paths
     audio = rows["artifact.generate_audio"]["execution_authorities"]
     assert {row["site"] for row in audio} == {
         "artifacts.py:with_rate_limit_retry",
-        "_artifact/generation.py:ArtifactGenerationService._call_generate",
-        "_notebooks.py:NotebooksAPI.get_raw",
+        "_web/backend.py:WebRpcBackend._audio_generate",
     }
     retry_authority = next(
         row for row in audio if row["site"] == "artifacts.py:with_rate_limit_retry"

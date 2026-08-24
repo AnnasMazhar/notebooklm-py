@@ -27,11 +27,18 @@ from ._mind_map import NoteBackedMindMapService
 from ._note_service import NoteService
 from ._notebook_metadata import NotebookSourceIdProvider
 from ._polling_registry import PollRegistry
+from ._projectors import project_artifact, project_generation_status
+from ._records import AudioGenerateInput
 from ._row_adapters import artifacts as _artifact_rows
 from ._runtime.contracts import RpcCaller
-from ._studio import StudioCatalog
+from ._studio import AudioFamilyService, StudioCatalog
 from ._types.research import MindMapResult
-from .exceptions import ArtifactNotFoundError, DecodingError
+from .exceptions import (
+    ArtifactNotFoundError,
+    ArtifactNotReadyError,
+    ArtifactParseError,
+    DecodingError,
+)
 
 if TYPE_CHECKING:
     from ._runtime.lifecycle import ClientLifecycle
@@ -121,6 +128,11 @@ class ArtifactsAPI:
         self._mind_maps = mind_maps
         self._note_service = note_service
         self._catalog = StudioCatalog(_backend) if _backend is not None else None
+        self._audio = (
+            AudioFamilyService(_backend, self._catalog)
+            if _backend is not None and self._catalog is not None
+            else None
+        )
         self._poll_registry = PollRegistry()
         self._listing = ArtifactListingService()
         self._downloads = ArtifactDownloadService(
@@ -230,7 +242,12 @@ class ArtifactsAPI:
 
     async def list_audio(self, notebook_id: str) -> builtins.list[Artifact]:
         """List audio overview artifacts."""
-        return await self.list(notebook_id, ArtifactType.AUDIO)
+        if self._audio is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            return [project_artifact(record) for record in await self._audio.list(notebook_id)]
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def list_video(self, notebook_id: str) -> builtins.list[Artifact]:
         """List video overview artifacts."""
@@ -274,14 +291,22 @@ class ArtifactsAPI:
         audio_length: AudioLength | None = None,
     ) -> GenerationStatus:
         """Generate an Audio Overview (podcast)."""
-        return await self._generation.generate_audio(
-            notebook_id,
-            source_ids=source_ids,
-            language=language,
-            instructions=instructions,
-            audio_format=audio_format,
-            audio_length=audio_length,
-        )
+        if self._audio is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            result = await self._audio.generate(
+                AudioGenerateInput(
+                    notebook_id=notebook_id,
+                    source_ids=None if source_ids is None else tuple(source_ids),
+                    language=language,
+                    instructions=instructions,
+                    audio_format=(None if audio_format is None else audio_format.name.lower()),
+                    audio_length=(None if audio_length is None else audio_length.name.lower()),
+                )
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
+        return project_generation_status(result.status)
 
     async def generate_video(
         self,
@@ -505,6 +530,22 @@ class ArtifactsAPI:
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download an Audio Overview to a file."""
+        if artifacts_data is None:
+            if self._audio is None:
+                raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+            try:
+                metadata = await self._audio.select_download(notebook_id, artifact_id)
+            except BackendError as error:
+                raise project_backend_error(error) from None
+            if metadata is None:
+                raise ArtifactNotReadyError("audio", artifact_id=artifact_id)
+            if not metadata.preferred_url:
+                raise ArtifactParseError(
+                    "audio",
+                    artifact_id=artifact_id,
+                    details="Could not extract download URL from artifact metadata",
+                )
+            return await self._downloads.download_url(metadata.preferred_url, output_path)
         return await self._downloads.download_audio(
             notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
         )

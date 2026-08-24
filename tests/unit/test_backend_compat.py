@@ -15,6 +15,7 @@ from notebooklm._backend_compat import project_backend_error
 from notebooklm._operations import Operation
 from notebooklm._web.backend import WebRpcBackend
 from notebooklm.exceptions import (
+    ArtifactFeatureUnavailableError,
     AuthError,
     ClientError,
     DecodingError,
@@ -201,6 +202,38 @@ def test_notebook_mutation_specific_errors_reconstruct_from_neutral_evidence() -
     assert isinstance(limit.original_error, RPCError)
     assert limit.original_error.method_id == "rpc-create"
     assert limit.original_error.rpc_code == 3
+
+
+def test_audio_feature_unavailable_reconstructs_exact_public_evidence() -> None:
+    projected = project_backend_error(
+        BackendError(
+            "Audio generation is unavailable",
+            operation=Operation.ARTIFACT_GENERATE_AUDIO,
+            reason=BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
+            diagnostics={
+                "artifact_type": "audio",
+                "method_id": "R7cb6c",
+                "raw_response": None,
+            },
+        )
+    )
+
+    assert isinstance(projected, ArtifactFeatureUnavailableError)
+    assert projected.artifact_type == "audio"
+    assert projected.method_id == "R7cb6c"
+    assert projected.raw_response is None
+
+
+def test_audio_feature_unavailable_requires_closed_artifact_type_evidence() -> None:
+    error = BackendError(
+        "Audio generation is unavailable",
+        operation=Operation.ARTIFACT_GENERATE_AUDIO,
+        reason=BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
+        diagnostics={"method_id": "R7cb6c"},
+    )
+
+    with pytest.raises(BackendContractError, match="lacks artifact_type"):
+        project_backend_error(error)
 
 
 def test_unknown_mutation_outcome_marker_survives_public_reconstruction() -> None:
