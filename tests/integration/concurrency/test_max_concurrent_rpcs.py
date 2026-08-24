@@ -89,6 +89,7 @@ async def _open_core_with_transport(
     transport: ConcurrentMockTransport,
     *,
     max_concurrent_rpcs: int | None,
+    rate_limit_max_retries: int = 3,
 ) -> NotebookLMClient:
     """Open a ``NotebookLMClient`` with the mock transport swapped in.
 
@@ -99,7 +100,11 @@ async def _open_core_with_transport(
     one routing through the recording transport so the in-flight peak
     is observable.
     """
-    core = build_client_shell_for_tests(auth=_make_auth(), max_concurrent_rpcs=max_concurrent_rpcs)
+    core = build_client_shell_for_tests(
+        auth=_make_auth(),
+        max_concurrent_rpcs=max_concurrent_rpcs,
+        rate_limit_max_retries=rate_limit_max_retries,
+    )
     await core.__aenter__()
     assert core._collaborators.kernel.http_client is not None
     prior_cookies = core._collaborators.kernel.get_http_client().cookies
@@ -280,9 +285,11 @@ async def test_slot_held_across_retry_middleware_retries(
     ]:
         transport.queue_response(_httpx.Response(status_code=status, text=text, headers=headers))
 
-    core = await _open_core_with_transport(transport, max_concurrent_rpcs=1)
-    # Force fast retry so the test finishes promptly even on a slow box.
-    core._composed.chain_host._rate_limit_max_retries = 3
+    core = await _open_core_with_transport(
+        transport,
+        max_concurrent_rpcs=1,
+        rate_limit_max_retries=3,
+    )
 
     try:
         results = await asyncio.gather(

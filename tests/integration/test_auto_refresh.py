@@ -9,6 +9,7 @@ import pytest
 from notebooklm import NotebookLMClient
 from notebooklm.auth import AuthTokens
 from notebooklm.rpc import RPCError, RPCMethod
+from tests._helpers.client_factory import build_client_shell_for_tests
 from tests.integration.conftest import install_post_as_stream
 
 # mock-based refresh-callback wiring tests; no HTTP, no cassette.
@@ -48,9 +49,7 @@ class TestAutoRefreshIntegration:
             session_id="sid",
         )
 
-        client = NotebookLMClient(auth)
-        # Override retry delay for faster tests
-        client._composed.chain_host._refresh_retry_delay = 0
+        client = build_client_shell_for_tests(auth, refresh_retry_delay=0)
 
         # Track refresh calls
         refresh_calls = []
@@ -105,8 +104,7 @@ class TestAutoRefreshIntegration:
             session_id="sid",
         )
 
-        client = NotebookLMClient(auth)
-        client._composed.chain_host._refresh_retry_delay = 0
+        client = build_client_shell_for_tests(auth, refresh_retry_delay=0)
 
         refresh_calls = []
 
@@ -171,7 +169,6 @@ class TestAutoRefreshIntegration:
         )
 
         client = NotebookLMClient(auth)
-        client._composed.chain_host._refresh_retry_delay = 0
 
         refresh_calls = []
 
@@ -256,8 +253,7 @@ class TestAutoRefreshIntegration:
             session_id="sid",
         )
 
-        client = NotebookLMClient(auth)
-        client._composed.chain_host._refresh_retry_delay = 0
+        client = build_client_shell_for_tests(auth, refresh_retry_delay=0)
 
         async def tracking_refresh():
             client._auth.csrf_token = "new_csrf"
@@ -300,8 +296,7 @@ class TestAutoRefreshIntegration:
             session_id="sid",
         )
 
-        client = NotebookLMClient(auth)
-        client._composed.chain_host._refresh_retry_delay = 0.1  # 100ms delay
+        client = build_client_shell_for_tests(auth, refresh_retry_delay=0.1)
 
         async def mock_refresh():
             return auth
@@ -343,8 +338,7 @@ class TestAutoRefreshIntegration:
             session_id="sid",
         )
 
-        client = NotebookLMClient(auth)
-        client._composed.chain_host._refresh_retry_delay = 0
+        client = build_client_shell_for_tests(auth, refresh_retry_delay=0)
 
         async def failing_refresh():
             # Simulates refresh_auth detecting redirect to login
@@ -386,8 +380,7 @@ class TestAutoRefreshIntegration:
             session_id="sid",
         )
 
-        client = NotebookLMClient(auth)
-        client._composed.chain_host._refresh_retry_delay = 0
+        client = build_client_shell_for_tests(auth, refresh_retry_delay=0)
 
         refresh_calls = []
 
@@ -443,8 +436,7 @@ class TestAutoRefreshIntegration:
             session_id="sid",
         )
 
-        client = NotebookLMClient(auth)
-        client._composed.chain_host._refresh_retry_delay = 0
+        client = build_client_shell_for_tests(auth, refresh_retry_delay=0)
 
         refresh_calls = []
 

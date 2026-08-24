@@ -38,6 +38,7 @@ from notebooklm._request_types import (
     BuildRequestResult,
     materialize_build_request,
 )
+from tests._fixtures.chain import make_request
 
 # ---------------------------------------------------------------------------
 # RpcRequest / RpcResponse dataclass shape
@@ -50,7 +51,7 @@ def _make_response(status: int = 200) -> httpx.Response:
 
 
 def test_rpc_request_construction_with_defaults_and_overrides() -> None:
-    req = RpcRequest(
+    req = make_request(
         url="https://example/batchexecute?authuser=0&_reqid=100000",
         headers={"X-Goog-AuthUser": "0"},
         body=b"f.req=...",
@@ -60,24 +61,23 @@ def test_rpc_request_construction_with_defaults_and_overrides() -> None:
     assert req.body == b"f.req=..."
     # ``context`` defaults to an empty dict, fresh per instance.
     assert req.context == {}
-    other = RpcRequest(url="https://x", headers={}, body=b"")
+    other = make_request(url="https://x", headers={}, body=b"")
     assert other.context is not req.context  # independent dict instances
 
 
 def test_rpc_request_is_frozen() -> None:
-    req = RpcRequest(url="https://x", headers={}, body=b"")
+    req = make_request(url="https://x", headers={}, body=b"")
     with pytest.raises(dataclasses.FrozenInstanceError):
         req.url = "https://y"
 
 
 def test_rpc_request_replace_returns_new_instance() -> None:
-    req = RpcRequest(url="https://x", headers={"a": "1"}, body=b"", context={"k": "v"})
+    req = make_request(url="https://x", headers={"a": "1"}, body=b"", context={"k": "v"})
     new = dataclasses.replace(req, url="https://y")
     assert new.url == "https://y"
     assert req.url == "https://x"  # original untouched
     # ``replace`` keeps the same context dict by reference (intentional —
-    # ADR-0009 §"Per-request behavior"). Mutating ``new.context`` is visible
-    # on ``req.context`` because they are the same object.
+    # ADR-0009 §"Per-request behavior").
     assert new.context is req.context
 
 
@@ -161,7 +161,7 @@ def test_build_chain_empty_middlewares_returns_terminal_unchanged() -> None:
         return RpcResponse(response=_make_response())
 
     chain = build_chain([], terminal)
-    asyncio.run(chain(RpcRequest(url="https://x", headers={}, body=b"")))
+    asyncio.run(chain(make_request(url="https://x", headers={}, body=b"")))
     assert terminal_calls == 1
     # And ``build_chain([], t)`` should literally return ``t`` — the
     # implementation skips the wrapper loop entirely.
@@ -189,7 +189,7 @@ def test_build_chain_three_middleware_call_order() -> None:
         ],
         terminal,
     )
-    asyncio.run(chain(RpcRequest(url="https://x", headers={}, body=b"")))
+    asyncio.run(chain(make_request(url="https://x", headers={}, body=b"")))
 
     assert log == [
         "A-pre",  # outermost middleware enters
@@ -210,8 +210,8 @@ def test_build_chain_preserves_class_middleware_state_across_calls() -> None:
         return RpcResponse(response=_make_response())
 
     chain = build_chain([mw], terminal)
-    asyncio.run(chain(RpcRequest(url="https://x", headers={}, body=b"")))
-    asyncio.run(chain(RpcRequest(url="https://y", headers={}, body=b"")))
+    asyncio.run(chain(make_request(url="https://x", headers={}, body=b"")))
+    asyncio.run(chain(make_request(url="https://y", headers={}, body=b"")))
     assert mw.calls == 2
 
 
@@ -228,7 +228,7 @@ def test_build_chain_middleware_can_transform_request() -> None:
         return RpcResponse(response=_make_response())
 
     chain = build_chain([rewrite], terminal)
-    asyncio.run(chain(RpcRequest(url="https://x", headers={}, body=b"")))
+    asyncio.run(chain(make_request(url="https://x", headers={}, body=b"")))
     assert seen_urls == ["https://x?rewritten"]
 
 
@@ -251,7 +251,7 @@ def test_build_chain_short_circuit_middleware_can_skip_terminal() -> None:
         return RpcResponse(response=_make_response())
 
     chain = build_chain([short_circuit], terminal)
-    result = asyncio.run(chain(RpcRequest(url="https://x", headers={}, body=b"")))
+    result = asyncio.run(chain(make_request(url="https://x", headers={}, body=b"")))
     assert terminal_calls == 0
     assert result.response is short_circuit_response
 
@@ -276,7 +276,7 @@ def test_build_chain_each_call_gets_independent_closures() -> None:
         ],
         terminal,
     )
-    asyncio.run(chain(RpcRequest(url="https://x", headers={}, body=b"")))
+    asyncio.run(chain(make_request(url="https://x", headers={}, body=b"")))
     # If the closure bug were present, we'd see "third-pre" three times in
     # a row (every wrapped middleware closed over the same final label).
     assert log == [
@@ -416,9 +416,6 @@ def test_materialize_rpc_request_populates_envelope_and_preserves_context_identi
     assert request.headers == {}
     assert request.body == b"f.req=body&"
     assert request.context is context
-
-    request.context["trace_id"] = "trace-1"
-    assert context["trace_id"] == "trace-1"
 
 
 def test_request_types_all_contains_only_public_names() -> None:

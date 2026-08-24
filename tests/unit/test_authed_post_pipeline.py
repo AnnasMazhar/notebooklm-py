@@ -50,7 +50,7 @@ import pytest
 import notebooklm._backoff as _backoff
 import notebooklm._runtime.helpers as _runtime_helpers
 from notebooklm._logging import get_request_id
-from notebooklm._middleware.core import RpcRequest, RpcResponse
+from notebooklm._middleware.core import NextCall, RpcRequest, RpcResponse
 from notebooklm._request_types import AuthSnapshot
 from notebooklm._transport_errors import (
     TransportAuthExpired,
@@ -60,6 +60,7 @@ from notebooklm._transport_errors import (
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 from notebooklm.rpc import RPCMethod
+from tests._fixtures.chain import make_request
 from tests._helpers.client_factory import build_client_shell_for_tests
 from tests.unit.conftest import install_post_as_stream
 
@@ -83,6 +84,7 @@ def _make_core(
     refresh_callback: Callable[[], Any] | None = None,
     rate_limit_max_retries: int = 0,
     server_error_max_retries: int = 0,
+    authed_post_terminal: NextCall | None = None,
 ) -> NotebookLMClient:
     auth = AuthTokens(
         csrf_token="CSRF_OLD",
@@ -95,6 +97,7 @@ def _make_core(
         refresh_retry_delay=0.0,
         rate_limit_max_retries=rate_limit_max_retries,
         server_error_max_retries=server_error_max_retries,
+        authed_post_terminal=authed_post_terminal,
     )
 
 
@@ -121,14 +124,13 @@ def _status_error(code: int, *, retry_after: str | None = None) -> httpx.HTTPSta
 @pytest.mark.asyncio
 async def test_perform_authed_post_populates_request_envelope_for_chain() -> None:
     """Middlewares see the materialized URL, headers, and byte body."""
-    core = _make_core()
     captured: list[RpcRequest] = []
 
     async def fake_chain(request: RpcRequest) -> RpcResponse:
         captured.append(request)
         return RpcResponse(response=_ok_response(), context=request.context)
 
-    core._composed.chain_host._authed_post_chain = fake_chain
+    core = _make_core(authed_post_terminal=fake_chain)
 
     calls: list[AuthSnapshot] = []
 
@@ -167,23 +169,11 @@ async def test_perform_authed_post_populates_request_envelope_for_chain() -> Non
 
 
 @pytest.mark.asyncio
-async def test_chain_reads_live_retry_budget(monkeypatch):
-    """Tier-12 PR 12.7 lifted the 429 / 5xx retry loop into ``RetryMiddleware``.
-
-    The middleware reads ``chain_host._rate_limit_max_retries`` LIVE
-    (via the callable factory the chain seed installs) so a test that
-    mutates the budget AFTER ``open()`` still takes effect — preserving
-    the pre-PR-12.7 contract where the retry loop read the same attr live.
-    Drives the chain via
-    ``core._composed.transport.perform_authed_post`` so the assertion exercises the
-    production seam ``RpcExecutor._execute_once`` uses.
-    """
-    core = _make_core(rate_limit_max_retries=0)
+async def test_chain_honors_constructor_retry_budget(monkeypatch):
+    """The construction-time retry budget steers the live middleware chain."""
+    core = _make_core(rate_limit_max_retries=1)
     await core.__aenter__()
     try:
-        # Mutate AFTER open() — middleware reads via lambda closure so this
-        # bump from 0 → 1 grants a single retry on the next chain call.
-        core._composed.chain_host._rate_limit_max_retries = 1
         sleeps: list[float] = []
 
         async def fake_sleep(seconds: float) -> None:
@@ -270,7 +260,7 @@ async def test_auth_refresh_middleware_honors_injected_predicate() -> None:
         refresh_retry_delay=lambda: 0.0,
     )
 
-    request = RpcRequest(
+    request = make_request(
         url="https://example.test/x",
         headers={},
         body=b"payload",

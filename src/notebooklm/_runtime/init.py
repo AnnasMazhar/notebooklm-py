@@ -514,6 +514,7 @@ def compose_client_internals(
     sleep: Callable[[float], Awaitable[Any]] | None = None,
     is_auth_error: Callable[[Exception], bool] | None = None,
     async_client_factory: Callable[..., httpx.AsyncClient] | None = None,
+    authed_post_terminal: NextCall | None = None,
     seams: ClientSeams | None = None,
     composed: ClientComposed | None = None,
 ) -> ClientInternals:
@@ -585,7 +586,11 @@ def compose_client_internals(
         collaborators,
         chain_host=chain_host,
         auth=auth,
-        authed_post_chain_terminal=chain_host._authed_post_chain_terminal,
+        authed_post_chain_terminal=(
+            authed_post_terminal
+            if authed_post_terminal is not None
+            else chain_host._authed_post_chain_terminal
+        ),
         rpc_semaphore_factory=composed.get_rpc_semaphore,
         is_auth_error=lambda *a, **kw: seams.is_auth_error(*a, **kw),
     )

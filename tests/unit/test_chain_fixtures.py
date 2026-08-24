@@ -53,7 +53,9 @@ def test_make_request_context_is_independent_per_call() -> None:
     """Each call returns a fresh ``context`` dict — no shared mutable state."""
     a = make_request()
     b = make_request()
-    a.context["leak"] = "value"
+    changed = make_request(base=a, context_updates={"leak": "value"})
+    assert changed.context == {"leak": "value"}
+    assert a.context == {}
     assert "leak" not in b.context
 
 
@@ -199,9 +201,15 @@ def test_chain_terminal_receives_context() -> None:
     terminal = FakeChainTerminal()
 
     async def stuff_context(request: RpcRequest, next_call: NextCall) -> RpcResponse:
-        request.context["log_label"] = "test-label"
-        request.context["disable_internal_retries"] = True
-        return await next_call(request)
+        return await next_call(
+            make_request(
+                base=request,
+                context_updates={
+                    "log_label": "test-label",
+                    "disable_internal_retries": True,
+                },
+            )
+        )
 
     async def driver() -> None:
         # We can't use ``chain_calls_through_to_terminal`` here because

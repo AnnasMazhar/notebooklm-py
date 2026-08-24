@@ -37,6 +37,7 @@ from fastmcp import Client  # noqa: E402 - after importorskip guard
 
 from notebooklm import NotebookLMClient  # noqa: E402
 from notebooklm.mcp.server import create_server  # noqa: E402
+from tests._helpers.client_factory import build_client_shell_for_tests  # noqa: E402
 from tests.integration.conftest import get_vcr_auth  # noqa: E402
 
 __all__ = ["build_mcp_client", "build_zero_retry_mcp_client"]
@@ -44,21 +45,28 @@ __all__ = ["build_mcp_client", "build_zero_retry_mcp_client"]
 
 def _real_client_factory(
     *,
-    mutate: Callable[[NotebookLMClient], None] | None = None,
+    zero_retries: bool = False,
 ) -> Callable[[], contextlib.AbstractAsyncContextManager[NotebookLMClient]]:
     """Return a ``client_factory`` yielding a real, VCR-backed client.
 
-    ``mutate`` (optional) runs against the freshly-constructed client before it
-    is opened — used by :func:`build_zero_retry_mcp_client` to zero the retry
-    budgets so a single-interaction error cassette is not re-POSTed.
+    ``zero_retries`` selects the construction-time test shell configuration
+    used by :func:`build_zero_retry_mcp_client`; the live runtime is never
+    mutated after assembly.
     """
 
     @contextlib.asynccontextmanager
     async def factory() -> AsyncIterator[NotebookLMClient]:
         auth = await get_vcr_auth()
-        client = NotebookLMClient(auth)
-        if mutate is not None:
-            mutate(client)
+        client = (
+            build_client_shell_for_tests(
+                auth,
+                rate_limit_max_retries=0,
+                server_error_max_retries=0,
+                refresh_retry_delay=0,
+            )
+            if zero_retries
+            else NotebookLMClient(auth)
+        )
         async with client:
             yield client
 
@@ -88,10 +96,5 @@ def build_zero_retry_mcp_client() -> Client:
     ``cli_vcr/test_error_contract.py`` rebinds.
     """
 
-    def _zero_retries(client: NotebookLMClient) -> None:
-        client._composed.chain_host._rate_limit_max_retries = 0
-        client._composed.chain_host._server_error_max_retries = 0
-        client._composed.chain_host._refresh_retry_delay = 0
-
-    server = create_server(client_factory=_real_client_factory(mutate=_zero_retries))
+    server = create_server(client_factory=_real_client_factory(zero_retries=True))
     return Client(server)

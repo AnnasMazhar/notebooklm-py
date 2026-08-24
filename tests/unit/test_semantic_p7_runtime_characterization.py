@@ -96,11 +96,10 @@ def _make_auth() -> AuthTokens:
 
 
 def test_client_composed_property_invariants_and_write_once_bindings() -> None:
-    """ClientComposed enforces write-once single assignment and fail-fast unbound property access."""
+    """ClientComposed retains its fail-fast and write-once behavior until P7."""
     holder = ClientComposed(max_concurrent_rpcs=4)
     assert holder.max_concurrent_rpcs == 4
 
-    # Unbound properties raise RuntimeError with exact naming
     for prop in (
         "transport",
         "executor",
@@ -112,28 +111,24 @@ def test_client_composed_property_invariants_and_write_once_bindings() -> None:
         with pytest.raises(RuntimeError, match=rf"ClientComposed not fully constructed: _{prop}"):
             getattr(holder, prop)
 
-    # Bind transport once
     dummy_transport = MagicMock()
     holder.bind_transport(dummy_transport)
     assert holder.transport is dummy_transport
     with pytest.raises(RuntimeError, match="ClientComposed._transport already bound"):
         holder.bind_transport(dummy_transport)
 
-    # Bind executor once
     dummy_executor = MagicMock(spec=RpcExecutor)
     holder.bind_executor(dummy_executor)
     assert holder.executor is dummy_executor
     with pytest.raises(RuntimeError, match="ClientComposed._executor already bound"):
         holder.bind_executor(dummy_executor)
 
-    # Bind chain_host once
     dummy_host = MagicMock(spec=MiddlewareChainHost)
     holder.bind_chain_host(dummy_host)
     assert holder.chain_host is dummy_host
     with pytest.raises(RuntimeError, match="ClientComposed._chain_host already bound"):
         holder.bind_chain_host(dummy_host)
 
-    # Bind chain metadata once
     dummy_builder = MagicMock(spec=MiddlewareChainBuilder)
     dummy_middlewares: list[Middleware] = [MagicMock(spec=Middleware)]
     wired = MagicMock(chain_builder=dummy_builder, middlewares=dummy_middlewares)
@@ -143,7 +138,6 @@ def test_client_composed_property_invariants_and_write_once_bindings() -> None:
     with pytest.raises(RuntimeError, match="ClientComposed._chain_builder already bound"):
         holder.bind_chain_metadata(wired)
 
-    # Bind runtime collaborators once
     dummy_collaborators = MagicMock(spec=RuntimeCollaborators)
     holder.bind_runtime_collaborators(dummy_collaborators)
     assert holder.runtime_collaborators is dummy_collaborators
@@ -152,7 +146,7 @@ def test_client_composed_property_invariants_and_write_once_bindings() -> None:
 
 
 def test_client_composed_max_concurrent_rpcs_validation() -> None:
-    """max_concurrent_rpcs must be >= 1 when provided."""
+    """ClientComposed rejects invalid semaphore caps until its P7 replacement lands."""
     with pytest.raises(ValueError, match="max_concurrent_rpcs must be >= 1"):
         ClientComposed(max_concurrent_rpcs=0)
     with pytest.raises(ValueError, match="max_concurrent_rpcs must be >= 1"):
@@ -330,44 +324,37 @@ def test_public_client_member_disposition_and_owner_parity() -> None:
 
 
 def test_loop_affinity_protocol_and_cross_loop_rejection() -> None:
-    """Loop-bound primitives reject cross-loop access and reset on reopen."""
+    """The holder rejects cross-loop reuse and rebuilds after rebinding."""
     holder = ClientComposed(max_concurrent_rpcs=2)
     assert isinstance(holder, LoopBoundPrimitive)
 
-    # Standalone holder without set_bound_loop behaves normally
-    async def acquire_semaphore(h: ClientComposed) -> None:
-        async with h.get_rpc_semaphore():
+    async def acquire_semaphore(target: ClientComposed) -> None:
+        async with target.get_rpc_semaphore():
             pass
 
     asyncio.run(acquire_semaphore(holder))
 
-    # Bind to loop 1
-    async def bind_and_reopen() -> None:
-        loop1 = asyncio.get_running_loop()
-        holder.set_bound_loop(loop1)
-        # Access on loop 1 succeeds
+    async def bind_and_acquire() -> None:
+        holder.set_bound_loop(asyncio.get_running_loop())
         async with holder.get_rpc_semaphore():
             pass
 
-    asyncio.run(bind_and_reopen())
+    asyncio.run(bind_and_acquire())
 
-    # Access on loop 2 raises RuntimeError
-    async def cross_loop_call() -> None:
+    async def reject_cross_loop() -> None:
         with pytest.raises(RuntimeError, match="bound to a different event loop"):
             async with holder.get_rpc_semaphore():
                 pass
 
-    asyncio.run(cross_loop_call())
+    asyncio.run(reject_cross_loop())
 
-    # reset_after_open on new loop clears cached semaphore
-    async def reopen_on_loop2() -> None:
-        loop2 = asyncio.get_running_loop()
-        holder.set_bound_loop(loop2)
+    async def rebind_and_reopen() -> None:
+        holder.set_bound_loop(asyncio.get_running_loop())
         holder.reset_after_open()
         async with holder.get_rpc_semaphore():
             pass
 
-    asyncio.run(reopen_on_loop2())
+    asyncio.run(rebind_and_reopen())
 
 
 def test_uploader_and_chat_loop_bound_reset_contracts() -> None:

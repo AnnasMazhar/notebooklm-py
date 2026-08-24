@@ -55,10 +55,6 @@ async def test_rpc_metrics_event_and_correlation_scope(auth_tokens: AuthTokens) 
     ) -> dict:
         return {"ok": True}
 
-    core = build_client_shell_for_tests(
-        auth_tokens, on_rpc_event=events.append, decode_response=fake_decode
-    )
-    install_http_client_for_test(core._collaborators.kernel, AsyncMock(spec=httpx.AsyncClient))
     seen_request_ids: list[str | None] = []
 
     # Mock the chain LEAF (innermost wrapper around
@@ -78,14 +74,13 @@ async def test_rpc_metrics_event_and_correlation_scope(auth_tokens: AuthTokens) 
             context=request.context,  # type: ignore[attr-defined]
         )
 
-    core._composed.chain_host._authed_post_chain_terminal = fake_terminal  # type: ignore[method-assign]
-    # Rebuild the chain so it wraps the new terminal (the original chain
-    # was built in the composition root against the original bound method).
-    from notebooklm._middleware.core import build_chain
-
-    core._composed.chain_host._authed_post_chain = build_chain(
-        core._composed.middlewares, fake_terminal
+    core = build_client_shell_for_tests(
+        auth_tokens,
+        on_rpc_event=events.append,
+        decode_response=fake_decode,
+        authed_post_terminal=fake_terminal,
     )
+    install_http_client_for_test(core._collaborators.kernel, AsyncMock(spec=httpx.AsyncClient))
 
     with correlation_id("batch-42"):
         result = await core._rpc_executor.rpc_call(RPCMethod.GET_NOTEBOOK, ["nb_123"])
@@ -127,10 +122,7 @@ async def test_rpc_decode_error_bumps_drift_counter(auth_tokens: AuthTokens) -> 
     ) -> dict:
         raise DecodingError("Google reshaped the response", method_id=rpc_id)
 
-    core = build_client_shell_for_tests(auth_tokens, decode_response=drifting_decode)
-    install_http_client_for_test(core._collaborators.kernel, AsyncMock(spec=httpx.AsyncClient))
-
-    from notebooklm._middleware.core import RpcResponse, build_chain
+    from notebooklm._middleware.core import RpcResponse
 
     async def fake_terminal(request: object) -> RpcResponse:
         return RpcResponse(
@@ -138,10 +130,12 @@ async def test_rpc_decode_error_bumps_drift_counter(auth_tokens: AuthTokens) -> 
             context=request.context,  # type: ignore[attr-defined]
         )
 
-    core._composed.chain_host._authed_post_chain_terminal = fake_terminal  # type: ignore[method-assign]
-    core._composed.chain_host._authed_post_chain = build_chain(
-        core._composed.middlewares, fake_terminal
+    core = build_client_shell_for_tests(
+        auth_tokens,
+        decode_response=drifting_decode,
+        authed_post_terminal=fake_terminal,
     )
+    install_http_client_for_test(core._collaborators.kernel, AsyncMock(spec=httpx.AsyncClient))
 
     with pytest.raises(DecodingError):
         await core._rpc_executor.rpc_call(RPCMethod.GET_NOTEBOOK, ["nb_123"])

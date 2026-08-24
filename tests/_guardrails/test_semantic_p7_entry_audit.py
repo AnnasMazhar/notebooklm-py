@@ -3,8 +3,8 @@
 Governed by ADR-0035 and docs/plan/2026-08-13-semantic-backend-refactor.md.
 P7 runs last: no runtime collapse is authorized until P1-P6 have isolated
 semantic feature callers from RpcCaller (or recorded explicit legacy exceptions),
-The ErrorInjectionMiddleware prerequisite is complete; remaining test mutations
-of mutable chain internals still have to migrate.
+The ErrorInjectionMiddleware and mutable-test-seam prerequisites are complete;
+remaining semantic RpcCaller consumers still have to migrate.
 
 This audit checks all P7 entry criteria, enumerates current blockers, and fails
 closed if entry criteria or internal consumer inventories drift unexpectedly.
@@ -148,31 +148,43 @@ KNOWN_RPC_CALLER_CONSUMERS: frozenset[tuple[str, str, str]] = frozenset(
     }
 )
 
-# Known test files outside tests/_guardrails/ reaching mutable chain or composed internals.
-# P7 entry requires these test seams migrated to backend/provider/clock seams before P7 collapses them.
-KNOWN_CHAIN_COMPOSED_TEST_FILES: frozenset[str] = frozenset(
-    {
-        "integration/concurrency/test_cross_loop_affinity.py",
-        "unit/test_composition_primitives.py",
-        "unit/test_lifecycle_executor_reuse.py",
-        "unit/test_runtime_auth.py",
-        "unit/test_semantic_p7_runtime_characterization.py",
-    }
-)
+# The one explicit request-envelope construction seam. Tests consume this
+# factory; no other function in the module is exempt from the AST audit.
+REQUEST_FIXTURE_SEAM = "_fixtures/chain.py"
+REQUEST_FIXTURE_FACTORY = "make_request"
 
-KNOWN_CHAIN_HOST_TEST_FILES: frozenset[str] = frozenset(
-    {
-        "_baselines/compatibility_contracts.py",
-        "integration/concurrency/test_refresh_cancellation_propagation.py",
-        "unit/test_authed_post_pipeline.py",
-        "unit/test_chain_wiring.py",
-        "unit/test_composition_primitives.py",
-        "unit/test_concurrency_refresh_race.py",
-        "unit/test_middleware_chain_host.py",
-        "unit/test_observability.py",
-        "unit/test_semantic_p7_runtime_characterization.py",
-    }
-)
+# These three tests characterize the holder being retired rather than using it
+# as a mutable seam for some other subject. They must survive until the P7
+# replacement can be compared against them, then retire with ClientComposed.
+REQUIRED_COMPOSED_CHARACTERIZATION: dict[str, frozenset[str]] = {
+    "unit/test_composition_primitives.py": frozenset(
+        {
+            "test_client_composed_chain_host_binder_raises_on_double_bind",
+            "test_client_composed_chain_metadata_binder_raises_on_double_bind",
+            "test_client_composed_executor_binder_raises_on_double_bind",
+            "test_client_composed_properties_raise_before_binding",
+            "test_client_composed_runtime_collaborators_binder_raises_on_double_bind",
+            "test_client_composed_transport_binder_raises_on_double_bind",
+            "test_compose_client_internals_returns_client_internals",
+            "test_get_rpc_semaphore_cross_loop_raises_actionable_runtime_error",
+            "test_get_rpc_semaphore_no_binding_is_silent_noop",
+            "test_get_rpc_semaphore_returns_nullcontext_when_cap_is_none",
+            "test_get_rpc_semaphore_same_loop_use_unaffected",
+            "test_prebuilt_client_composed_cap_must_match_constructor_cap",
+            "test_reset_after_open_discards_lazy_semaphore",
+            "test_set_bound_loop_different_loop_discards_stale_semaphore",
+            "test_set_bound_loop_none_clears_binding_and_discards_semaphore",
+            "test_set_bound_loop_same_loop_keeps_cached_semaphore",
+        }
+    ),
+    "unit/test_semantic_p7_runtime_characterization.py": frozenset(
+        {
+            "test_client_composed_max_concurrent_rpcs_validation",
+            "test_client_composed_property_invariants_and_write_once_bindings",
+            "test_loop_affinity_protocol_and_cross_loop_rejection",
+        }
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +202,7 @@ class P7EntryReport:
     error_injection_blocked: bool
     chain_composed_test_files: list[str]
     chain_host_test_files: list[str]
+    request_context_test_files: list[str]
     active_semantic_operations: list[str]
     blockers: list[str]
 
@@ -280,28 +293,230 @@ def check_error_injection_middleware_dependency(
     return False
 
 
-def collect_mutable_chain_test_files(
-    tests_dir: Path = TESTS_ROOT,
-) -> tuple[set[str], set[str]]:
-    """Scan tests/ outside _guardrails/ for reaches into ClientComposed or MiddlewareChainHost."""
+@dataclass(frozen=True, slots=True)
+class MutableRuntimeTestUses:
+    composed: set[str]
+    chain_host: set[str]
+    request_context: set[str]
+
+
+def _dotted_name(node: ast.AST) -> tuple[str, ...]:
+    if isinstance(node, ast.Name):
+        return (node.id,)
+    if isinstance(node, ast.Attribute):
+        return (*_dotted_name(node.value), node.attr)
+    if isinstance(node, ast.Subscript):
+        return _dotted_name(node.value)
+    return ()
+
+
+def _assigned_names(node: ast.AST) -> set[str]:
+    if isinstance(node, ast.Name):
+        return {node.id}
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return {name for item in node.elts for name in _assigned_names(item)}
+    return set()
+
+
+class _MutableRuntimeUseVisitor(ast.NodeVisitor):
+    """Find construction/mutation without classifying read-only observations."""
+
+    def __init__(self, relative_path: str) -> None:
+        self.relative_path = relative_path
+        self.import_aliases: dict[str, str] = {}
+        self.request_names: set[str] = set()
+        self.context_names: set[str] = set()
+        self.host_names: set[str] = set()
+        self.function_names: list[str] = []
+        self.composed = False
+        self.chain_host = False
+        self.request_context = False
+
+    @property
+    def _in_request_factory(self) -> bool:
+        return self.relative_path == REQUEST_FIXTURE_SEAM and self.function_names == [
+            REQUEST_FIXTURE_FACTORY
+        ]
+
+    @property
+    def _in_required_composed_characterization(self) -> bool:
+        required_names = REQUIRED_COMPOSED_CHARACTERIZATION.get(self.relative_path, frozenset())
+        return any(name in required_names for name in self.function_names)
+
+    def _mark_composed(self) -> None:
+        if not self._in_required_composed_characterization:
+            self.composed = True
+
+    def _mark_request_context(self) -> None:
+        if not self._in_request_factory:
+            self.request_context = True
+
+    def _resolved_tail(self, node: ast.AST) -> str:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value.rsplit(".", 1)[-1]
+        dotted = _dotted_name(node)
+        if not dotted:
+            return ""
+        return self.import_aliases.get(dotted[0], dotted[-1])
+
+    def _is_request_value(self, node: ast.AST) -> bool:
+        if isinstance(node, ast.Call):
+            return self._resolved_tail(node.func) in {
+                "RpcRequest",
+                "make_request",
+                "materialize_rpc_request",
+            }
+        return isinstance(node, ast.Name) and node.id in self.request_names
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            if alias.name in {"ClientComposed", "MiddlewareChainHost", "RpcRequest"}:
+                self.import_aliases[alias.asname or alias.name] = alias.name
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.function_names.append(node.name)
+        self._record_request_parameters(node)
+        self.generic_visit(node)
+        self.function_names.pop()
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.function_names.append(node.name)
+        self._record_request_parameters(node)
+        self.generic_visit(node)
+        self.function_names.pop()
+
+    def _record_request_parameters(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        for arg in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs):
+            if arg.annotation is not None and self._resolved_tail(arg.annotation) == "RpcRequest":
+                self.request_names.add(arg.arg)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        names = {name for target in node.targets for name in _assigned_names(target)}
+        self._record_aliases(names, node.value)
+        self._record_mutation_targets(node.targets)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        names = _assigned_names(node.target)
+        if node.value is not None:
+            self._record_aliases(names, node.value)
+        self._record_mutation_targets([node.target])
+        self.generic_visit(node)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        self._record_mutation_targets([node.target])
+        self.generic_visit(node)
+
+    def visit_Delete(self, node: ast.Delete) -> None:
+        self._record_mutation_targets(node.targets)
+        self.generic_visit(node)
+
+    def _record_aliases(self, names: set[str], value: ast.AST) -> None:
+        dotted = _dotted_name(value)
+        if "chain_host" in dotted or (isinstance(value, ast.Name) and value.id in self.host_names):
+            self.host_names.update(names)
+        if self._is_request_value(value):
+            self.request_names.update(names)
+        if (
+            len(dotted) >= 2
+            and dotted[-1] == "context"
+            and (
+                dotted[0] in self.request_names
+                or dotted[0] in {"current", "req", "request", "retry_request"}
+            )
+        ) or (isinstance(value, ast.Name) and value.id in self.context_names):
+            self.context_names.update(names)
+
+    def _record_mutation_targets(self, targets: Sequence[ast.AST]) -> None:
+        for target in targets:
+            dotted = _dotted_name(target)
+            if not dotted:
+                continue
+            if "_composed" in dotted:
+                self._mark_composed()
+            if "chain_host" in dotted or dotted[0] in self.host_names:
+                self.chain_host = True
+            if dotted[0] in self.context_names or (
+                "context" in dotted
+                and (
+                    dotted[0] in self.request_names
+                    or dotted[0] in {"current", "req", "request", "retry_request"}
+                )
+            ):
+                self._mark_request_context()
+
+    def visit_Call(self, node: ast.Call) -> None:
+        resolved = self._resolved_tail(node.func)
+        if resolved == "ClientComposed":
+            self._mark_composed()
+        elif resolved == "MiddlewareChainHost":
+            self.chain_host = True
+        elif resolved == "RpcRequest":
+            # Direct construction is forbidden regardless of whether context
+            # is supplied positionally, by keyword, or allowed to default.
+            self._mark_request_context()
+
+        dotted = _dotted_name(node.func)
+        if dotted and dotted[-1] in {
+            "_bind_transport",
+            "bind_chain_host",
+            "bind_chain_metadata",
+            "bind_executor",
+            "bind_runtime_collaborators",
+            "bind_transport",
+            "reset_after_open",
+            "set_bound_loop",
+        }:
+            if "_composed" in dotted:
+                self._mark_composed()
+            if "chain_host" in dotted or dotted[0] in self.host_names:
+                self.chain_host = True
+        if dotted and dotted[-1] in {
+            "__setitem__",
+            "clear",
+            "pop",
+            "popitem",
+            "setdefault",
+            "update",
+        }:
+            if dotted[0] in self.context_names or (
+                "context" in dotted
+                and (
+                    dotted[0] in self.request_names
+                    or dotted[0] in {"current", "req", "request", "retry_request"}
+                )
+            ):
+                self._mark_request_context()
+        if resolved == "replace" and node.args and self._is_request_value(node.args[0]):
+            if any(kw.arg == "context" for kw in node.keywords):
+                self._mark_request_context()
+        self.generic_visit(node)
+
+
+def collect_mutable_runtime_test_uses(tests_dir: Path = TESTS_ROOT) -> MutableRuntimeTestUses:
+    """Scan all non-guardrail tests for the three forbidden mutable-runtime seams."""
     composed_files: set[str] = set()
     chain_host_files: set[str] = set()
+    request_context_files: set[str] = set()
 
     for path in sorted(tests_dir.rglob("*.py")):
         if GUARDRAILS_ROOT in path.parents or path.parent == GUARDRAILS_ROOT:
             continue
         rel_posix = path.relative_to(tests_dir).as_posix()
-        content = path.read_text(encoding="utf-8")
-        if "ClientComposed" in content:
+        visitor = _MutableRuntimeUseVisitor(rel_posix)
+        visitor.visit(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+        if visitor.composed:
             composed_files.add(rel_posix)
-        if (
-            "MiddlewareChainHost" in content
-            or "_authed_post_chain" in content
-            or "_authed_post_chain_terminal" in content
-        ):
+        if visitor.chain_host:
             chain_host_files.add(rel_posix)
+        if visitor.request_context:
+            request_context_files.add(rel_posix)
 
-    return composed_files, chain_host_files
+    return MutableRuntimeTestUses(
+        composed=composed_files,
+        chain_host=chain_host_files,
+        request_context=request_context_files,
+    )
 
 
 def evaluate_p7_entry_readiness(
@@ -315,7 +530,7 @@ def evaluate_p7_entry_readiness(
     ei_blocked = check_error_injection_middleware_dependency(
         src_dir / "_middleware" / "error_injection.py"
     )
-    composed_tests, chain_host_tests = collect_mutable_chain_test_files(tests_dir)
+    mutable_uses = collect_mutable_runtime_test_uses(tests_dir)
 
     blockers: list[str] = []
 
@@ -348,14 +563,19 @@ def evaluate_p7_entry_readiness(
             "ErrorInjectionMiddleware still imports from _middleware.core (must be migrated/rehomed before P7)"
         )
 
-    if composed_tests:
+    if mutable_uses.composed:
         blockers.append(
-            f"{len(composed_tests)} test files outside _guardrails/ still construct or reference ClientComposed"
+            f"{len(mutable_uses.composed)} test files outside _guardrails/ still construct or mutate ClientComposed"
         )
 
-    if chain_host_tests:
+    if mutable_uses.chain_host:
         blockers.append(
-            f"{len(chain_host_tests)} test files outside _guardrails/ still reach into MiddlewareChainHost"
+            f"{len(mutable_uses.chain_host)} test files outside _guardrails/ still construct or mutate MiddlewareChainHost"
+        )
+
+    if mutable_uses.request_context:
+        blockers.append(
+            f"{len(mutable_uses.request_context)} test files outside _guardrails/ still construct or mutate RpcRequest.context"
         )
 
     return P7EntryReport(
@@ -363,8 +583,9 @@ def evaluate_p7_entry_readiness(
         remaining_rpc_consumers=rpc_consumers,
         legacy_exceptions=legacy_exceptions,
         error_injection_blocked=ei_blocked,
-        chain_composed_test_files=sorted(composed_tests),
-        chain_host_test_files=sorted(chain_host_tests),
+        chain_composed_test_files=sorted(mutable_uses.composed),
+        chain_host_test_files=sorted(mutable_uses.chain_host),
+        request_context_test_files=sorted(mutable_uses.request_context),
         active_semantic_operations=sorted(
             operation.value for operation in WEB_SUPPORTED_OPERATIONS
         ),
@@ -380,14 +601,15 @@ def test_p7_entry_criteria_blockers_enumeration() -> None:
     report = evaluate_p7_entry_readiness()
 
     assert not report.ready, "P7 cannot be ready before P1-P6 migrations complete"
-    assert len(report.blockers) >= 3, f"Expected at least 3 blocker classes, got: {report.blockers}"
+    assert len(report.blockers) >= 1, f"Expected remaining blocker classes, got: {report.blockers}"
 
     # Check each blocker category is explicitly reported
     blocker_text = "\n".join(report.blockers)
     assert "semantic-service call sites still consume RpcCaller" in blocker_text
     assert "ErrorInjectionMiddleware still imports from _middleware.core" not in blocker_text
-    assert "ClientComposed" in blocker_text
-    assert "MiddlewareChainHost" in blocker_text
+    assert "ClientComposed" not in blocker_text
+    assert "MiddlewareChainHost" not in blocker_text
+    assert "RpcRequest.context" not in blocker_text
 
 
 def test_rpccaller_consumer_inventory_is_exact_and_fails_closed() -> None:
@@ -409,6 +631,7 @@ def test_rpccaller_consumer_inventory_is_exact_and_fails_closed() -> None:
 
 def test_active_semantic_operation_inventory_is_exact_for_p7() -> None:
     """P7's runtime-collapse input is the exact P4-supported operation set."""
+    assert len(KNOWN_ACTIVE_SEMANTIC_OPERATIONS) == 77
     assert WEB_SUPPORTED_OPERATIONS == KNOWN_ACTIVE_SEMANTIC_OPERATIONS
 
 
@@ -429,21 +652,42 @@ def test_error_injection_middleware_isolated_for_p7() -> None:
     assert check_error_injection_middleware_dependency() is False
 
 
-def test_mutable_runtime_test_reach_inventory_is_baselined_and_fails_closed() -> None:
-    """Test files outside _guardrails/ touching ClientComposed or ChainHost are baselined."""
-    composed_tests, chain_host_tests = collect_mutable_chain_test_files()
+def test_mutable_runtime_test_seams_are_fully_migrated() -> None:
+    """No test uses retired runtime mutation outside the named P7 behavior oracle."""
+    uses = collect_mutable_runtime_test_uses()
 
-    new_composed = composed_tests - KNOWN_CHAIN_COMPOSED_TEST_FILES
-    new_chain_host = chain_host_tests - KNOWN_CHAIN_HOST_TEST_FILES
+    assert not uses.composed, (
+        "Tests constructing/mutating ClientComposed outside _guardrails/:\n  "
+        + "\n  ".join(sorted(uses.composed))
+    )
+    assert not uses.chain_host, (
+        "Tests constructing/mutating MiddlewareChainHost outside _guardrails/:\n  "
+        + "\n  ".join(sorted(uses.chain_host))
+    )
+    assert not uses.request_context, (
+        "Tests constructing/mutating RpcRequest.context outside _guardrails/:\n  "
+        + "\n  ".join(sorted(uses.request_context))
+    )
 
-    assert not new_composed, (
-        "New tests reaching ClientComposed outside _guardrails/:\n  "
-        + "\n  ".join(sorted(new_composed))
-    )
-    assert not new_chain_host, (
-        "New tests reaching MiddlewareChainHost outside _guardrails/:\n  "
-        + "\n  ".join(sorted(new_chain_host))
-    )
+
+def test_required_composed_characterization_remains_until_p7() -> None:
+    """The narrow detector exemption cannot outlive the holder behavior oracle."""
+    for relative_path, required_names in REQUIRED_COMPOSED_CHARACTERIZATION.items():
+        tree = ast.parse(
+            (TESTS_ROOT / relative_path).read_text(encoding="utf-8"),
+            filename=relative_path,
+        )
+        functions = {
+            node.name: node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        assert required_names <= functions.keys()
+        for name in required_names:
+            assert any(
+                isinstance(node, ast.Call) and _dotted_name(node.func)[-1:] == ("ClientComposed",)
+                for node in ast.walk(functions[name])
+            ), f"{relative_path}:{name} no longer characterizes ClientComposed"
 
 
 # --- Detector Self-Tests (Fail-Closed Mutation Tests) ------------------------
@@ -514,3 +758,125 @@ def test_error_injection_detector_catches_reintroduced_absolute_core_import(
     )
 
     assert check_error_injection_middleware_dependency(middleware_path) is True
+
+
+@pytest.mark.parametrize(
+    ("source", "field"),
+    [
+        (
+            "from notebooklm._runtime.composition import ClientComposed as Composed\n"
+            "value = Composed()\n",
+            "composed",
+        ),
+        (
+            "host = client._composed.chain_host\nhost._rate_limit_max_retries = 0\n",
+            "chain_host",
+        ),
+        (
+            "from notebooklm._middleware.core import RpcRequest as Request\n"
+            "value = Request(url='x', headers={}, body=b'', context={})\n",
+            "request_context",
+        ),
+        (
+            "from notebooklm._middleware.core import RpcRequest as Request\n"
+            "value = Request('x', {}, b'', {})\n",
+            "request_context",
+        ),
+        (
+            "from notebooklm._middleware.core import RpcRequest\n"
+            "def mutate(request: RpcRequest):\n"
+            "    request.context.update({'rpc_method': 'x'})\n",
+            "request_context",
+        ),
+        (
+            "from notebooklm._middleware.core import RpcRequest\n"
+            "def mutate(request: RpcRequest):\n"
+            "    context = request.context\n"
+            "    alias = context\n"
+            "    alias['rpc_method'] = 'x'\n",
+            "request_context",
+        ),
+    ],
+)
+def test_mutable_runtime_detector_fails_closed_on_forbidden_test_seams(
+    tmp_path: Path,
+    source: str,
+    field: str,
+) -> None:
+    test_file = tmp_path / "test_forbidden_seam.py"
+    test_file.write_text(source, encoding="utf-8")
+
+    uses = collect_mutable_runtime_test_uses(tmp_path)
+
+    assert getattr(uses, field) == {"test_forbidden_seam.py"}
+
+
+def test_request_factory_exemption_is_function_scoped_and_fails_closed(tmp_path: Path) -> None:
+    fixture_dir = tmp_path / "_fixtures"
+    fixture_dir.mkdir()
+    fixture = fixture_dir / "chain.py"
+    fixture.write_text(
+        "from notebooklm._middleware.core import RpcRequest\n"
+        "def make_request():\n"
+        "    return RpcRequest('x', {}, b'', {})\n"
+        "def bypass_factory():\n"
+        "    return RpcRequest('x', {}, b'', {})\n",
+        encoding="utf-8",
+    )
+
+    uses = collect_mutable_runtime_test_uses(tmp_path)
+
+    assert uses.request_context == {"_fixtures/chain.py"}
+
+
+def test_request_factory_is_the_only_allowed_request_constructor(tmp_path: Path) -> None:
+    fixture_dir = tmp_path / "_fixtures"
+    fixture_dir.mkdir()
+    fixture = fixture_dir / "chain.py"
+    fixture.write_text(
+        "from notebooklm._middleware.core import RpcRequest\n"
+        "def make_request():\n"
+        "    return RpcRequest('x', {}, b'', {})\n",
+        encoding="utf-8",
+    )
+
+    uses = collect_mutable_runtime_test_uses(tmp_path)
+
+    assert not uses.request_context
+
+
+def test_request_fixture_context_alias_outside_factory_fails_closed(tmp_path: Path) -> None:
+    fixture_dir = tmp_path / "_fixtures"
+    fixture_dir.mkdir()
+    fixture = fixture_dir / "chain.py"
+    fixture.write_text(
+        "from notebooklm._middleware.core import RpcRequest\n"
+        "def make_request():\n"
+        "    return RpcRequest('x', {}, b'', {})\n"
+        "def mutate(request: RpcRequest):\n"
+        "    context = request.context\n"
+        "    context.update({'rpc_method': 'x'})\n",
+        encoding="utf-8",
+    )
+
+    uses = collect_mutable_runtime_test_uses(tmp_path)
+
+    assert uses.request_context == {"_fixtures/chain.py"}
+
+
+def test_composed_characterization_exemption_is_function_scoped(tmp_path: Path) -> None:
+    unit_dir = tmp_path / "unit"
+    unit_dir.mkdir()
+    characterization = unit_dir / "test_semantic_p7_runtime_characterization.py"
+    characterization.write_text(
+        "from notebooklm._client_composed import ClientComposed\n"
+        "def test_client_composed_max_concurrent_rpcs_validation():\n"
+        "    ClientComposed(max_concurrent_rpcs=0)\n"
+        "def unreviewed_holder_seam():\n"
+        "    ClientComposed()\n",
+        encoding="utf-8",
+    )
+
+    uses = collect_mutable_runtime_test_uses(tmp_path)
+
+    assert uses.composed == {"unit/test_semantic_p7_runtime_characterization.py"}

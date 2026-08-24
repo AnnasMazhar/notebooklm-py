@@ -41,6 +41,7 @@ from notebooklm._middleware.core import (
 )
 from notebooklm._transport_errors import TransportServerError
 from notebooklm.client import NotebookLMClient
+from tests._fixtures.chain import make_request
 from tests._helpers.client_factory import build_client_shell_for_tests
 
 _UNSET = object()
@@ -183,7 +184,7 @@ async def test_chain_terminal_reads_context_keys() -> None:
     core = _make_core()
     _swap_kernel_post(core, fake)
 
-    request = RpcRequest(
+    request = make_request(
         url="https://fake/ctx",
         headers={"X-Test": "yes"},
         body=b"ctx-body",
@@ -223,7 +224,7 @@ async def test_chain_terminal_disable_internal_retries_defaults_false() -> None:
     core = _make_core()
     _swap_kernel_post(core, fake)
 
-    request = RpcRequest(
+    request = make_request(
         url="https://fake/no-retry-flag",
         headers={},
         body=b"",
@@ -255,7 +256,7 @@ async def test_chain_terminal_log_label_defaults_for_direct_calls() -> None:
         raise httpx.RequestError("boom", request=request)
 
     core._collaborators.kernel.post = raise_network_error  # type: ignore[method-assign]
-    request = RpcRequest(
+    request = make_request(
         url="https://fake/no-log-label",
         headers={},
         body=b"",
@@ -335,7 +336,7 @@ async def test_chain_with_test_middleware_observes_request_and_response() -> Non
     # production chain.
     chain: NextCall = build_chain([observer], core._composed.chain_host._authed_post_chain_terminal)
 
-    request = RpcRequest(
+    request = make_request(
         url="https://fake/observe",
         headers={},
         body=b"",
@@ -363,7 +364,7 @@ async def test_chain_terminal_forwards_read_timeout_context() -> None:
     core = _make_core()
     _swap_kernel_post(core, fake)
 
-    request = RpcRequest(
+    request = make_request(
         url="https://fake/read-timeout",
         headers={},
         body=b"",
@@ -387,7 +388,7 @@ async def test_chain_terminal_forwards_max_response_bytes_context() -> None:
     core = _make_core()
     _swap_kernel_post(core, fake)
 
-    request = RpcRequest(
+    request = make_request(
         url="https://fake/max-response",
         headers={},
         body=b"",

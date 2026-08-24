@@ -66,6 +66,7 @@ import pytest
 from notebooklm import NotebookLMClient
 from notebooklm.auth import AuthTokens
 from notebooklm.notebooklm_cli import cli
+from tests._helpers.client_factory import build_client_shell_for_tests
 
 from .conftest import (
     ERROR_SCHEMA,
@@ -83,7 +84,7 @@ from .conftest import (
 pytestmark = [pytest.mark.vcr, skip_no_cassettes]
 
 
-def _zero_retry_client(*args: Any, **kwargs: Any) -> NotebookLMClient:
+def _zero_retry_client(auth: AuthTokens, **kwargs: Any) -> NotebookLMClient:
     """Build a ``NotebookLMClient`` with every retry budget zeroed.
 
     Forwards ``*args``/``**kwargs`` to ``NotebookLMClient`` (the CLI calls it
@@ -93,11 +94,13 @@ def _zero_retry_client(*args: Any, **kwargs: Any) -> NotebookLMClient:
     synthetic error in a single-interaction cassette surfaces immediately
     instead of asking VCR for a non-existent 2nd interaction.
     """
-    client = NotebookLMClient(*args, **kwargs)
-    client._composed.chain_host._rate_limit_max_retries = 0
-    client._composed.chain_host._server_error_max_retries = 0
-    client._composed.chain_host._refresh_retry_delay = 0
-    return client
+    assert not kwargs, f"list error-contract factory received unexpected options: {kwargs!r}"
+    return build_client_shell_for_tests(
+        auth,
+        rate_limit_max_retries=0,
+        server_error_max_retries=0,
+        refresh_retry_delay=0,
+    )
 
 
 def _install_zero_retry_seam(

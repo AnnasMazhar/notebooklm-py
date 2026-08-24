@@ -77,18 +77,32 @@ class FakeChainTerminal:
         return RpcResponse(response=response, context=request.context)
 
 
-def make_request(**overrides: Any) -> RpcRequest:
-    """Build an :class:`RpcRequest` with benign defaults plus overrides.
+def make_request(
+    *,
+    base: RpcRequest | None = None,
+    context_updates: dict[str, Any] | None = None,
+    **overrides: Any,
+) -> RpcRequest:
+    """Build a fresh request, optionally copying and extending another request.
 
     Passing an unknown keyword raises ``TypeError`` early so test typos
     don't silently no-op.
     """
-    defaults: dict[str, Any] = {
-        "url": "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute?authuser=0&_reqid=100000",
-        "headers": {"X-Goog-AuthUser": "0"},
-        "body": b"",
-        "context": {},
-    }
+    defaults: dict[str, Any]
+    if base is None:
+        defaults = {
+            "url": "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute?authuser=0&_reqid=100000",
+            "headers": {"X-Goog-AuthUser": "0"},
+            "body": b"",
+            "context": {},
+        }
+    else:
+        defaults = {
+            "url": base.url,
+            "headers": dict(base.headers),
+            "body": base.body,
+            "context": dict(base.context),
+        }
 
     unknown = set(overrides) - set(defaults)
     if unknown:
@@ -98,6 +112,8 @@ def make_request(**overrides: Any) -> RpcRequest:
         )
 
     defaults.update(overrides)
+    if context_updates:
+        defaults["context"] = {**defaults["context"], **context_updates}
     return RpcRequest(**defaults)
 
 

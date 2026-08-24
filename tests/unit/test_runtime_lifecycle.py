@@ -141,7 +141,7 @@ class _StubHost:
         # the new loop. The ``MagicMock`` default lets both calls land
         # without configuring side effects; the invocations are asserted by
         # ``test_open_captures_bound_loop_and_resets_drain``.
-        self._composed = MagicMock()
+        self.runtime_holder = MagicMock()
         # ``open()`` also propagates the bound loop into the Sources upload
         # pipeline and resets its lazy upload semaphore (issue #1196 upload
         # variant): it calls ``uploader.set_bound_loop(loop)`` and
@@ -212,7 +212,7 @@ async def _open(lifecycle: ClientLifecycle, host: _StubHost) -> None:
         auth_coord=host._auth_coord,
         reqid=host._reqid,
         cookie_persistence=host.cookie_persistence,
-        composed=host._composed,
+        composed=host.runtime_holder,
         uploader=host._uploader,
         chat=host._chat,
     )
@@ -287,8 +287,8 @@ async def test_open_captures_bound_loop_and_resets_drain() -> None:
     # Issue #1169: the composition holder is the fourth loop-bound primitive
     # and must receive the same set_bound_loop / reset_after_open treatment as
     # the drain tracker so the lazy RPC semaphore rebinds on close→reopen.
-    host._composed.set_bound_loop.assert_called_once_with(asyncio.get_running_loop())
-    host._composed.reset_after_open.assert_called_once_with()
+    host.runtime_holder.set_bound_loop.assert_called_once_with(asyncio.get_running_loop())
+    host.runtime_holder.reset_after_open.assert_called_once_with()
     # Issue #1196 upload variant: the Sources upload pipeline is the second
     # lazily-built loop-bound semaphore and must receive the same
     # set_bound_loop / reset_after_open treatment so the upload semaphore

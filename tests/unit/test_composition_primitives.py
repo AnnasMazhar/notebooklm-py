@@ -66,7 +66,7 @@ def test_compose_client_internals_returns_client_internals() -> None:
     assert holder.transport is internals.executor._transport
     assert holder.chain_host._transport is holder.transport
     assert holder.chain_builder is not None
-    assert len(holder.middlewares) == 7
+    assert len(holder.middlewares) == 6
 
 
 def test_shell_helpers_carry_client_holders() -> None:
@@ -221,29 +221,11 @@ def test_compose_client_internals_preserves_late_binding_for_sleep() -> None:
     assert calls == [0.25]
 
 
-def test_compose_client_internals_preserves_late_binding_for_refresh_retry_delay() -> None:
-    """Post-construction ``chain_host._refresh_retry_delay = X`` MUST be seen
-    by the executor's ``refresh_retry_delay_provider`` lambda on the next
-    call.
+@pytest.mark.parametrize("delay", [0.0, 0.99])
+def test_refresh_retry_delay_is_selected_at_construction(delay: float) -> None:
+    client = build_client_shell_for_tests(_make_auth(), refresh_retry_delay=delay)
 
-    The integration-test contract is that
-    ``client._composed.chain_host._refresh_retry_delay = 0`` continues
-    to steer the live chain after construction. The lambda
-    ``refresh_retry_delay_provider=lambda: chain_host._refresh_retry_delay``
-    re-reads the attribute on every invocation, so this is a live binding,
-    not a frozen snapshot.
-    """
-    holder = ClientComposed()
-    internals = compose_client_internals(auth=_make_auth(), composed=holder)
-
-    chain_host = holder.chain_host
-    # The provider lambda must dereference the *current* attribute on
-    # each call — not the value captured at construction time.
-    initial = chain_host._refresh_retry_delay
-    assert internals.executor._refresh_retry_delay_provider() == initial
-
-    chain_host._refresh_retry_delay = 0.99
-    assert internals.executor._refresh_retry_delay_provider() == 0.99
+    assert client._rpc_executor._refresh_retry_delay_provider() == delay
 
 
 def test_compose_client_internals_executor_timeout_provider_reads_lifecycle() -> None:

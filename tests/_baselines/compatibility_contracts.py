@@ -418,7 +418,6 @@ def _normalized_events(events: list[object]) -> list[dict[str, object]]:
 async def _logical_rpc_scenario(
     outcome: str,
     *,
-    drop_metrics_middleware: bool = False,
     disconnect_executor_metrics: bool = False,
 ) -> dict[str, object]:
     """Run one public ``rpc_call`` through production assembly and RpcExecutor."""
@@ -428,8 +427,7 @@ async def _logical_rpc_scenario(
 
     from notebooklm import correlation_id
     from notebooklm._client_metrics import ClientMetrics
-    from notebooklm._middleware.core import RpcResponse, build_chain
-    from notebooklm._middleware.metrics import MetricsMiddleware
+    from notebooklm._middleware.core import RpcRequest, RpcResponse
     from notebooklm.auth import AuthTokens
     from notebooklm.exceptions import DecodingError
     from notebooklm.rpc import RPCMethod
@@ -456,17 +454,9 @@ async def _logical_rpc_scenario(
         csrf_token="contract-redacted",
         session_id="contract-redacted",
     )
-    client = build_client_shell_for_tests(auth, on_rpc_event=events.append, decode_response=decode)
-    install_http_client_for_test(
-        client._collaborators.kernel,
-        AsyncMock(spec=httpx.AsyncClient),
-    )
-    if disconnect_executor_metrics:
-        client._rpc_executor._metrics = ClientMetrics(on_rpc_event=events.append)
-
     leaf_calls = 0
 
-    async def fake_terminal(request: object) -> RpcResponse:
+    async def fake_terminal(request: RpcRequest) -> RpcResponse:
         nonlocal leaf_calls
         leaf_calls += 1
         await asyncio.sleep(0)
@@ -477,10 +467,18 @@ async def _logical_rpc_scenario(
             context=request.context,
         )
 
-    middlewares = list(client._composed.middlewares)
-    if drop_metrics_middleware:
-        middlewares = [item for item in middlewares if not isinstance(item, MetricsMiddleware)]
-    client._composed.chain_host._authed_post_chain = build_chain(middlewares, fake_terminal)
+    client = build_client_shell_for_tests(
+        auth,
+        on_rpc_event=events.append,
+        decode_response=decode,
+        authed_post_terminal=fake_terminal,
+    )
+    install_http_client_for_test(
+        client._collaborators.kernel,
+        AsyncMock(spec=httpx.AsyncClient),
+    )
+    if disconnect_executor_metrics:
+        client._rpc_executor._metrics = ClientMetrics(on_rpc_event=events.append)
 
     raised: str | None = None
     result: object = None
@@ -515,6 +513,7 @@ async def _supplemental_middleware_scenarios() -> dict[str, object]:
     from notebooklm._middleware.core import RpcRequest, RpcResponse
     from notebooklm._middleware.metrics import MetricsMiddleware
     from notebooklm.types import RpcTelemetryEvent
+    from tests._fixtures.chain import make_request
 
     async def run(*, rpc_method: str | None, failure: bool) -> dict[str, object]:
         events: list[RpcTelemetryEvent] = []
@@ -525,7 +524,12 @@ async def _supplemental_middleware_scenarios() -> dict[str, object]:
         metrics = ClientMetrics(on_rpc_event=capture)
         middleware = MetricsMiddleware(metrics)
         context = {} if rpc_method is None else {"rpc_method": rpc_method}
-        request = RpcRequest(url="https://contract.invalid", headers={}, body=b"", context=context)
+        request = make_request(
+            url="https://contract.invalid",
+            headers={},
+            body=b"",
+            context=context,
+        )
 
         async def terminal(current: RpcRequest) -> RpcResponse:
             await asyncio.sleep(0)

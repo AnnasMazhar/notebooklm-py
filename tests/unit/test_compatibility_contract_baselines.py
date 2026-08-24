@@ -138,17 +138,12 @@ def test_metrics_contract_covers_exact_public_fields_and_emission_branches() -> 
     )
 
 
-def test_metrics_contract_changes_when_live_wiring_is_removed() -> None:
+def test_metrics_contract_changes_when_executor_metrics_is_disconnected() -> None:
     live = asyncio.run(_logical_rpc_scenario("success"))
-    without_middleware = asyncio.run(_logical_rpc_scenario("success", drop_metrics_middleware=True))
     without_executor_metrics = asyncio.run(
         _logical_rpc_scenario("success", disconnect_executor_metrics=True)
     )
 
-    assert without_middleware != live
-    assert without_middleware["events"] == []
-    assert without_middleware["metrics_snapshot"]["rpc_calls_started"] == 1
-    assert without_middleware["metrics_snapshot"]["rpc_calls_succeeded"] == 0
     assert without_executor_metrics != live
     assert without_executor_metrics["metrics_snapshot"]["rpc_calls_started"] == 0
     assert without_executor_metrics["metrics_snapshot"]["rpc_calls_succeeded"] == 1

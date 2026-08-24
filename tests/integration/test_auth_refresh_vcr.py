@@ -116,8 +116,6 @@ async def test_stale_csrf_triggers_refresh_and_retry(
     monkeypatch.setenv("NOTEBOOKLM_DISABLE_KEEPALIVE_POKE", "1")
 
     client = await _build_client_for_test()
-    # Eliminate the post-refresh retry delay so the test runs fast.
-    client._composed.chain_host._refresh_retry_delay = 0
 
     # Track whether refresh_auth ran. We wrap the bound method so the
     # mutation is observable from outside the test. Using ``list[object]``

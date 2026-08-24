@@ -73,6 +73,7 @@ from ._web.backend import WebRpcBackend
 from .auth import AuthTokens
 
 if TYPE_CHECKING:
+    from ._middleware.core import NextCall
     from .client import NotebookLMClient
     from .types import ConnectionLimits, RpcTelemetryEvent
 
@@ -129,6 +130,7 @@ def _assemble_client(
     sleep: Callable[[float], Awaitable[Any]] | None = None,
     is_auth_error: Callable[[Exception], bool] | None = None,
     async_client_factory: Callable[..., httpx.AsyncClient] | None = None,
+    authed_post_terminal: NextCall | None = None,
 ) -> None:
     """Wire every constructor-set attribute onto ``client``.
 
@@ -256,14 +258,14 @@ def _assemble_client(
     # collaborators + executor that feature adapters need.
     #
     # The public NotebookLMClient kwarg surface is unchanged — the
-    # four seam kwargs (``decode_response`` / ``sleep`` /
-    # ``is_auth_error`` / ``async_client_factory``) live on
-    # ``compose_client_internals`` and this private assembly function
-    # only.
+    # five seam kwargs (``decode_response`` / ``sleep`` /
+    # ``is_auth_error`` / ``async_client_factory`` /
+    # ``authed_post_terminal``) live on ``compose_client_internals`` and
+    # this private assembly function only.
     #
     # TEST-ONLY injection points: production passes ``None`` for all
-    # three runtime seams here (and never supplies an
-    # ``async_client_factory``), so they always resolve to the
+    # three runtime seams here (and never supplies either construction
+    # seam), so they always resolve to the
     # canonical module bindings. The non-``None`` paths exist solely
     # for deterministic test injection — see ``_client_seams`` module
     # docstring. Do not promote any of them to a public kwarg without
@@ -296,6 +298,7 @@ def _assemble_client(
         cookie_saver=cookie_saver,
         cookie_rotator=cookie_rotator,
         async_client_factory=async_client_factory,
+        authed_post_terminal=authed_post_terminal,
         seams=client._seams,
         composed=client._composed,
     )

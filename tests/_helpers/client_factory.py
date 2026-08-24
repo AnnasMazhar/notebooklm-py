@@ -23,6 +23,7 @@ from notebooklm.client import NotebookLMClient
 from notebooklm.types import RpcTelemetryEvent
 
 if TYPE_CHECKING:
+    from notebooklm._middleware.core import NextCall
     from notebooklm.types import ConnectionLimits
 
 
@@ -49,6 +50,7 @@ def build_client_shell_for_tests(
     sleep: Callable[[float], Awaitable[Any]] | None = None,
     is_auth_error: Callable[[Exception], bool] | None = None,
     async_client_factory: Callable[..., httpx.AsyncClient] | None = None,
+    authed_post_terminal: NextCall | None = None,
 ) -> NotebookLMClient:
     """Build a client shell through the production assembly seam.
 
@@ -104,5 +106,6 @@ def build_client_shell_for_tests(
         sleep=sleep,
         is_auth_error=is_auth_error,
         async_client_factory=async_client_factory,
+        authed_post_terminal=authed_post_terminal,
     )
     return client

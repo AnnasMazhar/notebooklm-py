@@ -60,6 +60,7 @@ from notebooklm.exceptions import (
     RateLimitError,
     ServerError,
 )
+from tests._helpers.client_factory import build_client_shell_for_tests
 from tests.integration.conftest import skip_no_cassettes
 from tests.vcr_config import notebooklm_vcr
 
@@ -103,13 +104,12 @@ class TestErrorPaths:
         as :class:`RateLimitError` (the documented
         ``TransportRateLimited`` → ``RpcExecutor.rpc_call`` exception handler).
         """
-        client = NotebookLMClient(_synthetic_auth())
+        client = NotebookLMClient(_synthetic_auth(), rate_limit_max_retries=0)
         # Disable rate-limit retries so the single synthetic 429 in the
         # cassette surfaces immediately as RateLimitError. The cassette only
         # has ONE interaction; with the default retry budget the client would
         # ask for a second cassette response that doesn't exist and VCR would
         # raise ``CannotOverwriteExistingCassetteException``.
-        client._composed.chain_host._rate_limit_max_retries = 0
 
         with notebooklm_vcr.use_cassette("error_synthetic_429_rate_limit.yaml") as cassette:
             async with client:
@@ -143,13 +143,12 @@ class TestErrorPaths:
         ``TransportServerError`` → ``RpcExecutor.raise_rpc_error_from_http_status``
         chain.
         """
-        client = NotebookLMClient(_synthetic_auth())
+        client = NotebookLMClient(_synthetic_auth(), server_error_max_retries=0)
         # Disable 5xx retries so the single synthetic 500 in the cassette
         # surfaces immediately as ServerError. The retry-loop wiring itself
         # is exercised separately by the unit tests in
         # ``test_rate_limit_retry.py`` — here we focus on the terminal
         # exception-mapping branch.
-        client._composed.chain_host._server_error_max_retries = 0
 
         with notebooklm_vcr.use_cassette("error_synthetic_500_server.yaml") as cassette:
             async with client:
@@ -185,10 +184,9 @@ class TestErrorPaths:
         installed on ``client._collaborators.auth_coord._refresh_callback`` and corroborated by the
         ``play_count == 2`` assertion on the cassette.
         """
-        client = NotebookLMClient(_synthetic_auth())
+        client = build_client_shell_for_tests(_synthetic_auth(), refresh_retry_delay=0)
         # Eliminate the post-refresh retry delay so the test runs fast under
         # replay (mirrors ``test_auth_refresh_vcr.py``).
-        client._composed.chain_host._refresh_retry_delay = 0
 
         # In-process refresh callback that issues NO HTTP traffic. This is
         # what lets the cassette capture only the TWO synthetic batchexecute
