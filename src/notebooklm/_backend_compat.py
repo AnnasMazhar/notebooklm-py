@@ -10,6 +10,7 @@ import httpx
 from ._backend import BackendContractError, BackendError, BackendErrorReason
 from ._records import SourceAddFailureKind, SourceAddFailureRecord
 from .exceptions import (
+    ArtifactFeatureUnavailableError,
     AuthError,
     ClientError,
     DecodingError,
@@ -145,6 +146,22 @@ def project_backend_error(error: BackendError) -> Exception:
             operation=error.operation,
         )
     diagnostics = _diagnostics(error)
+
+    if reason is BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE:
+        artifact_type = _optional(error, diagnostics, "artifact_type", str)
+        if artifact_type is None:
+            raise BackendContractError(
+                "artifact feature-unavailable failure lacks artifact_type",
+                operation=error.operation,
+            )
+        return _preserve_outcome(
+            error,
+            ArtifactFeatureUnavailableError(
+                cast(str, artifact_type),
+                method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
+                raw_response=cast(str | None, _optional(error, diagnostics, "raw_response", str)),
+            ),
+        )
 
     if reason is BackendErrorReason.SOURCE_ADD:
         record = diagnostics.get("source_add_failure")

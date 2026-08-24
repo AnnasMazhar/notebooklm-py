@@ -2,8 +2,8 @@
 
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
 P2.2 routes three notebook mutation handlers; P2.3 routes the live URL/YouTube
-source composite; P5.1 routes Studio catalog list/get; and P6.3 routes plain-note
-CRUD. These bindings intentionally reuse
+source composite; P5.1 routes Studio catalog list/get; P5.6 routes data-view
+generation and explicit Drive export; and P6.3 routes plain-note CRUD. These bindings intentionally reuse
 the current request builders, strict row adapters, and public-model decoders
 until the P3 codec split.
 Removal: P3 replaces the compatibility model-to-record projections below with
@@ -13,6 +13,7 @@ direct wire-to-record codecs; the backend and its semantic port remain.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import reprlib
 import time
@@ -23,6 +24,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .._artifact.payloads import build_data_table_artifact_params, build_mind_map_params
 from .._backend import (
     BackendCapabilities,
     BackendContractError,
@@ -34,6 +36,7 @@ from .._backend import (
     mark_backend_outcome_unknown,
 )
 from .._deadline import RuntimeDeadline
+from .._env import get_default_language
 from .._idempotency import (
     _CreateResultKind,
     _IdempotentCreateResult,
@@ -58,6 +61,13 @@ from .._records import (
     ArtifactRecord,
     ArtifactSlideRecord,
     ArtifactUserStateRecord,
+    DataTableGenerateInput,
+    DataTableGenerateResult,
+    DriveExportInput,
+    DriveExportResult,
+    GenerationStatusRecord,
+    MindMapGenerateInput,
+    MindMapGenerateResult,
     NotebookChatSessionRecord,
     NotebookChatSettingsRecord,
     NotebookCreateInput,
@@ -95,7 +105,12 @@ from .._records import (
     SourceListResult,
     SourceRecord,
 )
-from .._row_adapters.artifacts import unwrap_artifact_rows
+from .._row_adapters.artifacts import (
+    MIND_MAP_LEAF_ABSENT,
+    unwrap_artifact_rows,
+    unwrap_mind_map_generation_leaf,
+)
+from .._row_adapters.sources import SourceRow
 from .._rpc_executor import RpcExecutor
 from .._settings import build_get_user_settings_params, extract_account_limits
 from .._source.add import SourceAddService, honor_requested_title_if_fresh
@@ -124,6 +139,7 @@ from ..exceptions import (
 )
 from ..rpc import (
     ARTIFACT_STATUS_SUGGESTED_WIRE_NAME,
+    ExportType,
     GrpcStatusCode,
     RPCMethod,
     normalize_grpc_status,
@@ -150,6 +166,11 @@ from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 notebook_logger = logging.getLogger("notebooklm._notebooks")
 source_logger = logging.getLogger("notebooklm").getChild("_sources")
 artifact_logger = logging.getLogger("notebooklm._artifact.listing")
+
+_DRIVE_EXPORT_DESTINATIONS = {
+    "docs": ExportType.DOCS,
+    "sheets": ExportType.SHEETS,
+}
 
 _CREATE_NOTEBOOK_QUOTA_RPC_CODE = 3
 
@@ -1179,6 +1200,260 @@ class WebRpcBackend:
         return ArtifactGetResult(
             artifact=next((item for item in records if item.id == value.artifact_id), None)
         )
+
+    @staticmethod
+    def _artifact_source_ids(notebook_id: str, notebook: object) -> tuple[str, ...]:
+        """Preserve the facade's tolerant source-id extraction semantics."""
+
+        if not notebook or not isinstance(notebook, list):
+            return ()
+        notebook_info = safe_index(
+            notebook,
+            0,
+            method_id=RPCMethod.GET_NOTEBOOK.value,
+            source="NotebooksAPI.get_source_ids",
+        )
+        if not isinstance(notebook_info, list):
+            notebook_logger.warning(
+                "get_source_ids: notebook_data[0] shape unexpected for %s (schema drift?). "
+                "top-type=%s",
+                notebook_id,
+                type(notebook_info).__name__,
+            )
+            return ()
+        if len(notebook_info) <= 1:
+            notebook_logger.warning(
+                "get_source_ids: notebook_info has no sources slot for %s (schema drift?). len=%d",
+                notebook_id,
+                len(notebook_info),
+            )
+            return ()
+        sources = safe_index(
+            notebook_info,
+            1,
+            method_id=RPCMethod.GET_NOTEBOOK.value,
+            source="NotebooksAPI.get_source_ids",
+        )
+        if sources is None:
+            return ()
+        if not isinstance(sources, list):
+            notebook_logger.warning(
+                "get_source_ids: notebook_info[1] not list for %s (schema drift?). len=%d",
+                notebook_id,
+                len(notebook_info),
+            )
+            return ()
+        source_ids: list[str] = []
+        for source in sources:
+            if isinstance(source, list) and source:
+                source_id = SourceRow.from_entry(
+                    source,
+                    method_id=RPCMethod.GET_NOTEBOOK.value,
+                ).id
+                if source_id:
+                    source_ids.append(source_id)
+        return tuple(source_ids)
+
+    async def _generation_source_ids(
+        self,
+        notebook_id: str,
+        source_ids: tuple[str, ...] | None,
+        *,
+        operation: Operation,
+        deadline: RuntimeDeadline | None,
+    ) -> tuple[str, ...]:
+        if source_ids is not None:
+            return source_ids
+        notebook = await self._rpc_call(
+            RPCMethod.GET_NOTEBOOK,
+            build_get_notebook_params(notebook_id),
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{notebook_id}",
+        )
+        return self._artifact_source_ids(notebook_id, notebook)
+
+    @staticmethod
+    def _artifact_feature_unavailable(
+        operation: Operation,
+        artifact_type: str,
+        method: RPCMethod,
+    ) -> BackendError:
+        return BackendError(
+            message=f"{artifact_type.replace('_', ' ').capitalize()} generation is unavailable",
+            operation=operation,
+            diagnostics=MappingProxyType(
+                {
+                    "artifact_type": artifact_type,
+                    "method_id": method.value,
+                    "raw_response": None,
+                }
+            ),
+            reason=BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
+        )
+
+    @classmethod
+    def _generation_status_record(
+        cls,
+        result: object,
+        *,
+        operation: Operation,
+    ) -> GenerationStatusRecord:
+        method_id = RPCMethod.CREATE_ARTIFACT.value
+        artifact_id = safe_index(
+            result,
+            0,
+            0,
+            method_id=method_id,
+            source="_parse_generation_result",
+        )
+        if artifact_id is None:
+            raise cls._artifact_feature_unavailable(
+                operation,
+                "artifact",
+                RPCMethod.CREATE_ARTIFACT,
+            )
+        if not artifact_id:
+            raise DecodingError(
+                "No artifact id (source=_parse_generation_result)",
+                method_id=method_id,
+            )
+        status_code = safe_index(
+            result,
+            0,
+            4,
+            method_id=method_id,
+            source="_parse_generation_result",
+        )
+        return GenerationStatusRecord(
+            task_id=cast(str, artifact_id),
+            status="pending" if status_code is None else artifact_status_to_str(status_code),
+        )
+
+    async def _data_table_generate(
+        self,
+        value: DataTableGenerateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> DataTableGenerateResult:
+        operation = Operation.ARTIFACT_GENERATE_DATA_TABLE
+        source_ids = await self._generation_source_ids(
+            value.notebook_id,
+            value.source_ids,
+            operation=operation,
+            deadline=deadline,
+        )
+        result = await self._rpc_call(
+            RPCMethod.CREATE_ARTIFACT,
+            build_data_table_artifact_params(
+                value.notebook_id,
+                list(source_ids),
+                language=(get_default_language() if value.language is None else value.language),
+                instructions=value.instructions,
+            ),
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+            operation_variant=None,
+            raise_on_null_status=True,
+        )
+        if result is None:
+            raise self._artifact_feature_unavailable(
+                operation,
+                "data table",
+                RPCMethod.CREATE_ARTIFACT,
+            )
+        return DataTableGenerateResult(
+            self._generation_status_record(
+                result,
+                operation=operation,
+            )
+        )
+
+    async def _mind_map_generate(
+        self,
+        value: MindMapGenerateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> MindMapGenerateResult:
+        operation = Operation.ARTIFACT_GENERATE_MIND_MAP
+        source_ids = await self._generation_source_ids(
+            value.notebook_id,
+            value.source_ids,
+            operation=operation,
+            deadline=deadline,
+        )
+        result = await self._rpc_call(
+            RPCMethod.GENERATE_MIND_MAP,
+            build_mind_map_params(
+                list(source_ids),
+                language=(get_default_language() if value.language is None else value.language),
+                instructions=value.instructions,
+            ),
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+            operation_variant=None,
+        )
+        mind_map_json = unwrap_mind_map_generation_leaf(
+            result,
+            method_id=RPCMethod.GENERATE_MIND_MAP.value,
+            source="ArtifactsAPI",
+        )
+        if mind_map_json is MIND_MAP_LEAF_ABSENT:
+            return MindMapGenerateResult()
+
+        if isinstance(mind_map_json, str):
+            try:
+                mind_map_data: object = json.loads(mind_map_json)
+            except json.JSONDecodeError:
+                mind_map_data = mind_map_json
+                mind_map_json = str(mind_map_json)
+        else:
+            mind_map_data = mind_map_json
+            mind_map_json = json.dumps(mind_map_json)
+
+        title = "Mind Map"
+        if isinstance(mind_map_data, dict):
+            name = mind_map_data.get("name")
+            if isinstance(name, str) and name:
+                title = name
+
+        caller = _DeadlineRpcCaller(self, deadline, operation)
+        note = await LegacyNoteBackedService(cast(Any, caller)).create_note(
+            value.notebook_id,
+            title=title,
+            content=mind_map_json,
+        )
+        return MindMapGenerateResult(
+            mind_map=mind_map_data,
+            note_id=note.id or None,
+            created_at=note.created_at,
+        )
+
+    async def _artifact_export(
+        self,
+        value: DriveExportInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> DriveExportResult:
+        destination = _DRIVE_EXPORT_DESTINATIONS.get(value.destination)
+        if destination is None:
+            raise BackendContractError(
+                f"unrecognized Drive export destination {value.destination!r}",
+                operation=Operation.ARTIFACT_EXPORT,
+            )
+        result = await self._rpc_call(
+            RPCMethod.EXPORT_ARTIFACT,
+            [None, value.artifact_id, value.content, value.title, int(destination)],
+            operation=Operation.ARTIFACT_EXPORT,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return DriveExportResult(result)
 
     async def _source_get(
         self,

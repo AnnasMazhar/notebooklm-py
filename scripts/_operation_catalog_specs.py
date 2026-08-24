@@ -442,6 +442,8 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         (
             _b(RPCMethod.GENERATE_MIND_MAP),
             _b(RPCMethod.CREATE_NOTE, "plain"),
+            _b(RPCMethod.UPDATE_NOTE),
+            _b(RPCMethod.DELETE_NOTE),
             _b(RPCMethod.GET_NOTEBOOK),
         ),
         disposition=Disposition.COMPOSITE,
@@ -461,7 +463,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.ARTIFACT_RETRY,
         CallPolicy.STATEFUL_START,
-        "StudioCatalog",
+        "DriveExportService",
         "notebook+artifact",
         "Retries a failed artifact in place.",
         _p("artifacts", "retry_failed"),

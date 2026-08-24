@@ -235,6 +235,7 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
         "_chat/api.py:ChatAPI.get_settings",
         "_notebooks.py:NotebooksAPI.get_raw",
         "_source/listing.py:SourceLister.list",
+        "_web/backend.py:WebRpcBackend._generation_source_ids",
         "_web/backend.py:WebRpcBackend._notebook_get",
         "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
@@ -582,9 +583,18 @@ def test_operation_authorities_are_exact_discriminated_and_include_non_rpc_paths
     note_backed = rows["artifact.generate_mind_map"]
     assert note_backed["native_bindings"] == [
         "CREATE_NOTE:plain",
+        "DELETE_NOTE:<default>",
         "GENERATE_MIND_MAP:<default>",
         "GET_NOTEBOOK:<default>",
+        "UPDATE_NOTE:<default>",
     ]
+    assert {row["site"] for row in note_backed["execution_authorities"]} == {
+        "_note_service.py:LegacyNoteBackedService.create_note",
+        "_note_service.py:LegacyNoteBackedService.delete_note",
+        "_note_service.py:LegacyNoteBackedService.update_note",
+        "_web/backend.py:WebRpcBackend._generation_source_ids",
+        "_web/backend.py:WebRpcBackend._mind_map_generate",
+    }
     assert "CREATE_ARTIFACT:<default>" not in note_backed["native_bindings"]
     assert {row["transport_kind"] for row in rows["chat.ask"]["execution_authorities"]} >= {
         "rpc",

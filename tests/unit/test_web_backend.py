@@ -26,6 +26,9 @@ from notebooklm._notebook_payloads import (
 )
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._records import (
+    ARTIFACT_EXPORT_DEF,
+    ARTIFACT_GENERATE_DATA_TABLE_DEF,
+    ARTIFACT_GENERATE_MIND_MAP_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
     NOTE_CREATE_DEF,
@@ -133,6 +136,9 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.NOTE_DELETE,
         Operation.ARTIFACT_LIST,
         Operation.ARTIFACT_GET,
+        Operation.ARTIFACT_GENERATE_DATA_TABLE,
+        Operation.ARTIFACT_GENERATE_MIND_MAP,
+        Operation.ARTIFACT_EXPORT,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -154,6 +160,9 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.NOTE_DELETE: NOTE_DELETE_DEF,
         Operation.ARTIFACT_LIST: ARTIFACT_LIST_DEF,
         Operation.ARTIFACT_GET: ARTIFACT_GET_DEF,
+        Operation.ARTIFACT_GENERATE_DATA_TABLE: ARTIFACT_GENERATE_DATA_TABLE_DEF,
+        Operation.ARTIFACT_GENERATE_MIND_MAP: ARTIFACT_GENERATE_MIND_MAP_DEF,
+        Operation.ARTIFACT_EXPORT: ARTIFACT_EXPORT_DEF,
     }
     assert all(
         binding.unsupported_reason
@@ -868,6 +877,7 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
         }[translated.reason]
     )
     assert set(BackendErrorReason) == {
+        BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
         BackendErrorReason.AUTH,
         BackendErrorReason.CLIENT,
         BackendErrorReason.DECODING,

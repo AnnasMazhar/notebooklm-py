@@ -1,5 +1,71 @@
 {
   "active_web_policy_bindings": {
+    "artifact.export": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "explicit Google Drive companion export",
+          "rpc_method": "EXPORT_ARTIFACT",
+          "variant": null
+        }
+      ]
+    },
+    "artifact.generate_data_table": {
+      "call_policy": "stateful_start",
+      "known_divergence": "The exported notebooklm.artifacts.with_rate_limit_retry helper re-invokes the internal facade operation after rate limiting. P4.2 removes that internal use while preserving the public helper and adapter-neutral retry presentation policy.",
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "optional source-set read",
+          "rpc_method": "GET_NOTEBOOK",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "probe_then_create",
+          "role": "data-table kickoff",
+          "rpc_method": "CREATE_ARTIFACT",
+          "variant": null
+        }
+      ]
+    },
+    "artifact.generate_mind_map": {
+      "call_policy": "stateful_start",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "optional source-set read",
+          "rpc_method": "GET_NOTEBOOK",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "probe_then_create",
+          "role": "mind-map tree generation",
+          "rpc_method": "GENERATE_MIND_MAP",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "non-idempotent note allocation",
+          "rpc_method": "CREATE_NOTE",
+          "variant": "plain"
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "persist tree and title",
+          "rpc_method": "UPDATE_NOTE",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "cancelled create cleanup",
+          "rpc_method": "DELETE_NOTE",
+          "variant": null
+        }
+      ]
+    },
     "artifact.get": {
       "call_policy": "read",
       "known_divergence": null,
@@ -1022,7 +1088,8 @@
       "disposition_reason": null,
       "execution_authorities": [
         "_artifact/generation.py:ArtifactGenerationService._call_generate",
-        "_mind_maps_api.py:MindMapsAPI.generate"
+        "_mind_maps_api.py:MindMapsAPI.generate",
+        "_web/backend.py:WebRpcBackend._data_table_generate"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -1455,6 +1522,7 @@
       },
       "override_honored": true,
       "owners": [
+        "MindMapFamilyService",
         "MindMapService",
         "NoteService"
       ],
@@ -1463,11 +1531,13 @@
       "route_contexts": [
         "notebook",
         "notebook+mind-map",
-        "notebook+note"
+        "notebook+note",
+        "notebook+source-set"
       ],
       "rpc_id": "AH0mwd",
       "rpc_method": "DELETE_NOTE",
       "semantic_operations": [
+        "artifact.generate_mind_map",
         "mind_map.delete",
         "note.create",
         "note.delete"
@@ -1558,9 +1628,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_artifacts.py:ArtifactsAPI.export",
-        "_artifacts.py:ArtifactsAPI.export_data_table",
-        "_artifacts.py:ArtifactsAPI.export_report"
+        "_web/backend.py:WebRpcBackend._artifact_export"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -1605,7 +1673,8 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_artifact/generation.py:ArtifactGenerationService.generate_mind_map"
+        "_artifact/generation.py:ArtifactGenerationService.generate_mind_map",
+        "_web/backend.py:WebRpcBackend._mind_map_generate"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -1808,6 +1877,7 @@
         "_chat/api.py:ChatAPI.get_settings",
         "_notebooks.py:NotebooksAPI.get_raw",
         "_source/listing.py:SourceLister.list",
+        "_web/backend.py:WebRpcBackend._generation_source_ids",
         "_web/backend.py:WebRpcBackend._notebook_get",
         "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
@@ -2675,7 +2745,7 @@
       },
       "override_honored": true,
       "owners": [
-        "StudioCatalog"
+        "DriveExportService"
       ],
       "response_decoders": [],
       "response_projectors": [],
@@ -3282,6 +3352,7 @@
       },
       "override_honored": true,
       "owners": [
+        "MindMapFamilyService",
         "MindMapService",
         "NoteService"
       ],
@@ -3290,11 +3361,13 @@
       "route_contexts": [
         "notebook",
         "notebook+mind-map",
-        "notebook+note"
+        "notebook+note",
+        "notebook+source-set"
       ],
       "rpc_id": "cYAfTb",
       "rpc_method": "UPDATE_NOTE",
       "semantic_operations": [
+        "artifact.generate_mind_map",
         "mind_map.update",
         "note.create",
         "note.update"
@@ -3469,19 +3542,7 @@
         {
           "binding": "EXPORT_ARTIFACT:<default>",
           "discriminator": "direct semantic binding",
-          "site": "_artifacts.py:ArtifactsAPI.export",
-          "transport_kind": "rpc"
-        },
-        {
-          "binding": "EXPORT_ARTIFACT:<default>",
-          "discriminator": "direct semantic binding",
-          "site": "_artifacts.py:ArtifactsAPI.export_data_table",
-          "transport_kind": "rpc"
-        },
-        {
-          "binding": "EXPORT_ARTIFACT:<default>",
-          "discriminator": "direct semantic binding",
-          "site": "_artifacts.py:ArtifactsAPI.export_report",
+          "site": "_web/backend.py:WebRpcBackend._artifact_export",
           "transport_kind": "rpc"
         }
       ],
@@ -3582,13 +3643,13 @@
         {
           "binding": "CREATE_ARTIFACT:<default>",
           "discriminator": "artifact_type=data-table",
-          "site": "_artifact/generation.py:ArtifactGenerationService._call_generate",
+          "site": "_web/backend.py:WebRpcBackend._data_table_generate",
           "transport_kind": "rpc"
         },
         {
           "binding": "GET_NOTEBOOK:<default>",
           "discriminator": "source_ids is None",
-          "site": "_notebooks.py:NotebooksAPI.get_raw",
+          "site": "_web/backend.py:WebRpcBackend._generation_source_ids",
           "transport_kind": "rpc"
         }
       ],
@@ -3607,7 +3668,7 @@
       "recency_contract": [
         {
           "authority_sites": [
-            "_notebooks.py:NotebooksAPI.get_raw"
+            "_web/backend.py:WebRpcBackend._generation_source_ids"
           ],
           "condition": "one only when source_ids is omitted",
           "maximum_calls": 1,
@@ -3766,15 +3827,27 @@
           "transport_kind": "rpc"
         },
         {
+          "binding": "DELETE_NOTE:<default>",
+          "discriminator": "cancelled generated-note cleanup",
+          "site": "_note_service.py:LegacyNoteBackedService.delete_note",
+          "transport_kind": "rpc"
+        },
+        {
           "binding": "GENERATE_MIND_MAP:<default>",
-          "discriminator": "legacy facade",
-          "site": "_artifact/generation.py:ArtifactGenerationService.generate_mind_map",
+          "discriminator": "semantic facade",
+          "site": "_web/backend.py:WebRpcBackend._mind_map_generate",
           "transport_kind": "rpc"
         },
         {
           "binding": "GET_NOTEBOOK:<default>",
           "discriminator": "source_ids is None",
-          "site": "_notebooks.py:NotebooksAPI.get_raw",
+          "site": "_web/backend.py:WebRpcBackend._generation_source_ids",
+          "transport_kind": "rpc"
+        },
+        {
+          "binding": "UPDATE_NOTE:<default>",
+          "discriminator": "persist generated JSON and title",
+          "site": "_note_service.py:LegacyNoteBackedService.update_note",
           "transport_kind": "rpc"
         }
       ],
@@ -3783,8 +3856,10 @@
       "known_divergence_kind": null,
       "native_bindings": [
         "CREATE_NOTE:plain",
+        "DELETE_NOTE:<default>",
         "GENERATE_MIND_MAP:<default>",
-        "GET_NOTEBOOK:<default>"
+        "GET_NOTEBOOK:<default>",
+        "UPDATE_NOTE:<default>"
       ],
       "owner": "MindMapFamilyService",
       "policy": "stateful_start",
@@ -3794,7 +3869,7 @@
       "recency_contract": [
         {
           "authority_sites": [
-            "_notebooks.py:NotebooksAPI.get_raw"
+            "_web/backend.py:WebRpcBackend._generation_source_ids"
           ],
           "condition": "one only when source_ids is omitted",
           "maximum_calls": 1,
@@ -4228,7 +4303,7 @@
       "native_bindings": [
         "RETRY_ARTIFACT:<default>"
       ],
-      "owner": "StudioCatalog",
+      "owner": "DriveExportService",
       "policy": "stateful_start",
       "public_methods": [
         "artifacts.retry_failed"

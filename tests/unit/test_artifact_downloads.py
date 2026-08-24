@@ -8,6 +8,7 @@ import pytest
 
 from notebooklm._artifact import downloads as artifact_downloads
 from notebooklm._artifacts import ArtifactsAPI
+from notebooklm._web.backend import WebRpcBackend
 from notebooklm.types import (
     ArtifactDownloadError,
     ArtifactNotFoundError,
@@ -53,6 +54,10 @@ def mock_artifacts_api():
         notebooks=mock_notebooks,
         mind_maps=mind_maps,
         note_service=note_service,
+        _backend=WebRpcBackend(
+            mock_core.rpc_executor,
+            transport_factory=lambda **_: object(),
+        ),
     )
     return api, mock_core
 

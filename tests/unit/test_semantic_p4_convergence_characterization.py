@@ -38,6 +38,9 @@ from notebooklm._idempotency import (
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._read_services import NotebookReadService, SourceReadService
 from notebooklm._records import (
+    ARTIFACT_EXPORT_DEF,
+    ARTIFACT_GENERATE_DATA_TABLE_DEF,
+    ARTIFACT_GENERATE_MIND_MAP_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
     NOTE_CREATE_DEF,
@@ -138,6 +141,15 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         SOURCE_ADD_URL_DEF: (Operation.SOURCE_ADD_URL, CallPolicy.MUTATION),
         ARTIFACT_LIST_DEF: (Operation.ARTIFACT_LIST, CallPolicy.READ),
         ARTIFACT_GET_DEF: (Operation.ARTIFACT_GET, CallPolicy.READ),
+        ARTIFACT_GENERATE_DATA_TABLE_DEF: (
+            Operation.ARTIFACT_GENERATE_DATA_TABLE,
+            CallPolicy.STATEFUL_START,
+        ),
+        ARTIFACT_GENERATE_MIND_MAP_DEF: (
+            Operation.ARTIFACT_GENERATE_MIND_MAP,
+            CallPolicy.STATEFUL_START,
+        ),
+        ARTIFACT_EXPORT_DEF: (Operation.ARTIFACT_EXPORT, CallPolicy.MUTATION),
         NOTE_LIST_DEF: (Operation.NOTE_LIST, CallPolicy.READ),
         NOTE_GET_DEF: (Operation.NOTE_GET, CallPolicy.READ),
         NOTE_CREATE_DEF: (Operation.NOTE_CREATE, CallPolicy.MUTATION),
@@ -235,6 +247,36 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
                 IdempotencyPolicy.IDEMPOTENT_SET_OP,
                 IdempotencyPolicy.IDEMPOTENT_SET_OP,
             ],
+        ),
+        (
+            ARTIFACT_GENERATE_DATA_TABLE_DEF,
+            [(RPCMethod.GET_NOTEBOOK, None), (RPCMethod.CREATE_ARTIFACT, None)],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.PROBE_THEN_CREATE,
+            ],
+        ),
+        (
+            ARTIFACT_GENERATE_MIND_MAP_DEF,
+            [
+                (RPCMethod.GET_NOTEBOOK, None),
+                (RPCMethod.GENERATE_MIND_MAP, None),
+                (RPCMethod.CREATE_NOTE, "plain"),
+                (RPCMethod.UPDATE_NOTE, None),
+                (RPCMethod.DELETE_NOTE, None),
+            ],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.PROBE_THEN_CREATE,
+                IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
+        ),
+        (
+            ARTIFACT_EXPORT_DEF,
+            [(RPCMethod.EXPORT_ARTIFACT, None)],
+            [IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY],
         ),
         (
             NOTE_LIST_DEF,

@@ -123,10 +123,20 @@ _GENERATION_OPERATIONS = {
 }
 for _operation, _discriminator in _GENERATION_OPERATIONS.items():
     SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.CREATE_ARTIFACT))] = _rules(
-        ("_artifact/generation.py:ArtifactGenerationService._call_generate", _discriminator)
+        (
+            "_web/backend.py:WebRpcBackend._data_table_generate"
+            if _operation is Operation.ARTIFACT_GENERATE_DATA_TABLE
+            else "_artifact/generation.py:ArtifactGenerationService._call_generate",
+            _discriminator,
+        )
     )
     SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.GET_NOTEBOOK))] = _rules(
-        ("_notebooks.py:NotebooksAPI.get_raw", "source_ids is None")
+        (
+            "_web/backend.py:WebRpcBackend._generation_source_ids"
+            if _operation is Operation.ARTIFACT_GENERATE_DATA_TABLE
+            else "_notebooks.py:NotebooksAPI.get_raw",
+            "source_ids is None",
+        )
     )
 
 SHARED_RPC_AUTHORITY_RULES.update(
@@ -138,7 +148,7 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_notebooks.py:NotebooksAPI.get_raw", "kind=INTERACTIVE and source_ids is None")
         ),
         (Operation.ARTIFACT_GENERATE_MIND_MAP, _b(RPCMethod.GENERATE_MIND_MAP)): _rules(
-            ("_artifact/generation.py:ArtifactGenerationService.generate_mind_map", "legacy facade")
+            ("_web/backend.py:WebRpcBackend._mind_map_generate", "semantic facade")
         ),
         (Operation.MIND_MAP_GENERATE_NOTE, _b(RPCMethod.GENERATE_MIND_MAP)): _rules(
             (
@@ -159,7 +169,7 @@ SHARED_RPC_AUTHORITY_RULES.update(
             )
         ),
         (Operation.ARTIFACT_GENERATE_MIND_MAP, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-            ("_notebooks.py:NotebooksAPI.get_raw", "source_ids is None")
+            ("_web/backend.py:WebRpcBackend._generation_source_ids", "source_ids is None")
         ),
         (Operation.MIND_MAP_GENERATE_NOTE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
             ("_notebooks.py:NotebooksAPI.get_raw", "kind=NOTE_BACKED and source_ids is None")
@@ -283,6 +293,7 @@ class RecencyRule:
 _GET_TYPED = "_web/backend.py:WebRpcBackend._notebook_get"
 _UPDATE_TYPED = "_web/backend.py:WebRpcBackend._notebook_update"
 _GET_RAW = "_notebooks.py:NotebooksAPI.get_raw"
+_GET_GENERATION_SOURCES = "_web/backend.py:WebRpcBackend._generation_source_ids"
 _GET_SOURCES = "_source/listing.py:SourceLister.list"
 _GET_SOURCE_LIST = "_web/backend.py:WebRpcBackend._source_list"
 _GET_SOURCE = "_web/backend.py:WebRpcBackend._source_get"
@@ -438,7 +449,15 @@ for _operation in (*_GENERATION_OPERATIONS, Operation.ARTIFACT_GENERATE_MIND_MAP
             1,
             "public_call",
             "one only when source_ids is omitted",
-            (_GET_RAW,),
+            (
+                _GET_GENERATION_SOURCES
+                if _operation
+                in {
+                    Operation.ARTIFACT_GENERATE_DATA_TABLE,
+                    Operation.ARTIFACT_GENERATE_MIND_MAP,
+                }
+                else _GET_RAW,
+            ),
         ),
     )
 for _operation, _kind in (
@@ -572,6 +591,12 @@ SHARED_RPC_AUTHORITY_RULES.update(
         (Operation.NOTE_CREATE, _b(RPCMethod.UPDATE_NOTE)): _rules(
             ("_web/backend.py:WebRpcBackend._note_update", "notes.create finalize")
         ),
+        (Operation.ARTIFACT_GENERATE_MIND_MAP, _b(RPCMethod.UPDATE_NOTE)): _rules(
+            (
+                "_note_service.py:LegacyNoteBackedService.update_note",
+                "persist generated JSON and title",
+            )
+        ),
         (Operation.MIND_MAP_UPDATE, _b(RPCMethod.UPDATE_NOTE)): _rules(
             ("_note_service.py:LegacyNoteBackedService.update_note", "kind=NOTE_BACKED")
         ),
@@ -612,6 +637,12 @@ SHARED_RPC_AUTHORITY_RULES.update(
         ),
         (Operation.NOTE_CREATE, _b(RPCMethod.DELETE_NOTE)): _rules(
             ("_web/backend.py:WebRpcBackend._note_delete", "cancelled create orphan cleanup")
+        ),
+        (Operation.ARTIFACT_GENERATE_MIND_MAP, _b(RPCMethod.DELETE_NOTE)): _rules(
+            (
+                "_note_service.py:LegacyNoteBackedService.delete_note",
+                "cancelled generated-note cleanup",
+            )
         ),
         (Operation.MIND_MAP_DELETE, _b(RPCMethod.DELETE_NOTE)): _rules(
             ("_note_service.py:LegacyNoteBackedService.delete_note", "kind=NOTE_BACKED")
