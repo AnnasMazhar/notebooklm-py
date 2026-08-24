@@ -60,6 +60,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.repo_lint
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CLI_ROOT = PROJECT_ROOT / "src" / "notebooklm" / "cli"
 

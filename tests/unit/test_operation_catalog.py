@@ -30,6 +30,7 @@ def test_operation_definition_is_inert_frozen_slotted_vocabulary() -> None:
         definition.policy = CallPolicy.MUTATION  # type: ignore[misc]
 
 
+@pytest.mark.repo_lint
 def test_operation_and_call_policy_vocabularies_are_total_non_vacuous_and_alias_free() -> None:
     rows = catalog.build_operation_catalog()["operations"]
 
@@ -81,6 +82,7 @@ async def test_runtime_rpc_override_reaches_url_body_and_decoder_for_every_bindi
     assert decoded_ids == [override]
 
 
+@pytest.mark.repo_lint
 def test_audit_bites_when_a_new_native_variant_has_no_disposition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -100,6 +102,7 @@ def test_audit_bites_when_a_new_native_variant_has_no_disposition(
     assert any("LIST_NOTEBOOKS:future_variant" in error for error in errors)
 
 
+@pytest.mark.repo_lint
 def test_audit_bites_when_a_new_public_namespace_method_has_no_disposition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -112,6 +115,7 @@ def test_audit_bites_when_a_new_public_namespace_method_has_no_disposition(
     assert any("sources.future_method" in error for error in errors)
 
 
+@pytest.mark.repo_lint
 def test_audit_bites_when_a_new_root_client_member_has_no_disposition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -127,6 +131,7 @@ def test_audit_bites_when_a_new_root_client_member_has_no_disposition(
     assert any("future_lifecycle_method" in error for error in errors)
 
 
+@pytest.mark.repo_lint
 def test_audit_bites_when_an_operation_spec_is_removed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         catalog,
@@ -143,6 +148,7 @@ def test_audit_bites_when_an_operation_spec_is_removed(monkeypatch: pytest.Monke
     assert any("notebook.list" in error for error in errors)
 
 
+@pytest.mark.repo_lint
 def test_app_ast_walk_records_transport_neutral_orchestrators() -> None:
     callers = catalog.collect_app_callers()
 
@@ -181,6 +187,7 @@ def test_namespace_discovery_is_name_agnostic_and_matches_compat_inventory(
     ]
 
 
+@pytest.mark.repo_lint
 def test_call_policy_audit_rejects_an_unused_vocabulary_arm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -201,6 +208,7 @@ def test_call_policy_audit_rejects_an_unused_vocabulary_arm(
     )
 
 
+@pytest.mark.repo_lint
 def test_audit_bites_on_unresolved_dynamic_or_non_rpc_authority(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -228,6 +236,7 @@ def test_audit_bites_on_unresolved_dynamic_or_non_rpc_authority(
     )
 
 
+@pytest.mark.repo_lint
 def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
     references = catalog.collect_rpc_references()
     sites = catalog.collect_native_execution_sites()
@@ -287,6 +296,7 @@ async def invoke(rpc):
     assert collector.unresolved_rpc_calls == [("invoke", "method")]
 
 
+@pytest.mark.repo_lint
 def test_golden_evidence_is_read_from_the_existing_guardrail() -> None:
     covered, exempt = catalog.collect_golden_evidence()
 
@@ -295,6 +305,7 @@ def test_golden_evidence_is_read_from_the_existing_guardrail() -> None:
     assert "returns None" in exempt[RPCMethod.DELETE_NOTEBOOK]
 
 
+@pytest.mark.repo_lint
 def test_golden_evidence_is_variant_specific() -> None:
     rows = {row["key"]: row for row in catalog.build_operation_catalog()["native_bindings"]}
 
@@ -306,6 +317,7 @@ def test_golden_evidence_is_variant_specific() -> None:
     assert rows["ADD_SOURCE:drive"]["golden_scope"] == "variant"
 
 
+@pytest.mark.repo_lint
 def test_capture_rpc_registry_snapshot_supplies_product_omissions() -> None:
     projection = catalog.build_operation_catalog(
         {"unmapped": {"NewOne": {"method": "/LabsTailwindService.NewThing", "family": "current"}}}
@@ -321,6 +333,7 @@ def test_capture_rpc_registry_snapshot_supplies_product_omissions() -> None:
     ]
 
 
+@pytest.mark.repo_lint
 def test_committed_rpc_evidence_audit_rejects_a_vacuous_snapshot() -> None:
     confirmed = {
         method.value: {"name": method.name, "method": f"/Synthetic.{method.name}"}
@@ -351,6 +364,7 @@ def test_committed_rpc_evidence_audit_rejects_a_vacuous_snapshot() -> None:
     ]
 
 
+@pytest.mark.repo_lint
 def test_committed_rpc_evidence_rejects_unscrubbed_schema_and_rows() -> None:
     snapshot = json.loads(json.dumps(catalog.load_rpc_registry_evidence()))
     snapshot["enums"] = {"raw": []}
@@ -376,6 +390,7 @@ def test_committed_rpc_evidence_rejects_unscrubbed_schema_and_rows() -> None:
     )
 
 
+@pytest.mark.repo_lint
 def test_fresh_capture_check_bites_when_live_omissions_drift() -> None:
     snapshot = _fresh_registry_snapshot()
     unmapped = dict(snapshot["unmapped"])
@@ -416,6 +431,7 @@ def _fresh_registry_snapshot() -> dict[str, Any]:
     }
 
 
+@pytest.mark.repo_lint
 def test_fresh_capture_check_rejects_schema_gaps_and_truncation() -> None:
     missing_section = _fresh_registry_snapshot()
     missing_section.pop("enums")
@@ -455,6 +471,7 @@ def test_fresh_capture_check_rejects_schema_gaps_and_truncation() -> None:
     )
 
 
+@pytest.mark.repo_lint
 def test_non_rpc_authority_source_contract_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -468,6 +485,7 @@ def test_non_rpc_authority_source_contract_fails_closed(
     )
 
 
+@pytest.mark.repo_lint
 def test_app_authority_source_contract_and_fingerprint_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -557,6 +575,7 @@ def test_semantic_ast_fingerprint_ignores_cross_version_shape_noise() -> None:
     assert len(fingerprint) == 71
 
 
+@pytest.mark.repo_lint
 def test_known_divergences_remain_reported_but_do_not_fail_audit() -> None:
     assert catalog.audit_operation_catalog() == []
     divergences = catalog.build_operation_catalog()["known_divergences"]
@@ -577,6 +596,7 @@ def test_known_divergences_remain_reported_but_do_not_fail_audit() -> None:
     }
 
 
+@pytest.mark.repo_lint
 def test_operation_authorities_are_exact_discriminated_and_include_non_rpc_paths() -> None:
     projection = catalog.build_operation_catalog()
     rows = {row["key"]: row for row in projection["operations"]}
@@ -656,6 +676,7 @@ def test_operation_authorities_are_exact_discriminated_and_include_non_rpc_paths
     )
 
 
+@pytest.mark.repo_lint
 @pytest.mark.parametrize("operation", list(catalog.RECENCY_CONTRACTS), ids=lambda op: op.value)
 def test_recency_contracts_are_structured_source_contracts(operation: Operation) -> None:
     rows = {row["key"]: row for row in catalog.build_operation_catalog()["operations"]}
@@ -669,6 +690,7 @@ def test_recency_contracts_are_structured_source_contracts(operation: Operation)
     )
 
 
+@pytest.mark.repo_lint
 def test_get_metadata_recency_contract_pins_two_distinct_reads() -> None:
     row = next(
         row
@@ -742,6 +764,7 @@ def test_notebook_create_catalog_has_no_phantom_get_notebook_recency() -> None:
     assert catalog_ast._rpc_binding_call_count(create_handler, RPCMethod.GET_NOTEBOOK) == 0
 
 
+@pytest.mark.repo_lint
 def test_update_and_chat_recency_conditions_are_explicit() -> None:
     rows = {row["key"]: row for row in catalog.build_operation_catalog()["operations"]}
 

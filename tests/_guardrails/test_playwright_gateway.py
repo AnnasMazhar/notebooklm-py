@@ -12,6 +12,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.repo_lint
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src" / "notebooklm"
 GATEWAY = ("src/notebooklm/_auth/browser_capture.py", "sync_playwright_context")

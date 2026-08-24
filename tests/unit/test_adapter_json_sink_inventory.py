@@ -32,6 +32,8 @@ from tests._baselines.json_envelope_contracts import (
     _relative_source_path as _contract_relative_source_path,
 )
 
+pytestmark = pytest.mark.repo_lint
+
 
 def _source_root() -> Path:
     return Path(notebooklm.__file__).resolve().parents[1]

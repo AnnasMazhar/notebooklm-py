@@ -11,6 +11,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.repo_lint
+
 CLI_ROOTS = (
     Path("src/notebooklm/cli"),
     Path("src/notebooklm/notebooklm_cli.py"),

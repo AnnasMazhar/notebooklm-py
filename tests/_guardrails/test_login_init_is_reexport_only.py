@@ -9,6 +9,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.repo_lint
+
 INIT_PATH = Path("src/notebooklm/cli/services/login/__init__.py")
 
 
@@ -82,8 +86,6 @@ def test_login_init_reexport_only() -> None:
     if not INIT_PATH.exists():
         # Package not yet split (e.g. pre-T4 baseline run). Skip gracefully —
         # the policy only applies once the package exists.
-        import pytest
-
         pytest.skip(f"{INIT_PATH} does not exist yet (pre-split state)")
     tree = ast.parse(INIT_PATH.read_text(encoding="utf-8"))
     offenders = [

@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.repo_lint
+
 PKG_PATH = Path("src/notebooklm/cli/services/login")
 
 # NOTE: `__init__` is intentionally absent from ALLOWED_EDGES — the re-export-only
