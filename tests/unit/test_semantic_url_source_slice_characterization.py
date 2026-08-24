@@ -28,9 +28,9 @@ from notebooklm._sources import SourcesAPI
 from notebooklm.exceptions import (
     NetworkError,
     RPCError,
-    RPCTimeoutError,
     ServerError,
     SourceAddError,
+    SourceTimeoutError,
 )
 from notebooklm.rpc import RPCMethod
 from tests._fixtures.web_backend import build_web_backend
@@ -252,33 +252,42 @@ async def test_live_url_facade_preserves_uncertain_leaf_fields_and_context() -> 
 
 
 @pytest.mark.asyncio
-async def test_live_url_probe_deadline_projects_to_bounded_public_timeout(
+async def test_public_wait_timeout_starts_after_url_creation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    times = iter([0.0, 0.0, 0.0, 2.0, 2.0, 2.0])
-    deadline = RuntimeDeadline(timeout=1.0, started_at=0.0, monotonic=lambda: next(times))
-    create_error = ServerError("create response lost", status_code=503)
-    rpc_call = AsyncMock(side_effect=[[["Notebook", [], "nb-1"]], create_error])
+    url = "https://example.com/article"
+    rpc_call = AsyncMock(
+        side_effect=[
+            [["Notebook", [], "nb-1"]],
+            _source_result("src-new", "Upstream", url, type_code=5),
+        ]
+    )
     rpc = MagicMock(rpc_call=rpc_call)
     api = SourcesAPI(
         rpc,
         uploader=MagicMock(),
         _backend=build_web_backend(rpc),
     )
-    monkeypatch.setattr(RuntimeDeadline, "start", lambda _timeout: deadline)
 
-    with pytest.raises(RPCTimeoutError) as caught:
+    starts: list[float] = []
+
+    def start_after_creation(timeout: float, **_kwargs: object) -> RuntimeDeadline:
+        assert rpc_call.await_count == 2
+        starts.append(timeout)
+        return RuntimeDeadline(timeout=timeout, started_at=0.0, monotonic=lambda: 0.0)
+
+    monkeypatch.setattr(RuntimeDeadline, "start", start_after_creation)
+
+    with pytest.raises(SourceTimeoutError) as caught:
         await api.add_url(
             "nb-1",
-            "https://example.com/article",
+            url,
             wait=True,
-            wait_timeout=1.0,
+            wait_timeout=0.0,
         )
 
     public = caught.value
-    assert public.method_id == RPCMethod.GET_NOTEBOOK.value
-    assert public.timeout_seconds == 1.0
-    assert public.unconfirmed is True  # type: ignore[attr-defined]
-    assert isinstance(public.__context__, ServerError)
-    assert public.__context__.args == create_error.args
+    assert public.source_id == "src-new"
+    assert public.timeout == 0.0
+    assert starts == [0.0]
     assert sum(call.args[0] is RPCMethod.ADD_SOURCE for call in rpc_call.await_args_list) == 1

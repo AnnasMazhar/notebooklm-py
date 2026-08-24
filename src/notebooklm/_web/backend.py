@@ -120,7 +120,13 @@ from ..exceptions import (
     SourceTimeoutError,
     UnknownRPCMethodError,
 )
-from ..rpc import ARTIFACT_STATUS_SUGGESTED_WIRE_NAME, RPCMethod, safe_index
+from ..rpc import (
+    ARTIFACT_STATUS_SUGGESTED_WIRE_NAME,
+    GrpcStatusCode,
+    RPCMethod,
+    normalize_grpc_status,
+    safe_index,
+)
 from ..rpc.types import (
     artifact_status_to_str,
     drive_source_status_to_str,
@@ -229,6 +235,7 @@ def _source_record(source: Source) -> SourceRecord:
         url=source.url,
         kind=kind.value,
         unrecognized_kind=unrecognized_kind,
+        kind_present=type_code is not None,
         created_at=source.created_at,
         status=source_status_to_str(source.status),
         drive_document_id=source.drive_document_id,
@@ -929,13 +936,32 @@ class WebRpcBackend:
             source_path="/",
             allow_null=True,
         )
-        result = await self._rpc_call(
-            RPCMethod.GET_NOTEBOOK,
-            build_get_notebook_params(value.notebook_id),
-            operation=Operation.NOTEBOOK_UPDATE,
-            deadline=deadline,
-            source_path=f"/notebook/{value.notebook_id}",
-        )
+        try:
+            result = await self._rpc_call(
+                RPCMethod.GET_NOTEBOOK,
+                build_get_notebook_params(value.notebook_id),
+                operation=Operation.NOTEBOOK_UPDATE,
+                deadline=deadline,
+                source_path=f"/notebook/{value.notebook_id}",
+            )
+        except ClientError as exc:
+            if normalize_grpc_status(exc.rpc_code) is not GrpcStatusCode.NOT_FOUND:
+                raise
+            diagnostics = dict(self._error_diagnostics(exc, BackendErrorReason.CLIENT))
+            diagnostics.update(
+                {
+                    "notebook_id": value.notebook_id,
+                    "method_id": RPCMethod.GET_NOTEBOOK.value,
+                    "detail": str(exc),
+                    "original_message": str(exc.args[0]) if exc.args else str(exc),
+                }
+            )
+            raise BackendError(
+                message=f"Notebook not found: {value.notebook_id}",
+                operation=Operation.NOTEBOOK_UPDATE,
+                diagnostics=MappingProxyType(diagnostics),
+                reason=BackendErrorReason.NOTEBOOK_NOT_FOUND,
+            ) from exc
         notebook_row = (
             safe_index(
                 result,
@@ -1077,7 +1103,9 @@ class WebRpcBackend:
                 method_id=RPCMethod.LIST_ARTIFACTS.value,
             )
 
-        artifacts = [Artifact.from_api_response(row) for row in rows if isinstance(row, list)]
+        artifacts = [
+            Artifact.from_api_response(row) for row in rows if isinstance(row, list) and row
+        ]
         if include_mind_maps:
             caller = _DeadlineRpcCaller(self, deadline, operation)
             mind_maps = NoteBackedMindMapService(LegacyNoteBackedService(cast(Any, caller)))
@@ -1090,7 +1118,7 @@ class WebRpcBackend:
                 )
             except DecodingError:
                 raise
-            except (RPCError, NetworkError) as exc:
+            except RPCError as exc:
                 artifact_logger.warning("Failed to fetch mind maps: %s", exc)
         return tuple(_artifact_record(artifact) for artifact in artifacts)
 
@@ -1231,7 +1259,7 @@ class WebRpcBackend:
         *,
         deadline: RuntimeDeadline | None,
     ) -> SourceAddUrlResult:
-        """Run the live generic/YouTube URL workflow under one deadline."""
+        """Run the live generic/YouTube URL workflow with optional outer budgeting."""
         caller = _DeadlineRpcCaller(self, deadline, Operation.SOURCE_ADD_URL)
         adder = SourceAddService()
         lister = SourceLister(cast(Any, caller))

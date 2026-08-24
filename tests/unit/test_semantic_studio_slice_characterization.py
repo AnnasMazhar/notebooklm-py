@@ -49,6 +49,7 @@ from notebooklm.exceptions import (
     ArtifactDownloadError,
     ArtifactNotFoundError,
     DecodingError,
+    NetworkError,
     RPCError,
     ValidationError,
 )
@@ -325,6 +326,28 @@ def test_artifacts_api_public_signatures_are_frozen() -> None:
         "content",
     ]
     assert export_sig["content"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+@pytest.mark.asyncio
+async def test_artifacts_list_preserves_runtime_string_filter_compatibility() -> None:
+    audio_row = _build_full_studio_row(type_code=ArtifactTypeCode.AUDIO.value)
+    video_row = _build_full_studio_row(
+        artifact_id="art-video",
+        type_code=ArtifactTypeCode.VIDEO.value,
+    )
+    rpc_call = AsyncMock(return_value=[[audio_row, video_row]])
+    api, _mock_core, _mock_mind_maps = _make_api(rpc_call=rpc_call)
+
+    artifacts = await api.list("nb-1", "audio")  # type: ignore[arg-type]
+
+    assert [artifact.id for artifact in artifacts] == ["art-100"]
+
+
+@pytest.mark.asyncio
+async def test_artifacts_list_drops_empty_studio_rows() -> None:
+    api, _mock_core, _mock_mind_maps = _make_api(rpc_call=AsyncMock(return_value=[[[]]]))
+
+    assert await api.list("nb-1") == []
 
 
 # ===========================================================================
@@ -906,6 +929,12 @@ async def test_mind_map_dual_backing_and_partial_availability() -> None:
     degraded = await api.list("nb-1")
     assert len(degraded) == 1
     assert degraded[0].id == "mm-studio"
+
+    # The legacy partial-availability boundary never swallowed the executor's
+    # translated NetworkError; preserve that exact public behavior.
+    mock_mind_maps.list_mind_maps = AsyncMock(side_effect=NetworkError("connection reset"))
+    with pytest.raises(NetworkError, match="connection reset"):
+        await api.list("nb-1")
 
     # 3. ADR-0019 schema drift in mind-map sub-fetch propagates DecodingError
     mock_mind_maps.list_mind_maps = AsyncMock(

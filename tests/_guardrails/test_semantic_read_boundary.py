@@ -12,6 +12,7 @@ import notebooklm._read_services as service_module
 _ROOT = Path(__file__).resolve().parents[2]
 _PROJECTORS = _ROOT / "src" / "notebooklm" / "_projectors.py"
 _SERVICES = _ROOT / "src" / "notebooklm" / "_read_services.py"
+_MUTATION_SERVICES = _ROOT / "src" / "notebooklm" / "_mutation_services.py"
 
 _FORBIDDEN_MODULE_PARTS = frozenset(
     {
@@ -67,13 +68,23 @@ def test_read_services_depend_only_on_semantic_port_records_deadline_and_project
 
 
 def test_read_core_has_no_transport_wire_or_adapter_dependencies() -> None:
-    for path in (_PROJECTORS, _SERVICES):
+    for path in (_MUTATION_SERVICES, _PROJECTORS, _SERVICES):
         assert not {
             module
             for module in _imported_modules(path)
             if any(part in _FORBIDDEN_MODULE_PARTS for part in module.split("."))
         }
         assert not (_identifiers(path) & _FORBIDDEN_IDENTIFIERS)
+
+
+def test_url_mutation_service_depends_only_on_semantic_port_deadline_and_records() -> None:
+    assert _imported_modules(_MUTATION_SERVICES) <= {
+        "__future__",
+        "_backend",
+        "_deadline",
+        "_records",
+    }
+    assert not any(isinstance(node, ast.Subscript) for node in ast.walk(_tree(_MUTATION_SERVICES)))
 
 
 def test_projectors_use_normal_public_constructors_without_wire_factories() -> None:

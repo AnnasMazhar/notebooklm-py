@@ -143,6 +143,14 @@ def test_project_source_preserves_every_neutral_field_and_known_semantics() -> N
     assert source.last_modified_at == record.last_modified_at
 
 
+def test_project_source_preserves_absent_kind_distinct_from_wire_unknown_zero() -> None:
+    absent = project_source(SourceRecord("absent", kind_present=False))
+    wire_unknown = project_source(SourceRecord("unknown", kind="unknown"))
+
+    assert absent._type_code is None
+    assert wire_unknown._type_code == 0
+
+
 @pytest.mark.parametrize("opaque_kind", [938_475, "future-source-kind"])
 def test_project_source_preserves_unknown_backend_kind_discriminator(
     opaque_kind: int | str,

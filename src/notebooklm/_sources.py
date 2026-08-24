@@ -13,7 +13,6 @@ import httpx
 
 from ._backend import BackendAdapter, BackendError
 from ._backend_compat import project_backend_error, project_source_add_error
-from ._deadline import RuntimeDeadline
 from ._lookup import unwrap_or_raise
 from ._mutation_services import SourceUrlMutationService
 from ._projectors import project_source
@@ -496,7 +495,10 @@ class SourcesAPI:
                 wait=wait,
                 wait_timeout=wait_timeout,
                 requested_title=title,
-                deadline=(RuntimeDeadline.start(wait_timeout) if wait else None),
+                # ``wait_timeout`` has always budgeted readiness polling, not
+                # baseline/create time. With no outer semantic deadline the
+                # backend poller starts that relative budget after creation.
+                deadline=None,
             )
         except BackendError as error:
             if error.diagnostics is not None and "source_add_failure" in error.diagnostics:

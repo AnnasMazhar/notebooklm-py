@@ -164,6 +164,8 @@ def project_notebook(record: NotebookRecord) -> Notebook:
 
 
 def _source_type_code(record: SourceRecord) -> int | None:
+    if not record.kind_present:
+        return None
     if record.unrecognized_kind is not None:
         # An adapter has already identified this as an unrecognized backend
         # discriminator. Preserve it even though the normalized semantic kind

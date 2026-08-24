@@ -3855,7 +3855,7 @@
         {
           "binding": "GET_NOTES_AND_MIND_MAPS:<default>",
           "discriminator": "select note-backed mind map",
-          "site": "_note_service.py:NoteService.fetch_note_rows",
+          "site": "_note_service.py:LegacyNoteBackedService.fetch_note_rows",
           "transport_kind": "rpc"
         },
         {
@@ -3905,7 +3905,7 @@
         {
           "binding": "GET_NOTES_AND_MIND_MAPS:<default>",
           "discriminator": "merge note-backed mind maps",
-          "site": "_note_service.py:NoteService.fetch_note_rows",
+          "site": "_note_service.py:LegacyNoteBackedService.fetch_note_rows",
           "transport_kind": "rpc"
         },
         {
