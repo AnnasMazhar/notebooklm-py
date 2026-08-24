@@ -322,9 +322,12 @@ class WebRpcBackend:
                     outcome_unknown=operation.policy is not CallPolicy.READ,
                     diagnostics=MappingProxyType(diagnostics),
                 ) from exc
-            raise self._translate_error(operation.key, exc) from exc
+            translated = self._translate_error(operation.key, exc)
+            raise translated from exc
         except (RPCError, NetworkError) as exc:
-            raise self._translate_error(operation.key, exc) from exc
+            translated = self._translate_error(operation.key, exc)
+            raise translated from exc
+
 
         if type(result) is not operation.output_type:
             raise BackendContractError(

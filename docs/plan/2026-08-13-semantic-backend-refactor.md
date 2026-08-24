@@ -1297,6 +1297,21 @@ existing `client.artifacts` API stable.
   bases leaves every `==`-based predicate working and breaks only that lookup. A family split that
   rebuilds the state enum is exactly what reorders bases.
 
+#### Slice, module, and test map (P5 addendum)
+
+| Sub-slice | Boundary & Purpose | Target Modules | Verification & Sentinels |
+|---|---|---|---|
+| **P5.0** | Characterization & inventory suite | N/A (test-only baseline) | `tests/unit/test_semantic_studio_slice_characterization.py` (pins all 17+ fields/properties, 13 family mappings, terminal frozenset hash lookup, download client security parity, Drive export & ADR-0019 partial-availability) |
+| **P5.1** | Heterogeneous Studio catalog & classifiers | `src/notebooklm/_studio/catalog.py`, `_studio/classifiers.py` | Unit tests for list/get without extra fetch; unknown safe summary preserving metadata |
+| **P5.2** | Audio family service | `src/notebooklm/_studio/audio.py` | `test_artifacts_coverage.py`, `test_artifact_content_metadata.py`, audio media URLs and duration tests |
+| **P5.3** | Quiz & flashcards family service | `src/notebooklm/_studio/interactive.py` | `test_artifact_content_metadata.py` (user state), `test_artifact_generation_prompt.py` (option pair) |
+| **P5.4** | Report & video family service | `src/notebooklm/_studio/documents.py` | `test_artifacts_helpers.py`, `test_artifact_content_metadata.py` (report format/kind, video media) |
+| **P5.5** | Infographic & slide deck family service | `src/notebooklm/_studio/visuals.py` | `test_artifact_content_metadata.py` (accessibility text, slide/infographic dimensions) |
+| **P5.6** | Mind-map & data-table compatibility services | `src/notebooklm/_studio/data_views.py`, `_studio/exports.py` | ADR-0019 partial-availability tests, `test_artifact_downloads.py`, Drive export tests |
+| **P5.7** | Byte retrieval & serialization clients | `src/notebooklm/_studio/downloads.py`, `_studio/serialization.py` | `test_curl_cffi_redirect_guard.py`, `test_artifact_downloads.py`, factory & redirect security parity |
+| **P5.8** | Facade projection & legacy verb retirement | `src/notebooklm/_artifacts.py` -> `_studio/` | Full artifacts test suite; public signatures and `wait_for_completion` lifecycle-terminal return parity |
+
+
 ### P6 — Migrate remaining feature domains
 
 **Purpose:** remove direct native RPC dispatch from feature APIs before simplifying the runtime.
@@ -1371,6 +1386,15 @@ Each domain migration must:
 - migrate tests to fake backend plus codec goldens; and
 - delete the superseded direct feature-to-`RpcCaller` implementation.
 
+#### Slice, module, and test map (P6.3 addendum — Notes & Note-Backed Mind Maps)
+
+| Sub-slice | Boundary & Purpose | Target Modules | Verification & Sentinels |
+|---|---|---|---|
+| **P6.3.0** | Notes & mind-maps characterization baseline | N/A (test-only baseline) | `tests/unit/test_semantic_notes_mind_maps_slice_characterization.py` (pins NoteService CRUD/normalization/shielded cancellation, GET_NOTEBOOK recency counts, MindMapsAPI dual-backing split, auto-detect idempotent delete, and return shapes) |
+| **P6.3.1** | Note row records & semantic note operations | `src/notebooklm/_records.py`, `_note_service.py` | Typed operations for NoteList, NoteGet, NoteCreate, NoteUpdate, NoteDelete; codec bindings in WebRpcBackend; catalog registration |
+| **P6.3.2** | Semantic NoteService migration & reconciliation | `src/notebooklm/_note_service.py` -> `_notes/` | Backend-neutral NoteService consuming BackendAdapter; cancellation cleanup & creation timestamp preservation |
+| **P6.3.3** | MindMapsAPI dual-service delegation & retirement | `src/notebooklm/_mind_maps_api.py`, `_mind_map.py` | MindMapsAPI delegating note-backed operations to semantic NoteService and interactive operations to Studio family service; exact MindMap return shape & auto-detect preservation |
+
 #### Acceptance criteria
 
 - No migrated feature API imports `RPCMethod` or constructs positional RPC arrays.
@@ -1386,21 +1410,12 @@ shape.
 
 #### Entry criteria
 
-- P0 through P6 operations have migrated, or carry a `legacy_exception` catalog row naming an
-  approver and an open removal issue. The catalog audit fails above **5** such rows -- otherwise
-  this criterion is a paragraph the author writes and approves.
-- No semantic service consumes `RpcCaller`.
-- Backend contract, codec golden, compatibility, VCR, concurrency, cancellation, and auth-refresh
-  suites are green.
-- **`ErrorInjectionMiddleware` is migrated, deleted, or rehomed first.** It is declared out of P7's
-  scope, yet it imports the chain's `NextCall`, `RpcRequest`, and `RpcResponse` -- the very types P7
-  collapses. P7 may not begin while it still imports `_middleware.core`, so that migration is its own
-  pre-P7 PR.
-- **No test outside `tests/_guardrails/` constructs or mutates `ClientComposed`,
-  `MiddlewareChainHost`, or `RpcRequest.context`.** Roughly 35 test files reach that runtime today.
-  `test_client_factory_parity.py` and `test_middleware_context_contract.py` are the last consumers
-  and retire in the same PR as the structure (migration rule 9). Green suites alone are not the
-  criterion -- Risk 5 requires the seams migrated *before* P7, which "green" does not imply.
+- [ ] **P0 through P6 operations migrated:** All operations in the catalog are migrated, or carry a `legacy_exception` catalog row naming an approver and an open removal issue. The catalog audit fails above **5** such rows -- otherwise this criterion is a paragraph the author writes and approves.
+- [ ] **Zero semantic-service `RpcCaller` consumers:** No semantic service consumes `RpcCaller` (audited by `tests/_guardrails/test_semantic_p7_entry_audit.py`).
+- [ ] **Suites green:** Backend contract, codec golden, compatibility, VCR, concurrency, cancellation, and auth-refresh suites are green.
+- [ ] **`ErrorInjectionMiddleware` isolated:** `ErrorInjectionMiddleware` is migrated, deleted, or rehomed first. It is declared out of P7's scope, yet it imports the chain's `NextCall`, `RpcRequest`, and `RpcResponse` -- the very types P7 collapses. P7 may not begin while it still imports `_middleware.core`, so that migration is its own pre-P7 PR (audited by `tests/_guardrails/test_semantic_p7_entry_audit.py`).
+- [ ] **Test seams migrated:** No test outside `tests/_guardrails/` constructs or mutates `ClientComposed`, `MiddlewareChainHost`, or `RpcRequest.context`. Roughly 35 test files reach that runtime today. `test_client_factory_parity.py` and `test_middleware_context_contract.py` are the last consumers and retire in the same PR as the structure (migration rule 9). Green suites alone are not the criterion -- Risk 5 requires the seams migrated *before* P7, which "green" does not imply (audited by `tests/_guardrails/test_semantic_p7_entry_audit.py`).
+- [ ] **Runtime invariants equality-preserved:** Characterization tests (`tests/unit/test_semantic_p7_runtime_characterization.py`) pass, verifying `ClientComposed`/`RpcExecutor`/middleware holder parity, constructor `vars()` parity and option routing, loop affinity, drain/close lifecycle, retry/auth-refresh single-flight, error lattice, and metrics/telemetry snapshot/event invariants.
 
 #### Changes
 
