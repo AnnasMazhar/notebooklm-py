@@ -11,23 +11,20 @@ from ._notebook_metadata import (
     create_default_source_lister,
 )
 from ._notebook_mutation_service import NotebookMutationService
-from ._notebook_payloads import (
-    _PROMPT_SUGGESTIONS_DEFAULT_MODE,
-    build_get_notebook_params,
-    build_prompt_suggestions_params,
-)
 from ._notebook_payloads import build_create_notebook_params as build_create_notebook_params
+from ._notebook_payloads import (
+    build_get_notebook_params,
+)
 from ._projectors import project_notebook_description
 from ._read_services import NotebookReadService
-from ._row_adapters.notebooks import PromptSuggestionRow, unwrap_prompt_suggestions
 from ._row_adapters.sources import SourceRow
 from ._runtime.contracts import RpcCaller
 from ._sharing_manager import ShareManager
+from ._suggestion_service import PROMPT_SUGGESTIONS_DEFAULT_MODE, SuggestionService
 from ._web.codec.notebooks import decode_notebook_description
 from .exceptions import (
     ClientError,
     NotebookNotFoundError,
-    ValidationError,
 )
 from .rpc import GrpcStatusCode, RPCMethod, normalize_grpc_status, safe_index
 from .types import (
@@ -208,6 +205,7 @@ class NotebooksAPI:
         self._rpc = rpc
         self._read_service = NotebookReadService(_backend) if _backend is not None else None
         self._mutation_service = NotebookMutationService(_backend) if _backend is not None else None
+        self._suggestion_service = SuggestionService(_backend) if _backend is not None else None
         self._sources = sources_api or create_default_source_lister(self._rpc)
         self._metadata_service = metadata_service or NotebookMetadataService(
             # Keep notebook lookup late-bound so tests and advanced callers that
@@ -235,6 +233,12 @@ class NotebooksAPI:
         if self._mutation_service is None:
             raise RuntimeError("NotebooksAPI semantic mutation backend was not configured")
         return self._mutation_service
+
+    def _require_suggestion_service(self) -> SuggestionService:
+        """Return the composition-root service for prompt suggestions."""
+        if self._suggestion_service is None:
+            raise RuntimeError("NotebooksAPI semantic suggestion backend was not configured")
+        return self._suggestion_service
 
     def _take_created_chat_session_id(self, notebook_id: str) -> str | None:
         """Consume CREATE_NOTEBOOK's volunteered current chat-session id."""
@@ -385,7 +389,7 @@ class NotebooksAPI:
         notebook_id: str,
         *,
         source_ids: list[str] | None = None,
-        mode: int = _PROMPT_SUGGESTIONS_DEFAULT_MODE,
+        mode: int = PROMPT_SUGGESTIONS_DEFAULT_MODE,
         query: str | None = None,
     ) -> list[PromptSuggestion]:
         """Get AI-suggested prompts for a notebook.
@@ -411,7 +415,7 @@ class NotebooksAPI:
                 ``9`` flashcards, ``10`` video short (``7`` unidentified). Stays a
                 plain int, not a named enum, since the bundle exposes the values
                 but not Google's member names. See
-                ``_PROMPT_SUGGESTIONS_DEFAULT_MODE`` for the full map + method.
+                ``PROMPT_SUGGESTIONS_DEFAULT_MODE`` for the full map + method.
             query: Optional free-text steer for the kind of prompts to suggest.
                 An empty / whitespace-only string is treated as no steer.
 
@@ -428,37 +432,15 @@ class NotebooksAPI:
         .. versionadded:: 0.8.0
         """
         logger.debug("Suggesting prompts for notebook %s (mode=%d)", notebook_id, mode)
-        # Validate the mode up front (before the source-id fetch) so a bad value
-        # fails fast without a wasted round-trip; the builder's ValueError is
-        # re-raised as the public ValidationError for a uniform error contract.
         try:
-            build_prompt_suggestions_params(notebook_id, [], mode=mode)
-        except ValueError as exc:
-            raise ValidationError(str(exc)) from exc
-        if source_ids is None:
-            source_ids = await self.get_source_ids(notebook_id)
-
-        params = build_prompt_suggestions_params(notebook_id, source_ids, mode=mode, query=query)
-        result = await self._rpc.rpc_call(
-            RPCMethod.SUGGEST_PROMPTS,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-        )
-
-        rows = unwrap_prompt_suggestions(result, source="suggest_prompts")
-        # ``is_well_formed`` only gates on row LENGTH (>= 2 slots), not on the
-        # field values, mirroring ``ReportSuggestionRow``: a length-ok row whose
-        # title/prompt degrade to "" (a non-string leaf) still maps to a
-        # ``PromptSuggestion("", "")``. Real traffic always carries string
-        # leaves, so this is a best-effort tolerance for a degenerate server
-        # payload, not an expected output — callers should not treat an empty
-        # title/prompt as meaningful.
-        return [
-            PromptSuggestion(title=row.title, prompt=row.prompt)
-            for row in map(PromptSuggestionRow, rows)
-            if row.is_well_formed
-        ]
+            return await self._require_suggestion_service().suggest_prompts(
+                notebook_id,
+                source_ids=source_ids,
+                mode=mode,
+                query=query,
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def list(self) -> list[Notebook]:
         """List notebooks (most-recently-viewed first).

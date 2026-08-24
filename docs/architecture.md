@@ -101,7 +101,8 @@ private `WebRpcBackend` at the shared client-assembly seam and registers typed h
 the P2.1 notebook/source reads, P2.2 notebook mutations, P2.3 URL/YouTube registration, P5.1 Studio
 catalog reads, P5.2 Audio, P5.3 Quiz/Flashcards, P5.4 Report/Video, P5.5
 Infographic/Slide Deck generation, P5.6 Data Table/Mind Map generation and Drive export,
-P5.7 Studio representation retrieval/serialization boundaries, and P6.3 note/mind-map workflows.
+P5.7 Studio representation retrieval/serialization boundaries, P6.3 note/mind-map workflows,
+and P6.6 settings/account limits plus notebook/report suggestions.
 These public paths delegate through
 transport-neutral semantic services and that client-owned backend. Audio discovery and download
 selection reuse the Studio catalog rather than adding a second listing authority. The URL-source
@@ -114,14 +115,15 @@ The retained public parsing factories remain callable but have no production cal
 the active bindings: whole-workflow `CallPolicy` values, exact native idempotency expectations,
 caller-owned absolute deadline identity, and closed public-error projection are audited together
 without moving retry authority out of the native registry. Future operation migrations must extend
-that same ledger; P5.1 through P5.6 and P6.3 extend it to all 31 current handlers. The remaining phase
+that same ledger; P5.1 through P5.7, P6.3, and P6.6 extend it to all 36 current handlers. The remaining phase
 descriptions are sequencing decisions, not a claim that the rest of P3-P8 are complete. P9
 public-surface work and a mobile backend require separate decisions.
 
 The operation-catalog audit classifies only the shared generic web RPC forwarder as inert. The four
 notebook/source read handlers, three notebook-mutation handlers, URL-source composite, two Studio
 catalog handlers, nine family generation handlers, one Drive-export handler, five plain-note
-handlers, and six mind-map handlers are active catalogued authorities. `MindMapsAPI` delegates to
+handlers, six mind-map handlers, three settings handlers, and two suggestion handlers are active
+catalogued authorities. `MindMapsAPI` delegates to
 the semantic note and Studio mind-map services; retained saved-chat/artifact compatibility seams
 remain explicitly named legacy RPC consumers and never borrow NOTE_* authority. This bounded
 classification is mutation-tested and shrinks as later slices activate handlers.
@@ -130,7 +132,7 @@ P0 adds four ADR-0022 contract baselines before runtime delegation:
 
 | Baseline | Freezes |
 | --- | --- |
-| `operation_catalog` | 86 operations with 165 exact authority rows (41 multi-authority); 56 native rows (21 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; the exact 31-operation active web policy/native-idempotency ledger; 146 namespace methods (eight local-only), ten root-client members, and 12 divergences (11 authority, one policy) |
+| `operation_catalog` | 86 operations with 165 exact authority rows (41 multi-authority); 56 native rows (21 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; the exact 36-operation active web policy/native-idempotency ledger; 146 namespace methods (eight local-only), ten root-client members, and 12 divergences (11 authority, one policy) |
 | `public_model_contract` | The 86 exported identities (50 dataclasses, 36 enums): construction, field/member order, behavior flags, export paths, structured pickle success/failure, first-party state hooks, and `Notebook` / `ChatReference` legacy-state restore invariants |
 | `json_envelope` | Exact sink/view-backed projection modes, keys, causal fields, and conditional variants: CLI 31 model identities/133 projections, MCP 32/123, REST 32/57 (313 unique ids). Its closed-world sink inventory covers 350 terminal/error sites: 225 public-projection, 117 reviewed non-public, eight forwarding infrastructure, and 15 conditional non-public variants across 14 sites. Every live id has a terminal allocation; registrations/direct JSON bypasses fail closed. It also pins 36 private DTO -> public dataclass paths (34 linked; `SourceRefreshResult.result` production-dead; `ValidatedSessionConfig.limits` internal-runtime-only), 16 explicit helper fingerprints, and a compact aggregate digest for the bounded 519-node / 1,242-edge transitive helper graph (520 unique helpers overall). Thirty-seven declarations across 28 literal final-dict sites are AST-derived, while 168 explicit declarations remain manually reviewed. The supplemental 49-dataclass inventory excludes `AuthTokens`; only the exact redacted MCP/REST `server_info` identity contributions are allowed. `authuser` / `account_email` may emit, while storage path/profile generation only select control flow; recursive credentials and any extra projection fail closed. |
 | `metrics_contract` | The 14 snapshot and five event fields plus normalized success/transport-error/decode-error observations through composed public `rpc_call()` / `metrics_snapshot()`; direct non-RPC middleware probes are supplemental |
@@ -590,6 +592,8 @@ Beyond the client-owned runtime graph, several feature APIs are implemented via 
 | `StudioDownloadClient` | [`_studio/downloads.py`](../src/notebooklm/_studio/downloads.py) | Trusted remote byte retrieval with shared factory/allowlist and per-hop redirect validation for both httpx and curl_cffi. |
 | `StudioSerializationClient` | [`_studio/serialization.py`](../src/notebooklm/_studio/serialization.py) | RPC-free local text, JSON, and CSV representation serialization. |
 | `ArtifactGenerationService` | [`_artifact/generation.py`](../src/notebooklm/_artifact/generation.py) | Generation kickoff service (`generate_*`, `revise_slide`, `retry_failed`) extracted from `ArtifactsAPI`. |
+| `SettingsService` | [`_settings_service.py`](../src/notebooklm/_settings_service.py) | Typed semantic settings/account-limit reads and output-language mutation over `BackendAdapter`. |
+| `SuggestionService` | [`_suggestion_service.py`](../src/notebooklm/_suggestion_service.py) | Typed prompt/report suggestion operations, including pre-dispatch prompt-mode validation. |
 | `ReportFamilyService` / `VideoFamilyService` | [`_studio/documents.py`](../src/notebooklm/_studio/documents.py) | Backend-neutral P5.4 report/video generation, catalog filtering, and family metadata/availability rules. |
 | `VisualFamilyService` | [`_studio/visuals.py`](../src/notebooklm/_studio/visuals.py) | Backend-neutral P5.5 infographic/slide-deck generation, catalog filtering, usable readiness, and accessibility metadata. |
 | `DataTableFamilyService` / `NoteBackedMindMapFamilyService` | [`_studio/data_views.py`](../src/notebooklm/_studio/data_views.py) | Backend-neutral P5.6 data-table and artifact note-backed mind-map generation plus complete catalog selection. |
@@ -1059,7 +1063,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_deadline.py` | `RuntimeDeadline` helper shared by retry and polling loops so aggregate timeouts clamp sleep consistently |
 | `_backend_compat.py` | Private compatibility projector from closed semantic `BackendErrorReason` + safe diagnostics back to the existing public exception subclasses at migrated facade boundaries. |
 | `_backend.py` | Private protocol-neutral semantic port: backend kind/capabilities, typed `BackendAdapter.invoke`, and the minimal scrubbed error/deadline handoff used by the P2 slice. |
-| `_records.py` | Frozen, slotted, protocol-neutral input/output records and `OperationDef` values for P2 notebook/source operations, P5.1 Studio catalog, P5.2 Audio, P5.3 Quiz/Flashcards, P5.4 Report/Video, P5.5 Infographic/Slide Deck, P5.6 Data Table/Mind Map/Drive export, and P6.3 note/mind-map workflows, plus P3 notebook-guide/source/artifact/label/collection/sharing decode values and closed URL-source error evidence. |
+| `_records.py` | Frozen, slotted, protocol-neutral input/output records and `OperationDef` values for P2 notebook/source operations, P5.1 Studio catalog, P5.2 Audio, P5.3 Quiz/Flashcards, P5.4 Report/Video, P5.5 Infographic/Slide Deck, P5.6 Data Table/Mind Map/Drive export, P6.3 note/mind-map workflows, and P6.6 settings/suggestions, plus P3 notebook-guide/source/artifact/label/collection/sharing decode values and closed URL-source error evidence. |
 | `_backoff.py` | Shared capped exponential-backoff calculation with deterministic test injection |
 | `_reqid_counter.py` | `ReqidCounter` — monotonic `_reqid` for the chat backend |
 | `_runtime/auth.py` | `AuthRefreshCoordinator` — refresh task + auth-snapshot lock |
@@ -1068,16 +1072,18 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_runtime/transport.py` | `RuntimeTransport` — authed-POST transport wrapper that drives the middleware chain and typed transport response handling |
 | `_rpc_executor.py` | RPC dispatch executor. Takes its `Kernel`, `RuntimeTransport`, `AuthRefreshCoordinator`, and `ClientMetrics` collaborators directly via keyword-only constructor parameters (ADR-0014 Rule 5). Defines a single local `DecodeResponse` Protocol. |
 | `_operations.py` | Closed P0 semantic vocabulary: `Operation` / `CallPolicy` enums and frozen, slotted, typed `OperationDef`, consumed by the private P1 backend port and registries. |
-| `_projectors.py` | Shared compatibility projectors from neutral records to the existing public notebook/source/artifact/note/label/collection/sharing models, using normal constructors with no positional indices, RPC IDs, or public parsing factories. |
+| `_projectors.py` | Shared compatibility projectors from neutral records to the existing public notebook/source/artifact/note/label/collection/sharing/settings/suggestion models, using normal constructors with no positional indices, RPC IDs, or public parsing factories. |
 | `_notebook_mutation_service.py` | Private P2.2 transport-neutral notebook create/title-update/delete service; validates semantic input and invokes only typed backend definitions. |
 | `_mutation_services.py` | Private live P2.3 transport-neutral URL-source mutation service; carries the ordinary/YouTube request and uncertainty receipt through `BackendAdapter` without wire dependencies. |
 | `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
+| `_settings_service.py` | Private P6.6 transport-neutral settings/account-limit service; invokes the three typed account operations and projects the unchanged public models. |
+| `_suggestion_service.py` | Private P6.6 prompt/report suggestion service; validates prompt mode before invocation, carries optional source selection neutrally, and projects the unchanged prompt/report models. |
 | `_studio/` | Private transport-neutral Studio boundary: the P5.1 heterogeneous catalog/classifier; P5.2–P5.6 family/generation/export services; P5.7 trusted representation retrieval plus local serialization clients; and the P6.3 interactive mind-map family. |
 | `_studio/interactive.py` | Private P5.3 Quiz/Flashcards family service: typed generation dispatch, catalog-backed discovery, and family-usable readiness/user-state metadata without wire vocabulary. |
 | `_studio/mind_maps.py` | Private P6.3 interactive mind-map family service: catalog-backed discovery plus typed generation/tree/update/delete dispatch. |
-| `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; 31 active handlers cover P2 notebook/source operations, P5.1 Studio catalog reads, P5.2–P5.6 Studio families/Drive export, and P6.3 note/mind-map workflows. |
-| `_web/policy.py` | Exact P4 ledger, extended to all 31 active web workflows: semantic policy, every reachable native method/variant, reviewed native idempotency, and optional reported divergence. It audits parity but never controls retry execution. |
-| `_web/registry.py` | Closed web disposition registry over every `Operation`: 31 executable typed handlers and an unsupported disposition for every other operation. |
+| `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; 36 active handlers cover P2 notebook/source operations, P5.1 Studio catalog reads, P5.2–P5.6 Studio families/Drive export, P6.3 note/mind-map workflows, and P6.6 settings/suggestions. |
+| `_web/policy.py` | Exact P4 ledger, extended to all 36 active web workflows: semantic policy, every reachable native method/variant, reviewed native idempotency, and optional reported divergence. It audits parity but never controls retry execution. |
+| `_web/registry.py` | Closed web disposition registry over every `Operation`: 36 executable typed handlers and an unsupported disposition for every other operation. |
 | `_studio/catalog.py` | Typed P5.1 Studio list/get service over neutral artifact operation records. |
 | `_studio/classifiers.py` | Closed neutral-artifact family classifier shared by Studio catalog selection. |
 | `_studio/data_views.py` | P5.6 typed data-table and mind-map generation plus dual-backing catalog selection. |
@@ -1086,8 +1092,11 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_web/studio_documents.py` | P5.4 web workflow binding for report/video source resolution and generation kickoff; mixed into `WebRpcBackend` to keep the composed backend below the module-size ratchet. |
 | `_web/studio_media.py` | Shared P5.2/P5.3/P5.5 web generation handlers for Audio, Quiz/Flashcards, and Infographic/Slide Deck; inherits the document-family RPC/source helpers and keeps the composed backend below the module-size ratchet. |
 | `_web/studio_data.py` | P5.6 web handlers for data-table/mind-map generation and Drive export; composes with the media/document handlers while keeping the backend module below the size ratchet. |
+| `_web/settings_suggestions.py` | P6.6 web handlers for settings, account limits, and prompt/report suggestions; mixed into `WebRpcBackend` to keep the composed backend below the size ratchet. |
 | `_web/codec/studio_documents.py` | P5.4 exact report/video request encoders and generation-status decoder over backend-neutral records. |
 | `_web/codec/notes.py` | P6.3 mixed note-row codec: normalizes flat/wrapped envelopes, classifies deleted and note-backed mind-map rows, preserves exact-id selection, and emits only neutral `NoteRecord` values. |
+| `_web/codec/settings.py` | P6.6 account wire codec: owns account request arrays, mandatory-prefix diagnostics, optional-language tolerance, and raw limit preservation. |
+| `_web/codec/suggestions.py` | P6.6 prompt/report wire codec: owns request arrays, tolerant row projection, and conditional prompt source-id decoding. |
 | `scripts/audit_operation_catalog.py` | Single build/audit CLI for the deterministic ADR-0022 projection: exact semantic authorities, native bindings, public/root-client dispositions, evidence, omissions, and divergences. |
 | `scripts/_operation_catalog_specs.py` | Reviewed semantic operation specifications, owners/policies/routes, native/web bindings, public methods, and dispositions. |
 | `scripts/_operation_catalog_authorities.py` | Exact RPC/stream/upload/download/orchestrator authority allocations, semantic discriminators, and recency contracts. |
@@ -1124,7 +1133,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `artifacts.py`, `research.py`, `utils.py` | Public helper modules for artifact retry, research citation/report utilities, and common async helpers |
 | `_research_task_parser.py` | Internal parser for research task result-type selection |
 | `_notebooks.py` | `client.notebooks` API + source-id resolver |
-| `_notebook_payloads.py` | Stable `batchexecute` notebook RPC request payload builders (currently `SUGGEST_PROMPTS`) |
+| `_notebook_payloads.py` | Stable `batchexecute` payload builders for the remaining notebook read/mutation web bindings. |
 | `_sources.py` | `client.sources` API |
 | `_artifacts.py` | `client.artifacts` API — owns artifact generation orchestration directly (see ADR-0012) |
 | `_chat/api.py` | `client.chat` API |
@@ -1134,7 +1143,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_sharing.py` | `client.sharing` API |
 | `_labels.py` | `client.labels` API — source labels (topic groupings); pure-RPC like `SharingAPI`, plus a narrow `list_sources` callable for the membership→`Source` join in `sources()` |
 | `_collections.py` | `client.collections` API — account-level notebook groups; reuses the label RPCs (type-3, null notebook parent, `source_path="/"`), plus a narrow `list_notebooks` callable for the membership→`Notebook` join in `notebooks()` |
-| `_settings.py` | `client.settings` API |
+| `_settings.py` | `client.settings` compatibility facade over `SettingsService` |
 | `_note_service.py` | Semantic note/note-backed-mind-map workflow plus bounded legacy compatibility owner |
 | `_mind_map.py` | Deferred note-backed compatibility adapter outside the migrated mind-map facade |
 | `_mind_maps_api.py` | `client.mind_maps` API — transport-free dual-service facade over semantic note-backed and interactive Studio mind maps (#1256) |
@@ -1264,7 +1273,9 @@ src/notebooklm/
 ├── _notebook_mutation_service.py # Transport-neutral notebook mutation service (P2.2)
 ├── _mutation_services.py        # Transport-neutral URL-source mutation service (P2.3, live)
 ├── _read_services.py            # Transport-neutral notebook/source list/get services (P2.1)
-├── _records.py                  # Neutral P2/P5.1-P5.6/P6.3 DTOs + P3 decoded resource records
+├── _settings_service.py         # Transport-neutral settings/account-limit service (P6.6)
+├── _suggestion_service.py       # Transport-neutral prompt/report suggestion service (P6.6)
+├── _records.py                  # Neutral P2/P5.1-P5.6/P6.3/P6.6 DTOs + P3 decoded resource records
 ├── _studio/                     # Private Studio family package
 │   ├── catalog.py               # Heterogeneous neutral list/get catalog (P5.1)
 │   ├── classifiers.py           # Closed family classifier (P5.1)
@@ -1286,12 +1297,13 @@ src/notebooklm/
 ├── _redact.py                   # Transport-neutral secret/home-path/file-link scrubber (redact(msg, max_length)); shared chokepoint under both mcp/_errors.py and server/_errors.py
 ├── _web/                        # Private web implementation of the semantic backend port
 │   ├── __init__.py              # Lazy private WebRpcBackend re-export (leaf-codec safe)
-│   ├── backend.py               # RpcExecutor-backed P2/P5.1-P5.6/P6.3 handlers
+│   ├── backend.py               # RpcExecutor-backed P2/P5.1-P5.6/P6.3/P6.6 handlers
 │   ├── policy.py                # P4 semantic/native policy parity ledger (reporting only)
 │   ├── registry.py              # Closed active/unsupported web dispositions
 │   ├── studio_documents.py      # P5.4 web report/video workflow handlers
 │   ├── studio_media.py          # P5.2/P5.3/P5.5 web family handlers
 │   ├── studio_data.py           # P5.6 data-view generation and Drive-export handlers
+│   ├── settings_suggestions.py  # P6.6 settings/limits/suggestion handlers
 │   └── codec/                   # P3 web response codecs producing neutral records/value exemptions
 │       ├── __init__.py          # Private codec re-exports
 │       ├── artifacts.py         # Artifact/mind-map/report-suggestion rows -> neutral records
@@ -1303,6 +1315,8 @@ src/notebooklm/
 │       ├── mind_maps.py         # Interactive mind-map tree/create response codecs
 │       ├── sharing.py           # Share status/user rows -> neutral records
 │       ├── sources.py           # Source row variants -> neutral records
+│       ├── settings.py          # Account settings/limit request and response codec (P6.6)
+│       ├── suggestions.py       # Prompt/report request, source-id, and row codec (P6.6)
 │       └── studio_documents.py  # Exact report/video request and status codecs
 ├── _app/                        # Transport-neutral business-logic layer (CLI/MCP/HTTP adapters share it)
 │   ├── __init__.py              # Re-exports the neutral primitives
@@ -1469,13 +1483,13 @@ src/notebooklm/
 │   ├── sharing.py
 │   └── sources.py
 ├── _notebooks.py                # NotebooksAPI
-├── _notebook_payloads.py        # batchexecute notebook RPC payload builders (SUGGEST_PROMPTS)
+├── _notebook_payloads.py        # Remaining notebook read/mutation RPC payload builders
 ├── _sources.py                  # SourcesAPI
 ├── _artifacts.py                # ArtifactsAPI
 ├── _research.py                 # ResearchAPI
 ├── _notes.py                    # NotesAPI
 ├── _sharing.py                  # SharingAPI
-├── _settings.py                 # SettingsAPI
+├── _settings.py                 # SettingsAPI compatibility facade over SettingsService
 ├── _labels.py                   # LabelsAPI — client.labels (source labels: generate/create/list/…)
 ├── _collections.py              # CollectionsAPI — client.collections (account-level notebook groups; reuse label RPCs, type-3)
 ├── notebooklm_cli.py            # Entry-point assembler — imports + registers cli/ groups

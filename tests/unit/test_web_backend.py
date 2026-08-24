@@ -51,6 +51,7 @@ from notebooklm._records import (
     ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
+    ARTIFACT_SUGGEST_REPORTS_DEF,
     MIND_MAP_DELETE_DEF,
     MIND_MAP_GENERATE_INTERACTIVE_DEF,
     MIND_MAP_GENERATE_NOTE_DEF,
@@ -66,7 +67,11 @@ from notebooklm._records import (
     NOTEBOOK_DELETE_DEF,
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
+    NOTEBOOK_SUGGEST_PROMPTS_DEF,
     NOTEBOOK_UPDATE_DEF,
+    SETTINGS_GET_DEF,
+    SETTINGS_GET_LIMITS_DEF,
+    SETTINGS_SET_LANGUAGE_DEF,
     SOURCE_ADD_URL_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
@@ -205,6 +210,11 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.MIND_MAP_GENERATE_INTERACTIVE,
         Operation.MIND_MAP_UPDATE,
         Operation.MIND_MAP_DELETE,
+        Operation.NOTEBOOK_SUGGEST_PROMPTS,
+        Operation.ARTIFACT_SUGGEST_REPORTS,
+        Operation.SETTINGS_GET,
+        Operation.SETTINGS_GET_LIMITS,
+        Operation.SETTINGS_SET_LANGUAGE,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -242,6 +252,11 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.MIND_MAP_GENERATE_INTERACTIVE: MIND_MAP_GENERATE_INTERACTIVE_DEF,
         Operation.MIND_MAP_UPDATE: MIND_MAP_UPDATE_DEF,
         Operation.MIND_MAP_DELETE: MIND_MAP_DELETE_DEF,
+        Operation.NOTEBOOK_SUGGEST_PROMPTS: NOTEBOOK_SUGGEST_PROMPTS_DEF,
+        Operation.ARTIFACT_SUGGEST_REPORTS: ARTIFACT_SUGGEST_REPORTS_DEF,
+        Operation.SETTINGS_GET: SETTINGS_GET_DEF,
+        Operation.SETTINGS_GET_LIMITS: SETTINGS_GET_LIMITS_DEF,
+        Operation.SETTINGS_SET_LANGUAGE: SETTINGS_SET_LANGUAGE_DEF,
     }
     assert all(
         binding.unsupported_reason
@@ -1850,7 +1865,10 @@ def test_only_migrated_feature_runtime_reads_private_backend() -> None:
         package / "_mutation_services.py",
         package / "_note_service.py",
         package / "_read_services.py",
+        package / "_settings.py",
+        package / "_settings_service.py",
         package / "_sources.py",
+        package / "_suggestion_service.py",
     }
     allowed.update((package / "_studio").rglob("*.py"))
     allowed.update((package / "_web").rglob("*.py"))

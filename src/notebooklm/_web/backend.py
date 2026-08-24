@@ -4,8 +4,8 @@ P1 assembles this backend. P2.1 routes four notebook/source reads through it;
 P2.2 routes three notebook mutation handlers; P2.3 routes the live URL/YouTube
 source composite; P5.1 routes Studio catalog list/get; P5.2 routes Audio; P5.3
 routes Quiz/Flashcards; P5.4 routes Report/Video; P5.5 routes Infographic/Slide
-Deck generation; and P6.3 routes
-plain-note CRUD. These bindings reuse
+Deck generation; P6.3 routes plain-note CRUD; and P6.6 routes settings and
+suggestions. These bindings reuse
 current request builders and strict row adapters; P3 web codecs terminate
 response grammar in neutral records before public compatibility projection.
 """
@@ -111,7 +111,6 @@ from .._row_adapters.artifacts import (
     unwrap_artifact_rows,
 )
 from .._rpc_executor import RpcExecutor
-from .._settings import build_get_user_settings_params, extract_account_limits
 from .._source.add import SourceAddService, honor_requested_title_if_fresh
 from .._source.listing import SourceLister
 from .._source.polling import SourcePoller
@@ -145,6 +144,7 @@ from ..rpc import (
 )
 from ..rpc.types import drive_source_status_to_str, source_status_to_str
 from ..types import Source
+from .codec import settings as settings_codec
 from .codec.artifacts import decode_artifact, decode_mind_map_artifact
 from .codec.mind_maps import (
     decode_created_interactive_id,
@@ -160,7 +160,7 @@ from .codec.notes import (
 )
 from .codec.sources import decode_source
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
-from .studio_data import StudioDataWebHandlers
+from .settings_suggestions import SettingsSuggestionWebHandlers
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
 source_logger = logging.getLogger("notebooklm").getChild("_sources")
@@ -465,7 +465,7 @@ class _DeadlineRpcCaller:
         raise timeout_error
 
 
-class WebRpcBackend(StudioDataWebHandlers):
+class WebRpcBackend(SettingsSuggestionWebHandlers):
     """Typed semantic binding over the existing shared :class:`RpcExecutor`."""
 
     def __init__(
@@ -775,12 +775,12 @@ class WebRpcBackend(StudioDataWebHandlers):
         try:
             settings = await self._rpc_call(
                 RPCMethod.GET_USER_SETTINGS,
-                build_get_user_settings_params(),
+                settings_codec.encode_get_user_settings(),
                 operation=Operation.NOTEBOOK_CREATE,
                 deadline=deadline,
                 source_path="/",
             )
-            limit = extract_account_limits(settings).notebook_limit
+            limit = settings_codec.decode_account_limits(settings).notebook_limit
         except Exception:
             notebook_logger.debug(
                 "Could not fetch account limits after CREATE_NOTEBOOK failure; "

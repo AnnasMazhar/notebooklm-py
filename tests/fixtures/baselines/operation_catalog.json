@@ -228,6 +228,18 @@
         }
       ]
     },
+    "artifact.suggest_reports": {
+      "call_policy": "stateful_start",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "report-format suggestion read",
+          "rpc_method": "GET_SUGGESTED_REPORTS",
+          "variant": null
+        }
+      ]
+    },
     "mind_map.delete": {
       "call_policy": "mutation",
       "known_divergence": null,
@@ -432,6 +444,24 @@
         }
       ]
     },
+    "notebook.suggest_prompts": {
+      "call_policy": "stateful_start",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "optional source resolution",
+          "rpc_method": "GET_NOTEBOOK",
+          "variant": null
+        },
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "prompt suggestion read",
+          "rpc_method": "SUGGEST_PROMPTS",
+          "variant": null
+        }
+      ]
+    },
     "notebook.update": {
       "call_policy": "mutation",
       "known_divergence": null,
@@ -446,6 +476,42 @@
           "idempotency_policy": "idempotent_set_op",
           "role": "post-mutation readback",
           "rpc_method": "GET_NOTEBOOK",
+          "variant": null
+        }
+      ]
+    },
+    "settings.get": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "account settings read",
+          "rpc_method": "GET_USER_SETTINGS",
+          "variant": null
+        }
+      ]
+    },
+    "settings.get_limits": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "account limits read",
+          "rpc_method": "GET_USER_SETTINGS",
+          "variant": null
+        }
+      ]
+    },
+    "settings.set_language": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "idempotency_policy": "idempotent_set_op",
+          "role": "output-language mutation",
+          "rpc_method": "SET_USER_SETTINGS",
           "variant": null
         }
       ]
@@ -1345,7 +1411,10 @@
         "SlideDeckFamilyService",
         "VideoFamilyService"
       ],
-      "response_decoders": [],
+      "response_decoders": [
+        "_web/codec/mind_maps.py:decode_created_interactive_id",
+        "_web/codec/studio_documents.py:decode_generation_status"
+      ],
       "response_projectors": [],
       "route_contexts": [
         "notebook+source-set"
@@ -1440,7 +1509,9 @@
       },
       "override_honored": true,
       "owners": [],
-      "response_decoders": [],
+      "response_decoders": [
+        "_web/codec/notes.py:decode_created_note"
+      ],
       "response_projectors": [],
       "route_contexts": [],
       "rpc_id": "CYK0Xb",
@@ -1488,7 +1559,9 @@
         "MindMapService",
         "NoteService"
       ],
-      "response_decoders": [],
+      "response_decoders": [
+        "_web/codec/notes.py:decode_created_note"
+      ],
       "response_projectors": [],
       "route_contexts": [
         "notebook",
@@ -1531,7 +1604,9 @@
       "owners": [
         "ChatService"
       ],
-      "response_decoders": [],
+      "response_decoders": [
+        "_web/codec/notes.py:decode_created_note"
+      ],
       "response_projectors": [],
       "route_contexts": [
         "notebook+conversation-turn"
@@ -1926,7 +2001,9 @@
         "MindMapFamilyService",
         "MindMapService"
       ],
-      "response_decoders": [],
+      "response_decoders": [
+        "_web/codec/mind_maps.py:decode_generated_tree"
+      ],
       "response_projectors": [],
       "route_contexts": [
         "notebook+source-set"
@@ -2023,7 +2100,9 @@
         "MindMapService",
         "StudioCatalog"
       ],
-      "response_decoders": [],
+      "response_decoders": [
+        "_web/codec/mind_maps.py:extract_interactive_tree_leaf"
+      ],
       "response_projectors": [],
       "route_contexts": [
         "notebook+artifact",
@@ -2105,6 +2184,7 @@
         "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
         "_web/backend.py:WebRpcBackend._source_list",
+        "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._notebook_suggest_prompts",
         "_web/studio_data.py:StudioDataWebHandlers._data_source_ids",
         "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids",
         "_web/studio_media.py:StudioMediaWebHandlers._audio_generate",
@@ -2159,7 +2239,8 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "response_projectors": [],
       "route_contexts": [
@@ -2247,7 +2328,10 @@
         "StudioCatalog"
       ],
       "response_decoders": [
-        "_row_adapters/notes.py:NoteRow"
+        "_row_adapters/notes.py:NoteRow",
+        "_web/codec/notes.py:_decode_note_rows",
+        "_web/codec/notes.py:_is_note_row_like",
+        "_web/codec/notes.py:_normalize_note_row"
       ],
       "response_projectors": [],
       "route_contexts": [
@@ -2301,7 +2385,9 @@
       "owners": [
         "SharingService"
       ],
-      "response_decoders": [],
+      "response_decoders": [
+        "_web/codec/sharing.py:<module>"
+      ],
       "response_projectors": [
         "_types/sharing.py:<module>"
       ],
@@ -2415,7 +2501,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_artifacts.py:ArtifactsAPI.suggest_reports"
+        "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._artifact_suggest_reports"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -2444,7 +2530,9 @@
       "owners": [
         "ReportFamilyService"
       ],
-      "response_decoders": [],
+      "response_decoders": [
+        "_web/codec/suggestions.py:decode_report_suggestions"
+      ],
       "response_projectors": [],
       "route_contexts": [
         "notebook"
@@ -2460,9 +2548,10 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_settings.py:SettingsAPI._fetch_user_settings",
         "_sources.py:SourcesAPI._get_source_limit",
-        "_web/backend.py:WebRpcBackend._notebook_limit_error"
+        "_web/backend.py:WebRpcBackend._notebook_limit_error",
+        "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._settings_get",
+        "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._settings_get_limits"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -2493,7 +2582,9 @@
         "SettingsService",
         "SourceService"
       ],
-      "response_decoders": [],
+      "response_decoders": [
+        "_web/codec/settings.py:decode_get_user_settings"
+      ],
       "response_projectors": [],
       "route_contexts": [
         "account",
@@ -2709,7 +2800,9 @@
         "CollectionService",
         "NotebookService"
       ],
-      "response_decoders": [],
+      "response_decoders": [
+        "_web/codec/notebooks.py:<module>"
+      ],
       "response_projectors": [
         "_types/notebooks.py:<module>"
       ],
@@ -3038,7 +3131,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_settings.py:SettingsAPI.set_output_language"
+        "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._settings_set_language"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -3067,7 +3160,9 @@
       "owners": [
         "SettingsService"
       ],
-      "response_decoders": [],
+      "response_decoders": [
+        "_web/codec/settings.py:decode_set_output_language"
+      ],
       "response_projectors": [],
       "route_contexts": [
         "account"
@@ -3257,7 +3352,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_notebooks.py:NotebooksAPI.suggest_prompts"
+        "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._notebook_suggest_prompts"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -3287,7 +3382,7 @@
         "NotebookService"
       ],
       "response_decoders": [
-        "_row_adapters/notebooks.py:<module>"
+        "_web/codec/suggestions.py:decode_prompt_suggestions"
       ],
       "response_projectors": [],
       "route_contexts": [
@@ -3338,7 +3433,11 @@
       "owners": [
         "NotebookService"
       ],
-      "response_decoders": [],
+      "response_decoders": [
+        "_web/codec/notebooks.py:_decode_summary",
+        "_web/codec/notebooks.py:_decode_topics",
+        "_web/codec/notebooks.py:decode_notebook_description"
+      ],
       "response_projectors": [],
       "route_contexts": [
         "notebook"
@@ -3762,7 +3861,8 @@
       "recency_contract": [],
       "recency_effect": "none",
       "response_decoders_projectors": [
-        "_row_adapters/artifacts.py:ArtifactRow"
+        "_row_adapters/artifacts.py:ArtifactRow",
+        "_web/codec/mind_maps.py:extract_interactive_tree_leaf"
       ],
       "route_context": "notebook+artifact",
       "web_paths": [
@@ -3859,7 +3959,10 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/mind_maps.py:decode_created_interactive_id",
+        "_web/codec/studio_documents.py:decode_generation_status",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source-set",
       "web_paths": []
@@ -3921,7 +4024,10 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/mind_maps.py:decode_created_interactive_id",
+        "_web/codec/studio_documents.py:decode_generation_status",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source-set",
       "web_paths": []
@@ -3983,7 +4089,10 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/mind_maps.py:decode_created_interactive_id",
+        "_web/codec/studio_documents.py:decode_generation_status",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source-set",
       "web_paths": []
@@ -4045,7 +4154,10 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/mind_maps.py:decode_created_interactive_id",
+        "_web/codec/studio_documents.py:decode_generation_status",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source-set",
       "web_paths": []
@@ -4122,7 +4234,10 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/mind_maps.py:decode_generated_tree",
+        "_web/codec/notes.py:decode_created_note",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source-set",
       "web_paths": []
@@ -4184,7 +4299,10 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/mind_maps.py:decode_created_interactive_id",
+        "_web/codec/studio_documents.py:decode_generation_status",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source-set",
       "web_paths": []
@@ -4248,7 +4366,10 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/mind_maps.py:decode_created_interactive_id",
+        "_web/codec/studio_documents.py:decode_generation_status",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source-set",
       "web_paths": []
@@ -4310,7 +4431,10 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/mind_maps.py:decode_created_interactive_id",
+        "_web/codec/studio_documents.py:decode_generation_status",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source-set",
       "web_paths": []
@@ -4374,7 +4498,10 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/mind_maps.py:decode_created_interactive_id",
+        "_web/codec/studio_documents.py:decode_generation_status",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source-set",
       "web_paths": []
@@ -4426,7 +4553,10 @@
       "recency_effect": "none",
       "response_decoders_projectors": [
         "_row_adapters/artifacts.py:ArtifactRow",
-        "_row_adapters/notes.py:NoteRow"
+        "_row_adapters/notes.py:NoteRow",
+        "_web/codec/notes.py:_decode_note_rows",
+        "_web/codec/notes.py:_is_note_row_like",
+        "_web/codec/notes.py:_normalize_note_row"
       ],
       "route_context": "notebook+artifact",
       "web_paths": []
@@ -4475,7 +4605,10 @@
       "recency_effect": "none",
       "response_decoders_projectors": [
         "_row_adapters/artifacts.py:ArtifactRow",
-        "_row_adapters/notes.py:NoteRow"
+        "_row_adapters/notes.py:NoteRow",
+        "_web/codec/notes.py:_decode_note_rows",
+        "_web/codec/notes.py:_is_note_row_like",
+        "_web/codec/notes.py:_normalize_note_row"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -4596,7 +4729,7 @@
         {
           "binding": "GET_SUGGESTED_REPORTS:<default>",
           "discriminator": "direct semantic binding",
-          "site": "_artifacts.py:ArtifactsAPI.suggest_reports",
+          "site": "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._artifact_suggest_reports",
           "transport_kind": "rpc"
         }
       ],
@@ -4613,7 +4746,9 @@
       ],
       "recency_contract": [],
       "recency_effect": "none",
-      "response_decoders_projectors": [],
+      "response_decoders_projectors": [
+        "_web/codec/suggestions.py:decode_report_suggestions"
+      ],
       "route_context": "notebook",
       "web_paths": []
     },
@@ -4706,7 +4841,8 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+conversation+source-set",
       "web_paths": [
@@ -4777,7 +4913,8 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -4911,7 +5048,9 @@
       ],
       "recency_contract": [],
       "recency_effect": "none",
-      "response_decoders_projectors": [],
+      "response_decoders_projectors": [
+        "_web/codec/notes.py:decode_created_note"
+      ],
       "route_context": "notebook+conversation-turn",
       "web_paths": []
     },
@@ -5074,7 +5213,8 @@
       "recency_contract": [],
       "recency_effect": "none",
       "response_decoders_projectors": [
-        "_types/notebooks.py:<module>"
+        "_types/notebooks.py:<module>",
+        "_web/codec/notebooks.py:<module>"
       ],
       "route_context": "collection",
       "web_paths": []
@@ -5321,7 +5461,8 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+label",
       "web_paths": []
@@ -5481,7 +5622,11 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/mind_maps.py:decode_created_interactive_id",
+        "_web/codec/mind_maps.py:extract_interactive_tree_leaf",
+        "_web/codec/studio_documents.py:decode_generation_status",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source-set",
       "web_paths": []
@@ -5551,7 +5696,10 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/mind_maps.py:decode_generated_tree",
+        "_web/codec/notes.py:decode_created_note",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source-set",
       "web_paths": []
@@ -5599,7 +5747,11 @@
       "recency_effect": "none",
       "response_decoders_projectors": [
         "_row_adapters/artifacts.py:ArtifactRow",
-        "_row_adapters/notes.py:NoteRow"
+        "_row_adapters/notes.py:NoteRow",
+        "_web/codec/mind_maps.py:extract_interactive_tree_leaf",
+        "_web/codec/notes.py:_decode_note_rows",
+        "_web/codec/notes.py:_is_note_row_like",
+        "_web/codec/notes.py:_normalize_note_row"
       ],
       "route_context": "notebook+mind-map",
       "web_paths": []
@@ -5643,7 +5795,10 @@
       "recency_effect": "none",
       "response_decoders_projectors": [
         "_row_adapters/artifacts.py:ArtifactRow",
-        "_row_adapters/notes.py:NoteRow"
+        "_row_adapters/notes.py:NoteRow",
+        "_web/codec/notes.py:_decode_note_rows",
+        "_web/codec/notes.py:_is_note_row_like",
+        "_web/codec/notes.py:_normalize_note_row"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -5728,7 +5883,9 @@
       ],
       "recency_contract": [],
       "recency_effect": "none",
-      "response_decoders_projectors": [],
+      "response_decoders_projectors": [
+        "_web/codec/notes.py:decode_created_note"
+      ],
       "route_context": "notebook",
       "web_paths": []
     },
@@ -5794,7 +5951,10 @@
       "recency_contract": [],
       "recency_effect": "none",
       "response_decoders_projectors": [
-        "_row_adapters/notes.py:NoteRow"
+        "_row_adapters/notes.py:NoteRow",
+        "_web/codec/notes.py:_decode_note_rows",
+        "_web/codec/notes.py:_is_note_row_like",
+        "_web/codec/notes.py:_normalize_note_row"
       ],
       "route_context": "notebook+note",
       "web_paths": []
@@ -5825,7 +5985,10 @@
       "recency_contract": [],
       "recency_effect": "none",
       "response_decoders_projectors": [
-        "_row_adapters/notes.py:NoteRow"
+        "_row_adapters/notes.py:NoteRow",
+        "_web/codec/notes.py:_decode_note_rows",
+        "_web/codec/notes.py:_is_note_row_like",
+        "_web/codec/notes.py:_normalize_note_row"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -5928,7 +6091,10 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
-        "_types/notebooks.py:<module>"
+        "_types/notebooks.py:<module>",
+        "_web/codec/notebooks.py:<module>",
+        "_web/codec/settings.py:decode_get_user_settings",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "account",
       "web_paths": []
@@ -5991,7 +6157,11 @@
       ],
       "recency_contract": [],
       "recency_effect": "none",
-      "response_decoders_projectors": [],
+      "response_decoders_projectors": [
+        "_web/codec/notebooks.py:_decode_summary",
+        "_web/codec/notebooks.py:_decode_topics",
+        "_web/codec/notebooks.py:decode_notebook_description"
+      ],
       "route_context": "notebook",
       "web_paths": []
     },
@@ -6053,7 +6223,8 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -6084,7 +6255,8 @@
       "recency_contract": [],
       "recency_effect": "none",
       "response_decoders_projectors": [
-        "_types/notebooks.py:<module>"
+        "_types/notebooks.py:<module>",
+        "_web/codec/notebooks.py:<module>"
       ],
       "route_context": "account",
       "web_paths": []
@@ -6140,7 +6312,8 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -6182,13 +6355,13 @@
         {
           "binding": "GET_NOTEBOOK:<default>",
           "discriminator": "source_ids is None",
-          "site": "_notebooks.py:NotebooksAPI.get_raw",
+          "site": "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._notebook_suggest_prompts",
           "transport_kind": "rpc"
         },
         {
           "binding": "SUGGEST_PROMPTS:<default>",
           "discriminator": "direct semantic binding",
-          "site": "_notebooks.py:NotebooksAPI.suggest_prompts",
+          "site": "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._notebook_suggest_prompts",
           "transport_kind": "rpc"
         }
       ],
@@ -6207,7 +6380,7 @@
       "recency_contract": [
         {
           "authority_sites": [
-            "_notebooks.py:NotebooksAPI.get_raw"
+            "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._notebook_suggest_prompts"
           ],
           "condition": "one only when source_ids is omitted",
           "maximum_calls": 1,
@@ -6221,10 +6394,11 @@
       "recency_effect": "one GET_NOTEBOOK only when source_ids is omitted",
       "response_decoders_projectors": [
         "_row_adapters/chat.py:<module>",
-        "_row_adapters/notebooks.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/suggestions.py:decode_prompt_source_ids",
+        "_web/codec/suggestions.py:decode_prompt_suggestions"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -6254,7 +6428,11 @@
       ],
       "recency_contract": [],
       "recency_effect": "none",
-      "response_decoders_projectors": [],
+      "response_decoders_projectors": [
+        "_web/codec/notebooks.py:_decode_summary",
+        "_web/codec/notebooks.py:_decode_topics",
+        "_web/codec/notebooks.py:decode_notebook_description"
+      ],
       "route_context": "notebook",
       "web_paths": []
     },
@@ -6313,7 +6491,8 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -6416,7 +6595,8 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+research-task",
       "web_paths": []
@@ -6534,7 +6714,7 @@
         {
           "binding": "GET_USER_SETTINGS:<default>",
           "discriminator": "settings row projection",
-          "site": "_settings.py:SettingsAPI._fetch_user_settings",
+          "site": "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._settings_get",
           "transport_kind": "rpc"
         }
       ],
@@ -6552,7 +6732,9 @@
       ],
       "recency_contract": [],
       "recency_effect": "none",
-      "response_decoders_projectors": [],
+      "response_decoders_projectors": [
+        "_web/codec/settings.py:decode_get_user_settings"
+      ],
       "route_context": "account",
       "web_paths": []
     },
@@ -6564,7 +6746,7 @@
         {
           "binding": "GET_USER_SETTINGS:<default>",
           "discriminator": "account-limit projection",
-          "site": "_settings.py:SettingsAPI._fetch_user_settings",
+          "site": "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._settings_get_limits",
           "transport_kind": "rpc"
         }
       ],
@@ -6581,7 +6763,9 @@
       ],
       "recency_contract": [],
       "recency_effect": "none",
-      "response_decoders_projectors": [],
+      "response_decoders_projectors": [
+        "_web/codec/settings.py:decode_get_user_settings"
+      ],
       "route_context": "account",
       "web_paths": []
     },
@@ -6593,7 +6777,7 @@
         {
           "binding": "SET_USER_SETTINGS:<default>",
           "discriminator": "direct semantic binding",
-          "site": "_settings.py:SettingsAPI.set_output_language",
+          "site": "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._settings_set_language",
           "transport_kind": "rpc"
         }
       ],
@@ -6610,7 +6794,9 @@
       ],
       "recency_contract": [],
       "recency_effect": "none",
-      "response_decoders_projectors": [],
+      "response_decoders_projectors": [
+        "_web/codec/settings.py:decode_set_output_language"
+      ],
       "route_context": "account",
       "web_paths": []
     },
@@ -6642,7 +6828,8 @@
       "recency_contract": [],
       "recency_effect": "none",
       "response_decoders_projectors": [
-        "_types/sharing.py:<module>"
+        "_types/sharing.py:<module>",
+        "_web/codec/sharing.py:<module>"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -6709,7 +6896,8 @@
       "recency_contract": [],
       "recency_effect": "none",
       "response_decoders_projectors": [
-        "_types/sharing.py:<module>"
+        "_types/sharing.py:<module>",
+        "_web/codec/sharing.py:<module>"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -6749,7 +6937,8 @@
       "recency_contract": [],
       "recency_effect": "none",
       "response_decoders_projectors": [
-        "_types/sharing.py:<module>"
+        "_types/sharing.py:<module>",
+        "_web/codec/sharing.py:<module>"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -6800,7 +6989,8 @@
       "recency_contract": [],
       "recency_effect": "none",
       "response_decoders_projectors": [
-        "_types/sharing.py:<module>"
+        "_types/sharing.py:<module>",
+        "_web/codec/sharing.py:<module>"
       ],
       "route_context": "notebook+user-grants",
       "web_paths": []
@@ -6857,7 +7047,8 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
-        "_row_adapters/sources.py:unwrap_add_source_rows"
+        "_row_adapters/sources.py:unwrap_add_source_rows",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -6954,7 +7145,9 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/settings.py:decode_get_user_settings",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+upload-session",
       "web_paths": [
@@ -7077,7 +7270,8 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
-        "_row_adapters/sources.py:unwrap_add_source_rows"
+        "_row_adapters/sources.py:unwrap_add_source_rows",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -7193,7 +7387,8 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source",
       "web_paths": []
@@ -7308,7 +7503,8 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook",
       "web_paths": []
@@ -7426,7 +7622,8 @@
         "_row_adapters/chat.py:<module>",
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
-        "_row_adapters/sources.py:SourceRow.from_unknown_shape"
+        "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "route_context": "notebook+source-set",
       "web_paths": []

@@ -165,7 +165,11 @@ def suggest_prompts(decoded: Any) -> list[PromptSuggestion]:
     well-formed row is wrapped in a :class:`PromptSuggestionRow` (the position
     adapter) before constructing the public :class:`PromptSuggestion`.
     """
-    rows = unwrap_prompt_suggestions(decoded, source="golden.suggest_prompts")
+    rows = unwrap_prompt_suggestions(
+        decoded,
+        method_id=RPCMethod.SUGGEST_PROMPTS.value,
+        source="golden.suggest_prompts",
+    )
     return [
         PromptSuggestion(title=row.title, prompt=row.prompt)
         for row in map(PromptSuggestionRow, rows)

@@ -1,0 +1,136 @@
+"""Semantic service tests for P6.6 settings and suggestions."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+import pytest
+
+from notebooklm._deadline import RuntimeDeadline
+from notebooklm._operations import CallPolicy, Operation
+from notebooklm._records import (
+    ARTIFACT_SUGGEST_REPORTS_DEF,
+    NOTEBOOK_SUGGEST_PROMPTS_DEF,
+    SETTINGS_GET_DEF,
+    SETTINGS_GET_LIMITS_DEF,
+    SETTINGS_SET_LANGUAGE_DEF,
+    AccountLimitsRecord,
+    ArtifactSuggestReportsResult,
+    NotebookSuggestPromptsResult,
+    PromptSuggestionRecord,
+    ReportSuggestionRecord,
+    SettingsGetLimitsResult,
+    SettingsGetResult,
+    SettingsSetLanguageResult,
+    UserSettingsRecord,
+)
+from notebooklm._settings_service import SettingsService
+from notebooklm._suggestion_service import SuggestionService
+from notebooklm.exceptions import ValidationError
+from notebooklm.types import AccountLimits, PromptSuggestion, ReportSuggestion, UserSettings
+from tests._fixtures.recording_backend import RecordingBackend
+
+
+def test_p66_operation_definitions_are_concrete_frozen_values() -> None:
+    definitions = {
+        SETTINGS_GET_DEF: (Operation.SETTINGS_GET, CallPolicy.READ),
+        SETTINGS_GET_LIMITS_DEF: (Operation.SETTINGS_GET_LIMITS, CallPolicy.READ),
+        SETTINGS_SET_LANGUAGE_DEF: (Operation.SETTINGS_SET_LANGUAGE, CallPolicy.MUTATION),
+        NOTEBOOK_SUGGEST_PROMPTS_DEF: (
+            Operation.NOTEBOOK_SUGGEST_PROMPTS,
+            CallPolicy.STATEFUL_START,
+        ),
+        ARTIFACT_SUGGEST_REPORTS_DEF: (
+            Operation.ARTIFACT_SUGGEST_REPORTS,
+            CallPolicy.STATEFUL_START,
+        ),
+    }
+
+    for definition, (operation, policy) in definitions.items():
+        assert definition.key is operation
+        assert definition.policy is policy
+        assert replace(definition) == definition
+        assert definition.input_type is not object
+        assert definition.output_type is not object
+
+
+@pytest.mark.asyncio
+async def test_settings_service_projects_each_public_shape_without_combining_calls() -> None:
+    backend = RecordingBackend()
+    limits = AccountLimitsRecord(200, 100, (6, 200, 100, 500000, 99), 99)
+    backend.set_result(
+        SETTINGS_GET_DEF,
+        SettingsGetResult(UserSettingsRecord(limits, "fr")),
+    )
+    backend.set_result(SETTINGS_GET_LIMITS_DEF, SettingsGetLimitsResult(limits))
+    backend.set_result(SETTINGS_SET_LANGUAGE_DEF, SettingsSetLanguageResult("ja"))
+    service = SettingsService(backend)
+
+    assert await service.get_user_settings() == UserSettings(
+        limits=AccountLimits(200, 100, (6, 200, 100, 500000, 99), 99),
+        output_language="fr",
+    )
+    assert await service.get_output_language() == "fr"
+    assert await service.get_account_limits() == AccountLimits(
+        200,
+        100,
+        (6, 200, 100, 500000, 99),
+        99,
+    )
+    assert await service.set_output_language("ja") == "ja"
+    assert [invocation.operation for invocation in backend.invocations] == [
+        Operation.SETTINGS_GET,
+        Operation.SETTINGS_GET,
+        Operation.SETTINGS_GET_LIMITS,
+        Operation.SETTINGS_SET_LANGUAGE,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_suggestion_service_preserves_models_unknowns_and_deadline_identity() -> None:
+    backend = RecordingBackend()
+    backend.set_result(
+        NOTEBOOK_SUGGEST_PROMPTS_DEF,
+        NotebookSuggestPromptsResult((PromptSuggestionRecord("Title", "Prompt"),)),
+    )
+    backend.set_result(
+        ARTIFACT_SUGGEST_REPORTS_DEF,
+        ArtifactSuggestReportsResult(
+            (
+                ReportSuggestionRecord(
+                    "Report",
+                    "Description",
+                    "Prompt",
+                    "unknown-level",
+                ),
+            )
+        ),
+    )
+    service = SuggestionService(backend)
+    deadline = RuntimeDeadline(timeout=4.0, started_at=10.0, monotonic=lambda: 11.0)
+
+    assert await service.suggest_prompts(
+        "nb",
+        source_ids=["src"],
+        mode=7,
+        query=" steer ",
+        deadline=deadline,
+    ) == [PromptSuggestion("Title", "Prompt")]
+    reports = await service.suggest_reports("nb", deadline=deadline)
+    assert reports == [ReportSuggestion("Report", "Description", "Prompt", "unknown-level")]
+    assert all(invocation.deadline is deadline for invocation in backend.invocations)
+    prompt_input = backend.invocations[0].value
+    assert prompt_input.source_ids == ("src",)
+    assert prompt_input.query == " steer "
+
+
+@pytest.mark.asyncio
+async def test_invalid_prompt_mode_fails_before_backend_invocation() -> None:
+    backend = RecordingBackend()
+    backend.set_result(NOTEBOOK_SUGGEST_PROMPTS_DEF, NotebookSuggestPromptsResult(()))
+
+    with pytest.raises(ValidationError, match="inclusive range 1..10") as caught:
+        await SuggestionService(backend).suggest_prompts("nb", mode=0)
+
+    assert isinstance(caught.value.__cause__, ValueError)
+    assert backend.invocations == []

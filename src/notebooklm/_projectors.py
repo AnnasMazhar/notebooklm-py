@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from ._env import get_base_url
 from ._records import (
+    AccountLimitsRecord,
     ArtifactRecord,
     ArtifactUserStateRecord,
     CollectionRecord,
@@ -17,11 +18,14 @@ from ._records import (
     NotebookDescriptionRecord,
     NotebookRecord,
     NoteRecord,
+    PromptSuggestionRecord,
     ReportSuggestionRecord,
     ShareStatusRecord,
     SourceRecord,
+    UserSettingsRecord,
 )
 from .types import (
+    AccountLimits,
     Artifact,
     ArtifactInfographic,
     ArtifactMedia,
@@ -44,6 +48,7 @@ from .types import (
     Notebook,
     NotebookDescription,
     PremiumFeatureInfo,
+    PromptSuggestion,
     ReportSuggestion,
     ShareAccess,
     SharedUser,
@@ -54,6 +59,7 @@ from .types import (
     SourceStatus,
     SuggestedTopic,
     UnknownArtifactUserState,
+    UserSettings,
 )
 
 _NOTEBOOK_ROLES = {
@@ -184,6 +190,38 @@ def project_notebook(record: NotebookRecord) -> Notebook:
         chat_sessions=[ChatSession(session.id) for session in record.chat_sessions],
         chat_settings=_project_chat_settings(record),
     )
+
+
+def project_account_limits(record: AccountLimitsRecord) -> AccountLimits:
+    """Construct the existing public account-limit model from neutral facts."""
+    return AccountLimits(
+        notebook_limit=record.notebook_limit,
+        source_limit=record.source_limit,
+        raw_limits=record.raw_limits,
+        tier=record.tier,
+    )
+
+
+def project_user_settings(record: UserSettingsRecord) -> UserSettings:
+    """Construct the combined public settings model from one neutral row."""
+    return UserSettings(
+        limits=project_account_limits(record.limits),
+        output_language=cast(str | None, record.output_language),
+    )
+
+
+def project_prompt_suggestions(
+    records: tuple[PromptSuggestionRecord, ...],
+) -> list[PromptSuggestion]:
+    """Construct immutable public prompt suggestions in backend order."""
+    return [PromptSuggestion(record.title, record.prompt) for record in records]
+
+
+def project_report_suggestions(
+    records: tuple[ReportSuggestionRecord, ...],
+) -> list[ReportSuggestion]:
+    """Construct legacy mutable report suggestions in backend order."""
+    return [project_report_suggestion(record) for record in records]
 
 
 def _source_type_code(record: SourceRecord) -> int | None:
@@ -392,7 +430,7 @@ def project_report_suggestion(record: ReportSuggestionRecord) -> ReportSuggestio
         title=record.title,
         description=record.description,
         prompt=record.prompt,
-        audience_level=record.audience_level,
+        audience_level=cast(int, record.audience_level),
     )
 
 
@@ -454,6 +492,7 @@ def project_share_status(record: ShareStatusRecord) -> ShareStatus:
 
 
 __all__ = [
+    "project_account_limits",
     "project_artifact",
     "project_collection",
     "project_generation_status",
@@ -462,7 +501,10 @@ __all__ = [
     "project_note",
     "project_notebook",
     "project_notebook_description",
+    "project_prompt_suggestions",
     "project_report_suggestion",
+    "project_report_suggestions",
     "project_share_status",
     "project_source",
+    "project_user_settings",
 ]

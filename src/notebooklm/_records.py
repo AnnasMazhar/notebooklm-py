@@ -165,7 +165,7 @@ class ReportSuggestionRecord:
     title: str
     description: str
     prompt: str
-    audience_level: int = 2
+    audience_level: object = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -383,6 +383,101 @@ class SourceAddFailureRecord:
     context_is_original: bool = False
     explicit_cause: bool = False
     suppress_context: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AccountLimitsRecord:
+    """Account quota facts decoded without exposing their web positions."""
+
+    notebook_limit: int | None = None
+    source_limit: int | None = None
+    raw_limits: tuple[object, ...] = ()
+    tier: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class UserSettingsRecord:
+    """One account settings row and its tolerant language projection."""
+
+    limits: AccountLimitsRecord = AccountLimitsRecord()
+    output_language: object | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsGetInput:
+    """Input for the account-routed settings read."""
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsGetResult:
+    """Combined settings result produced from one account RPC."""
+
+    settings: UserSettingsRecord
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsGetLimitsInput:
+    """Input for the tolerant account-limit projection."""
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsGetLimitsResult:
+    """Account limits produced without decoding the optional language block."""
+
+    limits: AccountLimitsRecord
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsSetLanguageInput:
+    """Requested global output-language code."""
+
+    language: str
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsSetLanguageResult:
+    """Server-projected output language after mutation."""
+
+    output_language: object | None
+
+
+@dataclass(frozen=True, slots=True)
+class PromptSuggestionRecord:
+    """One best-effort notebook prompt suggestion."""
+
+    title: str
+    prompt: str
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookSuggestPromptsInput:
+    """Notebook prompt-suggestion request before web source resolution."""
+
+    notebook_id: str
+    source_ids: tuple[str, ...] | None = None
+    mode: int = 4
+    query: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookSuggestPromptsResult:
+    """Prompt suggestions in backend order."""
+
+    suggestions: tuple[PromptSuggestionRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactSuggestReportsInput:
+    """Notebook identity requested by report-format suggestions."""
+
+    notebook_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactSuggestReportsResult:
+    """Report-format suggestions in backend order."""
+
+    suggestions: tuple[ReportSuggestionRecord, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1053,6 +1148,44 @@ SOURCE_ADD_URL_DEF: OperationDef[SourceAddUrlInput, SourceAddUrlResult] = Operat
     SourceAddUrlInput,
     SourceAddUrlResult,
 )
+SETTINGS_GET_DEF: OperationDef[SettingsGetInput, SettingsGetResult] = OperationDef(
+    Operation.SETTINGS_GET,
+    CallPolicy.READ,
+    SettingsGetInput,
+    SettingsGetResult,
+)
+SETTINGS_GET_LIMITS_DEF: OperationDef[SettingsGetLimitsInput, SettingsGetLimitsResult] = (
+    OperationDef(
+        Operation.SETTINGS_GET_LIMITS,
+        CallPolicy.READ,
+        SettingsGetLimitsInput,
+        SettingsGetLimitsResult,
+    )
+)
+SETTINGS_SET_LANGUAGE_DEF: OperationDef[SettingsSetLanguageInput, SettingsSetLanguageResult] = (
+    OperationDef(
+        Operation.SETTINGS_SET_LANGUAGE,
+        CallPolicy.MUTATION,
+        SettingsSetLanguageInput,
+        SettingsSetLanguageResult,
+    )
+)
+NOTEBOOK_SUGGEST_PROMPTS_DEF: OperationDef[
+    NotebookSuggestPromptsInput, NotebookSuggestPromptsResult
+] = OperationDef(
+    Operation.NOTEBOOK_SUGGEST_PROMPTS,
+    CallPolicy.STATEFUL_START,
+    NotebookSuggestPromptsInput,
+    NotebookSuggestPromptsResult,
+)
+ARTIFACT_SUGGEST_REPORTS_DEF: OperationDef[
+    ArtifactSuggestReportsInput, ArtifactSuggestReportsResult
+] = OperationDef(
+    Operation.ARTIFACT_SUGGEST_REPORTS,
+    CallPolicy.STATEFUL_START,
+    ArtifactSuggestReportsInput,
+    ArtifactSuggestReportsResult,
+)
 NOTE_LIST_DEF: OperationDef[NoteListInput, NoteListResult] = OperationDef(
     Operation.NOTE_LIST,
     CallPolicy.READ,
@@ -1126,6 +1259,7 @@ MIND_MAP_DELETE_DEF: OperationDef[MindMapDeleteInput, MindMapDeleteResult] = Ope
 
 
 __all__ = [
+    "ARTIFACT_SUGGEST_REPORTS_DEF",
     "ARTIFACT_EXPORT_DEF",
     "ARTIFACT_GET_DEF",
     "ARTIFACT_GENERATE_DATA_TABLE_DEF",
@@ -1142,7 +1276,11 @@ __all__ = [
     "NOTEBOOK_LIST_DEF",
     "NOTEBOOK_CREATE_DEF",
     "NOTEBOOK_DELETE_DEF",
+    "NOTEBOOK_SUGGEST_PROMPTS_DEF",
     "NOTEBOOK_UPDATE_DEF",
+    "SETTINGS_GET_DEF",
+    "SETTINGS_GET_LIMITS_DEF",
+    "SETTINGS_SET_LANGUAGE_DEF",
     "SOURCE_GET_DEF",
     "SOURCE_LIST_DEF",
     "SOURCE_ADD_URL_DEF",
@@ -1157,6 +1295,9 @@ __all__ = [
     "MIND_MAP_GET_DEF",
     "MIND_MAP_LIST_DEF",
     "MIND_MAP_UPDATE_DEF",
+    "AccountLimitsRecord",
+    "ArtifactSuggestReportsInput",
+    "ArtifactSuggestReportsResult",
     "ArtifactGetInput",
     "ArtifactGetResult",
     "ArtifactInfographicRecord",
@@ -1193,6 +1334,8 @@ __all__ = [
     "NotebookPremiumFeaturesRecord",
     "NotebookRecord",
     "NotebookDescriptionRecord",
+    "NotebookSuggestPromptsInput",
+    "NotebookSuggestPromptsResult",
     "NotebookUpdateInput",
     "NotebookUpdateResult",
     "MindMapGenerateInput",
@@ -1224,6 +1367,7 @@ __all__ = [
     "ReportGenerateInput",
     "ReportGenerateResult",
     "ReportMetadataRecord",
+    "PromptSuggestionRecord",
     "SourceGetInput",
     "SourceGetResult",
     "SourceAddCommitState",
@@ -1238,6 +1382,12 @@ __all__ = [
     "SourceRecord",
     "SlideDeckGenerateInput",
     "ReportSuggestionRecord",
+    "SettingsGetInput",
+    "SettingsGetLimitsInput",
+    "SettingsGetLimitsResult",
+    "SettingsGetResult",
+    "SettingsSetLanguageInput",
+    "SettingsSetLanguageResult",
     "ShareStatusRecord",
     "SharedUserRecord",
     "SuggestedTopicRecord",
@@ -1246,4 +1396,5 @@ __all__ = [
     "VideoMetadataRecord",
     "VisualGenerateResult",
     "VisualMetadataRecord",
+    "UserSettingsRecord",
 ]

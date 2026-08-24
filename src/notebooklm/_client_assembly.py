@@ -433,7 +433,7 @@ def _assemble_client(
         base_timeout=timeout,
         import_research_timeout=import_research_timeout,
     )
-    client.settings = SettingsAPI(internals.executor)
+    client.settings = SettingsAPI(_backend=client._backend)
     client.sharing = SharingAPI(internals.executor)
     # Source labels. Takes a narrow ``list_sources`` callable (not the whole
     # SourcesAPI) for the membership->Source join in ``labels.sources()``;

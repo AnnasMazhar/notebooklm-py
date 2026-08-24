@@ -50,7 +50,6 @@ from notebooklm._artifact.payloads import (
     build_retry_artifact_params,
     build_revise_slide_params,
     build_slide_deck_artifact_params,
-    build_suggest_reports_params,
     build_video_artifact_params,
 )
 from notebooklm._row_adapters.artifacts import ArtifactRow
@@ -63,6 +62,7 @@ from notebooklm._source.upload_payloads import (
 )
 from notebooklm._types.artifacts import Artifact, ArtifactType
 from notebooklm._types.sources import Source, SourceType
+from notebooklm._web.codec.suggestions import encode_report_suggestions
 from notebooklm.exceptions import (
     ClientError,
     RateLimitError,
@@ -1005,7 +1005,7 @@ def test_retry_artifact_payload_builder_matches_golden_envelope() -> None:
 
 
 def test_suggest_reports_payload_builder_matches_golden_envelope() -> None:
-    params = build_suggest_reports_params("nb_payload")
+    params = encode_report_suggestions("nb_payload")
 
     assert params == [[2], "nb_payload"]
     assert encode_rpc_request(RPCMethod.GET_SUGGESTED_REPORTS, params) == _expected_rpc_envelope(

@@ -1,10 +1,9 @@
 """Closed web dispositions for the semantic operation vocabulary.
 
-P2 notebook/source operations, P5 Studio family operations,
-and P6.3 note/mind-map workflows have executable bindings. Every other P0 operation has
-an unsupported disposition, and
-the count assertions force a deliberate registry update when the closed
-:class:`Operation` enum changes.
+P2 notebook/source operations, P5 Studio family operations, P6.3 note/mind-map
+workflows, and P6.6 settings/suggestions have executable bindings. Every other
+P0 operation has an unsupported disposition, and the count assertions force a
+deliberate registry update when the closed :class:`Operation` enum changes.
 """
 
 from __future__ import annotations
@@ -28,6 +27,7 @@ from .._records import (
     ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
+    ARTIFACT_SUGGEST_REPORTS_DEF,
     MIND_MAP_DELETE_DEF,
     MIND_MAP_GENERATE_INTERACTIVE_DEF,
     MIND_MAP_GENERATE_NOTE_DEF,
@@ -43,7 +43,11 @@ from .._records import (
     NOTEBOOK_DELETE_DEF,
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
+    NOTEBOOK_SUGGEST_PROMPTS_DEF,
     NOTEBOOK_UPDATE_DEF,
+    SETTINGS_GET_DEF,
+    SETTINGS_GET_LIMITS_DEF,
+    SETTINGS_SET_LANGUAGE_DEF,
     SOURCE_ADD_URL_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
@@ -111,6 +115,11 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.ARTIFACT_GENERATE_DATA_TABLE: ARTIFACT_GENERATE_DATA_TABLE_DEF,
         Operation.ARTIFACT_GENERATE_MIND_MAP: ARTIFACT_GENERATE_MIND_MAP_DEF,
         Operation.ARTIFACT_EXPORT: ARTIFACT_EXPORT_DEF,
+        Operation.NOTEBOOK_SUGGEST_PROMPTS: NOTEBOOK_SUGGEST_PROMPTS_DEF,
+        Operation.ARTIFACT_SUGGEST_REPORTS: ARTIFACT_SUGGEST_REPORTS_DEF,
+        Operation.SETTINGS_GET: SETTINGS_GET_DEF,
+        Operation.SETTINGS_GET_LIMITS: SETTINGS_GET_LIMITS_DEF,
+        Operation.SETTINGS_SET_LANGUAGE: SETTINGS_SET_LANGUAGE_DEF,
     }
 )
 
@@ -147,6 +156,11 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.ARTIFACT_GENERATE_DATA_TABLE: "_data_table_generate",
         Operation.ARTIFACT_GENERATE_MIND_MAP: "_mind_map_generate",
         Operation.ARTIFACT_EXPORT: "_artifact_export",
+        Operation.NOTEBOOK_SUGGEST_PROMPTS: "_notebook_suggest_prompts",
+        Operation.ARTIFACT_SUGGEST_REPORTS: "_artifact_suggest_reports",
+        Operation.SETTINGS_GET: "_settings_get",
+        Operation.SETTINGS_GET_LIMITS: "_settings_get_limits",
+        Operation.SETTINGS_SET_LANGUAGE: "_settings_set_language",
     }
 )
 
@@ -158,7 +172,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 31
+_EXPECTED_SUPPORTED_COUNT: Final = 36
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

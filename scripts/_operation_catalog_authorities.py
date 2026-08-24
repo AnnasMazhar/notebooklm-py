@@ -77,7 +77,10 @@ SHARED_RPC_AUTHORITY_RULES: dict[tuple[Operation, NativeKey], tuple[AuthorityRul
         ("_source/listing.py:SourceLister.list", "metadata source branch"),
     ),
     (Operation.NOTEBOOK_SUGGEST_PROMPTS, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_notebooks.py:NotebooksAPI.get_raw", "source_ids is None")
+        (
+            "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._notebook_suggest_prompts",
+            "source_ids is None",
+        )
     ),
     (Operation.SOURCE_LIST, _b(RPCMethod.GET_NOTEBOOK)): _rules(
         ("_web/backend.py:WebRpcBackend._source_list", "public=sources.list")
@@ -329,6 +332,9 @@ _GET_DATA_SOURCES = "_web/studio_data.py:StudioDataWebHandlers._data_source_ids"
 _GET_SOURCES = "_source/listing.py:SourceLister.list"
 _GET_SOURCE_LIST = "_web/backend.py:WebRpcBackend._source_list"
 _GET_SOURCE = "_web/backend.py:WebRpcBackend._source_get"
+_GET_PROMPT_SOURCES = (
+    "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._notebook_suggest_prompts"
+)
 
 
 RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
@@ -379,7 +385,7 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             1,
             "public_call",
             "one only when source_ids is omitted",
-            (_GET_RAW,),
+            (_GET_PROMPT_SOURCES,),
         ),
     ),
     Operation.SOURCE_LIST: (
@@ -775,10 +781,16 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_sources.py:SourcesAPI._get_source_limit", "invalid-argument diagnosis only")
         ),
         (Operation.SETTINGS_GET, _b(RPCMethod.GET_USER_SETTINGS)): _rules(
-            ("_settings.py:SettingsAPI._fetch_user_settings", "settings row projection")
+            (
+                "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._settings_get",
+                "settings row projection",
+            )
         ),
         (Operation.SETTINGS_GET_LIMITS, _b(RPCMethod.GET_USER_SETTINGS)): _rules(
-            ("_settings.py:SettingsAPI._fetch_user_settings", "account-limit projection")
+            (
+                "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._settings_get_limits",
+                "account-limit projection",
+            )
         ),
         (Operation.RESEARCH_IMPORT, _b(RPCMethod.IMPORT_RESEARCH)): _rules(
             ("_research.py:ResearchAPI.import_sources", "single import attempt")

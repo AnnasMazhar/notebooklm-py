@@ -1,9 +1,8 @@
 """Closed semantic operation vocabulary.
 
-P0 deliberately keeps these types inert: no production call path dispatches on
-them yet.  They give the operation catalog a typed vocabulary without adding a
-second runtime authority beside :class:`~notebooklm.rpc.RPCMethod`.  P1 adds
-backend/runtime types and the first concrete DTOs.
+P0 introduced these types as an inert vocabulary. Later bounded slices activate
+one typed backend binding at a time while retaining one execution authority per
+operation; unsupported operations remain closed catalog dispositions.
 """
 
 from __future__ import annotations

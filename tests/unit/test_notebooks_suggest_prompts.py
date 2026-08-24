@@ -13,11 +13,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from notebooklm._notebooks import NotebooksAPI, build_prompt_suggestions_params
+from notebooklm._notebooks import NotebooksAPI
 from notebooklm._runtime.contracts import RpcCaller
+from notebooklm._web.codec.suggestions import (
+    encode_prompt_suggestions as build_prompt_suggestions_params,
+)
 from notebooklm.exceptions import ValidationError
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import PromptSuggestion
+from tests._fixtures.web_backend import build_web_backend
 
 # One live-verified response (issue #1612): a wrapped single-element envelope
 # whose inner list holds ``[title, prompt]`` rows.
@@ -42,9 +46,7 @@ def api(mock_rpc: MagicMock) -> NotebooksAPI:
     The default-all-sources path resolves ids through ``get_source_ids``; tests
     that pass explicit ``source_ids`` assert it is never awaited.
     """
-    notebooks = NotebooksAPI(mock_rpc)
-    notebooks.get_source_ids = AsyncMock(return_value=["src_a", "src_b"])  # type: ignore[method-assign]
-    return notebooks
+    return NotebooksAPI(mock_rpc, _backend=build_web_backend(mock_rpc))
 
 
 # ---------------------------------------------------------------------------
@@ -139,17 +141,28 @@ class TestSuggestPrompts:
     async def test_defaults_to_all_sources_when_source_ids_none(
         self, api: NotebooksAPI, mock_rpc: MagicMock
     ) -> None:
+        mock_rpc.rpc_call.side_effect = [
+            [["Notebook", [[["src_a"]], [["src_b"]]], "nb_xyz"]],
+            _RESPONSE,
+        ]
         await api.suggest_prompts("nb_xyz")
 
-        api.get_source_ids.assert_awaited_once_with("nb_xyz")  # type: ignore[attr-defined]
-        # The resolved source ids are wrapped into f3 of the params.
-        _, _, source_block, *_ = mock_rpc.rpc_call.call_args.args[1]
+        assert [call.args[0] for call in mock_rpc.rpc_call.await_args_list] == [
+            RPCMethod.GET_NOTEBOOK,
+            RPCMethod.SUGGEST_PROMPTS,
+        ]
+        # The resolved source ids are wrapped into f3 of the suggestion params.
+        _, _, source_block, *_ = mock_rpc.rpc_call.await_args_list[1].args[1]
         assert source_block == [["src_a"], ["src_b"]]
 
     @pytest.mark.asyncio
-    async def test_explicit_source_ids_skip_resolution(self, api: NotebooksAPI) -> None:
+    async def test_explicit_source_ids_skip_resolution(
+        self, api: NotebooksAPI, mock_rpc: MagicMock
+    ) -> None:
         await api.suggest_prompts("nb_xyz", source_ids=["only"])
-        api.get_source_ids.assert_not_awaited()  # type: ignore[attr-defined]
+        assert [call.args[0] for call in mock_rpc.rpc_call.await_args_list] == [
+            RPCMethod.SUGGEST_PROMPTS
+        ]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("mode", [0, 11])
@@ -159,7 +172,6 @@ class TestSuggestPrompts:
         """A bad mode raises ValidationError before the source fetch or the RPC."""
         with pytest.raises(ValidationError, match="1..10"):
             await api.suggest_prompts("nb_xyz", mode=mode)
-        api.get_source_ids.assert_not_awaited()  # type: ignore[attr-defined]
         mock_rpc.rpc_call.assert_not_awaited()
 
     @pytest.mark.asyncio
