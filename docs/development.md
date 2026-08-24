@@ -28,7 +28,7 @@ src/notebooklm/
 ├── auth.py              # Public auth facade
 ├── types.py             # Dataclasses and type definitions
 ├── _app/                # Transport-neutral business logic shared by adapters
-├── _client_composed.py  # Client-owned composition holder
+├── _client_assembly.py  # Single client composition root
 ├── _runtime/            # Runtime contracts, config, lifecycle, auth, transport
 ├── _notebooks.py        # NotebooksAPI implementation
 ├── _notebook_metadata.py # Private notebook metadata composition service
