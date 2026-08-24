@@ -515,8 +515,10 @@ def test_collect_manifest_captures_tracked_constant_values(script):
 
     auth_exports = manifest["modules"]["notebooklm.auth"]["exports"]
     required = auth_exports["REQUIRED_COOKIE_DOMAINS"]["constant_value"]
-    assert required
-    assert ".google.com" in notebooklm_auth.REQUIRED_COOKIE_DOMAINS
+    normalized_domains = ", ".join(
+        sorted(repr(domain) for domain in notebooklm_auth.REQUIRED_COOKIE_DOMAINS)
+    )
+    assert required == f"frozenset({{{normalized_domains}}})"
     # Untracked public exports stay fingerprint-free — the capture is opt-in.
     assert "constant_value" not in auth_exports["AuthTokens"]
 
