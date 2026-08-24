@@ -28,6 +28,7 @@ from notebooklm.exceptions import (  # noqa: E402 - after importorskip guard
     SourceNotFoundError,
     SourceProcessingError,
     SourceTimeoutError,
+    ValidationError,
 )
 from notebooklm.mcp._errors import tool_error_payload  # noqa: E402 - after importorskip guard
 from notebooklm.mcp.tools._content_sanity import (  # noqa: E402 - after importorskip guard
@@ -835,6 +836,175 @@ async def test_source_delete_with_confirm_deletes(mcp_call, mock_client) -> None
         "source_id": SRC_ID,
     }
     mock_client.sources.delete.assert_awaited_once_with(NB_ID, SRC_ID)
+
+
+# ---------------------------------------------------------------------------
+# source_delete — bulk-mode tests (#1995). ``source_delete`` was overloaded with
+# ``sources`` (list | comma/JSON str) so a caller can fan out a batch delete
+# without N round-trips. Three behaviors pinned here:
+#
+#   * ``confirm=False`` returns ONE needs_confirmation preview listing every
+#     resolved source (title + id) instead of one per call.
+#   * ``confirm=True`` fans out, returns a structured aggregate
+#     {deleted, deleted_count, not_found, not_found_count, failed,
+#     failed_count, total_count} so a partial failure does not discard
+#     successes.
+#   * The original single-id ``source=`` path keeps the same wire shape
+#     (``status: deleted`` + ``source_id``) — backwards-compatible for any
+#     caller that still passes ``source=``.
+#
+# The cap, the mutual-exclusion guard, and the empty-list guard share their
+# error messages with ``source_wait`` so callers don't have to learn two
+# phrasings of the same constraint.
+# ---------------------------------------------------------------------------
+
+
+async def test_source_delete_bulk_preview_lists_every_resolved_source(
+    mcp_call, mock_client
+) -> None:
+    mock_client.sources.list = AsyncMock(
+        return_value=[
+            FakeSource(id=SRC_ID, title="First"),
+            FakeSource(id=SRC2_ID, title="Second"),
+        ]
+    )
+    result = await mcp_call(
+        "source_delete",
+        {
+            "notebook": NB_ID,
+            "sources": [SRC_ID, SRC2_ID],
+        },
+    )
+    assert result.structured_content == {
+        "status": "needs_confirmation",
+        "preview": {
+            "action": "delete_sources",
+            "notebook_id": NB_ID,
+            "count": 2,
+            "sources": [
+                {"source_id": SRC_ID, "title": "First"},
+                {"source_id": SRC2_ID, "title": "Second"},
+            ],
+        },
+    }
+    mock_client.sources.delete.assert_not_called()
+
+
+async def test_source_delete_bulk_comma_string_parsed_like_source_wait(
+    mcp_call, mock_client
+) -> None:
+    """``sources='id1,id2'`` (the comma-string form source_wait accepts) must
+    also work for source_delete — same shape, same coercion path."""
+    mock_client.sources.list = AsyncMock(return_value=[FakeSource(id=SRC2_ID, title="Second")])
+    result = await mcp_call(
+        "source_delete",
+        {"notebook": NB_ID, "sources": f"{SRC_ID},{SRC2_ID}"},
+    )
+    preview = result.structured_content["preview"]
+    assert preview["count"] == 2
+    assert {s["source_id"] for s in preview["sources"]} == {SRC_ID, SRC2_ID}
+    mock_client.sources.delete.assert_not_called()
+
+
+async def test_source_delete_bulk_confirm_returns_per_id_buckets(
+    mcp_call, mock_client
+) -> None:
+    """Mixed outcome (success + RPC error + not-found) lands each id in
+    exactly ONE bucket — partial failures must NOT discard successes."""
+    mock_client.sources.list = AsyncMock(
+        return_value=[
+            FakeSource(id=SRC_ID, title="First"),
+            FakeSource(id=SRC2_ID, title="Second"),
+        ]
+    )
+
+    async def _side_effect(_nb: str, sid: str, **_kw: Any) -> None:
+        if sid == SRC2_ID:
+            raise SourceNotFoundError(f"no source {sid}")
+
+    mock_client.sources.delete = AsyncMock(side_effect=_side_effect)
+    result = await mcp_call(
+        "source_delete",
+        {"notebook": NB_ID, "sources": [SRC_ID, SRC2_ID], "confirm": True},
+    )
+    assert result.structured_content == {
+        "status": "deleted",
+        "notebook_id": NB_ID,
+        "deleted": [{"source_id": SRC_ID}],
+        "deleted_count": 1,
+        "not_found": [{"source_id": SRC2_ID, "error": f"no source {SRC2_ID}"}],
+        "not_found_count": 1,
+        "failed": [],
+        "failed_count": 0,
+        "total_count": 2,
+    }
+
+
+async def test_source_delete_bulk_all_sources_when_neither_source_nor_sources(
+    mcp_call, mock_client
+) -> None:
+    """No ``source`` / ``sources`` → resolve every source in the notebook
+    (mirrors source_wait's "all sources" branch)."""
+    mock_client.sources.list = AsyncMock(
+        return_value=[
+            FakeSource(id=SRC_ID, title="First"),
+            FakeSource(id=SRC2_ID, title="Second"),
+        ]
+    )
+    mock_client.sources.delete = AsyncMock(return_value=None)
+    result = await mcp_call(
+        "source_delete", {"notebook": NB_ID, "confirm": True}
+    )
+    sc = result.structured_content
+    assert sc["status"] == "deleted"
+    assert sc["total_count"] == 2
+    assert sc["deleted_count"] == 2
+    assert {d["source_id"] for d in sc["deleted"]} == {SRC_ID, SRC2_ID}
+    assert sc["not_found_count"] == 0
+    assert sc["failed_count"] == 0
+    assert mock_client.sources.delete.await_count == 2
+
+
+async def test_source_delete_bulk_mutually_exclusive_source_and_sources(
+    mcp_call, mock_client
+) -> None:
+    """Passing BOTH ``source`` and ``sources`` is a ValidationError — guard
+    must fire BEFORE any I/O so the error is deterministic."""
+    with pytest.raises(ToolError) as ei:
+        await mcp_call(
+            "source_delete",
+            {"notebook": NB_ID, "source": SRC_ID, "sources": [SRC2_ID]},
+        )
+    assert "pass either" in str(ei.value)
+    mock_client.sources.list.assert_not_called()
+    mock_client.sources.delete.assert_not_called()
+
+
+async def test_source_delete_bulk_empty_sources_rejected(mcp_call, mock_client) -> None:
+    """An explicit empty ``sources=[]`` must NOT be coerced to "delete every
+    source" — that path needs an explicit "no arg" call, matching source_wait."""
+    with pytest.raises(ToolError) as ei:
+        await mcp_call(
+            "source_delete", {"notebook": NB_ID, "sources": []}
+        )
+    assert "empty" in str(ei.value).lower()
+    mock_client.sources.list.assert_not_called()
+
+
+async def test_source_delete_bulk_over_cap_rejected_before_resolution(
+    mcp_call, mock_client
+) -> None:
+    """The cap (shared with source_wait's MAX_WAIT_SOURCE_IDS) must fire on
+    raw input length so a bad ref can't mask it."""
+    from notebooklm._app.source_wait import MAX_WAIT_SOURCE_IDS
+
+    over_cap_ids = [f"fake-{i:04d}" for i in range(MAX_WAIT_SOURCE_IDS + 1)]
+    with pytest.raises(ToolError) as ei:
+        await mcp_call(
+            "source_delete", {"notebook": NB_ID, "sources": over_cap_ids}
+        )
+    assert str(MAX_WAIT_SOURCE_IDS) in str(ei.value)
+    mock_client.sources.list.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

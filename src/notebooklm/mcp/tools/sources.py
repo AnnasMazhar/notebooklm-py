@@ -19,6 +19,7 @@ This module imports NO ``click`` / ``rich`` / ``cli``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -68,6 +69,13 @@ _DRIVE_MIME_CHOICES = ("google-doc", "google-slides", "google-sheets", "pdf")
 
 #: The choices as a clean, comma-separated quoted string for user-facing errors.
 _DRIVE_MIME_CHOICES_STR = ", ".join(f"'{choice}'" for choice in _DRIVE_MIME_CHOICES)
+
+
+#: Inter-call sleep for source_delete bulk fan-out (CLAUDE.md rate-limiting
+#: pitfall: bulk delete RPCs share a per-token throttle). 250 ms keeps a
+#: 50-source delete well under the published QPS while not stretching a
+#: 2-source delete into an obvious "delay loop"; the last id skips it.
+_BULK_DELETE_INTER_CALL_DELAY_S = 0.25
 
 
 def _validate_drive_mime(source_type: str, mime_type: str | None) -> None:
@@ -382,30 +390,138 @@ def register(mcp: Any) -> None:
 
     @mcp.tool(annotations=DESTRUCTIVE)
     async def source_delete(
-        ctx: Context, notebook: str, source: str, confirm: bool = False
+        ctx: Context,
+        notebook: str,
+        source: str | None = None,
+        sources: list[str] | str | None = None,
+        confirm: bool = False,
     ) -> dict[str, Any]:
-        """Delete a source (irreversible). Accepts a notebook/source name or ID.
+        """Delete one or many sources (irreversible). Accepts a notebook/source name or ID.
 
         Two-step confirmation: with ``confirm=False`` (default) it returns a
-        ``needs_confirmation`` preview of the resolved source without deleting;
-        call again with ``confirm=True`` to perform the delete.
+        ``needs_confirmation`` preview of every resolved source without deleting;
+        call again with ``confirm=True`` to perform the deletes. Pass EITHER
+        ``source`` (a single ref) OR ``sources`` (a subset; list or comma/JSON
+        string) — never both. Without either, deletes the whole notebook's
+        sources (matches the source_wait "all sources" path).
+
+        On ``confirm=True``, returns a structured aggregate so a partial failure
+        does not discard successes — every resolved id lands in exactly one of
+        ``deleted`` / ``not_found`` / ``failed`` (``not_found`` is a resolution
+        miss, ``failed`` is a delete RPC exception). Per the CLAUDE.md
+        rate-limiting pitfall, multiple deletes fan out with a small inter-call
+        delay so the backend does not throttle the batch.
+
+        Two-step confirmation mirrors :func:`source_wait`: the second call
+        (``confirm=True``) is the one that mutates.
         """
         client = get_client(ctx)
         with mcp_errors():
+            # Input guards fire BEFORE any I/O (fail-fast, like source_wait):
+            # the mutual-exclusion error must not be masked by a notebook
+            # NOT_FOUND from ``resolve_notebook`` or by a per-source
+            # NOT_FOUND raised later.
+            coerced = coerce_list(sources)
+            if source is not None and coerced is not None:
+                raise ValidationError(
+                    "pass either 'source' (one) or 'sources' (a subset), not both"
+                )
+            if coerced is not None and not coerced:
+                raise ValidationError(
+                    "'sources' was empty; omit it to delete a single source, or pass at least one source ref"
+                )
+            # Cap the explicit subset BEFORE resolution so a bad ref can't mask
+            # the cap (shares MAX_WAIT_SOURCE_IDS with source_wait / REST).
+            if coerced is not None and len(coerced) > wait_core.MAX_WAIT_SOURCE_IDS:
+                raise ValidationError(
+                    f"'sources' must contain at most {wait_core.MAX_WAIT_SOURCE_IDS} refs; "
+                    f"got {len(coerced)}. Delete a smaller subset."
+                )
+
+            # Fast-path: single-id ``source=`` keeps the LEGACY wire shape
+            # (``status`` + ``source_id`` + ``notebook_id``) so existing
+            # callers don't have to learn the bulk aggregate — only
+            # ``sources=`` and the no-arg branch use the new shape.
+            if source is not None and coerced is None:
+                nb_id = await resolve_notebook(client, notebook)
+                src_id = await resolve_source(client, nb_id, source)
+                if not confirm:
+                    title = title_for_id(await client.sources.list(nb_id), src_id)
+                    return needs_confirmation(
+                        {
+                            "action": "delete_source",
+                            "notebook_id": nb_id,
+                            "source_id": src_id,
+                            "title": title,
+                        }
+                    )
+                await client.sources.delete(nb_id, src_id)
+                return {"status": "deleted", "notebook_id": nb_id, "source_id": src_id}
+
             nb_id = await resolve_notebook(client, notebook)
-            src_id = await resolve_source(client, nb_id, source)
+
+            # Bulk path: ``coerced`` (explicit subset) → resolve_sources
+            # (which dedupes by resolved id); no arg → list every source.
+            # ``source=`` was short-circuited above.
+            if coerced is not None:
+                src_ids = list(dict.fromkeys(await resolve_sources(client, nb_id, coerced)))
+            else:
+                src_ids = [s.id for s in await client.sources.list(nb_id)]
+
             if not confirm:
-                title = title_for_id(await client.sources.list(nb_id), src_id)
+                # Preview: title + id for every resolved source so the agent
+                # can decide whether to call again with ``confirm=True``.
+                # The list was already done by ``resolve_sources`` (subset /
+                # non-UUID) or by the all-sources branch, so the title lookup
+                # is local against that snapshot — no extra RPC.
+                sources_snapshot = await client.sources.list(nb_id)
+                preview_items = [
+                    {
+                        "source_id": sid,
+                        "title": title_for_id(sources_snapshot, sid),
+                    }
+                    for sid in src_ids
+                ]
                 return needs_confirmation(
                     {
-                        "action": "delete_source",
+                        "action": "delete_sources",
                         "notebook_id": nb_id,
-                        "source_id": src_id,
-                        "title": title,
+                        "count": len(preview_items),
+                        "sources": preview_items,
                     }
                 )
-            await client.sources.delete(nb_id, src_id)
-            return {"status": "deleted", "notebook_id": nb_id, "source_id": src_id}
+
+            # Confirm path: there is no batch DELETE RPC on the backend, so
+            # fan out over the single-id ``client.sources.delete`` with a
+            # small inter-call delay (CLAUDE.md rate-limiting pitfall). Each
+            # id lands in exactly one of the three buckets so partial
+            # failures do not discard successes.
+            deleted: list[dict[str, Any]] = []
+            not_found: list[dict[str, Any]] = []
+            failed: list[dict[str, Any]] = []
+            for i, sid in enumerate(src_ids):
+                try:
+                    await client.sources.delete(nb_id, sid)
+                    deleted.append({"source_id": sid})
+                except SourceNotFoundError as e:
+                    not_found.append({"source_id": sid, "error": str(e)})
+                except Exception as e:  # RPCError, NetworkError, etc.
+                    failed.append({"source_id": sid, "error": str(e)})
+                # Inter-call delay: skip on the LAST id (nothing left to
+                # throttle against).
+                if i < len(src_ids) - 1:
+                    await asyncio.sleep(_BULK_DELETE_INTER_CALL_DELAY_S)
+            return {
+                "status": "deleted",
+                "notebook_id": nb_id,
+                "deleted": deleted,
+                "deleted_count": len(deleted),
+                "not_found": not_found,
+                "not_found_count": len(not_found),
+                "failed": failed,
+                "failed_count": len(failed),
+                "total_count": len(src_ids),
+            }
 
     @mcp.tool(annotations=READ_ONLY)
     async def source_wait(
