@@ -28,6 +28,22 @@ class BackendKind(str, Enum):
     MOBILE = "mobile"
 
 
+@unique
+class BackendErrorReason(str, Enum):
+    """Closed neutral reasons emitted by the P1 web read bindings."""
+
+    AUTH = "auth"
+    CLIENT = "client"
+    DECODING = "decoding"
+    NETWORK = "network"
+    RATE_LIMIT = "rate_limit"
+    RESPONSE_TOO_LARGE = "response_too_large"
+    RPC = "rpc"
+    SERVER = "server"
+    TIMEOUT = "timeout"
+    UNKNOWN_RPC_METHOD = "unknown_rpc_method"
+
+
 @dataclass(frozen=True, slots=True)
 class BackendCapabilities:
     """Closed set of semantic operations implemented by one backend."""
@@ -90,6 +106,7 @@ class BackendError(Exception):
     operation: Operation | None = None
     outcome_unknown: bool = False
     diagnostics: Mapping[str, object] | None = field(default=None, repr=False, hash=False)
+    reason: BackendErrorReason | None = None
 
     def __post_init__(self) -> None:
         Exception.__init__(self, self.message)
@@ -144,6 +161,7 @@ __all__ = [
     "BackendContractError",
     "BackendDeadlineExceededError",
     "BackendError",
+    "BackendErrorReason",
     "BackendKind",
     "UnsupportedOperationError",
 ]

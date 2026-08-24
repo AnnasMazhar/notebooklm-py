@@ -13,6 +13,7 @@ from notebooklm._backend import (
     BackendContractError,
     BackendDeadlineExceededError,
     BackendError,
+    BackendErrorReason,
     BackendKind,
     UnsupportedOperationError,
 )
@@ -31,7 +32,18 @@ from notebooklm._records import (
 )
 from notebooklm._web.backend import WebRpcBackend
 from notebooklm._web.registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
-from notebooklm.exceptions import RPCError
+from notebooklm.exceptions import (
+    AuthError,
+    ClientError,
+    DecodingError,
+    NetworkError,
+    RateLimitError,
+    RPCError,
+    RPCResponseTooLargeError,
+    RPCTimeoutError,
+    ServerError,
+    UnknownRPCMethodError,
+)
 from notebooklm.rpc import RPCMethod
 
 
@@ -230,13 +242,14 @@ async def test_source_handlers_reuse_source_lister_and_apply_semantic_filters() 
 
 
 @pytest.mark.asyncio
-async def test_absolute_deadline_is_forwarded_as_executor_read_timeout() -> None:
+async def test_absolute_deadline_is_forwarded_unchanged_with_remaining_read_timeout() -> None:
     executor = _RecordingExecutor([[]])
     deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 12.0)
 
     await _backend(executor).invoke(NOTEBOOK_LIST_DEF, NotebookListInput(), deadline=deadline)
 
     assert executor.calls[0].kwargs["read_timeout"] == 3.0
+    assert executor.calls[0].kwargs["_retry_deadline"] is deadline
 
 
 @pytest.mark.asyncio
@@ -257,15 +270,14 @@ async def test_expired_deadline_fails_before_executor() -> None:
 
 @pytest.mark.asyncio
 async def test_rpc_error_is_translated_with_scrubbed_diagnostics() -> None:
-    executor = _RecordingExecutor(
-        RPCError(
-            "decode failed",
-            method_id=RPCMethod.LIST_NOTEBOOKS.value,
-            rpc_code=13,
-            found_ids=["other"],
-            raw_response="already-scrubbed",
-        )
+    error = RPCError(
+        "decode failed",
+        method_id=RPCMethod.LIST_NOTEBOOKS.value,
+        rpc_code=13,
+        found_ids=["other"],
+        raw_response="already-scrubbed",
     )
+    executor = _RecordingExecutor(error)
 
     with pytest.raises(BackendError) as caught:
         await _backend(executor).invoke(
@@ -277,11 +289,136 @@ async def test_rpc_error_is_translated_with_scrubbed_diagnostics() -> None:
     assert caught.value.message == "decode failed"
     assert caught.value.operation is Operation.NOTEBOOK_LIST
     assert caught.value.outcome_unknown is False
+    assert caught.value.reason is BackendErrorReason.RPC
     assert caught.value.diagnostics == {
         "method_id": RPCMethod.LIST_NOTEBOOKS.value,
         "rpc_code": 13,
-        "found_ids": ("other",),
+        "found_ids": ["other"],
         "raw_response": "already-scrubbed",
+    }
+    assert caught.value.diagnostics["found_ids"] is error.found_ids
+    assert isinstance(caught.value.diagnostics["found_ids"], list)
+
+
+@pytest.mark.parametrize(
+    ("error", "reason", "specific_diagnostics"),
+    [
+        (AuthError("auth"), BackendErrorReason.AUTH, {"recoverable": False}),
+        (
+            ClientError("client", status_code=404, rpc_code=5),
+            BackendErrorReason.CLIENT,
+            {"status_code": 404},
+        ),
+        (DecodingError("decode"), BackendErrorReason.DECODING, {}),
+        (NetworkError("network"), BackendErrorReason.NETWORK, {}),
+        (
+            RateLimitError("rate", retry_after=7),
+            BackendErrorReason.RATE_LIMIT,
+            {"retry_after": 7},
+        ),
+        (
+            RPCResponseTooLargeError("large", limit_bytes=10, bytes_read=11),
+            BackendErrorReason.RESPONSE_TOO_LARGE,
+            {"limit_bytes": 10, "bytes_read": 11},
+        ),
+        (RPCError("rpc"), BackendErrorReason.RPC, {}),
+        (
+            ServerError("server", status_code=503),
+            BackendErrorReason.SERVER,
+            {"status_code": 503},
+        ),
+        (
+            RPCTimeoutError("timeout", timeout_seconds=3.0),
+            BackendErrorReason.TIMEOUT,
+            {"timeout_seconds": 3.0},
+        ),
+        (
+            UnknownRPCMethodError(
+                "unknown",
+                path=(0, 2),
+                source="test",
+                data_at_failure="scrubbed",
+            ),
+            BackendErrorReason.UNKNOWN_RPC_METHOD,
+            {"path": (0, 2), "source": "test", "data_at_failure": "scrubbed"},
+        ),
+    ],
+)
+def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
+    error: RPCError | NetworkError,
+    reason: BackendErrorReason,
+    specific_diagnostics: dict[str, object],
+) -> None:
+    translated = WebRpcBackend._translate_error(Operation.NOTEBOOK_LIST, error)
+
+    assert translated.reason is reason
+    assert (
+        type(error)
+        is {
+            BackendErrorReason.AUTH: AuthError,
+            BackendErrorReason.CLIENT: ClientError,
+            BackendErrorReason.DECODING: DecodingError,
+            BackendErrorReason.NETWORK: NetworkError,
+            BackendErrorReason.RATE_LIMIT: RateLimitError,
+            BackendErrorReason.RESPONSE_TOO_LARGE: RPCResponseTooLargeError,
+            BackendErrorReason.RPC: RPCError,
+            BackendErrorReason.SERVER: ServerError,
+            BackendErrorReason.TIMEOUT: RPCTimeoutError,
+            BackendErrorReason.UNKNOWN_RPC_METHOD: UnknownRPCMethodError,
+        }[translated.reason]
+    )
+    assert set(BackendErrorReason) == {
+        BackendErrorReason.AUTH,
+        BackendErrorReason.CLIENT,
+        BackendErrorReason.DECODING,
+        BackendErrorReason.NETWORK,
+        BackendErrorReason.RATE_LIMIT,
+        BackendErrorReason.RESPONSE_TOO_LARGE,
+        BackendErrorReason.RPC,
+        BackendErrorReason.SERVER,
+        BackendErrorReason.TIMEOUT,
+        BackendErrorReason.UNKNOWN_RPC_METHOD,
+    }
+    assert translated.diagnostics is not None
+    assert {
+        name: translated.diagnostics[name] for name in specific_diagnostics
+    } == specific_diagnostics
+
+
+def test_unreviewed_rpc_error_subclass_fails_closed() -> None:
+    class _UnreviewedRPCError(RPCError):
+        pass
+
+    with pytest.raises(BackendContractError, match="unclassified web error type"):
+        WebRpcBackend._translate_error(Operation.NOTEBOOK_LIST, _UnreviewedRPCError("new"))
+
+
+@pytest.mark.asyncio
+async def test_deadline_budget_timeout_maps_to_typed_deadline_error() -> None:
+    timeout = RPCTimeoutError(
+        "request timed out",
+        method_id=RPCMethod.LIST_NOTEBOOKS.value,
+        timeout_seconds=3.0,
+    )
+    executor = _RecordingExecutor(timeout)
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 12.0)
+
+    with pytest.raises(BackendDeadlineExceededError) as caught:
+        await _backend(executor).invoke(
+            NOTEBOOK_LIST_DEF,
+            NotebookListInput(),
+            deadline=deadline,
+        )
+
+    assert caught.value.operation is Operation.NOTEBOOK_LIST
+    assert caught.value.outcome_unknown is False
+    assert caught.value.__cause__ is timeout
+    assert caught.value.diagnostics == {
+        "method_id": RPCMethod.LIST_NOTEBOOKS.value,
+        "rpc_code": None,
+        "found_ids": None,
+        "raw_response": None,
+        "timeout_seconds": 3.0,
     }
 
 

@@ -19,12 +19,13 @@ from .._backend import (
     BackendContractError,
     BackendDeadlineExceededError,
     BackendError,
+    BackendErrorReason,
     BackendKind,
     UnsupportedOperationError,
 )
 from .._deadline import RuntimeDeadline
 from .._notebook_payloads import build_get_notebook_params
-from .._operations import Operation, OperationDef
+from .._operations import CallPolicy, Operation, OperationDef
 from .._records import (
     NotebookChatSessionRecord,
     NotebookChatSettingsRecord,
@@ -43,7 +44,18 @@ from .._records import (
 from .._rpc_executor import RpcExecutor
 from .._source.listing import SourceLister
 from .._types.sources import _SOURCE_TYPE_CODE_MAP, SourceType
-from ..exceptions import DecodingError, NetworkError, RPCError
+from ..exceptions import (
+    AuthError,
+    ClientError,
+    DecodingError,
+    NetworkError,
+    RateLimitError,
+    RPCError,
+    RPCResponseTooLargeError,
+    RPCTimeoutError,
+    ServerError,
+    UnknownRPCMethodError,
+)
 from ..rpc import RPCMethod, safe_index
 from ..rpc.types import (
     drive_source_status_to_str,
@@ -52,6 +64,32 @@ from ..rpc.types import (
 )
 from ..types import Notebook, Source
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
+
+_WEB_ERROR_REASONS: dict[type[object], BackendErrorReason] = {
+    AuthError: BackendErrorReason.AUTH,
+    ClientError: BackendErrorReason.CLIENT,
+    DecodingError: BackendErrorReason.DECODING,
+    NetworkError: BackendErrorReason.NETWORK,
+    RateLimitError: BackendErrorReason.RATE_LIMIT,
+    RPCResponseTooLargeError: BackendErrorReason.RESPONSE_TOO_LARGE,
+    RPCError: BackendErrorReason.RPC,
+    ServerError: BackendErrorReason.SERVER,
+    RPCTimeoutError: BackendErrorReason.TIMEOUT,
+    UnknownRPCMethodError: BackendErrorReason.UNKNOWN_RPC_METHOD,
+}
+
+_SAFE_REASON_DIAGNOSTICS: dict[BackendErrorReason, tuple[str, ...]] = {
+    BackendErrorReason.AUTH: ("recoverable",),
+    BackendErrorReason.CLIENT: ("status_code",),
+    BackendErrorReason.DECODING: (),
+    BackendErrorReason.NETWORK: (),
+    BackendErrorReason.RATE_LIMIT: ("retry_after",),
+    BackendErrorReason.RESPONSE_TOO_LARGE: ("limit_bytes", "bytes_read"),
+    BackendErrorReason.RPC: (),
+    BackendErrorReason.SERVER: ("status_code",),
+    BackendErrorReason.TIMEOUT: ("timeout_seconds",),
+    BackendErrorReason.UNKNOWN_RPC_METHOD: ("path", "source", "data_at_failure"),
+}
 
 
 def _enum_label(value: object | None) -> str | None:
@@ -233,6 +271,14 @@ class WebRpcBackend:
             result = await handler(value, deadline=deadline)
         except BackendError:
             raise
+        except RPCTimeoutError as exc:
+            if deadline is not None:
+                raise BackendDeadlineExceededError(
+                    operation.key,
+                    outcome_unknown=operation.policy is not CallPolicy.READ,
+                    diagnostics=self._error_diagnostics(exc, BackendErrorReason.TIMEOUT),
+                ) from exc
+            raise self._translate_error(operation.key, exc) from exc
         except (RPCError, NetworkError) as exc:
             raise self._translate_error(operation.key, exc) from exc
 
@@ -281,6 +327,7 @@ class WebRpcBackend:
             operation_variant=operation_variant,
             read_timeout=read_timeout,
             raise_on_null_status=raise_on_null_status,
+            _retry_deadline=deadline,
         )
 
     async def _notebook_list(
@@ -381,20 +428,33 @@ class WebRpcBackend:
         )
 
     @staticmethod
-    def _translate_error(operation: Operation, exc: RPCError | NetworkError) -> BackendError:
-        diagnostics = MappingProxyType(
-            {
-                "method_id": getattr(exc, "method_id", None),
-                "rpc_code": getattr(exc, "rpc_code", None),
-                "found_ids": tuple(getattr(exc, "found_ids", ()) or ()),
-                "raw_response": getattr(exc, "raw_response", None),
-            }
-        )
+    def _error_diagnostics(
+        exc: RPCError | NetworkError,
+        reason: BackendErrorReason,
+    ) -> MappingProxyType[str, object]:
+        diagnostics = {
+            "method_id": getattr(exc, "method_id", None),
+            "rpc_code": getattr(exc, "rpc_code", None),
+            "found_ids": getattr(exc, "found_ids", None),
+            "raw_response": getattr(exc, "raw_response", None),
+        }
+        diagnostics.update((name, getattr(exc, name)) for name in _SAFE_REASON_DIAGNOSTICS[reason])
+        return MappingProxyType(diagnostics)
+
+    @classmethod
+    def _translate_error(cls, operation: Operation, exc: RPCError | NetworkError) -> BackendError:
+        reason = _WEB_ERROR_REASONS.get(type(exc))
+        if reason is None:
+            raise BackendContractError(
+                f"unclassified web error type {type(exc).__module__}.{type(exc).__qualname__}",
+                operation=operation,
+            ) from exc
         return BackendError(
             message=str(exc),
             operation=operation,
             outcome_unknown=False,
-            diagnostics=diagnostics,
+            diagnostics=cls._error_diagnostics(exc, reason),
+            reason=reason,
         )
 
 

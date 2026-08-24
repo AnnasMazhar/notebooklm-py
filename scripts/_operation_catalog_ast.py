@@ -486,6 +486,110 @@ INERT_P1_WEB_HANDLERS = frozenset(
 )
 INERT_P1_WEB_SITES = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
 
+# Removal: P2 deletes one handler exemption and admits the corresponding
+# service import/invoke sites in the same bounded delegation slice. Until then,
+# these exact imports are the whole production semantic-backend dataflow.
+INERT_P1_BACKEND_IMPORTS = frozenset(
+    {
+        ("_client_assembly.py", "_web.backend", "WebRpcBackend"),
+        ("client.py", "_backend", "BackendAdapter"),
+        ("_web/__init__.py", "backend", "WebRpcBackend"),
+        ("_web/backend.py", "_backend", "BackendCapabilities"),
+        ("_web/backend.py", "_backend", "BackendContractError"),
+        ("_web/backend.py", "_backend", "BackendDeadlineExceededError"),
+        ("_web/backend.py", "_backend", "BackendError"),
+        ("_web/backend.py", "_backend", "BackendErrorReason"),
+        ("_web/backend.py", "_backend", "BackendKind"),
+        ("_web/backend.py", "_backend", "UnsupportedOperationError"),
+        ("_web/backend.py", "_records", "NotebookChatSessionRecord"),
+        ("_web/backend.py", "_records", "NotebookChatSettingsRecord"),
+        ("_web/backend.py", "_records", "NotebookGetInput"),
+        ("_web/backend.py", "_records", "NotebookGetResult"),
+        ("_web/backend.py", "_records", "NotebookListInput"),
+        ("_web/backend.py", "_records", "NotebookListResult"),
+        ("_web/backend.py", "_records", "NotebookPremiumFeaturesRecord"),
+        ("_web/backend.py", "_records", "NotebookRecord"),
+        ("_web/backend.py", "_records", "SourceGetInput"),
+        ("_web/backend.py", "_records", "SourceGetResult"),
+        ("_web/backend.py", "_records", "SourceListInput"),
+        ("_web/backend.py", "_records", "SourceListResult"),
+        ("_web/backend.py", "_records", "SourceRecord"),
+        ("_web/backend.py", "registry", "WEB_OPERATION_REGISTRY"),
+        ("_web/backend.py", "registry", "WEB_SUPPORTED_OPERATIONS"),
+        ("_web/registry.py", "_records", "NOTEBOOK_GET_DEF"),
+        ("_web/registry.py", "_records", "NOTEBOOK_LIST_DEF"),
+        ("_web/registry.py", "_records", "SOURCE_GET_DEF"),
+        ("_web/registry.py", "_records", "SOURCE_LIST_DEF"),
+    }
+)
+
+_P1_BACKEND_IMPORT_MODULES = frozenset(
+    {"_backend", "_records", "_web.backend", "backend", "registry"}
+)
+
+
+def audit_inert_p1_backend_dataflow(
+    source_overrides: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Prove the assembled P1 backend has no production consumer before P2."""
+
+    overrides = source_overrides or {}
+    observed_imports: set[tuple[str, str, str]] = set()
+    invoke_sites: set[str] = set()
+    assembly_backend_loads: list[int] = []
+    assembly_constructor_targets: list[tuple[str, ...]] = []
+
+    for path in sorted(SRC_ROOT.rglob("*.py")):
+        relative = path.relative_to(SRC_ROOT).as_posix()
+        source = overrides.get(relative, path.read_text(encoding="utf-8"))
+        tree = ast.parse(source, filename=str(path))
+        parents = {
+            child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)
+        }
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module is not None:
+                if node.module in _P1_BACKEND_IMPORT_MODULES:
+                    observed_imports.update(
+                        (relative, node.module, alias.name) for alias in node.names
+                    )
+            if isinstance(node, ast.Call) and _attribute_parts(node.func)[-1:] == ("invoke",):
+                invoke_sites.add(f"{relative}:{node.lineno}")
+            if relative == "_client_assembly.py":
+                if (
+                    isinstance(node, ast.Attribute)
+                    and _attribute_parts(node) == ("client", "_backend")
+                    and isinstance(node.ctx, ast.Load)
+                ):
+                    assembly_backend_loads.append(node.lineno)
+                if isinstance(node, ast.Call) and _attribute_parts(node.func)[-1:] == (
+                    "WebRpcBackend",
+                ):
+                    parent = parents.get(node)
+                    targets = parent.targets if isinstance(parent, ast.Assign) else []
+                    assembly_constructor_targets.extend(
+                        _attribute_parts(target) for target in targets
+                    )
+
+    errors: list[str] = []
+    if observed_imports != INERT_P1_BACKEND_IMPORTS:
+        errors.append(
+            "inert P1 backend imports changed: "
+            f"missing={sorted(INERT_P1_BACKEND_IMPORTS - observed_imports)}, "
+            f"extra={sorted(observed_imports - INERT_P1_BACKEND_IMPORTS)}"
+        )
+    if invoke_sites:
+        errors.append(f"inert P1 backend has production invoke sites: {sorted(invoke_sites)}")
+    if assembly_constructor_targets != [("client", "_backend")]:
+        errors.append(
+            f"P1 WebRpcBackend construction target changed: {assembly_constructor_targets}"
+        )
+    if assembly_backend_loads:
+        errors.append(
+            "P1 client._backend escapes assembly assignment at lines: "
+            f"{sorted(assembly_backend_loads)}"
+        )
+    return errors
+
 
 def audit_inert_p1_web_sites(sites: frozenset[str] | None = None) -> list[str]:
     """Fail closed when the bounded P1 no-authority classification drifts."""
@@ -893,6 +997,7 @@ def audit_operation_authorities() -> list[str]:
                 f"{native_sites[binding]} ({reason})"
             )
     errors.extend(audit_inert_p1_web_sites())
+    errors.extend(audit_inert_p1_backend_dataflow())
     if unresolved := collect_unresolved_rpc_dispatches():
         errors.append(f"unresolved feature RPC calls: {unresolved}")
     if unresolved_app := collect_unresolved_app_dispatches():

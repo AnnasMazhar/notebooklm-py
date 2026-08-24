@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from scripts._operation_catalog_ast import (
     INERT_P1_WEB_SITES,
+    audit_inert_p1_backend_dataflow,
     audit_inert_p1_web_sites,
 )
 from scripts.audit_operation_catalog import (
@@ -47,6 +50,28 @@ def test_p1_inert_web_sites_are_exact_and_mutation_sensitive() -> None:
         "inert P1 web site classification changed: "
         "missing=['_web/backend.py:WebRpcBackend._notebook_list'], extra=[]"
     ]
+
+
+def test_p1_backend_dataflow_is_client_only_and_alias_mutation_sensitive() -> None:
+    assert audit_inert_p1_backend_dataflow() == []
+
+    root = Path(__file__).resolve().parents[2] / "src" / "notebooklm"
+    notebooks = (root / "_notebooks.py").read_text(encoding="utf-8")
+    alias_mutation = notebooks + (
+        "\nasync def _p1_alias_mutation(semantic):\n"
+        "    return await semantic.invoke(None, None, deadline=None)\n"
+    )
+    errors = audit_inert_p1_backend_dataflow({"_notebooks.py": alias_mutation})
+    assert len(errors) == 1
+    assert errors[0].startswith("inert P1 backend has production invoke sites: ")
+
+    assembly = (root / "_client_assembly.py").read_text(encoding="utf-8")
+    escape_mutation = assembly + (
+        "\ndef _p1_escape_mutation(client):\n    return NotebooksAPI(client._backend)\n"
+    )
+    errors = audit_inert_p1_backend_dataflow({"_client_assembly.py": escape_mutation})
+    assert len(errors) == 1
+    assert errors[0].startswith("P1 client._backend escapes assembly assignment at lines: ")
 
 
 def test_catalog_projection_covers_the_live_authorities() -> None:
