@@ -468,7 +468,7 @@ def test_direct_backend_does_not_invent_a_client_runtime_or_http_session() -> No
 
     assert backend.kind is BackendKind.WEB
     assert backend._provider is None
-    assert backend._session is None
+    assert backend._backend_session is None
     assert backend._kernel is None
     assert not hasattr(backend, "_lifecycle")
     assert not hasattr(backend, "_cookie_persistence")

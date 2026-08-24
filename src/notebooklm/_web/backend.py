@@ -473,7 +473,7 @@ class WebRpcBackend(ChatWebHandlers):
         self._owns_provider = owns_provider
         self._provider_closed = False
         self._provider_close_task: asyncio.Task[None] | None = None
-        self._session = session
+        self._backend_session = session
         self._metrics = metrics
         self._drain_tracker = drain_tracker
         self._reqid = reqid
@@ -511,14 +511,14 @@ class WebRpcBackend(ChatWebHandlers):
     @property
     def _kernel(self) -> Any | None:
         """Compatibility inspection view over the private backend session."""
-        session = self._session
+        session = self._backend_session
         return getattr(session, "kernel", None) if session is not None else None
 
     @property
     def runtime_ready(self) -> bool:
         """Whether atomic client-runtime assembly completed before publication."""
         return (
-            self._session is not None
+            self._backend_session is not None
             and self._provider is not None
             and self._chain_host is not None
             and self._chain_host._authed_post_chain is not None
@@ -541,7 +541,7 @@ class WebRpcBackend(ChatWebHandlers):
         chat: ChatAPI,
     ) -> None:
         """Open provider acquisition, then seed the private backend session."""
-        session = self._session
+        session = self._backend_session
         if session is None or self._provider is None:
             raise RuntimeError("WebRpcBackend has no complete client lifecycle")
         try:
@@ -571,7 +571,7 @@ class WebRpcBackend(ChatWebHandlers):
     ) -> None:
         """Close the client lifecycle while preserving drain/cancel arbitration."""
         drain_tracker = self._drain_tracker
-        session = self._session
+        session = self._backend_session
         if drain_tracker is None or session is None or self._provider is None:
             raise RuntimeError("WebRpcBackend has no complete client lifecycle")
 
@@ -642,7 +642,7 @@ class WebRpcBackend(ChatWebHandlers):
 
     @property
     def is_connected(self) -> bool:
-        return self._session is not None and self._session.is_open
+        return self._backend_session is not None and self._backend_session.is_open
 
     @property
     def capabilities(self) -> BackendCapabilities:
@@ -762,11 +762,11 @@ class WebRpcBackend(ChatWebHandlers):
         try:
             if self._owns_provider:
                 await self._close_owned_provider()
-            elif self._provider is not None and self._session is not None:
+            elif self._provider is not None and self._backend_session is not None:
                 await self._provider.reconcile()
         finally:
-            if self._session is not None:
-                await self._session.close()
+            if self._backend_session is not None:
+                await self._backend_session.close()
 
     async def _close_owned_provider(self) -> None:
         provider = self._provider
