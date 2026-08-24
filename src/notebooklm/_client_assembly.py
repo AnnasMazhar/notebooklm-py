@@ -361,6 +361,7 @@ def _assemble_client(
         uploader=source_uploader,
         upload_timeout=upload_timeout,
         max_concurrent_uploads=max_concurrent_uploads,
+        _backend=client._backend,
     )
     client.notebooks = NotebooksAPI(
         internals.executor,

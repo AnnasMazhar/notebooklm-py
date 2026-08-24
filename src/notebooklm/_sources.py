@@ -11,7 +11,10 @@ from urllib.parse import urlparse
 
 import httpx
 
+from ._backend import BackendAdapter, BackendError
+from ._backend_compat import project_backend_error
 from ._lookup import unwrap_or_raise
+from ._read_services import SourceReadService
 from ._row_adapters.sources import interpret_source_freshness
 from ._runtime.config import DEFAULT_MAX_CONCURRENT_UPLOADS
 from ._runtime.contracts import RpcCaller
@@ -21,7 +24,7 @@ from ._source.add import SourceAddService, honor_requested_title_if_fresh
 from ._source.batch import SourceBatchAddService, SourceUrlBatchItem
 from ._source.content import SourceContentRenderer
 from ._source.drive_import import DriveFetcher, DriveImportService
-from ._source.listing import SourceLister
+from ._source.listing import SourceLister, _snapshot_enum_filter
 from ._source.polling import SourcePoller, SourceWaitResult
 from ._source.upload import SourceUploadPipeline
 from ._source.upload_payloads import build_rename_source_params
@@ -29,6 +32,7 @@ from ._types.research import SourceGuide
 from ._url_utils import is_youtube_url
 from .exceptions import SourceNotFoundError
 from .rpc import RPCMethod
+from .rpc.types import source_status_to_str
 from .types import (
     Source,
     SourceFulltext,
@@ -63,6 +67,7 @@ class SourcesAPI:
         uploader: SourceUploadPipeline,
         upload_timeout: httpx.Timeout | None = None,
         max_concurrent_uploads: int | None = DEFAULT_MAX_CONCURRENT_UPLOADS,
+        _backend: BackendAdapter | None = None,
     ):
         """Initialize the sources API.
 
@@ -91,12 +96,14 @@ class SourcesAPI:
             max_concurrent_uploads: Ceiling for concurrent
                 :meth:`add_file` uploads. The semaphore is owned by this
                 Sources upload pipeline, not by the shared core/session.
+            _backend: Private semantic backend supplied by the client composition root.
         """
         # ``upload_timeout`` / ``max_concurrent_uploads`` are accepted for API
         # stability but honored by the injected ``uploader=`` pipeline (built by
         # the :class:`NotebookLMClient` composition root); stored here only as
         # historical attributes for callers that introspect the instance.
         self._rpc = rpc
+        self._read_service = SourceReadService(_backend) if _backend is not None else None
         self._adder = SourceAddService()
         self._batch_adder = SourceBatchAddService()
         self._content = SourceContentRenderer(self._rpc, logger=logger)
@@ -114,6 +121,17 @@ class SourcesAPI:
             lister=self._lister,
             poller=self._poller,
         )
+
+    def _require_read_service(self) -> SourceReadService:
+        """Return the composition-root service for the migrated read slice."""
+        if self._read_service is None:
+            raise RuntimeError("SourcesAPI semantic read backend was not configured")
+        return self._read_service
+
+    @staticmethod
+    def _compat_read_error(error: BackendError) -> Exception:
+        """Project one neutral backend error at the public compatibility boundary."""
+        return project_backend_error(error)
 
     async def _rpc_call(
         self,
@@ -160,12 +178,35 @@ class SourcesAPI:
         Returns:
             Source objects in backend order after normalization and filtering.
         """
-        return await self._lister.list(
-            notebook_id,
-            strict=strict,
-            statuses=statuses,
-            types=types,
+        status_filter = _snapshot_enum_filter(
+            statuses,
+            enum_type=SourceStatus,
+            parameter="statuses",
         )
+        type_filter = _snapshot_enum_filter(
+            types,
+            enum_type=SourceType,
+            parameter="types",
+        )
+        public_error: Exception | None = None
+        try:
+            return await self._require_read_service().list(
+                notebook_id,
+                strict=strict,
+                statuses=(
+                    None
+                    if status_filter is None
+                    else frozenset(source_status_to_str(status) for status in status_filter)
+                ),
+                kinds=(
+                    None
+                    if type_filter is None
+                    else frozenset(source_type.value for source_type in type_filter)
+                ),
+            )
+        except BackendError as error:
+            public_error = self._compat_read_error(error)
+        raise public_error from None
 
     async def get(self, notebook_id: str, source_id: str) -> Source:
         """Get details of a specific source.
@@ -205,11 +246,20 @@ class SourcesAPI:
         Returns:
             The :class:`~notebooklm.types.Source`, or ``None`` if not found.
         """
-        return await self._lister.get(
-            notebook_id,
-            source_id,
-            list_sources=self.list,
-        )
+        list_method = self.list
+        if getattr(list_method, "__func__", None) is not SourcesAPI.list:
+            return await self._lister.get(
+                notebook_id,
+                source_id,
+                list_sources=list_method,
+            )
+
+        public_error: Exception | None = None
+        try:
+            return await self._require_read_service().get(notebook_id, source_id)
+        except BackendError as error:
+            public_error = self._compat_read_error(error)
+        raise public_error from None
 
     # Internal silent lookup for pollers/service code avoiding public ``get()`` misses.
     _get_or_none = get_or_none

@@ -36,21 +36,18 @@ def test_operation_catalog_is_total_and_current() -> None:
 def test_p1_inert_web_sites_are_exact_and_mutation_sensitive() -> None:
     """Only web handlers without a P2 facade delegation remain inert."""
     assert {
-        "_web/backend.py:_DeadlineRpcCaller.rpc_call",
         "_web/backend.py:WebRpcBackend._rpc_call",
-        "_web/backend.py:WebRpcBackend._source_get",
-        "_web/backend.py:WebRpcBackend._source_list",
     } == INERT_P1_WEB_SITES
     assert audit_inert_p1_web_sites() == []
 
-    missing_one = INERT_P1_WEB_SITES - {"_web/backend.py:WebRpcBackend._source_list"}
+    missing_one = INERT_P1_WEB_SITES - {"_web/backend.py:WebRpcBackend._rpc_call"}
     assert audit_inert_p1_web_sites(frozenset(missing_one)) == [
         "inert P1 web site classification changed: "
-        "missing=['_web/backend.py:WebRpcBackend._source_list'], extra=[]"
+        "missing=['_web/backend.py:WebRpcBackend._rpc_call'], extra=[]"
     ]
 
 
-def test_backend_dataflow_is_bounded_to_migrated_notebook_service() -> None:
+def test_backend_dataflow_is_bounded_to_migrated_read_services() -> None:
     assert audit_inert_p1_backend_dataflow() == []
 
     root = Path(__file__).resolve().parents[2] / "src" / "notebooklm"
@@ -69,7 +66,7 @@ def test_backend_dataflow_is_bounded_to_migrated_notebook_service() -> None:
     )
     errors = audit_inert_p1_backend_dataflow({"_client_assembly.py": escape_mutation})
     assert len(errors) == 1
-    assert errors[0].startswith("client._backend escapes the reviewed notebook binding at lines: ")
+    assert errors[0].startswith("client._backend escapes the reviewed facade bindings at lines: ")
 
     for statement in (
         "from .._web import WebRpcBackend",

@@ -91,6 +91,23 @@ class SourceLister:
             source_path=f"/notebook/{notebook_id}",
         )
 
+        sources = self.normalize(notebook_id, notebook, strict=strict)
+        return [
+            source
+            for source in sources
+            if (status_filter is None or source.status in status_filter)
+            and (type_filter is None or source.kind in type_filter)
+        ]
+
+    def normalize(
+        self,
+        notebook_id: str,
+        notebook: Any,
+        *,
+        strict: bool = False,
+    ) -> builtins.list[Source]:
+        """Normalize one fetched notebook envelope into unique source models."""
+
         sources_list = self._extract_sources_list(notebook_id, notebook, strict=strict)
         if sources_list is None:
             return []
@@ -124,12 +141,7 @@ class SourceLister:
             seen_sources[source.id] = source
             sources.append(source)
 
-        return [
-            source
-            for source in sources
-            if (status_filter is None or source.status in status_filter)
-            and (type_filter is None or source.kind in type_filter)
-        ]
+        return sources
 
     async def get(
         self,

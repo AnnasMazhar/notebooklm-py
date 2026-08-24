@@ -8,14 +8,28 @@ must preserve these request, projection, filtering, and miss semantics.
 from __future__ import annotations
 
 import inspect
+from types import MappingProxyType
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from notebooklm._backend import BackendError, BackendErrorReason
 from notebooklm._notebook_payloads import build_get_notebook_params
 from notebooklm._notebooks import NotebooksAPI
 from notebooklm._sources import SourcesAPI
-from notebooklm.exceptions import SourceNotFoundError
+from notebooklm.exceptions import (
+    AuthError,
+    ClientError,
+    DecodingError,
+    NetworkError,
+    RateLimitError,
+    RPCError,
+    RPCResponseTooLargeError,
+    RPCTimeoutError,
+    ServerError,
+    SourceNotFoundError,
+    UnknownRPCMethodError,
+)
 from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import SourceStatus
 from notebooklm.types import Source, SourceType
@@ -40,7 +54,11 @@ def _source_entry(
 def _sources_api(result: object) -> tuple[SourcesAPI, AsyncMock]:
     rpc_call = AsyncMock(return_value=result)
     rpc = MagicMock(rpc_call=rpc_call)
-    return SourcesAPI(rpc, uploader=MagicMock()), rpc_call
+    return SourcesAPI(
+        rpc,
+        uploader=MagicMock(),
+        _backend=build_web_backend(rpc),
+    ), rpc_call
 
 
 def test_read_slice_public_signatures_are_frozen() -> None:
@@ -162,11 +180,11 @@ async def test_source_list_pins_request_normalization_filters_and_strict_count()
         ("src-pdf", "PDF", SourceType.PDF, SourceStatus.READY),
         ("src-web", "Web", SourceType.WEB_PAGE, SourceStatus.ERROR),
     ]
-    rpc_call.assert_awaited_once_with(
+    assert rpc_call.await_args.args == (
         RPCMethod.GET_NOTEBOOK,
         build_get_notebook_params("nb-1"),
-        source_path="/notebook/nb-1",
     )
+    assert rpc_call.await_args.kwargs["source_path"] == "/notebook/nb-1"
 
 
 @pytest.mark.asyncio
@@ -187,3 +205,118 @@ async def test_source_get_preserves_late_bound_list_and_miss_contracts() -> None
         (("nb-1",), {}),
     ]
     rpc_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_source_get_default_path_uses_backend_and_preserves_genuine_miss() -> None:
+    payload = [["Notebook", [_source_entry("src-1", title="One")], "nb-1"]]
+    rpc_call = AsyncMock(side_effect=[payload, payload, payload])
+    rpc = MagicMock(rpc_call=rpc_call)
+    api = SourcesAPI(
+        rpc,
+        uploader=MagicMock(),
+        _backend=build_web_backend(rpc),
+    )
+
+    found = await api.get_or_none("nb-1", "src-1")
+    assert found is not None and found.id == "src-1"
+    assert await api.get_or_none("nb-1", "missing") is None
+    with pytest.raises(SourceNotFoundError) as exc_info:
+        await api.get("nb-1", "missing")
+
+    assert exc_info.value.source_id == "missing"
+    assert [call.args[:2] for call in rpc_call.await_args_list] == [
+        (RPCMethod.GET_NOTEBOOK, build_get_notebook_params("nb-1")),
+        (RPCMethod.GET_NOTEBOOK, build_get_notebook_params("nb-1")),
+        (RPCMethod.GET_NOTEBOOK, build_get_notebook_params("nb-1")),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected_type", "expected_attributes"),
+    [
+        (BackendErrorReason.AUTH, AuthError, {"recoverable": True}),
+        (BackendErrorReason.CLIENT, ClientError, {"status_code": 503}),
+        (BackendErrorReason.DECODING, DecodingError, {}),
+        (BackendErrorReason.NETWORK, NetworkError, {}),
+        (BackendErrorReason.RATE_LIMIT, RateLimitError, {"retry_after": 7}),
+        (
+            BackendErrorReason.RESPONSE_TOO_LARGE,
+            RPCResponseTooLargeError,
+            {"limit_bytes": 100, "bytes_read": 101},
+        ),
+        (BackendErrorReason.RPC, RPCError, {}),
+        (BackendErrorReason.SERVER, ServerError, {"status_code": 503}),
+        (BackendErrorReason.TIMEOUT, RPCTimeoutError, {"timeout_seconds": 3.5}),
+        (
+            BackendErrorReason.UNKNOWN_RPC_METHOD,
+            UnknownRPCMethodError,
+            {"path": (0, 1), "source": "source-list", "data_at_failure": "scrubbed-row"},
+        ),
+    ],
+)
+def test_source_facade_projects_every_closed_backend_error_reason(
+    reason: BackendErrorReason,
+    expected_type: type[Exception],
+    expected_attributes: dict[str, object],
+) -> None:
+    diagnostics = MappingProxyType(
+        {
+            "method_id": RPCMethod.GET_NOTEBOOK.value,
+            "rpc_code": 13,
+            "found_ids": ["src-1"],
+            "raw_response": "scrubbed",
+            "recoverable": True,
+            "status_code": 503,
+            "retry_after": 7,
+            "limit_bytes": 100,
+            "bytes_read": 101,
+            "timeout_seconds": 3.5,
+            "path": (0, 1),
+            "source": "source-list",
+            "data_at_failure": "scrubbed-row",
+        }
+    )
+    projected = SourcesAPI._compat_read_error(
+        BackendError(
+            "backend message",
+            operation=None,
+            diagnostics=diagnostics,
+            reason=reason,
+        )
+    )
+
+    assert type(projected) is expected_type
+    assert str(projected).startswith("backend message")
+    assert getattr(projected, "method_id", None) == RPCMethod.GET_NOTEBOOK.value
+    assert {name: getattr(projected, name) for name in expected_attributes} == expected_attributes
+    if reason is BackendErrorReason.UNKNOWN_RPC_METHOD:
+        assert str(projected).count("path=(0, 1)") == 1
+
+
+@pytest.mark.asyncio
+async def test_source_facade_reconstructs_rpc_error_without_replaying_backend_cause() -> None:
+    original = RPCError(
+        "source decode drift",
+        method_id=RPCMethod.GET_NOTEBOOK.value,
+        rpc_code=13,
+        found_ids=["src-1"],
+        raw_response="already-scrubbed",
+    )
+    rpc = MagicMock(rpc_call=AsyncMock(side_effect=original))
+    api = SourcesAPI(
+        rpc,
+        uploader=MagicMock(),
+        _backend=build_web_backend(rpc),
+    )
+
+    with pytest.raises(RPCError) as caught:
+        await api.list("nb-1")
+
+    assert caught.value is not original
+    assert caught.value.__cause__ is None
+    assert caught.value.method_id == original.method_id
+    assert caught.value.rpc_code == original.rpc_code
+    assert caught.value.found_ids == original.found_ids
+    assert isinstance(caught.value.found_ids, list)
+    assert caught.value.raw_response == original.raw_response

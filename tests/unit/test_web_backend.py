@@ -354,6 +354,7 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
     translated = WebRpcBackend._translate_error(Operation.NOTEBOOK_LIST, error)
 
     assert translated.reason is reason
+    assert translated.message == str(error.args[0])
     assert (
         type(error)
         is {
@@ -471,13 +472,14 @@ async def test_close_does_not_close_client_owned_executor() -> None:
 
 
 def test_only_migrated_feature_runtime_reads_private_backend() -> None:
-    """Only composition plus the first migrated notebook slice may use the port."""
+    """Only composition plus the migrated notebook/source slices may use the port."""
     package = Path(__file__).resolve().parents[2] / "src" / "notebooklm"
     allowed = {
         package / "_client_assembly.py",
         package / "client.py",  # annotation-only declaration
         package / "_notebooks.py",
         package / "_read_services.py",
+        package / "_sources.py",
     }
     allowed.update((package / "_web").rglob("*.py"))
     violations: list[str] = []
