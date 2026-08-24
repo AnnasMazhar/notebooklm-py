@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any
 
 import httpx
 import pytest
 
 from notebooklm._logging import get_request_id, reset_request_id, set_request_id
-from notebooklm._request_types import AuthSnapshot
-from notebooklm._rpc_executor import RpcExecutor
 from notebooklm._transport_errors import TransportServerError
 from notebooklm.auth import AuthTokens
 from notebooklm.exceptions import DecodingError, UnknownRPCMethodError
@@ -23,6 +21,7 @@ from notebooklm.rpc import (
     ServerError,
 )
 from tests._helpers.client_factory import build_client_shell_for_tests
+from tests.unit._rpc_executor_support import _executor, _ok_response, _Owner
 
 
 def _auth_tokens() -> AuthTokens:
@@ -33,126 +32,11 @@ def _auth_tokens() -> AuthTokens:
     )
 
 
-def _ok_response(text: str = "raw") -> httpx.Response:
-    return httpx.Response(
-        200,
-        text=text,
-        request=httpx.Request("POST", "https://example.test/rpc"),
-    )
-
-
 def _status_error(status_code: int, *, retry_after: str | None = None) -> httpx.HTTPStatusError:
     request = httpx.Request("POST", "https://example.test/rpc")
     headers = {"retry-after": retry_after} if retry_after is not None else {}
     response = httpx.Response(status_code, request=request, headers=headers)
     return httpx.HTTPStatusError(f"HTTP {status_code}", request=request, response=response)
-
-
-class _Owner:
-    """Test stub satisfying RpcExecutor's four collaborator dependencies.
-
-    Wave 4 of session-decoupling (ADR-0014 Rule 5): RpcExecutor takes
-    Kernel + RuntimeTransport + AuthRefreshCoordinator + ClientMetrics
-    directly via keyword arguments. This stub plays all four roles in
-    one object — see :func:`_executor` for the wiring.
-    """
-
-    def __init__(
-        self,
-        *,
-        timeout: float = 30.0,
-        refresh_callback: Callable[[], Awaitable[Any]] | None = None,
-        refresh_retry_delay: float = 0.0,
-    ):
-        self._timeout = timeout
-        self._refresh_callback = refresh_callback
-        self._refresh_retry_delay = refresh_retry_delay
-        self.perform_calls: list[dict[str, Any]] = []
-        self.refresh_calls = 0
-        self.metric_increments: list[dict[str, int | float]] = []
-        self.response = _ok_response()
-        self.snapshot = AuthSnapshot(
-            csrf_token="CSRF_SNAPSHOT",
-            session_id="SID_SNAPSHOT",
-            authuser=1,
-            account_email="user@example.test",
-        )
-        # Self-reference so the same stub can play both ``kernel`` and the
-        # other three roles when passed to ``RpcExecutor(...)`` below.
-        self._kernel = self
-
-    # --- Kernel role ----------------------------------------------------
-    def get_http_client(self) -> object:
-        return object()
-
-    # --- ClientMetrics role ---------------------------------------------
-    def increment(self, **increments: int | float) -> None:
-        self.metric_increments.append(increments)
-
-    # --- RuntimeTransport role ------------------------------------------
-    async def perform_authed_post(
-        self,
-        *,
-        build_request,
-        log_label: str,
-        disable_internal_retries: bool = False,
-        rpc_method: str | None = None,
-        refresh_budget: Any = None,
-        retry_deadline: Any = None,
-        read_timeout: float | None = None,
-    ) -> httpx.Response:
-        url, body, headers = build_request(self.snapshot)
-        self.perform_calls.append(
-            {
-                "log_label": log_label,
-                "disable_internal_retries": disable_internal_retries,
-                "url": url,
-                "body": body,
-                "headers": headers,
-                "refresh_budget": refresh_budget,
-                "retry_deadline": retry_deadline,
-                "read_timeout": read_timeout,
-            }
-        )
-        return self.response
-
-    # --- AuthRefreshCoordinator role ------------------------------------
-    async def await_refresh(self) -> None:
-        self.refresh_calls += 1
-
-
-def _executor(
-    owner: _Owner,
-    *,
-    decode_response: Callable[..., Any] | None = None,
-    is_auth_error: Callable[[Exception], bool] | None = None,
-    sleep: Callable[[float], Awaitable[Any]] | None = None,
-) -> RpcExecutor:
-    async def _no_sleep(_: float) -> None:
-        return None
-
-    def _decode(
-        _: str, rpc_id: str, *, allow_null: bool = False, raise_on_null_status: bool = False
-    ) -> dict[str, Any]:
-        return {"rpc_id": rpc_id, "allow_null": allow_null}
-
-    # ADR-0014 Rule 5 (Wave 4 of session-decoupling): the executor takes
-    # its four collaborators as keyword-only args. The ``_Owner`` stub
-    # plays all four roles; pass it under each keyword so the executor's
-    # ``self._kernel`` / ``self._metrics`` / ``self._transport`` /
-    # ``self._auth_refresh`` references all land on the same stub.
-    return RpcExecutor(
-        kernel=owner,  # type: ignore[arg-type]
-        transport=owner,  # type: ignore[arg-type]
-        auth_refresh=owner,  # type: ignore[arg-type]
-        metrics=owner,  # type: ignore[arg-type]
-        decode_response=decode_response or _decode,
-        is_auth_error=is_auth_error or (lambda exc: False),
-        sleep=sleep or _no_sleep,
-        timeout_provider=lambda: owner._timeout,
-        refresh_callback_enabled_provider=lambda: owner._refresh_callback is not None,
-        refresh_retry_delay_provider=lambda: owner._refresh_retry_delay,
-    )
 
 
 @pytest.mark.asyncio

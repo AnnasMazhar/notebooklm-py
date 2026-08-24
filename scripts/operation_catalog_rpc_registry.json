@@ -1,0 +1,700 @@
+{
+  "schema_version": 1,
+  "captured_on": "2026-08-23",
+  "source_command": "uv run python scripts/capture_rpc_registry.py --json",
+  "capture_kind": "public_web_bundle",
+  "scrubbed": true,
+  "registry_total": 170,
+  "counts": {
+    "confirmed": 47,
+    "absent": 0,
+    "present_unparsed": 0,
+    "unmapped": 123
+  },
+  "confirmed": {
+    "AH0mwd": {
+      "method": "/LabsTailwindOrchestrationService.DeleteNotes",
+      "name": "DELETE_NOTE"
+    },
+    "CCqFvf": {
+      "method": "/LabsTailwindOrchestrationService.CreateProject",
+      "name": "CREATE_NOTEBOOK"
+    },
+    "CYK0Xb": {
+      "method": "/LabsTailwindOrchestrationService.CreateNote",
+      "name": "CREATE_NOTE"
+    },
+    "FLmJqe": {
+      "method": "/LabsTailwindOrchestrationService.RefreshSource",
+      "name": "REFRESH_SOURCE"
+    },
+    "GyzE7e": {
+      "method": "/LabsTailwindOrchestrationService.DeleteLabels",
+      "name": "DELETE_LABEL"
+    },
+    "I3xc3c": {
+      "method": "/LabsTailwindOrchestrationService.GetLabels",
+      "name": "LIST_LABELS"
+    },
+    "J7Gthc": {
+      "method": "/LabsTailwindOrchestrationService.DeleteChatTurns",
+      "name": "DELETE_CONVERSATION"
+    },
+    "JFMDGd": {
+      "method": "/LabsTailwindSharingService.GetProjectDetails",
+      "name": "GET_SHARE_STATUS"
+    },
+    "KmcKPe": {
+      "method": "/LabsTailwindOrchestrationService.DeriveArtifact",
+      "name": "REVISE_SLIDE"
+    },
+    "Krh3pd": {
+      "method": "/LabsTailwindOrchestrationService.ExportToDrive",
+      "name": "EXPORT_ARTIFACT"
+    },
+    "LBwxtb": {
+      "method": "/LabsTailwindOrchestrationService.FinishDiscoverSourcesRun",
+      "name": "IMPORT_RESEARCH"
+    },
+    "Ljjv0c": {
+      "method": "/LabsTailwindOrchestrationService.DiscoverSourcesManifold",
+      "name": "START_FAST_RESEARCH"
+    },
+    "QA9ei": {
+      "method": "/LabsTailwindOrchestrationService.DiscoverSourcesAsync",
+      "name": "START_DEEP_RESEARCH"
+    },
+    "QDyure": {
+      "method": "/LabsTailwindSharingService.ShareProject",
+      "name": "SHARE_NOTEBOOK"
+    },
+    "R7cb6c": {
+      "method": "/LabsTailwindOrchestrationService.CreateArtifact",
+      "name": "CREATE_ARTIFACT"
+    },
+    "RGP97b": {
+      "method": "/LabsTailwindSharingService.ShareAudio",
+      "name": "SHARE_ARTIFACT"
+    },
+    "Rytqqe": {
+      "method": "/LabsTailwindOrchestrationService.GenerateArtifact",
+      "name": "RETRY_ARTIFACT"
+    },
+    "V5N4be": {
+      "method": "/LabsTailwindOrchestrationService.DeleteArtifact",
+      "name": "DELETE_ARTIFACT"
+    },
+    "VfAZjd": {
+      "method": "/LabsTailwindOrchestrationService.GenerateNotebookGuide",
+      "name": "SUMMARIZE"
+    },
+    "WWINqb": {
+      "method": "/LabsTailwindOrchestrationService.DeleteProjects",
+      "name": "DELETE_NOTEBOOK"
+    },
+    "Zbrupe": {
+      "method": "/LabsTailwindOrchestrationService.CancelDiscoverSourcesJob",
+      "name": "CANCEL_RESEARCH"
+    },
+    "ZwVcOc": {
+      "method": "/LabsTailwindOrchestrationService.GetOrCreateAccount",
+      "name": "GET_USER_SETTINGS"
+    },
+    "agX4Bc": {
+      "method": "/LabsTailwindOrchestrationService.CreateLabel",
+      "name": "CREATE_LABEL"
+    },
+    "b7Wfje": {
+      "method": "/LabsTailwindOrchestrationService.MutateSource",
+      "name": "UPDATE_SOURCE"
+    },
+    "cFji9": {
+      "method": "/LabsTailwindOrchestrationService.GetNotes",
+      "name": "GET_NOTES_AND_MIND_MAPS"
+    },
+    "cYAfTb": {
+      "method": "/LabsTailwindOrchestrationService.MutateNote",
+      "name": "UPDATE_NOTE"
+    },
+    "ciyUvf": {
+      "method": "/LabsTailwindOrchestrationService.GenerateReportSuggestions",
+      "name": "GET_SUGGESTED_REPORTS"
+    },
+    "e3bVqc": {
+      "method": "/LabsTailwindOrchestrationService.ListDiscoverSourcesJob",
+      "name": "POLL_RESEARCH"
+    },
+    "fejl7e": {
+      "method": "/LabsTailwindOrchestrationService.RemoveRecentlyViewedProject",
+      "name": "REMOVE_RECENTLY_VIEWED"
+    },
+    "gArtLc": {
+      "method": "/LabsTailwindOrchestrationService.ListArtifacts",
+      "name": "LIST_ARTIFACTS"
+    },
+    "hPTbtc": {
+      "method": "/LabsTailwindOrchestrationService.ListChatSessions",
+      "name": "GET_LAST_CONVERSATION_ID"
+    },
+    "hT54vc": {
+      "method": "/LabsTailwindOrchestrationService.MutateAccount",
+      "name": "SET_USER_SETTINGS"
+    },
+    "hizoJc": {
+      "method": "/LabsTailwindOrchestrationService.LoadSource",
+      "name": "GET_SOURCE"
+    },
+    "izAoDd": {
+      "method": "/LabsTailwindOrchestrationService.AddSources",
+      "name": "ADD_SOURCE"
+    },
+    "khqZz": {
+      "method": "/LabsTailwindOrchestrationService.ListChatTurns",
+      "name": "GET_CONVERSATION_TURNS"
+    },
+    "le8sX": {
+      "method": "/LabsTailwindOrchestrationService.MutateLabel",
+      "name": "UPDATE_LABEL"
+    },
+    "o4cbdc": {
+      "method": "/LabsTailwindOrchestrationService.AddTentativeSources",
+      "name": "ADD_SOURCE_FILE"
+    },
+    "otmP3b": {
+      "method": "/LabsTailwindOrchestrationService.GeneratePromptSuggestions",
+      "name": "SUGGEST_PROMPTS"
+    },
+    "rLM1Ne": {
+      "method": "/LabsTailwindOrchestrationService.GetProject",
+      "name": "GET_NOTEBOOK"
+    },
+    "rc3d8d": {
+      "method": "/LabsTailwindOrchestrationService.UpdateArtifact",
+      "name": "RENAME_ARTIFACT"
+    },
+    "s0tc2d": {
+      "method": "/LabsTailwindOrchestrationService.MutateProject",
+      "name": "RENAME_NOTEBOOK"
+    },
+    "tGMBJ": {
+      "method": "/LabsTailwindOrchestrationService.DeleteSources",
+      "name": "DELETE_SOURCE"
+    },
+    "tr032e": {
+      "method": "/LabsTailwindOrchestrationService.GenerateDocumentGuides",
+      "name": "GET_SOURCE_GUIDE"
+    },
+    "v9rmvd": {
+      "method": "/LabsTailwindOrchestrationService.GetArtifact",
+      "name": "GET_INTERACTIVE_HTML"
+    },
+    "wXbhsf": {
+      "method": "/LabsTailwindOrchestrationService.ListRecentlyViewedProjects",
+      "name": "LIST_NOTEBOOKS"
+    },
+    "yR9Yof": {
+      "method": "/LabsTailwindOrchestrationService.CheckSourceFreshness",
+      "name": "CHECK_SOURCE_FRESHNESS"
+    },
+    "yyryJe": {
+      "method": "/LabsTailwindOrchestrationService.ActOnSources",
+      "name": "GENERATE_MIND_MAP"
+    }
+  },
+  "absent": {},
+  "present_unparsed": {},
+  "unmapped": {
+    "AHyHrd": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.CreateAudioOverview"
+    },
+    "ANxkT": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.CheckWaitlist"
+    },
+    "AUrzMb": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetProjectAnalytics"
+    },
+    "AX2G1c": {
+      "family": "current",
+      "method": "/LabsTailwindDiscoveryService.ComputeTailwindRecommendations"
+    },
+    "AzXHBd": {
+      "family": "enterprise",
+      "method": "/NotebookService.CreateNotebook"
+    },
+    "BHNZpd": {
+      "family": "enterprise",
+      "method": "/NotebookService.RemoveSelfFromNotebook"
+    },
+    "CJHszf": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.RecordTransparencyNotice"
+    },
+    "CqVwl": {
+      "family": "other",
+      "method": "/DasherGrowthPromotionService.FetchRecommendation"
+    },
+    "DaIlK": {
+      "family": "enterprise",
+      "method": "/SourceService.UpdateSource"
+    },
+    "DemIHe": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.UpdateFeaturedNotebookStatus"
+    },
+    "E1lmYc": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.UpdateDiscoverSourcesStatus"
+    },
+    "EnujNd": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.ListModelOptions"
+    },
+    "Es3dTe": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.DiscoverSources"
+    },
+    "ExHMqd": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.ActOnArtifactStreamed"
+    },
+    "EylDcb": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.ListQuotaSummary"
+    },
+    "Fxmvse": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.UpsertArtifactUserState"
+    },
+    "GJw9Bd": {
+      "family": "other",
+      "method": "/CompletionService.CompleteExternalIdentities"
+    },
+    "GcP14b": {
+      "family": "enterprise",
+      "method": "/SourceService.GenerateDocumentGuides"
+    },
+    "GtGWLe": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.ListProjects"
+    },
+    "HpN0Ub": {
+      "family": "other",
+      "method": "/InteractionEventService.LogInteractionEvent"
+    },
+    "Hq716e": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.ListAvailableContent"
+    },
+    "IU9Pxb": {
+      "family": "enterprise",
+      "method": "/NotebookService.InteractSources"
+    },
+    "J0zsyb": {
+      "family": "enterprise",
+      "method": "/NotebookService.BatchDeleteNotebooks"
+    },
+    "J1DK9e": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.BatchGetProjectUserActivities"
+    },
+    "Jm3Ay": {
+      "family": "other",
+      "method": "/LabsNotebookService.DeleteNotebook"
+    },
+    "LJ9a9c": {
+      "family": "enterprise",
+      "method": "/NotebookService.GetNotebookDetails"
+    },
+    "LJyzeb": {
+      "family": "current",
+      "method": "/LabsTailwindSharingService.GetGuidebookDetails"
+    },
+    "LQhfEb": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.UpdateProjectUserState"
+    },
+    "LmGGPd": {
+      "family": "enterprise",
+      "method": "/NotebookService.GenerateNotebookGuide"
+    },
+    "MNP1Q": {
+      "family": "other",
+      "method": "/DiscoveryService.BatchSearchNotebooks"
+    },
+    "NJVyMd": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetDriveSourceStatus"
+    },
+    "NX30ff": {
+      "family": "enterprise",
+      "method": "/SourceService.RefreshSource"
+    },
+    "NYrLZ": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.CreateFailedSource"
+    },
+    "Nzd7ve": {
+      "family": "enterprise",
+      "method": "/SourceService.AddTentativeSources"
+    },
+    "OTl0K": {
+      "family": "current",
+      "method": "/LabsTailwindSharingService.ShareGuidebook"
+    },
+    "Of0kDd": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetIceConfig"
+    },
+    "OmVMXc": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.ReportContent"
+    },
+    "PBKZtb": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetDriveFile"
+    },
+    "QCeFUc": {
+      "family": "other",
+      "method": "/DasherGrowthPromotionService.GetRecommendationSource"
+    },
+    "QsNTEd": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.AppendSource"
+    },
+    "R11I7e": {
+      "family": "enterprise",
+      "method": "/AccountService.UpdateAccount"
+    },
+    "SHTSY": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.SuggestArtifacts"
+    },
+    "SatQRc": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetAccount"
+    },
+    "Snt6ne": {
+      "family": "enterprise",
+      "method": "/AudioOverviewService.CreateAudioOverview"
+    },
+    "Tuchcd": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.IndexKnowledge"
+    },
+    "U4KVxb": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.AddCustomNotebookImage"
+    },
+    "VUsiyb": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetAudioOverview"
+    },
+    "VVafVb": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetQueryFocussedContent"
+    },
+    "VdOUQc": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.LogInteractionEvent"
+    },
+    "X1snv": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.AddSourcesAsync"
+    },
+    "XgrPMd": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.CancelGeneration"
+    },
+    "XpqOp": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetMagicIndex"
+    },
+    "YHCHrc": {
+      "family": "enterprise",
+      "method": "/NotebookService.DiscoverSources"
+    },
+    "YoTKpc": {
+      "family": "enterprise",
+      "method": "/NoteService.CreateNote"
+    },
+    "YtAdAf": {
+      "family": "enterprise",
+      "method": "/ArtifactService.UpdateArtifact"
+    },
+    "Z8UXi": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.CopySources"
+    },
+    "ZMz0Qe": {
+      "family": "enterprise",
+      "method": "/NoteService.BatchDeleteNotes"
+    },
+    "ZTxPqd": {
+      "family": "enterprise",
+      "method": "/ArtifactService.GetArtifact"
+    },
+    "a0XDpc": {
+      "family": "enterprise",
+      "method": "/NoteService.BatchGetNotes"
+    },
+    "aKrKnb": {
+      "family": "enterprise",
+      "method": "/AudioOverviewService.GetAudioOverview"
+    },
+    "aNc62": {
+      "family": "enterprise",
+      "method": "/ArtifactService.CreateArtifact"
+    },
+    "aja7m": {
+      "family": "enterprise",
+      "method": "/NotebookService.UpdateNotebook"
+    },
+    "bLZXde": {
+      "family": "current",
+      "method": "/LabsTailwindSharingService.ShareArtifact"
+    },
+    "bfVDO": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.PollSourceDiscoveryStatus"
+    },
+    "bpv8Yd": {
+      "family": "enterprise",
+      "method": "/NoteService.UpdateNote"
+    },
+    "cYShS": {
+      "family": "enterprise",
+      "method": "/NotebookService.GenerateFreeFormStreamed"
+    },
+    "ca0cne": {
+      "family": "enterprise",
+      "method": "/ArtifactService.ListArtifacts"
+    },
+    "diF09c": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.AddCustomNotebookImageAsync"
+    },
+    "dtT1F": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.BatchRefreshSources"
+    },
+    "einaIc": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.UpdateOnlineProjectRankingSignalsAsync"
+    },
+    "eyWvXc": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.SendSdpOffer"
+    },
+    "f3dkp": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GenerateTableArtifact"
+    },
+    "fEkck": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.AnalyzeNotebook"
+    },
+    "gS75ke": {
+      "family": "other",
+      "method": "/LabsNotebookService.GetNotebook"
+    },
+    "gzAChb": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetQuota"
+    },
+    "hRBcub": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.UpdateArtifactPlan"
+    },
+    "hdU2Oe": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.SearchAllNotebooks"
+    },
+    "i1CNXc": {
+      "family": "other",
+      "method": "/DasherGrowthPromotionService.RecordEvents"
+    },
+    "iMJYGb": {
+      "family": "enterprise",
+      "method": "/SourceService.BatchDeleteSources"
+    },
+    "iSSZ9e": {
+      "family": "current",
+      "method": "/LabsTailwindDiscoveryService.SearchNotebooks"
+    },
+    "j4YzNe": {
+      "family": "other",
+      "method": "/DiscoveryService.SearchNotebooks"
+    },
+    "jWsMbd": {
+      "family": "other",
+      "method": "/DasherGrowthPromotionService.GetFreeToPaidPromo"
+    },
+    "kqBlec": {
+      "family": "enterprise",
+      "method": "/SourceService.BatchCreateSources"
+    },
+    "lA7CIe": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.UpdateUserProfile"
+    },
+    "laWbsf": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GenerateFreeFormStreamed"
+    },
+    "likKIe": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.ExecuteWritingFunction"
+    },
+    "mKDdke": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.CopyArtifactsAsync"
+    },
+    "mVtEUb": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.ListExpertIntelligenceContent"
+    },
+    "n3dkHd": {
+      "family": "current",
+      "method": "/LabsTailwindSharingService.CreateAccessRequest"
+    },
+    "nRZAQd": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.ExecuteDeferredGeneration"
+    },
+    "nmltpc": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GenerateKnowledgeTree"
+    },
+    "nttYIb": {
+      "family": "enterprise",
+      "method": "/SourceService.CheckSourceFreshness"
+    },
+    "oXwmh": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetChatSessionStatus"
+    },
+    "ozz5Z": {
+      "family": "other",
+      "method": "/DasherGrowthPromotionService.FetchRecommendations"
+    },
+    "preRPe": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GenerateAccessToken"
+    },
+    "r7Krzb": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.AddWaitlist"
+    },
+    "rG2vCb": {
+      "family": "enterprise",
+      "method": "/NotebookService.ListRecentlyViewedNotebooks"
+    },
+    "rtY7md": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetMagicView"
+    },
+    "sJDbic": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.DeleteAudioOverview"
+    },
+    "sODAg": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetArtifactDeferredGenerationQuota"
+    },
+    "sevQ2c": {
+      "family": "enterprise",
+      "method": "/AudioOverviewService.SendSdpOffer"
+    },
+    "shTref": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetUserAppState"
+    },
+    "sqTeoe": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetArtifactCustomizationChoices"
+    },
+    "szZSpe": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.UploadFile"
+    },
+    "tDI1nf": {
+      "family": "other",
+      "method": "/LabsNotebookService.CreateNotebook"
+    },
+    "tHcQ6c": {
+      "family": "enterprise",
+      "method": "/NotebookService.GetNotebook"
+    },
+    "tKY5Tb": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.RecordNotebookEntrySource"
+    },
+    "tUmHX": {
+      "family": "other",
+      "method": "/LabsNotebookService.UpdateNotebook"
+    },
+    "te3DCe": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.CopyProject"
+    },
+    "uK8f7c": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GenerateMagicView"
+    },
+    "uNyJKe": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.SubmitFeedback"
+    },
+    "ub2Bae": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.ListFeaturedProjects"
+    },
+    "ugXkff": {
+      "family": "enterprise",
+      "method": "/NotebookService.ShareNotebook"
+    },
+    "ulBSjf": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GetArtifactUserState"
+    },
+    "vB2zic": {
+      "family": "other",
+      "method": "/LabsNotebookService.RecordNotebookEntrySource"
+    },
+    "vLYxbf": {
+      "family": "enterprise",
+      "method": "/AudioOverviewService.GetIceConfig"
+    },
+    "wgK8N": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.GenerateNotebookTitleCard"
+    },
+    "whLr6b": {
+      "family": "enterprise",
+      "method": "/SourceService.GetSource"
+    },
+    "wqfLC": {
+      "family": "enterprise",
+      "method": "/NotebookService.GetNotebookAnalytics"
+    },
+    "x52Rwf": {
+      "family": "enterprise",
+      "method": "/ArtifactService.DeleteArtifact"
+    },
+    "y2DRud": {
+      "family": "enterprise",
+      "method": "/AccountService.GetOrCreateAccount"
+    },
+    "yaq9ld": {
+      "family": "enterprise",
+      "method": "/AudioOverviewService.DeleteAudioOverview"
+    },
+    "zVGIdd": {
+      "family": "current",
+      "method": "/LabsTailwindOrchestrationService.CopyArtifacts"
+    }
+  }
+}

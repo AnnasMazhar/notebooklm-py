@@ -1,0 +1,1991 @@
+# Semantic backend refactoring plan
+
+**Status:** Accepted for P0-P8; P7-last, P3, and P8 approved by owner decision
+**Implementation status:** P0's catalog and compatibility-contract evidence are complete and
+frozen; this plan does not mark P1-P8 complete.
+**Planning date:** 2026-08-13
+**Planning base:** `main` at `3bb0c185` (re-pinned; the original `dd710a09` base had drifted).
+P0's inventory is independently measured at its PR merge base, which for this frozen baseline is
+also `3bb0c185`.
+**Scope:** internal architecture of the `notebooklm` package; no public API break is authorized by
+this plan
+**Decision:** introduce a semantic backend boundary incrementally beneath the existing public
+client and `_app/` layer; do not rewrite the repository or make mobile gRPC the first milestone
+
+## Goal
+
+Move the current web-specific client toward a resource-oriented, backend-neutral core without
+discarding the production behavior, compatibility surface, authentication hardening, delivery
+adapters, or recorded evidence already present in the repository.
+
+The refactor should make these statements true:
+
+1. Domain services invoke typed semantic operations rather than `RPCMethod` plus positional
+   `list[Any]` payloads.
+2. Web positional arrays and future mobile protobuf messages terminate inside backend codecs.
+3. Public models do not need to know how either wire protocol encodes a resource.
+4. Protocol-specific authentication, retry rules, upload choreography, and error translation are
+   owned by the selected backend.
+5. The current Python API, CLI, MCP server, REST server, profiles, and on-disk formats remain usable
+   throughout the migration.
+6. Every migration PR is independently green, reversible, and leaves one authoritative execution
+   path for each migrated operation.
+
+The target is not a literal port of the separate greenfield design. That design is an architectural
+input: its semantic backend seam, resource/service split, operation capabilities, and explicit
+uncertainty model are adopted where they solve current problems. Its narrower product scope and
+unimplemented public surface are not treated as reasons to remove current functionality.
+
+## Why this refactor
+
+The current architecture has a useful frontend-neutral boundary but lacks a protocol-neutral
+boundary.
+
+```text
+CLI / MCP / REST
+        |
+        v
+_app use cases                 frontend-neutral today
+        |
+        v
+NotebookLMClient + features    web-RPC-specific today
+        |
+        v
+RpcCaller(RPCMethod, list[Any])
+        |
+        v
+batchexecute transport
+```
+
+The `_app/` layer should remain. It centralizes workflows shared by Click, FastMCP, and FastAPI and
+is governed by ADR-0021. The missing layer belongs below the public client:
+
+```text
+CLI / MCP / REST
+        |
+        v
+_app use cases                         frontend-neutral
+        |
+        v
+legacy and future client facades
+        |
+        v
+semantic domain services               backend-neutral
+        |
+        v
+BackendAdapter + closed Operation
+        |                         |
+        v                         v
+WebRpcBackend                 MobileGrpcBackend
+array codec                   protobuf codec
+cookie provider               bearer provider
+web transport                 gRPC transport
+```
+
+The semantic boundary is valuable even if `MobileGrpcBackend` is never shipped. It isolates the
+undocumented web grammar, makes workflows and retry semantics reviewable by product operation, and
+gives tests a stable substitute boundary.
+
+## Structure before and after
+
+The diagrams below use the repository's real class names. They are the shape the phases must
+produce; where a diagram and the prose disagree, the diagram is wrong and should be corrected.
+
+### Key classes today
+
+One runtime, web-shaped end to end. Feature APIs speak `RPCMethod` + `list[Any]`; public models
+decode their own wire rows.
+
+```mermaid
+classDiagram
+    direction TB
+
+    class NotebookLMClient {
+        +sources SourcesAPI
+        +notebooks NotebooksAPI
+        +artifacts ArtifactsAPI
+        +chat ChatAPI
+        +collections CollectionsAPI
+        +rpc_call(RPCMethod, list) Any
+        +metrics_snapshot() ClientMetricsSnapshot
+        +refresh_auth() AuthTokens
+        -_composed ClientComposed
+        -_collaborators RuntimeCollaborators
+        -_rpc_executor RpcExecutor
+        -_seams ClientSeams
+    }
+
+    class RpcCaller {
+        <<Protocol>>
+        +rpc_call(RPCMethod, list) Any
+    }
+
+    class RpcExecutor
+    class ClientComposed
+    class ClientSeams
+    class MiddlewareChainHost
+
+    class SourcesAPI {
+        +add_url(nb, url) Source
+        +list(nb) list~Source~
+    }
+    class ArtifactsAPI {
+        +generate_audio(...) GenerationStatus
+        +wait_for_completion(...) GenerationStatus
+        +download_report(...) bytes
+    }
+    class NotebooksAPI
+
+    class Notebook {
+        +id str
+        +title str
+        +from_api_response(list) Notebook
+        +#95;#95;setattr#95;#95;() derived fields
+        +#95;#95;post_init#95;#95;() alias reconcile
+        +#95;#95;setstate#95;#95;() pickle compat
+    }
+    class Source {
+        +from_row(SourceRow) Source
+        +from_api_response(list) Source
+    }
+
+    class RowAdapters["_row_adapters/"]
+    class RPCTypes["rpc/ (RPCMethod, safe_index)"]
+
+    NotebookLMClient *-- ClientComposed
+    NotebookLMClient *-- ClientSeams
+    NotebookLMClient *-- RpcExecutor
+    NotebookLMClient *-- SourcesAPI
+    NotebookLMClient *-- ArtifactsAPI
+    NotebookLMClient *-- NotebooksAPI
+    ClientComposed --> MiddlewareChainHost
+    RpcExecutor ..|> RpcCaller
+    NotebookLMClient ..|> RpcCaller
+
+    SourcesAPI --> RpcCaller : RPCMethod + list~Any~
+    ArtifactsAPI --> RpcCaller
+    NotebooksAPI --> RpcCaller
+
+    SourcesAPI --> Source : builds
+    NotebooksAPI --> Notebook : builds
+    Notebook --> RPCTypes : imports
+    Source --> RowAdapters : imports
+    RowAdapters --> RPCTypes
+```
+
+The two structural problems are visible in the arrows: every feature API depends on `RpcCaller`
+(a `batchexecute`-shaped surface), and the **public models point down into the wire layer** rather
+than being built from it.
+
+### Key classes after P0-P8
+
+```mermaid
+classDiagram
+    direction TB
+
+    class NotebookLMClient {
+        +sources SourcesAPI
+        +artifacts ArtifactsAPI
+        +rpc_call(RPCMethod, list) Any
+        +metrics_snapshot() ClientMetricsSnapshot
+        -_backend BackendAdapter
+    }
+
+    class SourcesAPI {
+        <<compatibility facade>>
+        +add_url(nb, url) Source
+    }
+    class ArtifactsAPI {
+        <<compatibility facade>>
+        +wait_for_completion(...) GenerationStatus
+    }
+
+    class SourceService {
+        +add_url(AddUrlInput, deadline) SourceRecord
+    }
+    class StudioCatalog
+    class AudioFamilyService
+
+    class BackendAdapter {
+        <<Protocol>>
+        +kind BackendKind
+        +capabilities BackendCapabilities
+        +invoke(OperationDef, InputT, deadline) OutputT
+        +close()
+    }
+
+    class OperationDef {
+        +key Operation
+        +policy CallPolicy
+        +input_type type
+        +output_type type
+    }
+
+    class WebRpcBackend {
+        +invoke(...) OutputT
+        -transport
+        -codec
+    }
+    class WebCodec {
+        +encode(InputT) list
+        +decode(list) RecordT
+    }
+    class BackendError {
+        +outcome_unknown bool
+        +diagnostics ScrubbedDiagnostics
+    }
+
+    class SourceRecord {
+        <<frozen record>>
+    }
+    class Projector {
+        +to_source(SourceRecord) Source
+    }
+    class Source {
+        +from_row(SourceRow) Source
+        +#95;#95;post_init#95;#95;() invariants
+    }
+
+    NotebookLMClient *-- SourcesAPI
+    NotebookLMClient *-- ArtifactsAPI
+    NotebookLMClient *-- WebRpcBackend
+
+    SourcesAPI --> SourceService : delegates
+    ArtifactsAPI --> StudioCatalog
+    ArtifactsAPI --> AudioFamilyService
+
+    SourceService --> BackendAdapter : OperationDef + typed DTO
+    StudioCatalog --> BackendAdapter
+    AudioFamilyService --> BackendAdapter
+    BackendAdapter --> OperationDef : dispatches on
+
+    WebRpcBackend ..|> BackendAdapter
+    WebRpcBackend *-- WebCodec
+    WebRpcBackend --> BackendError : raises
+    WebCodec --> SourceRecord : decodes to
+
+    SourceService --> SourceRecord
+    Projector --> SourceRecord : reads
+    Projector --> Source : constructs via the normal ctor
+    SourcesAPI --> Projector
+
+```
+
+Arrows now point **up** from the wire: codec builds a record, a projector builds the public model,
+and no feature service names `RPCMethod`. `rpc_call()` survives unchanged as the documented web-only
+escape hatch.
+
+Two constraints the diagram cannot show, both load-bearing:
+
+- **`Projector` MUST construct via `__init__` or `dataclasses.replace`.** The `object.__new__` +
+  `__dict__.update` fast path silently defeats `__setattr__`, `__post_init__`, and `__setstate__` --
+  and `ChatReference.__post_init__` raises `ValueError` on inverted ranges, so bypassing it converts
+  a validation error into corrupt data. The compat audit cannot catch this: `collect_class` skips
+  `_`-prefixed names.
+- **`Source.from_row()` / `from_api_response()` stay importable** on their public runway to v1.0.
+  They simply stop being the production decode path.
+
+## Impact of the refactor
+
+### 1. The blast radius nobody sees: four related surfaces, several projections
+
+This is the highest-risk consequence of P3 and the reason its projector step needs the tightest
+specification in the plan.
+
+```mermaid
+flowchart TB
+    M["Public model dataclass<br/>(Notebook, Source, AskResult...)"]
+    TJ["to_jsonable<br/>full dataclass conversion"]
+    V["_app views / adapter sinks<br/>allowlist, trim, enrich, hand-build"]
+
+    M --> TJ
+    TJ --> V
+    M --> V
+    M --> PY["Python API return value"]
+
+    subgraph channels["Channel-specific contracts"]
+        CLI["CLI --json payload"]
+        MCP["MCP tool result<br/>(no outputSchema)"]
+        REST["REST response body<br/>(no response_model)"]
+    end
+    V --> CLI
+    V --> MCP
+    V --> REST
+
+    P3["P3 rewrites how these<br/>models are constructed"] -.->|touches| M
+
+    G1["cli_contract baseline<br/>command tree + options"] -.-x CLI
+    G2["test_mcp/server_classify<br/>ERROR projection only"] -.-x MCP
+    G3["boundary lints<br/>imports only"] -.-x REST
+
+    style M fill:#c0392b,color:#fff
+    style P3 fill:#e67e22,color:#fff
+    style channels fill:#2c3e50,color:#fff
+```
+
+Dashed crossed edges are gates that **do not** cover the payload. A model-field change always
+changes the Python contract and the full `to_jsonable` conversion, but it reaches a frontend only
+where that channel's sink selects it. `Source` and `Notebook` use allowlisted views, `AskResult`
+trims `raw_response` and `answer_document`, and `ShareStatus` and mind-map results have manual or
+enriched shapes. P0's `json_envelope` closes the real hole by pinning the exact projection mode,
+keys, nested keys, and evidence for each CLI/MCP/REST sink. Its full exported-dataclass inventory
+is supplemental, not a claim that every model reaches every channel.
+
+### 2. Error diagnostics: what P4.3 would have deleted
+
+```mermaid
+flowchart LR
+    subgraph before["Before"]
+        direction TB
+        B1["feature call site<br/>RPCMethod.ADD_SOURCE.value"] --> B2["RPCError<br/>method_id, rpc_code,<br/>found_ids, raw_response"]
+        B2 --> B3["rpc_id / code<br/>PERMANENT aliases"]
+    end
+
+    subgraph naive["P4.3 as originally written"]
+        direction TB
+        N1["backend"] --> N2["neutral vocabulary<br/>backend, operation,<br/>status, outcome_unknown"]
+        N2 --> N3["RPCError<br/>method_id=None<br/>raw_response=None"]
+    end
+
+    subgraph fixed["P4.3 as revised"]
+        direction TB
+        F1["backend"] --> F2["neutral vocabulary<br/>+ scrubbed diagnostics<br/>payload"]
+        F2 --> F3["RPCError<br/>fully populated"]
+    end
+
+    before -->|"migrate"| naive
+    before -->|"migrate"| fixed
+
+    style N3 fill:#c0392b,color:#fff
+    style F3 fill:#27ae60,color:#fff
+```
+
+The middle path passes an `isinstance` mixin pin and ships green, because attribute *population* was
+unpinned. `docs/stability.md` marks `rpc_id`/`code` exempt from the deprecation cycle precisely
+because "removal can mask the original exception inside `except` handlers".
+
+### 3. The `_app/` boundary problem — why P4.2 was unmeetable
+
+```mermaid
+flowchart TB
+    CLI2["CLI / MCP / REST"] --> APP
+
+    subgraph APP["_app/ — frontend-neutral"]
+        GR["generate_retry.py<br/>delegates retry; maps outcomes"]
+        SW["source_wait.py<br/>maps outcomes<br/>facade OWNS readiness polling"]
+        DL["download.py (919 LOC)"]
+    end
+
+    GR --> RETRY["public artifacts.with_rate_limit_retry<br/>OWNS retry loop + its clock"]
+    RETRY -->|"supplied facade callable"| FACADE
+    APP -->|"public facade only"| FACADE["NotebookLMClient + feature APIs"]
+    FACADE --> SVC["semantic services"]
+    SVC --> BE["BackendAdapter"]
+    BE --> DEADLINE["RuntimeDeadline<br/>(private _deadline.py)"]
+
+    GUARD["test_app_boundary.py:<br/>_app MUST NOT import any private _* sibling"]
+    GUARD -.->|"blocks"| APP
+
+    DEADLINE -.->|"not threaded through _app"| RETRY
+
+    style RETRY fill:#c0392b,color:#fff
+    style GUARD fill:#e67e22,color:#fff
+    style DEADLINE fill:#2c3e50,color:#fff
+```
+
+The exported `notebooklm.artifacts.with_rate_limit_retry` helper is a **second execution authority**
+for artifact generation when `_app/generate_retry.py` calls it around the initial facade operation.
+The `_app` caller cannot receive a `RuntimeDeadline` because the guardrail forbids the import. So
+"one total deadline is observable" was unmeetable, and migration rule 2's duplicate-authority
+counter starts non-zero. P4.2 removes only that internal use through a public facade parameter; the
+exported helper remains available to external callers.
+
+### 4. What actually shrinks, and when
+
+```mermaid
+gantt
+    title Net code impact by phase (P7 is the only phase that deletes)
+    dateFormat X
+    axisFormat %s
+
+    section Additive
+    P0 catalog + ADR            :0, 1
+    P1 port + fake              :1, 2
+    P2 notebook/source slice    :2, 3
+    P3 codec split              :3, 4
+    P4 policy + deadline        :4, 5
+    P5 Studio families          :5, 6
+    P6 remaining domains        :6, 7
+
+    section Deletes
+    P7 runtime collapse (-2865 LOC) :crit, 7, 8
+
+    section Auth
+    P8 cookie provider          :8, 9
+```
+
+Every phase before P7 is net-additive; the plan concedes this. P7 is the only phase whose deliverable
+is deletion — `_client_composed.py` (165) + `_client_assembly.py` (420) + `_client_seams.py` (74) +
+`_middleware/` (2,206) = **2,865 LOC**. Sequenced last, the effort pays roughly 40 PRs of additive
+cost before collecting any simplification, and a stall anywhere in P1-P6 leaves the repository
+strictly worse off than not starting. See the open sequencing decision above.
+
+## Current-state findings
+
+The findings below are design inputs, not criticisms of the behavior they currently protect.
+
+| Finding | Current evidence | Refactoring consequence |
+|---|---|---|
+| Feature APIs are coupled to the web wire vocabulary | 435 source lines mention `RPCMethod`; the reproducible P0 measure below finds 170 direct `RPCMethod.<member>` expressions outside `rpc/`, `_idempotency*`, and `_row_adapters/`, plus many `list[Any]` request/response shapes. The figure that actually governs P6/P7 effort is the **1,740 references in `tests/`** | Add a semantic operation port below feature behavior; migrated services must not import `RPCMethod` |
+| The current neutral layer is neutral only across frontends | `_app/` shares application workflows, while `RpcCaller` remains explicitly `batchexecute`-shaped | Preserve `_app/`; add backend-neutral services below it |
+| Public models participate in decoding | `Notebook`, `Source`, `Artifact`, `Label`, `Collection`, and sharing types expose or use `from_api_response()` / `from_row()` paths | Move live decoding to a private web codec and project private records into models |
+| Composition has accumulated mutable holders and test seams | `NotebookLMClient`, `_client_assembly.py`, `ClientComposed`, `RuntimeCollaborators`, `RpcExecutor`, `MiddlewareChainHost`, and seven middleware objects participate in one web runtime | Do not simplify this graph first; isolate it behind `WebRpcBackend`, then collapse it after feature callers leave it |
+| Artifact behavior is decomposed by verb, and every verb still branches on family | `_artifacts.py` is 988 lines and already delegates to listing/generation/download services plus `_artifact/polling.py`, `formatters.py`, `validation.py`, `payloads.py`. The existing split is by **verb**; P5 proposes one by **family** | Carve family services out of the existing verb services; each verb service retires as its last family leaves. This is a re-split of already-split code, not a first decomposition |
+| Retry safety is expressed primarily by native method | The idempotency registry is keyed by `RPCMethod` and variant, while one semantic workflow may use several RPCs | Add semantic `CallPolicy`; retain the existing registry as the web binding authority until parity is proven |
+| Deadline handling is correct locally but not uniformly end-to-end | `RuntimeDeadline` is used in retry and polling, while research, upload, auth, and adapter workflows also manage their own budgets | Pass one absolute monotonic deadline through each semantic operation |
+| Authentication mixes bootstrap, live session, persistence, and client concerns | `AuthTokens`, refresh coordination, cookie persistence, keepalive, profile recovery, account routing, and HTTP state meet at client construction | Extract a web cookie-provider seam only after the semantic backend exists; preserve profile/login subsystems |
+| Some production structure exists to retain deep test mutation seams | Runtime comments and guardrails preserve live rebinding, factory-shell parity, and middleware inspection | Move service tests to fake backends and provider/clock seams before deleting the old test-shaped runtime paths |
+| The current repository has evidence worth preserving | Web VCR fixtures, strict row adapters, idempotency decisions, auth concurrency tests, and public compatibility gates encode hard-won behavior | Reuse them as behavioral oracles; do not equate a new module graph with permission to re-record or weaken tests |
+
+## Architectural principles
+
+### 1. Semantic operations are the internal source of truth
+
+Each supported product action has one closed semantic operation. An operation definition binds:
+
+- a stable internal key;
+- an input DTO type;
+- an output record type;
+- a semantic call policy;
+- capability metadata for each implemented backend; and
+- a backend-specific handler or explicit unsupported disposition.
+
+Illustrative shape:
+
+```python
+InputT = TypeVar("InputT")
+OutputT = TypeVar("OutputT")
+
+
+class CallPolicy(Enum):
+    READ = "read"
+    STATEFUL_START = "stateful_start"
+    MUTATION = "mutation"
+    STREAM = "stream"
+
+
+@dataclass(frozen=True, slots=True)
+class OperationDef(Generic[InputT, OutputT]):
+    key: Operation
+    policy: CallPolicy
+    input_type: type[InputT]
+    output_type: type[OutputT]
+```
+
+`Operation` is internal. It is not a public raw-invocation API and does not replace the existing
+documented `rpc_call()` escape hatch during the compatibility period.
+
+### 2. The backend is semantic, not merely HTTP-shaped
+
+The backend port accepts semantic DTOs and returns neutral records:
+
+```python
+class BackendAdapter(Protocol):
+    kind: BackendKind
+    capabilities: BackendCapabilities
+
+    async def invoke(
+        self,
+        operation: OperationDef[InputT, OutputT],
+        value: InputT,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> OutputT: ...
+
+    async def close(self) -> None: ...
+```
+
+Streaming may use a separate typed method or context-manager protocol when chat is migrated. Do not
+force streams through a unary `invoke()` result.
+
+An adapter handler may own a composite workflow when protocols differ. Examples include source
+registration/reconciliation, web file upload, and a future mobile tentative-source commit. Shared
+services own only validation, projection, and workflows proven identical across backends.
+
+### 3. Wire codecs and public projection are separate
+
+The dependency direction is:
+
+```text
+web array/protobuf message -> private backend record -> public/domain model
+```
+
+Backend codecs may import wire types and private neutral records. They must not return raw arrays or
+generated protobuf messages. Shared projectors may import records and model types. Public models
+must not import backend codecs.
+
+**The exported document graph needs an explicit ruling before P3 touches it.** Today's wire adapters
+construct exported `StructuredDocument` objects directly, which contradicts "codecs never return
+public models". Either introduce private document records plus a projector that preserves UTF-16
+offsets and rendering, or classify the document graph as transport-neutral value types exempt from
+the private-record rule. Pick one and enforce it with a guard; leaving it implicit means P3 discovers
+it mid-migration.
+
+Existing `from_api_response()` methods remain temporarily for compatibility but cease to be the
+production decode path resource by resource. Their eventual deprecation/removal requires the normal
+public runway and is not authorized by this plan alone.
+
+### 4. Resource data does not perform network I/O
+
+Resources remain plain data. Services perform reads, writes, waits, and downloads. Frozen and
+slotted applies to **private neutral records only**. It is an explicit non-goal for the public
+models: `Notebook`, `Source`, `Artifact`, `GenerationStatus`, `ChatReference`, and `AskResult` stay
+non-frozen and non-slotted, because production mutates them in place (`_app.notebooks`' timestamp
+backfill writes `last_viewed_at`) and their invariants live in `__setattr__` precisely because a
+construction-only hook would let derived fields go stale. Existing public model mutability, aliases,
+pickle behavior, equality, and constructor compatibility remain unchanged until a separate public
+API decision.
+
+### 5. Capabilities reject unsupported work before side effects
+
+Capabilities are immutable backend facts. An unsupported operation or input variant must fail
+before credential acquisition, file opening, or network I/O.
+
+Capability evidence and unsupported reasons should initially remain internal diagnostics. Exposing
+them publicly would freeze research metadata and is deferred until there is a demonstrated caller
+need.
+
+### 6. One deadline covers one semantic call
+
+A service starts or receives one `RuntimeDeadline`. Credential acquisition, queueing, transport
+attempts, backoff, upload phases, polling, and reconciliation consume the same remaining budget
+unless a workflow explicitly documents a separately reserved reconciliation budget.
+
+No nested layer may silently reset the caller's total budget. Adapter-native connect/read timeout
+settings may clamp individual attempts but do not extend the semantic deadline.
+
+### 7. Mutation uncertainty is explicit and selective
+
+Operations with a real commit-lost or partial-commit state expose a safe receipt or structured error
+containing only the information needed for reconciliation. Do not create phase/result classes for
+simple commands whose success is unambiguous.
+
+Absence after an ambiguous write is not automatically proof of failure. A backend may promote an
+unknown result only with operation-specific positive evidence.
+
+### 8. Authentication is a backend dependency
+
+The eventual runtime seams are distinct:
+
+- `WebCookieProvider` supplies immutable cookie/account-route generations to `WebRpcBackend`.
+- `AccessTokenProvider` supplies short-lived bearers to `MobileGrpcBackend`.
+
+Interactive login, browser capture, master-token storage, profile migration, and operator commands
+remain outside domain services. Sharing a durable profile source does not imply sharing sessions,
+cookie jars, channels, retry state, or locks.
+
+### 9. Frontend adapters remain thin and shared workflows stay in `_app/`
+
+ADR-0021 remains in force. CLI, MCP, and REST do not call backend adapters or wire codecs directly.
+They continue to use `_app/` functions and client/service facades.
+
+Do not move semantic backend behavior into `_app/`; do not duplicate `_app/` workflow logic in the
+new services. The dividing question is:
+
+The two-question form of this test is unusable, because for a large class of real code both
+questions answer "yes" and the resulting placement is structurally impossible: `_app/` is forbidden
+by `tests/_guardrails/test_app_boundary.py` from importing any private sibling, so anything
+classified as a semantic service becomes unreachable from `_app/`. Use three rules instead:
+
+- **(a)** Needs a backend call -> semantic service. `_app/` reaches it only through a public facade
+  method.
+- **(b)** Composes several facade calls plus presentation-neutral policy -> stays in `_app/`.
+- **(c)** Both -> the backend-touching half moves down; `_app/` keeps the composition and **gains a
+  public facade parameter** for anything it used to own (deadline, retry budget).
+
+`_app/` never imports a private module. `test_app_boundary.py` is the arbiter, not this principle.
+
+**`_app/` needs a real disposition, and P0 must produce it.** A material share of the orchestration
+this plan wants semantic services to own already lives *above* the public facade:
+`_app/generate_retry.py` delegates to the exported `notebooklm.artifacts.with_rate_limit_retry`
+loop, `_app/source_wait.py` validates and maps outcomes while the source facade alone polls,
+`_app/download.py` (919 lines) owns download choreography, and `_app/pagination.py` reasons about a
+*protocol* fact (that the underlying
+`batchexecute` RPCs do not paginate) inside the frontend-neutral layer. Until P0 records, per
+operation, which of these `_app/` orchestrators stop orchestrating and which public facade
+signatures grow to accept a budget, principle 6's single-deadline goal and migration rule 2's
+single-authority goal are both structurally unreachable.
+
+## Compatibility contract
+
+This plan preserves the existing public surface while internal slices migrate. Note the governing
+policy: `docs/stability.md` treats everything reachable from `__all__` as stable, and the project is
+0.x, so a removal needs one MINOR of `DeprecationWarning` rather than a major bump. That lowers the
+cost of an *intended* removal but does nothing for an *accidental* one, which is what the rules
+below exist to prevent.
+
+- `import notebooklm` remains the import path.
+- `NotebookLMClient`, `from_storage()`, constructor behavior, context management, and current
+  namespace attributes remain available.
+- Current public method signatures, return types, exception types, deprecations, and documented
+  side effects do not change in an internal migration PR.
+- CLI JSON envelopes, exit codes, MCP tool contracts, REST routes, profile formats, environment
+  variables, and logger namespaces remain unchanged unless a separate product change authorizes
+  them.
+- A public model's field set defines its Python contract and its **full** `to_jsonable` conversion;
+  it does not by itself define every CLI, MCP, or REST result. Channel sinks may serialize the full
+  model, select an allowlisted view (`Source`, `Notebook`), trim it (`AskResult`), enrich it, or
+  build a different shape (`ShareStatus`, mind maps). No phase may convert a public dataclass field
+  into a property, rename one, or drop one. Separately, each existing adapter projection retains
+  its exact keys. That includes `Notebook.modified_at` wherever `notebook_view` /
+  `notebook_viewed_keys` emits the compatibility alias and `ChatReference.answer_start_char` /
+  `answer_end_char` in the `AskResult` projections that include references. `AuthTokens` aliases
+  remain Python compatibility only. The object is excluded from the exported/full-`to_jsonable`
+  inventory and recursive serialization is forbidden; only the exact redacted MCP/REST
+  `server_info` identity contributions may emit `authuser` / `account_email`. `storage_path` and
+  profile-session generation may influence cache/fallback selection but may not be emitted.
+- Observability types are part of the public surface and are equality-pinned, not merely "kept
+  working": `ClientMetricsSnapshot`, `RpcTelemetryEvent`, `ConnectionLimits`, and
+  `NotebookLMClient.metrics_snapshot()` retain their current field names, types, population rules,
+  and per-call emission points. Relocating metrics/tracing ownership into a backend (P7) is a
+  code-motion change to these, never a content change.
+- The documented exception mixin lattice is preserved exactly: `*NotFoundError` types remain
+  catchable as `RPCError` and as `NotFoundError`; `*TimeoutError` types remain catchable as
+  `WaitTimeoutError` and as the built-in `TimeoutError`; `NonIdempotentRetryError` continues to be
+  raised by exactly the calls that raise it today. These invariants were restored deliberately in
+  v0.6.0/v0.7.0 and are the most likely casualty of an error-vocabulary round trip.
+- `from_api_response()` / `from_row()` are classmethods on classes exported in `__all__`. They are
+  therefore public under the `docs/stability.md` rule, and P3 retires them as the *production decode
+  path* only. Removal follows `docs/stability.md` 0.x semantics (one MINOR of `DeprecationWarning`)
+  under a separate decision.
+- Existing web cassettes must remain valid unless new live evidence proves the wire changed. A code
+  relocation is not a reason to re-record fixtures.
+- `NotebookLMClient.rpc_call()` and documented `notebooklm.rpc` helpers remain web-only legacy escape
+  hatches. They do not become methods on a future backend-neutral client.
+- **The RPC-override recovery path keeps working for every migrated operation.** `docs/stability.md`
+  documents `from notebooklm.rpc import RPCMethod, resolve_rpc_id` and the
+  `NOTEBOOKLM_RPC_OVERRIDES` environment variable as the user-facing remedy for Google rotating a
+  method ID -- the single most likely breakage in this project. Web backend dispatch and codec
+  bindings MUST resolve ids through `resolve_rpc_id`; "confine `RPCMethod` to web bindings" must not
+  become "bind the enum value at import time". A migrated operation that ignores an active override
+  is a release blocker, and P0's audit must include an override-honored check per binding.
+- A future `GeminiNotebookClient` or new immutable public model system requires a separate API ADR.
+  This plan does not decide whether that name is an alias, a new class, or a separate major-version
+  surface.
+
+## Relationship to existing ADRs
+
+**This plan is not authorization to violate any accepted ADR.** P0's ADR records the full
+disposition for every one it touches, preserving, amending, or superseding each explicitly.
+
+Only these carry a concrete gate a phase will hit, and each is named in the phase that must act on
+it rather than parked in a table:
+
+| ADR | Gate | Phase that must act |
+|---|---|---|
+| ADR-0008 module-size ratchet | `test_module_size_ratchet.py` fails a module the refactor *shrinks* unless its ceiling is retightened in the same PR | every code-motion PR |
+| ADR-0011 schema validation | `test_no_raw_positional_rpc_indexing.py` sanctions only `rpc/` and `_row_adapters/` as decode homes | P3 (amends the guard in-PR) |
+| ADR-0019 error-and-return contract | Composite listing has a deliberate partial-availability rule: a transport failure in the mind-map sub-fetch returns Studio artifacts with an unknown-fetch sentinel, while a `DecodingError` propagates | P5 must preserve that distinction exactly |
+| ADR-0020 sealed async result types | Recommends **continued deferral** of a sealed `GenerationStatus` union; the design was rejected for 0.8.0 | P5 must not quietly implement it. Deferral is **full**: `GenerationStatus` stays flat, mutable, nominally identical, and raw-string-permissive; `NOT_FOUND` stays poll-only and `REMOVED` wait-only; callback and timeout-transition payloads stay `GenerationStatus` |
+| ADR-0021 transport-neutral app layer | `test_app_boundary.py` forbids `_app/` importing any private sibling | P4.2, principle 9 |
+| ADR-0022 regenerable baselines | P0's catalog is a registered baseline, not a bespoke audit | P0 |
+| ADR-0026 MCP studio surface | `test_studio_enum_manifest.py` pins `mcp/tools/studio.py` | P5 |
+| ADR-0029/0030 auth | **Accepted (rolling out)** with in-flight PR stacks in P8's subsystem | P8 sequences against live work, not accepted text |
+| ADR-0031 credential tier model | **Proposed**, not accepted; its Stage 5 was superseded by deferral | Preserve implemented stages and the ADR-0033 deferrals; do not treat it as settled |
+| ADR-0016 / ADR-0032-0034 auth ownership | Concrete identity and lifecycle gates P8 touches directly | Preserve the `AuthTokens` identity invariant, the `notebooklm._core` logger namespace, mutable live-jar ownership, and every named store/persistence/resolver lifecycle. `WebCookieProvider` **composes** these owners; it does not absorb them |
+
+ADR-0005 is a special case: `CallPolicy` is a **derived view** over the idempotency taxonomy, never
+a competing authority. P4.1 changes no retry behavior, so no phase makes `CallPolicy` authoritative,
+and shipping both as authorities would realise Risk 1 in this plan's own text.
+
+## Deprecation runways in flight
+
+Four runways intersect these phases. ADR-0018 governs them and
+`scripts/check_deprecation_targets.py` runs in CI, so none can slip quietly.
+
+| Runway | Removal | Collides with |
+|---|---|---|
+| MCP `research_status(task_id=)` / `research_import(task_id=)` / `research_cancel(run_id=)` -> `poll_task_id` | **v0.9.0** -- the next minor | P6.2's own domain. It also adds a `deprecation` key to the tool result, so removal changes an MCP response payload. Land it as its own product PR before or after the research migration, never inside it (migration rule 3) |
+| `await NotebookLMClient.from_storage(...)` | v1.0 | P8 -- see below |
+| Pre-profiles home-root read fallback (`paths.py::_legacy_fallback`), per-read `DeprecationWarning` | v1.0 | P8's "keep paths unchanged" list enumerates *mechanisms* and misses this *behavior* |
+| Eight docs-only public aliases (`AuthTokens.cookies`/`.cookie_jar`/`.jar`/`.cookie_header`/`.cookie_header_for`, `ChatReference.answer_start_char`/`.answer_end_char`, `Notebook.modified_at`) | v1.0 | P3, P6.1, P8. They are docs-only because a runtime warning would fire from ordinary model operations. The reference/notebook aliases remain in the channel projections that already emit them. `AuthTokens` itself is never recursively serialized; only two explicitly redacted `server_info` identity contributions are adapter-reachable, and none of these aliases may become an adapter key. |
+
+**P8 must not leak a provider on the deprecated await path.** `from_storage()` has two terminal
+paths and the "a convenience factory closes only providers it creates" rule is written for one:
+`__aenter__` builds *and enters*, but `__await__` returns a **built-but-unentered** client (its
+docstring says so). If P8 moves provider construction into `_build()`, the await path creates a
+provider that is never entered and never closed -- a resource leak on a path the runway keeps alive
+through v1.0, invisible to every existing gate. Defer provider acquisition to `__aenter__`, or have
+the returned client's own `close()` own it. Keep the `DeprecationWarning` and its `stacklevel=3`.
+
+## Migration rules
+
+1. **Add -> delegate -> delete, in one PR.** Introduce a new seam, delegate one existing path
+   through it, prove parity, and remove the superseded path **in the same PR**. The dead-parallel
+   interval between a "delegate" PR and a "delete" PR has no independent revert value and is exactly
+   the state migration rule 2 forbids; the module-size ratchet also forces the ceiling drop into the
+   delete commit. Splitting them creates work and a rule-2 violation simultaneously.
+2. **One authority per operation.** Temporary facades may translate inputs/results, but old and new
+   implementations must not independently execute the same semantic workflow.
+3. **No mixed behavior PRs.** A PR that changes architecture must not also intentionally change a
+   public result, retry policy, RPC body, or CLI envelope.
+3b. **No architecture PR adds an allowlist entry.** The compatibility guarantee is enforced by
+   `scripts/audit_public_api_compat.py`, which diffs the public surface against the last release tag
+   -- including `__init__` signatures, so dataclass field order and positional construction are
+   pinned. But it consults `scripts/api-compat-allowlist.json`, whose `allowed_breaks` is currently
+   empty and whose matcher is `fnmatchcase` on both fields, with `*` crossing dots. One entry of the
+   form `{"code": "*", "object": "notebooklm.*"}` silences the entire audit and makes "zero audit
+   failures" vacuously true. A break that needs an allowance is by definition not an internal
+   refactor: it goes in a separate reviewed PR with a deprecation runway.
+4. **No speculative abstraction.** Add DTOs, records, services, and capability rows only for a
+   migrated operation or the immediately following bounded slice.
+5. **No backend branching in services.** Backend-specific decisions live in adapter bindings or
+   capabilities. Services may branch on semantic results, not `BackendKind`.
+6. **No raw wire escape from adapters.** New backend handlers return typed neutral records, never
+   `Any`, positional arrays, protobuf messages, response bodies, or native transport exceptions.
+7. **No new deep patch seams.** New tests inject a fake backend, provider, clock, or private
+   transport factory. They do not require post-construction mutation of internal runtime objects.
+8. **Keep temporary bridges visible, and lint it.** Transitional adapters and compatibility
+   projectors carry a removal phase reference in their module docstring, enforced by
+   `tests/_guardrails/test_no_anonymous_bridges.py`: a module whose docstring matches
+   `transitional|bridge|temporary|compatibility projector` MUST also match `Removal: P\d`, and the
+   current phase must not exceed any recorded removal phase. This is the Risk 1 control; in a repo
+   where every comparable policy has an AST lint (ADR-0007, ADR-0011, ADR-0008), leaving the single
+   most important control as a docstring convention is not a control.
+9. **Retire guardrails deliberately.** A structural guard may be removed only in the same PR that
+   introduces an equivalent behavioral/contract gate or proves the guarded structure no longer
+   exists.
+10. **Measure before and after.** Each phase records every row of the Measurements table. That
+    table is the sole authoritative measurement list; this rule does not maintain a second one.
+
+## Owner sequencing decision (resolved)
+
+Review surfaced an evidence-backed challenge to the phase order. The owner considered both cases
+below and resolved it before P1: retain the written phase order, approve P3 within its wire-evidence
+constraints, and approve P8 after P7.
+
+**The case for running P7 first, standalone.** P7 is the only phase whose deliverable is deletion:
+`_client_composed.py` (165) + `_client_assembly.py` (420) + `_client_seams.py` (74) + `_middleware/`
+(2,206) = **2,865 LOC** of collapse. Every other phase is net-additive, which this plan concedes.
+Sequenced last, the effort pays roughly 40 PRs of additive cost before collecting any simplification
+— and if it stalls anywhere in P1-P6, the repository ends **strictly worse**: all of the translation,
+none of the collapse.
+
+P7's stated entry criterion ("no semantic service consumes `RpcCaller`") is self-imposed rather than
+real. Nothing about deleting a mutable composition graph requires `_notebooks.py` to stop importing
+`RPCMethod` first. The actual precondition is Risk 5 — tests must stop mutating the live chain — and
+the repo is already most of the way there (`test_no_forbidden_monkeypatches.py` ships all three
+allowlists as `frozenset()`).
+
+Worse, Risk 5's control ("migrate tests to backend/provider/clock seams **before P7**") is assigned
+to no phase and no PR. It is homeless work guarding the exact ossification the sequencing creates:
+every month P7 waits, more tests are written against the structure P7 must delete.
+
+**The counter-case.** P7 collapses the runtime that P1-P6 are supposed to isolate first. Running it
+first means restructuring composition while feature code still calls `RpcCaller` directly, which is
+the coupling the transitional backend exists to break. The plan's original order is not arbitrary.
+
+**Owner decision:**
+
+1. **P7 runs last as written.** P1-P6 first isolate semantic callers from `RpcCaller`; P7 then
+   collapses the web runtime with behavioral parity gates and migrated test seams. The stop/go
+   reviews remain responsible for preventing the additive bridges from becoming permanent.
+2. **P3 is approved.** Its purpose is private record -> compatibility projection, not a cosmetic
+   rename. It reuses the strict row-adapter logic, ADR-0011 drift detection, empty-allowlist lint,
+   and the 128 `_wire_contract` mappings. The exported structured-document graph is classified as
+   transport-neutral value types exempt from the private-record rule; codecs construct it through
+   validating public constructors, and a dependency guard keeps wire knowledge out of the types.
+3. **P8 is approved after P7.** The provider composes existing auth owners and proves ownership,
+   lifecycle, awaited-`from_storage()` cleanup, and backend isolation; it does not reimplement
+   single-flight, profile storage, recovery, locking, or persistence merely to make the seam exist.
+
+P1-P8 are therefore approved subject to their entry criteria, acceptance criteria, and stop/go
+reviews. P9 public-surface work and a mobile backend remain separate decisions.
+
+## Phase and PR sequence
+
+The phases are ordered by dependency. P0 through P6 establish the semantic core. P7 and P8 simplify
+the web runtime and authentication after callers are isolated. A public vNext surface and a mobile
+backend are separate future decisions, not phases in this plan.
+
+```text
+P0 operation inventory + ADR
+  -> P1 semantic port foundation
+    -> P2 notebook/source vertical slice
+      -> P3 codec/model separation
+        -> P4 policy/deadline/error convergence
+          -> P5 Studio family split
+            -> P6 remaining feature migration
+              -> P7 web runtime collapse
+                -> P8 cookie-provider extraction
+```
+
+### P0 — Decide the boundary and inventory operations
+
+**Purpose:** establish one reviewed semantic vocabulary before adding runtime abstractions.
+
+#### Changes
+
+- Add an ADR for the semantic backend boundary, dependency direction, compatibility strategy, and
+  relationship to ADR-0005/0009/0013/0014/0021.
+- Build an equality-pinned inventory of every currently supported semantic operation. Include:
+  - semantic operation key and owner;
+  - every current namespace method, public root-client member, and `_app` caller;
+  - each exact execution authority as transport kind, native/web binding, source site, and semantic
+    discriminator;
+  - operation variant;
+  - current idempotency classification;
+  - read/stateful-start/mutation/stream policy;
+  - required notebook route context;
+  - variant-specific response decoder/projector and golden scope/disposition;
+  - per-binding override source-dataflow and runtime-test proof;
+  - composite/reconciliation behavior;
+  - evidence source and cassette coverage; and
+  - current omissions relative to the full product surface.
+- Include current features omitted by the greenfield v0: source listing, settings, individual
+  sharing, prompt/report suggestions, generic artifact actions, retry, mind maps, data tables, and
+  supported exports/download formats.
+- The catalog is an **ADR-0022 baseline** registered in `tests/_baselines/registry.py`, not a new
+  bespoke audit. Focused specification, authority, AST-inventory, and evidence modules feed one
+  build/audit CLI. The projection derives native identity/idempotency, exact direct transport sites,
+  public/app callers, codec/golden evidence, override proof, and captured product omissions. Owner,
+  semantic policy, route context, composite behavior, discriminators, and migration disposition are
+  reviewed. Copying those derived columns into a hand-pinned table is not reviewable.
+- The catalog records, per operation, **every existing execution authority**, including RPC,
+  streaming query, resumable upload, HTTPS download, and `_app` orchestration. The P0 projection
+  allocates 157 exact authority rows; 39 of 86 semantic operations have more than one. It records
+  11 divergences: 10 authority divergences with a named collapse phase, plus `source.refresh` as
+  the one policy divergence.
+- Add `"collections"` to `CLIENT_NAMESPACE_ATTRIBUTES` in `scripts/audit_public_api_compat.py` and
+  absorb the baseline delta. `docs/stability.md` lists `NotebookLMClient.collections` as stable, but
+  the audit records only a bare instance-attribute -- its nine methods are invisible, so "audit
+  failures: zero" is vacuous for that namespace and migration rule 3b has nothing to bite on.
+- Extend the named-owner rule from "every public client method" to **every public method on every
+  namespace sub-client** -- `chat.set_bound_loop` and `chat.reset_after_open` are audit-visible and
+  are exactly what a P7 loop-affinity simplification would delete.
+- Give every public `NotebookLMClient` method/property/classmethod its own fail-closed disposition.
+  P0 records ten root members across auth, lifecycle, observability, and raw behavior;
+  `rpc_call()` remains the explicit web-only raw escape hatch rather than disappearing from the
+  audit.
+- Register a `public_model_contract` ADR-0022 baseline for **every exported dataclass and enum**,
+  recording module/qualname, dataclass flags, slots, constructor/field order, equality/hash/repr
+  policy, first-party pickle-state hooks, and a structured valid-instance pickle outcome. A real
+  failure is recorded by stage/type/category rather than replaced by a fabricated instance or
+  treated as an audit crash; current P0 truth is 85 successes and one `AuthTokens` dumps failure.
+  `Notebook` and `ChatReference` additionally exercise their supported legacy-state restores and
+  current-state round trips. `scripts/audit_public_api_compat.py` records signatures, fields,
+  members, and enum values but **not** these. Architecture PRs may not regenerate this baseline to
+  acknowledge drift.
+- Register `json_envelope` as the closed-world adapter-shape contract. Its primary channel rows
+  freeze 31 model identities / 133 projections for CLI, 32 / 123 for MCP, and 32 / 57 for REST:
+  313 unique ids. `adapter_sink_reachability` discovers 350 terminal/error sites and assigns 225
+  public-projection, 117 reviewed non-public, and eight forwarding-infrastructure dispositions,
+  including 15 non-public variants across 14 mixed sites. Every live projection id has a terminal
+  allocation;
+  adapter registrations and direct JSON bypasses fail closed. It also pins 36 private DTO -> public
+  dataclass paths, 16 explicit helper fingerprints, and a compact aggregate digest for the bounded
+  519-node / 1,242-edge transitive helper graph (520 unique helpers overall). Thirty-four paths link
+  to live projections;
+  `SourceRefreshResult.result` is production-dead and `ValidatedSessionConfig.limits` is confined
+  to internal runtime configuration. `AuthTokens` is excluded from the exported/full-key inventory
+  and admitted only through the two exact redacted MCP/REST `server_info` contributions described
+  above.
+- Register a `metrics_contract` baseline -- `ClientMetricsSnapshot` field names/types plus per-RPC
+  `RpcTelemetryEvent` emission points -- **before P1 lands**. The primary characterization calls
+  public `NotebookLMClient.rpc_call()` through the production-composed middleware and
+  `RpcExecutor`, reads public `metrics_snapshot()`, and observes the callback on success,
+  transport-error, and decode-error paths. Direct non-RPC middleware probes are supplemental. P7
+  promises an equality-pin against a "pre-P7 baseline"; captured at P7 that baseline is already six
+  phases of code motion late and pins nothing.
+- Add an audit that fails when an active `RPCMethod`/variant, namespace method, root-client member,
+  or transport-reaching authority has no reviewed disposition/allocation.
+
+#### Expected files
+
+- `docs/adr/00xx-semantic-backend-boundary.md`
+- `src/notebooklm/_operations.py`
+- `scripts/audit_operation_catalog.py`
+- `tests/_guardrails/test_operation_catalog.py`
+- this plan and relevant architecture documentation
+
+Exact names may change in the ADR; ownership may not.
+
+#### Acceptance criteria
+
+- Every active web RPC method and registered variant is classified or explicitly private/excluded.
+- Every current namespace method maps to one or more semantic operations or a local-only helper;
+  every public root-client member has an explicit non-feature disposition.
+- Every operation authority is allocated exactly once with a transport kind, binding, site, and
+  semantic discriminator. Every native binding has a codec/golden disposition and per-binding
+  override proof; uncovered goldens remain explicit rather than fabricated.
+- There is one authoritative operation catalog and one generated/audited projection.
+- No production call path changes.
+- The full required test suite and public API audit remain green.
+
+### P1 — Introduce the semantic port and transitional web backend
+
+**Purpose:** create the new dependency boundary without rewriting the stable web runtime.
+
+#### Changes
+
+- Add `BackendKind`, `BackendCapabilities`, the `BackendAdapter` protocol, and the transitional web
+  backend **on top of P0's operation vocabulary module**. The inert vocabulary types (`Operation`,
+  `CallPolicy`,
+  `OperationDef`) already landed in P0, which needs them to make its catalog typed; they are not
+  reintroduced here. Only P1 adds runtime types.
+- Add the first typed input DTOs and neutral output records only for the P2 slice.
+- Implement a transitional web backend whose handlers delegate to the existing `RpcExecutor` and
+  current request/row helpers.
+- The transitional backend receives `RpcExecutor`; it must not receive or wrap the entire
+  `NotebookLMClient`.
+- `BackendKind` identifies the *protocol* (web / mobile), never the HTTP client. The repo ships two
+  transports -- `httpx` and `_curl_cffi_transport.py`, selected at runtime by
+  `NOTEBOOKLM_TRANSPORT=curl_cffi` behind the `impersonate` extra -- and that choice remains a
+  `WebRpcBackend` construction parameter. It is not a capability and does not multiply backend kinds.
+- Add a recording fake backend for semantic service tests. It validates operation/input types,
+  records deadlines, and returns explicit typed records.
+- The private backend error record carries the web diagnostic set (`method_id`, `rpc_code`,
+  `found_ids`, `raw_response`) as an opaque, already-scrubbed `diagnostics` payload that the backend
+  populates and the facade replays verbatim into `RPCError`. P4.3 generalises its *mapping
+  coverage*, never its shape. Today those values are stamped at feature call sites from
+  `RPCMethod.*.value`; a service forbidden to import `RPCMethod` cannot reproduce them without this.
+- **Land the minimal error vocabulary and deadline handoff here, not in P4.** P2's acceptance
+  criteria forbid semantic services from importing `RPCMethod`, `RpcCaller`, `httpx`, or raw RPC
+  types -- but a service that cannot name a failure or a timeout cannot honor that while P4.2/P4.3
+  are still unwritten. P1 therefore ships the smallest error record and absolute-deadline parameter
+  the P2 slice needs. P4 *converges and generalizes* them across all operations; it does not
+  introduce them. Without this, P2 cannot satisfy its own acceptance criteria except through an
+  unscheduled throwaway translation layer.
+- Keep the new backend private and construct it in the existing composition root without changing
+  public constructor arguments. Route every transitional attribute (`_backend`, records, registry)
+  through `_client_assembly`, because `tests/_guardrails/test_client_factory_parity.py` pins
+  `vars(NotebookLMClient)` against the test factory shell and will fail on an attribute added
+  directly to the client. That guard is not retired until P7.
+
+#### Expected logical modules
+
+```text
+src/notebooklm/
+  _backend.py
+  _records.py
+  _web/
+    backend.py
+    registry.py
+```
+
+The operation vocabulary module is P0's file and is extended here, not created.
+
+The ADR may consolidate these initially. Do not create a file per greenfield diagram entry merely
+to mirror the design document.
+
+**Every PR that adds a module under `src/notebooklm/` updates the `### Repository Structure` map in
+`docs/architecture.md` in the same commit.** `scripts/check_claude_md_freshness.py` and
+`scripts/check_docs_module_refs.py` both run in Code Quality (`.github/workflows/test.yml`), so P1's
+new modules red the gate *in P1*. Deferring architecture-doc updates to P7 is mechanically
+impossible; only the architecture *narrative* revision waits for P7.
+
+#### Acceptance criteria
+
+- The backend protocol contains no HTTP, cookie, `RPCMethod`, positional-array, protobuf, CLI, MCP,
+  or REST type.
+- Unsupported operations fail before invoking the wrapped executor.
+- The fake backend can exercise a service without building `NotebookLMClient`, middleware, cookies,
+  or HTTP clients.
+- No public behavior changes and no existing path delegates through the new backend yet.
+
+### P2 — Migrate a notebook/source vertical slice
+
+**Purpose:** prove the semantic seam on both simple reads and one ambiguity-sensitive mutation.
+
+#### P2.1 — read-only notebook and source projection
+
+- Implement semantic notebook list/get and source list/get operations.
+- Initially reuse current web request builders and row adapters inside backend handlers.
+- Add shared projectors from neutral records to the current public `Notebook` and `Source` types.
+- Make `NotebooksAPI.list/get` and `SourcesAPI.list/get` delegate to semantic services.
+- Keep current positional signatures, list return types, exceptions, warnings, filters, strict
+  count behavior, and `get_or_none()` semantics in the legacy facades.
+
+#### P2.2 — notebook mutations
+
+- Migrate create, title update, and delete through semantic operations.
+- Preserve existing idempotency/reconciliation behavior exactly during this phase.
+- Keep single-item public delete semantics even if the neutral input uses a batch-capable shape.
+
+#### P2.3 — URL source creation
+
+- Migrate URL-source registration as an adapter-owned web workflow.
+- Preserve pre-create baseline, no-blind-retry behavior, exact matching, read-back, optional title
+  handling, and existing errors.
+- Model internal commit/title uncertainty explicitly, then project it back to the current
+  `SourcesAPI.add_url()` contract.
+- `SourcesAPI.add_url()` internally routes YouTube URLs to YouTube registration
+  (`_sources.py` wires `is_youtube_url` into the adder). Migrating "URL source creation" while
+  leaving YouTube on the legacy path would split one public method across two execution
+  authorities, violating migration rule 2. Resolve it one of two ways, and state which in the PR:
+  (a) migrate the YouTube branch together with the generic URL branch, or (b) keep `add_url()`
+  entirely on the legacy path this phase and migrate a narrower operation that has no hidden
+  dispatch. Do not ship the split.
+- Do not migrate text, Drive, or file upload in the same first mutation PR.
+
+#### Acceptance criteria
+
+- Migrated semantic services do not import `RPCMethod`, `RpcCaller`, `httpx`, row adapters, or raw
+  RPC types.
+- Existing public API signatures and return/exception behavior remain equality-pinned.
+- Relevant current unit, integration, VCR, CLI, MCP, and REST tests pass without cassette changes.
+- Each operation has one execution authority; the old facade delegates and does not retain a
+  parallel RPC implementation.
+- The slice demonstrates a net reduction in direct wire knowledge outside `_web/`.
+
+#### Stop/go review
+
+After P2, review:
+
+- code added versus code removed;
+- whether DTO/record/projector layers clarify or duplicate the flow;
+- fake-backend test readability;
+- cassette invariance;
+- traceback and diagnostics quality; and
+- whether the operation catalog reduced variant/idempotency ambiguity.
+
+The review has exactly three outcomes, and a **named decider** records which:
+
+- **GO** — proceed to the next phase.
+- **REVISE** — a written defect plus a re-review date. Not a synonym for "continue while we think
+  about it."
+- **ABANDON** — every bridge module is deleted and the legacy facades restored within two PRs. P0's
+  ADR, operation catalog, and audit are **retained**: they have standalone value and survive the
+  effort being stopped.
+
+The outcome is appended to this plan by the next code PR, or by the abandonment PR. An effort with
+an entrance and no exit is Risk 1 restated rather than controlled -- so "abandon" must be a
+first-class, pre-authorized outcome, not an escalation.
+
+### P3 — Separate web codecs from public model projection
+
+**Purpose:** ensure public model compatibility no longer constrains live wire decoding.
+
+#### Changes
+
+- Establish `_web.codec` as the owner of positional request/response grammars for the resources
+  P3 migrates. Codec ownership for `_chat/wire.py`, `_research_task_parser.py`,
+  `_notebook_payloads.py`, and `_request_types.py` is deferred to their P6 domains -- they own wire
+  shapes but are outside the decode-path retirement list below.
+- `tests/_guardrails/test_no_raw_positional_rpc_indexing.py` sanctions only `rpc/` and
+  `_row_adapters/` as decode homes. A new codec directory reds that gate on its first commit, so the
+  guard is amended in the same PR (migration rule 9).
+- **Relocating `_row_adapters` is mandatorily atomic, not incremental.**
+  `tests/_guardrails/test_wire_contract.py` sets `_SCANNED_DIRS = (_SRC / "_row_adapters",)`, and
+  `tests/_guardrails/_wire_contract.py` holds **128** `Mapping(...)` rows validating our positional
+  constants against `docs/mobile/schema.proto` via the `index i == tag i+1` equivalence. This is the
+  repository's only *independent* oracle against its #1 breakage class. Moving or renaming those
+  modules empties `_discover_constants()` and trips check B -- and the tempting "fix" is to trim the
+  registry, which destroys the oracle. Any relocation PR updates `_SCANNED_DIRS` and every mapping's
+  `module`/`cls` key in the same commit.
+- Do not duplicate `_row_adapters`' strict indexing and schema-drift checks.
+- For each migrated resource:
+- **Every projector constructs the public model through its normal `__init__`** (or
+  `dataclasses.replace`), never `object.__new__` + `__dict__` writes. `Notebook`
+  (`_types/notebooks.py:186,245,264`) and `ChatReference` (`_types/chat.py:290,328,374`) each carry
+  `__setattr__` / `__post_init__` / `__setstate__` maintaining derived-field invariants, alias
+  reconciliation, and pickle compatibility -- and `ChatReference.__post_init__` **validates and
+  raises `ValueError`** on inverted ranges. The obvious projector fast path defeats all of them
+  silently, and `scripts/audit_public_api_compat.py` cannot see it because `collect_class` skips
+  `_`-prefixed names. P3 adds an explicit pin: construct-via-projector, assign-after,
+  `pickle.loads(pickle.dumps(...))`, and `copy.deepcopy` all preserve the invariants.
+- `dataclasses.replace(obj, <deprecated_alias>=X)` is a **documented no-op** on both `Notebook` and
+  `ChatReference`; projectors must write the canonical field.
+  1. web codec decodes a private record;
+  2. shared projector builds a domain/current public model;
+  3. the facade applies only compatibility behavior.
+- Stop calling public `from_api_response()`/`from_row()` methods in production for migrated
+  resources. "Production" here means the client/feature/codec path (`_types/`, `_row_adapters/`,
+  `_source/`, `_artifact/`, `_notebooks.py`, `_sources.py`, `_labels.py`, `_collections.py`,
+  `_sharing.py`). P3 does not reach `_app/` or `mcp/`; those layers consume projected models and are
+  out of scope by principle 9.
+- Keep those methods importable and behaviorally tested until a separate deprecation decision. They
+  are public classmethods on `__all__` classes -- see the compatibility contract.
+- The retirement list is **every public parsing/factory classmethod on an exported class**, not just
+  `from_api_response`/`from_row`. `Artifact.from_mind_map()` is public and used in production by
+  `_artifact/listing.py`; P3 retires only its production *use*, never the callable or its behavior.
+- Add a boundary guard preventing new imports from `_web`/`rpc` into public model modules.
+- Golden codec tests already exist (`tests/integration/test_golden_decoded_vcr.py`, gated by
+  `tests/_guardrails/test_golden_decode_coverage.py`, which keys `GOLDEN_COVERAGE` by `RPCMethod`
+  and AST-verifies every pointer against the cassette's real `rpcids`). Extend `GOLDEN_COVERAGE`
+  with a pointer per new `_web` codec binding; the existing gate then enforces completeness
+  automatically. Do not use public model tests as the only wire proof.
+
+#### Acceptance criteria
+
+- Migrated public models have no production decode responsibility.
+- Web codecs return typed private records and never public models.
+- Projectors contain no positional indices or native RPC IDs.
+- Projection may not reorder, insert, or rename a public model's dataclass fields. New fields append
+  at the **end** with defaults, so positional construction and JSON key order both hold. The codebase
+  records this convention in three places already (`_types/notebooks.py`, `_types/common.py` ×2).
+- Unknown enum/status values: **private records preserve the raw value losslessly, and each
+  compatibility projector preserves its existing per-type behavior.** There is deliberately no single
+  public policy today -- an unknown source type warns (`UnknownTypeWarning`) and becomes `UNKNOWN`,
+  while the artifact status helpers differ from that and from each other. "One documented lossless
+  policy" would be a behavior change on every one of them; parity tests pin each separately.
+- Strict schema-drift behavior and secret scrubbing remain unchanged.
+- All 128 wire-contract mappings are retained, checks A and B are green, and **zero** entries
+  are added to `UNMAPPED`.
+
+### P4 — Converge call policy, deadlines, and backend errors
+
+**Purpose:** make safety a property of semantic operations and adapter bindings rather than flags
+reconstructed at feature call sites.
+
+#### P4.1 — call policy parity
+
+- Attach `CallPolicy` to each migrated `OperationDef`.
+- Bind each web operation to its existing idempotency entry and assert parity in tests.
+- **P4.1 changes no retry behavior.** Where a semantic mutation/stateful start/stream would inherit
+  a blind retry because one native RPC inside it is classified replay-safe, record the divergence in
+  the operation catalog. The audit fails on *unclassified or unacknowledged* divergence; an
+  explicitly reviewed `known_divergence` row **passes** while remaining reported, and may not control
+  retry behavior. (A row that always fails the audit would make P4 unable to be independently green
+  while its fix is required to land outside the architecture stack.) Do not alter the retry
+  decision in this phase: doing so would change whether an ambiguous mutation is replayed, and would
+  move the `rpc_rate_limit_retries` / `rpc_server_error_retries` counters that the observability pin
+  freezes. (It would *not* change which calls raise `NonIdempotentRetryError` -- the sole production
+  raise is `add_text`'s upfront `idempotent=True` refusal, which is policy-independent.) Either way
+  it violates migration rule 3.
+- Each such divergence is fixed in its own separate, evidence-backed, behavior-change PR outside the
+  architecture stack, with the release-note treatment its observable effect warrants.
+- Represent multi-call workflow policy at the semantic binding, while retaining native retry rules
+  for individual reads inside it.
+
+#### P4.2 — one operation deadline
+
+- Extend `RuntimeDeadline` only as needed to support absolute-deadline handoff and remaining-attempt
+  clamping.
+- Start the deadline at the public/service boundary and pass it through the backend.
+- Migrate credential acquisition, queue wait, retries, backoff, polling, and reconciliation for the
+  selected slice to that one budget -- **inside the semantic path only.** Legacy facades retain their
+  existing deadline start points, in-flight RPC timeouts, and shared-poll follower semantics. Today
+  followers ignore their own timeout knobs and source polling does not clamp an in-flight read;
+  changing either is an observable timeout change and needs its own behavior-change PR, not P4.2.
+- Eliminate nested deadline resets in migrated paths before deleting old timeout knobs.
+- **Operations reachable through an `_app/` retry or wait workflow** (`_app/generate_retry.py`,
+  `_app/source_wait.py`, `_app/download.py`) receive the caller's budget **through a public facade
+  parameter**. `RuntimeDeadline` lives in the private `_deadline.py` and `_app/` may not import it.
+  P4.2 removes `_app`'s internal use of the exported `with_rate_limit_retry` execution loop while
+  preserving the helper for public callers. Source and artifact polling already live in their
+  facades; their `_app` callers retain validation, optional dispatch, and result projection without
+  becoming separate deadline authorities.
+- Shared-leader artifact polling is retained as the single sanctioned exception to principle 6: the
+  first waiter owns the poll task and followers attach via `asyncio.shield` (`_polling_registry.py`),
+  so a follower's deadline bounds only its own await, never the leader's poll. Record it as an
+  explicit exception rather than letting it read as a violation.
+
+#### P4.3 — neutral error projection
+
+- Define a small private backend error vocabulary carrying backend, safe operation, safe status or
+  reason, and `outcome_unknown` where applicable.
+- **The vocabulary must also carry the diagnostic payload the public exceptions are documented to
+  expose**, or projection will silently strip it: the native method id, the internal RPC/status
+  code, `found_ids`, the scrubbed `raw_response` preview, and the partial-upload `source_id`/`stage`
+  from `SourceAddError`. `docs/stability.md` marks `RPCError.rpc_id` and `RPCError.code` as
+  *permanent* aliases explicitly exempt from the deprecation cycle "because removal can mask the
+  original exception inside `except` handlers". A neutral vocabulary that carries only backend,
+  operation, status, and `outcome_unknown` is therefore **not sufficient** and is a breaking change.
+- "Safe" constrains *content* (no bodies, cookies, CSRF values, URLs, prompts, source text, titles),
+  not *presence*. Scrubbing an attribute to a redacted value is allowed; dropping the attribute is
+  not.
+- **`outcome_unknown` is not sufficient on its own.** `_app` reads a *dynamic public marker*,
+  `getattr(exc, "unconfirmed", False)`, set by `_idempotency.mark_unconfirmed()`, to make a failure
+  non-retriable and to **stop a batch**. Its own docstring explains the stakes: without it, a drifted
+  backend turns one unconfirmed write into one unconfirmed write *per remaining item*. Projection of
+  `outcome_unknown=True` MUST set `unconfirmed=True` on the projected exception before `_app`
+  classification, and parity tests must assert both the marker and the resulting
+  non-retriable/batch-stopping classification.
+- Map web HTTP/XSSI/embedded-RPC failures into that vocabulary at the backend boundary.
+- Project neutral failures into the current public exception hierarchy in compatibility services.
+- Equality-pin the mixin lattice through the projection, not just the leaf class: assert
+  `issubclass`/`isinstance` for `RPCError` on `*NotFoundError`, and for `WaitTimeoutError` plus the
+  built-in `TimeoutError` on `*TimeoutError`. A neutral vocabulary that round-trips only the leaf
+  type silently flattens these and breaks existing `except` clauses.
+- **Scope the redaction rule to *new* values only.** Written as a blanket ban it mandates a public
+  break: `SourceAddError` documents and exposes `.url` and `.cause`, and post-registration upload
+  failures deliberately attach context to the *original* leaf exception (`AuthError`, `NetworkError`,
+  ...) while preserving object identity and chaining. The rule is therefore: new private backend
+  errors introduce no new unsanitized values; existing `SourceAddError.url`, its message, and `.cause`
+  remain unchanged, and post-registration failures preserve leaf type, exception identity where
+  currently preserved, `source_id`, `stage`, `original_error`, `__cause__`, and `__context__`.
+- Do not introduce cookies, CSRF values, or previously-absent response bodies, prompts, source
+  content, or titles into errors or reprs.
+- Resist one exception subclass per operation. Add a new public exception only for a stable caller
+  recovery branch that the current hierarchy cannot express.
+
+#### Acceptance criteria
+
+- Semantic policy and existing idempotency policy cannot drift silently.
+- One total deadline is observable in deterministic clock tests.
+- No migrated layer resets a retry/poll budget on recursive or composite entry.
+- Public exceptions and catch ordering remain compatible, and
+  `tests/_guardrails/test_error_contract_catch_ordering.py` still passes unchanged.
+- Every documented exception attribute and permanent alias survives projection, asserted by an
+  attribute-level **population** parity test, not merely by exception type. For each migrated
+  operation, `method_id`, `rpc_code`, `found_ids`, `raw_response`, and the permanent `rpc_id`/`code`
+  aliases carry the same values they carry today. An `issubclass`/`isinstance` lattice pin is blind
+  to a fully-flattened payload and will ship the regression green.
+- `raw_response` is a response-body preview, which principle "no response bodies in errors" would
+  otherwise forbid. It is explicitly excepted as already-truncated-and-scrubbed at its existing
+  construction site. If the plan instead accepts losing it, that is a breaking change and must be
+  stated in the compatibility contract rather than discovered at P4.3.
+- Ambiguous post-send failures retain truthful `outcome_unknown` state without replaying through
+  another backend.
+
+### P5 — Split Studio catalog, family behavior, and representations
+
+**Purpose:** remove artifact-type branching from one generic behavior surface while keeping the
+existing `client.artifacts` API stable.
+
+#### Changes
+
+- Add an internal heterogeneous Studio catalog responsible only for list/get discovery and safe
+  family classification.
+- Add family services in evidence/usage order:
+  1. audio;
+  2. quiz and flashcards;
+  3. report and video;
+  4. infographic and slide deck;
+  5. current mind-map and data-table compatibility operations.
+- Give each family its own create options, usable-readiness predicate, and supported actions.
+- Keep unknown/unclassified artifacts visible through an explicit safe summary rather than guessing
+  a family or discarding the row.
+- The compatibility catalog record carries **every field `ArtifactsAPI.list/get` populates today**
+  without additional fetches -- prompts, media, slides, infographics, source ids, etag, user state --
+  and parity tests compare every `Artifact` field and nested public value. "Safe summary" constrains
+  what is *guessed*, not what is *returned*.
+- Move remote byte retrieval behind representation-specific internal clients. **Every such client
+  reuses the existing download-client factory and trusted-host check, and every redirect hop stays
+  HTTPS/allowlist-validated for both the `httpx` and `curl_cffi` paths**, with the existing security
+  tests retained. A new client that re-implements retrieval is an SSRF regression path.
+- Move local report/quiz/flashcard/table/map serialization out of generation services.
+- Keep Drive export as an explicit web companion operation, not generic artifact behavior.
+- Make `ArtifactsAPI` a compatibility facade that translates current inputs and projects family
+  results back into `Artifact`/`GenerationStatus`.
+- Prefer a future grouped shape such as `client.studio.audio` over adding many top-level client
+  attributes; public exposure is deferred.
+
+#### Acceptance criteria
+
+- No new generic artifact method branches on every known family.
+- Catalog listing does not fetch or retain full family payloads unnecessarily.
+- `ArtifactsAPI.wait_for_completion()` keeps **lifecycle-terminal** semantics and its
+  `GenerationStatus` return (including `.is_terminal`) unchanged. Family-usable readiness is an
+  additional internal predicate consumed by family services; it does not become the facade's wait
+  condition in P5. Any change to when the public wait returns is a P9 decision.
+- Current artifact CLI/MCP/REST behavior, downloads, exports, retries, and uncommon mind-map/table
+  features retain coverage.
+- **New** private records and backend errors introduce no unsanitized asset data into reprs, logs,
+  or exceptions. Existing public `Artifact`, artifact-content, and `GenerationStatus` repr behavior
+  remains **unchanged** through P8 -- these dataclasses already curate repr per field (note the
+  explicit `field(repr=False)` opt-outs), so a blanket "raw asset URLs remain absent" would mandate a
+  repr break rather than prevent one.
+- `GenerationState`'s base order (`str` before `Enum`) is load-bearing: `_TERMINAL_GENERATION_STATES`
+  is a `frozenset` looked up by hash, and `Enum.__hash__` hashes the member *name*. Reordering the
+  bases leaves every `==`-based predicate working and breaks only that lookup. A family split that
+  rebuilds the state enum is exactly what reorders bases.
+
+### P6 — Migrate remaining feature domains
+
+**Purpose:** remove direct native RPC dispatch from feature APIs before simplifying the runtime.
+
+Migrate in bounded domain PRs:
+
+1. chat session/history/ask/clear. This domain carries two contracts no other domain has, and the
+   plan must name both before the migration starts:
+   - **The citation-anchor offset invariant.** `ChatReference.answer_anchor_start` /
+     `answer_anchor_end` index `AskResult.answer_document.text`, *not* `AskResult.answer` -- the two
+     strings differ in both length and offsets because `answer` carries markdown emphasis and inline
+     `[N]` markers the document does not. A codec/projector split that rebuilds `AskResult` from a
+     neutral record must preserve those offsets exactly. `tests/unit/test_citation_alignment.py` is
+     the gate and must pass unchanged.
+   - **`AskResult.raw_response`** is a first-1000-chars response preview, and is the second field
+     (with `RPCError.raw_response`) that the "no response bodies" rule would otherwise delete. It
+     gets the same explicit already-truncated exception.
+   - **There is no public streaming API.** `ChatAPI.ask` is unary and returns `AskResult`; no
+     generator, iterator, or context manager is exposed. "Streaming" is entirely internal to the
+     transport, so principle 2's separate stream protocol must not surface one.
+   - **`chat_response_max_bytes` is *validated* in `_client_assembly.py` but *enforced* in
+     `_streaming_post.py`** -- on the raw buffered byte total, mid-stream, **pre-decode**, aborting
+     the live connection. Three things are observable and all three move if chat is routed through a
+     protocol yielding decoded records: early abort vs full buffering; `bytes_read`, documented as
+     always strictly greater than `limit_bytes`; and whether the failure is
+     `RPCResponseTooLargeError` or a decode-stage error. Keep the cap at that point.
+   - **`ask` is two-phase and all-or-nothing.** A streamed POST returns a per-stream conversation id
+     that is deliberately *discarded* (live testing proved it is not a real id), then a second RPC
+     resolves the real `conversation_id`; if that returns nothing, `ask` raises `ChatError` **after
+     logging the full answer at ERROR level so it survives the audit trail** -- a documented side
+     effect, not a debug nicety. No partial `AskResult` is reachable today. A stream protocol that
+     yields incrementally would newly make one representable, silently converting a documented
+     `ChatError` into a successful-looking result with an empty `conversation_id`.
+   - **Cancellation.** The loop-affinity guard fires *before* the per-conversation lock, with an
+     in-code comment explaining why: the POST-path guard catches misuse only after the lock is
+     already held -- too late. Moving that guard into a backend reintroduces the hang. A cancel
+     landing between the two phases leaves a server-recorded turn whose id the caller never learns;
+     that is current accepted behavior and a stream protocol makes it common.
+   Specify all of this in the P0 catalog row for `ask`, not during P6.1;
+2. research start/list/poll/wait/cancel/import;
+3. notes and note-backed mind maps -- including an explicit disposition for the public
+   `client.mind_maps` (`MindMapsAPI`) facade, which spans *both* note-backed JSON mind maps (P6.3)
+   and interactive Studio mind maps (P5). Neither phase currently owns it. It delegates to the
+   Studio mind-map family service and the semantic note service respectively, and preserves
+   `delete(kind=...)` auto-detection and the `MindMap` return shape;
+4. labels and collections -- **mandatorily one PR**: they share the RPC ids `agX4Bc` / `I3xc3c` /
+   `le8sX` / `GyzE7e` verbatim (a collection is a label with a distinct type discriminator), so
+   splitting them splits one wire surface;
+5. sharing, including current individual-user operations;
+6. settings/account limits and prompt/report suggestions;
+7. remaining source variants, file upload, freshness, refresh, and Drive helpers -- including
+   retiring `mcp/tools/sources.py`'s `from ...rpc import RPCMethod` by giving its three
+   batch-invariant `RPCError`s a non-wire construction path, and routing its direct call to the
+   private `client.sources._add_urls_batch(...)` through `_app/`. Both violate ADR-0021 today and
+   make P6's acceptance criterion false before the phase begins.
+
+Each domain migration must:
+
+- **preserve the `GET_NOTEBOOK` recency-bump inventory exactly** -- same count per public call, same
+  conditions. `GET_NOTEBOOK` is *not read-only*: it writes `lastViewedTime`, the sort key behind the
+  user's "Recent" list, and `docs/python-api.md` carries a live audit showing three consecutive pure
+  reads advancing it, plus a full table of every internal path that bumps recency with `chat.ask()`
+  flagged "most frequent by far". P6 rewrites nearly every row of that table. A projector-based
+  service that caches or de-duplicates a notebook payload changes user-visible ordering, so dropping
+  a "redundant" read is a behavior change, not an optimization. P0 adds a per-operation
+  RPC-call-count assertion for every row in that table;
+- add operation rows before service methods;
+- preserve current web-only behavior and compatibility results;
+- move wire shapes into the web backend/codec;
+- identify ephemeral handles that would need backend affinity in a future dual-backend API;
+- use exact-ID selection and explicit reconciliation where current behavior requires it;
+- migrate tests to fake backend plus codec goldens; and
+- delete the superseded direct feature-to-`RpcCaller` implementation.
+
+#### Acceptance criteria
+
+- No migrated feature API imports `RPCMethod` or constructs positional RPC arrays.
+- Every active semantic operation has a typed web binding and evidence reference.
+- Existing frontend adapters still call `_app/`/client facades, never backend adapters.
+- The repository-wide active `RPCMethod` reference inventory is confined to web bindings, legacy
+  raw-RPC compatibility, protocol tools, and tests that explicitly verify the web wire.
+
+### P7 — Collapse the web runtime behind `WebRpcBackend`
+
+**Purpose:** simplify composition only after semantic callers no longer depend on the old runtime
+shape.
+
+#### Entry criteria
+
+- P0 through P6 operations have migrated, or carry a `legacy_exception` catalog row naming an
+  approver and an open removal issue. The catalog audit fails above **5** such rows -- otherwise
+  this criterion is a paragraph the author writes and approves.
+- No semantic service consumes `RpcCaller`.
+- Backend contract, codec golden, compatibility, VCR, concurrency, cancellation, and auth-refresh
+  suites are green.
+- **`ErrorInjectionMiddleware` is migrated, deleted, or rehomed first.** It is declared out of P7's
+  scope, yet it imports the chain's `NextCall`, `RpcRequest`, and `RpcResponse` -- the very types P7
+  collapses. P7 may not begin while it still imports `_middleware.core`, so that migration is its own
+  pre-P7 PR.
+- **No test outside `tests/_guardrails/` constructs or mutates `ClientComposed`,
+  `MiddlewareChainHost`, or `RpcRequest.context`.** Roughly 35 test files reach that runtime today.
+  `test_client_factory_parity.py` and `test_middleware_context_contract.py` are the last consumers
+  and retire in the same PR as the structure (migration rule 9). Green suites alone are not the
+  criterion -- Risk 5 requires the seams migrated *before* P7, which "green" does not imply.
+
+#### Changes
+
+- Move web encode/dispatch/decode ownership from the general client runtime into `WebRpcBackend`.
+- Auth-refresh middleware relocates **verbatim**. Its trigger point, its budget, and its
+  single-flight semantics are not redesigned before P8, which is where the provider that owns
+  refresh is defined. Reshaping the most concurrency-sensitive code twice, in the wrong order, is
+  how Risk 6 lands despite its control.
+- Replace the mutable `ClientComposed` bind-once graph with one backend-owned runtime assembled
+  atomically before publication.
+- Evaluate each middleware behavior independently:
+  - drain/lifecycle;
+  - metrics;
+  - concurrency semaphore;
+  - transient retry;
+  - auth refresh;
+  - test error injection (`_error_injection.py` is a 140-line *production* module serving the test
+    suite; it is **out of scope for P7** and moves only in a separate PR that migrates its consumers
+    to the fake-backend seam first); and
+  - tracing.
+- Preserve behaviors that remain useful, but do not preserve a generic middleware container solely
+  because tests inspect or mutate it.
+- Replace string-key request context with typed per-call state or direct parameters.
+- Make configuration immutable after construction. Tests that need a different retry budget build a
+  differently configured backend rather than mutating a live chain host.
+- Retire the production/test factory-shell parity mechanism after all tests construct a real backend
+  with fake leaf dependencies.
+- Supersede ADR-0009/0013/0014 as required and update the architecture document in the same phase.
+
+#### Acceptance criteria
+
+- `NotebookLMClient` no longer owns protocol internals beyond its selected backend and public
+  service facades -- **and every public client member still has an owner.** Before P7 merges, name
+  the backend/provider that serves each of: `rpc_call()`, `refresh_auth(allow_headless=...)`,
+  `get_account_email()`, `get_account_authuser()`, `metrics_snapshot()`, `drain()`, `close()`,
+  `is_connected`, and `auth`. Principle 2's `BackendAdapter` protocol is `invoke()`/`close()` only,
+  so these need an explicitly declared home; discovering that mid-P7 is how they get dropped.
+- Every `__init__` keyword still reaches its consumer: `timeout`, `storage_path`, `keepalive`,
+  `keepalive_min_interval`, `rate_limit_max_retries`, `server_error_max_retries`, `limits`,
+  `max_concurrent_uploads`, `max_concurrent_rpcs`, `upload_timeout`, `on_rpc_event`, `cookie_saver`,
+  `cookie_rotator`, `chat_timeout`, `chat_response_max_bytes`, `import_research_timeout`. A
+  constructor argument that silently stops having an effect is a breaking change that no signature
+  test catches.
+- `on_rpc_event` keeps its documented back-pressure semantics: `emit_rpc_event` is `async` and
+  *intentionally awaits* the user callback (`docs/python-api.md`). Making emission fire-and-forget
+  during the middleware collapse is an observable behavior change.
+- No `ClientComposed`, `RuntimeCollaborators`, or mutable middleware context remains without a
+  current production ownership need.
+- Loop affinity, close/drain, cancellation, retry, metrics, and observability behavior pass parity
+  tests. Specifically, `metrics_snapshot()` and the `RpcTelemetryEvent` stream are equality-pinned
+  against a pre-P7 baseline: same fields, same values, same emission points per RPC. "Middleware is
+  gone" is not a licence to change what is measured.
+- Production construction has one path; tests vary only explicit leaf seams.
+- Source/module size decreases are measured but not achieved by moving code into unreviewable large
+  files.
+
+### P8 — Extract the web cookie-provider boundary
+
+**Purpose:** separate credential acquisition/persistence from one open web backend session.
+
+#### Changes
+
+- Define an immutable cookie/account-route generation returned by `WebCookieProvider`.
+- Make `WebRpcBackend` clone a provider generation into its own private HTTP session and refresh at
+  most according to semantic call policy.
+- Adapt existing profile storage, refresh, recovery, and master-token work behind the provider; do
+  not duplicate those implementations.
+- Preserve `NotebookLMClient.from_storage()` by making it construct and own the provider/backend
+  required for the legacy web client.
+- Treat existing `AuthTokens` as the compatibility/bootstrap surface required by ADR-0032 through
+  ADR-0034 until their planned runway completes.
+- Keep interactive login, browser-cookie capture, doctor, and profile management outside the
+  backend.
+- Keep profile file paths, locking, CAS, atomic writes, permissions, account routing, and secret
+  redaction unchanged unless separately reviewed.
+
+#### Acceptance criteria
+
+- The backend does not read profile files or launch interactive authentication directly.
+- An injected provider is caller-owned; a convenience factory closes only providers it creates.
+- Cookie generation and account route are read atomically.
+- Refresh is single-flight and generation-fenced; a late result cannot replace newer state.
+- Existing auth storage/concurrency/compatibility guardrails pass or are replaced with equivalent
+  provider-boundary tests.
+
+### Deliberately out of scope
+
+**P9 (public vNext surface)** and **P10 (mobile gRPC backend)** are removed from this plan. Neither
+is required for the internal refactor, both are gated on decisions nobody has made, and their
+presence here distorts the phases that remain -- P10 in particular is the only consumer of the
+capability/`BackendKind` machinery, which is why P1 would otherwise ship abstraction with no live
+caller in violation of migration rule 4.
+
+- A new public client surface, immutable models, or the ADR-0028 naming question require their own
+  API ADR. Write it when there is a caller need.
+- A second backend requires its own plan, gated on checked-in scrubbed protobuf frames. Note that
+  `docs/mobile/schema.proto` already pays for itself with no backend at all: it is the independent
+  oracle behind `tests/_guardrails/test_wire_contract.py`'s 128 positional mappings.
+
+## Recommended first PR stack
+
+The first stack should be deliberately smaller than the full phase list:
+
+1. **PR 1 — ADR and operation inventory**
+   - Add the semantic-backend ADR and equality-pinned current operation catalog.
+   - No runtime code path changes.
+2. **PR 2 — backend port and fake**
+   - Add internal operation/backend types, records for notebook/source reads, transitional web
+     backend, and recording fake.
+   - No existing feature delegates yet.
+3. **PR 3 — notebook list/get delegation**
+   - Route only notebook list/get through the semantic service.
+   - Preserve cassettes and public models.
+4. **PR 4 — source list/get delegation**
+   - Route source list/get through the same pattern.
+   - Establish private record -> current model projection.
+5. **PR 5 — notebook mutations**
+   - Route create/update/delete, keeping current idempotency and reconciliation.
+6. **PR 6 — URL-source workflow**
+   - Add typed commit/title state internally and preserve current `add_url()` behavior.
+7. **PR 7 — P2 stop/go report**
+   - Record measurements, remaining duplication, test quality, and a go/revise/stop decision before
+     expanding into Studio or auth.
+
+No PR in this stack changes public names, adds mobile dependencies, rewrites authentication, or
+removes the middleware chain.
+
+## Testing strategy
+
+### Semantic service contract tests
+
+Use the recording fake backend to test:
+
+- local validation before backend invocation;
+- one-shot iterable materialization;
+- operation selection;
+- deadline propagation;
+- projection from neutral records;
+- unsupported capability rejection;
+- readiness and reconciliation logic; and
+- public compatibility facade translation.
+
+These tests must not import web RPC IDs or fixture arrays.
+
+### Web codec golden tests
+
+For every migrated supported binding, pin:
+
+- exact RPC ID/query path;
+- request positions and required route context;
+- response envelope and null/error cases;
+- strict malformed-shape behavior;
+- native status/error projection; and
+- sensitive-value scrubbing.
+
+Derive goldens from existing scrubbed cassettes where possible. A golden is protocol proof; a fake
+backend result is service proof. Neither substitutes for the other.
+
+### Frontend contract gates: what they cover, and the hole they leave
+
+The existing gates enforce **layering and the error contract**, not response payloads. Stating this
+precisely matters, because believing the payloads are guarded is worse than knowing they are not:
+
+- `test_cli_boundary.py`, `test_mcp_boundary.py`, `test_server_boundary.py` — **import lints**.
+- `test_cli_rpc_envelope.py` — routes RPC-reaching commands through the shared **error** envelope.
+- `test_mcp_classify_consistency.py`, `test_server_classify_consistency.py` — pin the **error**
+  projection (MCP `(code, hint)`; REST HTTP status) against `_app.errors.classify`.
+- `test_studio_enum_manifest.py` — pins **wire integers** in `rpc/types.py`.
+- the `cli_contract` ADR-0022 baseline — pins the **command tree, options, defaults, help, aliases**.
+  Its top-level keys are `aliases, click_groups, commands, completion_callbacks, root_commands,
+  schema_version, top_level_surfaces, tracked_surfaces`. No payload keys.
+- `test_cli_json_output_coverage.py` — pins `--json` **presence**, not content.
+- `tests/unit/mcp/test_manifest.py` — pins the 33 **tool names** and annotations.
+
+**No existing gate pins a success-response payload.** REST declares no `response_model` (zero
+occurrences under `server/routes/`) and MCP declares no `outputSchema` (zero occurrences), but
+there is still executable projection policy. Some sinks use the full `_app/serialize.py::to_jsonable`
+field conversion; `_app/views.py` allowlists `Source` / `Notebook`, trims `AskResult`, and hand-builds
+or enriches `ShareStatus`; mind-map and other adapter paths also build channel-specific shapes.
+Consequently, neither the public dataclass field set nor an import-reference scan alone describes a
+frontend contract. Existing compatibility aliases remain pinned only in projections that actually
+emit them.
+
+**P0 therefore registers a `json_envelope` ADR-0022 baseline** in `tests/_baselines/registry.py`.
+Its primary `channels` section is reviewed sink/view evidence: projection mode plus exact top-level
+and nested keys plus causal public-model fields for each reachable shape in CLI JSON, MCP results,
+and REST bodies. The frozen totals are CLI 31 model identities / 133 projections, MCP 32 / 123, and
+REST 32 / 57: 313 unique ids. A separate `exported_dataclass_key_inventory` captures the full
+`to_jsonable` behavior of all 49 non-secret exported dataclasses, and import-only references remain
+explicitly supplemental.
+
+The baseline also embeds `adapter_sink_reachability`, a closed-world allocation of all 350
+terminal/error sites: 225 public-projection, 117 reviewed non-public, and eight forwarding
+infrastructure, with 15 conditional non-public variants across 14 mixed terminals. Discovery
+includes CLI JSON success/error/direct emissions, MCP tool/error funnels and auxiliary connector
+routes, and REST route/app/error sites. Every live projection id is terminal-allocated; a new
+registration or direct JSON bypass fails closed. Thirty-six private DTO -> public dataclass paths
+and a compact digest for the 519-node / 1,242-edge bounded transitive helper graph closes the
+helper gap alongside 16 explicit fingerprints (520 unique helpers overall); 34 paths are linked,
+while
+`SourceRefreshResult.result` is mutation-proven production-dead and
+`ValidatedSessionConfig.limits` is source-proven internal-runtime-only. Thirty-seven declarations
+across 28 literal final-dict sites derive their top-level shape from the AST; 168 explicit rows
+remain honestly manual-reviewed.
+
+`AuthTokens` remains excluded from the exported/full-`to_jsonable` inventory. Direct, aliased,
+annotated, client-property, and nested-container recursive serialization fails the derivation. The
+only exceptions are exactly two marked redacted contributions, MCP and REST `server_info`:
+`authuser` / `account_email` may emit, while `storage_path` and profile-session generation are
+control-flow/cache selectors only. Credential fields and any third or relocated projection fail
+closed. Before this baseline, migration rule 3's "no public result change" was unverifiable for all
+three adapters.
+
+No phase may weaken any gate above without shipping the equivalent replacement in the same PR
+(migration rule 9).
+
+### Existing integration and frontend tests
+
+Retain current VCR, CLI, MCP, REST, E2E, public surface, and adapter consistency tests throughout.
+For a migrated operation, existing integration tests prove the legacy facade still emits the same
+web call and returns the same public result.
+
+### Architecture guardrails
+
+A guardrail introduced by this plan ships with an **empty** allowlist over the already-migrated
+scope, and widens its scope as domains migrate. A non-empty allowlist requires the same approval as
+a ceiling raise and names its burndown issue. This matches the repo it governs, where every
+comparable ratchet ships `frozenset()` (`test_no_raw_positional_rpc_indexing.py`,
+`test_no_forbidden_monkeypatches.py`). Scope ratchets, not allowlists:
+
+- migrated semantic service modules may not import `notebooklm.rpc`, `_web`, `httpx`, auth modules,
+  or row adapters;
+- web codec modules may not import CLI/MCP/REST or `_app`;
+- public model modules may not add new backend/wire imports;
+- new feature code may not call `RpcCaller` when an operation exists;
+- semantic service modules may not import `BackendKind` or branch on a backend's type, enforced by
+  an AST guardrail rather than review (migration rule 5 is otherwise unenforced);
+- every migrated web binding retains both static dataflow and parameterized runtime proof that its
+  method id reaches URL, body, dispatch, and decoder through `resolve_rpc_id`;
+- every operation has exact allocated execution authorities, with one authority after its migrated
+  slice unless a reviewed divergence still names the collapse phase;
+- every native method/variant has variant-scoped codec/golden evidence or an explicit
+  `not_recorded` disposition; and
+- temporary bridge modules list their removal phase.
+
+Ratchets expand as each domain migrates. They must not force an all-at-once rewrite.
+
+### Verification commands
+
+Each implementation PR runs the smallest relevant set plus architecture/public gates. Phase-ending
+PRs run the canonical repository suite:
+
+```bash
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy src/notebooklm
+uv run pre-commit run --all-files
+```
+
+VCR-backed behavior changes require explicit evidence and review. Mobile live checks, if P10 is
+approved, use dedicated profiles/notebooks and a separately documented safe capture procedure.
+
+## Measurements and success criteria
+
+Record a baseline at P0 and update it at every phase boundary.
+
+| Measure | Direction |
+|---|---|
+| Direct `RPCMethod.<member>` references outside web protocol/binding code | Down to zero for migrated domains |
+| Modules under `src/notebooklm/` (excl. `rpc/`, `_web/`, `_idempotency*`) importing `RPCMethod` | Down from its P0 count to zero |
+| Production calls to public `from_api_response()`/`from_row()` | Down to zero for migrated resources, counted over the P3 scope only (excludes `_app/`, `mcp/`) |
+| Test files referencing `build_client_shell_for_tests` / `compose_client_internals` (39 at P0) | Down; semantic tests use fake backend |
+| Test-only post-construction mutation seams in production runtime | Down after P7 |
+| Semantic operation rows with more than one exact allocated execution authority | Down to one authority per *migrated* operation; starts at 39 of 86 operations |
+| Native method/variant rows with more than one direct non-test execution site | Track separately from semantic authority allocation; starts at 14 of 56 native rows |
+| Existing cassette rewrites caused only by code motion | Zero |
+| Public API compatibility audit failures | Zero, with **no new entry in `scripts/api-compat-allowlist.json`** |
+| `metrics_snapshot()` / `RpcTelemetryEvent` field or emission drift | Zero |
+| Exception mixin-lattice (`isinstance`) regressions | Zero |
+| Secret-bearing repr/log/exception regressions | Zero |
+| Coverage | At or above global `--cov-fail-under=90` **and** every `[tool.notebooklm.per_file_coverage_floors]` entry (five CLI files, enforced by `scripts/check_coverage_thresholds.py`) -- P6's CLI-adjacent churn trips the per-file floors long before the global gate |
+
+### P0 baseline record
+
+Captured on 2026-08-23 at P0's merge base, `3bb0c185`. The catalog/contract rows include the
+additive P0 projections derived from that tree; those files do not change a runtime path. Later
+phase reports rerun the same commands and record their base commit.
+
+| Measure | P0 value |
+| --- | --- |
+| Direct `RPCMethod.<member>` references outside current protocol/binding homes (`rpc/`, `_idempotency*`, `_row_adapters/`) | **170** expressions |
+| Modules importing `RPCMethod`, excluding `rpc/`, future `_web/`, and `_idempotency*` | **36** modules |
+| Production calls to public `from_api_response()` / `from_row()` in P3 scope | **17** calls in **13** modules |
+| Test files referencing `build_client_shell_for_tests` / `compose_client_internals` | **39** files |
+| Test-only post-construction mutation seams in production runtime | **7** test-observed live-rebind targets: `ClientSeams.is_auth_error`, refresh delegate, chain, chain terminal, and three retry-budget attributes |
+| Semantic operation rows with more than one exact allocated execution authority | **39 of 86** operations; the catalog allocates **157** total RPC/stream/upload/download/orchestrator authority rows and records **11** divergences (**10** authority plus one policy) |
+| Native method/variant rows with more than one direct non-test execution site | **14 of 56** native rows; this direct-callsite measure is intentionally distinct from per-operation authority allocation |
+| Existing cassette rewrites caused only by code motion | **0** changed cassette files |
+| Public API compatibility audit failures / allowlist entries | **0 / 0** |
+| `metrics_snapshot()` / `RpcTelemetryEvent` field or emission drift | **0** baseline mismatches; 14 snapshot fields and five event fields are observed through composed public `rpc_call()` / `metrics_snapshot()` success, transport-error, and decode-error scenarios; direct non-RPC middleware probes are supplemental |
+| Exception mixin-lattice regressions | **0** failures (**105 passed**) |
+| Secret-bearing repr/log/exception regressions | **0** failures (**103 passed**) |
+| Coverage | **96.69%** global; all five floors pass: `__main__.py` 0.00% / 0%, `cli/_firefox_containers.py` 97.44% / 95%, `doctor_cmd.py` 89.91% / 63%, `profile_cmd.py` 90.95% / 74%, `session_cmd.py` 97.44% / 83% |
+
+The model/adapter contracts cover 86 public identities (50 dataclasses and 36 enums). Valid
+constructor samples produce 85 successful structured pickle probes, zero mismatches, and one
+truthful `AuthTokens` dumps failure (`TypeError`, `unpickleable-thread-lock`); the baseline also
+pins first-party state-hook ownership and successful `Notebook` / `ChatReference` legacy-state
+restores. The JSON baseline's primary channel inventory contains 31 model identities / 133
+projections for CLI, 32 / 123 for MCP, and 32 / 57 for REST: 313 unique projection ids. Its
+49-dataclass non-secret full-key inventory and import-reference counts (9 / 4 / 0 respectively) are
+supplemental. `adapter_sink_reachability` closes the adapter graph over 350 exact terminal/error
+sites: 225 carry public projections, 117 are reviewed non-public, and eight are forwarding
+infrastructure. Fifteen conditional non-public variants are pinned across 14 mixed sites. All 313
+live ids are allocated. It also records 36 private DTO -> public dataclass paths (34 linked, one
+production-dead public-valued arm, and one internal-runtime-only path), 16 delegated-helper
+fingerprints, and the aggregate 519-node / 1,242-edge transitive-helper graph digest. Adapter
+registrations and direct JSON emissions are fail-closed. `AuthTokens` remains
+out of the full-key inventory and is reachable only through the exact redacted MCP/REST
+`server_info` identity projections; credential serialization remains forbidden.
+
+The catalog also records 86 semantic operations, 47 RPC ids, 56 native rows, 146 public namespace
+methods (eight local-only), and ten public root-client members. It carries 11 reviewed divergences:
+10 authority and one policy. Golden evidence scope is `variant`, `method_family`, or
+`method_contract`; four native rows are honestly `not_recorded`:
+`ADD_SOURCE:<default>`, `ADD_SOURCE:drive`, `CREATE_NOTE:<default>`, and
+`CREATE_NOTE:saved_from_chat`. Every native row has source-dataflow plus parameterized runtime
+override proof. The raw public `rpc_call()` escape hatch remains explicitly classified as
+web-only/raw.
+
+#### Reproduction
+
+The first inventory is deliberately an expression count, not a count of lines that happen to
+mention the type. The import count uses the AST so parenthesized imports are not missed.
+
+```bash
+# 170 direct member expressions.
+rg -o 'RPCMethod\.[A-Z][A-Z0-9_]*' src/notebooklm -g '*.py' \
+  -g '!src/notebooklm/rpc/**' -g '!src/notebooklm/_idempotency*.py' \
+  -g '!src/notebooklm/_row_adapters/**' | wc -l
+
+# 17 production decode calls; 39 factory/composition test files.
+rg -n '\.(from_api_response|from_row)\(' src/notebooklm -g '*.py' \
+  -g '!src/notebooklm/_app/**' -g '!src/notebooklm/mcp/**' | wc -l
+rg -l 'build_client_shell_for_tests|compose_client_internals' tests -g '*.py' | wc -l
+
+# Seven documented/test-observed post-construction live-rebind targets.
+rg -o 'ClientSeams\.is_auth_error|seams\.is_auth_error|chain_host\._auth_refresh\.await_refresh|chain_host\._(rate_limit_max_retries|server_error_max_retries|refresh_retry_delay|authed_post_chain_terminal|authed_post_chain)' tests -g '*.py' \
+  | sed 's/^[^:]*://' | sed 's/^ClientSeams\./seams./' | sort -u | wc -l
+
+# Zero code-motion cassette rewrites in the P0 stack.
+git diff --name-only "$(git merge-base origin/main HEAD)"..HEAD -- tests/cassettes | wc -l
+```
+
+```bash
+# 36 importing modules (AST, so multiline imports count).
+uv run python - <<'PY'
+import ast
+from pathlib import Path
+
+root = Path("src/notebooklm")
+found = []
+for path in sorted(root.rglob("*.py")):
+    if (
+        path.is_relative_to(root / "rpc")
+        or path.is_relative_to(root / "_web")
+        or path.name.startswith("_idempotency")
+    ):
+        continue
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    if any(
+        isinstance(node, ast.ImportFrom)
+        and any(alias.name == "RPCMethod" for alias in node.names)
+        for node in ast.walk(tree)
+    ):
+        found.append(path)
+print(len(found))
+PY
+```
+
+The registered projections and compatibility gates reproduce the remaining values:
+
+```bash
+# Catalog totals: 86 operations, 47 RPC ids, 56 native rows, 146 namespace
+# methods (eight local-only), ten root-client members, 157 allocated authority
+# rows, 39 multi-authority operations, 14 multi-site native rows, 11 divergences
+# (10 authority plus one policy), four honest golden gaps, and 56/56 override proof.
+uv run python scripts/audit_operation_catalog.py --json | uv run python -c \
+  'import json,sys; c=json.load(sys.stdin); print({"operations": len(c["operations"]), "rpc_ids": len({r["rpc_method"] for r in c["native_bindings"]}), "native_rows": len(c["native_bindings"]), "namespace_methods": len(c["public_methods"]), "namespace_local_only": sum(r["disposition"] == "local_only" for r in c["public_methods"].values()), "root_client_members": len(c["client_members"]), "allocated_authority_rows": sum(len(r["execution_authorities"]) for r in c["operations"]), "multi_authority_operations": sum(len(r["execution_authorities"]) > 1 for r in c["operations"]), "multi_site_native_rows": sum(len(r["execution_authorities"]) > 1 for r in c["native_bindings"]), "authority_divergences": sum(r["kind"] == "authority" for r in c["known_divergences"]), "policy_divergences": sum(r["kind"] == "policy" for r in c["known_divergences"]), "golden_not_recorded": sum(r["golden_disposition"] == "not_recorded" for r in c["native_bindings"]), "override_honored": sum(r["override_honored"] for r in c["native_bindings"])})'
+# JSON envelope totals: CLI 31 models/133 projections, MCP 32/123, REST 32/57;
+# 313 unique ids. Sink totals: 350 = 225 projection + 117 reviewed non-public
+# + 8 infrastructure; 15 conditional non-public variants, 36 private paths,
+# 16 explicit helper fingerprints, and a 519-node / 1,242-edge helper-graph digest.
+uv run python - <<'PY'
+import json
+from collections import Counter
+
+with open("tests/fixtures/baselines/json_envelope.json", encoding="utf-8") as handle:
+    contract = json.load(handle)
+
+projection_ids = {
+    projection["id"]
+    for models in contract["channels"].values()
+    for row in models.values()
+    for projection in row["projections"]
+}
+reachability = contract["adapter_sink_reachability"]
+dispositions = Counter(
+    "projection"
+    if "projection_ids" in site["allocation"]
+    else "non_public"
+    if "non_public_category" in site["allocation"]
+    else "infrastructure"
+    for site in reachability["sites"]
+)
+private_paths = reachability["private_dataclass_projection_paths"]
+print(
+    {
+        "channels": {
+            channel: {
+                "models": len(models),
+                "projections": sum(len(row["projections"]) for row in models.values()),
+            }
+            for channel, models in contract["channels"].items()
+        },
+        "unique_projection_ids": len(projection_ids),
+        "exported_inventory": len(contract["exported_dataclass_key_inventory"]),
+        "supplemental_imports": {
+            channel: len(rows)
+            for channel, rows in contract["supplemental_import_references"].items()
+        },
+        "adapter_sink_reachability": {
+            "sites": reachability["site_count"],
+            **dispositions,
+            "conditional_non_public_variants": sum(
+                len(site["allocation"].get("non_public_variants", []))
+                for site in reachability["sites"]
+            ),
+            "private_paths": len(private_paths),
+            "linked_private_paths": sum(
+                "projection_ids" in row["allocation"] for row in private_paths
+            ),
+            "production_dead_private_paths": sum(
+                row["allocation"].get("unreachable_category")
+                == "production-dead-public-branch"
+                for row in private_paths
+            ),
+            "internal_runtime_configuration_private_paths": sum(
+                row["allocation"].get("unreachable_category")
+                == "internal-runtime-configuration"
+                for row in private_paths
+            ),
+            "helper_fingerprints": len(reachability["delegated_helper_fingerprints"]),
+        },
+    }
+)
+PY
+uv run python scripts/audit_public_api_compat.py --baseline-ref origin/main
+uv run pytest \
+  'tests/_guardrails/test_public_surface_manifest.py::test_baseline_matches_committed_file[public_model_contract]' \
+  'tests/_guardrails/test_public_surface_manifest.py::test_baseline_matches_committed_file[metrics_contract]' \
+  'tests/_guardrails/test_public_surface_manifest.py::test_baseline_matches_committed_file[json_envelope]' -q
+uv run pytest tests/unit/test_exceptions.py \
+  tests/_guardrails/test_error_contract_catch_ordering.py -q
+uv run pytest tests/unit/test_auth_repr_redaction.py tests/unit/test_logging.py \
+  tests/unit/test_cookie_redaction.py tests/_guardrails/test_runtime_secret_registry_parity.py -q
+```
+
+Coverage must use CI's complete optional-adapter install. The contributor-only install skips MCP
+and REST tests while coverage still measures those packages, producing a misleading 85.14%.
+
+```bash
+uv sync --frozen --extra browser --extra dev --extra markdown --extra mcp \
+  --extra server --extra impersonate --extra cookies
+uv run pytest -n auto --dist loadgroup --cov=src/notebooklm \
+  --cov-report=term-missing --cov-report=json:coverage.json --cov-fail-under=90
+uv run python scripts/check_coverage_thresholds.py --coverage-json coverage.json
+```
+
+Line-count reduction is a useful P7 outcome but not the primary P1-P6 goal. Early phases may add
+temporary translation code. The stop/go reviews must ensure those bridges are shrinking on schedule
+rather than becoming a second permanent architecture.
+
+## Risks and controls
+
+### 1. A second architecture becomes permanent
+
+**Risk:** semantic services are added while direct feature RPC implementations remain, doubling
+maintenance.
+
+**Control:** one execution authority per operation; delegation and old-path deletion are part of the
+same bounded slice. Every temporary bridge names its removal phase.
+
+### 2. The port degenerates into generic `Any` dispatch
+
+**Risk:** an operation enum is added but handlers still accept dictionaries/lists, merely renaming
+`rpc_call()`.
+
+**Control:** each migrated operation has concrete input/output types and a runtime type assertion in
+the registry/fake. No open string operation names or arbitrary handler registration.
+
+### 3. Public compatibility contaminates the new core
+
+**Risk:** legacy mutable models, aliases, and return sentinels become backend record requirements.
+
+**Control:** compatibility projection is one-way at the facade. Neutral records describe proven
+domain facts, not old constructor or mapping behavior.
+
+### 4. Greenfield scope silently removes current product features
+
+**Risk:** operations absent from the separate v0 design disappear from the inventory.
+
+**Control:** P0 begins from the current repository's complete public/RPC surface and records an
+explicit disposition for settings, sharing, mind maps, data tables, suggestions, retry, downloads,
+exports, and adapter-only workflows.
+
+### 5. Tests prevent runtime simplification
+
+**Risk:** live mutation and deep inspection tests force `ClientComposed`/middleware structure to
+remain after production callers no longer need it.
+
+**Control:** migrate tests to backend/provider/clock seams before P7; replace structural guards with
+behavioral parity gates in the same PR that removes the structure.
+
+### 6. Authentication refactoring overwhelms the core migration
+
+**Risk:** the largest and most concurrency-sensitive subsystem is changed before the new boundary
+is proven.
+
+**Control:** keep auth and middleware intact behind the transitional web backend through P6. P8 has
+separate entry criteria and must reconcile with ADR-0032 through ADR-0034.
+
+### 7. Semantic policy changes observable retry behavior
+
+**Risk:** moving policy ownership accidentally replays a write or suppresses a previously safe read
+retry.
+
+**Control:** equality-pin semantic/native policy parity before switching authority. Change retry
+behavior only in a separate evidence-backed fix.
+
+### 8. Family services make the public client noisier
+
+**Risk:** splitting Artifact behavior produces many top-level namespaces and option classes.
+
+**Control:** keep family services internal first; evaluate a grouped `client.studio.<family>` public
+shape only in P9.
+
+### 9. Mobile work distracts from web simplification
+
+**Risk:** protobuf generation and bearer auth consume effort before current code benefits.
+
+**Control:** P10 is optional and blocked on fixtures. P0-P8 must be justified by improvements to the
+current web implementation.
+
+### 10. Undocumented backend drift invalidates the migration baseline
+
+**Risk:** Google changes the web wire while code is moving, making behavioral drift hard to
+attribute.
+
+**Control:** keep PRs small, retain current cassettes, run targeted live health checks under the
+existing policy, and separate wire-fix commits from architecture commits.
+
+## Rollout and rollback
+
+- The new path is selected statically per migrated operation; there is no user-facing runtime flag
+  and no automatic old/new fallback.
+- During development, a test-only comparison harness may run old and new pure decoders/projectors on
+  the same scrubbed fixture. It must not issue duplicate live mutations.
+- Rollback of a migration PR restores the previous facade implementation because public signatures
+  and stored data do not change.
+- Once an old path is deleted and a release ships, rollback uses git/release rollback, not a hidden
+  dormant implementation or environment toggle.
+- No cross-backend mutation fallback is introduced in P10.
+
+## Stop conditions
+
+Most of what a stop-conditions list would say is already a migration rule or a compatibility-contract
+clause, and duplicated rules drift. Only these three are *not* stated elsewhere, and each pauses
+expansion pending a design review:
+
+- temporary translation code grows for two consecutive phases without scheduled deletion;
+- auth/profile invariants would have to be weakened to satisfy the new interface; or
+- the neutral record turns out to be merely a copy of a positional array or of a public
+  compatibility model -- i.e. the port is adding translation without adding ownership.
+
+These are design-review stop conditions, not reasons to bypass tests or broaden the refactor.
+
+## Definition of done
+
+The per-phase **Acceptance criteria** above are the definition of done; this plan does not maintain
+a second copy of them. The internal refactor may be declared successful after P8 -- neither a
+breaking public API nor a second backend is required to realize its primary architectural benefit.

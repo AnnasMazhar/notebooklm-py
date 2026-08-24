@@ -58,7 +58,7 @@ The ADR Index table utilizes five eras of Status notation to reflect the lifecyc
 | [0021](0021-transport-neutral-app-layer.md) | Transport-neutral application layer (`_app/`) | Accepted |
 | [0022](0022-regenerable-baselines.md) | Regenerable test baselines (derive / store / compare / regen) | Accepted |
 | [0023](0023-master-token-headless-auth.md) | Master-token headless auth (Option A) | Accepted |
-| [0024](0024-mcp-remote-file-transfer.md) | MCP remote file transfer (signed-URL side-channel) | Proposed |
+| [0024](0024-mcp-remote-file-transfer.md) | MCP remote file transfer (signed-URL side-channel) | Accepted; implemented |
 | [0025](0025-mcp-tool-granularity.md) | MCP tool granularity — mega-tools vs. discrete verbs | Accepted |
 | [0026](0026-mcp-studio-surface.md) | MCP Studio surface — notes + artifacts unified | Accepted |
 | [0027](0027-mcp-app-upload-widget.md) | In-app MCP-App upload widget (opt-in) | Accepted (experimental / opt-in) |
@@ -69,6 +69,7 @@ The ADR Index table utilizes five eras of Status notation to reflect the lifecyc
 | [0032](0032-auth-domain-types.md) | Auth domain types (`Cookie`/`CookieJar`/`MasterToken`) + `AuthTokens` runway | Accepted; implementation remains incremental |
 | [0033](0033-auth-consolidation-policy.md) | `_auth` consolidation policy — sanctioned-merge ceilings + function-granular write boundary; amended by [ADR-0034](0034-auth-storage-object-model.md) | Accepted (#2156) |
 | [0034](0034-auth-storage-object-model.md) | Auth storage object model and incremental extraction | Accepted |
+| [0035](0035-semantic-backend-boundary.md) | Semantic backend boundary | Accepted |
 
 ADR-0007 ships alongside its enforcement substrate: the concrete fixtures (`tests/_fixtures/`) and meta-lint (`tests/_guardrails/test_no_forbidden_monkeypatches.py`) are added in the same PR (`arch-d1-fixtures-scaffolding`) so the record is grounded in working code rather than an empty placeholder.
 

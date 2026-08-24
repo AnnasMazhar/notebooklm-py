@@ -189,6 +189,8 @@ def test_collect_manifest_includes_representative_client_namespace_methods(scrip
     assert {
         "artifacts.download_audio",
         "chat.ask",
+        "collections.create",
+        "collections.list",
         "mind_maps.generate",
         "mind_maps.get",
         "notebooks.list",
@@ -198,6 +200,31 @@ def test_collect_manifest_includes_representative_client_namespace_methods(scrip
         "sharing.set_public",
         "sources.add_url",
     } <= set(members)
+
+
+def test_collect_manifest_captures_every_collections_namespace_method(script):
+    """The stable collections namespace is audited method-by-method, not as a bare attr."""
+    manifest = script.collect_manifest(REPO_ROOT)
+    members = manifest["modules"]["notebooklm"]["exports"]["NotebookLMClient"]["members"]
+
+    captured = {
+        name.removeprefix("collections.") for name in members if name.startswith("collections.")
+    }
+    assert captured == {
+        "add_notebooks",
+        "create",
+        "delete",
+        "get",
+        "get_or_none",
+        "list",
+        "notebooks",
+        "remove_notebooks",
+        "rename",
+    }
+
+
+def test_collections_namespace_is_audited(script):
+    assert "collections" in script.CLIENT_NAMESPACE_ATTRIBUTES
 
 
 def test_mind_maps_namespace_is_audited(script):

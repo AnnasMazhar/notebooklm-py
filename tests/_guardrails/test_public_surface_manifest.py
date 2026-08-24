@@ -1257,6 +1257,10 @@ def test_baseline_registry_is_non_trivial() -> None:
         "auth_patch_sites",
         "types_all",
         "ungated_surface",
+        "operation_catalog",
+        "public_model_contract",
+        "metrics_contract",
+        "json_envelope",
         "cli_contract",
     } <= names, names
     # Names are unique (parametrize ids + lookup rely on it).

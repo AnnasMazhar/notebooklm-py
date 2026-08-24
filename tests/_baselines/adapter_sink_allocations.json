@@ -1,0 +1,2431 @@
+{
+  "schema_version": 1,
+  "allocations": [
+    {
+      "locator": "cli --json|notebooklm/cli/_session_render.py|_render_status|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/_session_render.py:_render_status expression `{'paths': report.paths}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_session_render.py|_render_status|json_output_response|2",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/_session_render.py:_render_status expression `{'has_context': False, 'notebook': None, 'conversation_id': None}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_session_render.py|_render_status|json_output_response|3",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/_session_render.py:_render_status expression `{'has_context': True, 'notebook': {'id': ctx_view.notebook_id, 'title': None, 'is_owner': None, 'role': None}, 'conversation_id': None}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_session_render.py|_render_status|json_output_response|4",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/_session_render.py:_render_status expression `{'has_context': True, 'notebook': {'id': ctx_view.notebook_id, 'title': ctx_view.title if ctx_view.title and ctx_view.title != '-' else None, 'is_owner': ctx_view.is_owner if ctx_view.is_owner is not None else True, 'role': ctx_view.role}, 'conversation_id': ctx_view.conversation_id}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_session_render.py|_render_logout_outcome|json_error_response|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/_session_render.py:_render_logout_outcome expression `{'path': str(failure.path), 'env_auth_remains': outcome.env_auth_remains, 'browser_profile_preserved': str(outcome.browser_profile_preserved) if outcome.browser_profile_preserved is not None else None}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_session_render.py|_render_logout_outcome|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/_session_render.py:_render_logout_outcome expression `{'status': 'logged_out' if outcome.removed_any else 'already_logged_out', 'removed': outcome.removed_any, 'env_auth_remains': outcome.env_auth_remains, 'browser_profile_preserved': str(outcome.browser_profile_preserved) if outcome.browser_profile_preserved is not None else None}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_session_render.py|_render_auth_check_result|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/_session_render.py:_render_auth_check_result expression `payload`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_session_render.py|_render_auth_inspect|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/_session_render.py:_render_auth_inspect expression `{'browser': browser_name, 'accounts': [{'email': a.email, 'is_default': a.is_default, 'browser_profile': a.browser_profile} for a in accounts]}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_session_render.py|_render_auth_inspect_error|_output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/_session_render.py:_render_auth_inspect_error expression `extra`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_validate_upload_path|_output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/_source_render.py:_validate_upload_path expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_get_result|_output_error|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_get_result|json_output_response|1",
+      "projection_ids": [
+        "cli.Source.manual-get-final-wrapper"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_emit_source_fulltext_flag_conflict|_output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/_source_render.py:_emit_source_fulltext_flag_conflict expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_resolve_source_fulltext_output_path|_output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/_source_render.py:_resolve_source_fulltext_output_path expression `{'path': str(path), 'suggestion': suggestion}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_fulltext_result|json_output_response|1",
+      "projection_ids": [
+        "cli.SourceFulltext.manual-file-output-projection",
+        "cli.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_fulltext_result|json_output_response|2",
+      "projection_ids": [
+        "cli.SourceFulltext.manual-field-projection",
+        "cli.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_guide_result|json_output_response|1",
+      "projection_ids": [
+        "cli.SourceGuide.manual-guide-projection",
+        "cli.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_wait_outcome|json_output_response|1",
+      "projection_ids": [
+        "cli.Source.transitive-wait-ready-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_wait_outcome|json_output_response|2",
+      "projection_ids": [
+        "cli.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_wait_outcome|json_output_response|3",
+      "projection_ids": [
+        "cli.Source.transitive-wait-processing-error-final-wrapper",
+        "cli.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_wait_outcome|json_output_response|4",
+      "projection_ids": [
+        "cli.Source.transitive-wait-timeout-final-wrapper",
+        "cli.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_stale_result|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_handle_source_mutation_error|_output_error|1",
+      "projection_ids": [
+        "cli.Source.transitive-delete-resolver-error-text-wrapper",
+        "cli.Source.transitive-delete-confirm-by-id-error-wrapper",
+        "cli.Source.transitive-delete-confirm-by-title-error-wrapper",
+        "cli.Source.transitive-clean-confirm-required-error-wrapper"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_delete_result|json_output_response|1",
+      "projection_ids": [
+        "cli.Source.transitive-delete-by-title-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_rename_result|json_output_response|1",
+      "projection_ids": [
+        "cli.Source.transitive-rename-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_refresh_result|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_add_drive_result|json_output_response|1",
+      "projection_ids": [
+        "cli.Source.transitive-add-drive-final-wrapper",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_source_add_drive_file_result|json_output_response|1",
+      "projection_ids": [
+        "cli.Source.transitive-add-drive-file-final-wrapper",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_emit_add_research_flag_conflict|_output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/_source_render.py:_emit_add_research_flag_conflict expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_exit_with_add_research_status|json_output_response|1",
+      "projection_ids": [
+        "cli.ResearchTask.transitive-source-add-research-failure-final-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_add_research_result|_output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/_source_render.py:_render_add_research_result expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_add_research_result|json_output_response|1",
+      "projection_ids": [
+        "cli.ResearchStart.transitive-source-add-research-no-wait-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/_source_render.py|_render_add_research_result|json_output_response|2",
+      "projection_ids": [
+        "cli.ResearchStart.transitive-source-add-research-completed-projection",
+        "cli.ResearchTask.transitive-source-add-research-completed-final-projection",
+        "cli.ResearchSource.nested-to-public-dict-projection",
+        "cli.CitedSourceSelection.transitive-source-add-research-completed-projection",
+        "cli.Source.transitive-source-add-research-imported-sources-final-wrapper"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_get._run|_output_error|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Artifact.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_get._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Artifact.manual-get-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_get_prompt._run|_output_error|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Artifact.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_get_prompt._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Artifact.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_rename._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Artifact.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_delete._run|json_output_response|1",
+      "projection_ids": [
+        "cli.MindMap.transitive-artifact-delete-final-carveout",
+        "cli.Artifact.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_delete._run.resolve_delete|_output_error|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Artifact.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_export._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Artifact.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_poll._run|json_output_response|1",
+      "projection_ids": [
+        "cli.GenerationStatus.manual-poll-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_wait._run|json_output_response|1",
+      "projection_ids": [
+        "cli.GenerationStatus.manual-wait-projection",
+        "cli.Artifact.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_wait._run|json_output_response|2",
+      "projection_ids": [
+        "cli.Artifact.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_retry._run|json_output_response|1",
+      "projection_ids": [
+        "cli.GenerationStatus.manual-retry-kickoff-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_retry._run|json_output_response|2",
+      "projection_ids": [
+        "cli.GenerationStatus.manual-wait-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_retry._run|json_output_response|3",
+      "projection_ids": [
+        "cli.GenerationStatus.transitive-retry-timeout-task-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/artifact_cmd.py|artifact_suggestions._run|json_output_response|1",
+      "projection_ids": [
+        "cli.ReportSuggestion.manual-field-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/auth_runtime.py|handle_auth_error|json_error_response|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/auth_runtime.py:handle_auth_error expression `{'checked_paths': {'storage_file': str(storage_path), 'storage_source': storage_source, 'env_var': env_var_name if has_env_var else None}, 'help': f\"Run 'notebooklm login' or set {env_var_name}\"}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd|_output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/chat_cmd.py:register_chat_commands.ask_cmd expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+      "projection_ids": [
+        "cli.AskResult.app-view-cli-final-with-note-outcome",
+        "cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion",
+        "cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference",
+        "cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey",
+        "cli.Note.transitive-chat-save-note-projection",
+        "cli.StructuredDocument.transitive-chat-reference-full-contribution",
+        "cli.DocumentAnnotation.transitive-chat-reference-full-contribution",
+        "cli.DocumentBlock.transitive-chat-reference-full-contribution",
+        "cli.TextSpan.transitive-chat-reference-full-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.suggest_prompts_cmd._run|json_output_response|1",
+      "projection_ids": [
+        "cli.PromptSuggestion.manual-cli-final-wrapper",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.configure_cmd._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.configure_cmd._run|json_output_response|2",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.history_cmd._run|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited history --clear's local-cache result envelope: this branch returns before notebook resolution and emits only private cache-result scalars, so no public Notebook instance reaches it.",
+      "helper_symbols": [
+        "notebooklm.cli.chat_cmd._clear_cache_json_payload"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.history_cmd._run|_output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/chat_cmd.py:register_chat_commands.history_cmd._run expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.history_cmd._run|json_output_response|2",
+      "projection_ids": [
+        "cli.Note.transitive-history-save-note-final-wrapper",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.history_cmd._run|json_output_response|3",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/collection_cmd.py|_handle_collection_resolution_error|output_error|1",
+      "projection_ids": [
+        "cli.Collection.resolver-ambiguous-id-error-wrapper",
+        "cli.Collection.resolver-ambiguous-name-error-wrapper",
+        "cli.Collection.resolver-near-miss-error-wrapper",
+        "cli.Collection.always-listed-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/collection_cmd.py|collection_notebooks._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.manual-collection-member-projection",
+        "cli.Collection.always-listed-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/collection_cmd.py|collection_create._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Collection.manual-mutation-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/collection_cmd.py|collection_rename._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Collection.manual-mutation-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/collection_cmd.py|collection_add._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Collection.manual-add-membership-final-projection",
+        "cli.Notebook.always-listed-collection-membership-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/collection_cmd.py|collection_remove._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Collection.manual-remove-membership-final-projection",
+        "cli.Notebook.always-listed-collection-membership-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/collection_cmd.py|collection_delete._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Collection.always-listed-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/collection_cmd.py|collection_delete._run.resolve_delete|output_error|1",
+      "projection_ids": [
+        "cli.Collection.always-listed-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/doctor_cmd.py|_run_doctor|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/doctor_cmd.py:_run_doctor expression `result`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/download_cmd.py|_run_artifact_download|output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/download_cmd.py:_run_artifact_download expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/download_cmd.py|_run_artifact_download|json_output_response|1",
+      "projection_ids": [
+        "cli.Artifact.transitive-download-selected-artifact-projection",
+        "cli.Artifact.transitive-download-error-artifact-projection",
+        "cli.Artifact.transitive-download-dry-all-item-projection",
+        "cli.Artifact.transitive-download-executed-item-projection",
+        "cli.Artifact.transitive-download-no-artifacts-final-wrapper",
+        "cli.Artifact.transitive-download-error-final-wrapper",
+        "cli.Artifact.transitive-download-all-dry-run-final-wrapper",
+        "cli.Artifact.transitive-download-all-executed-final-wrapper",
+        "cli.Artifact.transitive-download-single-dry-run-final-wrapper",
+        "cli.Artifact.transitive-download-single-downloaded-final-wrapper",
+        "cli.Artifact.always-listed-download-resolver-id-contribution"
+      ],
+      "helper_symbols": [
+        "notebooklm.cli.services.download.build_download_envelope"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "artifact listing is empty and the download result is NO_ARTIFACTS",
+          "category": "cli-scalar-success",
+          "review_note": "When artifact listing returns no rows, the NO_ARTIFACTS envelope contains only literal status/count fields and an empty items list; no public Artifact instance exists to contribute."
+        }
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/error_handler.py|_output_error|direct-json-emission|1",
+      "infrastructure_category": "central-json-forwarder",
+      "review_note": "Audited notebooklm/cli/error_handler.py:_output_error `response` as one of the six pinned central renderer/error forwarding sites; it delegates caller-owned payloads and is covered by owner/expression fingerprints."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/error_handler.py|emit_cancelled_and_exit|direct-json-emission|1",
+      "infrastructure_category": "central-json-forwarder",
+      "review_note": "Audited notebooklm/cli/error_handler.py:emit_cancelled_and_exit `response` as one of the six pinned central renderer/error forwarding sites; it delegates caller-owned payloads and is covered by owner/expression fingerprints."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/error_handler.py|handle_errors.emit|_output_error|1",
+      "projection_ids": [
+        "cli.GenerationStatus.nested-timeout-transition-projection",
+        "cli.ResearchTask.transitive-import-refusal-error-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the caught exception is neither a GenerationStatus timeout nor a ResearchTask import refusal",
+          "category": "cli-scalar-error",
+          "review_note": "Other exceptions handled by the central CLI funnel contribute only exception/private DTO scalars to the standard error envelope; no public GenerationStatus or ResearchTask field reaches those variants."
+        }
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/generate_cmd.py|resolve_language|output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/generate_cmd.py:resolve_language expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/generate_cmd.py|resolve_language|output_error|2",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/generate_cmd.py:resolve_language expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/generate_cmd.py|resolve_language|output_error|3",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/generate_cmd.py:resolve_language expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/generate_cmd.py|_output_mind_map_result|json_error_response|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/generate_cmd.py:_output_mind_map_result expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/generate_cmd.py|_output_mind_map_result|json_output_response|1",
+      "projection_ids": [
+        "cli.MindMap.transitive-cli-final-tree-wrapper",
+        "cli.MindMapResult.transitive-cli-final-tree-wrapper",
+        "cli.Note.transitive-note-backed-mind-map-generation-final-contribution",
+        "cli.Artifact.transitive-interactive-mind-map-generation-final-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/generate_cmd.py|_output_generation_outcome|output_error|1",
+      "projection_ids": [
+        "cli.GenerationStatus.manual-generation-failure-envelope"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/generate_cmd.py|_output_generation_outcome|output_error|2",
+      "projection_ids": [
+        "cli.GenerationStatus.manual-generation-failure-envelope"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/generate_cmd.py|_output_generation_outcome|json_output_response|1",
+      "projection_ids": [
+        "cli.GenerationStatus.manual-generation-completed-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/generate_cmd.py|_output_generation_outcome|json_output_response|2",
+      "projection_ids": [
+        "cli.GenerationStatus.manual-generation-pending-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/generate_cmd.py|_render_generation_result|output_error|1",
+      "projection_ids": [
+        "cli.GenerationStatus.manual-generation-failure-envelope"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/generate_cmd.py|_run_generate|output_error|1",
+      "projection_ids": [
+        "cli.GenerationStatus.manual-generation-failure-envelope"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/grouped.py|_emit_json_click_error|output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/grouped.py:_emit_json_click_error expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/grouped.py|SectionedGroup.main|output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/grouped.py:SectionedGroup.main expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/helpers.py|json_output_response|json_output_response|1",
+      "infrastructure_category": "central-json-forwarder",
+      "review_note": "Audited notebooklm/cli/helpers.py:json_output_response `data` as one of the six pinned central renderer/error forwarding sites; it delegates caller-owned payloads and is covered by owner/expression fingerprints."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/helpers.py|json_error_response|json_error_response|1",
+      "infrastructure_category": "central-json-forwarder",
+      "review_note": "Audited notebooklm/cli/helpers.py:json_error_response `extra` as one of the six pinned central renderer/error forwarding sites; it delegates caller-owned payloads and is covered by owner/expression fingerprints."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/label_cmd.py|_handle_label_resolution_error|output_error|1",
+      "projection_ids": [
+        "cli.Label.resolver-ambiguous-id-error-wrapper",
+        "cli.Label.resolver-ambiguous-name-error-wrapper",
+        "cli.Label.resolver-near-miss-error-wrapper",
+        "cli.Label.always-listed-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/label_cmd.py|label_sources._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Source.nested-label-sources-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Label.always-listed-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/label_cmd.py|label_generate._run|output_error|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/label_cmd.py|label_generate._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Label.manual-generate-final-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/label_cmd.py|label_create._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Label.manual-create-rename-emoji-final-projection",
+        "cli.Label.manual-mutation-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/label_cmd.py|label_rename._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Label.manual-create-rename-emoji-final-projection",
+        "cli.Label.manual-mutation-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/label_cmd.py|label_emoji._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Label.manual-create-rename-emoji-final-projection",
+        "cli.Label.manual-mutation-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/label_cmd.py|label_add._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Label.manual-add-final-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/label_cmd.py|label_remove._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Label.manual-remove-final-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/label_cmd.py|label_delete._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Label.always-listed-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/label_cmd.py|label_delete._run.resolve_delete|output_error|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Label.always-listed-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/language_cmd.py|language_list|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/language_cmd.py:language_list expression `{'languages': SUPPORTED_LANGUAGES}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/language_cmd.py|_render_get|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/language_cmd.py:_render_get expression `{'language': current, 'name': SUPPORTED_LANGUAGES.get(current) if current else None, 'is_default': current is None, 'synced_from_server': synced}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/language_cmd.py|language_set|json_error_response|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/language_cmd.py:language_set expression `{'hint': \"Run 'notebooklm language list' to see supported codes\"}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/language_cmd.py|language_set|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/language_cmd.py:language_set expression `{'language': code, 'name': name, 'message': 'Language set successfully', 'synced_to_server': synced}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/note_cmd.py|note_create._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Note.manual-create-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/note_cmd.py|note_get._run|_output_error|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Note.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/note_cmd.py|note_get._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Note.dataclass-get-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/note_cmd.py|note_save._no_changes|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/note_cmd.py:note_save._no_changes expression `{'id': note_id, 'notebook_id': notebook_id, 'saved': False, 'error': 'Provide --title and/or --content'}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/note_cmd.py|note_save._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Note.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/note_cmd.py|note_rename._run|_output_error|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Note.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/note_cmd.py|note_rename._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Note.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/note_cmd.py|note_delete._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Note.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/note_cmd.py|note_delete._run.resolve_delete|_output_error|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Note.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/notebook_cmd.py|register_notebook_commands.create_cmd._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.manual-create-projection",
+        "cli.Notebook.manual-create-and-use-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/notebook_cmd.py|register_notebook_commands.delete_cmd._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/notebook_cmd.py|register_notebook_commands.delete_cmd._run.resolve_delete|_output_error|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/notebook_cmd.py|register_notebook_commands.rename_cmd._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/notebook_cmd.py|register_notebook_commands.summary_cmd._run|json_output_response|1",
+      "projection_ids": [
+        "cli.NotebookDescription.manual-summary-projection",
+        "cli.NotebookDescription.manual-summary-with-topics-projection",
+        "cli.SuggestedTopic.nested-scalar-field-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/notebook_cmd.py|register_notebook_commands.metadata_cmd._run|json_output_response|1",
+      "projection_ids": [
+        "cli.NotebookMetadata.manual-to-dict-projection",
+        "cli.Notebook.transitive-metadata-flattened-projection",
+        "cli.Source.transitive-notebook-metadata-source-summary-final-wrapper"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/playwright_login_io.py|_verify_token_fetch_after_refresh|json_error_response|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/playwright_login_io.py:_verify_token_fetch_after_refresh expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/polling_ui.py|status_with_elapsed._sigint_guard|emit_cancelled_and_exit|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/polling_ui.py:status_with_elapsed._sigint_guard expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/profile_cmd.py|_run_list_cmd|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/profile_cmd.py:_run_list_cmd expression `{'profiles': [], 'active': active}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/profile_cmd.py|_run_list_cmd|json_output_response|2",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/profile_cmd.py:_run_list_cmd expression `{'profiles': profile_data, 'active': active}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/profile_cmd.py|create_cmd|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/profile_cmd.py:create_cmd expression `{'profile': name, 'status': 'created'}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/profile_cmd.py|switch_cmd|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/profile_cmd.py:switch_cmd expression `{'profile': name, 'status': 'switched'}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/profile_cmd.py|delete_cmd|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/profile_cmd.py:delete_cmd expression `{'profile': name, 'status': 'deleted'}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/profile_cmd.py|rename_cmd|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/profile_cmd.py:rename_cmd expression `{'old_name': old_name, 'new_name': new_name, 'default_updated': default_updated, 'status': 'renamed', 'config_warning': config_error}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/rendering.py|json_output_response|direct-json-emission|1",
+      "infrastructure_category": "central-json-forwarder",
+      "review_note": "Audited notebooklm/cli/rendering.py:json_output_response `data` as one of the six pinned central renderer/error forwarding sites; it delegates caller-owned payloads and is covered by owner/expression fingerprints."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/rendering.py|json_error_response|output_error|1",
+      "infrastructure_category": "central-json-forwarder",
+      "review_note": "Audited notebooklm/cli/rendering.py:json_error_response `extra` as one of the six pinned central renderer/error forwarding sites; it delegates caller-owned payloads and is covered by owner/expression fingerprints."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/rendering.py|render_list|json_output_response|1",
+      "projection_ids": [
+        "cli.Artifact.manual-list-row-projection",
+        "cli.Artifact.manual-list-final-wrapper",
+        "cli.Notebook.artifact-list-title-contribution",
+        "cli.Collection.manual-list-row-projection",
+        "cli.Collection.manual-list-final-wrapper",
+        "cli.Label.manual-list-projection",
+        "cli.Label.manual-list-final-wrapper",
+        "cli.Note.manual-list-row-projection",
+        "cli.Note.manual-list-final-wrapper",
+        "cli.Notebook.manual-list-row-projection",
+        "cli.Notebook.manual-list-final-wrapper",
+        "cli.Source.manual-row-projection",
+        "cli.Source.manual-list-final-wrapper",
+        "cli.Notebook.source-list-title-contribution",
+        "cli.Source.manual-summary-projection",
+        "cli.SourceSummary.nested-manual-to-dict-projection",
+        "cli.Source.nested-label-list-title-join-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ],
+      "helper_symbols": [
+        "notebooklm.cli.services.listing.prepare_list",
+        "notebooklm.cli.services.label_listing._label_serialize",
+        "notebooklm.cli.services.source_listing.execute_source_list"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/research_cmd.py|research_status._run|json_output_response|1",
+      "projection_ids": [
+        "cli.ResearchTask.manual-empty-status-projection",
+        "cli.ResearchTask.manual-status-projection",
+        "cli.ResearchSource.nested-to-public-dict-projection"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/research_cmd.py|_render_import_result|json_output_response|1",
+      "projection_ids": [
+        "cli.CitedSourceSelection.manual-direct-import-projection",
+        "cli.ResearchTask.transitive-import-success-final-wrapper",
+        "cli.ResearchSource.transitive-import-selection-final-contribution",
+        "cli.Source.transitive-research-import-existing-source-projection",
+        "cli.Source.transitive-research-import-new-source-projection",
+        "cli.Source.transitive-research-import-direct-final-wrapper"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/research_cmd.py|research_cancel._run|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited research_cancel's `{status: 'cancelled', run_id}` envelope: the resolved Notebook ID selects the operation but no field read from a listed public Notebook instance reaches this terminal."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/research_cmd.py|research_wait|_output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/research_cmd.py:research_wait expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/research_cmd.py|_render_wait_result|json_output_response|1",
+      "projection_ids": [
+        "cli.ResearchTask.transitive-wait-no-research-branch-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/research_cmd.py|_render_wait_result|json_output_response|2",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/research_cmd.py:_render_wait_result expression `{'status': 'timeout', 'error': f'Timed out after {result.timeout}s'}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/research_cmd.py|_render_wait_result|json_output_response|3",
+      "projection_ids": [
+        "cli.ResearchTask.transitive-wait-failed-final-projection",
+        "cli.ResearchSource.transitive-wait-failed-final-wrapper"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/research_cmd.py|_render_wait_result|json_output_response|4",
+      "projection_ids": [
+        "cli.ResearchTask.transitive-wait-completed-final-projection",
+        "cli.CitedSourceSelection.manual-completed-wait-projection",
+        "cli.ResearchSource.transitive-wait-completed-final-wrapper",
+        "cli.Source.transitive-research-wait-imported-sources-final-wrapper"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/session_cmd.py|register_session_commands.use_notebook|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/session_cmd.py:register_session_commands.use_notebook expression `{'active_notebook_id': notebook_id, 'success': True, 'verified': False}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/session_cmd.py|register_session_commands.use_notebook|json_output_response|2",
+      "projection_ids": [
+        "cli.Notebook.manual-session-use-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/session_cmd.py|register_session_commands.use_notebook._handle_use_verification_error|_output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/session_cmd.py:register_session_commands.use_notebook._handle_use_verification_error expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/session_cmd.py|register_session_commands.use_notebook._handle_use_verification_error|_output_error|2",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/session_cmd.py:register_session_commands.use_notebook._handle_use_verification_error expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/session_cmd.py|register_session_commands.clear_cmd|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/session_cmd.py:register_session_commands.clear_cmd expression `{'status': 'cleared' if cleared else 'already_clear', 'cleared': cleared}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/session_cmd.py|register_session_commands.auth_import_cookies|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/session_cmd.py:register_session_commands.auth_import_cookies expression `{'success': True, 'storage_path': str(storage_path), 'cookie_count': len(imported.get('cookies', [])), 'backup_path': str(backup_path) if backup_path else None}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/session_cmd.py|register_session_commands.auth_refresh|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/session_cmd.py:register_session_commands.auth_refresh expression `{'status': 'ok', 'storage_path': str(storage_path), 'verified': verify}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/session_cmd.py|register_session_commands.auth_refresh._fail|json_error_response|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/session_cmd.py:register_session_commands.auth_refresh._fail expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/share_cmd.py|share_status._run|json_output_response|1",
+      "projection_ids": [
+        "cli.ShareStatus.manual-status-projection",
+        "cli.SharedUser.nested-manual-field-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/share_cmd.py|share_public._run|json_output_response|1",
+      "projection_ids": [
+        "cli.ShareStatus.manual-public-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/share_cmd.py|share_view_level._run|json_output_response|1",
+      "projection_ids": [
+        "cli.ShareStatus.manual-view-level-projection",
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/share_cmd.py|share_add._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/share_cmd.py|share_update._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/share_cmd.py|share_remove._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/skill_cmd.py|status|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/skill_cmd.py:status expression `{'scope': scope, 'cli_version': cli_version, 'targets': target_rows}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/skill_cmd.py|package|output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/skill_cmd.py:package expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/skill_cmd.py|package|output_error|2",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/skill_cmd.py:package expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/skill_cmd.py|package|output_error|3",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/skill_cmd.py:package expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/skill_cmd.py|package|json_output_response|1",
+      "non_public_category": "cli-scalar-success",
+      "review_note": "Audited notebooklm/cli/skill_cmd.py:package expression `{'path': str(output_path), 'version': version, 'entries': [SKILL_ARCHIVE_ENTRY], 'size_bytes': len(data)}`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/source_cmd.py|source_list._run|output_error|1",
+      "projection_ids": [
+        "cli.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "cli.Label.always-listed-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/source_cmd.py|source_add|_output_error|1",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/source_cmd.py:source_add expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/source_cmd.py|source_add|_output_error|2",
+      "non_public_category": "cli-scalar-error",
+      "review_note": "Audited notebooklm/cli/source_cmd.py:source_add expression `None`; this terminal's reachable fields come only from CLI request/configuration state, literals, exceptions, or the named private operation DTO, with no public dataclass value."
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/source_cmd.py|source_add._run|json_output_response|1",
+      "projection_ids": [
+        "cli.Source.transitive-add-final-wrapper"
+      ]
+    },
+    {
+      "locator": "cli --json|notebooklm/cli/source_cmd.py|_dispatch_source_clean_result|json_output_response|1",
+      "projection_ids": [
+        "cli.Source.transitive-clean-candidate-projection",
+        "cli.Source.transitive-clean-success-final-wrapper"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/_uploadwidget.py|register_upload_widget.source_add_widget|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/_uploadwidget.py|register_upload_widget.source_add_widget|return|1",
+      "non_public_category": "binary-or-broker-response",
+      "review_note": "Audited notebooklm/mcp/_uploadwidget.py:register_upload_widget.source_add_widget expression `{'error': 'file transfer not configured'}`; this return carries only transfer metadata, request identifiers, literals, or a private tool DTO after all resolver/model branches allocated above were separated."
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/_uploadwidget.py|register_upload_widget.source_add_widget|return|2",
+      "projection_ids": [
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/_fileupload.py|register_file_tools.await_upload|tool-error-funnel|1",
+      "non_public_category": "binary-or-broker-response",
+      "review_note": "Audited notebooklm/mcp/tools/_fileupload.py:register_file_tools.await_upload expression `mcp_errors()`; this return carries only transfer metadata, request identifiers, literals, or a private tool DTO after all resolver/model branches allocated above were separated."
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/_fileupload.py|register_file_tools.await_upload|return|1",
+      "projection_ids": [
+        "mcp.Source.transitive-remote-upload-await-final-wrapper"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Source.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+      "projection_ids": [
+        "mcp.AskResult.app-view-mcp-final-lite-references",
+        "mcp.AskResult.app-view-mcp-final-full-references",
+        "mcp.AskResult.app-view-mcp-final-lite-references.nested-next_steps-NextStepSuggestion",
+        "mcp.AskResult.app-view-mcp-final-lite-references.nested-turn_key-ConversationTurnKey",
+        "mcp.AskResult.app-view-mcp-final-full-references.nested-next_steps-NextStepSuggestion",
+        "mcp.AskResult.app-view-mcp-final-full-references.nested-references-ChatReference",
+        "mcp.AskResult.app-view-mcp-final-full-references.nested-turn_key-ConversationTurnKey",
+        "mcp.ChatReference.nested-lite-projection",
+        "mcp.PromptSuggestion.manual-chat-inline-projection",
+        "mcp.PromptSuggestion.manual-chat-suggestion-only-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Source.conditional-noncanonical-resolver-id-contribution",
+        "mcp.StructuredDocument.transitive-chat-reference-full-contribution",
+        "mcp.DocumentAnnotation.transitive-chat-reference-full-contribution",
+        "mcp.DocumentBlock.transitive-chat-reference-full-contribution",
+        "mcp.TextSpan.transitive-chat-reference-full-contribution",
+        "mcp.DocumentBlock.transitive-chat-reference-lite-fragment-contribution",
+        "mcp.TextSpan.transitive-chat-reference-lite-fragment-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_configure|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_configure|return|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/chat.py|register.suggest_prompts|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Source.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/chat.py|register.suggest_prompts|return|1",
+      "projection_ids": [
+        "mcp.PromptSuggestion.manual-standalone-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/meta.py|register.server_info|tool-error-funnel|1",
+      "non_public_category": "mcp-scalar-result",
+      "review_note": "Audited notebooklm/mcp/tools/meta.py:register.server_info expression `mcp_errors()`; this return carries only transfer metadata, request identifiers, literals, or a private tool DTO after all resolver/model branches allocated above were separated."
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/meta.py|register.server_info|return|1",
+      "projection_ids": [
+        "mcp.AccountLimits.transitive-server-info-account-success-wrapper",
+        "mcp.UserSettings.transitive-server-info-account-success-wrapper",
+        "mcp.AuthTokens.redacted-server-info-account-identity-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_list|tool-error-funnel|1",
+      "non_public_category": "mcp-scalar-result",
+      "review_note": "Audited notebooklm/mcp/tools/notebooks.py:register.notebook_list expression `mcp_errors()`; this return carries only transfer metadata, request identifiers, literals, or a private tool DTO after all resolver/model branches allocated above were separated."
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_list|return|1",
+      "projection_ids": [
+        "mcp.Notebook.app-view-notebook-list-final-wrapper"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_create|tool-error-funnel|1",
+      "non_public_category": "mcp-scalar-result",
+      "review_note": "Audited notebooklm/mcp/tools/notebooks.py:register.notebook_create expression `mcp_errors()`; this return carries only transfer metadata, request identifiers, literals, or a private tool DTO after all resolver/model branches allocated above were separated."
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_create|return|1",
+      "projection_ids": [
+        "mcp.Notebook.app-view-notebook-create-final",
+        "mcp.Notebook.app-view-notebook-view"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_describe|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_describe|return|1",
+      "projection_ids": [
+        "mcp.NotebookDescription.nested-notebook-describe-final",
+        "mcp.NotebookDescription.nested-notebook-describe-final.nested-suggested_topics-SuggestedTopic",
+        "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata",
+        "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata-null-description",
+        "mcp.NotebookMetadata.transitive-notebook-describe-final-with-metadata.nested-sources-SourceSummary",
+        "mcp.Notebook.app-view-notebook-metadata-nested",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Source.transitive-notebook-describe-metadata-source-summary-final-wrapper"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_describe|return|2",
+      "projection_ids": [
+        "mcp.NotebookDescription.nested-notebook-describe-final",
+        "mcp.NotebookDescription.nested-notebook-describe-final.nested-suggested_topics-SuggestedTopic",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_rename|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_rename|return|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_delete|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_delete|return|1",
+      "projection_ids": [
+        "mcp.Notebook.always-listed-delete-confirmation-title-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notebooks.py|register.notebook_delete|return|2",
+      "projection_ids": [
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notes.py|register.note_save|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Note.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notes.py|register.note_save|return|1",
+      "projection_ids": [
+        "mcp.Note.transitive-note-save-create-final-projection",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/notes.py|register.note_save|return|2",
+      "projection_ids": [
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Note.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/research.py|register.research_start|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.ResearchStart.transitive-start-missing-report-id-error-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the failure is outside Notebook resolution and the missing ResearchStart report-id branch",
+          "category": "mcp-scalar-result",
+          "review_note": "Other research-start validation or transport errors contribute private exception text only; no resolver-error Notebook field or missing-id public ResearchStart field reaches those ToolError variants."
+        }
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/research.py|register.research_start|return|1",
+      "projection_ids": [
+        "mcp.ResearchStart.manual-start-projection",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/research.py|register.research_status|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/research.py|register.research_status|return|1",
+      "projection_ids": [
+        "mcp.ResearchTask.manual-status-projection",
+        "mcp.ResearchSource.nested-public-dict-report-omitted",
+        "mcp.ResearchSource.nested-public-dict-report-included-truncated",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/research.py|register.research_cancel|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/research.py|register.research_cancel|return|1",
+      "projection_ids": [
+        "mcp.ResearchTask.transitive-cancel-terminal-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/research.py|register.research_cancel|return|2",
+      "projection_ids": [
+        "mcp.ResearchTask.transitive-cancel-nonterminal-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/research.py|register.research_import|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.ResearchTask.transitive-import-refusal-error-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the failure is outside Notebook resolution and ResearchTask import classification",
+          "category": "mcp-scalar-result",
+          "review_note": "Validation, transport, or import-operation failures outside the resolver and ResearchTask refusal ladder serialize private exception text only; no listed Notebook or public ResearchTask field reaches them."
+        }
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/research.py|register.research_import|return|1",
+      "projection_ids": [
+        "mcp.CitedSourceSelection.transitive-research-import-final-projection",
+        "mcp.Source.transitive-research-import-existing-source-projection",
+        "mcp.Source.transitive-research-import-new-source-projection",
+        "mcp.ResearchTask.transitive-import-final-wrapper",
+        "mcp.ResearchSource.transitive-import-source-count-contribution",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_status|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_status|return|1",
+      "projection_ids": [
+        "mcp.ShareStatus.app-view-share-status-view",
+        "mcp.SharedUser.nested-manual-field-projection",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_set_access|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_set_access|return|1",
+      "projection_ids": [
+        "mcp.ShareStatus.conditional-public-widening-confirmation-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_set_access|return|2",
+      "projection_ids": [
+        "mcp.ShareStatus.app-view-mutation-final-updated",
+        "mcp.ShareStatus.app-view-mutation-final-updated-view-level",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_set_user|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_set_user|return|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_set_user|return|2",
+      "projection_ids": [
+        "mcp.ShareStatus.app-view-mutation-final-updated",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_remove_user|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_remove_user|return|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sharing.py|register.share_remove_user|return|2",
+      "projection_ids": [
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_list|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Label.always-listed-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_list|return|1",
+      "projection_ids": [
+        "mcp.Source.app-view-source-list-final-wrapper",
+        "mcp.Source.manual-compact-list-final-wrapper",
+        "mcp.Source.app-view-source-view",
+        "mcp.Source.manual-compact-projection",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_read|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Source.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_read|return|1",
+      "projection_ids": [
+        "mcp.SourceGuide.manual-guide-projection",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_read|return|2",
+      "projection_ids": [
+        "mcp.Source.app-view-source-read-full-final-wrapper",
+        "mcp.SourceFulltext.manual-content-projection",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_rename|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Source.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_rename|return|1",
+      "projection_ids": [
+        "mcp.Source.nested-dataclass-source-rename-result",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_delete|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Source.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_delete|return|1",
+      "projection_ids": [
+        "mcp.Source.transitive-delete-confirmation-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_delete|return|2",
+      "projection_ids": [
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Source.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_wait|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Source.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_wait|return|1",
+      "projection_ids": [
+        "mcp.Source.app-view-source-wait-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Source.conditional-noncanonical-resolver-id-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the notebook and every explicit subset ref use canonical-id fast paths and every outcome is non-ready",
+          "category": "mcp-scalar-result",
+          "review_note": "When the notebook and all explicit subset refs are canonical IDs and every outcome times out, fails, or is not found, the aggregate contains only caller IDs and private wait-error text; no listed public Notebook or Source instance contributes."
+        }
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_wait|return|2",
+      "projection_ids": [
+        "mcp.Source.app-view-source-wait-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Source.conditional-noncanonical-resolver-id-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the notebook and single ref use canonical-id fast paths and the outcome is non-ready",
+          "category": "mcp-scalar-result",
+          "review_note": "When both notebook and source refs are canonical IDs and the outcome times out, fails, or is not found, the aggregate contains caller IDs and private wait-error text only; no listed public Notebook or Source instance contributes."
+        }
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_wait|return|3",
+      "projection_ids": [
+        "mcp.Source.app-view-source-wait-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the notebook uses the canonical-id fast path and wait-all lists zero Source instances",
+          "category": "mcp-scalar-result",
+          "review_note": "With a canonical notebook ID and an empty Source list, wait-all returns an empty aggregate with literal counts and buckets, so no public Notebook or Source instance reaches this terminal variant."
+        }
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|1",
+      "projection_ids": [
+        "mcp.Source.transitive-batch-added-item-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the notebook uses the canonical-id fast path and all batch inputs fail before any Source instance is returned",
+          "category": "mcp-scalar-result",
+          "review_note": "With a canonical notebook ID, the all-error batch variant contains only input indexes, private per-item errors, and scalar counts; no public Notebook or Source contributes, while the added-item projection requires a successful Source."
+        }
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|2",
+      "projection_ids": [
+        "mcp.Source.app-view-source-wait-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|3",
+      "projection_ids": [
+        "mcp.Source.app-view-source-add-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|4",
+      "projection_ids": [
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|5",
+      "projection_ids": [
+        "mcp.Source.app-view-source-wait-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|6",
+      "projection_ids": [
+        "mcp.Source.app-view-source-add-drive-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|7",
+      "projection_ids": [
+        "mcp.Source.app-view-source-wait-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources.py|register.source_add|return|8",
+      "projection_ids": [
+        "mcp.Source.app-view-source-add-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources_drive.py|register.source_add_drive_file|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/sources_drive.py|register.source_add_drive_file|return|1",
+      "projection_ids": [
+        "mcp.Source.app-view-source-add-drive-file-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_list|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Note.always-listed-studio-resolver-error-text-contribution",
+        "mcp.Artifact.always-listed-studio-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_list|return|1",
+      "projection_ids": [
+        "mcp.Artifact.manual-studio-by-item-final-wrapper",
+        "mcp.Note.manual-studio-by-item-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Artifact.always-listed-studio-item-resolver-id-contribution",
+        "mcp.Note.always-listed-studio-item-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_list|return|2",
+      "projection_ids": [
+        "mcp.Artifact.manual-studio-full-projection",
+        "mcp.Artifact.manual-studio-compact-projection",
+        "mcp.Artifact.manual-studio-summary-projection",
+        "mcp.Artifact.manual-studio-full-list-final-wrapper",
+        "mcp.Artifact.manual-studio-compact-list-final-wrapper",
+        "mcp.Artifact.manual-studio-summary-list-final-wrapper",
+        "mcp.Note.manual-studio-full-projection",
+        "mcp.Note.manual-studio-compact-projection",
+        "mcp.Note.manual-studio-summary-projection",
+        "mcp.Note.manual-studio-full-list-final-wrapper",
+        "mcp.Note.manual-studio-compact-list-final-wrapper",
+        "mcp.Note.manual-studio-summary-list-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_generate|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Source.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_generate|return|1",
+      "projection_ids": [
+        "mcp.GenerationStatus.manual-generate-projection",
+        "mcp.MindMap.transitive-mcp-generation-final-wrapper",
+        "mcp.MindMapResult.transitive-mcp-generation-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Source.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Note.transitive-note-backed-mind-map-generation-final-contribution",
+        "mcp.Artifact.transitive-interactive-mind-map-generation-final-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_status|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_status|return|1",
+      "projection_ids": [
+        "mcp.GenerationStatus.app-status-view-projection",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_download|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Artifact.conditional-resolver-error-text-contribution",
+        "mcp.Artifact.always-listed-studio-download-resolver-error-text-contribution",
+        "mcp.Artifact.transitive-download-incomplete-status-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_download|return|1",
+      "projection_ids": [
+        "mcp.Artifact.transitive-mcp-remote-download-broker-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Artifact.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Artifact.always-listed-studio-download-resolver-id-contribution"
+      ],
+      "helper_symbols": [
+        "notebooklm.mcp.tools._studio_download._broker_download"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the notebook uses the canonical-id fast path, artifact_type latest mode omits artifact and artifact_id, and the kind is non-inline",
+          "category": "mcp-scalar-result",
+          "review_note": "In remote broker mode, a canonical notebook plus latest selection and a non-inline kind avoids every Artifact listing/resolution path; the broker response contains only request/configuration scalars and URL metadata."
+        }
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_download|return|2",
+      "projection_ids": [
+        "mcp.Artifact.transitive-download-selected-artifact-projection",
+        "mcp.Artifact.transitive-download-error-artifact-projection",
+        "mcp.Artifact.transitive-download-dry-all-item-projection",
+        "mcp.Artifact.transitive-download-executed-item-projection",
+        "mcp.Artifact.transitive-mcp-stdio-download-selected-wrapper",
+        "mcp.Artifact.transitive-mcp-stdio-download-error-wrapper",
+        "mcp.Artifact.transitive-mcp-stdio-download-dry-all-wrapper",
+        "mcp.Artifact.transitive-mcp-stdio-download-executed-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Artifact.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Artifact.always-listed-studio-download-resolver-id-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the notebook uses the canonical-id fast path and the artifact listing is empty",
+          "category": "mcp-scalar-result",
+          "review_note": "With a canonical notebook ID and no listed Artifact rows, the stdio download envelope contains only literal/scalar no-artifacts state and empty items; no public Notebook or Artifact instance contributes."
+        }
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_rename|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Note.always-listed-studio-resolver-error-text-contribution",
+        "mcp.Artifact.always-listed-studio-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_rename|return|1",
+      "projection_ids": [
+        "mcp.MindMap.transitive-resolver-rename-final-wrapper",
+        "mcp.Artifact.transitive-mind-map-rename-membership-final-contribution",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_rename|return|2",
+      "projection_ids": [
+        "mcp.Note.transitive-studio-rename-final-projection",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Note.always-listed-studio-item-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_rename|return|3",
+      "projection_ids": [
+        "mcp.Artifact.transitive-studio-rename-final-projection",
+        "mcp.MindMap.transitive-resolver-rename-final-wrapper",
+        "mcp.Artifact.transitive-mind-map-rename-membership-final-contribution",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Artifact.always-listed-studio-item-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_retry|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Artifact.conditional-resolver-error-text-contribution",
+        "mcp.Artifact.transitive-retry-wrong-state-status-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_retry|return|1",
+      "projection_ids": [
+        "mcp.GenerationStatus.manual-retry-projection",
+        "mcp.Artifact.transitive-resolver-retry-final-projection",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Artifact.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_delete|tool-error-funnel|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-resolver-error-text-contribution",
+        "mcp.Note.always-listed-studio-resolver-error-text-contribution",
+        "mcp.Artifact.always-listed-studio-resolver-error-text-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_delete|return|1",
+      "projection_ids": [
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_delete|return|2",
+      "projection_ids": [
+        "mcp.MindMap.transitive-resolver-delete-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_delete|return|3",
+      "projection_ids": [
+        "mcp.Artifact.transitive-studio-delete-confirmation-wrapper",
+        "mcp.Note.transitive-studio-delete-confirmation-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Artifact.always-listed-studio-item-resolver-id-contribution",
+        "mcp.Note.always-listed-studio-item-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_delete|return|4",
+      "projection_ids": [
+        "mcp.Note.transitive-studio-delete-final-projection",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Note.always-listed-studio-item-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp tool result|notebooklm/mcp/tools/studio.py|register.studio_delete|return|5",
+      "projection_ids": [
+        "mcp.Artifact.transitive-studio-delete-final-projection",
+        "mcp.MindMap.transitive-resolver-delete-final-wrapper",
+        "mcp.Notebook.conditional-noncanonical-resolver-id-contribution",
+        "mcp.Artifact.always-listed-studio-item-resolver-id-contribution"
+      ]
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.download_route|return|1",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.download_route expression `PlainTextResponse('This download link is invalid or has expired.', status_code=403, headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.download_route|return|2",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.download_route expression `PlainTextResponse('Unknown artifact type.', status_code=400)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.download_route|return|3",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.download_route expression `PlainTextResponse('Server is not ready.', status_code=500)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.download_route|return|4",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.download_route expression `PlainTextResponse('This download link is invalid.', status_code=400, headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.download_route|return|5",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.download_route expression `PlainTextResponse('Too many concurrent downloads in progress; retry shortly.', status_code=429, headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.download_route|return|6",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.download_route expression `PlainTextResponse('Download could not be prepared (server storage error).', status_code=500, headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.download_route|return|7",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.download_route expression `PlainTextResponse(str(exc), status_code=400, headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'})` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.download_route|return|8",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.download_route expression `_upstream_error_response(exc)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope.",
+      "helper_symbols": ["notebooklm.mcp._fileroutes._upstream_error_response"]
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.download_route|return|9",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.download_route expression `PlainTextResponse(f'No completed {spec.name} artifact is available yet.', status_code=409, headers={'Cache-Control': 'no-store'})` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.download_route|return|10",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.download_route expression `PlainTextResponse('Download produced an unexpected output path.', status_code=500)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.download_route|return|11",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.download_route expression `response` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_preflight|return|1",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_preflight expression `PlainTextResponse('', status_code=204, headers=_UPLOAD_CORS_HEADERS)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_page_route|return|1",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_page_route expression `HTMLResponse(\"<!doctype html><html><body style='font-family:system-ui'><h2>This upload link is invalid or has expired.</h2><p>Re-run the tool from your assistant to get a fresh link.</p></body></html>\", status_code=403, headers=_HTML_SECURITY_HEADERS)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_page_route|return|2",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_page_route expression `HTMLResponse(_UPLOAD_PAGE, headers=_HTML_SECURITY_HEADERS)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.short_upload_redirect|return|1",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.short_upload_redirect expression `HTMLResponse(\"<!doctype html><html><body style='font-family:system-ui'><h2>This upload link is invalid or has expired.</h2><p>Re-run the tool from your assistant to get a fresh link.</p></body></html>\", status_code=404, headers=_HTML_SECURITY_HEADERS)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.short_upload_redirect|return|2",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.short_upload_redirect expression `RedirectResponse(f'/files/ul/{token}', status_code=302, headers={'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store'})` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|1",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse(_UPLOAD_LINK_REJECTED, status_code=403, headers=_CORS_ORIGIN)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|2",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse(_UPLOAD_LINK_REJECTED, status_code=403, headers=_CORS_ORIGIN)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|3",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse('Upload exceeds the size limit.', status_code=413, headers=_CORS_ORIGIN)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|4",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse('Server is not ready.', status_code=500)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|5",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse(_UPLOAD_LINK_REJECTED, status_code=403, headers=_CORS_ORIGIN)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|6",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse('Too many concurrent uploads in progress; retry shortly.', status_code=429, headers=_CORS_ORIGIN)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|7",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse('Malformed sha256 parameter (expected 64 hex chars).', status_code=400, headers=_CORS_ORIGIN)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|8",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse('Upload could not be stored (server storage error).', status_code=500, headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', **_CORS_ORIGIN})` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|9",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse('Upload exceeds the size limit.', status_code=413, headers=_CORS_ORIGIN)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|10",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse('Upload integrity check failed (sha256 mismatch); retry the upload.', status_code=400, headers=_CORS_ORIGIN)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|11",
+      "projection_ids": [
+        "mcp.Source.transitive-remote-upload-http-final-wrapper"
+      ]
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|12",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `HTMLResponse(f\"<!doctype html><html><body style='font-family:system-ui'><h2>Source added</h2><p>id = <code>{html.escape(source_id)}</code></p><p>You can close this tab and return to your assistant.</p></body></html>\", headers=_HTML_SECURITY_HEADERS)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|13",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse(f'Upload rejected: {redact(str(exc))}{retained}', status_code=400, headers={'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', **_CORS_ORIGIN})` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope.",
+      "helper_symbols": ["notebooklm._redact.redact"]
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|14",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `_upstream_error_response(exc, note=f'The upload did not complete ({stage}). Registered source {retained_id} was left behind; delete it to retry cleanly.')` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope.",
+      "helper_symbols": ["notebooklm.mcp._fileroutes._upstream_error_response"]
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|15",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `_upstream_error_response(exc, note=\"Nothing was uploaded. The source registration could not be confirmed, so it may or may not exist \u2014 check the notebook's source list before retrying, or a retry may add it twice.\")` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope.",
+      "helper_symbols": ["notebooklm.mcp._fileroutes._upstream_error_response"]
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|16",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `_upstream_error_response(exc, note='Your file uploaded, but adding it as a source failed (a retry re-uploads it).')` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope.",
+      "helper_symbols": ["notebooklm.mcp._fileroutes._upstream_error_response"]
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_fileroutes.py|register_file_routes.upload_route|return|17",
+      "non_public_category": "non-json-http-response",
+      "review_note": "Audited notebooklm/mcp/_fileroutes.py:register_file_routes.upload_route expression `PlainTextResponse('Upload could not be processed.', status_code=400, headers=_CORS_ORIGIN)` as an MCP auxiliary HTTP terminal that returns plain text, HTML, redirect, or streamed file content; it is inventoried to prevent a future JSON-return bypass but is not a JSON envelope."
+    },
+    {
+      "locator": "mcp auxiliary response|notebooklm/mcp/_uploadwidget.py|register_upload_widget._upload_widget_html|return|1",
+      "non_public_category": "non-json-mcp-resource",
+      "review_note": "Audited notebooklm/mcp/_uploadwidget.py:register_upload_widget._upload_widget_html as the registered MCP application resource terminal; it returns the constant HTML widget document and no public dataclass field can reach the resource response."
+    },
+    {
+      "locator": "rest response|notebooklm/server/_errors.py|http_error_response|json-response-return|1",
+      "infrastructure_category": "central-json-forwarder",
+      "review_note": "Audited notebooklm/server/_errors.py:http_error_response `{'error': body}` as one of the six pinned central renderer/error forwarding sites; it delegates caller-owned payloads and is covered by owner/expression fingerprints."
+    },
+    {
+      "locator": "rest response|notebooklm/server/_errors.py|error_response|json-response-return|1",
+      "infrastructure_category": "central-json-forwarder",
+      "review_note": "Audited notebooklm/server/_errors.py:error_response `{'error': body}` as one of the six pinned central renderer/error forwarding sites; it delegates caller-owned payloads and is covered by owner/expression fingerprints."
+    },
+    {
+      "locator": "rest response|notebooklm/server/_errors.py|install_exception_handlers._handle_library|return|1",
+      "projection_ids": [
+        "rest.ResearchTask.transitive-import-refusal-error-contribution",
+        "rest.ResearchStart.transitive-start-missing-poll-id-error-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the library exception is not produced by a public research start or import refusal path",
+          "category": "rest-scalar-response",
+          "review_note": "All other library exceptions entering the central REST handler contribute exception classification and private scalar text only; no public ResearchTask or ResearchStart field reaches those response variants."
+        }
+      ],
+      "helper_symbols": [
+        "notebooklm.server._errors.error_response",
+        "notebooklm.server._errors._project_classified"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/_errors.py|install_exception_handlers._handle_http|return|1",
+      "projection_ids": [
+        "rest.GenerationStatus.http-failed-409-error-envelope",
+        "rest.GenerationStatus.http-removed-410-error-envelope",
+        "rest.Artifact.transitive-download-no-artifacts-409-error-contribution"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "the HTTPException is unrelated to GenerationStatus transitions and is not a download filter error backed by a nonempty public Artifact list",
+          "category": "rest-scalar-response",
+          "review_note": "Other HTTPException variants, including an artifact download whose listing is truly empty, carry only request/private scalar detail; no public GenerationStatus or Artifact instance contributes."
+        }
+      ],
+      "helper_symbols": [
+        "notebooklm.server._errors.http_error_response"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/_errors.py|install_exception_handlers._handle_validation|return|1",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/_errors.py:install_exception_handlers._handle_validation expression `http_error_response(422, f'Request validation failed: {_validation_summary(exc)}')`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal.",
+      "helper_symbols": [
+        "notebooklm.server._errors.http_error_response",
+        "notebooklm.server._errors._validation_summary"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/_errors.py|install_exception_handlers._handle_unexpected|return|1",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/_errors.py:install_exception_handlers._handle_unexpected expression `error_response(exc)`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal.",
+      "helper_symbols": [
+        "notebooklm.server._errors.error_response",
+        "notebooklm.server._errors._project_classified"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/app.py|create_app._limit_request_body|json-helper-return|1",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/app.py:create_app._limit_request_body expression `http_error_response(411, 'Content-Length is required for uploads')`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/app.py|create_app._limit_request_body|json-helper-return|2",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/app.py:create_app._limit_request_body expression `http_error_response(411, 'A valid Content-Length is required for uploads')`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/app.py|create_app._limit_request_body|json-helper-return|3",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/app.py:create_app._limit_request_body expression `http_error_response(413, 'Request body exceeds the size limit')`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/app.py|create_app._limit_request_body|json-helper-return|4",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/app.py:create_app._limit_request_body expression `http_error_response(exc.status_code, exc.detail)`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/app.py|create_app._limit_request_body|json-helper-return|5",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/app.py:create_app._limit_request_body expression `http_error_response(411, 'Content-Length is required for JSON request bodies')`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/app.py|create_app._limit_request_body|json-helper-return|6",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/app.py:create_app._limit_request_body expression `http_error_response(411, 'A valid Content-Length is required for JSON request bodies')`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/app.py|create_app._limit_request_body|json-helper-return|7",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/app.py:create_app._limit_request_body expression `http_error_response(413, f'{limit.name} request body exceeds the size limit')`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/app.py|create_app.healthz|return|1",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/app.py:create_app.healthz expression `{'ok': True}`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/artifacts.py|list_artifacts|return|1",
+      "projection_ids": [
+        "rest.Artifact.dataclass-full",
+        "rest.Artifact.dataclass-full.nested-infographics-ArtifactInfographic",
+        "rest.Artifact.dataclass-full.nested-media_urls-ArtifactMedia",
+        "rest.Artifact.dataclass-full.nested-slides-ArtifactSlide",
+        "rest.Artifact.dataclass-full.nested-user_state-AudioArtifactUserState",
+        "rest.Artifact.dataclass-full.nested-user_state-FlashcardArtifactUserState",
+        "rest.Artifact.dataclass-full.nested-user_state-UnknownArtifactUserState",
+        "rest.Artifact.dataclass-list-default-final-wrapper",
+        "rest.Artifact.dataclass-list-paged-final-wrapper"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/artifacts.py|generate|return|1",
+      "projection_ids": [
+        "rest.GenerationStatus.manual-generate-projection",
+        "rest.MindMap.dataclass-full-nested-in-generation-wrapper",
+        "rest.MindMapResult.dataclass-full-nested-in-generation-wrapper",
+        "rest.Note.transitive-note-backed-mind-map-generation-final-contribution",
+        "rest.Artifact.transitive-interactive-mind-map-generation-final-contribution"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/artifacts.py|poll|return|1",
+      "projection_ids": [
+        "rest.GenerationStatus.app-status-view-projection"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/artifacts.py|poll|return|2",
+      "projection_ids": [
+        "rest.GenerationStatus.app-status-view-projection"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/artifacts.py|poll|return|3",
+      "projection_ids": [
+        "rest.GenerationStatus.app-status-view-projection"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/artifacts.py|get_prompt|return|1",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/routes/artifacts.py:get_prompt expression `{'notebook_id': notebook_id, 'artifact_id': artifact_id, 'prompt': prompt}`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/artifacts.py|rename|return|1",
+      "projection_ids": [
+        "rest.MindMap.transitive-artifact-rename-final-wrapper",
+        "rest.Artifact.transitive-mind-map-rename-membership-final-contribution"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/artifacts.py|retry|return|1",
+      "projection_ids": [
+        "rest.GenerationStatus.manual-retry-projection"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/artifacts.py|delete|return|1",
+      "non_public_category": "no-content-response",
+      "review_note": "Audited notebooklm/server/routes/artifacts.py:delete expression `Response(status_code=204)`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/artifacts.py|download|return|1",
+      "non_public_category": "binary-or-broker-response",
+      "review_note": "Audited notebooklm/server/routes/artifacts.py:download expression `response`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/chat.py|ask|return|1",
+      "projection_ids": [
+        "rest.AskResult.app-view-ask-result-view",
+        "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion",
+        "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference",
+        "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey",
+        "rest.StructuredDocument.transitive-chat-reference-full-contribution",
+        "rest.DocumentAnnotation.transitive-chat-reference-full-contribution",
+        "rest.DocumentBlock.transitive-chat-reference-full-contribution",
+        "rest.TextSpan.transitive-chat-reference-full-contribution"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/chat.py|configure|return|1",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/routes/chat.py:configure expression `{'status': 'configured', **to_jsonable(result)}`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal.",
+      "helper_symbols": ["notebooklm._app.serialize.to_jsonable"]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/meta.py|server_info|return|1",
+      "projection_ids": [
+        "rest.AccountLimits.transitive-server-info-account-success-wrapper",
+        "rest.UserSettings.transitive-server-info-account-success-wrapper",
+        "rest.AuthTokens.redacted-server-info-account-identity-contribution"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/notebooks.py|list_notebooks|return|1",
+      "projection_ids": [
+        "rest.Notebook.app-view-notebook-list-default-final-wrapper",
+        "rest.Notebook.app-view-notebook-list-paged-final-wrapper"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/notebooks.py|get_notebook|return|1",
+      "projection_ids": [
+        "rest.Notebook.app-view-notebook-view"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/notebooks.py|create_notebook|return|1",
+      "projection_ids": [
+        "rest.Notebook.app-view-notebook-view"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/notebooks.py|rename_notebook|return|1",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/routes/notebooks.py:rename_notebook expression `{'status': 'renamed', **to_jsonable(result)}`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal.",
+      "helper_symbols": ["notebooklm._app.serialize.to_jsonable"]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/notebooks.py|suggested_prompts|return|1",
+      "projection_ids": [
+        "rest.PromptSuggestion.manual-rest-final-wrapper"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/notebooks.py|delete_notebook|return|1",
+      "non_public_category": "no-content-response",
+      "review_note": "Audited notebooklm/server/routes/notebooks.py:delete_notebook expression `Response(status_code=204)`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/notes.py|list_notes|return|1",
+      "projection_ids": [
+        "rest.Note.dataclass-full",
+        "rest.Note.dataclass-list-default-final-wrapper",
+        "rest.Note.dataclass-list-paged-final-wrapper"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/notes.py|get_note|return|1",
+      "projection_ids": [
+        "rest.Note.dataclass-full"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/notes.py|create_note|return|1",
+      "projection_ids": [
+        "rest.Note.dataclass-full"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/notes.py|update_note|return|1",
+      "projection_ids": [
+        "rest.Note.dataclass-full"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/notes.py|delete_note|return|1",
+      "non_public_category": "no-content-response",
+      "review_note": "Audited notebooklm/server/routes/notes.py:delete_note expression `Response(status_code=204)`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/research.py|start_research|return|1",
+      "projection_ids": [
+        "rest.ResearchStart.dataclass-full-with-poll-id"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/research.py|research_status|return|1",
+      "projection_ids": [
+        "rest.ResearchTask.manual-status-projection",
+        "rest.ResearchSource.nested-public-dict-projection"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/research.py|cancel_research|return|1",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/routes/research.py:cancel_research expression `{'status': 'cancelled', 'notebook_id': notebook_id, 'run_id': run_id, 'cancelled': True}`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/research.py|import_research|return|1",
+      "projection_ids": [
+        "rest.ResearchTask.transitive-import-final-wrapper",
+        "rest.ResearchSource.transitive-import-source-count-contribution"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/share.py|get_share_status|return|1",
+      "projection_ids": [
+        "rest.ShareStatus.app-view-share-status-view",
+        "rest.SharedUser.nested-manual-field-projection"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/share.py|set_public|return|1",
+      "projection_ids": [
+        "rest.ShareStatus.app-view-share-status-view"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/share.py|add_user|return|1",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/routes/share.py:add_user expression `{'notebook_id': resolved_id, 'email': body.email, 'permission': body.permission, 'notify': body.notify}`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/share.py|update_user|return|1",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/routes/share.py:update_user expression `{'notebook_id': resolved_id, 'email': email, 'permission': body.permission}`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/share.py|remove_user|return|1",
+      "non_public_category": "no-content-response",
+      "review_note": "Audited notebooklm/server/routes/share.py:remove_user expression `Response(status_code=204)`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/share.py|set_view_level|return|1",
+      "projection_ids": [
+        "rest.ShareStatus.app-view-share-status-view-view-level"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|list_sources|return|1",
+      "projection_ids": [
+        "rest.Source.app-view-source-list-default-final-wrapper",
+        "rest.Source.app-view-source-list-paged-final-wrapper"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|get_source|return|1",
+      "non_public_category": "rest-scalar-response",
+      "review_note": "Audited notebooklm/server/routes/sources.py:get_source expression `{'notebook_id': notebook_id, 'source_id': source_id, 'status': 'pending'}`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|get_source|return|2",
+      "projection_ids": [
+        "rest.Source.app-view-source-view"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|add_url|return|1",
+      "projection_ids": [
+        "rest.Source.app-view-source-view"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|add_text|return|1",
+      "projection_ids": [
+        "rest.Source.app-view-source-view"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|add_file|return|1",
+      "projection_ids": [
+        "rest.Source.app-view-source-view"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|get_source_content|return|1",
+      "projection_ids": [
+        "rest.SourceGuide.manual-guide-projection"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|get_source_content|return|2",
+      "projection_ids": [
+        "rest.SourceFulltext.manual-content-projection",
+        "rest.Source.transitive-source-content-readiness-contribution"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|add_drive|return|1",
+      "projection_ids": [
+        "rest.Source.app-view-source-view"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|add_batch|return|1",
+      "projection_ids": [
+        "rest.Source.transitive-batch-added-item-final-wrapper"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "all batch inputs fail before any Source instance is returned",
+          "category": "rest-scalar-response",
+          "review_note": "The all-error REST batch variant contains request indexes, URLs, and classified private error bodies only; the Source added-item projection is conditional on at least one successful Source result."
+        }
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|wait_sources|return|1",
+      "projection_ids": [
+        "rest.Source.app-view-source-wait-final-wrapper"
+      ],
+      "non_public_variants": [
+        {
+          "condition": "explicit canonical source_ids all produce non-ready outcomes",
+          "category": "rest-scalar-response",
+          "review_note": "With explicit canonical IDs and only timeout, failure, or not-found outcomes, the REST aggregate contains caller IDs and private wait-error strings only; no listed public Source instance contributes."
+        },
+        {
+          "condition": "wait-all lists zero Source instances",
+          "category": "rest-scalar-response",
+          "review_note": "When source_ids is omitted and the notebook Source list is empty, wait-all returns an empty aggregate of literal counts and buckets, so no public Source instance reaches the response."
+        }
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|rename_source|return|1",
+      "projection_ids": [
+        "rest.Source.app-view-source-view"
+      ]
+    },
+    {
+      "locator": "rest response|notebooklm/server/routes/sources.py|delete_source|return|1",
+      "non_public_category": "no-content-response",
+      "review_note": "Audited notebooklm/server/routes/sources.py:delete_source expression `Response(status_code=204)`; this route return is a scalar/private response, empty 204, or binary response and has no public dataclass projection at this terminal."
+    }
+  ]
+}

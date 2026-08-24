@@ -58,6 +58,65 @@ exactly one client runtime and one RPC stack:
 | **MCP** | `mcp/` | Model Context Protocol (FastMCP) | `notebooklm-mcp` | `mcp` extra · experimental | MCP tool error content (`CODE: message`) |
 | **REST** | `server/` | HTTP (FastAPI) | `notebooklm-server` | `server` extra · experimental | HTTP status + `{"error": {"category": "...", "message": "..."}}` |
 
+### Approved semantic backend migration
+
+The diagram above and the call flows below remain the current runtime until each bounded slice
+migrates. [ADR-0035](./adr/0035-semantic-backend-boundary.md) approves a new private semantic
+boundary below the client/feature facades; it does not authorize a public client rewrite or a
+second backend:
+
+```text
+CLI / MCP / REST
+        |
+        v
+_app workflows                         frontend-neutral
+        |
+        v
+NotebookLMClient + feature facades     compatibility boundary
+        |
+        v
+semantic services                      typed operation input/output
+        |
+        v
+BackendAdapter                         protocol-neutral port
+        |
+        v
+web binding + codec                    RPC IDs, arrays, cookies, web errors
+        |
+        v
+existing web runtime + transport
+```
+
+The dependency direction is one-way: codecs build private records, projectors build existing
+public models, and semantic services never import RPC, HTTP, auth, or adapter vocabulary. The
+immutable exported structured-document value graph is the one explicit projection exception:
+web codecs may construct it through its validating constructors because it contains no positional
+or protocol knowledge and owns the shared UTF-16 offset/rendering invariants.
+
+The migration runs P0 through P8, with the runtime collapse in P7 after feature domains have moved
+and the web cookie-provider extraction in P8 after P7. P3's codec/model separation is approved;
+it reuses the current strict row-adapter and wire-contract evidence rather than renaming it for its
+own sake. P0's catalog and contract evidence are implemented and frozen; the remaining phase
+descriptions are sequencing decisions, not a claim that P1-P8 are complete. P9 public-surface work
+and a mobile backend require separate decisions.
+
+P0 adds four ADR-0022 contract baselines before runtime delegation:
+
+| Baseline | Freezes |
+| --- | --- |
+| `operation_catalog` | 86 operations with 157 exact authority rows (39 multi-authority); 56 native rows (14 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; 146 namespace methods (eight local-only), ten root-client members, and 11 divergences (10 authority, one policy) |
+| `public_model_contract` | The 86 exported identities (50 dataclasses, 36 enums): construction, field/member order, behavior flags, export paths, structured pickle success/failure, first-party state hooks, and `Notebook` / `ChatReference` legacy-state restore invariants |
+| `json_envelope` | Exact sink/view-backed projection modes, keys, causal fields, and conditional variants: CLI 31 model identities/133 projections, MCP 32/123, REST 32/57 (313 unique ids). Its closed-world sink inventory covers 350 terminal/error sites: 225 public-projection, 117 reviewed non-public, eight forwarding infrastructure, and 15 conditional non-public variants across 14 sites. Every live id has a terminal allocation; registrations/direct JSON bypasses fail closed. It also pins 36 private DTO -> public dataclass paths (34 linked; `SourceRefreshResult.result` production-dead; `ValidatedSessionConfig.limits` internal-runtime-only), 16 explicit helper fingerprints, and a compact aggregate digest for the bounded 519-node / 1,242-edge transitive helper graph (520 unique helpers overall). Thirty-seven declarations across 28 literal final-dict sites are AST-derived, while 168 explicit declarations remain manually reviewed. The supplemental 49-dataclass inventory excludes `AuthTokens`; only the exact redacted MCP/REST `server_info` identity contributions are allowed. `authuser` / `account_email` may emit, while storage path/profile generation only select control flow; recursive credentials and any extra projection fail closed. |
+| `metrics_contract` | The 14 snapshot and five event fields plus normalized success/transport-error/decode-error observations through composed public `rpc_call()` / `metrics_snapshot()`; direct non-RPC middleware probes are supplemental |
+
+`_app/` remains governed by ADR-0021 and never imports the private backend or deadline type.
+The internal use of the exported generation-retry helper moves behind an artifact facade in P4.2
+while the public helper remains available and `_app` retains planning, optional wait dispatch,
+progress, and result projection. Artifact and source waiting already delegate polling to their
+facades. Download selection/conflict and multi-item composition stay in `_app`, with each
+list/download call treated as its own semantic operation. Pagination remains a pure returned-list
+slice; protocol pagination support belongs to backend capability metadata.
+
 ### Transport-neutral application layer (`_app/`)
 
 The CLI, the MCP server (`mcp/`), and the REST server (`server/`) are each thin
@@ -956,6 +1015,13 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_runtime/lifecycle.py` | `ClientLifecycle` — loop-affinity guard + keepalive task |
 | `_runtime/transport.py` | `RuntimeTransport` — authed-POST transport wrapper that drives the middleware chain and typed transport response handling |
 | `_rpc_executor.py` | RPC dispatch executor. Takes its `Kernel`, `RuntimeTransport`, `AuthRefreshCoordinator`, and `ClientMetrics` collaborators directly via keyword-only constructor parameters (ADR-0014 Rule 5). Defines a single local `DecodeResponse` Protocol. |
+| `_operations.py` | Inert P0 semantic vocabulary: closed `Operation` / `CallPolicy` enums and frozen, slotted, typed `OperationDef`; runtime backend types begin in P1. |
+| `scripts/audit_operation_catalog.py` | Single build/audit CLI for the deterministic ADR-0022 projection: exact semantic authorities, native bindings, public/root-client dispositions, evidence, omissions, and divergences. |
+| `scripts/_operation_catalog_specs.py` | Reviewed semantic operation specifications, owners/policies/routes, native/web bindings, public methods, and dispositions. |
+| `scripts/_operation_catalog_authorities.py` | Exact RPC/stream/upload/download/orchestrator authority allocations, semantic discriminators, and recency contracts. |
+| `scripts/_operation_catalog_ast.py` | AST-derived public API, direct transport authority, application-caller, and recency audits. |
+| `scripts/_operation_catalog_evidence.py` | Per-variant decoder/golden scope and disposition, runtime-override dataflow/test proof, idempotency, and captured live-RPC evidence. |
+| `tests/_guardrails/test_operation_catalog.py` | Fails closed on missing/duplicate/unallocated authorities, namespace/root-client dispositions, codec/golden evidence, override proof, unsupported variants, schema drift, and committed-baseline mismatch. |
 | `_request_types.py` | Shared authed POST request construction types: `AuthSnapshot`, `BuildRequest`, `PostBody`, and materialization helpers. |
 | `_transport_errors.py` | Transport exceptions, `Retry-After` parsing, and terminal `Kernel.post` error mapping for retry/auth middleware. |
 | `_streaming_post.py` | Size-capped streaming POST helper used by `Kernel.post`. |
@@ -1117,6 +1183,7 @@ src/notebooklm/
 ├── _mind_map.py                 # NoteBackedMindMapService
 ├── _mind_maps_api.py            # MindMapsAPI — unified mind-map surface over both backends (#1256)
 ├── _notebook_metadata.py        # Metadata protocols
+├── _operations.py               # Inert closed semantic operation/call-policy vocabulary (P0)
 ├── _url_utils.py                # URL validation helpers
 ├── _sharing_manager.py          # Sharing management logic
 ├── _version_check.py            # Deprecation version guard
@@ -1160,7 +1227,7 @@ src/notebooklm/
 │   ├── source_listing.py        # Click-free `source list` fetch core: fetch_sources (label_filter resolution; label_resolver injected)
 │   ├── source_mutations.py      # Click-free source delete/delete-by-title/rename/refresh/add-drive core: resolvers + SourceMutationError + typed results (validate_id/resolve_source_id injected; confirmer injected)
 │   ├── source_research.py       # Click-free `source add-research` start/wait/import workflow + validate_add_research_flags (importer injected; SourceAddResearchPlan/Result)
-│   ├── source_wait.py           # Click-free `source wait` readiness-poll core: execute_source_wait + typed SourceWaitOutcome (wait_context injected) + wait_all_sources (single-snapshot loop via client.sources.wait_all_until_ready — one notebook poll per tick, order-preserving; #1870) shared by the MCP tool + REST route (#1871) + the MAX_WAIT_TIMEOUT / MAX_WAIT_SOURCE_IDS caps
+│   ├── source_wait.py           # Click-free `source wait` validation/outcome core: execute_source_wait + typed SourceWaitOutcome (wait_context injected) + wait_all_sources (delegates the single-snapshot loop to client.sources.wait_all_until_ready — one notebook poll per tick, order-preserving; #1870) shared by the MCP tool + REST route (#1871) + the MAX_WAIT_TIMEOUT / MAX_WAIT_SOURCE_IDS caps
 │   └── views.py                 # Transport-neutral output-projection views: share_status_view (access/permission/view_level enum→label), source_view (kind/status_label/drive_status_label + is_drive_degraded added), notebook_view (role_label added), notebook_viewed_keys (last_viewed_at + its deprecated modified_at alias, for hand-built CLI JSON envelopes), ask_result_view (raw_response debug blob stripped); shared by the MCP tools + REST routes so both emit the identical enriched shape (Option B)
 ├── _runtime/                    # Client-runtime subpackage (promoted from flat _runtime_*.py, #1328)
 │   ├── __init__.py              # Re-exports the cluster's public names
@@ -1463,16 +1530,22 @@ src/notebooklm/
 - [ADR-0017](./adr/0017-public-facade-private-implementation.md) — Public-facade / private-implementation re-export convention (Accepted).
 - [ADR-0018](./adr/0018-deprecation-strategy.md) — Deprecation strategy (Accepted).
 - [ADR-0019](./adr/0019-error-and-return-contract.md) — Error-and-return contract for the public API (Accepted; the breaking half shipped in v0.8.0).
-- [ADR-0020](./adr/0020-sealed-async-result-types.md) — Sealed async result types for artifact generation (Accepted).
+- [ADR-0020](./adr/0020-sealed-async-result-types.md) — Sealed async result types for artifact generation (Proposed; recommends continued deferral).
 - [ADR-0021](./adr/0021-transport-neutral-app-layer.md) — Transport-neutral application layer (`_app/`) (Accepted; boundary enforced by `tests/_guardrails/test_app_boundary.py`, classify↔error_handler agreement by `tests/_guardrails/test_classify_error_handler_consistency.py`).
 - [ADR-0022](./adr/0022-regenerable-baselines.md) — Regenerable test baselines (Accepted).
 - [ADR-0023](./adr/0023-master-token-headless-auth.md) — Master-token headless auth (Accepted; the L4 unattended re-mint path, `[headless]` extra).
-- [ADR-0024](./adr/0024-mcp-remote-file-transfer.md) — Remote-MCP file transfer via signed-URL side-channel (Accepted).
+- [ADR-0024](./adr/0024-mcp-remote-file-transfer.md) — Remote-MCP file transfer via signed-URL side-channel (Accepted; implemented).
 - [ADR-0025](./adr/0025-mcp-tool-granularity.md) — MCP tool granularity (Accepted).
 - [ADR-0026](./adr/0026-mcp-studio-surface.md) — MCP Studio surface — notes + artifacts unified (Accepted).
 - [ADR-0027](./adr/0027-mcp-app-upload-widget.md) — In-app MCP-App upload widget (Accepted; experimental / opt-in, `NOTEBOOKLM_MCP_UPLOAD_WIDGET=1`).
+- [ADR-0028](./adr/0028-gemini-notebook-rename.md) — Proposed public package/client rename for Google's Gemini Notebook rebrand.
 - [ADR-0029](./adr/0029-canonical-storage-writer.md) — Single canonical `storage_state.json` writer (Accepted; rolling out).
 - [ADR-0030](./adr/0030-one-recovery-ladder.md) — One recovery ladder for auth cold-start/refresh (Accepted; rolling out; companion to ADR-0029).
+- [ADR-0031](./adr/0031-credential-tier-auth-model.md) — Credential-tier auth model (Proposed; implementation remains staged and partly deferred).
+- [ADR-0032](./adr/0032-auth-domain-types.md) — Auth domain types and the `AuthTokens` compatibility runway (Accepted; incremental).
+- [ADR-0033](./adr/0033-auth-consolidation-policy.md) — Auth consolidation ownership and write-boundary policy (Accepted).
+- [ADR-0034](./adr/0034-auth-storage-object-model.md) — Auth storage object model and incremental extraction (Accepted).
+- [ADR-0035](./adr/0035-semantic-backend-boundary.md) — Private semantic backend boundary and P0-P8 migration order (Accepted).
 
 ## See also
 

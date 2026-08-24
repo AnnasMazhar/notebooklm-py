@@ -1,8 +1,8 @@
 """Transport-neutral ``source wait`` business logic.
 
 This is the Click-free core behind ``source wait`` (imported directly by the
-``cli/source_cmd.py`` / ``cli/_source_render.py`` command layer): it owns the
-source-readiness polling loop and the translation of the three
+``cli/source_cmd.py`` / ``cli/_source_render.py`` command layer): it dispatches
+the source-readiness wait to the public source facade and translates the three
 ``SourceWaitError`` subclasses into a discriminated :class:`SourceWaitOutcome`.
 Every transport adapter (the Click CLI today, the FastMCP server / future HTTP
 later) drives this core and renders the typed outcome into its own envelope
@@ -133,7 +133,8 @@ async def execute_source_wait(
     caller's JSON envelope carry the resolved id consistently).
 
     Presentation and exit-code policy live in the caller — this executor
-    only owns the polling loop and exception-to-outcome mapping. The
+    only dispatches to the public facade and owns exception-to-outcome mapping.
+    The source facade and its polling implementation own the polling loop. The
     optional ``wait_context`` lets the adapter wrap the wait in its own
     progress surface; the neutral default is a no-op context.
     """

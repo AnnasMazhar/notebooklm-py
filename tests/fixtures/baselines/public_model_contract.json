@@ -1,0 +1,7738 @@
+{
+  "models": {
+    "notebooklm._types.documents.BlockKind": {
+      "equality": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.BlockKind",
+        "notebooklm.types.BlockKind"
+      ],
+      "hash": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "UNKNOWN",
+          "value": "unknown"
+        },
+        {
+          "name": "PARAGRAPH",
+          "value": "paragraph"
+        },
+        {
+          "name": "TABLE",
+          "value": "table"
+        },
+        {
+          "name": "IMAGE",
+          "value": "image"
+        },
+        {
+          "name": "CODE_BLOCK",
+          "value": "code_block"
+        },
+        {
+          "name": "A2UI_BLOCK",
+          "value": "a2ui_block"
+        },
+        {
+          "name": "THOUGHT",
+          "value": "thought"
+        },
+        {
+          "name": "FUNCTION_CALL",
+          "value": "function_call"
+        },
+        {
+          "name": "FUNCTION_RESPONSE",
+          "value": "function_response"
+        },
+        {
+          "name": "HORIZONTAL_RULE",
+          "value": "horizontal_rule"
+        }
+      ],
+      "module": "notebooklm._types.documents",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm._types.documents.BlockKind",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "BlockKind",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm._types.documents.BlockStyle": {
+      "equality": {
+        "owner": "builtins.object",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.BlockStyle",
+        "notebooklm.types.BlockStyle"
+      ],
+      "hash": {
+        "owner": "enum.Enum",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "UNSPECIFIED",
+          "value": 0
+        },
+        {
+          "name": "NORMAL_TEXT",
+          "value": 1
+        },
+        {
+          "name": "TITLE",
+          "value": 2
+        },
+        {
+          "name": "SUBTITLE",
+          "value": 3
+        },
+        {
+          "name": "HEADING_1",
+          "value": 4
+        },
+        {
+          "name": "HEADING_2",
+          "value": 5
+        },
+        {
+          "name": "HEADING_3",
+          "value": 6
+        },
+        {
+          "name": "HEADING_4",
+          "value": 7
+        },
+        {
+          "name": "HEADING_5",
+          "value": 8
+        },
+        {
+          "name": "HEADING_6",
+          "value": 9
+        }
+      ],
+      "module": "notebooklm._types.documents",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm._types.documents.BlockStyle",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "BlockStyle",
+      "repr": {
+        "owner": "enum.Enum",
+        "policy": "inherited"
+      }
+    },
+    "notebooklm._types.documents.DocumentAnnotation": {
+      "constructor_order": [
+        "object_id",
+        "start_index",
+        "end_index"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.DocumentAnnotation",
+        "notebooklm.types.DocumentAnnotation"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "object_id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "start_index",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "end_index",
+          "repr": true,
+          "type": "int"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "object_id",
+        "start_index",
+        "end_index"
+      ],
+      "module": "notebooklm._types.documents",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm._types.documents.DocumentAnnotation",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "DocumentAnnotation",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm._types.documents.DocumentBlock": {
+      "constructor_order": [
+        "start_index",
+        "end_index",
+        "spans",
+        "style",
+        "list_info",
+        "kind",
+        "table_rows"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.DocumentBlock",
+        "notebooklm.types.DocumentBlock"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "start_index",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "end_index",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "spans",
+          "repr": true,
+          "type": "tuple[TextSpan, ...]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "style",
+          "repr": true,
+          "type": "BlockStyle"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "list_info",
+          "repr": true,
+          "type": "ListInfo | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "kind",
+          "repr": true,
+          "type": "BlockKind"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "table_rows",
+          "repr": true,
+          "type": "tuple[tuple[TableCell, ...], ...]"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "start_index",
+        "end_index",
+        "spans",
+        "style",
+        "list_info",
+        "kind",
+        "table_rows"
+      ],
+      "module": "notebooklm._types.documents",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm._types.documents.DocumentBlock",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "DocumentBlock",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm._types.documents.ListInfo": {
+      "constructor_order": [
+        "style",
+        "nesting_level",
+        "glyph",
+        "ordinal"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ListInfo",
+        "notebooklm.types.ListInfo"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "style",
+          "repr": true,
+          "type": "ListStyle"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "nesting_level",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "glyph",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "ordinal",
+          "repr": true,
+          "type": "int | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "style",
+        "nesting_level",
+        "glyph",
+        "ordinal"
+      ],
+      "module": "notebooklm._types.documents",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm._types.documents.ListInfo",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ListInfo",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm._types.documents.ListStyle": {
+      "equality": {
+        "owner": "builtins.object",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.ListStyle",
+        "notebooklm.types.ListStyle"
+      ],
+      "hash": {
+        "owner": "enum.Enum",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "UNSPECIFIED",
+          "value": 0
+        },
+        {
+          "name": "UNORDERED",
+          "value": 1
+        },
+        {
+          "name": "ORDERED",
+          "value": 2
+        }
+      ],
+      "module": "notebooklm._types.documents",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm._types.documents.ListStyle",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ListStyle",
+      "repr": {
+        "owner": "enum.Enum",
+        "policy": "inherited"
+      }
+    },
+    "notebooklm._types.documents.StructuredDocument": {
+      "constructor_order": [
+        "blocks",
+        "annotations"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.StructuredDocument",
+        "notebooklm.types.StructuredDocument"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "blocks",
+          "repr": true,
+          "type": "tuple[DocumentBlock, ...]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "annotations",
+          "repr": true,
+          "type": "tuple[DocumentAnnotation, ...]"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "blocks",
+        "annotations"
+      ],
+      "module": "notebooklm._types.documents",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm._types.documents.StructuredDocument",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "StructuredDocument",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm._types.documents.TableCell": {
+      "constructor_order": [
+        "start_index",
+        "end_index"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.TableCell",
+        "notebooklm.types.TableCell"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "start_index",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "end_index",
+          "repr": true,
+          "type": "int"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "start_index",
+        "end_index"
+      ],
+      "module": "notebooklm._types.documents",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm._types.documents.TableCell",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "TableCell",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm._types.documents.TextSpan": {
+      "constructor_order": [
+        "start_index",
+        "end_index",
+        "text",
+        "bold",
+        "italic",
+        "underline",
+        "url"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.TextSpan",
+        "notebooklm.types.TextSpan"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "start_index",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "end_index",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "text",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "bold",
+          "repr": true,
+          "type": "bool"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "italic",
+          "repr": true,
+          "type": "bool"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "underline",
+          "repr": true,
+          "type": "bool"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "url",
+          "repr": true,
+          "type": "str | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "start_index",
+        "end_index",
+        "text",
+        "bold",
+        "italic",
+        "underline",
+        "url"
+      ],
+      "module": "notebooklm._types.documents",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm._types.documents.TextSpan",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "TextSpan",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.artifacts.RateLimitRetryEvent": {
+      "constructor_order": [
+        "result",
+        "next_attempt_number",
+        "total_attempts",
+        "retry_number",
+        "max_retries",
+        "delay"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.artifacts.RateLimitRetryEvent"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "result",
+          "repr": true,
+          "type": "GenerationStatus"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "next_attempt_number",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "total_attempts",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "retry_number",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "max_retries",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "delay",
+          "repr": true,
+          "type": "float"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "result",
+        "next_attempt_number",
+        "total_attempts",
+        "retry_number",
+        "max_retries",
+        "delay"
+      ],
+      "module": "notebooklm.artifacts",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.artifacts.RateLimitRetryEvent",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "RateLimitRetryEvent",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.auth.AuthTokens": {
+      "constructor_order": [
+        "cookies",
+        "csrf_token",
+        "session_id",
+        "storage_path",
+        "cookie_jar",
+        "authuser",
+        "cookie_snapshot",
+        "account_email"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.AuthTokens",
+        "notebooklm.auth.AuthTokens"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "cookies",
+          "repr": false,
+          "type": "DomainCookieMap"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "csrf_token",
+          "repr": false,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "session_id",
+          "repr": false,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "storage_path",
+          "repr": true,
+          "type": "Path | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "cookie_jar",
+          "repr": false,
+          "type": "httpx.Cookies | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "authuser",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "cookie_snapshot",
+          "repr": false,
+          "type": "CookieSnapshot | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "account_email",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": false,
+          "hash": null,
+          "init": false,
+          "keyword_only": false,
+          "name": "_profile_session_generation",
+          "repr": false,
+          "type": "int"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "cookies",
+        "csrf_token",
+        "session_id",
+        "storage_path",
+        "cookie_jar",
+        "authuser",
+        "cookie_snapshot",
+        "account_email"
+      ],
+      "module": "notebooklm.auth",
+      "pickle_round_trip": {
+        "error_category": "unpickleable-thread-lock",
+        "error_type": "TypeError",
+        "stage": "dumps",
+        "status": "failure"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "AuthTokens",
+      "repr": {
+        "policy": "custom"
+      },
+      "slots": []
+    },
+    "notebooklm.rpc.types.ArtifactStatus": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.types.ArtifactStatus"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "UNKNOWN",
+          "value": 0
+        },
+        {
+          "name": "PENDING",
+          "value": 1
+        },
+        {
+          "name": "PROCESSING",
+          "value": 2
+        },
+        {
+          "name": "COMPLETED",
+          "value": 3
+        },
+        {
+          "name": "FAILED",
+          "value": 4
+        },
+        {
+          "name": "SUGGESTED",
+          "value": 5
+        },
+        {
+          "name": "PENDING_REVIEW",
+          "value": 6
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ArtifactStatus",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ArtifactStatus",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.AudioFormat": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.AudioFormat",
+        "notebooklm.types.AudioFormat"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "DEEP_DIVE",
+          "value": 1
+        },
+        {
+          "name": "BRIEF",
+          "value": 2
+        },
+        {
+          "name": "CRITIQUE",
+          "value": 3
+        },
+        {
+          "name": "DEBATE",
+          "value": 4
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.AudioFormat",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "AudioFormat",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.AudioLength": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.AudioLength",
+        "notebooklm.types.AudioLength"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "SHORT",
+          "value": 1
+        },
+        {
+          "name": "DEFAULT",
+          "value": 2
+        },
+        {
+          "name": "LONG",
+          "value": 3
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.AudioLength",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "AudioLength",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.ChatGoal": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.ChatGoal",
+        "notebooklm.types.ChatGoal"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "DEFAULT",
+          "value": 1
+        },
+        {
+          "name": "CUSTOM",
+          "value": 2
+        },
+        {
+          "name": "LEARNING_GUIDE",
+          "value": 3
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ChatGoal",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ChatGoal",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.ChatResponseLength": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.ChatResponseLength",
+        "notebooklm.types.ChatResponseLength"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "DEFAULT",
+          "value": 1
+        },
+        {
+          "name": "LONGER",
+          "value": 4
+        },
+        {
+          "name": "SHORTER",
+          "value": 5
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ChatResponseLength",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ChatResponseLength",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.DiscoveryMode": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.DiscoveryMode",
+        "notebooklm.types.DiscoveryMode"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "UNKNOWN",
+          "value": -1
+        },
+        {
+          "name": "DEFAULT_LLM_SEARCH",
+          "value": 1
+        },
+        {
+          "name": "RAW_SEARCH",
+          "value": 2
+        },
+        {
+          "name": "CURIOUS_SEARCH",
+          "value": 3
+        },
+        {
+          "name": "CURIOUS_RAW_SEARCH",
+          "value": 4
+        },
+        {
+          "name": "DEEP_RESEARCH",
+          "value": 5
+        },
+        {
+          "name": "LITE_LLM_SEARCH",
+          "value": 6
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.DiscoveryMode",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "DiscoveryMode",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.DriveMimeType": {
+      "equality": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.DriveMimeType",
+        "notebooklm.types.DriveMimeType"
+      ],
+      "hash": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "GOOGLE_DOC",
+          "value": "application/vnd.google-apps.document"
+        },
+        {
+          "name": "GOOGLE_SLIDES",
+          "value": "application/vnd.google-apps.presentation"
+        },
+        {
+          "name": "GOOGLE_SHEETS",
+          "value": "application/vnd.google-apps.spreadsheet"
+        },
+        {
+          "name": "PDF",
+          "value": "application/pdf"
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.DriveMimeType",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "DriveMimeType",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.DriveSourceStatus": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.DriveSourceStatus",
+        "notebooklm.types.DriveSourceStatus"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "UNKNOWN",
+          "value": -1
+        },
+        {
+          "name": "INACCESSIBLE",
+          "value": 1
+        },
+        {
+          "name": "SYNCING",
+          "value": 2
+        },
+        {
+          "name": "ACTIVE",
+          "value": 3
+        },
+        {
+          "name": "DELETED",
+          "value": 4
+        },
+        {
+          "name": "GEN_AI_ACCESS_DENIED",
+          "value": 5
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.DriveSourceStatus",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "DriveSourceStatus",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.ExportType": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.ExportType",
+        "notebooklm.types.ExportType"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "DOCS",
+          "value": 1
+        },
+        {
+          "name": "SHEETS",
+          "value": 2
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ExportType",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ExportType",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.InfographicDetail": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.InfographicDetail",
+        "notebooklm.types.InfographicDetail"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "CONCISE",
+          "value": 1
+        },
+        {
+          "name": "STANDARD",
+          "value": 2
+        },
+        {
+          "name": "DETAILED",
+          "value": 3
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.InfographicDetail",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "InfographicDetail",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.InfographicOrientation": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.InfographicOrientation",
+        "notebooklm.types.InfographicOrientation"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "LANDSCAPE",
+          "value": 1
+        },
+        {
+          "name": "PORTRAIT",
+          "value": 2
+        },
+        {
+          "name": "SQUARE",
+          "value": 3
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.InfographicOrientation",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "InfographicOrientation",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.InfographicStyle": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.InfographicStyle",
+        "notebooklm.types.InfographicStyle"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "AUTO_SELECT",
+          "value": 1
+        },
+        {
+          "name": "SKETCH_NOTE",
+          "value": 2
+        },
+        {
+          "name": "PROFESSIONAL",
+          "value": 3
+        },
+        {
+          "name": "BENTO_GRID",
+          "value": 4
+        },
+        {
+          "name": "EDITORIAL",
+          "value": 5
+        },
+        {
+          "name": "INSTRUCTIONAL",
+          "value": 6
+        },
+        {
+          "name": "BRICKS",
+          "value": 7
+        },
+        {
+          "name": "CLAY",
+          "value": 8
+        },
+        {
+          "name": "ANIME",
+          "value": 9
+        },
+        {
+          "name": "KAWAII",
+          "value": 10
+        },
+        {
+          "name": "SCIENTIFIC",
+          "value": 11
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.InfographicStyle",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "InfographicStyle",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.MagicArtifactType": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.MagicArtifactType",
+        "notebooklm.types.MagicArtifactType"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "UNSPECIFIED",
+          "value": 0
+        },
+        {
+          "name": "MINDMAP",
+          "value": 1
+        },
+        {
+          "name": "AUDIO_OVERVIEW",
+          "value": 2
+        },
+        {
+          "name": "VIDEO_OVERVIEW",
+          "value": 3
+        },
+        {
+          "name": "NOTE",
+          "value": 4
+        },
+        {
+          "name": "TABLE",
+          "value": 5
+        },
+        {
+          "name": "LINE_CHART",
+          "value": 6
+        },
+        {
+          "name": "FLASHCARDS",
+          "value": 7
+        },
+        {
+          "name": "REPORT",
+          "value": 8
+        },
+        {
+          "name": "CONVERSATIONAL_TEXT_CHIP",
+          "value": 9
+        },
+        {
+          "name": "VIDEO_OVERVIEW_TEXT_CHIP",
+          "value": 10
+        },
+        {
+          "name": "AUDIO_OVERVIEW_TEXT_CHIP",
+          "value": 11
+        },
+        {
+          "name": "REPORT_TEXT_CHIP",
+          "value": 12
+        },
+        {
+          "name": "FLASHCARDS_TEXT_CHIP",
+          "value": 13
+        },
+        {
+          "name": "QUIZ_TEXT_CHIP",
+          "value": 14
+        },
+        {
+          "name": "SOURCE_DISCOVERY_TEXT_CHIP",
+          "value": 15
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.MagicArtifactType",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "MagicArtifactType",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.QuizDifficulty": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.QuizDifficulty",
+        "notebooklm.types.QuizDifficulty"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "EASY",
+          "value": 1
+        },
+        {
+          "name": "MEDIUM",
+          "value": 2
+        },
+        {
+          "name": "HARD",
+          "value": 3
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.QuizDifficulty",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "QuizDifficulty",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.QuizQuantity": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.QuizQuantity",
+        "notebooklm.types.QuizQuantity"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "FEWER",
+          "value": 1
+        },
+        {
+          "name": "STANDARD",
+          "value": 2
+        },
+        {
+          "name": "MORE",
+          "value": 3
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.QuizQuantity",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "QuizQuantity",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.RPCMethod": {
+      "equality": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.rpc.RPCMethod"
+      ],
+      "hash": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "LIST_NOTEBOOKS",
+          "value": "wXbhsf"
+        },
+        {
+          "name": "CREATE_NOTEBOOK",
+          "value": "CCqFvf"
+        },
+        {
+          "name": "GET_NOTEBOOK",
+          "value": "rLM1Ne"
+        },
+        {
+          "name": "RENAME_NOTEBOOK",
+          "value": "s0tc2d"
+        },
+        {
+          "name": "DELETE_NOTEBOOK",
+          "value": "WWINqb"
+        },
+        {
+          "name": "ADD_SOURCE",
+          "value": "izAoDd"
+        },
+        {
+          "name": "ADD_SOURCE_FILE",
+          "value": "o4cbdc"
+        },
+        {
+          "name": "DELETE_SOURCE",
+          "value": "tGMBJ"
+        },
+        {
+          "name": "GET_SOURCE",
+          "value": "hizoJc"
+        },
+        {
+          "name": "REFRESH_SOURCE",
+          "value": "FLmJqe"
+        },
+        {
+          "name": "CHECK_SOURCE_FRESHNESS",
+          "value": "yR9Yof"
+        },
+        {
+          "name": "UPDATE_SOURCE",
+          "value": "b7Wfje"
+        },
+        {
+          "name": "CREATE_LABEL",
+          "value": "agX4Bc"
+        },
+        {
+          "name": "LIST_LABELS",
+          "value": "I3xc3c"
+        },
+        {
+          "name": "UPDATE_LABEL",
+          "value": "le8sX"
+        },
+        {
+          "name": "DELETE_LABEL",
+          "value": "GyzE7e"
+        },
+        {
+          "name": "SUMMARIZE",
+          "value": "VfAZjd"
+        },
+        {
+          "name": "GET_SOURCE_GUIDE",
+          "value": "tr032e"
+        },
+        {
+          "name": "GET_SUGGESTED_REPORTS",
+          "value": "ciyUvf"
+        },
+        {
+          "name": "CREATE_ARTIFACT",
+          "value": "R7cb6c"
+        },
+        {
+          "name": "LIST_ARTIFACTS",
+          "value": "gArtLc"
+        },
+        {
+          "name": "DELETE_ARTIFACT",
+          "value": "V5N4be"
+        },
+        {
+          "name": "RENAME_ARTIFACT",
+          "value": "rc3d8d"
+        },
+        {
+          "name": "EXPORT_ARTIFACT",
+          "value": "Krh3pd"
+        },
+        {
+          "name": "SHARE_ARTIFACT",
+          "value": "RGP97b"
+        },
+        {
+          "name": "GET_INTERACTIVE_HTML",
+          "value": "v9rmvd"
+        },
+        {
+          "name": "REVISE_SLIDE",
+          "value": "KmcKPe"
+        },
+        {
+          "name": "RETRY_ARTIFACT",
+          "value": "Rytqqe"
+        },
+        {
+          "name": "START_FAST_RESEARCH",
+          "value": "Ljjv0c"
+        },
+        {
+          "name": "START_DEEP_RESEARCH",
+          "value": "QA9ei"
+        },
+        {
+          "name": "POLL_RESEARCH",
+          "value": "e3bVqc"
+        },
+        {
+          "name": "IMPORT_RESEARCH",
+          "value": "LBwxtb"
+        },
+        {
+          "name": "CANCEL_RESEARCH",
+          "value": "Zbrupe"
+        },
+        {
+          "name": "GENERATE_MIND_MAP",
+          "value": "yyryJe"
+        },
+        {
+          "name": "CREATE_NOTE",
+          "value": "CYK0Xb"
+        },
+        {
+          "name": "GET_NOTES_AND_MIND_MAPS",
+          "value": "cFji9"
+        },
+        {
+          "name": "UPDATE_NOTE",
+          "value": "cYAfTb"
+        },
+        {
+          "name": "DELETE_NOTE",
+          "value": "AH0mwd"
+        },
+        {
+          "name": "GET_LAST_CONVERSATION_ID",
+          "value": "hPTbtc"
+        },
+        {
+          "name": "GET_CONVERSATION_TURNS",
+          "value": "khqZz"
+        },
+        {
+          "name": "DELETE_CONVERSATION",
+          "value": "J7Gthc"
+        },
+        {
+          "name": "SUGGEST_PROMPTS",
+          "value": "otmP3b"
+        },
+        {
+          "name": "SHARE_NOTEBOOK",
+          "value": "QDyure"
+        },
+        {
+          "name": "GET_SHARE_STATUS",
+          "value": "JFMDGd"
+        },
+        {
+          "name": "REMOVE_RECENTLY_VIEWED",
+          "value": "fejl7e"
+        },
+        {
+          "name": "GET_USER_SETTINGS",
+          "value": "ZwVcOc"
+        },
+        {
+          "name": "SET_USER_SETTINGS",
+          "value": "hT54vc"
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.RPCMethod",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "RPCMethod",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.ReportFormat": {
+      "equality": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.ReportFormat",
+        "notebooklm.types.ReportFormat"
+      ],
+      "hash": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "BRIEFING_DOC",
+          "value": "briefing_doc"
+        },
+        {
+          "name": "STUDY_GUIDE",
+          "value": "study_guide"
+        },
+        {
+          "name": "BLOG_POST",
+          "value": "blog_post"
+        },
+        {
+          "name": "CONCEPT_EXPLANATION",
+          "value": "concept_explanation"
+        },
+        {
+          "name": "CUSTOM",
+          "value": "custom"
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ReportFormat",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ReportFormat",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.ShareAccess": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.ShareAccess",
+        "notebooklm.types.ShareAccess"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "RESTRICTED",
+          "value": 0
+        },
+        {
+          "name": "ANYONE_WITH_LINK",
+          "value": 1
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ShareAccess",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ShareAccess",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.SharePermission": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.SharePermission",
+        "notebooklm.types.SharePermission"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "OWNER",
+          "value": 1
+        },
+        {
+          "name": "EDITOR",
+          "value": 2
+        },
+        {
+          "name": "VIEWER",
+          "value": 3
+        },
+        {
+          "name": "_REMOVE",
+          "value": 4
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.SharePermission",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "SharePermission",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.ShareViewLevel": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.ShareViewLevel",
+        "notebooklm.types.ShareViewLevel"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "FULL_NOTEBOOK",
+          "value": 0
+        },
+        {
+          "name": "CHAT_ONLY",
+          "value": 1
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.ShareViewLevel",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ShareViewLevel",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.SlideDeckFormat": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.SlideDeckFormat",
+        "notebooklm.types.SlideDeckFormat"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "DETAILED_DECK",
+          "value": 1
+        },
+        {
+          "name": "PRESENTER_SLIDES",
+          "value": 2
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.SlideDeckFormat",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "SlideDeckFormat",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.SlideDeckLength": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.SlideDeckLength",
+        "notebooklm.types.SlideDeckLength"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "DEFAULT",
+          "value": 1
+        },
+        {
+          "name": "SHORT",
+          "value": 2
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.SlideDeckLength",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "SlideDeckLength",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.SourceStatus": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.SourceStatus",
+        "notebooklm.types.SourceStatus"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "UNKNOWN",
+          "value": -1
+        },
+        {
+          "name": "PROCESSING",
+          "value": 1
+        },
+        {
+          "name": "READY",
+          "value": 2
+        },
+        {
+          "name": "ERROR",
+          "value": 3
+        },
+        {
+          "name": "PREPARING",
+          "value": 5
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.SourceStatus",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "SourceStatus",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.VideoFormat": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.VideoFormat",
+        "notebooklm.types.VideoFormat"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "EXPLAINER",
+          "value": 1
+        },
+        {
+          "name": "BRIEF",
+          "value": 2
+        },
+        {
+          "name": "CINEMATIC",
+          "value": 3
+        },
+        {
+          "name": "SHORT",
+          "value": 4
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.VideoFormat",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "VideoFormat",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.rpc.types.VideoStyle": {
+      "equality": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.VideoStyle",
+        "notebooklm.types.VideoStyle"
+      ],
+      "hash": {
+        "owner": "builtins.int",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "AUTO_SELECT",
+          "value": 1
+        },
+        {
+          "name": "CUSTOM",
+          "value": 0
+        },
+        {
+          "name": "CLASSIC",
+          "value": 2
+        },
+        {
+          "name": "WHITEBOARD",
+          "value": 3
+        },
+        {
+          "name": "KAWAII",
+          "value": 9
+        },
+        {
+          "name": "ANIME",
+          "value": 7
+        },
+        {
+          "name": "WATERCOLOR",
+          "value": 6
+        },
+        {
+          "name": "RETRO_PRINT",
+          "value": 8
+        },
+        {
+          "name": "HERITAGE",
+          "value": 4
+        },
+        {
+          "name": "PAPER_CRAFT",
+          "value": 5
+        }
+      ],
+      "module": "notebooklm.rpc.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.rpc.types.VideoStyle",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "VideoStyle",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.types.AccountLimits": {
+      "constructor_order": [
+        "notebook_limit",
+        "source_limit",
+        "raw_limits",
+        "tier"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.AccountLimits",
+        "notebooklm.types.AccountLimits"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "notebook_limit",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "source_limit",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "raw_limits",
+          "repr": true,
+          "type": "tuple[Any, ...]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "tier",
+          "repr": true,
+          "type": "int | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "notebook_limit",
+        "source_limit",
+        "raw_limits",
+        "tier"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.AccountLimits",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "AccountLimits",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.Artifact": {
+      "constructor_order": [
+        "id",
+        "title",
+        "_artifact_type",
+        "status",
+        "created_at",
+        "url",
+        "_variant",
+        "generation_prompt",
+        "media_urls",
+        "duration_seconds",
+        "slides",
+        "infographics",
+        "report_kind",
+        "source_ids",
+        "last_modified_at",
+        "etag",
+        "user_state"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.Artifact",
+        "notebooklm.types.Artifact"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "title",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "_artifact_type",
+          "repr": false,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "status",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "created_at",
+          "repr": true,
+          "type": "datetime | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "url",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "_variant",
+          "repr": false,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "generation_prompt",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "media_urls",
+          "repr": true,
+          "type": "tuple[ArtifactMedia, ...]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "duration_seconds",
+          "repr": true,
+          "type": "float | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "slides",
+          "repr": true,
+          "type": "tuple[ArtifactSlide, ...]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "infographics",
+          "repr": true,
+          "type": "tuple[ArtifactInfographic, ...]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "report_kind",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "source_ids",
+          "repr": true,
+          "type": "tuple[str, ...]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "last_modified_at",
+          "repr": true,
+          "type": "datetime | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "etag",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "user_state",
+          "repr": true,
+          "type": "ArtifactUserState | None"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "id",
+        "title",
+        "_artifact_type",
+        "status",
+        "created_at",
+        "url",
+        "_variant",
+        "generation_prompt",
+        "media_urls",
+        "duration_seconds",
+        "slides",
+        "infographics",
+        "report_kind",
+        "source_ids",
+        "last_modified_at",
+        "etag",
+        "user_state"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.Artifact",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "Artifact",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ArtifactInfographic": {
+      "constructor_order": [
+        "title",
+        "image_url",
+        "width",
+        "height",
+        "alt_text",
+        "text"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ArtifactInfographic",
+        "notebooklm.types.ArtifactInfographic"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "title",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "image_url",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "width",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "height",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "alt_text",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "text",
+          "repr": true,
+          "type": "str | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "title",
+        "image_url",
+        "width",
+        "height",
+        "alt_text",
+        "text"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ArtifactInfographic",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ArtifactInfographic",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ArtifactMedia": {
+      "constructor_order": [
+        "url",
+        "kind",
+        "type_code",
+        "mime_type"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ArtifactMedia",
+        "notebooklm.types.ArtifactMedia"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "url",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "kind",
+          "repr": true,
+          "type": "ArtifactMediaType"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "type_code",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "mime_type",
+          "repr": true,
+          "type": "str | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "url",
+        "kind",
+        "type_code",
+        "mime_type"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ArtifactMedia",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ArtifactMedia",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ArtifactMediaType": {
+      "equality": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.ArtifactMediaType",
+        "notebooklm.types.ArtifactMediaType"
+      ],
+      "hash": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "PROGRESSIVE",
+          "value": "progressive"
+        },
+        {
+          "name": "HLS",
+          "value": "hls"
+        },
+        {
+          "name": "DASH",
+          "value": "dash"
+        },
+        {
+          "name": "DOWNLOAD",
+          "value": "download"
+        },
+        {
+          "name": "UNKNOWN",
+          "value": "unknown"
+        }
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.ArtifactMediaType",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ArtifactMediaType",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.types.ArtifactSlide": {
+      "constructor_order": [
+        "image_url",
+        "width",
+        "height",
+        "alt_text",
+        "text"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ArtifactSlide",
+        "notebooklm.types.ArtifactSlide"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "image_url",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "width",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "height",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "alt_text",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "text",
+          "repr": true,
+          "type": "str | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "image_url",
+        "width",
+        "height",
+        "alt_text",
+        "text"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ArtifactSlide",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ArtifactSlide",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ArtifactType": {
+      "equality": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.ArtifactType",
+        "notebooklm.types.ArtifactType"
+      ],
+      "hash": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "AUDIO",
+          "value": "audio"
+        },
+        {
+          "name": "VIDEO",
+          "value": "video"
+        },
+        {
+          "name": "REPORT",
+          "value": "report"
+        },
+        {
+          "name": "QUIZ",
+          "value": "quiz"
+        },
+        {
+          "name": "FLASHCARDS",
+          "value": "flashcards"
+        },
+        {
+          "name": "MIND_MAP",
+          "value": "mind_map"
+        },
+        {
+          "name": "INFOGRAPHIC",
+          "value": "infographic"
+        },
+        {
+          "name": "SLIDE_DECK",
+          "value": "slide_deck"
+        },
+        {
+          "name": "DATA_TABLE",
+          "value": "data_table"
+        },
+        {
+          "name": "FANTASY_MAP",
+          "value": "fantasy_map"
+        },
+        {
+          "name": "FILE",
+          "value": "file"
+        },
+        {
+          "name": "UNKNOWN",
+          "value": "unknown"
+        }
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.ArtifactType",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ArtifactType",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.types.AskResult": {
+      "constructor_order": [
+        "answer",
+        "conversation_id",
+        "turn_number",
+        "is_follow_up",
+        "references",
+        "raw_response",
+        "answer_document",
+        "turn_key",
+        "next_steps"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.AskResult",
+        "notebooklm.types.AskResult"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "answer",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "conversation_id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "turn_number",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "is_follow_up",
+          "repr": true,
+          "type": "bool"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "references",
+          "repr": true,
+          "type": "list[ChatReference]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "raw_response",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "answer_document",
+          "repr": false,
+          "type": "StructuredDocument"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "turn_key",
+          "repr": true,
+          "type": "ConversationTurnKey | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "next_steps",
+          "repr": true,
+          "type": "list[NextStepSuggestion]"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "answer",
+        "conversation_id",
+        "turn_number",
+        "is_follow_up",
+        "references",
+        "raw_response",
+        "answer_document",
+        "turn_key",
+        "next_steps"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.AskResult",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "AskResult",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.AudioArtifactUserState": {
+      "constructor_order": [
+        "playback_position_seconds"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.AudioArtifactUserState",
+        "notebooklm.types.AudioArtifactUserState"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "playback_position_seconds",
+          "repr": true,
+          "type": "float"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "playback_position_seconds"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.AudioArtifactUserState",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "AudioArtifactUserState",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ChatMode": {
+      "equality": {
+        "owner": "builtins.object",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.ChatMode",
+        "notebooklm.types.ChatMode"
+      ],
+      "hash": {
+        "owner": "enum.Enum",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "DEFAULT",
+          "value": "default"
+        },
+        {
+          "name": "LEARNING_GUIDE",
+          "value": "learning_guide"
+        },
+        {
+          "name": "CONCISE",
+          "value": "concise"
+        },
+        {
+          "name": "DETAILED",
+          "value": "detailed"
+        }
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.ChatMode",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ChatMode",
+      "repr": {
+        "owner": "enum.Enum",
+        "policy": "inherited"
+      }
+    },
+    "notebooklm.types.ChatReference": {
+      "constructor_order": [
+        "source_id",
+        "citation_number",
+        "cited_text",
+        "start_char",
+        "end_char",
+        "chunk_id",
+        "passage_id",
+        "answer_start_char",
+        "answer_end_char",
+        "score",
+        "fragment_start_char",
+        "fragment_end_char",
+        "answer_anchor_start",
+        "answer_anchor_end"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ChatReference",
+        "notebooklm.types.ChatReference"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "source_id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "citation_number",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "cited_text",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "start_char",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "end_char",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "chunk_id",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "passage_id",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "answer_start_char",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "answer_end_char",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "score",
+          "repr": true,
+          "type": "float | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "fragment_start_char",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "fragment_end_char",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "answer_anchor_start",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "answer_anchor_end",
+          "repr": true,
+          "type": "int | None"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": {
+        "current_after_legacy_restore": {
+          "comparison": "equality",
+          "restored_type": "notebooklm.types.ChatReference",
+          "status": "success"
+        },
+        "invariants": {
+          "answer_end_char_mirrored": true,
+          "answer_start_char_mirrored": true,
+          "fragment_end_char_restored": true,
+          "fragment_start_char_restored": true
+        },
+        "status": "success"
+      },
+      "match_args": [
+        "source_id",
+        "citation_number",
+        "cited_text",
+        "start_char",
+        "end_char",
+        "chunk_id",
+        "passage_id",
+        "answer_start_char",
+        "answer_end_char",
+        "score",
+        "fragment_start_char",
+        "fragment_end_char",
+        "answer_anchor_start",
+        "answer_anchor_end"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ChatReference",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "owner": "notebooklm.types.ChatReference",
+          "present": true
+        }
+      },
+      "qualname": "ChatReference",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ChatSession": {
+      "constructor_order": [
+        "id"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ChatSession",
+        "notebooklm.types.ChatSession"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "id",
+          "repr": true,
+          "type": "str"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "id"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ChatSession",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ChatSession",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ChatSettings": {
+      "constructor_order": [
+        "goal",
+        "response_length",
+        "custom_prompt"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.types.ChatSettings"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "goal",
+          "repr": true,
+          "type": "ChatGoal"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "response_length",
+          "repr": true,
+          "type": "ChatResponseLength"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "custom_prompt",
+          "repr": true,
+          "type": "str | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "goal",
+        "response_length",
+        "custom_prompt"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ChatSettings",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ChatSettings",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.CitedSourceSelection": {
+      "constructor_order": [
+        "sources",
+        "cited_url_count",
+        "matched_url_source_count",
+        "used_fallback"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.CitedSourceSelection",
+        "notebooklm.types.CitedSourceSelection"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "sources",
+          "repr": true,
+          "type": "list[ResearchSourceInput]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "cited_url_count",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "matched_url_source_count",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "used_fallback",
+          "repr": true,
+          "type": "bool"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "sources",
+        "cited_url_count",
+        "matched_url_source_count",
+        "used_fallback"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.CitedSourceSelection",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "CitedSourceSelection",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ClientMetricsSnapshot": {
+      "constructor_order": [
+        "rpc_calls_started",
+        "rpc_calls_succeeded",
+        "rpc_calls_failed",
+        "rpc_rate_limit_retries",
+        "rpc_server_error_retries",
+        "rpc_auth_retries",
+        "rpc_latency_seconds_total",
+        "rpc_queue_wait_seconds_total",
+        "rpc_queue_wait_seconds_max",
+        "upload_queue_wait_seconds_total",
+        "upload_queue_wait_seconds_max",
+        "lock_wait_seconds_total",
+        "lock_wait_seconds_max",
+        "rpc_decode_errors"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ClientMetricsSnapshot",
+        "notebooklm.types.ClientMetricsSnapshot"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "rpc_calls_started",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "rpc_calls_succeeded",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "rpc_calls_failed",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "rpc_rate_limit_retries",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "rpc_server_error_retries",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "rpc_auth_retries",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "rpc_latency_seconds_total",
+          "repr": true,
+          "type": "float"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "rpc_queue_wait_seconds_total",
+          "repr": true,
+          "type": "float"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "rpc_queue_wait_seconds_max",
+          "repr": true,
+          "type": "float"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "upload_queue_wait_seconds_total",
+          "repr": true,
+          "type": "float"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "upload_queue_wait_seconds_max",
+          "repr": true,
+          "type": "float"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "lock_wait_seconds_total",
+          "repr": true,
+          "type": "float"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "lock_wait_seconds_max",
+          "repr": true,
+          "type": "float"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "rpc_decode_errors",
+          "repr": true,
+          "type": "int"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "rpc_calls_started",
+        "rpc_calls_succeeded",
+        "rpc_calls_failed",
+        "rpc_rate_limit_retries",
+        "rpc_server_error_retries",
+        "rpc_auth_retries",
+        "rpc_latency_seconds_total",
+        "rpc_queue_wait_seconds_total",
+        "rpc_queue_wait_seconds_max",
+        "upload_queue_wait_seconds_total",
+        "upload_queue_wait_seconds_max",
+        "lock_wait_seconds_total",
+        "lock_wait_seconds_max",
+        "rpc_decode_errors"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ClientMetricsSnapshot",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ClientMetricsSnapshot",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.Collection": {
+      "constructor_order": [
+        "id",
+        "name",
+        "emoji",
+        "notebook_ids"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.Collection",
+        "notebooklm.types.Collection"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "name",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "emoji",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "notebook_ids",
+          "repr": true,
+          "type": "list[str]"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "id",
+        "name",
+        "emoji",
+        "notebook_ids"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.Collection",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "Collection",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ConnectionLimits": {
+      "constructor_order": [
+        "max_connections",
+        "max_keepalive_connections",
+        "keepalive_expiry"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ConnectionLimits",
+        "notebooklm.types.ConnectionLimits"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "max_connections",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "max_keepalive_connections",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "keepalive_expiry",
+          "repr": true,
+          "type": "float"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "max_connections",
+        "max_keepalive_connections",
+        "keepalive_expiry"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ConnectionLimits",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ConnectionLimits",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ConversationTurn": {
+      "constructor_order": [
+        "query",
+        "answer",
+        "turn_number"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ConversationTurn",
+        "notebooklm.types.ConversationTurn"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "query",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "answer",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "turn_number",
+          "repr": true,
+          "type": "int"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "query",
+        "answer",
+        "turn_number"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ConversationTurn",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ConversationTurn",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ConversationTurnKey": {
+      "constructor_order": [
+        "session_id",
+        "turn_id",
+        "turn_code"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ConversationTurnKey",
+        "notebooklm.types.ConversationTurnKey"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "session_id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "turn_id",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "turn_code",
+          "repr": true,
+          "type": "int | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "session_id",
+        "turn_id",
+        "turn_code"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ConversationTurnKey",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ConversationTurnKey",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.FlashcardArtifactUserState": {
+      "constructor_order": [
+        "card_acquisitions",
+        "current_card_index",
+        "hidden_card_indices",
+        "last_shown_order",
+        "current_view"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.FlashcardArtifactUserState",
+        "notebooklm.types.FlashcardArtifactUserState"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "card_acquisitions",
+          "repr": true,
+          "type": "dict[str, str]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "current_card_index",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "hidden_card_indices",
+          "repr": true,
+          "type": "tuple[int, ...]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "last_shown_order",
+          "repr": true,
+          "type": "tuple[int, ...]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "current_view",
+          "repr": true,
+          "type": "str | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "card_acquisitions",
+        "current_card_index",
+        "hidden_card_indices",
+        "last_shown_order",
+        "current_view"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.FlashcardArtifactUserState",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "FlashcardArtifactUserState",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.GenerationState": {
+      "equality": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.GenerationState",
+        "notebooklm.types.GenerationState"
+      ],
+      "hash": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "PENDING",
+          "value": "pending"
+        },
+        {
+          "name": "IN_PROGRESS",
+          "value": "in_progress"
+        },
+        {
+          "name": "COMPLETED",
+          "value": "completed"
+        },
+        {
+          "name": "FAILED",
+          "value": "failed"
+        },
+        {
+          "name": "NOT_FOUND",
+          "value": "not_found"
+        },
+        {
+          "name": "UNKNOWN",
+          "value": "unknown"
+        },
+        {
+          "name": "SUGGESTED",
+          "value": "suggested"
+        },
+        {
+          "name": "PENDING_REVIEW",
+          "value": "pending_review"
+        },
+        {
+          "name": "REMOVED",
+          "value": "removed"
+        }
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.GenerationState",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "GenerationState",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.types.GenerationStatus": {
+      "constructor_order": [
+        "task_id",
+        "status",
+        "url",
+        "error",
+        "error_code",
+        "metadata"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.GenerationStatus",
+        "notebooklm.types.GenerationStatus"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "task_id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "status",
+          "repr": true,
+          "type": "GenerationState"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "url",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "error",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "error_code",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "metadata",
+          "repr": true,
+          "type": "dict[str, Any] | None"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "task_id",
+        "status",
+        "url",
+        "error",
+        "error_code",
+        "metadata"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.GenerationStatus",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "GenerationStatus",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.Label": {
+      "constructor_order": [
+        "id",
+        "name",
+        "notebook_id",
+        "emoji",
+        "source_ids"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.Label",
+        "notebooklm.types.Label"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "name",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "notebook_id",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "emoji",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "source_ids",
+          "repr": true,
+          "type": "list[str]"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "id",
+        "name",
+        "notebook_id",
+        "emoji",
+        "source_ids"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.Label",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "Label",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.MindMap": {
+      "constructor_order": [
+        "id",
+        "notebook_id",
+        "title",
+        "kind",
+        "created_at",
+        "tree"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.MindMap",
+        "notebooklm.types.MindMap"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "notebook_id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "title",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "kind",
+          "repr": true,
+          "type": "MindMapKind"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "created_at",
+          "repr": true,
+          "type": "datetime | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "tree",
+          "repr": true,
+          "type": "dict[str, Any] | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "id",
+        "notebook_id",
+        "title",
+        "kind",
+        "created_at",
+        "tree"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.MindMap",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "MindMap",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.MindMapKind": {
+      "equality": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.MindMapKind",
+        "notebooklm.types.MindMapKind"
+      ],
+      "hash": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "NOTE_BACKED",
+          "value": "note_backed"
+        },
+        {
+          "name": "INTERACTIVE",
+          "value": "interactive"
+        }
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.MindMapKind",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "MindMapKind",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.types.MindMapResult": {
+      "constructor_order": [
+        "mind_map",
+        "note_id",
+        "created_at"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.MindMapResult",
+        "notebooklm.types.MindMapResult"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "mind_map",
+          "repr": true,
+          "type": "Any"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "note_id",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "created_at",
+          "repr": true,
+          "type": "datetime | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "mind_map",
+        "note_id",
+        "created_at"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.MindMapResult",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "MindMapResult",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.NextStepSuggestion": {
+      "constructor_order": [
+        "question",
+        "type_code"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.NextStepSuggestion",
+        "notebooklm.types.NextStepSuggestion"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "question",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "type_code",
+          "repr": true,
+          "type": "int"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "question",
+        "type_code"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.NextStepSuggestion",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "NextStepSuggestion",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.Note": {
+      "constructor_order": [
+        "id",
+        "notebook_id",
+        "title",
+        "content",
+        "created_at"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.Note",
+        "notebooklm.types.Note"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "notebook_id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "title",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "content",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "created_at",
+          "repr": true,
+          "type": "datetime | None"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "id",
+        "notebook_id",
+        "title",
+        "content",
+        "created_at"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.Note",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "Note",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.Notebook": {
+      "constructor_order": [
+        "id",
+        "title",
+        "created_at",
+        "sources_count",
+        "is_owner",
+        "modified_at",
+        "role",
+        "last_viewed_at",
+        "emoji",
+        "premium_features",
+        "chat_sessions",
+        "chat_settings"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.Notebook",
+        "notebooklm.types.Notebook"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "title",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "created_at",
+          "repr": true,
+          "type": "datetime | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "sources_count",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "is_owner",
+          "repr": true,
+          "type": "bool"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "modified_at",
+          "repr": true,
+          "type": "datetime | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "role",
+          "repr": true,
+          "type": "SharePermission | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "last_viewed_at",
+          "repr": true,
+          "type": "datetime | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "emoji",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "premium_features",
+          "repr": true,
+          "type": "PremiumFeatureInfo | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "chat_sessions",
+          "repr": true,
+          "type": "list[ChatSession]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "chat_settings",
+          "repr": true,
+          "type": "ChatSettings | None"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": {
+        "current_after_legacy_restore": {
+          "comparison": "equality",
+          "restored_type": "notebooklm.types.Notebook",
+          "status": "success"
+        },
+        "invariants": {
+          "chat_sessions_restored": true,
+          "last_viewed_at_restored": true
+        },
+        "status": "success"
+      },
+      "match_args": [
+        "id",
+        "title",
+        "created_at",
+        "sources_count",
+        "is_owner",
+        "modified_at",
+        "role",
+        "last_viewed_at",
+        "emoji",
+        "premium_features",
+        "chat_sessions",
+        "chat_settings"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.Notebook",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "owner": "notebooklm.types.Notebook",
+          "present": true
+        }
+      },
+      "qualname": "Notebook",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.NotebookDescription": {
+      "constructor_order": [
+        "summary",
+        "suggested_topics"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.NotebookDescription",
+        "notebooklm.types.NotebookDescription"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "summary",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "suggested_topics",
+          "repr": true,
+          "type": "list[SuggestedTopic]"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "summary",
+        "suggested_topics"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.NotebookDescription",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "NotebookDescription",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.NotebookMetadata": {
+      "constructor_order": [
+        "notebook",
+        "sources"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.NotebookMetadata",
+        "notebooklm.types.NotebookMetadata"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "notebook",
+          "repr": true,
+          "type": "Notebook"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "sources",
+          "repr": true,
+          "type": "list[SourceSummary]"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "notebook",
+        "sources"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.NotebookMetadata",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "NotebookMetadata",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.PremiumFeatureInfo": {
+      "constructor_order": [
+        "can_edit_advanced_settings",
+        "can_edit_guidebook_config",
+        "can_view_analytics"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.PremiumFeatureInfo",
+        "notebooklm.types.PremiumFeatureInfo"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "can_edit_advanced_settings",
+          "repr": true,
+          "type": "bool | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "can_edit_guidebook_config",
+          "repr": true,
+          "type": "bool | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "can_view_analytics",
+          "repr": true,
+          "type": "bool | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "can_edit_advanced_settings",
+        "can_edit_guidebook_config",
+        "can_view_analytics"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.PremiumFeatureInfo",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "PremiumFeatureInfo",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.PromptSuggestion": {
+      "constructor_order": [
+        "title",
+        "prompt"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.PromptSuggestion",
+        "notebooklm.types.PromptSuggestion"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "title",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "prompt",
+          "repr": true,
+          "type": "str"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "title",
+        "prompt"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.PromptSuggestion",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "PromptSuggestion",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ReportSuggestion": {
+      "constructor_order": [
+        "title",
+        "description",
+        "prompt",
+        "audience_level"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ReportSuggestion",
+        "notebooklm.types.ReportSuggestion"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "title",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "description",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "prompt",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "audience_level",
+          "repr": true,
+          "type": "int"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "title",
+        "description",
+        "prompt",
+        "audience_level"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ReportSuggestion",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ReportSuggestion",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ResearchSource": {
+      "constructor_order": [
+        "url",
+        "title",
+        "result_type",
+        "research_task_id",
+        "report_markdown",
+        "source_ordinal",
+        "hint"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ResearchSource",
+        "notebooklm.types.ResearchSource"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "url",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "title",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "result_type",
+          "repr": true,
+          "type": "ResearchResultType"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "research_task_id",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "report_markdown",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "source_ordinal",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "hint",
+          "repr": true,
+          "type": "str"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "url",
+        "title",
+        "result_type",
+        "research_task_id",
+        "report_markdown",
+        "source_ordinal",
+        "hint"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ResearchSource",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ResearchSource",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ResearchStart": {
+      "constructor_order": [
+        "task_id",
+        "report_id",
+        "notebook_id",
+        "query",
+        "mode"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ResearchStart",
+        "notebooklm.types.ResearchStart"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "task_id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "report_id",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "notebook_id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "query",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "mode",
+          "repr": true,
+          "type": "str"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "task_id",
+        "report_id",
+        "notebook_id",
+        "query",
+        "mode"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ResearchStart",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ResearchStart",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ResearchStatus": {
+      "equality": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.ResearchStatus",
+        "notebooklm.types.ResearchStatus"
+      ],
+      "hash": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "IN_PROGRESS",
+          "value": "in_progress"
+        },
+        {
+          "name": "COMPLETED",
+          "value": "completed"
+        },
+        {
+          "name": "FAILED",
+          "value": "failed"
+        },
+        {
+          "name": "NO_RESEARCH",
+          "value": "no_research"
+        },
+        {
+          "name": "NOT_FOUND",
+          "value": "not_found"
+        }
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.ResearchStatus",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ResearchStatus",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.types.ResearchTask": {
+      "constructor_order": [
+        "task_id",
+        "status",
+        "query",
+        "sources",
+        "summary",
+        "report",
+        "tasks",
+        "status_code",
+        "source_type",
+        "discovery_mode",
+        "created_at",
+        "updated_at",
+        "account_id"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ResearchTask",
+        "notebooklm.types.ResearchTask"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "task_id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "status",
+          "repr": true,
+          "type": "ResearchStatus"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "query",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "sources",
+          "repr": true,
+          "type": "tuple[ResearchSource, ...]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "summary",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "report",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "tasks",
+          "repr": true,
+          "type": "tuple[ResearchTask, ...]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "status_code",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "source_type",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "discovery_mode",
+          "repr": true,
+          "type": "DiscoveryMode | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "created_at",
+          "repr": true,
+          "type": "datetime | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "updated_at",
+          "repr": true,
+          "type": "datetime | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "account_id",
+          "repr": true,
+          "type": "str | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "task_id",
+        "status",
+        "query",
+        "sources",
+        "summary",
+        "report",
+        "tasks",
+        "status_code",
+        "source_type",
+        "discovery_mode",
+        "created_at",
+        "updated_at",
+        "account_id"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ResearchTask",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ResearchTask",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ResearchTerminationReason": {
+      "equality": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.ResearchTerminationReason",
+        "notebooklm.types.ResearchTerminationReason"
+      ],
+      "hash": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "IN_PROGRESS",
+          "value": "in_progress"
+        },
+        {
+          "name": "COMPLETED",
+          "value": "completed"
+        },
+        {
+          "name": "NO_RESULTS",
+          "value": "no_results"
+        },
+        {
+          "name": "CANCELLED",
+          "value": "cancelled"
+        },
+        {
+          "name": "UNKNOWN",
+          "value": "unknown"
+        }
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.ResearchTerminationReason",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ResearchTerminationReason",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.types.RpcTelemetryEvent": {
+      "constructor_order": [
+        "method",
+        "status",
+        "elapsed_seconds",
+        "request_id",
+        "error_type"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.RpcTelemetryEvent",
+        "notebooklm.types.RpcTelemetryEvent"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "method",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "status",
+          "repr": true,
+          "type": "Literal['success', 'error']"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "elapsed_seconds",
+          "repr": true,
+          "type": "float"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "request_id",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "error_type",
+          "repr": true,
+          "type": "str | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "method",
+        "status",
+        "elapsed_seconds",
+        "request_id",
+        "error_type"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.RpcTelemetryEvent",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "RpcTelemetryEvent",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.ShareStatus": {
+      "constructor_order": [
+        "notebook_id",
+        "is_public",
+        "access",
+        "view_level",
+        "shared_users",
+        "share_url",
+        "max_individuals_share_limit",
+        "is_public_sharing_allowed"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.ShareStatus",
+        "notebooklm.types.ShareStatus"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "notebook_id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "is_public",
+          "repr": true,
+          "type": "bool"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "access",
+          "repr": true,
+          "type": "ShareAccess"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "view_level",
+          "repr": true,
+          "type": "ShareViewLevel"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "shared_users",
+          "repr": true,
+          "type": "list[SharedUser]"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "share_url",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "max_individuals_share_limit",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "is_public_sharing_allowed",
+          "repr": true,
+          "type": "bool | None"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "notebook_id",
+        "is_public",
+        "access",
+        "view_level",
+        "shared_users",
+        "share_url",
+        "max_individuals_share_limit",
+        "is_public_sharing_allowed"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.ShareStatus",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "ShareStatus",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.SharedUser": {
+      "constructor_order": [
+        "email",
+        "permission",
+        "display_name",
+        "avatar_url"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.SharedUser",
+        "notebooklm.types.SharedUser"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "email",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "permission",
+          "repr": true,
+          "type": "SharePermission"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "display_name",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "avatar_url",
+          "repr": true,
+          "type": "str | None"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "email",
+        "permission",
+        "display_name",
+        "avatar_url"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.SharedUser",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "SharedUser",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.Source": {
+      "constructor_order": [
+        "id",
+        "title",
+        "url",
+        "_type_code",
+        "created_at",
+        "status",
+        "drive_document_id",
+        "drive_status",
+        "download_url",
+        "viewer_url",
+        "content_mime",
+        "word_count",
+        "revision_id",
+        "revision_timestamp",
+        "last_modified_at"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.Source",
+        "notebooklm.types.Source"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "title",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "url",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "_type_code",
+          "repr": false,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "created_at",
+          "repr": true,
+          "type": "datetime | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "status",
+          "repr": true,
+          "type": "SourceStatus"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "drive_document_id",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "drive_status",
+          "repr": true,
+          "type": "DriveSourceStatus | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "download_url",
+          "repr": false,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "viewer_url",
+          "repr": false,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "content_mime",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "word_count",
+          "repr": true,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "revision_id",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "revision_timestamp",
+          "repr": true,
+          "type": "datetime | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "last_modified_at",
+          "repr": true,
+          "type": "datetime | None"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "id",
+        "title",
+        "url",
+        "_type_code",
+        "created_at",
+        "status",
+        "drive_document_id",
+        "drive_status",
+        "download_url",
+        "viewer_url",
+        "content_mime",
+        "word_count",
+        "revision_id",
+        "revision_timestamp",
+        "last_modified_at"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.Source",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "Source",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.SourceFulltext": {
+      "constructor_order": [
+        "source_id",
+        "title",
+        "content",
+        "_type_code",
+        "url",
+        "char_count",
+        "document"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.SourceFulltext",
+        "notebooklm.types.SourceFulltext"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "source_id",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "title",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "content",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "_type_code",
+          "repr": false,
+          "type": "int | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "url",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "char_count",
+          "repr": true,
+          "type": "int"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "document",
+          "repr": false,
+          "type": "StructuredDocument"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "source_id",
+        "title",
+        "content",
+        "_type_code",
+        "url",
+        "char_count",
+        "document"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.SourceFulltext",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "SourceFulltext",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.SourceGuide": {
+      "constructor_order": [
+        "summary",
+        "keywords"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.SourceGuide",
+        "notebooklm.types.SourceGuide"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "summary",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "keywords",
+          "repr": true,
+          "type": "tuple[str, ...]"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "summary",
+        "keywords"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.SourceGuide",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "SourceGuide",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.SourceSummary": {
+      "constructor_order": [
+        "kind",
+        "title",
+        "url"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.SourceSummary",
+        "notebooklm.types.SourceSummary"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "kind",
+          "repr": true,
+          "type": "SourceType"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "title",
+          "repr": true,
+          "type": "str | None"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "url",
+          "repr": true,
+          "type": "str | None"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "kind",
+        "title",
+        "url"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.SourceSummary",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "SourceSummary",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.SourceType": {
+      "equality": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "exports": [
+        "notebooklm.SourceType",
+        "notebooklm.types.SourceType"
+      ],
+      "hash": {
+        "owner": "builtins.str",
+        "policy": "inherited"
+      },
+      "kind": "enum",
+      "members": [
+        {
+          "name": "GOOGLE_DOCS",
+          "value": "google_docs"
+        },
+        {
+          "name": "GOOGLE_SLIDES",
+          "value": "google_slides"
+        },
+        {
+          "name": "GOOGLE_SPREADSHEET",
+          "value": "google_spreadsheet"
+        },
+        {
+          "name": "PDF",
+          "value": "pdf"
+        },
+        {
+          "name": "PASTED_TEXT",
+          "value": "pasted_text"
+        },
+        {
+          "name": "WEB_PAGE",
+          "value": "web_page"
+        },
+        {
+          "name": "GOOGLE_DRIVE_AUDIO",
+          "value": "google_drive_audio"
+        },
+        {
+          "name": "GOOGLE_DRIVE_VIDEO",
+          "value": "google_drive_video"
+        },
+        {
+          "name": "YOUTUBE",
+          "value": "youtube"
+        },
+        {
+          "name": "MARKDOWN",
+          "value": "markdown"
+        },
+        {
+          "name": "DOCX",
+          "value": "docx"
+        },
+        {
+          "name": "POWERPOINT",
+          "value": "powerpoint"
+        },
+        {
+          "name": "CSV",
+          "value": "csv"
+        },
+        {
+          "name": "EPUB",
+          "value": "epub"
+        },
+        {
+          "name": "IMAGE",
+          "value": "image"
+        },
+        {
+          "name": "MEDIA",
+          "value": "media"
+        },
+        {
+          "name": "UNKNOWN",
+          "value": "unknown"
+        }
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "identity",
+        "restored_type": "notebooklm.types.SourceType",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "SourceType",
+      "repr": {
+        "policy": "custom"
+      }
+    },
+    "notebooklm.types.SuggestedTopic": {
+      "constructor_order": [
+        "question",
+        "prompt"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": false,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.SuggestedTopic",
+        "notebooklm.types.SuggestedTopic"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "question",
+          "repr": true,
+          "type": "str"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "prompt",
+          "repr": true,
+          "type": "str"
+        }
+      ],
+      "hash": {
+        "policy": "disabled"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "question",
+        "prompt"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.SuggestedTopic",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "SuggestedTopic",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.UnknownArtifactUserState": {
+      "constructor_order": [
+        "raw"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.UnknownArtifactUserState",
+        "notebooklm.types.UnknownArtifactUserState"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "raw",
+          "repr": true,
+          "type": "Any"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "raw"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.UnknownArtifactUserState",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "UnknownArtifactUserState",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    },
+    "notebooklm.types.UserSettings": {
+      "constructor_order": [
+        "limits",
+        "output_language"
+      ],
+      "dataclass_flags": {
+        "eq": true,
+        "frozen": true,
+        "init": true,
+        "keyword_only": false,
+        "match_args": true,
+        "order": false,
+        "repr": true,
+        "slots": false,
+        "unsafe_hash": false,
+        "weakref_slot": false
+      },
+      "equality": {
+        "policy": "dataclass-generated"
+      },
+      "exports": [
+        "notebooklm.UserSettings",
+        "notebooklm.types.UserSettings"
+      ],
+      "fields": [
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "limits",
+          "repr": true,
+          "type": "AccountLimits"
+        },
+        {
+          "compare": true,
+          "hash": null,
+          "init": true,
+          "keyword_only": false,
+          "name": "output_language",
+          "repr": true,
+          "type": "str | None"
+        }
+      ],
+      "hash": {
+        "policy": "dataclass-generated"
+      },
+      "kind": "dataclass",
+      "legacy_state_round_trip": null,
+      "match_args": [
+        "limits",
+        "output_language"
+      ],
+      "module": "notebooklm.types",
+      "pickle_round_trip": {
+        "comparison": "equality",
+        "restored_type": "notebooklm.types.UserSettings",
+        "status": "success"
+      },
+      "pickle_state_hooks": {
+        "__getstate__": {
+          "present": false
+        },
+        "__setstate__": {
+          "present": false
+        }
+      },
+      "qualname": "UserSettings",
+      "repr": {
+        "policy": "dataclass-generated"
+      },
+      "slots": []
+    }
+  },
+  "schema_version": 1,
+  "selection": "every dataclass and enum in __all__ of every public module discovered by scripts/audit_public_api_compat.py, deduplicated by class identity"
+}
