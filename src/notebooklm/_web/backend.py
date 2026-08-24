@@ -5,7 +5,7 @@ P2.2 routes three notebook mutation handlers; P2.3 routes the live URL/YouTube
 source composite; P5.1 routes Studio catalog list/get; P5.2 routes Audio; P5.3
 routes Quiz/Flashcards; P5.4 routes Report/Video; P5.5 routes Infographic/Slide
 Deck generation; and P6.3 routes
-plain-note CRUD. These bindings reuse
+plain-note CRUD. P6.5 routes Sharing. These bindings reuse
 current request builders and strict row adapters; P3 web codecs terminate
 response grammar in neutral records before public compatibility projection.
 """
@@ -77,6 +77,16 @@ from .._records import (
     NoteListResult,
     NoteUpdateInput,
     NoteUpdateResult,
+    ShareStatusRecord,
+    ShareViewScope,
+    SharingGetInput,
+    SharingGetResult,
+    SharingSetPublicInput,
+    SharingSetPublicResult,
+    SharingSetViewLevelInput,
+    SharingSetViewLevelResult,
+    SharingUpdateUsersInput,
+    SharingUpdateUsersResult,
     SourceAddCommitState,
     SourceAddFailureKind,
     SourceAddFailureRecord,
@@ -131,6 +141,13 @@ from ..types import Source
 from .codec.artifacts import decode_artifact, decode_mind_map_artifact
 from .codec.notebooks import decode_notebook
 from .codec.notes import decode_created_note, decode_note, decode_notes
+from .codec.sharing import (
+    build_get_share_status_params,
+    build_share_grants_params,
+    build_share_view_level_params,
+    build_share_visibility_params,
+    decode_share_status,
+)
 from .codec.sources import decode_source
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 from .studio_data import StudioDataWebHandlers
@@ -1287,6 +1304,109 @@ class WebRpcBackend(StudioDataWebHandlers):
                 ),
                 title_state=title_state,
             ),
+        )
+
+    async def _sharing_status(
+        self,
+        notebook_id: str,
+        *,
+        operation: Operation,
+        deadline: RuntimeDeadline | None,
+        view_level: ShareViewScope | None = None,
+    ) -> ShareStatusRecord:
+        result = await self._rpc_call(
+            RPCMethod.GET_SHARE_STATUS,
+            build_get_share_status_params(notebook_id),
+            operation=operation,
+            deadline=deadline,
+            source_path=f"/notebook/{notebook_id}",
+        )
+        return decode_share_status(result, notebook_id, view_level=view_level)
+
+    async def _sharing_get(
+        self,
+        value: SharingGetInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SharingGetResult:
+        return SharingGetResult(
+            status=await self._sharing_status(
+                value.notebook_id,
+                operation=Operation.SHARING_GET,
+                deadline=deadline,
+            )
+        )
+
+    async def _sharing_set_public(
+        self,
+        value: SharingSetPublicInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SharingSetPublicResult:
+        await self._rpc_call(
+            RPCMethod.SHARE_NOTEBOOK,
+            build_share_visibility_params(value.notebook_id, value.public),
+            operation=Operation.SHARING_SET_PUBLIC,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return SharingSetPublicResult(
+            status=await self._sharing_status(
+                value.notebook_id,
+                operation=Operation.SHARING_SET_PUBLIC,
+                deadline=deadline,
+            )
+        )
+
+    async def _sharing_set_view_level(
+        self,
+        value: SharingSetViewLevelInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SharingSetViewLevelResult:
+        await self._rpc_call(
+            RPCMethod.RENAME_NOTEBOOK,
+            build_share_view_level_params(value.notebook_id, value.view_level),
+            operation=Operation.SHARING_SET_VIEW_LEVEL,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return SharingSetViewLevelResult(
+            status=await self._sharing_status(
+                value.notebook_id,
+                operation=Operation.SHARING_SET_VIEW_LEVEL,
+                deadline=deadline,
+                view_level=value.view_level,
+            )
+        )
+
+    async def _sharing_update_users(
+        self,
+        value: SharingUpdateUsersInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> SharingUpdateUsersResult:
+        await self._rpc_call(
+            RPCMethod.SHARE_NOTEBOOK,
+            build_share_grants_params(
+                value.notebook_id,
+                value.grants,
+                notify=value.notify,
+                welcome_message=value.welcome_message,
+            ),
+            operation=Operation.SHARING_UPDATE_USERS,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return SharingUpdateUsersResult(
+            status=await self._sharing_status(
+                value.notebook_id,
+                operation=Operation.SHARING_UPDATE_USERS,
+                deadline=deadline,
+            )
         )
 
     @staticmethod

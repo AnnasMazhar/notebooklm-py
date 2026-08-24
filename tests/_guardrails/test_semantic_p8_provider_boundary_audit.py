@@ -71,6 +71,7 @@ KNOWN_WEB_PACKAGE_FIRST_PARTY_IMPORTS: frozenset[str] = frozenset(
         "_url_utils",
         "_web.backend",
         "_web.codec.documents",
+        "_web.codec.sharing",
         "_web.registry",
         "exceptions",
         "rpc",

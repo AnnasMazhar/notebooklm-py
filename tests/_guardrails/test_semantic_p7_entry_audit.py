@@ -64,6 +64,10 @@ KNOWN_ACTIVE_SEMANTIC_OPERATIONS: frozenset[Operation] = frozenset(
         Operation.NOTE_CREATE,
         Operation.NOTE_UPDATE,
         Operation.NOTE_DELETE,
+        Operation.SHARING_GET,
+        Operation.SHARING_SET_PUBLIC,
+        Operation.SHARING_SET_VIEW_LEVEL,
+        Operation.SHARING_UPDATE_USERS,
     }
 )
 
@@ -84,7 +88,6 @@ KNOWN_RPC_CALLER_CONSUMERS: frozenset[tuple[str, str, str]] = frozenset(
         ("_notebooks.py", "NotebooksAPI.__init__", "rpc"),
         ("_research.py", "ResearchAPI.__init__", "rpc"),
         ("_settings.py", "SettingsAPI.__init__", "rpc"),
-        ("_sharing.py", "SharingAPI.__init__", "rpc"),
         ("_sharing_manager.py", "ShareManager.__init__", "rpc"),
         ("_source/add.py", "SourceAddService.add_drive", "rpc"),
         ("_source/add.py", "SourceAddService.add_text", "rpc"),

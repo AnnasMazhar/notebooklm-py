@@ -1,7 +1,7 @@
 """Closed web dispositions for the semantic operation vocabulary.
 
 P2 notebook/source operations, P5 Studio family operations,
-and P6.3 plain-note CRUD have executable bindings. Every other P0 operation has
+P6.3 plain-note CRUD, and P6.5 Sharing have executable bindings. Every other P0 operation has
 an unsupported disposition, and
 the count assertions force a deliberate registry update when the closed
 :class:`Operation` enum changes.
@@ -38,6 +38,10 @@ from .._records import (
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
     NOTEBOOK_UPDATE_DEF,
+    SHARING_GET_DEF,
+    SHARING_SET_PUBLIC_DEF,
+    SHARING_SET_VIEW_LEVEL_DEF,
+    SHARING_UPDATE_USERS_DEF,
     SOURCE_ADD_URL_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
@@ -99,6 +103,10 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.ARTIFACT_GENERATE_DATA_TABLE: ARTIFACT_GENERATE_DATA_TABLE_DEF,
         Operation.ARTIFACT_GENERATE_MIND_MAP: ARTIFACT_GENERATE_MIND_MAP_DEF,
         Operation.ARTIFACT_EXPORT: ARTIFACT_EXPORT_DEF,
+        Operation.SHARING_GET: SHARING_GET_DEF,
+        Operation.SHARING_SET_PUBLIC: SHARING_SET_PUBLIC_DEF,
+        Operation.SHARING_SET_VIEW_LEVEL: SHARING_SET_VIEW_LEVEL_DEF,
+        Operation.SHARING_UPDATE_USERS: SHARING_UPDATE_USERS_DEF,
     }
 )
 
@@ -129,6 +137,10 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.ARTIFACT_GENERATE_DATA_TABLE: "_data_table_generate",
         Operation.ARTIFACT_GENERATE_MIND_MAP: "_mind_map_generate",
         Operation.ARTIFACT_EXPORT: "_artifact_export",
+        Operation.SHARING_GET: "_sharing_get",
+        Operation.SHARING_SET_PUBLIC: "_sharing_set_public",
+        Operation.SHARING_SET_VIEW_LEVEL: "_sharing_set_view_level",
+        Operation.SHARING_UPDATE_USERS: "_sharing_update_users",
     }
 )
 
@@ -140,7 +152,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 25
+_EXPECTED_SUPPORTED_COUNT: Final = 29
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

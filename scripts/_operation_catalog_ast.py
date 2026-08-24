@@ -570,7 +570,11 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_projectors.py", "_records", "NotebookRecord"),
         ("_projectors.py", "_records", "NoteRecord"),
         ("_projectors.py", "_records", "ReportSuggestionRecord"),
+        ("_projectors.py", "_records", "ShareAccessLevel"),
+        ("_projectors.py", "_records", "SharePermissionLevel"),
         ("_projectors.py", "_records", "ShareStatusRecord"),
+        ("_projectors.py", "_records", "ShareViewScope"),
+        ("_projectors.py", "_records", "SharedUserRecord"),
         ("_projectors.py", "_records", "SourceRecord"),
         ("_read_services.py", "_backend", "BackendAdapter"),
         ("_read_services.py", "_projectors", "project_notebook"),
@@ -583,7 +587,25 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_read_services.py", "_records", "SOURCE_LIST_DEF"),
         ("_read_services.py", "_records", "SourceGetInput"),
         ("_read_services.py", "_records", "SourceListInput"),
-        ("_sharing.py", "_projectors", "project_share_status"),
+        ("_sharing.py", "_backend", "BackendAdapter"),
+        ("_sharing.py", "_backend", "BackendError"),
+        ("_sharing.py", "_backend_compat", "project_backend_error"),
+        ("_sharing.py", "_records", "SharePermissionLevel"),
+        ("_sharing.py", "_records", "ShareViewScope"),
+        ("_sharing.py", "_sharing_service", "SharingService"),
+        ("_sharing_service.py", "_backend", "BackendAdapter"),
+        ("_sharing_service.py", "_projectors", "project_share_status"),
+        ("_sharing_service.py", "_records", "SHARING_GET_DEF"),
+        ("_sharing_service.py", "_records", "SHARING_SET_PUBLIC_DEF"),
+        ("_sharing_service.py", "_records", "SHARING_SET_VIEW_LEVEL_DEF"),
+        ("_sharing_service.py", "_records", "SHARING_UPDATE_USERS_DEF"),
+        ("_sharing_service.py", "_records", "SharePermissionLevel"),
+        ("_sharing_service.py", "_records", "ShareViewScope"),
+        ("_sharing_service.py", "_records", "SharingGetInput"),
+        ("_sharing_service.py", "_records", "SharingSetPublicInput"),
+        ("_sharing_service.py", "_records", "SharingSetViewLevelInput"),
+        ("_sharing_service.py", "_records", "SharingUpdateUsersInput"),
+        ("_sharing_service.py", "_records", "SharingUserGrant"),
         ("_source/add.py", "_projectors", "project_source"),
         ("_source/batch.py", "_projectors", "project_source"),
         ("_source/listing.py", "_projectors", "project_source"),
@@ -683,6 +705,21 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/backend.py", "_records", "NoteListResult"),
         ("_web/backend.py", "_records", "NoteUpdateInput"),
         ("_web/backend.py", "_records", "NoteUpdateResult"),
+        ("_web/backend.py", "_records", "ShareStatusRecord"),
+        ("_web/backend.py", "_records", "ShareViewScope"),
+        ("_web/backend.py", "_records", "SharingGetInput"),
+        ("_web/backend.py", "_records", "SharingGetResult"),
+        ("_web/backend.py", "_records", "SharingSetPublicInput"),
+        ("_web/backend.py", "_records", "SharingSetPublicResult"),
+        ("_web/backend.py", "_records", "SharingSetViewLevelInput"),
+        ("_web/backend.py", "_records", "SharingSetViewLevelResult"),
+        ("_web/backend.py", "_records", "SharingUpdateUsersInput"),
+        ("_web/backend.py", "_records", "SharingUpdateUsersResult"),
+        ("_web/backend.py", "codec.sharing", "build_get_share_status_params"),
+        ("_web/backend.py", "codec.sharing", "build_share_grants_params"),
+        ("_web/backend.py", "codec.sharing", "build_share_view_level_params"),
+        ("_web/backend.py", "codec.sharing", "build_share_visibility_params"),
+        ("_web/backend.py", "codec.sharing", "decode_share_status"),
         ("_web/codec/notes.py", "_records", "NoteRecord"),
         ("_web/registry.py", "_records", "NOTE_CREATE_DEF"),
         ("_web/registry.py", "_records", "NOTE_DELETE_DEF"),
@@ -734,8 +771,12 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/codec/notebooks.py", "_records", "NotebookPremiumFeaturesRecord"),
         ("_web/codec/notebooks.py", "_records", "NotebookRecord"),
         ("_web/codec/notebooks.py", "_records", "SuggestedTopicRecord"),
+        ("_web/codec/sharing.py", "_records", "ShareAccessLevel"),
+        ("_web/codec/sharing.py", "_records", "SharePermissionLevel"),
         ("_web/codec/sharing.py", "_records", "ShareStatusRecord"),
+        ("_web/codec/sharing.py", "_records", "ShareViewScope"),
         ("_web/codec/sharing.py", "_records", "SharedUserRecord"),
+        ("_web/codec/sharing.py", "_records", "SharingUserGrant"),
         ("_web/codec/sources.py", "_records", "SourceRecord"),
         ("_web/registry.py", "_records", "ARTIFACT_GET_DEF"),
         ("_web/registry.py", "_records", "ARTIFACT_EXPORT_DEF"),
@@ -758,6 +799,10 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/registry.py", "_records", "NOTEBOOK_CREATE_DEF"),
         ("_web/registry.py", "_records", "NOTEBOOK_DELETE_DEF"),
         ("_web/registry.py", "_records", "NOTEBOOK_UPDATE_DEF"),
+        ("_web/registry.py", "_records", "SHARING_GET_DEF"),
+        ("_web/registry.py", "_records", "SHARING_SET_PUBLIC_DEF"),
+        ("_web/registry.py", "_records", "SHARING_SET_VIEW_LEVEL_DEF"),
+        ("_web/registry.py", "_records", "SHARING_UPDATE_USERS_DEF"),
         ("_web/registry.py", "_records", "SOURCE_ADD_URL_DEF"),
         ("_web/registry.py", "_records", "SOURCE_GET_DEF"),
         ("_web/registry.py", "_records", "SOURCE_LIST_DEF"),
@@ -785,10 +830,12 @@ _REVIEWED_BACKEND_IMPORT_MODULES = frozenset(
         "_projectors",
         "_read_services",
         "_records",
+        "_sharing_service",
         "_studio",
         "_web",
         "_web.backend",
         "backend",
+        "codec.sharing",
         "registry",
         "studio_documents",
     }
@@ -801,6 +848,7 @@ _REVIEWED_BACKEND_IMPORT_PREFIXES = (
     "notebooklm._projectors",
     "notebooklm._read_services",
     "notebooklm._records",
+    "notebooklm._sharing_service",
     "notebooklm._studio",
     "notebooklm._web",
 )
@@ -840,6 +888,11 @@ ACTIVE_BACKEND_INVOKE_SITES = frozenset(
         "_studio/data_views.py:MindMapFamilyService.generate",
         "_studio/exports.py:DriveExportService.export",
         "_mutation_services.py:SourceUrlMutationService.add_url",
+        "_sharing_service.py:SharingService.get_status",
+        "_sharing_service.py:SharingService.remove_user",
+        "_sharing_service.py:SharingService.set_public",
+        "_sharing_service.py:SharingService.set_users",
+        "_sharing_service.py:SharingService.set_view_level",
     }
 )
 INERT_P1_BACKEND_INVOKE_SITES: frozenset[str] = frozenset()
@@ -920,6 +973,7 @@ def audit_inert_p1_backend_dataflow(
                             "_projectors",
                             "_read_services",
                             "_records",
+                            "_sharing_service",
                             "_web",
                         }
                     )
@@ -941,7 +995,13 @@ def audit_inert_p1_backend_dataflow(
                         and parent.arg in {"_backend", "backend"}
                         and isinstance(facade_name, str)
                         and facade_name
-                        in {"ArtifactsAPI", "NoteService", "NotebooksAPI", "SourcesAPI"}
+                        in {
+                            "ArtifactsAPI",
+                            "NoteService",
+                            "NotebooksAPI",
+                            "SharingAPI",
+                            "SourcesAPI",
+                        }
                     ):
                         assembly_backend_bindings.append(facade_name)
                     else:
@@ -973,7 +1033,13 @@ def audit_inert_p1_backend_dataflow(
         errors.append(
             f"P1 WebRpcBackend construction target changed: {assembly_constructor_targets}"
         )
-    expected_facades = ["ArtifactsAPI", "NoteService", "NotebooksAPI", "SourcesAPI"]
+    expected_facades = [
+        "ArtifactsAPI",
+        "NoteService",
+        "NotebooksAPI",
+        "SharingAPI",
+        "SourcesAPI",
+    ]
     if sorted(assembly_backend_bindings) != expected_facades:
         errors.append(
             "semantic facade backend bindings changed: "

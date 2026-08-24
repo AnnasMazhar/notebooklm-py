@@ -64,8 +64,8 @@
 | `rc3d8d` | RENAME_ARTIFACT | Rename artifact | `_artifacts.py` |
 | `Krh3pd` | EXPORT_ARTIFACT | Export to Docs/Sheets | `_artifacts.py` |
 | `RGP97b` | SHARE_ARTIFACT | Legacy notebook/artifact share-link toggle | `_sharing_manager.py` |
-| `QDyure` | SHARE_NOTEBOOK | Set notebook visibility (restricted/public) | `_sharing.py` |
-| `JFMDGd` | GET_SHARE_STATUS | Get notebook share settings | `_sharing.py` |
+| `QDyure` | SHARE_NOTEBOOK | Set notebook visibility (restricted/public) | `_web/codec/sharing.py` |
+| `JFMDGd` | GET_SHARE_STATUS | Get notebook share settings | `_web/codec/sharing.py` |
 | `ciyUvf` | GET_SUGGESTED_REPORTS | Get AI-suggested report formats | `_artifacts.py` |
 | `v9rmvd` | GET_INTERACTIVE_HTML | Fetch quiz/flashcard HTML (`[0][9][0]`) / interactive mind-map tree (`[0][9][3]`) | `_artifact/downloads.py` |
 | `fejl7e` | REMOVE_RECENTLY_VIEWED | Remove notebook from recent list | `_notebooks.py` |
@@ -1980,7 +1980,8 @@ await rpc_call(
 
 ### RPC: GET_SHARE_STATUS (JFMDGd)
 
-**Source:** `_sharing.py::get_status()`
+**Source:** `_web/codec/sharing.py::build_get_share_status_params()` /
+`decode_share_status()`, issued by `_web/backend.py::WebRpcBackend._sharing_status()`
 
 Get the current share settings for a notebook, including users with access and public status.
 
@@ -2055,8 +2056,9 @@ collaborator cap.
 
 ### RPC: SHARE_NOTEBOOK (QDyure)
 
-**Source:** `_sharing.py::set_public()`, `_sharing.py::add_user()`,
-`_sharing.py::set_users()`, `_sharing.py::remove_user()`
+**Source:** `_web/codec/sharing.py::build_share_visibility_params()` (public link) and
+`build_share_grants_params()` (every individual-user grant, update, and removal), issued by
+`_web/backend.py::WebRpcBackend._sharing_set_public()` / `._sharing_update_users()`
 
 Multi-purpose RPC for managing notebook sharing: toggle public access, add/update users, or remove users.
 
@@ -2157,7 +2159,8 @@ params = [
 
 ### RPC: SET_VIEW_LEVEL (via RENAME_NOTEBOOK s0tc2d)
 
-**Source:** `_sharing.py::set_view_level()`
+**Source:** `_web/codec/sharing.py::build_share_view_level_params()`, issued by
+`_web/backend.py::WebRpcBackend._sharing_set_view_level()`
 
 Set what viewers can access (full notebook vs chat only).
 

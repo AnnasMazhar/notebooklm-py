@@ -1,11 +1,14 @@
 """Unit tests for sharing types and API."""
 
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pytest_httpx import HTTPXMock
 
 from notebooklm import NotebookLMClient
+from notebooklm._sharing import SharingAPI
+from notebooklm._web.backend import WebRpcBackend
 from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import ShareAccess, SharePermission, ShareViewLevel
 from notebooklm.types import SharedUser, ShareStatus
@@ -572,96 +575,84 @@ class TestShareEnums:
 
 
 class TestSharingAPIValidation:
-    """Tests for SharingAPI input validation."""
+    """Tests for SharingAPI input validation.
+
+    The facade is constructed on the semantic backend directly: sharing is fully
+    migrated (P6.5), so it takes no ``RpcCaller``. The recording executor below
+    stands in for the shared client executor the backend dispatches through.
+    """
+
+    @staticmethod
+    def _api(rpc_call: AsyncMock) -> SharingAPI:
+        backend = WebRpcBackend(
+            MagicMock(rpc_call=rpc_call),
+            transport_factory=lambda **_kwargs: object(),
+        )
+        return SharingAPI(_backend=backend)
 
     @pytest.mark.asyncio
     async def test_add_user_rejects_owner_permission(self):
         """Test that add_user rejects OWNER permission."""
-        from unittest.mock import AsyncMock
-
-        from notebooklm._sharing import SharingAPI
-        from tests._fixtures.fake_core import make_fake_core
-
-        mock_core = make_fake_core(rpc_call=AsyncMock())
-        api = SharingAPI(mock_core)
+        rpc_call = AsyncMock()
+        api = self._api(rpc_call)
 
         with pytest.raises(ValueError, match="Cannot assign OWNER permission"):
             await api.add_user("nb_123", "test@example.com", SharePermission.OWNER)
 
         # Verify no RPC call was made
-        mock_core.rpc_executor.rpc_call.assert_not_called()
+        rpc_call.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_add_user_rejects_remove_permission(self):
         """Test that add_user rejects _REMOVE permission."""
-        from unittest.mock import AsyncMock
-
-        from notebooklm._sharing import SharingAPI
-        from tests._fixtures.fake_core import make_fake_core
-
-        mock_core = make_fake_core(rpc_call=AsyncMock())
-        api = SharingAPI(mock_core)
+        rpc_call = AsyncMock()
+        api = self._api(rpc_call)
 
         with pytest.raises(ValueError, match="Use remove_user"):
             await api.add_user("nb_123", "test@example.com", SharePermission._REMOVE)
 
-        mock_core.rpc_executor.rpc_call.assert_not_called()
+        rpc_call.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_add_user_accepts_editor_permission(self):
         """Test that add_user accepts EDITOR permission."""
-        from unittest.mock import AsyncMock
-
-        from notebooklm._sharing import SharingAPI
-        from tests._fixtures.fake_core import make_fake_core
-
-        # Return empty list for share call, then mock get_status
-        mock_core = make_fake_core(
-            rpc_call=AsyncMock(
-                side_effect=[
-                    [],  # SHARE_NOTEBOOK response
-                    [  # GET_SHARE_STATUS response
-                        [["test@example.com", 2, [], ["Test", "https://avatar"]]],
-                        [False],
-                        1000,
-                    ],
-                ]
-            )
+        rpc_call = AsyncMock(
+            side_effect=[
+                [],  # SHARE_NOTEBOOK response
+                [  # GET_SHARE_STATUS response
+                    [["test@example.com", 2, [], ["Test", "https://avatar"]]],
+                    [False],
+                    1000,
+                ],
+            ]
         )
-        api = SharingAPI(mock_core)
+        api = self._api(rpc_call)
 
         status = await api.add_user("nb_123", "test@example.com", SharePermission.EDITOR)
 
-        assert mock_core.rpc_executor.rpc_call.call_count == 2
+        assert rpc_call.call_count == 2
         assert len(status.shared_users) == 1
         assert status.shared_users[0].permission == SharePermission.EDITOR
 
     @pytest.mark.asyncio
     async def test_add_user_accepts_viewer_permission(self):
         """Test that add_user accepts VIEWER permission (default)."""
-        from unittest.mock import AsyncMock
-
-        from notebooklm._sharing import SharingAPI
-        from tests._fixtures.fake_core import make_fake_core
-
-        mock_core = make_fake_core(
-            rpc_call=AsyncMock(
-                side_effect=[
-                    [],  # SHARE_NOTEBOOK response
-                    [  # GET_SHARE_STATUS response
-                        [["test@example.com", 3, [], ["Test", "https://avatar"]]],
-                        [False],
-                        1000,
-                    ],
-                ]
-            )
+        rpc_call = AsyncMock(
+            side_effect=[
+                [],  # SHARE_NOTEBOOK response
+                [  # GET_SHARE_STATUS response
+                    [["test@example.com", 3, [], ["Test", "https://avatar"]]],
+                    [False],
+                    1000,
+                ],
+            ]
         )
-        api = SharingAPI(mock_core)
+        api = self._api(rpc_call)
 
         # Use default permission (VIEWER)
         status = await api.add_user("nb_123", "test@example.com")
 
-        assert mock_core.rpc_executor.rpc_call.call_count == 2
+        assert rpc_call.call_count == 2
         assert status.shared_users[0].permission == SharePermission.VIEWER
 
 
@@ -995,8 +986,9 @@ class TestSetUsers:
         """Grants and removals disagree on the message flag; both shapes are pinned.
 
         A grant with no welcome message sends ``[1, ""]``; a removal sends
-        ``[0, ""]``. They share ``_share_params``, so without this test the next
-        person to "unify" the flag would silently rewrite the removal payload.
+        ``[0, ""]``. They share ``build_share_grants_params``, which derives the
+        block from the entry codes, so without this test the next person to
+        "unify" the flag would silently rewrite the removal payload.
         """
         for _ in range(2):
             httpx_mock.add_response(

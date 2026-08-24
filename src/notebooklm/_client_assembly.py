@@ -427,7 +427,9 @@ def _assemble_client(
         import_research_timeout=import_research_timeout,
     )
     client.settings = SettingsAPI(internals.executor)
-    client.sharing = SharingAPI(internals.executor)
+    # Sharing is fully migrated to the semantic backend: it takes the
+    # client-owned adapter and no RpcCaller at all (P6.5).
+    client.sharing = SharingAPI(_backend=client._backend)
     # Source labels. Takes a narrow ``list_sources`` callable (not the whole
     # SourcesAPI) for the membership->Source join in ``labels.sources()``;
     # wired after ``client.sources`` exists. Same client/bound loop (ADR-0004).

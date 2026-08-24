@@ -59,6 +59,10 @@ from notebooklm._records import (
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
     NOTEBOOK_UPDATE_DEF,
+    SHARING_GET_DEF,
+    SHARING_SET_PUBLIC_DEF,
+    SHARING_SET_VIEW_LEVEL_DEF,
+    SHARING_UPDATE_USERS_DEF,
     SOURCE_ADD_URL_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
@@ -185,6 +189,10 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_GENERATE_DATA_TABLE,
         Operation.ARTIFACT_GENERATE_MIND_MAP,
         Operation.ARTIFACT_EXPORT,
+        Operation.SHARING_GET,
+        Operation.SHARING_SET_PUBLIC,
+        Operation.SHARING_SET_VIEW_LEVEL,
+        Operation.SHARING_UPDATE_USERS,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -216,6 +224,10 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_GENERATE_DATA_TABLE: ARTIFACT_GENERATE_DATA_TABLE_DEF,
         Operation.ARTIFACT_GENERATE_MIND_MAP: ARTIFACT_GENERATE_MIND_MAP_DEF,
         Operation.ARTIFACT_EXPORT: ARTIFACT_EXPORT_DEF,
+        Operation.SHARING_GET: SHARING_GET_DEF,
+        Operation.SHARING_SET_PUBLIC: SHARING_SET_PUBLIC_DEF,
+        Operation.SHARING_SET_VIEW_LEVEL: SHARING_SET_VIEW_LEVEL_DEF,
+        Operation.SHARING_UPDATE_USERS: SHARING_UPDATE_USERS_DEF,
     }
     assert all(
         binding.unsupported_reason
@@ -1729,6 +1741,8 @@ def test_only_migrated_feature_runtime_reads_private_backend() -> None:
         package / "_mutation_services.py",
         package / "_note_service.py",
         package / "_read_services.py",
+        package / "_sharing.py",
+        package / "_sharing_service.py",
         package / "_sources.py",
     }
     allowed.update((package / "_studio").rglob("*.py"))
