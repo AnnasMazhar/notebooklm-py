@@ -458,6 +458,7 @@ def collect_native_execution_sites() -> dict[NativeKey, list[str]]:
 GENERIC_RPC_FORWARDERS = frozenset(
     {
         "_web/deadline_rpc.py:DeadlineRpcCaller.rpc_call",
+        "_web/backend.py:WebRpcBackend.public_rpc_call",
         "_notebooks.py:NotebooksAPI._rpc_call",
         "client.py:NotebookLMClient.rpc_call",
     }
@@ -647,7 +648,7 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_notebook_mutation_service.py", "_records", "NotebookUpdateInput"),
         ("_collections.py", "_projectors", "project_collection"),
         ("_labels.py", "_projectors", "project_label"),
-        ("client.py", "_backend", "BackendAdapter"),
+        ("client.py", "_web.backend", "WebRpcBackend"),
         ("client.py", "_note_service", "NoteService"),
         ("_notebooks.py", "_backend", "BackendAdapter"),
         ("_notebooks.py", "_backend", "BackendError"),
@@ -2146,7 +2147,8 @@ def audit_recency_contracts() -> list[str]:
     if metadata_fn is not None:
         for call in (node for node in ast.walk(metadata_fn) if isinstance(node, ast.Call)):
             if (
-                _attribute_parts(call.func)[-2:] == ("asyncio", "create_task")
+                _attribute_parts(call.func)[-2:]
+                in {("asyncio", "create_task"), ("asyncio", "ensure_future")}
                 and len(call.args) == 1
                 and isinstance(call.args[0], ast.Call)
             ):

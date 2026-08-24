@@ -23,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src" / "notebooklm"
 GOLDEN_PATH = REPO_ROOT / "tests" / "_guardrails" / "test_golden_decode_coverage.py"
 WEB_EXECUTION_RUNTIME_PATH = SRC_ROOT / "_web" / "runtime.py"
+WEB_REQUEST_AUTH_PATH = SRC_ROOT / "_web_request_auth.py"
 RPC_REGISTRY_EVIDENCE_PATH = REPO_ROOT / "scripts" / "operation_catalog_rpc_registry.json"
 
 _OMISSION_DISPOSITIONS: Mapping[str, str] = {
@@ -179,6 +180,7 @@ def _override_honored() -> tuple[bool, dict[str, Any]]:
     the encoded request is handed to the transport's request builder.
     """
     tree = _parse(WEB_EXECUTION_RUNTIME_PATH)
+    request_auth_tree = _parse(WEB_REQUEST_AUTH_PATH)
     runtime_owners = [
         node
         for node in tree.body
@@ -190,7 +192,9 @@ def _override_honored() -> tuple[bool, dict[str, Any]]:
         for node in owner.body
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "_execute_once"
     ]
-    execute_once = execute_once_methods[0] if len(runtime_owners) == len(execute_once_methods) == 1 else None
+    execute_once = (
+        execute_once_methods[0] if len(runtime_owners) == len(execute_once_methods) == 1 else None
+    )
     checks: dict[str, bool] = {
         "method_to_resolver": False,
         "resolved_id_to_body": False,
@@ -224,18 +228,18 @@ def _override_honored() -> tuple[bool, dict[str, Any]]:
             if not isinstance(node, ast.Call):
                 continue
             call_name = _attribute_parts(node.func)[-1:]
-            if call_name == ("build_url",):
+            if call_name == ("build_web_rpc_request",):
                 checks["resolved_id_to_url"] = any(
                     keyword.arg == "rpc_id_override"
                     and isinstance(keyword.value, ast.Name)
                     and keyword.value.id == "resolved_id"
                     for keyword in node.keywords
                 )
-            elif call_name == ("build_request_body",):
-                checks["encoded_body_to_request_builder"] = bool(
-                    node.args
-                    and isinstance(node.args[0], ast.Name)
-                    and node.args[0].id == "rpc_request"
+                checks["encoded_body_to_request_builder"] = any(
+                    keyword.arg == "encoded_request"
+                    and isinstance(keyword.value, ast.Name)
+                    and keyword.value.id == "rpc_request"
+                    for keyword in node.keywords
                 )
             elif call_name == ("perform_authed_post",):
                 checks["request_builder_to_dispatch"] = any(
@@ -250,8 +254,39 @@ def _override_honored() -> tuple[bool, dict[str, Any]]:
                     and isinstance(node.args[1], ast.Name)
                     and node.args[1].id == "resolved_id"
                 )
+
+    request_builders = [
+        node
+        for node in request_auth_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "build_web_rpc_request"
+    ]
+    if len(request_builders) == 1:
+        adapter_resolved_id_to_url = False
+        adapter_encoded_body = False
+        for node in ast.walk(request_builders[0]):
+            if not isinstance(node, ast.Call):
+                continue
+            call_name = _attribute_parts(node.func)[-1:]
+            if call_name == ("build_web_rpc_url",):
+                adapter_resolved_id_to_url = any(
+                    keyword.arg == "rpc_id_override"
+                    and isinstance(keyword.value, ast.Name)
+                    and keyword.value.id == "rpc_id_override"
+                    for keyword in node.keywords
+                )
+            elif call_name == ("build_request_body",):
+                adapter_encoded_body = bool(
+                    node.args
+                    and isinstance(node.args[0], ast.Name)
+                    and node.args[0].id == "encoded_request"
+                )
+        checks["resolved_id_to_url"] &= adapter_resolved_id_to_url
+        checks["encoded_body_to_request_builder"] &= adapter_encoded_body
     return all(checks.values()), {
-        "source_contract": "_web/runtime.py:WebExecutionRuntime._execute_once",
+        "source_contract": (
+            "_web/runtime.py:WebExecutionRuntime._execute_once -> "
+            "_web_request_auth.py:build_web_rpc_request"
+        ),
         "dataflow": checks,
         "behavior_test": (
             "tests/unit/test_operation_catalog.py::"
