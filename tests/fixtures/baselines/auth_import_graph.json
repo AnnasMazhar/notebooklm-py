@@ -743,7 +743,7 @@
       "path": "src/notebooklm/_auth/account_types.py"
     },
     {
-      "lines": 1449,
+      "lines": 1470,
       "name": "browser_capture",
       "path": "src/notebooklm/_auth/browser_capture.py"
     },
@@ -926,7 +926,7 @@
     "function_local_edges": 12,
     "module_edges": 130,
     "modules": 41,
-    "total_lines": 16398,
+    "total_lines": 16419,
     "unique_edges": 142
   },
   "version": 1

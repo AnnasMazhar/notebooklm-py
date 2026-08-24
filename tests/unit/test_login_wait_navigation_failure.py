@@ -21,7 +21,7 @@ honoured rather than restarted on every tolerated failure.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, NoReturn
 from unittest.mock import MagicMock
 
 import pytest
@@ -85,16 +85,24 @@ class _FakePage:
 
 
 class _RecordingIO:
-    """Captures the user-facing emissions without a Rich console."""
+    """Captures the user-facing emissions without a Rich console.
+
+    Implements the full ``BrowserCaptureIO`` protocol, ``run_async`` included:
+    a double that is narrower than the real thing can hide a call the
+    production code legitimately makes.
+    """
 
     def __init__(self) -> None:
         self.messages: list[str] = []
 
-    def emit(self, message: str) -> None:
-        self.messages.append(message)
+    def emit(self, *args: Any, **kwargs: Any) -> None:
+        self.messages.append(args[0] if args else "")
 
-    def fail(self, code: int) -> None:  # pragma: no cover - not reached here
+    def fail(self, code: int) -> NoReturn:  # pragma: no cover - not reached here
         raise AssertionError(f"io.fail({code}) is not part of the wait contract")
+
+    def run_async(self, coro: Any) -> Any:  # pragma: no cover - not reached here
+        raise AssertionError("run_async is not part of the wait contract")
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +307,28 @@ def test_a_page_failing_in_a_loop_is_bounded_not_spun_on() -> None:
     with pytest.raises(PlaywrightError, match="ERR_ABORTED"):
         wait_for_login_landing(page, timeout_s=300)
     assert len(page.timeouts) == MAX_TOLERATED_NAVIGATION_FAILURES + 1
+
+
+def test_giving_up_explains_itself_before_re_raising() -> None:
+    """The cap must not hand the user a bare "please report a bug".
+
+    Re-raising is deliberate — an unclassified Playwright error has to stay
+    visible — but a captive portal looping the sign-in is not a defect in this
+    tool, so the cause and a browser-free way out are printed first.
+    """
+    from playwright.sync_api import Error as PlaywrightError
+
+    page = _FakePage([_playwright_error("net::ERR_NAME_NOT_RESOLVED")] * 500)
+    io = _RecordingIO()
+    with pytest.raises(PlaywrightError):
+        wait_for_login_landing(page, timeout_s=300, io=io)
+
+    assert any("could not complete a navigation" in m for m in io.messages)
+    guidance = next(m for m in io.messages if "could not complete a navigation" in m)
+    assert "net::ERR_NAME_NOT_RESOLVED" in guidance
+    assert "--browser-cookies" in guidance
+    # No URL material, same rule as the DEBUG trace.
+    assert "http" not in guidance
 
 
 def test_the_cap_leaves_room_for_an_ordinary_racy_sign_in() -> None:

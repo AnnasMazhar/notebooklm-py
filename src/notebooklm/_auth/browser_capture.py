@@ -637,6 +637,27 @@ def wait_for_login_landing(
                     tolerated,
                     navigation_error_code(exc) or type(exc).__name__,
                 )
+                # Say what happened BEFORE re-raising. The exception reaches the
+                # CLI's generic arm as "Unexpected error … please report a bug" —
+                # the very framing this fix exists to remove — and a captive
+                # portal or proxy looping the sign-in is not a defect in this
+                # tool. Re-raising anyway (rather than ``io.fail``) is
+                # deliberate: an unclassified Playwright error must stay visible,
+                # which is the contract
+                # ``test_run_playwright_login_wait_for_url_other_error_reraises``
+                # pins.
+                if io is not None:
+                    io.emit(
+                        f"[red]The browser could not complete a navigation "
+                        f"({navigation_error_code(exc) or 'repeated failures'}) "
+                        f"after {tolerated} attempts.[/red]\n"
+                        "A proxy, captive portal, or VPN interrupting the sign-in "
+                        "flow is the usual cause.\n"
+                        "To skip the browser entirely, read cookies from one you are "
+                        "already signed in to: "
+                        "[cyan]notebooklm login --browser-cookies[/cyan] "
+                        "(needs the 'cookies' extra)."
+                    )
                 raise
             # The aborted hop is invisible to ``log_observed_navigations``:
             # Playwright only emits the public "framenavigated" event when the
