@@ -120,9 +120,11 @@ def decode_get_history_result(raw: Any, *, source: str) -> ChatGetHistoryResult:
                 answer_error=answer_error,
             )
         )
+    envelope_present = isinstance(raw, list) and bool(raw)
     return ChatGetHistoryResult(
         turns=tuple(records),
-        envelope_present=isinstance(raw, list) and bool(raw),
+        envelope_present=envelope_present,
+        turns_container_present=not (envelope_present and raw[0] is None),
     )
 
 

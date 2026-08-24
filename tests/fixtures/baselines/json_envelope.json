@@ -11067,7 +11067,7 @@
         "projections": [
           {
             "adapter_surface": "MCP explicitly redacted safe-field identity contribution",
-            "contribution_semantics": "Only AuthTokens.authuser and account_email may supply emitted account values; storage_path and _profile_session_generation only select persisted/cache/live fallback behavior, and the account unions expose no credential-bearing fields",
+            "contribution_semantics": "Only the live mutable AuthTokens.authuser and account_email may supply emitted account values; storage_path and _profile_session_generation only select persisted/cache/live fallback behavior, and the account unions expose no credential-bearing fields",
             "control_model_contribution_keys": [
               "storage_path",
               "_profile_session_generation"
@@ -11077,9 +11077,8 @@
               "account_email"
             ],
             "evidence": [
-              "notebooklm/client.py:return self._provider.get_account_authuser()",
-              "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser",
-              "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth",
+              "notebooklm/client.py:return self.auth.authuser",
+              "notebooklm/client.py:return self._provider.auth",
               "notebooklm/_auth/account_email.py:def _session_key",
               "notebooklm/_auth/account_email.py:storage_path = auth.storage_path",
               "notebooklm/mcp/tools/meta.py:async def _account_block",
@@ -11088,9 +11087,8 @@
             "evidence_shape_fingerprints": {
               "notebooklm/_auth/account_email.py:def _session_key": "sha256:4a8c584cfbe8e0317591941b563ff5930e6e3a927fa870a3e26dfcddb84516cc",
               "notebooklm/_auth/account_email.py:storage_path = auth.storage_path": "sha256:2f14eca1db9edefb384b09c6484fdb775cb6d43718acc949ee68eababbd32b48",
-              "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth": "sha256:fb86dcf1c8f20d952e49c3a16a2c0cac792242b4f967562441af9772a641e75c",
-              "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser": "sha256:a26b114eb717b50883330be98192b0a051aad0bda61bd543b3a75fbb789a0c1b",
-              "notebooklm/client.py:return self._provider.get_account_authuser()": "sha256:56aa85d73e113eeee6d211a2aa3979fffaa44af7479b16a555b614bf8cff78a8",
+              "notebooklm/client.py:return self._provider.auth": "sha256:ddd2cf0130992f3684cbcf6487ccc7524a34b6e3001affa7f677447291afb982",
+              "notebooklm/client.py:return self.auth.authuser": "sha256:ace795c07fa12cdbfb6b1cd1e2db91ca9f3a946fa1f51b27abd3ec783a6e484d",
               "notebooklm/mcp/tools/meta.py:async def _account_block": "sha256:3ee79936cfbe3f25dad89886211ed825803961d40d03d9dba2e7e273c2953513",
               "notebooklm/mcp/tools/meta.py:info[\"account\"] = await _account_block": "sha256:1a79f675be39f0a31d317756ce05a74848d07229ff37c05a3145b06bde3043b1"
             },
@@ -11138,7 +11136,7 @@
                 ]
               }
             },
-            "projection_condition": "server_info include_account is true; authuser always comes from the provider's immutable generation captured from the in-memory AuthTokens, while account_email contributes only when that in-memory/cached identity wins before persisted or live fallback",
+            "projection_condition": "server_info include_account is true; authuser always comes from the live mutable in-memory AuthTokens returned by client.auth, while account_email contributes only when that in-memory/cached identity wins before persisted or live fallback",
             "redacted_projection": "safe-field-contribution",
             "shape_derivation": "manual-reviewed+fingerprint"
           }
@@ -14642,7 +14640,7 @@
         "projections": [
           {
             "adapter_surface": "REST explicitly redacted safe-field identity contribution",
-            "contribution_semantics": "Only AuthTokens.authuser and account_email may supply emitted account values; storage_path and _profile_session_generation only select persisted/cache/live fallback behavior. The startup-error persisted-identity branch has no AuthTokens contribution, and no credential-bearing field reaches either account union",
+            "contribution_semantics": "Only the live mutable AuthTokens.authuser and account_email may supply emitted account values; storage_path and _profile_session_generation only select persisted/cache/live fallback behavior. The startup-error persisted-identity branch has no AuthTokens contribution, and no credential-bearing field reaches either account union",
             "control_model_contribution_keys": [
               "storage_path",
               "_profile_session_generation"
@@ -14652,9 +14650,8 @@
               "account_email"
             ],
             "evidence": [
-              "notebooklm/client.py:return self._provider.get_account_authuser()",
-              "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser",
-              "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth",
+              "notebooklm/client.py:return self.auth.authuser",
+              "notebooklm/client.py:return self._provider.auth",
               "notebooklm/_auth/account_email.py:def _session_key",
               "notebooklm/_auth/account_email.py:storage_path = auth.storage_path",
               "notebooklm/server/routes/meta.py:async def _account_block",
@@ -14663,9 +14660,8 @@
             "evidence_shape_fingerprints": {
               "notebooklm/_auth/account_email.py:def _session_key": "sha256:4a8c584cfbe8e0317591941b563ff5930e6e3a927fa870a3e26dfcddb84516cc",
               "notebooklm/_auth/account_email.py:storage_path = auth.storage_path": "sha256:2f14eca1db9edefb384b09c6484fdb775cb6d43718acc949ee68eababbd32b48",
-              "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth": "sha256:fb86dcf1c8f20d952e49c3a16a2c0cac792242b4f967562441af9772a641e75c",
-              "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser": "sha256:a26b114eb717b50883330be98192b0a051aad0bda61bd543b3a75fbb789a0c1b",
-              "notebooklm/client.py:return self._provider.get_account_authuser()": "sha256:56aa85d73e113eeee6d211a2aa3979fffaa44af7479b16a555b614bf8cff78a8",
+              "notebooklm/client.py:return self._provider.auth": "sha256:ddd2cf0130992f3684cbcf6487ccc7524a34b6e3001affa7f677447291afb982",
+              "notebooklm/client.py:return self.auth.authuser": "sha256:ace795c07fa12cdbfb6b1cd1e2db91ca9f3a946fa1f51b27abd3ec783a6e484d",
               "notebooklm/server/routes/meta.py:async def _account_block": "sha256:3af98592b3247210845fc5b8a68458e68b4ea0d0a1ebf74b93354137fd99c29b",
               "notebooklm/server/routes/meta.py:info[\"account\"] = await _account_block": "sha256:3e18ff89f18491718e328965738a7ef84ed0b64f7410a9c71d68a30b66d57c4d"
             },

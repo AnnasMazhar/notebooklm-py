@@ -124,6 +124,7 @@ class ChatGetHistoryResult:
 
     turns: tuple[ChatConversationTurnRecord, ...]
     envelope_present: bool = True
+    turns_container_present: bool = True
 
 
 @dataclass(frozen=True, slots=True)

@@ -296,30 +296,30 @@ class ResearchAPI:
         )
 
     async def cancel(self, notebook_id: str, run_id: str) -> None:
-        """Import selected research sources into the notebook.
+        """Request cancellation of an in-flight research run.
+
+        Cancellation is fire-and-forget: a successful call returns ``None``,
+        but the server's empty response does not confirm that the run changed
+        state. Unknown and already-terminal run IDs are silent no-ops; poll the
+        run afterward when confirmation is required.
 
         Args:
-            notebook_id: The notebook ID.
-            task_id: The research task ID.
-            sources: List of sources to import, each with 'url' and 'title'.
-                Deep research results from poll() may also include a report
-                entry with 'report_markdown' and 'research_task_id'.
-            _remaining_budget: Internal. What is left of
-                :meth:`import_sources_with_verification`'s ``max_elapsed``
-                when this attempt starts; clamps the per-attempt read timeout
-                so one attempt cannot outlive that loop's deadline (#2205).
-                Not part of the public contract — direct callers leave it
-                unset and get the full batch-scaled window.
+            notebook_id: The notebook used for request routing.
+            run_id: The poll-level run ID from ``poll().task_id``. For deep
+                research this is the ``report_id`` returned by :meth:`start`,
+                not deep research's ``start().task_id`` session ID. For fast
+                research it is ``start().task_id``.
 
         Returns:
-            List of imported sources with 'id' and 'title'.
+            ``None``. The response carries no cancellation success signal.
+
+        Raises:
+            NetworkError: If the cancellation request fails at the network layer.
+            RPCError: If the cancellation RPC fails.
 
         Note:
-            The API response can be incomplete - it may return fewer items than
-            were actually imported. All requested sources typically get imported
-            successfully, but the return value may not reflect all of them.
-            To reliably verify imports, check the notebook's source list using
-            `client.sources.list(notebook_id)` after calling this method.
+            ``notebook_id`` is routing context, not a scoping boundary; the
+            server identifies the research run by ``run_id``.
         """
         await self._require_service().cancel(notebook_id, run_id)
 

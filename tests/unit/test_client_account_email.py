@@ -240,9 +240,12 @@ async def test_inline_auth_probe_hit_does_not_persist(httpx_mock: HTTPXMock, mon
 
 
 async def test_get_account_authuser_returns_auth_index() -> None:
-    """``get_account_authuser`` surfaces the in-memory ``authuser`` (network-free)."""
+    """The network-free getter tracks direct mutations of the public auth object."""
     client = NotebookLMClient(_make_auth(authuser=2))
     assert client.get_account_authuser() == 2
+
+    client.auth.authuser = 7
+    assert client.get_account_authuser() == 7
 
 
 async def test_account_email_cache_is_keyed_to_the_active_route() -> None:

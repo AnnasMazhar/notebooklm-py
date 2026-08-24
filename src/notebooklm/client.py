@@ -714,7 +714,7 @@ class NotebookLMClient:
         the profile's persisted metadata or inline ``NOTEBOOKLM_AUTH_JSON``);
         network-free. Falls back to ``0`` for pre-account-binding profiles.
         """
-        return self._provider.get_account_authuser()
+        return self.auth.authuser
 
     async def get_account_email(self, *, live_fallback: bool = True) -> str | None:
         """Return the signed-in Google account email, or ``None`` if undiscoverable.

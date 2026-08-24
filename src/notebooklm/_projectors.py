@@ -755,6 +755,8 @@ def project_chat_turns_legacy(result: ChatGetHistoryResult) -> Any:
     """Reproduce the documented raw history envelope without leaking it from the backend."""
     if not result.envelope_present:
         return []
+    if not result.turns_container_present:
+        return [None]
     return [[_thaw_chat_legacy(turn.legacy_row) for turn in result.turns]]
 
 

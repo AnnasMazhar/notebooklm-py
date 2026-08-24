@@ -108,16 +108,16 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
         ),
         "adapter_surface": "REST explicitly redacted safe-field identity contribution",
         "contribution_semantics": (
-            "Only AuthTokens.authuser and account_email may supply emitted account values; "
-            "storage_path and _profile_session_generation only select persisted/cache/live "
-            "fallback behavior. The startup-error persisted-identity branch has no AuthTokens "
-            "contribution, and no credential-bearing field reaches either account union"
+            "Only the live mutable AuthTokens.authuser and account_email may supply emitted "
+            "account values; storage_path and _profile_session_generation only select "
+            "persisted/cache/live fallback behavior. The startup-error persisted-identity "
+            "branch has no AuthTokens contribution, and no credential-bearing field reaches "
+            "either account union"
         ),
         "redacted_projection": "safe-field-contribution",
         "evidence": (
-            "notebooklm/client.py:return self._provider.get_account_authuser()",
-            "notebooklm/_runtime/web_cookie_provider.py:authuser=self._auth.authuser",
-            "notebooklm/_runtime/web_cookie_provider.py:auth=self._auth",
+            "notebooklm/client.py:return self.auth.authuser",
+            "notebooklm/client.py:return self._provider.auth",
             "notebooklm/_auth/account_email.py:def _session_key",
             "notebooklm/_auth/account_email.py:storage_path = auth.storage_path",
             "notebooklm/server/routes/meta.py:async def _account_block",

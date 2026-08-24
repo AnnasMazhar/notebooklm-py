@@ -151,6 +151,22 @@ class TestChatAPI:
         assert result[0] == []
 
     @pytest.mark.asyncio
+    async def test_get_conversation_turns_preserves_null_empty_envelope(
+        self,
+        auth_tokens,
+        httpx_mock: HTTPXMock,
+        build_rpc_response,
+    ):
+        """A legitimate null turn container stays ``[None]`` at the public facade."""
+        response = build_rpc_response(RPCMethod.GET_CONVERSATION_TURNS, [None])
+        httpx_mock.add_response(content=response.encode())
+
+        async with NotebookLMClient(auth_tokens) as client:
+            result = await client.chat.get_conversation_turns("nb_123", "conv_001")
+
+        assert result == [None]
+
+    @pytest.mark.asyncio
     async def test_get_history_empty(
         self,
         auth_tokens,
