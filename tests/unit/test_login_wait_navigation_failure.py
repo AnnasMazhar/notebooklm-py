@@ -533,6 +533,27 @@ def test_a_coarse_monotonic_clock_still_terminates(monkeypatch: pytest.MonkeyPat
     assert page.timeouts == sorted(page.timeouts, reverse=True)
 
 
+def test_deadline_expiry_also_checks_for_a_landing() -> None:
+    """The synthetic timeout must not discard a sign-in either.
+
+    The ``PlaywrightTimeout`` arm rechecks the URL, but a tolerated failure can
+    consume the last of the deadline and reach the loop-top check instead. The
+    accepted navigation may commit in between, and that completed sign-in must
+    not be reported as a timeout.
+    """
+    page = _FakePage([])
+
+    def _fail_then_land(_matcher: Any, *, wait_until: str, timeout: float) -> None:
+        page.timeouts.append(timeout)
+        page.url = LANDED  # the human finished as the budget ran out
+        raise _playwright_error(ABORTED)
+
+    page.wait_for_url = _fail_then_land  # type: ignore[method-assign]
+    # Landing is seen by the failure arm's own recheck here; the loop-top guard
+    # is the same rule applied one iteration later.
+    assert wait_for_login_landing(page, timeout_s=0.01) == 0
+
+
 def test_an_exhausted_budget_raises_rather_than_looping() -> None:
     from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
@@ -795,3 +816,63 @@ def test_headless_reauth_never_trusts_a_stale_url_after_failed_navigations() -> 
         assert not storage.exists(), (
             "headless re-auth must not persist cookies when no navigation committed"
         )
+
+
+@pytest.mark.requires_playwright
+def test_a_restored_tab_url_is_not_treated_as_proof_of_login() -> None:
+    """A persistent context restores tabs; that URL is not evidence of a session.
+
+    If every initial ``goto`` is cancelled and the restored page happens to sit
+    on an accepted host, the "Already logged in" shortcut would capture whatever
+    cookies the profile holds — valid or long expired — and report success. The
+    interactive twin of the headless stale-URL trap.
+    """
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+    from unittest.mock import patch
+
+    from notebooklm._auth.browser_capture import BrowserCapturePlan, run_browser_capture
+
+    with TemporaryDirectory() as tmp:
+        profile = Path(tmp) / "browser_profile"
+        profile.mkdir()
+        storage = Path(tmp) / "storage_state.json"
+
+        page = MagicMock()
+        page.url = LANDED  # restored tab, no navigation of ours committed
+        page.content.return_value = "<html></html>"
+        page.goto.side_effect = _playwright_error(ABORTED)
+        # Never lands: the human does not complete a sign-in in this scenario.
+        page.wait_for_url.side_effect = _playwright_error(ABORTED)
+
+        context = MagicMock()
+        context.pages = [page]
+        context.storage_state.return_value = {"cookies": [], "origins": []}
+        playwright = MagicMock()
+        playwright.chromium.launch_persistent_context.return_value = playwright_context = context
+        assert playwright_context is context
+
+        io = _EndToEndIO()
+        with (
+            patch(
+                "playwright.sync_api.sync_playwright",
+                side_effect=lambda: _FakeSyncPlaywright(playwright),
+            ),
+            pytest.raises(BaseException),  # noqa: B017 - io.fail or a re-raise
+        ):
+            run_browser_capture(
+                BrowserCapturePlan(
+                    browser="chromium",
+                    browser_profile=profile,
+                    storage_path=storage,
+                ),
+                io,
+                headless=False,
+                interactive=True,
+            )
+
+        flattened = " ".join(str(a) for args in io.emitted for a in args)
+        assert "Already logged in" not in flattened, (
+            "a restored tab's URL must not short-circuit the login"
+        )
+        assert not storage.exists()

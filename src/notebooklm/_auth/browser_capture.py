@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import sys
 import time
 from collections.abc import Awaitable, Iterator
@@ -63,6 +62,16 @@ from .browser_launch_errors import CHANNEL_BROWSERS, classify_launch_failure
 # cookie-refresh advice (``cli/services/login/cookie_jar.py``) must not grow a
 # second, drifting copy of that caveat.
 from .cookie_policy import app_host_scope_note
+
+# Navigation-failure classification lives in its own pure leaf (ADR-0008); these
+# are re-exported below because this module is the sanctioned CLI import site.
+from .navigation_errors import (
+    TARGET_CLOSED_ERROR,
+    is_navigation_failure,
+    is_navigation_interrupted_error,
+    is_navigation_race,
+    navigation_error_code,
+)
 from .profile_account import DomainSelection
 from .profile_document import ProfileDocument
 from .profile_store import ProfileStore, RemintWriteRequest, ReplaceResult
@@ -136,25 +145,6 @@ MAX_TOLERATED_NAVIGATION_FAILURES = 20
 # A wait that failed faster than this took no real time, so the page — not the
 # human — produced it. Only such back-to-back failures count toward the cap.
 INSTANT_FAILURE_SECONDS = 0.25
-# Playwright TargetClosedError substring — matches the default message from
-# Playwright's TargetClosedError class (introduced in v1.41). If a future
-# version changes this message, the error will propagate unhandled (safe fallback).
-TARGET_CLOSED_ERROR = "Target page, context or browser has been closed"
-_NAVIGATION_INTERRUPTED_MARKERS = (
-    "navigation interrupted",
-    "interrupted by another navigation",
-)
-# Chromium aborts a pending navigation with this prose and NO ``net::`` code when
-# a beforeunload dialog is dismissed (``crPage.js`` -> ``frameAbortedNavigation``).
-# Broad predicate only: where WE navigate, a cancelled goto did not happen, and
-# proceeding on a stale ``page.url`` is the trap the headless arm guards against.
-_ABORTED_NAVIGATION_MARKERS = ("navigation cancelled by beforeunload dialog",)
-# Chromium reports a failed navigation as a ``net::ERR_*`` code in the Playwright
-# message. Parsing the code out (rather than matching literals) is what lets the
-# two predicates below disagree about the SAME error: which half of the family is
-# benign depends on who issued the navigation. See :func:`is_navigation_race` vs
-# :func:`is_navigation_failure`.
-_NET_ERROR_PATTERN = re.compile(r"\bnet::ERR_[A-Z0-9_]{1,64}")
 BROWSER_CLOSED_HELP = (
     "[red]The browser window was closed during login.[/red]\n"
     "This can happen when switching Google accounts in a persistent browser session.\n\n"
@@ -258,69 +248,6 @@ def recover_page(
             )
         logger.error("Failed to create new page for recovery: %s", error_str)
         raise
-
-
-def is_navigation_interrupted_error(error: str | Exception) -> bool:
-    """Return True for Playwright navigation races that are safe to ignore."""
-    error_str = str(error).lower()
-    return any(marker in error_str for marker in _NAVIGATION_INTERRUPTED_MARKERS)
-
-
-def navigation_error_code(error: str | Exception) -> str | None:
-    """Return the ``net::ERR_*`` code inside a Playwright error, else ``None``.
-
-    Exists so failed navigations can be *logged* without logging the message
-    they came in. Playwright embeds the offending URL in navigation errors
-    (``net::ERR_ABORTED at https://…?f.sid=…``), and the code is the whole
-    diagnostic — ``net::ERR_ABORTED`` (a benign redirect race) reads very
-    differently from ``net::ERR_NAME_NOT_RESOLVED`` (the network dropped),
-    while the URL only adds leak surface. Same reasoning as
-    :func:`_log_suppressed`, which keeps the exception type and drops the rest.
-    """
-    match = _NET_ERROR_PATTERN.search(str(error))
-    return match.group(0) if match else None
-
-
-def is_navigation_race(error: str | Exception) -> bool:
-    """Return True for a navigation *superseded* by another — safe to ignore.
-
-    The narrow predicate, for the sites where **we** issued the navigation (the
-    landing retry loop, cookie forcing). There a failure is our failure, so only
-    the race class may be swallowed: ``ERR_ABORTED`` means something replaced
-    the request — the benign outcome #214 and #322 widened this matcher for.
-
-    Emphatically NOT the whole ``net::ERR_*`` family: ``ERR_INVALID_URL`` is a
-    configuration fault that must fail fast, and ``ERR_CONNECTION_REFUSED`` must
-    stay visible too — swallowing either turns a real error into a silent hang.
-    Note the latter is NOT in :data:`RETRYABLE_CONNECTION_ERRORS` (only
-    ``…CLOSED``/``…RESET`` are), so it reaches neither
-    :func:`connection_error_help` nor this predicate. That routing gap predates
-    this; do not "fix" it by widening here.
-    """
-    if TARGET_CLOSED_ERROR in str(error):
-        return False
-    return navigation_error_code(error) == "net::ERR_ABORTED" or is_navigation_interrupted_error(
-        error
-    )
-
-
-def is_navigation_failure(error: str | Exception) -> bool:
-    """Return True when a Playwright error is any failed navigation.
-
-    The broad predicate, for the login wait alone. There we are not navigating —
-    we are *watching a human* navigate — so a failed hop says nothing about their
-    sign-in. A DNS blip is no grounds to tear down a five-minute wait, hence the
-    whole ``net::ERR_*`` family where :func:`is_navigation_race` takes only races.
-
-    Excludes ``TargetClosed`` on both predicates: a dead browser cannot be
-    waited on, and every caller routes it to :data:`BROWSER_CLOSED_HELP`.
-    """
-    if TARGET_CLOSED_ERROR in str(error):
-        return False
-    if navigation_error_code(error) is not None or is_navigation_interrupted_error(error):
-        return True
-    lowered = str(error).lower()
-    return any(marker in lowered for marker in _ABORTED_NAVIGATION_MARKERS)
 
 
 def accepted_login_hosts() -> tuple[str, ...]:
@@ -606,6 +533,12 @@ def wait_for_login_landing(
     instant_failures = 0
     while True:
         if remaining_ms <= 0:
+            # Same landing recheck as the PlaywrightTimeout arm: the accepted
+            # navigation can commit between the failure arm's URL read and this
+            # deadline test, and a completed sign-in must never be reported as a
+            # timeout.
+            if url_matches_base_host(_current_url(page)):
+                return tolerated
             raise PlaywrightTimeout(f"Timeout {timeout_s * 1000:.0f}ms exceeded.")
         attempt_started = time.monotonic()
         try:
@@ -915,6 +848,11 @@ def run_browser_capture(
             page = (
                 context.pages[0] if context.pages else recover_page(context, io, headless=headless)
             )
+            # Whether ANY navigation of ours has committed. A persistent context
+            # restores tabs, so ``page.url`` may already be an accepted host that
+            # no request of ours produced — and treating that as proof of login
+            # captures whatever cookies the profile holds, valid or expired.
+            navigation_committed = False
 
             # Retry navigation on transient connection errors with backoff
             for attempt in range(1, LOGIN_MAX_RETRIES + 1):
@@ -926,6 +864,7 @@ def run_browser_capture(
                     # headers are processed -- enough to land on the host and
                     # classify page.url. See #1697 (and the #214 precedent below).
                     page.goto(f"{get_base_url()}/", wait_until="commit", timeout=30000)
+                    navigation_committed = True
                     break
                 except PlaywrightError as exc:
                     error_str = str(exc)
@@ -1049,8 +988,10 @@ def run_browser_capture(
                         "persisted browser profile's Google session is "
                         "expired. Run 'notebooklm login' to re-authenticate."
                     )
-            elif url_matches_base_host(page.url):
-                # Persistent browser profile already has a valid session.
+            elif url_matches_base_host(page.url) and navigation_committed:
+                # Persistent browser profile already has a valid session. Gated on
+                # a committed navigation: after the retry loop breaks on repeated
+                # aborts, this URL is the restored tab's, not ours (#2260 review).
                 io.emit("[green]Already logged in.[/green]")
             else:
                 io.emit("\n[bold green]Instructions:[/bold green]")
@@ -1116,6 +1057,7 @@ def run_browser_capture(
             for url in [GOOGLE_ACCOUNTS_URL, f"{get_base_url()}/"]:
                 try:
                     page.goto(url, wait_until="commit")
+                    navigation_committed = True
                 except PlaywrightError as exc:
                     error_str = str(exc)
                     if TARGET_CLOSED_ERROR in error_str:
@@ -1124,6 +1066,7 @@ def run_browser_capture(
                         recovered_during_cookie_forcing = True
                         try:
                             page.goto(url, wait_until="commit")
+                            navigation_committed = True
                         except PlaywrightError as inner_exc:
                             if TARGET_CLOSED_ERROR in str(inner_exc):
                                 io.emit(BROWSER_CLOSED_HELP)
@@ -1141,9 +1084,11 @@ def run_browser_capture(
             # cookie-forcing round-trip above can land us back on
             # accounts.google.com if the session was invalidated mid-flow (rare).
             # Auto-detect is non-interactive, so fail fast with a clear next step.
-            if not url_matches_base_host(page.url):
+            if not url_matches_base_host(page.url) or not navigation_committed:
+                # ``trace_url``, not the raw value: a swallowed cookie-forcing
+                # race can leave ``page.url`` on a credential-bearing SSO URL.
                 io.emit(
-                    f"[red]Unexpected URL after login: {page.url}[/red]\n"
+                    f"[red]Unexpected URL after login: {safe_page_url(page)}[/red]\n"
                     "Authentication may be incomplete. "
                     "Try: notebooklm login --fresh"
                 )

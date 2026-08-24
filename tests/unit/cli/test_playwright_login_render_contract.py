@@ -868,7 +868,9 @@ class TestLoginErrorRender:
             "\n"
             "Waiting for login (up to 5 minutes)...\n"
             "Login detected.\n"
-            "Unexpected URL after login: https://accounts.google.com/AccountChooser\n"
+            # Host only: the drift target can be a credential-bearing SSO URL,
+            # and this line goes to the terminal and to captured CI output.
+            "Unexpected URL after login: https://accounts.google.com/\n"
             "Authentication may be incomplete. Try: notebooklm login --fresh\n"
         )
 
