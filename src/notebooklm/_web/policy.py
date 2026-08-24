@@ -191,6 +191,35 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
             CallPolicy.MUTATION,
             (_native(RPCMethod.DELETE_LABEL, _NO_RETRY, "batch collection delete"),),
         ),
+        Operation.SETTINGS_GET: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (_native(RPCMethod.GET_USER_SETTINGS, _IDEMPOTENT, "account settings read"),),
+        ),
+        Operation.SETTINGS_GET_LIMITS: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (_native(RPCMethod.GET_USER_SETTINGS, _IDEMPOTENT, "account limits read"),),
+        ),
+        Operation.SETTINGS_SET_LANGUAGE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (_native(RPCMethod.SET_USER_SETTINGS, _IDEMPOTENT, "output-language mutation"),),
+        ),
+        Operation.NOTEBOOK_SUGGEST_PROMPTS: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "optional source resolution"),
+                _native(RPCMethod.SUGGEST_PROMPTS, _IDEMPOTENT, "prompt suggestion read"),
+            ),
+        ),
+        Operation.ARTIFACT_SUGGEST_REPORTS: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(
+                    RPCMethod.GET_SUGGESTED_REPORTS,
+                    _IDEMPOTENT,
+                    "report-format suggestion read",
+                ),
+            ),
+        ),
         Operation.ARTIFACT_LIST: WebCallPolicyBinding(
             CallPolicy.READ,
             (

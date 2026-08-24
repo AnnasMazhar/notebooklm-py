@@ -32,7 +32,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
-from ..rpc import RPCMethod, safe_index
+from ..rpc import safe_index
 
 __all__ = [
     "PromptSuggestionRow",
@@ -139,17 +139,18 @@ def _strip_leading_list_marker(text: str) -> str:
     return lstripped.rstrip()
 
 
-# ``GeneratePromptSuggestions`` (``otmP3b``) method id, threaded into
-# ``safe_index`` / drift diagnostics for the suggestion-list unwrap.
-_SUGGEST_PROMPTS_METHOD_ID = RPCMethod.SUGGEST_PROMPTS.value
-
 # Envelope-unwrap position: ``GeneratePromptSuggestions`` wraps the suggestion
 # list as the first element of a single-element envelope
 # (``[[[title, prompt], ...]]``).
 _SUGGEST_PROMPTS_CONTAINER_POS = 0
 
 
-def unwrap_prompt_suggestions(result: Any, *, source: str) -> list[Any]:
+def unwrap_prompt_suggestions(
+    result: Any,
+    *,
+    method_id: str | int | None,
+    source: str,
+) -> list[Any]:
     """Return the suggestion-row list from a ``GeneratePromptSuggestions`` reply.
 
     The ``otmP3b`` reply wraps the rows as a single-element envelope
@@ -165,7 +166,7 @@ def unwrap_prompt_suggestions(result: Any, *, source: str) -> list[Any]:
     inner = safe_index(
         result,
         _SUGGEST_PROMPTS_CONTAINER_POS,
-        method_id=_SUGGEST_PROMPTS_METHOD_ID,
+        method_id=method_id,
         source=source,
     )
     return inner if isinstance(inner, list) else []

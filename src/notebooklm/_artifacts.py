@@ -19,7 +19,6 @@ from ._artifact import validation as _artifact_validation
 from ._artifact.downloads import ArtifactDownloadService, DownloadResult
 from ._artifact.generation import ArtifactGenerationService
 from ._artifact.listing import ArtifactListingService
-from ._artifact.payloads import build_suggest_reports_params
 from ._backend import BackendAdapter, BackendError
 from ._backend_compat import project_backend_error
 from ._lookup import unwrap_or_raise
@@ -27,7 +26,7 @@ from ._mind_map import NoteBackedMindMapService
 from ._note_service import LegacyNoteBackedService
 from ._notebook_metadata import NotebookSourceIdProvider
 from ._polling_registry import PollRegistry
-from ._projectors import project_artifact, project_generation_status, project_report_suggestion
+from ._projectors import project_artifact, project_generation_status
 from ._records import (
     AudioGenerateInput,
     DataTableGenerateInput,
@@ -53,8 +52,8 @@ from ._studio import (
     VideoFamilyService,
     VisualFamilyService,
 )
+from ._suggestion_service import SuggestionService
 from ._types.research import MindMapResult
-from ._web.codec.artifacts import decode_report_suggestion
 from .exceptions import (
     ArtifactNotFoundError,
     ArtifactNotReadyError,
@@ -170,6 +169,7 @@ class ArtifactsAPI:
         self._mind_maps = mind_maps
         self._note_service = note_service
         self._catalog = StudioCatalog(_backend) if _backend is not None else None
+        self._suggestions = SuggestionService(_backend) if _backend is not None else None
         self._data_tables = (
             DataTableFamilyService(_backend, self._catalog)
             if _backend is not None and self._catalog is not None
@@ -1163,29 +1163,12 @@ class ArtifactsAPI:
         notebook_id: str,
     ) -> builtins.list[ReportSuggestion]:
         """Get AI-suggested report formats for a notebook."""
-        params = build_suggest_reports_params(notebook_id)
-
-        result = await self._rpc.rpc_call(
-            RPCMethod.GET_SUGGESTED_REPORTS,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-        )
-
-        if not (result and isinstance(result, list)):
-            return []
-
-        # GET_SUGGESTED_REPORTS returns a wrapped ``[[row1, ...]]`` envelope or a
-        # flat list; the wrap probe + per-row decode are centralised behind
-        # ``unwrap_artifact_rows`` / ``ReportSuggestionRow`` (#1491).
-        items = _artifact_rows.unwrap_artifact_rows(
-            result, method_id=RPCMethod.GET_SUGGESTED_REPORTS.value, source="suggest_reports"
-        )
-        return [
-            project_report_suggestion(decode_report_suggestion(item))
-            for item in items
-            if _artifact_rows.ReportSuggestionRow(item).is_well_formed
-        ]
+        if self._suggestions is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            return await self._suggestions.suggest_reports(notebook_id)
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     # =========================================================================
     # Private Helpers

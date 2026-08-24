@@ -241,6 +241,7 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
         "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
         "_web/backend.py:WebRpcBackend._source_list",
+        "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._notebook_suggest_prompts",
         "_web/studio_data.py:StudioDataWebHandlers._data_source_ids",
         "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids",
         "_web/studio_media.py:StudioMediaWebHandlers._audio_generate",
@@ -248,6 +249,12 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
         "_web/studio_media.py:StudioMediaWebHandlers._visual_source_selection",
     ]
     assert any("_row_adapters/" in site for site in references[RPCMethod.GET_NOTEBOOK]["decoders"])
+    assert references[RPCMethod.SUGGEST_PROMPTS]["decoders"] == [
+        "_web/codec/suggestions.py:decode_prompt_suggestions"
+    ]
+    assert references[RPCMethod.SET_USER_SETTINGS]["decoders"] == [
+        "_web/codec/settings.py:decode_set_output_language"
+    ]
     assert all("_row_adapters/" not in site for site in sites[(RPCMethod.GET_NOTEBOOK, None)])
 
 

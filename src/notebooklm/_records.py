@@ -55,6 +55,19 @@ from ._research_records import (
     ResearchStartResult,
     ResearchTaskRecord,
 )
+from ._settings_records import (
+    SETTINGS_GET_DEF,
+    SETTINGS_GET_LIMITS_DEF,
+    SETTINGS_SET_LANGUAGE_DEF,
+    AccountLimitsRecord,
+    SettingsGetInput,
+    SettingsGetLimitsInput,
+    SettingsGetLimitsResult,
+    SettingsGetResult,
+    SettingsSetLanguageInput,
+    SettingsSetLanguageResult,
+    UserSettingsRecord,
+)
 from ._sharing_records import (
     SHARING_GET_DEF,
     SHARING_SET_PUBLIC_DEF,
@@ -233,7 +246,7 @@ class ReportSuggestionRecord:
     title: str
     description: str
     prompt: str
-    audience_level: int = 2
+    audience_level: object = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,6 +432,45 @@ class SourceAddFailureRecord:
     context_is_original: bool = False
     explicit_cause: bool = False
     suppress_context: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class PromptSuggestionRecord:
+    """One best-effort notebook prompt suggestion."""
+
+    title: str
+    prompt: str
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookSuggestPromptsInput:
+    """Notebook prompt-suggestion request before web source resolution."""
+
+    notebook_id: str
+    source_ids: tuple[str, ...] | None = None
+    mode: int = 4
+    query: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookSuggestPromptsResult:
+    """Prompt suggestions in backend order."""
+
+    suggestions: tuple[PromptSuggestionRecord, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactSuggestReportsInput:
+    """Notebook identity requested by report-format suggestions."""
+
+    notebook_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactSuggestReportsResult:
+    """Report-format suggestions in backend order."""
+
+    suggestions: tuple[ReportSuggestionRecord, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1089,6 +1141,22 @@ SOURCE_ADD_URL_DEF: OperationDef[SourceAddUrlInput, SourceAddUrlResult] = Operat
     SourceAddUrlInput,
     SourceAddUrlResult,
 )
+NOTEBOOK_SUGGEST_PROMPTS_DEF: OperationDef[
+    NotebookSuggestPromptsInput, NotebookSuggestPromptsResult
+] = OperationDef(
+    Operation.NOTEBOOK_SUGGEST_PROMPTS,
+    CallPolicy.STATEFUL_START,
+    NotebookSuggestPromptsInput,
+    NotebookSuggestPromptsResult,
+)
+ARTIFACT_SUGGEST_REPORTS_DEF: OperationDef[
+    ArtifactSuggestReportsInput, ArtifactSuggestReportsResult
+] = OperationDef(
+    Operation.ARTIFACT_SUGGEST_REPORTS,
+    CallPolicy.STATEFUL_START,
+    ArtifactSuggestReportsInput,
+    ArtifactSuggestReportsResult,
+)
 NOTE_LIST_DEF: OperationDef[NoteListInput, NoteListResult] = OperationDef(
     Operation.NOTE_LIST,
     CallPolicy.READ,
@@ -1162,6 +1230,7 @@ MIND_MAP_DELETE_DEF: OperationDef[MindMapDeleteInput, MindMapDeleteResult] = Ope
 
 
 __all__ = [
+    "ARTIFACT_SUGGEST_REPORTS_DEF",
     "ARTIFACT_EXPORT_DEF",
     "ARTIFACT_GET_DEF",
     "ARTIFACT_GENERATE_DATA_TABLE_DEF",
@@ -1189,11 +1258,15 @@ __all__ = [
     "NOTEBOOK_LIST_DEF",
     "NOTEBOOK_CREATE_DEF",
     "NOTEBOOK_DELETE_DEF",
+    "NOTEBOOK_SUGGEST_PROMPTS_DEF",
     "NOTEBOOK_UPDATE_DEF",
     "RESEARCH_CANCEL_DEF",
     "RESEARCH_IMPORT_DEF",
     "RESEARCH_POLL_DEF",
     "RESEARCH_START_DEF",
+    "SETTINGS_GET_DEF",
+    "SETTINGS_GET_LIMITS_DEF",
+    "SETTINGS_SET_LANGUAGE_DEF",
     "SOURCE_GET_DEF",
     "SOURCE_LIST_DEF",
     "SOURCE_ADD_URL_DEF",
@@ -1212,6 +1285,9 @@ __all__ = [
     "MIND_MAP_GET_DEF",
     "MIND_MAP_LIST_DEF",
     "MIND_MAP_UPDATE_DEF",
+    "AccountLimitsRecord",
+    "ArtifactSuggestReportsInput",
+    "ArtifactSuggestReportsResult",
     "ArtifactGetInput",
     "ArtifactGetResult",
     "ArtifactInfographicRecord",
@@ -1261,6 +1337,8 @@ __all__ = [
     "NotebookPremiumFeaturesRecord",
     "NotebookRecord",
     "NotebookDescriptionRecord",
+    "NotebookSuggestPromptsInput",
+    "NotebookSuggestPromptsResult",
     "NotebookUpdateInput",
     "NotebookUpdateResult",
     "MindMapGenerateInput",
@@ -1307,6 +1385,7 @@ __all__ = [
     "ResearchStartInput",
     "ResearchStartResult",
     "ResearchTaskRecord",
+    "PromptSuggestionRecord",
     "SourceGetInput",
     "SourceGetResult",
     "SourceAddCommitState",
@@ -1323,6 +1402,12 @@ __all__ = [
     "ReportSuggestionRecord",
     "ShareAccessLevel",
     "SharePermissionLevel",
+    "SettingsGetInput",
+    "SettingsGetLimitsInput",
+    "SettingsGetLimitsResult",
+    "SettingsGetResult",
+    "SettingsSetLanguageInput",
+    "SettingsSetLanguageResult",
     "ShareStatusRecord",
     "ShareViewScope",
     "SharedUserRecord",
@@ -1341,4 +1426,5 @@ __all__ = [
     "VideoMetadataRecord",
     "VisualGenerateResult",
     "VisualMetadataRecord",
+    "UserSettingsRecord",
 ]

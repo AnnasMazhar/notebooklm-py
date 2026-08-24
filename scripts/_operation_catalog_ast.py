@@ -413,7 +413,7 @@ def collect_rpc_references() -> dict[RPCMethod, dict[str, list[str]]]:
             continue
         collector = _ReferenceCollector(relative, set())
         collector.visit(_parse(path))
-        if relative.startswith("_row_adapters/"):
+        if relative.startswith(("_row_adapters/", "_web/codec/")):
             role = "decoders"
         elif relative.startswith("_types/"):
             role = "projectors"
@@ -497,7 +497,6 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_artifacts.py", "_note_service", "LegacyNoteBackedService"),
         ("_artifacts.py", "_projectors", "project_artifact"),
         ("_artifacts.py", "_projectors", "project_generation_status"),
-        ("_artifacts.py", "_projectors", "project_report_suggestion"),
         ("_artifacts.py", "_records", "AudioGenerateInput"),
         ("_artifacts.py", "_studio", "AudioFamilyService"),
         ("_artifacts.py", "_records", "InteractiveGenerateInput"),
@@ -978,6 +977,66 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/studio_documents.py", "_records", "ReportGenerateResult"),
         ("_web/studio_documents.py", "_records", "VideoGenerateInput"),
         ("_web/studio_documents.py", "_records", "VideoGenerateResult"),
+        ("_artifacts.py", "_suggestion_service", "SuggestionService"),
+        (
+            "_notebooks.py",
+            "_suggestion_service",
+            "PROMPT_SUGGESTIONS_DEFAULT_MODE",
+        ),
+        ("_notebooks.py", "_suggestion_service", "SuggestionService"),
+        ("_projectors.py", "_records", "AccountLimitsRecord"),
+        ("_projectors.py", "_records", "PromptSuggestionRecord"),
+        ("_projectors.py", "_records", "UserSettingsRecord"),
+        ("_settings.py", "_backend", "BackendAdapter"),
+        ("_settings.py", "_backend", "BackendError"),
+        ("_settings.py", "_backend_compat", "project_backend_error"),
+        ("_settings.py", "_settings_service", "SettingsService"),
+        ("_settings_service.py", "_backend", "BackendAdapter"),
+        ("_settings_service.py", "_projectors", "project_account_limits"),
+        ("_settings_service.py", "_projectors", "project_user_settings"),
+        ("_settings_service.py", "_records", "SETTINGS_GET_DEF"),
+        ("_settings_service.py", "_records", "SETTINGS_GET_LIMITS_DEF"),
+        ("_settings_service.py", "_records", "SETTINGS_SET_LANGUAGE_DEF"),
+        ("_settings_service.py", "_records", "SettingsGetInput"),
+        ("_settings_service.py", "_records", "SettingsGetLimitsInput"),
+        ("_settings_service.py", "_records", "SettingsSetLanguageInput"),
+        ("_suggestion_service.py", "_backend", "BackendAdapter"),
+        ("_suggestion_service.py", "_projectors", "project_prompt_suggestions"),
+        ("_suggestion_service.py", "_projectors", "project_report_suggestions"),
+        ("_suggestion_service.py", "_records", "ARTIFACT_SUGGEST_REPORTS_DEF"),
+        ("_suggestion_service.py", "_records", "ArtifactSuggestReportsInput"),
+        ("_suggestion_service.py", "_records", "NOTEBOOK_SUGGEST_PROMPTS_DEF"),
+        ("_suggestion_service.py", "_records", "NotebookSuggestPromptsInput"),
+        ("_sources.py", "_web.codec.settings", "decode_account_limits"),
+        ("_sources.py", "_web.codec.settings", "encode_get_user_settings"),
+        ("_web/backend.py", "settings_suggestions", "SettingsSuggestionWebHandlers"),
+        ("_web/backend.py", "codec", "settings"),
+        ("_web/settings_suggestions.py", "_records", "ArtifactSuggestReportsInput"),
+        ("_web/settings_suggestions.py", "_records", "ArtifactSuggestReportsResult"),
+        ("_web/settings_suggestions.py", "_records", "NotebookSuggestPromptsInput"),
+        ("_web/settings_suggestions.py", "_records", "NotebookSuggestPromptsResult"),
+        ("_web/settings_suggestions.py", "_records", "SettingsGetInput"),
+        ("_web/settings_suggestions.py", "_records", "SettingsGetLimitsInput"),
+        ("_web/settings_suggestions.py", "_records", "SettingsGetLimitsResult"),
+        ("_web/settings_suggestions.py", "_records", "SettingsGetResult"),
+        ("_web/settings_suggestions.py", "_records", "SettingsSetLanguageInput"),
+        ("_web/settings_suggestions.py", "_records", "SettingsSetLanguageResult"),
+        ("_web/settings_suggestions.py", "codec", "settings"),
+        ("_web/settings_suggestions.py", "codec", "suggestions"),
+        ("_web/codec/settings.py", "_records", "AccountLimitsRecord"),
+        ("_web/codec/settings.py", "_records", "SettingsGetLimitsResult"),
+        ("_web/codec/settings.py", "_records", "SettingsGetResult"),
+        ("_web/codec/settings.py", "_records", "SettingsSetLanguageResult"),
+        ("_web/codec/settings.py", "_records", "UserSettingsRecord"),
+        ("_web/codec/suggestions.py", "_records", "ArtifactSuggestReportsResult"),
+        ("_web/codec/suggestions.py", "_records", "NotebookSuggestPromptsResult"),
+        ("_web/codec/suggestions.py", "_records", "PromptSuggestionRecord"),
+        ("_web/codec/suggestions.py", "_records", "ReportSuggestionRecord"),
+        ("_web/registry.py", "_records", "ARTIFACT_SUGGEST_REPORTS_DEF"),
+        ("_web/registry.py", "_records", "NOTEBOOK_SUGGEST_PROMPTS_DEF"),
+        ("_web/registry.py", "_records", "SETTINGS_GET_DEF"),
+        ("_web/registry.py", "_records", "SETTINGS_GET_LIMITS_DEF"),
+        ("_web/registry.py", "_records", "SETTINGS_SET_LANGUAGE_DEF"),
     }
 )
 
@@ -994,13 +1053,18 @@ _REVIEWED_BACKEND_IMPORT_MODULES = frozenset(
         "_records",
         "_sharing_service",
         "_research_service",
+        "_settings_service",
         "_studio",
+        "_suggestion_service",
         "_web",
         "_web.backend",
+        "_web.codec.settings",
         "backend",
         "codec.sharing",
         "codec.research",
+        "codec",
         "registry",
+        "settings_suggestions",
         "studio_documents",
     }
 )
@@ -1015,7 +1079,9 @@ _REVIEWED_BACKEND_IMPORT_PREFIXES = (
     "notebooklm._records",
     "notebooklm._sharing_service",
     "notebooklm._research_service",
+    "notebooklm._settings_service",
     "notebooklm._studio",
+    "notebooklm._suggestion_service",
     "notebooklm._web",
 )
 
@@ -1072,6 +1138,12 @@ ACTIVE_BACKEND_INVOKE_SITES = frozenset(
         "_sharing_service.py:SharingService.set_public",
         "_sharing_service.py:SharingService.set_users",
         "_sharing_service.py:SharingService.set_view_level",
+        "_settings_service.py:SettingsService.get_account_limits",
+        "_settings_service.py:SettingsService.get_output_language",
+        "_settings_service.py:SettingsService.get_user_settings",
+        "_settings_service.py:SettingsService.set_output_language",
+        "_suggestion_service.py:SuggestionService.suggest_prompts",
+        "_suggestion_service.py:SuggestionService.suggest_reports",
     }
 )
 INERT_P1_BACKEND_INVOKE_SITES: frozenset[str] = frozenset()
@@ -1086,6 +1158,7 @@ _KEYWORD_BACKEND_FACADES = frozenset(
         "NoteService",
         "NotebooksAPI",
         "ResearchAPI",
+        "SettingsAPI",
         "SharingAPI",
         "SourcesAPI",
         "StudioCatalog",

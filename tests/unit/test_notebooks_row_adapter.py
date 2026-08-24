@@ -151,13 +151,13 @@ class TestUnwrapPromptSuggestions:
 
     def test_wrapped_envelope_returns_inner_rows(self) -> None:
         rows = [["A", "\n- a"], ["B", "\n- b"]]
-        assert unwrap_prompt_suggestions([rows], source="t") == rows
+        assert unwrap_prompt_suggestions([rows], method_id="otmP3b", source="t") == rows
 
     @pytest.mark.parametrize("payload", [None, [], "unexpected", 7, [None], [[]]])
     def test_degenerate_payloads_yield_empty(self, payload: object) -> None:
-        assert unwrap_prompt_suggestions(payload, source="t") == []
+        assert unwrap_prompt_suggestions(payload, method_id="otmP3b", source="t") == []
 
     def test_never_raises(self) -> None:
         # Best-effort: every shape degrades, never UnknownRPCMethodError.
         for raw in (None, "x", 7, {"k": 1}, [7], [[1, 2]]):
-            unwrap_prompt_suggestions(raw, source="t")
+            unwrap_prompt_suggestions(raw, method_id="otmP3b", source="t")

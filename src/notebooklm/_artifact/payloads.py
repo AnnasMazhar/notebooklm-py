@@ -629,11 +629,6 @@ def build_mind_map_params(
     ]
 
 
-def build_suggest_reports_params(notebook_id: str) -> list[Any]:
-    """Build ``GET_SUGGESTED_REPORTS`` params."""
-    return [[2], notebook_id]
-
-
 def _report_config(
     report_format: ReportFormat,
     custom_prompt: str | None,

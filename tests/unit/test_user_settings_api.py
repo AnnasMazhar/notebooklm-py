@@ -4,15 +4,21 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from notebooklm._settings import (
-    SettingsAPI,
+from notebooklm._records import AccountLimitsRecord
+from notebooklm._settings import SettingsAPI
+from notebooklm._web.codec.settings import (
     _extract_language,
-    build_get_user_settings_params,
-    extract_account_limits,
+)
+from notebooklm._web.codec.settings import (
+    decode_account_limits as extract_account_limits,
+)
+from notebooklm._web.codec.settings import (
+    encode_get_user_settings as build_get_user_settings_params,
 )
 from notebooklm.exceptions import UnknownRPCMethodError
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import AccountLimits, UserSettings
+from tests._fixtures.web_backend import build_web_backend
 
 
 def test_build_get_user_settings_params_returns_fresh_params():
@@ -27,7 +33,7 @@ def test_build_get_user_settings_params_returns_fresh_params():
 def test_extract_account_limits_from_user_settings_response():
     limits = extract_account_limits([[None, [6, 500, 300, 500000, 2]]])
 
-    assert limits == AccountLimits(
+    assert limits == AccountLimitsRecord(
         notebook_limit=500,
         source_limit=300,
         raw_limits=(6, 500, 300, 500000, 2),
@@ -84,7 +90,7 @@ async def test_get_account_limits_calls_user_settings_rpc():
     from tests._fixtures.fake_core import make_fake_core
 
     core = make_fake_core(rpc_call=AsyncMock(return_value=[[None, [6, 200, 100, 500000, 1]]]))
-    api = SettingsAPI(core.rpc_executor)
+    api = SettingsAPI(build_web_backend(core.rpc_executor))
 
     limits = await api.get_account_limits()
 
@@ -94,11 +100,12 @@ async def test_get_account_limits_calls_user_settings_rpc():
         raw_limits=(6, 200, 100, 500000, 1),
         tier=1,
     )
-    core.rpc_executor.rpc_call.assert_awaited_once_with(
+    args, kwargs = core.rpc_executor.rpc_call.await_args
+    assert args == (
         RPCMethod.GET_USER_SETTINGS,
         [None, [1, None, None, None, None, None, None, None, None, None, [1]]],
-        source_path="/",
     )
+    assert kwargs["source_path"] == "/"
 
 
 @pytest.mark.asyncio
@@ -108,7 +115,7 @@ async def test_get_user_settings_fetches_once_returns_both():
     # Realistic full GET response: limits at [0][1], language flags at [0][2].
     response = [[None, [6, 200, 100, 500000, 1], [True, None, None, True, ["fr"]]]]
     core = make_fake_core(rpc_call=AsyncMock(return_value=response))
-    api = SettingsAPI(core.rpc_executor)
+    api = SettingsAPI(build_web_backend(core.rpc_executor))
 
     settings = await api.get_user_settings()
 
@@ -129,7 +136,7 @@ async def test_get_user_settings_preserves_getter_contracts():
 
     # Junk inner: no [0][1] limits shape, no [0][2] flags block.
     core = make_fake_core(rpc_call=AsyncMock(return_value=[["junk"]]))
-    api = SettingsAPI(core.rpc_executor)
+    api = SettingsAPI(build_web_backend(core.rpc_executor))
 
     with pytest.raises(UnknownRPCMethodError):
         await api.get_user_settings()
@@ -310,7 +317,7 @@ async def test_get_output_language_returns_code_from_wire_shape():
     core = make_fake_core(
         rpc_call=AsyncMock(return_value=_get_response([True, None, None, True, ["zh_Hans"]]))
     )
-    api = SettingsAPI(core.rpc_executor)
+    api = SettingsAPI(build_web_backend(core.rpc_executor))
 
     assert await api.get_output_language() == "zh_Hans"
 
@@ -321,7 +328,7 @@ async def test_get_output_language_absent_language_returns_none():
     from tests._fixtures.fake_core import make_fake_core
 
     core = make_fake_core(rpc_call=AsyncMock(return_value=_get_response([True, None, None, True])))
-    api = SettingsAPI(core.rpc_executor)
+    api = SettingsAPI(build_web_backend(core.rpc_executor))
 
     assert await api.get_output_language() is None
 
@@ -332,7 +339,7 @@ async def test_get_output_language_envelope_drift_raises():
     from tests._fixtures.fake_core import make_fake_core
 
     core = make_fake_core(rpc_call=AsyncMock(return_value=[None]))
-    api = SettingsAPI(core.rpc_executor)
+    api = SettingsAPI(build_web_backend(core.rpc_executor))
 
     with pytest.raises(UnknownRPCMethodError):
         await api.get_output_language()
@@ -345,7 +352,7 @@ async def test_set_output_language_returns_confirmed_code():
     core = make_fake_core(
         rpc_call=AsyncMock(return_value=_set_response([True, None, None, True, ["en"]]))
     )
-    api = SettingsAPI(core.rpc_executor)
+    api = SettingsAPI(build_web_backend(core.rpc_executor))
 
     assert await api.set_output_language("en") == "en"
 
@@ -356,6 +363,6 @@ async def test_set_output_language_absent_confirmation_returns_none():
     from tests._fixtures.fake_core import make_fake_core
 
     core = make_fake_core(rpc_call=AsyncMock(return_value=_set_response([True, None, None, True])))
-    api = SettingsAPI(core.rpc_executor)
+    api = SettingsAPI(build_web_backend(core.rpc_executor))
 
     assert await api.set_output_language("en") is None

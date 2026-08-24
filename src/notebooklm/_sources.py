@@ -20,7 +20,6 @@ from ._read_services import SourceReadService
 from ._row_adapters.sources import interpret_source_freshness
 from ._runtime.config import DEFAULT_MAX_CONCURRENT_UPLOADS
 from ._runtime.contracts import RpcCaller
-from ._settings import build_get_user_settings_params, extract_account_limits
 from ._source import upload as _source_upload
 from ._source.add import SourceAddService, honor_requested_title_if_fresh
 from ._source.batch import SourceBatchAddService, SourceUrlBatchItem
@@ -31,6 +30,7 @@ from ._source.polling import SourcePoller, SourceWaitResult
 from ._source.upload import SourceUploadPipeline
 from ._source.upload_payloads import build_rename_source_params
 from ._types.research import SourceGuide
+from ._web.codec.settings import decode_account_limits, encode_get_user_settings
 from ._web.codec.sources import decode_source
 from .exceptions import SourceNotFoundError
 from .rpc import RPCMethod
@@ -1036,10 +1036,10 @@ class SourcesAPI:
         """Return the current account's per-notebook source limit when advertised."""
         result = await self._rpc_call(
             RPCMethod.GET_USER_SETTINGS,
-            build_get_user_settings_params(),
+            encode_get_user_settings(),
             source_path="/",
         )
-        return extract_account_limits(result).source_limit
+        return decode_account_limits(result).source_limit
 
     async def _start_resumable_upload(
         self,

@@ -51,6 +51,7 @@ from notebooklm._records import (
     ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
+    ARTIFACT_SUGGEST_REPORTS_DEF,
     COLLECTION_CREATE_DEF,
     COLLECTION_DELETE_DEF,
     COLLECTION_GET_DEF,
@@ -77,11 +78,15 @@ from notebooklm._records import (
     NOTEBOOK_DELETE_DEF,
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
+    NOTEBOOK_SUGGEST_PROMPTS_DEF,
     NOTEBOOK_UPDATE_DEF,
     RESEARCH_CANCEL_DEF,
     RESEARCH_IMPORT_DEF,
     RESEARCH_POLL_DEF,
     RESEARCH_START_DEF,
+    SETTINGS_GET_DEF,
+    SETTINGS_GET_LIMITS_DEF,
+    SETTINGS_SET_LANGUAGE_DEF,
     SHARING_GET_DEF,
     SHARING_SET_PUBLIC_DEF,
     SHARING_SET_VIEW_LEVEL_DEF,
@@ -243,6 +248,11 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.RESEARCH_POLL,
         Operation.RESEARCH_CANCEL,
         Operation.RESEARCH_IMPORT,
+        Operation.NOTEBOOK_SUGGEST_PROMPTS,
+        Operation.ARTIFACT_SUGGEST_REPORTS,
+        Operation.SETTINGS_GET,
+        Operation.SETTINGS_GET_LIMITS,
+        Operation.SETTINGS_SET_LANGUAGE,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -299,6 +309,11 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.RESEARCH_POLL: RESEARCH_POLL_DEF,
         Operation.RESEARCH_CANCEL: RESEARCH_CANCEL_DEF,
         Operation.RESEARCH_IMPORT: RESEARCH_IMPORT_DEF,
+        Operation.NOTEBOOK_SUGGEST_PROMPTS: NOTEBOOK_SUGGEST_PROMPTS_DEF,
+        Operation.ARTIFACT_SUGGEST_REPORTS: ARTIFACT_SUGGEST_REPORTS_DEF,
+        Operation.SETTINGS_GET: SETTINGS_GET_DEF,
+        Operation.SETTINGS_GET_LIMITS: SETTINGS_GET_LIMITS_DEF,
+        Operation.SETTINGS_SET_LANGUAGE: SETTINGS_SET_LANGUAGE_DEF,
     }
     assert Operation.RESEARCH_WAIT not in WEB_SUPPORTED_OPERATIONS
     assert Operation.RESEARCH_IMPORT_VERIFY not in WEB_SUPPORTED_OPERATIONS
@@ -1917,7 +1932,10 @@ def test_only_migrated_feature_runtime_reads_private_backend() -> None:
         package / "_sharing_service.py",
         package / "_research.py",
         package / "_research_service.py",
+        package / "_settings.py",
+        package / "_settings_service.py",
         package / "_sources.py",
+        package / "_suggestion_service.py",
     }
     allowed.update((package / "_studio").rglob("*.py"))
     allowed.update((package / "_web").rglob("*.py"))

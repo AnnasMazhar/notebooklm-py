@@ -18,6 +18,7 @@ from notebooklm.rpc.types import (
     RPCMethod,
 )
 from tests._fixtures.fake_core import make_fake_core
+from tests._fixtures.web_backend import build_web_backend
 
 
 class TestNewEnums:
@@ -199,6 +200,7 @@ class TestGetSuggestedReportFormats:
             notebooks=MagicMock(),
             mind_maps=MagicMock(spec=NoteBackedMindMapService),
             note_service=MagicMock(spec=NoteService),
+            _backend=build_web_backend(core.rpc_executor),
         )
 
         result = await artifacts.suggest_reports("notebook_123")
@@ -227,7 +229,11 @@ class TestAddSourceDrive:
             ]
         )
         core = make_fake_core(rpc_call=rpc_call)
-        sources = SourcesAPI(core.rpc_executor, uploader=MagicMock())
+        sources = SourcesAPI(
+            core.rpc_executor,
+            uploader=MagicMock(),
+            _backend=build_web_backend(core.rpc_executor),
+        )
 
         await sources.add_drive(
             "notebook_123",

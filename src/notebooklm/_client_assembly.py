@@ -434,10 +434,7 @@ def _assemble_client(
         import_research_timeout=import_research_timeout,
         _backend=client._backend,
     )
-    # Pure-RPC features (typed as ``rpc: RpcCaller``). Pass the
-    # ``RpcExecutor`` collaborator directly, sourced from the composed
-    # executor.
-    client.settings = SettingsAPI(internals.executor)
+    client.settings = SettingsAPI(_backend=client._backend)
     # Sharing is fully migrated to the semantic backend: it takes the
     # client-owned adapter and no RpcCaller at all (P6.5).
     client.sharing = SharingAPI(_backend=client._backend)

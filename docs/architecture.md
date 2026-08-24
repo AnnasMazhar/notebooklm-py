@@ -103,7 +103,7 @@ catalog reads, P5.2 Audio, P5.3 Quiz/Flashcards, P5.4 Report/Video, P5.5
 Infographic/Slide Deck generation, P5.6 Data Table/Mind Map generation and Drive export,
 P5.7 Studio representation retrieval/serialization boundaries, P6.2 Research,
 P6.3 note/mind-map workflows,
-P6.4 source-label/collection operations, and P6.5 Sharing. These public paths delegate through
+P6.4 source-label/collection operations, P6.5 Sharing, and P6.6 settings/suggestions. These public paths delegate through
 transport-neutral semantic services and that client-owned backend. Audio discovery and download
 selection reuse the Studio catalog rather than adding a second listing authority. The URL-source
 handler owns ordinary and hidden YouTube dispatch, exact pre-create reconciliation, and best-effort
@@ -115,14 +115,15 @@ The retained public parsing factories remain callable but have no production cal
 the active bindings: whole-workflow `CallPolicy` values, exact native idempotency expectations,
 caller-owned absolute deadline identity, and closed public-error projection are audited together
 without moving retry authority out of the native registry. Future operation migrations must extend
-that same ledger; P5.1 through P5.6 and P6.2–P6.5 extend it to all 50 current handlers. The
+that same ledger; P5.1 through P5.6 and P6.2–P6.6 extend it to all 55 current handlers. The
 remaining phase descriptions are sequencing decisions, not a claim that the rest of P3-P8 are
 complete. P9 public-surface work and a mobile backend require separate decisions.
 
 The operation-catalog audit classifies only the shared generic web RPC forwarder as inert. The four
 notebook/source read handlers, three notebook-mutation handlers, URL-source composite, two Studio
 catalog handlers, nine family generation handlers, one Drive-export handler, four Research handlers, five plain-note
-handlers, six mind-map handlers, eleven source-label/collection handlers, and four Sharing handlers
+handlers, six mind-map handlers, eleven source-label/collection handlers, four Sharing handlers,
+and five settings/suggestion handlers
 are active catalogued authorities. `MindMapsAPI` delegates to the semantic note and Studio mind-map
 services; retained
 saved-chat/artifact compatibility seams remain explicitly named legacy RPC consumers and never
@@ -133,7 +134,7 @@ P0 adds four ADR-0022 contract baselines before runtime delegation:
 
 | Baseline | Freezes |
 | --- | --- |
-| `operation_catalog` | 86 operations with 168 exact authority rows (43 multi-authority); 56 native rows (19 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; the exact 50-operation active web policy/native-idempotency ledger; 146 namespace methods (eight local-only), ten root-client members, and 12 divergences (11 authority, one policy) |
+| `operation_catalog` | 86 operations with 168 exact authority rows (43 multi-authority); 56 native rows (19 multi-site, four honestly `not_recorded` goldens) with variant-specific evidence and per-binding override proof; the exact 55-operation active web policy/native-idempotency ledger; 146 namespace methods (eight local-only), ten root-client members, and 12 divergences (11 authority, one policy) |
 | `public_model_contract` | The 86 exported identities (50 dataclasses, 36 enums): construction, field/member order, behavior flags, export paths, structured pickle success/failure, first-party state hooks, and `Notebook` / `ChatReference` legacy-state restore invariants |
 | `json_envelope` | Exact sink/view-backed projection modes, keys, causal fields, and conditional variants: CLI 31 model identities/133 projections, MCP 32/123, REST 32/57 (313 unique ids). Its closed-world sink inventory covers 350 terminal/error sites: 225 public-projection, 117 reviewed non-public, eight forwarding infrastructure, and 15 conditional non-public variants across 14 sites. Every live id has a terminal allocation; registrations/direct JSON bypasses fail closed. It also pins 36 private DTO -> public dataclass paths (34 linked; `SourceRefreshResult.result` production-dead; `ValidatedSessionConfig.limits` internal-runtime-only), 16 explicit helper fingerprints, and a compact aggregate digest for the bounded 519-node / 1,242-edge transitive helper graph (520 unique helpers overall). Thirty-seven declarations across 28 literal final-dict sites are AST-derived, while 168 explicit declarations remain manually reviewed. The supplemental 49-dataclass inventory excludes `AuthTokens`; only the exact redacted MCP/REST `server_info` identity contributions are allowed. `authuser` / `account_email` may emit, while storage path/profile generation only select control flow; recursive credentials and any extra projection fail closed. |
 | `metrics_contract` | The 14 snapshot and five event fields plus normalized success/transport-error/decode-error observations through composed public `rpc_call()` / `metrics_snapshot()`; direct non-RPC middleware probes are supplemental |
@@ -1065,6 +1066,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_records.py` | Compatibility re-export hub for frozen, slotted, protocol-neutral input/output records and `OperationDef` values for P2 notebook/source operations, P5.1–P5.6 Studio families, P6.2 Research, P6.3 note/mind-map workflows, P6.4 source-label/collection operations, and P6.5 Sharing, plus P3 decoded values and closed URL-source error evidence. Large domain families live in the sibling record modules below so this hub remains under the module-size ratchet. |
 | `_label_records.py` | P6.4 neutral source-label/collection records and eleven typed operation definitions, re-exported from `_records.py`. |
 | `_research_records.py` | P6.2 neutral Research records and four typed operation definitions, re-exported from `_records.py`. |
+| `_settings_records.py` | P6.6 neutral account-settings records and three typed operation definitions, re-exported from `_records.py`. |
 | `_sharing_records.py` | P6.5 neutral Sharing records and four typed operation definitions, re-exported from `_records.py` while keeping the shared record module below the size ratchet. |
 | `_backoff.py` | Shared capped exponential-backoff calculation with deterministic test injection |
 | `_reqid_counter.py` | `ReqidCounter` — monotonic `_reqid` for the chat backend |
@@ -1080,21 +1082,24 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
 | `_label_service.py` | Private P6.4 transport-neutral source-label/collection service over one discriminated neutral record family and eleven typed operations. |
 | `_research_service.py` | Private P6.2 transport-neutral Research start/poll/wait/cancel/import service; wait and verified import remain service compositions over typed backend operations. |
+| `_settings_service.py` | Private P6.6 transport-neutral account settings/limits/language service over three typed backend operations. |
 | `_sharing_service.py` | Private P6.5 transport-neutral sharing service for status reads, link visibility/view-level mutation, and individual-user grants. |
+| `_suggestion_service.py` | Private P6.6 transport-neutral notebook-prompt and report-format suggestion service over two typed backend operations. |
 | `_studio/` | Private transport-neutral Studio boundary: the P5.1 heterogeneous catalog/classifier; P5.2–P5.6 family/generation/export services; P5.7 trusted representation retrieval plus local serialization clients; and the P6.3 interactive mind-map family. |
 | `_studio/interactive.py` | Private P5.3 Quiz/Flashcards family service: typed generation dispatch, catalog-backed discovery, and family-usable readiness/user-state metadata without wire vocabulary. |
 | `_studio/mind_maps.py` | Private P6.3 interactive mind-map family service: catalog-backed discovery plus typed generation/tree/update/delete dispatch. |
-| `_web/backend.py` | Composed web semantic backend over the existing `RpcExecutor`; 50 active handlers cover P2 notebook/source operations, P5.1 Studio catalog reads, P5.2–P5.6 Studio families/Drive export, P6.2 Research, P6.3 note/mind-map workflows, P6.4 source-label/collection operations, and P6.5 Sharing. |
+| `_web/backend.py` | Composed web semantic backend over the existing `RpcExecutor`; 55 active handlers cover P2 notebook/source operations, P5.1 Studio catalog reads, P5.2–P5.6 Studio families/Drive export, P6.2 Research, P6.3 note/mind-map workflows, P6.4 source-label/collection operations, P6.5 Sharing, and P6.6 settings/suggestions. |
 | `_web/labels.py` | P6.4 source-label/collection web workflow mixin; owns both request dialects and read/create/update/delete reconciliation while keeping the composed backend below the module-size ratchet. |
 | `_web/research.py` | P6.2 Research web workflow mixin; owns fast/deep start, poll, cancel, and ordered import handlers while keeping the composed backend below the module-size ratchet. |
 | `_web/sharing.py` | P6.5 Sharing web workflow mixin; owns the status/readback and mutation request dialects while keeping the composed backend below the module-size ratchet. |
-| `_web/policy.py` | Exact P4 ledger, extended to all 50 active web workflows: semantic policy, every reachable native method/variant, reviewed native idempotency, and optional reported divergence. It audits parity but never controls retry execution. |
-| `_web/registry.py` | Closed web disposition registry over every `Operation`: 50 executable typed handlers and an unsupported disposition for every other operation, including the two service-composed Research operations. |
+| `_web/settings_suggestions.py` | P6.6 settings/limits/language and prompt/report suggestion web workflow mixin; owns the five account/notebook codecs while keeping the composed backend below the module-size ratchet. |
+| `_web/policy.py` | Exact P4 ledger, extended to all 55 active web workflows: semantic policy, every reachable native method/variant, reviewed native idempotency, and optional reported divergence. It audits parity but never controls retry execution. |
+| `_web/registry.py` | Closed web disposition registry over every `Operation`: 55 executable typed handlers and an unsupported disposition for every other operation, including the two service-composed Research operations. |
 | `_studio/catalog.py` | Typed P5.1 Studio list/get service over neutral artifact operation records. |
 | `_studio/classifiers.py` | Closed neutral-artifact family classifier shared by Studio catalog selection. |
 | `_studio/data_views.py` | P5.6 typed data-table and mind-map generation plus dual-backing catalog selection. |
 | `_studio/exports.py` | P5.6 explicit Drive-export service over the typed semantic operation. |
-| `_web/codec/` | P3/P6.2 web response ownership: notebook, source, artifact, label, collection, sharing, Research, and report/guide codecs return frozen neutral records; `documents.py` alone returns the approved exported `StructuredDocument` value exemption. Codec bindings are tied to cassette-backed golden families and never call public parsing factories. |
+| `_web/codec/` | P3/P6 web response ownership: notebook, source, artifact, label, collection, sharing, Research, settings, suggestions, and report/guide codecs return frozen neutral records; `documents.py` alone returns the approved exported `StructuredDocument` value exemption. Codec bindings are tied to cassette-backed golden families and never call public parsing factories. |
 | `_web/studio_documents.py` | P5.4 web workflow binding for report/video source resolution and generation kickoff; mixed into `WebRpcBackend` to keep the composed backend below the module-size ratchet. |
 | `_web/studio_media.py` | Shared P5.2/P5.3/P5.5 web generation handlers for Audio, Quiz/Flashcards, and Infographic/Slide Deck; inherits the document-family RPC/source helpers and keeps the composed backend below the module-size ratchet. |
 | `_web/studio_data.py` | P5.6 web handlers for data-table/mind-map generation and Drive export; composes with the media/document handlers while keeping the backend module below the size ratchet. |
@@ -1102,6 +1107,8 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_web/codec/notes.py` | P6.3 mixed note-row codec: normalizes flat/wrapped envelopes, classifies deleted and note-backed mind-map rows, preserves exact-id selection, and emits only neutral `NoteRecord` values. |
 | `_web/codec/labels.py` | P6.4 shared source-label/collection codec: owns both wire dialects behind `LabelKind` and emits only neutral `LabelRecord` values. |
 | `_web/codec/research.py` | P6.2 DiscoverSources codec: owns fast/deep start, poll, cancel, and report-before-web import request grammar and decodes responses into neutral Research records without selecting or dispatching an RPC. |
+| `_web/codec/settings.py` | P6.6 account settings/limits/language request grammar and tolerant neutral decoders. |
+| `_web/codec/suggestions.py` | P6.6 prompt/report suggestion request grammar and neutral decoders. |
 | `scripts/audit_operation_catalog.py` | Single build/audit CLI for the deterministic ADR-0022 projection: exact semantic authorities, native bindings, public/root-client dispositions, evidence, omissions, and divergences. |
 | `scripts/_operation_catalog_specs.py` | Reviewed semantic operation specifications, owners/policies/routes, native/web bindings, public methods, and dispositions. |
 | `scripts/_operation_catalog_authorities.py` | Exact RPC/stream/upload/download/orchestrator authority allocations, semantic discriminators, and recency contracts. |
@@ -1148,7 +1155,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_sharing.py` | `client.sharing` API — transport-free facade over the semantic Sharing service |
 | `_labels.py` | `client.labels` API — source labels (topic groupings); pure-RPC like `SharingAPI`, plus a narrow `list_sources` callable for the membership→`Source` join in `sources()` |
 | `_collections.py` | `client.collections` API — account-level notebook groups; reuses the label RPCs (type-3, null notebook parent, `source_path="/"`), plus a narrow `list_notebooks` callable for the membership→`Notebook` join in `notebooks()` |
-| `_settings.py` | `client.settings` API |
+| `_settings.py` | `client.settings` transport-free compatibility facade over the P6.6 semantic Settings service. |
 | `_note_service.py` | Semantic note/note-backed-mind-map workflow plus bounded legacy compatibility owner |
 | `_mind_map.py` | Deferred note-backed compatibility adapter outside the migrated mind-map facade |
 | `_mind_maps_api.py` | `client.mind_maps` API — transport-free dual-service facade over semantic note-backed and interactive Studio mind maps (#1256) |
@@ -1280,6 +1287,9 @@ src/notebooklm/
 ├── _label_records.py            # Neutral source-label/collection records/operation definitions (P6.4)
 ├── _research_service.py         # Transport-neutral Research service (P6.2)
 ├── _research_records.py         # Neutral Research records/operation definitions (P6.2)
+├── _settings_service.py         # Transport-neutral settings service (P6.6)
+├── _settings_records.py         # Neutral settings records/operation definitions (P6.6)
+├── _suggestion_service.py       # Transport-neutral suggestion service (P6.6)
 ├── _sharing_service.py          # Transport-neutral Sharing service (P6.5)
 ├── _sharing_records.py          # Neutral Sharing records/operation definitions (P6.5)
 ├── _records.py                  # Compatibility re-export hub for neutral semantic DTOs/definitions
@@ -1308,6 +1318,7 @@ src/notebooklm/
 │   ├── labels.py                # P6.4 source-label/collection workflow handlers
 │   ├── research.py              # P6.2 Research workflow handlers
 │   ├── sharing.py               # P6.5 Sharing workflow handlers
+│   ├── settings_suggestions.py  # P6.6 settings/suggestion workflow handlers
 │   ├── policy.py                # P4 semantic/native policy parity ledger (reporting only)
 │   ├── registry.py              # Closed active/unsupported web dispositions
 │   ├── studio_documents.py      # P5.4 web report/video workflow handlers
@@ -1323,9 +1334,11 @@ src/notebooklm/
 │       ├── notes.py             # Mixed web note rows -> neutral Note/MindMap records
 │       ├── mind_maps.py         # Interactive mind-map tree/create response codecs
 │       ├── research.py          # DiscoverSources grammar and neutral decoders (P6.2)
+│       ├── settings.py          # Account settings/limits/language neutral codec (P6.6)
 │       ├── sharing.py           # Share status/user rows -> neutral records
 │       ├── sources.py           # Source row variants -> neutral records
-│       └── studio_documents.py  # Exact report/video request and status codecs
+│       ├── studio_documents.py  # Exact report/video request and status codecs
+│       └── suggestions.py       # Prompt/report suggestion neutral codec (P6.6)
 ├── _app/                        # Transport-neutral business-logic layer (CLI/MCP/HTTP adapters share it)
 │   ├── __init__.py              # Re-exports the neutral primitives
 │   ├── artifacts.py             # Click-free artifact core: get/rename/delete/export + poll/wait/retry; kind-aware mind-map dispatch (mind_maps.list for rename, notes.list_mind_maps for delete), get_artifact raises ArtifactNotFoundError, typed Rename/Export results + ArtifactStatusView/status_view neutral status DTO (CLI builds every --json envelope from the typed fields)
@@ -1497,7 +1510,7 @@ src/notebooklm/
 ├── _research.py                 # ResearchAPI
 ├── _notes.py                    # NotesAPI
 ├── _sharing.py                  # SharingAPI
-├── _settings.py                 # SettingsAPI
+├── _settings.py                 # SettingsAPI facade over semantic SettingsService (P6.6)
 ├── _labels.py                   # LabelsAPI — client.labels (source labels: generate/create/list/…)
 ├── _collections.py              # CollectionsAPI — client.collections (account-level notebook groups; reuse label RPCs, type-3)
 ├── notebooklm_cli.py            # Entry-point assembler — imports + registers cli/ groups
