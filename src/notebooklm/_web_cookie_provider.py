@@ -104,6 +104,10 @@ class WebCookieProvider(Protocol):
         """Return one atomically captured immutable generation."""
         ...
 
+    async def reconciled_generation(self) -> WebCookieGeneration:
+        """Reconcile a matching backend response for a direct HTTP leg."""
+        ...
+
     @property
     def is_open(self) -> bool:
         """Return whether the provider acquisition session is open."""

@@ -1703,7 +1703,9 @@ inherit the pre-P8 baseline.
 - Ordinary RPC, streamed Chat, source upload, and Drive-download direct HTTP legs materialize only an
   already-acquired immutable generation through their existing wire adapters. Their exact imports
   and credential identifiers are audited; none can reach profile, refresh, persistence, master-token,
-  or interactive-login owners.
+  or interactive-login owners. Ordinary RPC keeps the cached lock-free generation read; upload and
+  Drive use the provider's distinct reconciled-generation transaction after their semantic RPC await,
+  so a matching backend ``Set-Cookie`` is published before the direct client clones cookies and route.
 - The pre-P7 semantic observability fixture remains byte-for-byte frozen. P8's immutable-generation
   request path intentionally removes the coordinator snapshot-lock read from six ordinary RPC
   scenarios, so the derived matrix allocates exactly their 12 `lock_wait_seconds_total` / `_max`

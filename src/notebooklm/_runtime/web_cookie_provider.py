@@ -170,6 +170,20 @@ class RuntimeWebCookieProvider(LoopBoundPrimitive):
         """Return the cached immutable commit, never a live-jar sample."""
         return self._current_generation
 
+    async def reconciled_generation(self) -> WebCookieGeneration:
+        """Adopt a matching backend response before a direct HTTP leg.
+
+        Ordinary RPC materialization deliberately uses the lock-free
+        :meth:`generation` read.  Upload and Drive cross an additional async
+        boundary after their registration RPC, so they use this whole
+        transaction to carry a matching backend ``Set-Cookie`` into the one
+        immutable cookie/token/account-route generation they clone.
+        """
+        assert_bound_loop(self._bound_loop)
+        async with self._get_refresh_transaction_lock():
+            await self._reconcile_locked()
+            return self._current_generation
+
     async def open(self, *, uploader: SourceUploadPipeline, chat: ChatAPI) -> None:
         """Open the provider-owned acquisition lifecycle."""
         if self.is_open:

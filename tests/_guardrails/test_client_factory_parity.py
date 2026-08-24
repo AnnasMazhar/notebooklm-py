@@ -160,8 +160,8 @@ def test_shared_wiring_identities_hold_on_both_paths() -> None:
             is client._backend
         ), f"{label}: URL source mutations must share the client-owned semantic backend"
         assert getattr(client._source_uploader, "_generation_provider", _missing) == (
-            client._provider.generation
-        ), f"{label}: direct upload legs must consume the client provider generation"
+            client._provider.reconciled_generation
+        ), f"{label}: direct upload legs must consume a reconciled provider generation"
         assert client.auth is client._provider.auth
 
 

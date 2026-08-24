@@ -292,10 +292,11 @@ def _assemble_client(
         drain=internals.drain_tracker,
         lifecycle=internals.lifecycle,
         kernel=internals.backend_kernel,
-        # Direct upload/Drive HTTP legs consume the same immutable provider
-        # generation as RPC transport, so route and cookie values cannot tear
-        # across the registration await.
-        generation_provider=internals.provider.generation,
+        # Direct upload/Drive HTTP legs use the provider's reconciled-generation
+        # transaction so a matching registration-RPC Set-Cookie is published
+        # before their one immutable cookie/route value is cloned. Ordinary RPC
+        # transport keeps its separate cached, lock-free generation read.
+        generation_provider=internals.provider.reconciled_generation,
         generation_installer=internals.backend_kernel.install_generation,
         upload_timeout=upload_timeout,
         max_concurrent_uploads=max_concurrent_uploads,

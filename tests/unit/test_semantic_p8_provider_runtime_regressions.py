@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import io
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -179,6 +180,101 @@ def test_equal_or_stale_generation_preserves_backend_set_cookie() -> None:
     assert kernel.install_generation(stale) is False
     assert _sid(kernel.cookies) == "cookie-from-response"
     assert kernel.installed_generation == 4
+
+
+@pytest.mark.asyncio
+async def test_direct_generation_reconciles_one_matching_backend_cookie_for_all_waiters() -> None:
+    """Concurrent direct legs join one fenced response-cookie publication."""
+    client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
+    provider = client._provider
+
+    await client.__aenter__()
+    lock: asyncio.Lock | None = None
+    try:
+        before = await provider.generation()
+        backend_kernel = client._backend._backend_session.kernel
+        backend_kernel.cookies.set(
+            "SID", "cookie-from-registration", domain=".google.com", path="/"
+        )
+
+        # Ordinary RPC snapshots stay cached and lock-free.  Only the direct-leg
+        # entry point crosses the backend-session reconciliation boundary.
+        assert await provider.generation() is before
+
+        lock = provider._get_refresh_transaction_lock()
+        await lock.acquire()
+        readers = [asyncio.create_task(provider.reconciled_generation()) for _ in range(16)]
+        await asyncio.sleep(0)
+        assert all(not reader.done() for reader in readers)
+        lock.release()
+
+        snapshots = await asyncio.gather(*readers)
+        after = snapshots[0]
+        assert all(snapshot is after for snapshot in snapshots)
+        assert after.generation == before.generation + 1
+        assert (
+            _sid(after.cookies),
+            after.csrf_token,
+            after.session_id,
+            after.authuser,
+            after.account_email,
+        ) == ("cookie-from-registration", "csrf-old", "session-old", 0, None)
+
+        backend_kernel.cookies.set("SID", "later-backend-value", domain=".google.com", path="/")
+        assert _sid(after.cookies) == "cookie-from-registration"
+    finally:
+        if lock is not None and lock.locked():
+            lock.release()
+        await client.close(drain=False)
+
+
+@pytest.mark.asyncio
+async def test_direct_generation_rejects_a_stale_backend_cookie_epoch() -> None:
+    """A late response from an older backend seed cannot replace a refresh commit."""
+    client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
+    provider = client._provider
+
+    await client.__aenter__()
+    try:
+        before = await provider.generation()
+
+        async def commit_refresh() -> AuthTokens:
+            provider._kernel.cookies.set(
+                "SID", "cookie-from-refresh", domain=".google.com", path="/"
+            )
+            provider.auth.csrf_token = "csrf-from-refresh"
+            provider.auth.session_id = "session-from-refresh"
+            provider.auth.authuser = 4
+            provider.auth.account_email = "owner@example.com"
+            return provider.auth
+
+        await provider.run_refresh_transaction(commit_refresh)
+        committed = await provider.generation()
+        assert committed.generation == before.generation + 1
+
+        backend_kernel = client._backend._backend_session.kernel
+        assert backend_kernel.installed_generation == before.generation
+        backend_kernel.cookies.set(
+            "SID", "cookie-from-stale-response", domain=".google.com", path="/"
+        )
+
+        after = await provider.reconciled_generation()
+        assert after is committed
+        assert (
+            _sid(after.cookies),
+            after.csrf_token,
+            after.session_id,
+            after.authuser,
+            after.account_email,
+        ) == (
+            "cookie-from-refresh",
+            "csrf-from-refresh",
+            "session-from-refresh",
+            4,
+            "owner@example.com",
+        )
+    finally:
+        await client.close(drain=False)
 
 
 @pytest.mark.asyncio
@@ -781,6 +877,7 @@ def test_owned_provider_and_private_session_reopen_on_a_new_event_loop() -> None
     ("entry", "kwargs", "untouched_slot"),
     [
         ("reconcile", {}, "_refresh_transaction_lock"),
+        ("reconciled_generation", {}, "_refresh_transaction_lock"),
         ("refresh", {}, "_base_refresh_lock"),
         ("await_refresh", {}, "_joined_refresh_lock"),
         ("get_account_email", {"live_fallback": False}, "_identity_lock"),
@@ -810,10 +907,120 @@ def test_provider_lock_paths_fail_fast_on_a_foreign_event_loop(
 
 
 @pytest.mark.asyncio
+async def test_registration_set_cookie_reaches_upload_finalize_and_drive(
+    tmp_path: Path,
+) -> None:
+    """Every direct HTTP leg clones the cookie committed by registration RPC."""
+    client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
+    provider = client._provider
+    uploader = client._source_uploader
+    upload_observations: list[tuple[str | None, str]] = []
+    drive_observations: list[tuple[str | None, str | None]] = []
+
+    class UploadClient:
+        def __init__(self, cookies: httpx.Cookies) -> None:
+            self.cookies = cookies
+
+        async def __aenter__(self) -> UploadClient:
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            return None
+
+        async def post(
+            self, url: str, *, headers: dict[str, str], content: object
+        ) -> httpx.Response:
+            del content
+            command = headers.get("x-goog-upload-command", "start")
+            upload_observations.append((_sid(self.cookies), command))
+            response_headers = (
+                {
+                    "x-goog-upload-url": (
+                        "https://notebooklm.google.com/upload/_/?upload_id=p8-reconciled"
+                    )
+                }
+                if command == "start"
+                else {}
+            )
+            return httpx.Response(
+                200,
+                headers=response_headers,
+                request=httpx.Request("POST", url),
+            )
+
+    def upload_factory(*, cookies: httpx.Cookies, **_kwargs: object) -> UploadClient:
+        return UploadClient(cookies)
+
+    def drive_factory(cookies: httpx.Cookies, timeout: httpx.Timeout) -> httpx.AsyncClient:
+        sid = _sid(cookies)
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            route = parse_qs(request.url.query.decode()).get("authuser", [None])[0]
+            drive_observations.append((sid, route))
+            return httpx.Response(
+                200,
+                headers={
+                    "content-type": "application/pdf",
+                    "content-disposition": 'attachment; filename="reconciled.pdf"',
+                },
+                content=b"%PDF-p8-reconciled",
+                request=request,
+            )
+
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            cookies=cookies,
+            timeout=timeout,
+        )
+
+    uploader._async_client_factory = upload_factory
+    service = uploader.create_drive_import_service()
+    fetcher = service._fetch
+    assert isinstance(fetcher, DriveFetcher)
+    fetcher._client_factory = drive_factory
+    fetcher._temp_dir = tmp_path
+
+    await client.__aenter__()
+    try:
+        before = await provider.generation()
+        client._backend._backend_session.kernel.cookies.set(
+            "SID", "cookie-from-registration", domain=".google.com", path="/"
+        )
+
+        upload_url = await uploader.start_resumable_upload(
+            "nb", "x.pdf", 3, "src", "application/pdf"
+        )
+        await uploader.upload_file_streaming(
+            upload_url,
+            io.BytesIO(b"pdf"),
+            filename="x.pdf",
+            total_bytes=3,
+        )
+        download = await fetcher(DriveRef("A" * 20))
+        download.path.unlink()
+
+        assert upload_observations == [
+            ("cookie-from-registration", "start"),
+            ("cookie-from-registration", "upload, finalize"),
+        ]
+        assert drive_observations == [("cookie-from-registration", "0")]
+        after = await provider.generation()
+        assert after.generation == before.generation + 1
+        assert (
+            after.csrf_token,
+            after.session_id,
+            after.authuser,
+            after.account_email,
+        ) == ("csrf-old", "session-old", 0, None)
+    finally:
+        await client.close(drain=False)
+
+
+@pytest.mark.asyncio
 async def test_direct_upload_uses_one_committed_generation_during_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Upload cookies and account route cannot come from different generations."""
+    """Upload waits for one whole refresh before cloning cookies and route."""
     client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
     provider = client._provider
     uploader = client._source_uploader
@@ -872,11 +1079,17 @@ async def test_direct_upload_uses_one_committed_generation_during_refresh(
     refresh = asyncio.create_task(client.refresh_auth())
     await refresh_started.wait()
     try:
-        await uploader.start_resumable_upload("nb", "x.pdf", 3, "src", "application/pdf")
-        assert observations[-1] == ("cookie-old", "0")
+        upload = asyncio.create_task(
+            uploader.start_resumable_upload("nb", "x.pdf", 3, "src", "application/pdf")
+        )
+        await asyncio.sleep(0)
+        assert upload.done() is False
+        assert observations == []
 
         release_refresh.set()
         await refresh
+        await upload
+        assert observations[-1] == ("cookie-new", "owner@example.com")
         await uploader.start_resumable_upload("nb", "x.pdf", 3, "src", "application/pdf")
         assert observations[-1] == ("cookie-new", "owner@example.com")
         assert (
@@ -894,7 +1107,7 @@ async def test_drive_fetch_uses_one_committed_generation_during_refresh(
     tmp_path: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Drive cookies and account route cannot come from different generations."""
+    """Drive waits for one whole refresh before cloning cookies and route."""
     client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
     uploader = client._source_uploader
     refresh_started = asyncio.Event()
@@ -946,12 +1159,17 @@ async def test_drive_fetch_uses_one_committed_generation_during_refresh(
     refresh = asyncio.create_task(client.refresh_auth())
     await refresh_started.wait()
     try:
-        first = await fetcher(DriveRef("A" * 20))
-        first.path.unlink()
-        assert observations[-1] == ("cookie-old", "0")
+        first_fetch = asyncio.create_task(fetcher(DriveRef("A" * 20)))
+        await asyncio.sleep(0)
+        assert first_fetch.done() is False
+        assert observations == []
 
         release_refresh.set()
         await refresh
+        first = await first_fetch
+        first.path.unlink()
+        assert observations[-1] == ("cookie-new", "owner@example.com")
+
         second = await fetcher(DriveRef("A" * 20))
         second.path.unlink()
         assert observations[-1] == ("cookie-new", "owner@example.com")
