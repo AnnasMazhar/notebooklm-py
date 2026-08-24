@@ -929,7 +929,9 @@ async def test_source_delete_bulk_confirm_returns_per_id_buckets(mcp_call, mock_
         "notebook_id": NB_ID,
         "deleted": [{"source_id": SRC_ID}],
         "deleted_count": 1,
-        "not_found": [{"source_id": SRC2_ID, "error": str(SourceNotFoundError(f"no source {SRC2_ID}"))}],
+        "not_found": [
+            {"source_id": SRC2_ID, "error": str(SourceNotFoundError(f"no source {SRC2_ID}"))}
+        ],
         "not_found_count": 1,
         "failed": [],
         "failed_count": 0,
