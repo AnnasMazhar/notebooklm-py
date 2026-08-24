@@ -30,6 +30,7 @@ from notebooklm._records import (
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
     NOTEBOOK_TITLE_UPDATE_DEF,
+    SOURCE_ADD_URL_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
     NotebookCreateInput,
@@ -39,11 +40,20 @@ from notebooklm._records import (
     NotebookListInput,
     NotebookListResult,
     NotebookTitleUpdateInput,
+    SourceAddCommitState,
+    SourceAddTitleState,
+    SourceAddUrlInput,
+    SourceAddUrlReceipt,
     SourceGetInput,
     SourceListInput,
 )
+from notebooklm._source.upload_payloads import build_template_block
 from notebooklm._web.backend import WebRpcBackend
-from notebooklm._web.registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
+from notebooklm._web.registry import (
+    WEB_OPERATION_REGISTRY,
+    WEB_STAGED_OPERATIONS,
+    WEB_SUPPORTED_OPERATIONS,
+)
 from notebooklm.exceptions import (
     AuthError,
     ClientError,
@@ -116,6 +126,8 @@ def test_registry_is_closed_and_exposes_only_inert_p2_handlers() -> None:
         for binding in WEB_OPERATION_REGISTRY.values()
         if not binding.is_supported
     )
+    assert {Operation.SOURCE_ADD_URL} == WEB_STAGED_OPERATIONS
+    assert WEB_OPERATION_REGISTRY[Operation.SOURCE_ADD_URL].definition is SOURCE_ADD_URL_DEF
 
 
 @pytest.mark.asyncio
@@ -305,13 +317,30 @@ async def test_notebook_delete_is_one_id_and_returns_empty_result() -> None:
     assert executor.calls[0].params == [["nb-1"], [2]]
 
 
-def _source_entry(source_id: str, *, status: int = 1, kind: int = 5) -> list[Any]:
+def _source_entry(
+    source_id: str,
+    *,
+    title: str | None = None,
+    url: str = "https://example.com",
+    status: int = 1,
+    kind: int = 5,
+) -> list[Any]:
     return [
         [source_id],
-        f"Source {source_id}",
-        [None, 11, [1704067200, 0], None, kind, None, None, ["https://example.com"]],
+        title or f"Source {source_id}",
+        [None, 11, [1704067200, 0], None, kind, None, None, [url]],
         [None, status],
     ]
+
+
+def _source_result(
+    source_id: str,
+    *,
+    title: str,
+    url: str,
+    kind: int = 5,
+) -> list[Any]:
+    return [[_source_entry(source_id, title=title, url=url, status=2, kind=kind)]]
 
 
 @pytest.mark.asyncio
@@ -346,6 +375,199 @@ async def test_source_handlers_reuse_source_lister_and_apply_semantic_filters() 
     assert fetched.source.kind == "pdf"
     assert all(call.method is RPCMethod.GET_NOTEBOOK for call in executor.calls)
     assert all(call.params[0] == "nb" for call in executor.calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("url", "kind", "source_spec"),
+    [
+        (
+            "https://example.com/article",
+            5,
+            [
+                None,
+                None,
+                ["https://example.com/article"],
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                1,
+            ],
+        ),
+        (
+            "https://youtu.be/dQw4w9WgXcQ",
+            9,
+            [
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                ["https://youtu.be/dQw4w9WgXcQ"],
+                None,
+                None,
+                1,
+            ],
+        ),
+    ],
+)
+async def test_staged_url_handler_preserves_regular_and_hidden_youtube_payloads(
+    url: str,
+    kind: int,
+    source_spec: list[object],
+) -> None:
+    executor = _RecordingExecutor(
+        [["Notebook", [], "nb"]],
+        _source_result("src-new", title="Upstream", url=url, kind=kind),
+    )
+
+    result = await _backend(executor)._source_add_url(
+        SourceAddUrlInput("nb", url),
+        deadline=None,
+    )
+
+    assert (result.source.id, result.source.url) == ("src-new", url)
+    assert result.receipt == SourceAddUrlReceipt(
+        SourceAddCommitState.CREATED,
+        SourceAddTitleState.NOT_REQUESTED,
+    )
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.GET_NOTEBOOK,
+        RPCMethod.ADD_SOURCE,
+    ]
+    assert executor.calls[1].params == [[source_spec], "nb", build_template_block()]
+    assert executor.calls[1].kwargs["disable_internal_retries"] is True
+    assert executor.calls[1].kwargs["operation_variant"] == "url"
+
+
+@pytest.mark.asyncio
+async def test_url_handler_reconciles_only_one_new_exact_url_and_renames_without_repost() -> None:
+    url = "https://example.com/article"
+    old = _source_entry("src-old", title="Old", url=url, status=2)
+    recovered = _source_entry("src-new", title="Upstream", url=url, status=2)
+    executor = _RecordingExecutor(
+        [["Notebook", [old], "nb"]],
+        ServerError("lost response", status_code=502),
+        [["Notebook", [old, recovered], "nb"]],
+        [["src-new"], "Requested"],
+    )
+
+    result = await _backend(executor)._source_add_url(
+        SourceAddUrlInput("nb", url, requested_title="  Requested  "),
+        deadline=None,
+    )
+
+    assert (result.source.id, result.source.title, result.source.url) == (
+        "src-new",
+        "Requested",
+        url,
+    )
+    assert result.receipt == SourceAddUrlReceipt(
+        SourceAddCommitState.RECONCILED,
+        SourceAddTitleState.RENAMED,
+    )
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.GET_NOTEBOOK,
+        RPCMethod.ADD_SOURCE,
+        RPCMethod.GET_NOTEBOOK,
+        RPCMethod.UPDATE_SOURCE,
+    ]
+    assert sum(call.method is RPCMethod.ADD_SOURCE for call in executor.calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "probe_response",
+    [
+        [
+            "Notebook",
+            [
+                _source_entry("src-one", url="https://example.com/article"),
+                _source_entry("src-two", url="https://example.com/article"),
+            ],
+            "nb",
+        ],
+        DecodingError("probe could not decode"),
+    ],
+)
+async def test_url_handler_fails_closed_when_reconciliation_is_ambiguous_or_unanswered(
+    probe_response: object,
+) -> None:
+    executor = _RecordingExecutor(
+        [["Notebook", [], "nb"]],
+        ServerError("lost response", status_code=502),
+        [probe_response] if isinstance(probe_response, list) else probe_response,
+    )
+
+    with pytest.raises(BackendError) as caught:
+        await _backend(executor)._source_add_url(
+            SourceAddUrlInput("nb", "https://example.com/article"),
+            deadline=None,
+        )
+
+    assert caught.value.outcome_unknown is True
+    assert caught.value.diagnostics == {
+        "receipt": SourceAddUrlReceipt(
+            SourceAddCommitState.UNKNOWN,
+            SourceAddTitleState.NOT_ATTEMPTED,
+            outcome_unknown=True,
+        )
+    }
+    assert sum(call.method is RPCMethod.ADD_SOURCE for call in executor.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_url_handler_title_failure_is_best_effort_and_never_reposts() -> None:
+    url = "https://example.com/article"
+    executor = _RecordingExecutor(
+        [["Notebook", [], "nb"]],
+        _source_result("src-new", title="Upstream", url=url),
+        ServerError("rename failed", status_code=503),
+    )
+
+    result = await _backend(executor)._source_add_url(
+        SourceAddUrlInput("nb", url, requested_title="Requested"),
+        deadline=None,
+    )
+
+    assert result.source.title == "Upstream"
+    assert result.receipt.title_state is SourceAddTitleState.RENAME_FAILED
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.GET_NOTEBOOK,
+        RPCMethod.ADD_SOURCE,
+        RPCMethod.UPDATE_SOURCE,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_url_composite_forwards_one_absolute_deadline_to_baseline_add_and_wait() -> None:
+    url = "https://example.com/article"
+    ready = _source_entry("src-new", title="Upstream", url=url, status=2)
+    executor = _RecordingExecutor(
+        [["Notebook", [], "nb"]],
+        _source_result("src-new", title="Upstream", url=url),
+        [["Notebook", [ready], "nb"]],
+    )
+    deadline = RuntimeDeadline(timeout=30.0, started_at=10.0, monotonic=lambda: 12.0)
+
+    await _backend(executor)._source_add_url(
+        SourceAddUrlInput("nb", url, wait=True, wait_timeout=17.0),
+        deadline=deadline,
+    )
+
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.GET_NOTEBOOK,
+        RPCMethod.ADD_SOURCE,
+        RPCMethod.GET_NOTEBOOK,
+    ]
+    assert all(call.kwargs["_retry_deadline"] is deadline for call in executor.calls)
+    assert all(call.kwargs["read_timeout"] == 28.0 for call in executor.calls)
 
 
 @pytest.mark.asyncio
@@ -586,6 +808,7 @@ def test_only_migrated_feature_runtime_reads_private_backend() -> None:
         package / "client.py",  # annotation-only declaration
         package / "_notebooks.py",
         package / "_notebook_mutation_service.py",
+        package / "_mutation_services.py",
         package / "_read_services.py",
         package / "_sources.py",
     }

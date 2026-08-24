@@ -471,15 +471,17 @@ GENERIC_RPC_FORWARDERS = frozenset(
 # shared forwarder remains inert until every registered operation delegates.
 INERT_P1_WEB_FORWARDERS = frozenset(
     {
+        "_web/backend.py:_DeadlineRpcCaller.rpc_call",
         "_web/backend.py:WebRpcBackend._rpc_call",
     }
 )
-INERT_P1_WEB_HANDLERS = frozenset(
+INERT_P1_WEB_HANDLERS: frozenset[str] = frozenset(
     {
         "_web/backend.py:WebRpcBackend._notebook_create",
         "_web/backend.py:WebRpcBackend._notebook_create.create",
         "_web/backend.py:WebRpcBackend._notebook_delete",
         "_web/backend.py:WebRpcBackend._notebook_title_update",
+        "_web/backend.py:WebRpcBackend._source_add_url",
     }
 )
 INERT_P1_WEB_SITES = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
@@ -506,6 +508,10 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_notebooks.py", "_backend", "BackendError"),
         ("_notebooks.py", "_backend_compat", "project_backend_error"),
         ("_notebooks.py", "_read_services", "NotebookReadService"),
+        ("_mutation_services.py", "_backend", "BackendAdapter"),
+        ("_mutation_services.py", "_records", "SOURCE_ADD_URL_DEF"),
+        ("_mutation_services.py", "_records", "SourceAddUrlInput"),
+        ("_mutation_services.py", "_records", "SourceAddUrlResult"),
         ("_projectors.py", "_records", "NotebookRecord"),
         ("_projectors.py", "_records", "SourceRecord"),
         ("_read_services.py", "_backend", "BackendAdapter"),
@@ -547,6 +553,11 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/backend.py", "_records", "NotebookTitleUpdateResult"),
         ("_web/backend.py", "_records", "SourceGetInput"),
         ("_web/backend.py", "_records", "SourceGetResult"),
+        ("_web/backend.py", "_records", "SourceAddCommitState"),
+        ("_web/backend.py", "_records", "SourceAddTitleState"),
+        ("_web/backend.py", "_records", "SourceAddUrlInput"),
+        ("_web/backend.py", "_records", "SourceAddUrlReceipt"),
+        ("_web/backend.py", "_records", "SourceAddUrlResult"),
         ("_web/backend.py", "_records", "SourceListInput"),
         ("_web/backend.py", "_records", "SourceListResult"),
         ("_web/backend.py", "_records", "SourceRecord"),
@@ -557,6 +568,7 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/registry.py", "_records", "NOTEBOOK_CREATE_DEF"),
         ("_web/registry.py", "_records", "NOTEBOOK_DELETE_DEF"),
         ("_web/registry.py", "_records", "NOTEBOOK_TITLE_UPDATE_DEF"),
+        ("_web/registry.py", "_records", "SOURCE_ADD_URL_DEF"),
         ("_web/registry.py", "_records", "SOURCE_GET_DEF"),
         ("_web/registry.py", "_records", "SOURCE_LIST_DEF"),
     }
@@ -566,6 +578,7 @@ _REVIEWED_BACKEND_IMPORT_MODULES = frozenset(
     {
         "_backend",
         "_backend_compat",
+        "_mutation_services",
         "_projectors",
         "_read_services",
         "_records",
@@ -578,6 +591,7 @@ _REVIEWED_BACKEND_IMPORT_MODULES = frozenset(
 
 _REVIEWED_BACKEND_IMPORT_PREFIXES = (
     "notebooklm._backend",
+    "notebooklm._mutation_services",
     "notebooklm._projectors",
     "notebooklm._read_services",
     "notebooklm._records",
@@ -604,6 +618,7 @@ INERT_P1_BACKEND_INVOKE_SITES = frozenset(
         "_notebook_mutation_service.py:NotebookMutationService.create",
         "_notebook_mutation_service.py:NotebookMutationService.delete",
         "_notebook_mutation_service.py:NotebookMutationService.update_title",
+        "_mutation_services.py:SourceUrlMutationService.add_url",
     }
 )
 
@@ -678,6 +693,7 @@ def audit_inert_p1_backend_dataflow(
                         in {
                             "_backend",
                             "_backend_compat",
+                            "_mutation_services",
                             "_projectors",
                             "_read_services",
                             "_records",

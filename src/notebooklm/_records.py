@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum, unique
 
 from ._operations import CallPolicy, Operation, OperationDef
 
@@ -171,6 +172,55 @@ class SourceGetResult:
     source: SourceRecord | None
 
 
+@dataclass(frozen=True, slots=True)
+class SourceAddUrlInput:
+    """One URL-source request, including the hidden YouTube variant."""
+
+    notebook_id: str
+    url: str
+    wait: bool = False
+    wait_timeout: float = 120.0
+    requested_title: str | None = None
+
+
+@unique
+class SourceAddCommitState(str, Enum):
+    """How confidently a URL-source write is attributed to this call."""
+
+    CREATED = "created"
+    RECONCILED = "reconciled"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+
+
+@unique
+class SourceAddTitleState(str, Enum):
+    """Best-effort requested-title outcome after URL registration."""
+
+    NOT_REQUESTED = "not_requested"
+    UNCHANGED = "unchanged"
+    RENAMED = "renamed"
+    RENAME_FAILED = "rename_failed"
+    NOT_ATTEMPTED = "not_attempted"
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAddUrlReceipt:
+    """Safe internal evidence for commit and title uncertainty."""
+
+    commit_state: SourceAddCommitState
+    title_state: SourceAddTitleState
+    outcome_unknown: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SourceAddUrlResult:
+    """Neutral URL-source result plus its reconciliation receipt."""
+
+    source: SourceRecord
+    receipt: SourceAddUrlReceipt
+
+
 NOTEBOOK_LIST_DEF: OperationDef[NotebookListInput, NotebookListResult] = OperationDef(
     Operation.NOTEBOOK_LIST,
     CallPolicy.READ,
@@ -215,6 +265,12 @@ SOURCE_GET_DEF: OperationDef[SourceGetInput, SourceGetResult] = OperationDef(
     SourceGetInput,
     SourceGetResult,
 )
+SOURCE_ADD_URL_DEF: OperationDef[SourceAddUrlInput, SourceAddUrlResult] = OperationDef(
+    Operation.SOURCE_ADD_URL,
+    CallPolicy.MUTATION,
+    SourceAddUrlInput,
+    SourceAddUrlResult,
+)
 
 
 __all__ = [
@@ -225,6 +281,7 @@ __all__ = [
     "NOTEBOOK_TITLE_UPDATE_DEF",
     "SOURCE_GET_DEF",
     "SOURCE_LIST_DEF",
+    "SOURCE_ADD_URL_DEF",
     "NotebookChatSessionRecord",
     "NotebookChatSettingsRecord",
     "NotebookCreateInput",
@@ -241,6 +298,11 @@ __all__ = [
     "NotebookTitleUpdateResult",
     "SourceGetInput",
     "SourceGetResult",
+    "SourceAddCommitState",
+    "SourceAddTitleState",
+    "SourceAddUrlInput",
+    "SourceAddUrlReceipt",
+    "SourceAddUrlResult",
     "SourceListInput",
     "SourceListResult",
     "SourceRecord",

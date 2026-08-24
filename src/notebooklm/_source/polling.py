@@ -123,9 +123,10 @@ class SourcePoller:
         sleep: Sleep,
         monotonic: Monotonic,
         logger: logging.Logger,
+        deadline: RuntimeDeadline | None = None,
     ) -> Source:
         """Wait for a source to become ready."""
-        deadline = RuntimeDeadline.start(timeout, monotonic=monotonic)
+        deadline = deadline or RuntimeDeadline.start(timeout, monotonic=monotonic)
         interval = initial_interval
         last_status: int | None = None
         # Consecutive ERROR observations ending at the current tick. Reset by any
