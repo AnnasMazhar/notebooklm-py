@@ -217,13 +217,17 @@ async def test_source_poll_snapshot_keeps_legacy_in_flight_timeout_semantics() -
     assert call.kwargs["read_timeout"] is None
 
 
-def test_production_assembly_seeds_from_configured_client_timeout() -> None:
+def test_production_assembly_reads_live_timeout_without_mutating_started_deadline() -> None:
     client = build_client_shell_for_tests(
         AuthTokens(cookies={"SID": "sid"}, csrf_token="csrf", session_id="session"),
         timeout=17.0,
     )
 
-    deadline = client._backend._deadline_factory.start()
+    first = client._backend._deadline_factory.start()
+    client._collaborators.lifecycle._timeout = 41.0
+    second = client._backend._deadline_factory.start()
 
-    assert deadline is not None
-    assert deadline.timeout == 17.0
+    assert first is not None and second is not None
+    assert first.timeout == 17.0
+    assert second.timeout == 41.0
+    assert first.timeout == 17.0

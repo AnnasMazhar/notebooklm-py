@@ -350,7 +350,11 @@ def _assemble_client(
         chat_reqid=internals.collaborators.reqid,
         chat_timeout=resolve_chat_read_timeout(chat_timeout, timeout),
         chat_response_max_bytes=chat_response_max_bytes,
-        deadline_factory=RuntimeDeadlineFactory.fixed(timeout),
+        # Match WebExecutionRuntime's established live timeout-provider
+        # contract. Each semantic call captures the current client timeout
+        # once; an already-started RuntimeDeadline remains immutable even if a
+        # later test/internal reconfiguration changes the lifecycle scalar.
+        deadline_factory=RuntimeDeadlineFactory(lambda: internals.collaborators.lifecycle._timeout),
     )
     # Hold the uploader as a first-class client attribute so the
     # open-time loop-affinity reset (issue #1196 upload variant) can
