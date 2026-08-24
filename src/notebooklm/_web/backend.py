@@ -24,17 +24,28 @@ from .._backend import (
     UnsupportedOperationError,
 )
 from .._deadline import RuntimeDeadline
-from .._notebook_payloads import build_get_notebook_params
+from .._idempotency import idempotent_create, mark_unconfirmed
+from .._notebook_payloads import (
+    build_create_notebook_params,
+    build_get_notebook_params,
+    build_update_notebook_params,
+)
 from .._operations import CallPolicy, Operation, OperationDef
 from .._records import (
     NotebookChatSessionRecord,
     NotebookChatSettingsRecord,
+    NotebookCreateInput,
+    NotebookCreateResult,
+    NotebookDeleteInput,
+    NotebookDeleteResult,
     NotebookGetInput,
     NotebookGetResult,
     NotebookListInput,
     NotebookListResult,
     NotebookPremiumFeaturesRecord,
     NotebookRecord,
+    NotebookTitleUpdateInput,
+    NotebookTitleUpdateResult,
     SourceGetInput,
     SourceGetResult,
     SourceListInput,
@@ -50,6 +61,7 @@ from ..exceptions import (
     ClientError,
     DecodingError,
     NetworkError,
+    NotebookNotFoundError,
     RateLimitError,
     RPCError,
     RPCResponseTooLargeError,
@@ -330,6 +342,130 @@ class WebRpcBackend:
             method_id=RPCMethod.LIST_NOTEBOOKS.value,
         )
 
+    async def _notebook_create(
+        self,
+        value: NotebookCreateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NotebookCreateResult:
+        baseline_ids: set[str] | None
+        baseline_error: Exception | None = None
+        try:
+            baseline = await self._notebook_list(
+                NotebookListInput(),
+                deadline=deadline,
+            )
+            baseline_ids = {notebook.id for notebook in baseline.notebooks}
+        except Exception as exc:
+            baseline_ids = None
+            baseline_error = exc
+
+        async def create() -> NotebookRecord:
+            result = await self._rpc_call(
+                RPCMethod.CREATE_NOTEBOOK,
+                build_create_notebook_params(value.title),
+                operation=Operation.NOTEBOOK_CREATE,
+                deadline=deadline,
+                disable_internal_retries=True,
+            )
+            return _notebook_record(Notebook.from_api_response(result))
+
+        async def probe() -> NotebookRecord | None:
+            current = await self._notebook_list(
+                NotebookListInput(),
+                deadline=deadline,
+            )
+            matches = tuple(
+                notebook for notebook in current.notebooks if notebook.title == value.title
+            )
+            if baseline_ids is not None:
+                matches = tuple(notebook for notebook in matches if notebook.id not in baseline_ids)
+            elif matches:
+                raise mark_unconfirmed(
+                    RPCError(
+                        f"Cannot disambiguate notebook with title {value.title!r}: "
+                        "the pre-create baseline snapshot failed "
+                        f"({type(baseline_error).__name__}); check the notebook list before retrying",
+                        method_id=RPCMethod.CREATE_NOTEBOOK.value,
+                    )
+                )
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                raise mark_unconfirmed(
+                    RPCError(
+                        f"Cannot disambiguate notebook with title {value.title!r}: "
+                        f"probe found {len(matches)} new notebooks with this title",
+                        method_id=RPCMethod.CREATE_NOTEBOOK.value,
+                    )
+                )
+            return None
+
+        result = await idempotent_create(
+            create,
+            probe,
+            label=f"notebook.create[{value.title!r}]",
+        )
+        return NotebookCreateResult(notebook=result.value)
+
+    async def _notebook_title_update(
+        self,
+        value: NotebookTitleUpdateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NotebookTitleUpdateResult:
+        await self._rpc_call(
+            RPCMethod.RENAME_NOTEBOOK,
+            build_update_notebook_params(value.notebook_id, title=value.title),
+            operation=Operation.NOTEBOOK_UPDATE,
+            deadline=deadline,
+            source_path="/",
+            allow_null=True,
+        )
+        result = await self._rpc_call(
+            RPCMethod.GET_NOTEBOOK,
+            build_get_notebook_params(value.notebook_id),
+            operation=Operation.NOTEBOOK_UPDATE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+        )
+        notebook_row = (
+            safe_index(
+                result,
+                0,
+                method_id=RPCMethod.GET_NOTEBOOK.value,
+                source="WebRpcBackend._notebook_title_update",
+            )
+            if result and isinstance(result, list)
+            else None
+        )
+        if not notebook_row:
+            raise NotebookNotFoundError(
+                value.notebook_id,
+                method_id=RPCMethod.GET_NOTEBOOK.value,
+            )
+        notebook = Notebook.from_api_response(notebook_row, include_chat_settings=True)
+        if not notebook.id and not notebook.title:
+            raise NotebookNotFoundError(
+                value.notebook_id,
+                method_id=RPCMethod.GET_NOTEBOOK.value,
+            )
+        return NotebookTitleUpdateResult(notebook=_notebook_record(notebook))
+
+    async def _notebook_delete(
+        self,
+        value: NotebookDeleteInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NotebookDeleteResult:
+        await self._rpc_call(
+            RPCMethod.DELETE_NOTEBOOK,
+            [[value.notebook_id], [2]],
+            operation=Operation.NOTEBOOK_DELETE,
+            deadline=deadline,
+        )
+        return NotebookDeleteResult()
+
     async def _notebook_get(
         self,
         value: NotebookGetInput,
@@ -433,7 +569,7 @@ class WebRpcBackend:
             # once instead of duplicating the rendered suffix.
             message=str(exc.args[0]) if exc.args else "",
             operation=operation,
-            outcome_unknown=False,
+            outcome_unknown=bool(getattr(exc, "unconfirmed", False)),
             diagnostics=cls._error_diagnostics(exc, reason),
             reason=reason,
         )

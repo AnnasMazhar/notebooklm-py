@@ -15,8 +15,11 @@ from typing import Any, Final
 
 from .._operations import Operation, OperationDef
 from .._records import (
+    NOTEBOOK_CREATE_DEF,
+    NOTEBOOK_DELETE_DEF,
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
+    NOTEBOOK_TITLE_UPDATE_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
 )
@@ -50,6 +53,9 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
     {
         Operation.NOTEBOOK_LIST: NOTEBOOK_LIST_DEF,
         Operation.NOTEBOOK_GET: NOTEBOOK_GET_DEF,
+        Operation.NOTEBOOK_CREATE: NOTEBOOK_CREATE_DEF,
+        Operation.NOTEBOOK_UPDATE: NOTEBOOK_TITLE_UPDATE_DEF,
+        Operation.NOTEBOOK_DELETE: NOTEBOOK_DELETE_DEF,
         Operation.SOURCE_LIST: SOURCE_LIST_DEF,
         Operation.SOURCE_GET: SOURCE_GET_DEF,
     }
@@ -59,6 +65,9 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
     {
         Operation.NOTEBOOK_LIST: "_notebook_list",
         Operation.NOTEBOOK_GET: "_notebook_get",
+        Operation.NOTEBOOK_CREATE: "_notebook_create",
+        Operation.NOTEBOOK_UPDATE: "_notebook_title_update",
+        Operation.NOTEBOOK_DELETE: "_notebook_delete",
         Operation.SOURCE_LIST: "_source_list",
         Operation.SOURCE_GET: "_source_get",
     }
@@ -68,7 +77,7 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 4
+_EXPECTED_SUPPORTED_COUNT: Final = 7
 
 
 def _build_web_operation_registry() -> Mapping[Operation, WebOperationBinding]:

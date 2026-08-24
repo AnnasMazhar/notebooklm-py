@@ -1,4 +1,4 @@
-"""Private transport-neutral records for the first semantic read slice."""
+"""Private transport-neutral records for migrated semantic slices."""
 
 from __future__ import annotations
 
@@ -77,6 +77,47 @@ class NotebookGetResult:
 
 
 @dataclass(frozen=True, slots=True)
+class NotebookCreateInput:
+    """Requested notebook title."""
+
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookCreateResult:
+    """Created or uniquely reconciled notebook."""
+
+    notebook: NotebookRecord
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookTitleUpdateInput:
+    """Notebook identity and replacement title."""
+
+    notebook_id: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookTitleUpdateResult:
+    """Notebook read back after its title mutation."""
+
+    notebook: NotebookRecord
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookDeleteInput:
+    """Single notebook identity to delete idempotently."""
+
+    notebook_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class NotebookDeleteResult:
+    """Successful idempotent notebook deletion."""
+
+
+@dataclass(frozen=True, slots=True)
 class SourceRecord:
     """Neutral source value returned by list/get backends."""
 
@@ -142,6 +183,26 @@ NOTEBOOK_GET_DEF: OperationDef[NotebookGetInput, NotebookGetResult] = OperationD
     NotebookGetInput,
     NotebookGetResult,
 )
+NOTEBOOK_CREATE_DEF: OperationDef[NotebookCreateInput, NotebookCreateResult] = OperationDef(
+    Operation.NOTEBOOK_CREATE,
+    CallPolicy.MUTATION,
+    NotebookCreateInput,
+    NotebookCreateResult,
+)
+NOTEBOOK_TITLE_UPDATE_DEF: OperationDef[NotebookTitleUpdateInput, NotebookTitleUpdateResult] = (
+    OperationDef(
+        Operation.NOTEBOOK_UPDATE,
+        CallPolicy.MUTATION,
+        NotebookTitleUpdateInput,
+        NotebookTitleUpdateResult,
+    )
+)
+NOTEBOOK_DELETE_DEF: OperationDef[NotebookDeleteInput, NotebookDeleteResult] = OperationDef(
+    Operation.NOTEBOOK_DELETE,
+    CallPolicy.MUTATION,
+    NotebookDeleteInput,
+    NotebookDeleteResult,
+)
 SOURCE_LIST_DEF: OperationDef[SourceListInput, SourceListResult] = OperationDef(
     Operation.SOURCE_LIST,
     CallPolicy.READ,
@@ -159,16 +220,25 @@ SOURCE_GET_DEF: OperationDef[SourceGetInput, SourceGetResult] = OperationDef(
 __all__ = [
     "NOTEBOOK_GET_DEF",
     "NOTEBOOK_LIST_DEF",
+    "NOTEBOOK_CREATE_DEF",
+    "NOTEBOOK_DELETE_DEF",
+    "NOTEBOOK_TITLE_UPDATE_DEF",
     "SOURCE_GET_DEF",
     "SOURCE_LIST_DEF",
     "NotebookChatSessionRecord",
     "NotebookChatSettingsRecord",
+    "NotebookCreateInput",
+    "NotebookCreateResult",
+    "NotebookDeleteInput",
+    "NotebookDeleteResult",
     "NotebookGetInput",
     "NotebookGetResult",
     "NotebookListInput",
     "NotebookListResult",
     "NotebookPremiumFeaturesRecord",
     "NotebookRecord",
+    "NotebookTitleUpdateInput",
+    "NotebookTitleUpdateResult",
     "SourceGetInput",
     "SourceGetResult",
     "SourceListInput",

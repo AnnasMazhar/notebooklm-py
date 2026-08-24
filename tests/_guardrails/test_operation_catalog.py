@@ -37,6 +37,10 @@ def test_p1_inert_web_sites_are_exact_and_mutation_sensitive() -> None:
     """Only web handlers without a P2 facade delegation remain inert."""
     assert {
         "_web/backend.py:WebRpcBackend._rpc_call",
+        "_web/backend.py:WebRpcBackend._notebook_create",
+        "_web/backend.py:WebRpcBackend._notebook_create.create",
+        "_web/backend.py:WebRpcBackend._notebook_delete",
+        "_web/backend.py:WebRpcBackend._notebook_title_update",
     } == INERT_P1_WEB_SITES
     assert audit_inert_p1_web_sites() == []
 
@@ -59,6 +63,7 @@ def test_backend_dataflow_is_bounded_to_migrated_read_services() -> None:
     errors = audit_inert_p1_backend_dataflow({"_notebooks.py": alias_mutation})
     assert len(errors) == 1
     assert errors[0].startswith("semantic backend invoke sites changed: ")
+    assert "_notebooks.py" in errors[0]
 
     assembly = (root / "_client_assembly.py").read_text(encoding="utf-8")
     escape_mutation = assembly + (

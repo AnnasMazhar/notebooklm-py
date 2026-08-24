@@ -17,13 +17,16 @@ from notebooklm._notebook_payloads import (
     build_update_notebook_params,
 )
 from notebooklm._notebooks import NotebooksAPI
+from notebooklm._web.backend import WebRpcBackend
 from notebooklm.exceptions import ServerError, ValidationError
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import Notebook
 
 
 def _api(rpc_call: AsyncMock) -> NotebooksAPI:
-    return NotebooksAPI(MagicMock(rpc_call=rpc_call), sources_api=MagicMock())
+    executor = MagicMock(rpc_call=rpc_call)
+    backend = WebRpcBackend(executor, transport_factory=lambda **_kwargs: object())
+    return NotebooksAPI(executor, sources_api=MagicMock(), _backend=backend)
 
 
 def test_notebook_mutation_public_signatures_are_frozen() -> None:
@@ -114,6 +117,13 @@ async def test_title_update_pins_mutation_then_get_readback() -> None:
             RPCMethod.GET_NOTEBOOK,
             build_get_notebook_params("nb-1"),
             source_path="/notebook/nb-1",
+            allow_null=False,
+            _is_retry=False,
+            disable_internal_retries=False,
+            operation_variant=None,
+            read_timeout=None,
+            raise_on_null_status=False,
+            _retry_deadline=None,
         ),
     ]
 
