@@ -288,9 +288,9 @@ class ClientLifecycle:
         # primitive without an affinity guard or a close→reopen reset, so
         # reopening on a different loop could reuse a stale
         # ``asyncio.Semaphore`` and break on Python 3.10/3.11. Propagating the
-        # captured loop lets ``ClientComposed.get_rpc_semaphore`` short-circuit
+        # captured loop lets ``RpcSemaphore.get`` short-circuit
         # cross-loop misuse with the shared diagnostic.
-        composed.set_bound_loop(self._bound_loop)
+        composed.rpc_semaphore.set_bound_loop(self._bound_loop)
         # The Sources upload semaphore is the second lazily-built loop-bound
         # ``asyncio.Semaphore`` with the same close→reopen hazard as the RPC
         # semaphore above (the bug #1196 fixed for RPC): a client closed on
@@ -319,7 +319,7 @@ class ClientLifecycle:
         # bound to the prior (now-dead) loop (issue #1169). Narrow by design —
         # the semaphore is reconstructed lazily on the next ``get_rpc_semaphore``
         # call from inside the new loop; ``max_concurrent_rpcs`` is untouched.
-        composed.reset_after_open()
+        composed.rpc_semaphore.reset_after_open()
         # Same close→reopen reset for the Sources upload semaphore so a
         # reopened client rebuilds it on the new loop instead of reusing the
         # stale one bound to the prior (now-dead) loop. Narrow by design — the

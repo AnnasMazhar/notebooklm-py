@@ -33,9 +33,9 @@ The order is pinned at two levels:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from contextlib import AbstractAsyncContextManager
 from typing import Any
 
+from .._rpc_semaphore import RpcSemaphore
 from .auth_refresh import AuthRefreshMiddleware
 from .core import Middleware
 from .drain import DrainMiddleware
@@ -60,7 +60,7 @@ class MiddlewareChainBuilder:
         *,
         drain_tracker: Any,
         metrics: Any,
-        rpc_semaphore_factory: Callable[[], AbstractAsyncContextManager[Any]],
+        rpc_semaphore: RpcSemaphore,
         rate_limit_max_retries_provider: Callable[[], int],
         server_error_max_retries_provider: Callable[[], int],
         retry_timeout_provider: Callable[[], float | None],
@@ -77,7 +77,7 @@ class MiddlewareChainBuilder:
         # a redundant reference that lints can't easily follow.
         self._drain_tracker = drain_tracker
         self._metrics = metrics
-        self._rpc_semaphore_factory = rpc_semaphore_factory
+        self._rpc_semaphore = rpc_semaphore
         self._rate_limit_max_retries_provider = rate_limit_max_retries_provider
         self._server_error_max_retries_provider = server_error_max_retries_provider
         self._retry_timeout_provider = retry_timeout_provider
@@ -98,10 +98,10 @@ class MiddlewareChainBuilder:
             # way ``RetryMiddleware``'s retry attempts stay in the same
             # slot rather than racing to claim another, preserving the
             # "one slot per logical RPC" contract.
-            # ``rpc_semaphore_factory`` returns ``contextlib.nullcontext``
+            # ``RpcSemaphore.get`` returns ``contextlib.nullcontext``
             # when ``max_concurrent_rpcs is None`` (unbounded), so the
             # ``async with`` collapses to a no-op for opted-out clients.
-            SemaphoreMiddleware(self._rpc_semaphore_factory),
+            SemaphoreMiddleware(self._rpc_semaphore),
             # Pass callable budgets so post-construction mutation of
             # ``chain_host._rate_limit_max_retries`` /
             # ``chain_host._server_error_max_retries`` (an integration-test

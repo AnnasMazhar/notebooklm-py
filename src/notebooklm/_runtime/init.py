@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -42,6 +41,7 @@ from .._middleware.chain_host import MiddlewareChainHost
 from .._middleware.core import Middleware, NextCall, build_chain
 from .._reqid_counter import ReqidCounter
 from .._rpc_executor import RpcExecutor
+from .._rpc_semaphore import RpcSemaphore
 from .._transport_drain import TransportDrainTracker
 from ..auth import AuthTokens
 from .auth import AuthRefreshCoordinator
@@ -427,7 +427,7 @@ def wire_middleware_chain(
     chain_host: MiddlewareChainHost,
     auth: AuthTokens,
     authed_post_chain_terminal: Callable[..., Awaitable[Any]],
-    rpc_semaphore_factory: Callable[[], AbstractAsyncContextManager[Any]],
+    rpc_semaphore: RpcSemaphore,
     is_auth_error: Callable[[Exception], bool],
 ) -> WiredMiddleware:
     """Construct the :class:`MiddlewareChainBuilder`, build the six-middleware
@@ -458,9 +458,9 @@ def wire_middleware_chain(
 
     Post-construction mutation on ``chain_host._<attr>`` still takes
     effect through the middleware live-binding contract documented in
-    :class:`MiddlewareChainBuilder`. The ``rpc_semaphore_factory`` is
-    passed in explicitly so the helper does not need to know which holder
-    owns the live semaphore. ``is_auth_error`` is passed as a live-binding
+    :class:`MiddlewareChainBuilder`. The ``rpc_semaphore`` is passed explicitly
+    so the helper does not need to know which holder publishes its owner.
+    ``is_auth_error`` is passed as a live-binding
     callable so rebinding ``ClientSeams.is_auth_error`` after construction
     still steers the chain.
     """
@@ -470,7 +470,7 @@ def wire_middleware_chain(
     chain_builder = MiddlewareChainBuilder(
         drain_tracker=collaborators.drain_tracker,
         metrics=collaborators.metrics,
-        rpc_semaphore_factory=rpc_semaphore_factory,
+        rpc_semaphore=rpc_semaphore,
         rate_limit_max_retries_provider=lambda: chain_host._rate_limit_max_retries,
         server_error_max_retries_provider=lambda: chain_host._server_error_max_retries,
         retry_timeout_provider=lambda: collaborators.lifecycle._timeout,
@@ -591,7 +591,7 @@ def compose_client_internals(
             if authed_post_terminal is not None
             else chain_host._authed_post_chain_terminal
         ),
-        rpc_semaphore_factory=composed.get_rpc_semaphore,
+        rpc_semaphore=composed.rpc_semaphore,
         is_auth_error=lambda *a, **kw: seams.is_auth_error(*a, **kw),
     )
     chain_host._authed_post_chain = wired.authed_post_chain

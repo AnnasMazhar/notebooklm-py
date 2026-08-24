@@ -284,11 +284,12 @@ async def test_open_captures_bound_loop_and_resets_drain() -> None:
     assert lifecycle._bound_loop is asyncio.get_running_loop()
     assert lifecycle.get_bound_loop() is asyncio.get_running_loop()
     host._drain_tracker.reset_after_open.assert_called_once_with()
-    # Issue #1169: the composition holder is the fourth loop-bound primitive
-    # and must receive the same set_bound_loop / reset_after_open treatment as
-    # the drain tracker so the lazy RPC semaphore rebinds on close→reopen.
-    host.runtime_holder.set_bound_loop.assert_called_once_with(asyncio.get_running_loop())
-    host.runtime_holder.reset_after_open.assert_called_once_with()
+    # Issue #1169: the focused RPC gate owner receives loop propagation and
+    # reset treatment directly so it rebinds on close→reopen.
+    host.runtime_holder.rpc_semaphore.set_bound_loop.assert_called_once_with(
+        asyncio.get_running_loop()
+    )
+    host.runtime_holder.rpc_semaphore.reset_after_open.assert_called_once_with()
     # Issue #1196 upload variant: the Sources upload pipeline is the second
     # lazily-built loop-bound semaphore and must receive the same
     # set_bound_loop / reset_after_open treatment so the upload semaphore

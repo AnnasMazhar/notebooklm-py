@@ -246,13 +246,13 @@ def test_capped_client_reopen_on_new_loop_rebinds_semaphore(
     asyncio.run(_open_swap_and_close_under_loop_a())
     # The reset happens on open(), not close(): the stale semaphore is still
     # cached here, bound to the now-dead loop A.
-    assert core._composed._rpc_semaphore is not None
+    assert core._composed.rpc_semaphore._semaphore is not None
 
     async def _reopen_and_dispatch_under_loop_b() -> None:
         await core.__aenter__()
         # reset_after_open() must have discarded the loop-A semaphore so the
         # next get_rpc_semaphore() rebuilds it on loop B.
-        assert core._composed._rpc_semaphore is None
+        assert core._composed.rpc_semaphore._semaphore is None
         prior_cookies = core._collaborators.kernel.get_http_client().cookies
         await core._collaborators.kernel.get_http_client().aclose()
         install_http_client_for_test(

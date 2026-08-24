@@ -327,7 +327,7 @@ def test_public_client_member_disposition_and_owner_parity() -> None:
 def test_loop_affinity_protocol_and_cross_loop_rejection() -> None:
     """The holder rejects cross-loop reuse and rebuilds after rebinding."""
     holder = ClientComposed(max_concurrent_rpcs=2)
-    assert isinstance(holder, LoopBoundPrimitive)
+    assert isinstance(holder.rpc_semaphore, LoopBoundPrimitive)
 
     async def acquire_semaphore(target: ClientComposed) -> None:
         async with target.get_rpc_semaphore():

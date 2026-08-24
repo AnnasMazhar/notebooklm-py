@@ -128,11 +128,11 @@ def test_constructor_options_route_to_current_effective_consumers(tmp_path: Path
     assert client._source_uploader._resolve_upload_timeout(httpx.Timeout(1.0)) is upload_timeout
     assert client._source_uploader.get_upload_semaphore()._value == 2
 
-    # RPC concurrency reaches the holder and the live SemaphoreMiddleware
-    # factory; the lazily materialized semaphore has the configured capacity.
+    # RPC concurrency reaches its focused owner and the live middleware;
+    # the lazily materialized semaphore has the configured capacity.
     semaphore_middleware = _middleware(client, SemaphoreMiddleware)
     assert client._composed.max_concurrent_rpcs == 9
-    assert semaphore_middleware._semaphore_factory.__self__ is client._composed
+    assert semaphore_middleware._rpc_semaphore is client._composed.rpc_semaphore
     assert client._composed.get_rpc_semaphore()._value == 9
 
     # Callback/cookie seams retain identity at their single runtime owners.
@@ -240,7 +240,7 @@ def test_none_rpc_limit_routes_to_the_unbounded_semaphore_path() -> None:
 
     assert client._composed.max_concurrent_rpcs is None
     assert isinstance(client._composed.get_rpc_semaphore(), type(nullcontext()))
-    assert semaphore_middleware._semaphore_factory.__self__ is client._composed
+    assert semaphore_middleware._rpc_semaphore is client._composed.rpc_semaphore
 
 
 @pytest.mark.asyncio

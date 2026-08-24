@@ -359,7 +359,7 @@ def test_get_rpc_semaphore_no_binding_is_silent_noop() -> None:
         # built lazily on this running loop.
         async with holder.get_rpc_semaphore():
             pass
-        assert holder._rpc_semaphore is not None
+        assert holder.rpc_semaphore._semaphore is not None
 
     asyncio.run(_exercise())
 
@@ -373,10 +373,10 @@ def test_get_rpc_semaphore_same_loop_use_unaffected() -> None:
         async with holder.get_rpc_semaphore():
             pass
         # Same instance is reused across calls on the same loop.
-        first = holder._rpc_semaphore
+        first = holder.rpc_semaphore._semaphore
         async with holder.get_rpc_semaphore():
             pass
-        assert holder._rpc_semaphore is first
+        assert holder.rpc_semaphore._semaphore is first
 
     asyncio.run(_exercise())
 
@@ -397,7 +397,7 @@ def test_get_rpc_semaphore_cross_loop_raises_actionable_runtime_error() -> None:
             pass
 
     asyncio.run(_bind_under_loop_a())
-    assert holder._rpc_semaphore is not None
+    assert holder.rpc_semaphore._semaphore is not None
 
     async def _acquire_under_loop_b() -> None:
         with pytest.raises(RuntimeError, match="bound to a different event loop"):
@@ -428,17 +428,17 @@ def test_reset_after_open_discards_lazy_semaphore() -> None:
         holder.set_bound_loop(asyncio.get_running_loop())
         async with holder.get_rpc_semaphore():
             pass
-        first = holder._rpc_semaphore
+        first = holder.rpc_semaphore._semaphore
         assert first is not None
 
         holder.reset_after_open()
-        assert holder._rpc_semaphore is None
+        assert holder.rpc_semaphore._semaphore is None
         assert holder.max_concurrent_rpcs == 3
 
         async with holder.get_rpc_semaphore():
             pass
-        assert holder._rpc_semaphore is not None
-        assert holder._rpc_semaphore is not first
+        assert holder.rpc_semaphore._semaphore is not None
+        assert holder.rpc_semaphore._semaphore is not first
 
     asyncio.run(_exercise())
 
@@ -451,12 +451,12 @@ def test_set_bound_loop_none_clears_binding_and_discards_semaphore() -> None:
         holder.set_bound_loop(asyncio.get_running_loop())
         async with holder.get_rpc_semaphore():
             pass
-        assert holder._rpc_semaphore is not None
+        assert holder.rpc_semaphore._semaphore is not None
         # Clearing the binding is a loop change (loop -> None), so the cached
         # semaphore bound to the old loop is discarded for self-consistency.
         holder.set_bound_loop(None)
-        assert holder._bound_loop is None
-        assert holder._rpc_semaphore is None
+        assert holder.rpc_semaphore._bound_loop is None
+        assert holder.rpc_semaphore._semaphore is None
         # With the binding cleared the guard is a no-op again.
         async with holder.get_rpc_semaphore():
             pass
@@ -477,11 +477,11 @@ def test_set_bound_loop_same_loop_keeps_cached_semaphore() -> None:
         holder.set_bound_loop(loop)
         async with holder.get_rpc_semaphore():
             pass
-        first = holder._rpc_semaphore
+        first = holder.rpc_semaphore._semaphore
         assert first is not None
         # Same loop again — the cached semaphore survives.
         holder.set_bound_loop(loop)
-        assert holder._rpc_semaphore is first
+        assert holder.rpc_semaphore._semaphore is first
 
     asyncio.run(_exercise())
 
@@ -501,16 +501,16 @@ def test_set_bound_loop_different_loop_discards_stale_semaphore() -> None:
             pass
 
     asyncio.run(_bind_and_build_under_loop_a())
-    assert holder._rpc_semaphore is not None
+    assert holder.rpc_semaphore._semaphore is not None
 
     async def _rebind_under_loop_b() -> None:
         # set_bound_loop to a genuinely different loop must drop the stale
         # semaphore so the next get_rpc_semaphore() rebuilds on loop B.
         holder.set_bound_loop(asyncio.get_running_loop())
-        assert holder._rpc_semaphore is None
+        assert holder.rpc_semaphore._semaphore is None
         async with holder.get_rpc_semaphore():
             pass
-        assert holder._rpc_semaphore is not None
+        assert holder.rpc_semaphore._semaphore is not None
 
     asyncio.run(_rebind_under_loop_b())
 
