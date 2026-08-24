@@ -10,7 +10,11 @@ from typing import Any
 import httpx
 import pytest
 
-from notebooklm._artifact.payloads import build_audio_artifact_params
+from notebooklm._artifact.payloads import (
+    build_audio_artifact_params,
+    build_flashcards_artifact_params,
+    build_quiz_artifact_params,
+)
 from notebooklm._backend import (
     BackendContractError,
     BackendDeadlineExceededError,
@@ -29,6 +33,8 @@ from notebooklm._notebook_payloads import (
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._records import (
     ARTIFACT_GENERATE_AUDIO_DEF,
+    ARTIFACT_GENERATE_FLASHCARDS_DEF,
+    ARTIFACT_GENERATE_QUIZ_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
     NOTE_CREATE_DEF,
@@ -45,6 +51,7 @@ from notebooklm._records import (
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
     AudioGenerateInput,
+    InteractiveGenerateInput,
     NotebookCreateInput,
     NotebookDeleteInput,
     NotebookDeleteResult,
@@ -89,7 +96,7 @@ from notebooklm.exceptions import (
     ServerError,
     UnknownRPCMethodError,
 )
-from notebooklm.rpc import AudioFormat, AudioLength, RPCMethod
+from notebooklm.rpc import AudioFormat, AudioLength, QuizDifficulty, QuizQuantity, RPCMethod
 
 
 @dataclass(frozen=True)
@@ -139,6 +146,8 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_LIST,
         Operation.ARTIFACT_GET,
         Operation.ARTIFACT_GENERATE_AUDIO,
+        Operation.ARTIFACT_GENERATE_QUIZ,
+        Operation.ARTIFACT_GENERATE_FLASHCARDS,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -161,6 +170,8 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.ARTIFACT_LIST: ARTIFACT_LIST_DEF,
         Operation.ARTIFACT_GET: ARTIFACT_GET_DEF,
         Operation.ARTIFACT_GENERATE_AUDIO: ARTIFACT_GENERATE_AUDIO_DEF,
+        Operation.ARTIFACT_GENERATE_QUIZ: ARTIFACT_GENERATE_QUIZ_DEF,
+        Operation.ARTIFACT_GENERATE_FLASHCARDS: ARTIFACT_GENERATE_FLASHCARDS_DEF,
     }
     assert all(
         binding.unsupported_reason
@@ -389,6 +400,152 @@ async def test_noncanonical_definition_and_wrong_input_fail_before_executor() ->
         await backend.invoke(NOTEBOOK_LIST_DEF, NotebookGetInput("nb"), deadline=None)
 
     assert executor.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("definition", "builder"),
+    [
+        (ARTIFACT_GENERATE_QUIZ_DEF, build_quiz_artifact_params),
+        (ARTIFACT_GENERATE_FLASHCARDS_DEF, build_flashcards_artifact_params),
+    ],
+    ids=["quiz", "flashcards"],
+)
+async def test_interactive_generation_preserves_exact_payload_and_deadline(
+    definition: OperationDef[InteractiveGenerateInput, object],
+    builder: Any,
+) -> None:
+    executor = _RecordingExecutor([["task", "Title", 4, None, 1]])
+    backend = _backend(executor)
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 12.0)
+    value = InteractiveGenerateInput(
+        notebook_id="nb",
+        source_ids=("src-a", "src-b"),
+        instructions="Focus on details",
+        quantity="fewer",
+        difficulty="hard",
+    )
+
+    result = await backend.invoke(definition, value, deadline=deadline)
+
+    assert (result.status.task_id, result.status.status) == ("task", "pending")
+    assert len(executor.calls) == 1
+    call = executor.calls[0]
+    assert call.method is RPCMethod.CREATE_ARTIFACT
+    assert call.params == builder(
+        "nb",
+        ["src-a", "src-b"],
+        instructions="Focus on details",
+        quantity=QuizQuantity.FEWER,
+        difficulty=QuizDifficulty.HARD,
+    )
+    assert call.kwargs["read_timeout"] == 3.0
+    assert call.kwargs["_retry_deadline"] is deadline
+
+
+@pytest.mark.asyncio
+async def test_interactive_generation_resolves_omitted_sources_once_with_same_deadline() -> None:
+    executor = _RecordingExecutor(
+        [["Notebook", [[["src-a"], "A"], [["src-b"], "B"]], "nb"]],
+        [["task", "Title", 4, None, 2]],
+    )
+    deadline = RuntimeDeadline(timeout=8.0, started_at=10.0, monotonic=lambda: 12.0)
+
+    result = await _backend(executor).invoke(
+        ARTIFACT_GENERATE_QUIZ_DEF,
+        InteractiveGenerateInput("nb", None, None, None, None),
+        deadline=deadline,
+    )
+
+    assert result.status.status == "in_progress"
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.GET_NOTEBOOK,
+        RPCMethod.CREATE_ARTIFACT,
+    ]
+    assert executor.calls[1].params == build_quiz_artifact_params(
+        "nb",
+        ["src-a", "src-b"],
+        instructions=None,
+        quantity=None,
+        difficulty=None,
+    )
+    assert all(call.kwargs["_retry_deadline"] is deadline for call in executor.calls)
+
+
+@pytest.mark.asyncio
+async def test_interactive_source_resolution_preserves_schema_drift_warning(caplog) -> None:
+    executor = _RecordingExecutor(
+        [["Notebook"]],
+        [["task", "Title", 4, None, 1]],
+    )
+
+    with caplog.at_level("WARNING", logger="notebooklm._notebooks"):
+        await _backend(executor).invoke(
+            ARTIFACT_GENERATE_FLASHCARDS_DEF,
+            InteractiveGenerateInput("nb-short", None, None, None, None),
+            deadline=None,
+        )
+
+    assert executor.calls[1].params == build_flashcards_artifact_params(
+        "nb-short",
+        [],
+        instructions=None,
+        quantity=None,
+        difficulty=None,
+    )
+    assert any(
+        "schema drift" in record.message and "nb-short" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "value",
+    [
+        InteractiveGenerateInput("nb", (), None, "future", None),
+        InteractiveGenerateInput("nb", (), None, None, "future"),
+    ],
+)
+async def test_interactive_generation_rejects_unknown_neutral_options_before_rpc(
+    value: InteractiveGenerateInput,
+) -> None:
+    executor = _RecordingExecutor()
+
+    with pytest.raises(BackendContractError, match="unrecognized interactive"):
+        await _backend(executor).invoke(ARTIFACT_GENERATE_QUIZ_DEF, value, deadline=None)
+
+    assert executor.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("definition", "response", "artifact_type"),
+    [
+        (ARTIFACT_GENERATE_QUIZ_DEF, None, "quiz"),
+        (ARTIFACT_GENERATE_FLASHCARDS_DEF, None, "flashcards"),
+        (ARTIFACT_GENERATE_QUIZ_DEF, [[None]], "artifact"),
+    ],
+    ids=["quiz-null-result", "flashcards-null-result", "null-task-id"],
+)
+async def test_interactive_generation_null_feature_reconstructs_exact_public_error(
+    definition: OperationDef[InteractiveGenerateInput, object],
+    response: object,
+    artifact_type: str,
+) -> None:
+    executor = _RecordingExecutor(response)
+
+    with pytest.raises(BackendError) as caught:
+        await _backend(executor).invoke(
+            definition,
+            InteractiveGenerateInput("nb", (), None, None, None),
+            deadline=None,
+        )
+
+    projected = project_backend_error(caught.value)
+    assert type(projected) is ArtifactFeatureUnavailableError
+    assert projected.artifact_type == artifact_type
+    assert projected.method_id == RPCMethod.CREATE_ARTIFACT.value
 
 
 @pytest.mark.asyncio

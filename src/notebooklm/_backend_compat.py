@@ -331,6 +331,24 @@ def project_backend_error(error: BackendError) -> Exception:
                 ),
             ),
         )
+    if reason is BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE:
+        artifact_type = _optional(error, diagnostics, "artifact_type", str)
+        if artifact_type is None:
+            raise BackendContractError(
+                "artifact-feature-unavailable compatibility error lacks artifact_type",
+                operation=error.operation,
+            )
+        return _preserve_outcome(
+            error,
+            ArtifactFeatureUnavailableError(
+                cast(str, artifact_type),
+                method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
+                raw_response=cast(
+                    str | None,
+                    _optional(error, diagnostics, "raw_response", str),
+                ),
+            ),
+        )
 
     rpc = _rpc_diagnostics(error)
     if reason is BackendErrorReason.AUTH:

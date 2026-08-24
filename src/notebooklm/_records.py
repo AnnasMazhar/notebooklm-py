@@ -603,6 +603,24 @@ class AudioGenerateResult:
 
 
 @dataclass(frozen=True, slots=True)
+class InteractiveGenerateInput:
+    """Quiz or flashcard generation options without web enum vocabulary."""
+
+    notebook_id: str
+    source_ids: tuple[str, ...] | None = None
+    instructions: str | None = field(default=None, repr=False)
+    quantity: str | None = None
+    difficulty: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InteractiveGenerateResult:
+    """Quiz or flashcard generation kickoff result."""
+
+    status: GenerationStatusRecord
+
+
+@dataclass(frozen=True, slots=True)
 class AudioMetadataRecord:
     """Audio readiness and representation metadata derived from one catalog row."""
 
@@ -614,6 +632,18 @@ class AudioMetadataRecord:
     duration_seconds: float | None = None
     generation_prompt: str | None = field(default=None, repr=False)
     created_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InteractiveMetadataRecord:
+    """Interactive-family readiness and per-user study metadata."""
+
+    artifact_id: str
+    family: str
+    lifecycle_status: str
+    usable: bool
+    generation_prompt: str | None = field(default=None, repr=False)
+    user_state: ArtifactUserStateRecord | None = field(default=None, repr=False)
 
 
 NOTEBOOK_LIST_DEF: OperationDef[NotebookListInput, NotebookListResult] = OperationDef(
@@ -672,6 +702,22 @@ ARTIFACT_GENERATE_AUDIO_DEF: OperationDef[AudioGenerateInput, AudioGenerateResul
     AudioGenerateInput,
     AudioGenerateResult,
 )
+ARTIFACT_GENERATE_QUIZ_DEF: OperationDef[InteractiveGenerateInput, InteractiveGenerateResult] = (
+    OperationDef(
+        Operation.ARTIFACT_GENERATE_QUIZ,
+        CallPolicy.STATEFUL_START,
+        InteractiveGenerateInput,
+        InteractiveGenerateResult,
+    )
+)
+ARTIFACT_GENERATE_FLASHCARDS_DEF: OperationDef[
+    InteractiveGenerateInput, InteractiveGenerateResult
+] = OperationDef(
+    Operation.ARTIFACT_GENERATE_FLASHCARDS,
+    CallPolicy.STATEFUL_START,
+    InteractiveGenerateInput,
+    InteractiveGenerateResult,
+)
 SOURCE_GET_DEF: OperationDef[SourceGetInput, SourceGetResult] = OperationDef(
     Operation.SOURCE_GET,
     CallPolicy.MUTATION,
@@ -719,6 +765,8 @@ NOTE_DELETE_DEF: OperationDef[NoteDeleteInput, NoteDeleteResult] = OperationDef(
 __all__ = [
     "ARTIFACT_GET_DEF",
     "ARTIFACT_GENERATE_AUDIO_DEF",
+    "ARTIFACT_GENERATE_FLASHCARDS_DEF",
+    "ARTIFACT_GENERATE_QUIZ_DEF",
     "ARTIFACT_LIST_DEF",
     "NOTEBOOK_GET_DEF",
     "NOTEBOOK_LIST_DEF",
@@ -747,6 +795,9 @@ __all__ = [
     "AudioMetadataRecord",
     "CollectionRecord",
     "GenerationStatusRecord",
+    "InteractiveGenerateInput",
+    "InteractiveGenerateResult",
+    "InteractiveMetadataRecord",
     "LabelRecord",
     "NotebookChatSessionRecord",
     "NotebookChatSettingsRecord",

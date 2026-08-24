@@ -122,21 +122,23 @@ _GENERATION_OPERATIONS = {
     Operation.ARTIFACT_GENERATE_DATA_TABLE: "artifact_type=data-table",
 }
 for _operation, _discriminator in _GENERATION_OPERATIONS.items():
-    _create_site = (
-        "_web/backend.py:WebRpcBackend._audio_generate"
-        if _operation is Operation.ARTIFACT_GENERATE_AUDIO
-        else "_artifact/generation.py:ArtifactGenerationService._call_generate"
-    )
-    _source_site = (
-        "_web/backend.py:WebRpcBackend._audio_generate"
-        if _operation is Operation.ARTIFACT_GENERATE_AUDIO
-        else "_notebooks.py:NotebooksAPI.get_raw"
-    )
+    if _operation is Operation.ARTIFACT_GENERATE_AUDIO:
+        _family_site = "_web/backend.py:WebRpcBackend._audio_generate"
+    elif _operation in {
+        Operation.ARTIFACT_GENERATE_QUIZ,
+        Operation.ARTIFACT_GENERATE_FLASHCARDS,
+    }:
+        _family_site = "_web/backend.py:WebRpcBackend._interactive_generate"
+    else:
+        _family_site = None
     SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.CREATE_ARTIFACT))] = _rules(
-        (_create_site, _discriminator)
+        (
+            _family_site or "_artifact/generation.py:ArtifactGenerationService._call_generate",
+            _discriminator,
+        )
     )
     SHARED_RPC_AUTHORITY_RULES[(_operation, _b(RPCMethod.GET_NOTEBOOK))] = _rules(
-        (_source_site, "source_ids is None")
+        (_family_site or "_notebooks.py:NotebooksAPI.get_raw", "source_ids is None")
     )
 
 SHARED_RPC_AUTHORITY_RULES.update(
@@ -346,7 +348,15 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             1,
             "public_call",
             "one only when source_ids is omitted",
-            (_GET_RAW,),
+            (
+                "_web/backend.py:WebRpcBackend._interactive_generate"
+                if _operation
+                in {
+                    Operation.ARTIFACT_GENERATE_QUIZ,
+                    Operation.ARTIFACT_GENERATE_FLASHCARDS,
+                }
+                else _GET_RAW,
+            ),
         ),
     ),
     Operation.SOURCE_LIST: (
@@ -441,6 +451,15 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
 }
 
 for _operation in (*_GENERATION_OPERATIONS, Operation.ARTIFACT_GENERATE_MIND_MAP):
+    if _operation is Operation.ARTIFACT_GENERATE_AUDIO:
+        _recency_site = "_web/backend.py:WebRpcBackend._audio_generate"
+    elif _operation in {
+        Operation.ARTIFACT_GENERATE_QUIZ,
+        Operation.ARTIFACT_GENERATE_FLASHCARDS,
+    }:
+        _recency_site = "_web/backend.py:WebRpcBackend._interactive_generate"
+    else:
+        _recency_site = _GET_RAW
     RECENCY_CONTRACTS[_operation] = (
         RecencyRule(
             next(spec.public_methods for spec in OPERATION_SPECS if spec.operation is _operation),
@@ -448,11 +467,7 @@ for _operation in (*_GENERATION_OPERATIONS, Operation.ARTIFACT_GENERATE_MIND_MAP
             1,
             "public_call",
             "one only when source_ids is omitted",
-            (
-                "_web/backend.py:WebRpcBackend._audio_generate"
-                if _operation is Operation.ARTIFACT_GENERATE_AUDIO
-                else _GET_RAW,
-            ),
+            (_recency_site,),
         ),
     )
 for _operation, _kind in (

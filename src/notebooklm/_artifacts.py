@@ -9,7 +9,7 @@ import builtins
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 # ``_mind_map`` re-exported as ``_artifacts._mind_map`` for legacy monkeypatch seams (runtime uses injected services).
 from . import _mind_map  # noqa: F401 — re-exported as facade attribute
@@ -28,10 +28,10 @@ from ._note_service import LegacyNoteBackedService
 from ._notebook_metadata import NotebookSourceIdProvider
 from ._polling_registry import PollRegistry
 from ._projectors import project_artifact, project_generation_status, project_report_suggestion
-from ._records import AudioGenerateInput
+from ._records import AudioGenerateInput, InteractiveGenerateInput
 from ._row_adapters import artifacts as _artifact_rows
 from ._runtime.contracts import RpcCaller
-from ._studio import AudioFamilyService, StudioCatalog
+from ._studio import AudioFamilyService, InteractiveFamilyService, StudioCatalog
 from ._types.research import MindMapResult
 from ._web.codec.artifacts import decode_report_suggestion
 from .exceptions import (
@@ -39,6 +39,7 @@ from .exceptions import (
     ArtifactNotReadyError,
     ArtifactParseError,
     DecodingError,
+    ValidationError,
 )
 
 if TYPE_CHECKING:
@@ -70,6 +71,24 @@ from .types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _interactive_option_name(
+    value: object | None,
+    expected: type[QuizQuantity] | type[QuizDifficulty],
+    *,
+    parameter: str,
+) -> str | None:
+    """Validate the public enum before crossing the neutral family boundary."""
+
+    if value is None:
+        return None
+    if not isinstance(value, expected):
+        raise ValidationError(
+            f"{parameter} must be a {expected.__name__} member or None, got "
+            f"{value!r} ({type(value).__name__})"
+        )
+    return cast(QuizQuantity | QuizDifficulty, value).name.lower()
 
 
 class ArtifactsAPI:
@@ -132,6 +151,11 @@ class ArtifactsAPI:
         self._catalog = StudioCatalog(_backend) if _backend is not None else None
         self._audio = (
             AudioFamilyService(_backend, self._catalog)
+            if _backend is not None and self._catalog is not None
+            else None
+        )
+        self._interactive = (
+            InteractiveFamilyService(_backend, self._catalog)
             if _backend is not None and self._catalog is not None
             else None
         )
@@ -273,11 +297,27 @@ class ArtifactsAPI:
 
     async def list_quizzes(self, notebook_id: str) -> builtins.list[Artifact]:
         """List quiz artifacts."""
-        return await self.list(notebook_id, ArtifactType.QUIZ)
+        if self._interactive is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            return [
+                project_artifact(record)
+                for record in await self._interactive.list_quizzes(notebook_id)
+            ]
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def list_flashcards(self, notebook_id: str) -> builtins.list[Artifact]:
         """List flashcard artifacts."""
-        return await self.list(notebook_id, ArtifactType.FLASHCARDS)
+        if self._interactive is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            return [
+                project_artifact(record)
+                for record in await self._interactive.list_flashcards(notebook_id)
+            ]
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def list_infographics(self, notebook_id: str) -> builtins.list[Artifact]:
         """List infographic artifacts."""
@@ -406,13 +446,28 @@ class ArtifactsAPI:
         difficulty: QuizDifficulty | None = None,
     ) -> GenerationStatus:
         """Generate a quiz."""
-        return await self._generation.generate_quiz(
-            notebook_id,
-            source_ids=source_ids,
+        if self._interactive is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        value = InteractiveGenerateInput(
+            notebook_id=notebook_id,
+            source_ids=None if source_ids is None else tuple(source_ids),
             instructions=instructions,
-            quantity=quantity,
-            difficulty=difficulty,
+            quantity=_interactive_option_name(
+                quantity,
+                QuizQuantity,
+                parameter="quantity",
+            ),
+            difficulty=_interactive_option_name(
+                difficulty,
+                QuizDifficulty,
+                parameter="difficulty",
+            ),
         )
+        try:
+            result = await self._interactive.generate_quiz(value)
+        except BackendError as error:
+            raise project_backend_error(error) from None
+        return project_generation_status(result.status)
 
     async def generate_flashcards(
         self,
@@ -423,13 +478,28 @@ class ArtifactsAPI:
         difficulty: QuizDifficulty | None = None,
     ) -> GenerationStatus:
         """Generate flashcards."""
-        return await self._generation.generate_flashcards(
-            notebook_id,
-            source_ids=source_ids,
+        if self._interactive is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        value = InteractiveGenerateInput(
+            notebook_id=notebook_id,
+            source_ids=None if source_ids is None else tuple(source_ids),
             instructions=instructions,
-            quantity=quantity,
-            difficulty=difficulty,
+            quantity=_interactive_option_name(
+                quantity,
+                QuizQuantity,
+                parameter="quantity",
+            ),
+            difficulty=_interactive_option_name(
+                difficulty,
+                QuizDifficulty,
+                parameter="difficulty",
+            ),
         )
+        try:
+            result = await self._interactive.generate_flashcards(value)
+        except BackendError as error:
+            raise project_backend_error(error) from None
+        return project_generation_status(result.status)
 
     async def generate_infographic(
         self,

@@ -149,6 +149,38 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
             ),
             known_divergence=_APP_GENERATION_DIVERGENCE,
         ),
+        Operation.ARTIFACT_GENERATE_QUIZ: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(
+                    RPCMethod.GET_NOTEBOOK,
+                    _IDEMPOTENT,
+                    "conditional default-source resolution",
+                ),
+                _native(
+                    RPCMethod.CREATE_ARTIFACT,
+                    _PROBE_CREATE,
+                    "quiz artifact allocation",
+                ),
+            ),
+            known_divergence=_APP_GENERATION_DIVERGENCE,
+        ),
+        Operation.ARTIFACT_GENERATE_FLASHCARDS: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (
+                _native(
+                    RPCMethod.GET_NOTEBOOK,
+                    _IDEMPOTENT,
+                    "conditional default-source resolution",
+                ),
+                _native(
+                    RPCMethod.CREATE_ARTIFACT,
+                    _PROBE_CREATE,
+                    "flashcards artifact allocation",
+                ),
+            ),
+            known_divergence=_APP_GENERATION_DIVERGENCE,
+        ),
         Operation.NOTE_LIST: WebCallPolicyBinding(
             CallPolicy.READ,
             (
