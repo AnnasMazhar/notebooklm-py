@@ -19,6 +19,7 @@ from notebooklm.exceptions import SourceNotFoundError
 from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import SourceStatus
 from notebooklm.types import Source, SourceType
+from tests._fixtures.web_backend import build_web_backend
 
 
 def _source_entry(
@@ -87,7 +88,12 @@ async def test_notebook_reads_pin_requests_projection_and_backend_order() -> Non
             [["Details", [], "nb-1"]],
         ]
     )
-    api = NotebooksAPI(MagicMock(rpc_call=rpc_call), sources_api=MagicMock())
+    rpc = MagicMock(rpc_call=rpc_call)
+    api = NotebooksAPI(
+        rpc,
+        sources_api=MagicMock(),
+        _backend=build_web_backend(rpc),
+    )
 
     listed = await api.list()
     fetched = await api.get("nb-1")
@@ -101,12 +107,27 @@ async def test_notebook_reads_pin_requests_projection_and_backend_order() -> Non
         RPCMethod.LIST_NOTEBOOKS,
         [None, 1, None, [2]],
     )
-    assert rpc_call.await_args_list[0].kwargs == {}
+    common_backend_kwargs = {
+        "allow_null": False,
+        "_is_retry": False,
+        "disable_internal_retries": False,
+        "operation_variant": None,
+        "read_timeout": None,
+        "raise_on_null_status": False,
+        "_retry_deadline": None,
+    }
+    assert rpc_call.await_args_list[0].kwargs == {
+        "source_path": "/",
+        **common_backend_kwargs,
+    }
     assert rpc_call.await_args_list[1].args == (
         RPCMethod.GET_NOTEBOOK,
         build_get_notebook_params("nb-1"),
     )
-    assert rpc_call.await_args_list[1].kwargs == {"source_path": "/notebook/nb-1"}
+    assert rpc_call.await_args_list[1].kwargs == {
+        "source_path": "/notebook/nb-1",
+        **common_backend_kwargs,
+    }
 
 
 @pytest.mark.asyncio

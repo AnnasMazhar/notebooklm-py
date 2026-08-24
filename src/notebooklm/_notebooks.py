@@ -1,9 +1,10 @@
 """Notebook operations API."""
 
 import logging
-import reprlib
 from typing import Any
 
+from ._backend import BackendAdapter, BackendError
+from ._backend_compat import project_backend_error
 from ._idempotency import idempotent_create
 from ._idempotency import mark_unconfirmed as _unconfirmed
 from ._notebook_metadata import (
@@ -18,6 +19,7 @@ from ._notebook_payloads import (
     build_prompt_suggestions_params,
     build_update_notebook_params,
 )
+from ._read_services import NotebookReadService
 from ._row_adapters.notebooks import PromptSuggestionRow, unwrap_prompt_suggestions
 from ._row_adapters.sources import SourceRow
 from ._runtime.contracts import RpcCaller
@@ -26,7 +28,6 @@ from ._sharing_manager import ShareManager
 from .exceptions import (
     AuthError,
     ClientError,
-    DecodingError,
     NetworkError,
     NotebookLimitError,
     NotebookNotFoundError,
@@ -214,6 +215,7 @@ class NotebooksAPI:
         *,
         metadata_service: NotebookMetadataService | None = None,
         share_manager: ShareManager | None = None,
+        _backend: BackendAdapter | None = None,
     ) -> None:
         """Initialize the notebooks API.
 
@@ -222,8 +224,10 @@ class NotebooksAPI:
             sources_api: Optional source lister for cross-API metadata composition.
             metadata_service: Optional explicit metadata service for tests or advanced wiring.
             share_manager: Optional explicit legacy share manager for tests or advanced wiring.
+            _backend: Private semantic backend supplied by the client composition root.
         """
         self._rpc = rpc
+        self._read_service = NotebookReadService(_backend) if _backend is not None else None
         self._sources = sources_api or create_default_source_lister(self._rpc)
         self._metadata_service = metadata_service or NotebookMetadataService(
             # Keep notebook lookup late-bound so tests and advanced callers that
@@ -239,6 +243,12 @@ class NotebooksAPI:
         # entry is popped on first use; closing the client releases any hints
         # from notebooks that were created without a subsequent ask.
         self._created_chat_session_ids: dict[str, str] = {}
+
+    def _require_read_service(self) -> NotebookReadService:
+        """Return the composition-root service for the migrated read slice."""
+        if self._read_service is None:
+            raise RuntimeError("NotebooksAPI semantic read backend was not configured")
+        return self._read_service
 
     def _take_created_chat_session_id(self, notebook_id: str) -> str | None:
         """Consume CREATE_NOTEBOOK's volunteered current chat-session id."""
@@ -478,39 +488,16 @@ class NotebooksAPI:
             List of Notebook objects.
         """
         logger.debug("Listing notebooks")
-        params = [None, 1, None, [2]]
-        result = await self._rpc.rpc_call(RPCMethod.LIST_NOTEBOOKS, params)
-
-        # LIST_NOTEBOOKS responses arrive as a single-element envelope whose
-        # first element is the notebook-row list (``[[row1, row2, ...]]``).
-        # The wrap probe mirrors the fail-loud dispatch in
-        # ``_artifact/listing.py::list_raw``: an empty/``None`` payload and a
-        # ``None`` row-list slot are legitimate "no notebooks" shapes (soft
-        # ``[]``), while a truthy payload that doesn't match the envelope — a
-        # non-list payload, or a truthy non-list where the row list belongs —
-        # is schema drift and raises ``DecodingError`` instead of flowing
-        # garbage rows into ``Notebook.from_api_response`` (which would
-        # silently fabricate empty-id notebooks).
-        if not result:
-            return []
-        if isinstance(result, list):
-            # ``result`` is a non-empty list here (guarded above), so this ``[0]``
-            # read cannot fail; ``safe_index`` keeps the envelope-unwrap position
-            # knowledge on the sanctioned schema-drift seam.
-            raw_notebooks = safe_index(
-                result, 0, method_id=RPCMethod.LIST_NOTEBOOKS.value, source="NotebooksAPI.list"
-            )
-            if isinstance(raw_notebooks, list):
-                return [Notebook.from_api_response(nb) for nb in raw_notebooks]
-            if raw_notebooks is None:
-                return []
-        raise DecodingError(
-            "Unrecognized LIST_NOTEBOOKS payload shape",
-            # reprlib bounds the preview without materialising the full repr
-            # of a large/deep payload (mirrors safe_index's own truncation).
-            raw_response=reprlib.repr(result),
-            method_id=RPCMethod.LIST_NOTEBOOKS.value,
-        )
+        public_error: Exception | None = None
+        try:
+            return await self._require_read_service().list()
+        except BackendError as error:
+            # WebRpcBackend deliberately exposes only the neutral BackendError
+            # vocabulary. At this public compatibility facade, reconstruct the
+            # exact pre-migration RPC/Network exception class and its reviewed
+            # structured diagnostics without reaching through ``__cause__``.
+            public_error = project_backend_error(error)
+        raise public_error
 
     async def create(self, title: str) -> Notebook:
         """Create a new notebook.
@@ -808,14 +795,13 @@ class NotebooksAPI:
                 empty / degenerate payload with no RPC error at all, which the
                 post-validation further down still catches.
         """
-        params = build_get_notebook_params(notebook_id)
+        public_error: Exception | None = None
         try:
-            result = await self._rpc.rpc_call(
-                RPCMethod.GET_NOTEBOOK,
-                params,
-                source_path=f"/notebook/{notebook_id}",
-            )
-        except ClientError as exc:
+            notebook = await self._require_read_service().get(notebook_id)
+        except BackendError as error:
+            public_error = project_backend_error(error)
+
+        if isinstance(public_error, ClientError):
             # Translate the status-5 rejection into this method's documented
             # miss signal: ``ClientError`` and ``NotebookNotFoundError`` are
             # siblings under ``RPCError``, not ancestor/descendant, so
@@ -828,40 +814,18 @@ class NotebooksAPI:
             # "belongs to a different signed-in account" (#114 / #294),
             # ``server/_errors.py`` promises the 404 body keeps that verbatim,
             # and every adapter renders ``str(exc)``.
-            if normalize_grpc_status(exc.rpc_code) is GrpcStatusCode.NOT_FOUND:
+            if normalize_grpc_status(public_error.rpc_code) is GrpcStatusCode.NOT_FOUND:
                 raise NotebookNotFoundError(
                     notebook_id,
                     method_id=RPCMethod.GET_NOTEBOOK.value,
-                    raw_response=exc.raw_response,
-                    rpc_code=exc.rpc_code,
-                    found_ids=exc.found_ids,
-                    detail=str(exc),
-                ) from exc
-            raise
-        # get_notebook returns [nb_info, ...] where nb_info contains the notebook
-        # data. The ``[0]`` read is fully guarded (truthy + list + non-empty), so
-        # ``safe_index`` cannot raise here; it keeps the envelope-unwrap position
-        # on the sanctioned schema-drift seam.
-        nb_info = (
-            safe_index(result, 0, method_id=RPCMethod.GET_NOTEBOOK.value, source="NotebooksAPI.get")
-            if result and isinstance(result, list) and len(result) > 0
-            else []
-        )
-        # Guard the empty-payload case BEFORE parsing. ``Notebook.from_api_response``
-        # currently tolerates ``[]`` but a future tightening could turn that into
-        # an ``IndexError`` that would surface as a confusing crash instead of
-        # the intended ``NotebookNotFoundError``. Raising here keeps the contract
-        # stable regardless of how the parser evolves.
-        if not nb_info:
-            raise NotebookNotFoundError(
-                notebook_id,
-                method_id=RPCMethod.GET_NOTEBOOK.value,
-            )
-        notebook = Notebook.from_api_response(nb_info, include_chat_settings=True)
-        # Defense-in-depth: even when the outer list isn't empty, the server can
-        # return a payload whose id and title both parse to ``""``. A valid
-        # notebook always has at least one of the two populated.
-        if not notebook.id and not notebook.title:
+                    raw_response=public_error.raw_response,
+                    rpc_code=public_error.rpc_code,
+                    found_ids=public_error.found_ids,
+                    detail=str(public_error),
+                ) from public_error
+        if public_error is not None:
+            raise public_error
+        if notebook is None:
             raise NotebookNotFoundError(
                 notebook_id,
                 method_id=RPCMethod.GET_NOTEBOOK.value,
@@ -883,7 +847,7 @@ class NotebooksAPI:
         under a *different* signed-in account (#114 / #294), so the
         account-routing guidance is unobservable on this API by construction.
         Use :meth:`get` when that matters — it raises with the guidance in the
-        message, the ``rpc_code``, and the original rejection as ``__cause__``.
+        message, the ``rpc_code``, and the reconstructed rejection as ``__cause__``.
         ``PERMISSION_DENIED`` is folded in neither place.
 
         Args:

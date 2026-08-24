@@ -64,6 +64,7 @@ from notebooklm.exceptions import (
     NoteNotFoundError,
     SourceNotFoundError,
 )
+from tests._fixtures.web_backend import build_web_backend
 
 # This behavioural table is the executable companion of the static
 # ``LOOKUP_NAMESPACES`` set in ``test_public_api_contract.py``: the same six
@@ -157,7 +158,11 @@ def _make_notebooks_api() -> NotebooksAPI:
     # ``notebooks.get`` post-validates into ``NotebookNotFoundError`` — so this
     # factory is already arranged for a miss (see ``_arrange_notebooks_miss``).
     core = make_fake_core(rpc_call=AsyncMock(return_value=[[]]))
-    return NotebooksAPI(core.rpc_executor, sources_api=MagicMock())
+    return NotebooksAPI(
+        core.rpc_executor,
+        sources_api=MagicMock(),
+        _backend=build_web_backend(core.rpc_executor),
+    )
 
 
 def _arrange_list_miss(api: object) -> None:

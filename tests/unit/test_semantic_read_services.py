@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from notebooklm._deadline import RuntimeDeadline
+from notebooklm._notebooks import NotebooksAPI
 from notebooklm._operations import Operation
 from notebooklm._projectors import project_notebook, project_source
 from notebooklm._read_services import NotebookReadService, SourceReadService
@@ -215,3 +217,31 @@ async def test_read_services_preserve_semantic_not_found_results() -> None:
 
     assert await NotebookReadService(backend).get("missing-notebook") is None
     assert await SourceReadService(backend).get("notebook-id", "missing-source") is None
+
+
+@pytest.mark.asyncio
+async def test_notebooks_facade_delegates_live_reads_without_parallel_rpc_calls() -> None:
+    notebook = _notebook_record()
+    backend = RecordingBackend()
+    backend.set_result(NOTEBOOK_LIST_DEF, NotebookListResult((notebook,)))
+    backend.set_result(NOTEBOOK_GET_DEF, NotebookGetResult(notebook))
+    rpc_call = AsyncMock()
+    api = NotebooksAPI(
+        MagicMock(rpc_call=rpc_call),
+        sources_api=MagicMock(),
+        _backend=backend,
+    )
+
+    listed = await api.list()
+    fetched = await api.get("notebook-id")
+    optional = await api.get_or_none("notebook-id")
+
+    assert [item.id for item in listed] == ["notebook-id"]
+    assert fetched.id == "notebook-id"
+    assert optional is not None and optional.id == "notebook-id"
+    assert [invocation.operation for invocation in backend.invocations] == [
+        Operation.NOTEBOOK_LIST,
+        Operation.NOTEBOOK_GET,
+        Operation.NOTEBOOK_GET,
+    ]
+    rpc_call.assert_not_awaited()

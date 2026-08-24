@@ -1,7 +1,7 @@
 """Web implementation of the private semantic backend port.
 
-P1 assembles this backend without routing a production feature through it.
-Its four P2.1 handlers intentionally reuse the current request builders,
+P1 assembles this backend, and P2.1 routes notebook reads through its first two
+handlers. Its four P2.1 bindings intentionally reuse the current request builders,
 strict row adapters, and public-model decoders until the P3 codec split.
 Removal: P3 replaces the compatibility model-to-record projections below with
 direct wire-to-record codecs; the backend and its semantic port remain.
@@ -452,7 +452,11 @@ class WebRpcBackend:
                 operation=operation,
             ) from exc
         return BackendError(
-            message=str(exc),
+            # Structured subclasses such as UnknownRPCMethodError append their
+            # diagnostic fields in ``__str__``. Store only the base message so
+            # the compatibility projector can reattach those fields exactly
+            # once instead of duplicating the rendered suffix.
+            message=str(exc.args[0]) if exc.args else "",
             operation=operation,
             outcome_unknown=False,
             diagnostics=cls._error_diagnostics(exc, reason),

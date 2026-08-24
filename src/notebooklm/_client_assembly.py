@@ -362,7 +362,11 @@ def _assemble_client(
         upload_timeout=upload_timeout,
         max_concurrent_uploads=max_concurrent_uploads,
     )
-    client.notebooks = NotebooksAPI(internals.executor, sources_api=client.sources)
+    client.notebooks = NotebooksAPI(
+        internals.executor,
+        sources_api=client.sources,
+        _backend=client._backend,
+    )
     # Note wiring (see docs/refactor-history.md): an explicit
     # NoteService + NoteBackedMindMapService split. NoteService owns the
     # raw row primitives; NoteBackedMindMapService is the mind-map-only

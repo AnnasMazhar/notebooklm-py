@@ -131,6 +131,10 @@ def test_shared_wiring_identities_hold_on_both_paths() -> None:
         assert getattr(client._backend, "_executor", _missing) is client._rpc_executor, (
             f"{label}: the private WebRpcBackend must share the client's RpcExecutor"
         )
+        assert (
+            getattr(getattr(client.notebooks, "_read_service", None), "_backend", _missing)
+            is client._backend
+        ), f"{label}: notebook reads must share the client-owned semantic backend"
         assert getattr(client._source_uploader, "_auth", _missing) is client._auth, (
             f"{label}: the upload pipeline (SourceUploadPipeline._auth) must alias "
             "the client-owned AuthTokens (ADR-0016 Auth Instance Invariant)"

@@ -29,6 +29,7 @@ from notebooklm._notes import NotesAPI
 from notebooklm._sources import SourcesAPI
 from notebooklm.exceptions import ClientError, NotebookNotFoundError, RPCError
 from notebooklm.types import MindMap, MindMapKind, Source
+from tests._fixtures.web_backend import build_web_backend
 
 # ---------------------------------------------------------------------------
 # unwrap_or_raise helper (in isolation)
@@ -66,7 +67,11 @@ def _make_notebooks_api(rpc_call: AsyncMock) -> NotebooksAPI:
     from tests._fixtures.fake_core import make_fake_core
 
     core = make_fake_core(rpc_call=rpc_call)
-    return NotebooksAPI(core.rpc_executor, sources_api=MagicMock())
+    return NotebooksAPI(
+        core.rpc_executor,
+        sources_api=MagicMock(),
+        _backend=build_web_backend(core.rpc_executor),
+    )
 
 
 @pytest.fixture
@@ -217,7 +222,11 @@ class TestNotebooksGetOrNone:
         # branch on the code without re-reading the chained cause.
         assert raised.rpc_code == 5
         assert raised.raw_response == "wire-bytes"
-        assert raised.__cause__ is original
+        assert type(raised.__cause__) is ClientError
+        assert raised.__cause__ is not original
+        assert raised.__cause__.args == original.args
+        assert raised.__cause__.rpc_code == original.rpc_code
+        assert raised.__cause__.raw_response == original.raw_response
 
     @pytest.mark.asyncio
     async def test_plain_absence_message_has_no_trailing_separator(self):

@@ -1016,6 +1016,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_client_metrics.py` | `ClientMetrics` — `ClientMetricsSnapshot` counters + `on_rpc_event` callback |
 | `_transport_drain.py` | `TransportDrainTracker` — in-flight transport counters + `_TransportOperationToken` |
 | `_deadline.py` | `RuntimeDeadline` helper shared by retry and polling loops so aggregate timeouts clamp sleep consistently |
+| `_backend_compat.py` | Private compatibility projector from closed semantic `BackendErrorReason` + safe diagnostics back to the existing public exception subclasses at migrated facade boundaries. |
 | `_backend.py` | Private protocol-neutral semantic port: backend kind/capabilities, typed `BackendAdapter.invoke`, and the minimal scrubbed error/deadline handoff used by the P2 slice. |
 | `_records.py` | Frozen, slotted, protocol-neutral input/output records and `OperationDef` values for the P2.1 notebook/source list/get slice. |
 | `_backoff.py` | Shared capped exponential-backoff calculation with deterministic test injection |
@@ -1165,6 +1166,7 @@ src/notebooklm/
 ├── _atomic_io.py                # Atomic JSON write/update helpers
 ├── _auth_refresh_retry.py       # Shared auth refresh-and-retry core (RefreshBudget + refresh_and_count) for both retry layers
 ├── _backend.py                  # Private semantic backend port, capabilities, errors, and deadline handoff (P1)
+├── _backend_compat.py           # Closed backend-error to legacy public-exception projector (P2)
 ├── _backoff.py                  # Shared retry backoff calculation
 ├── _callbacks.py                # Sync/async callback invocation helper
 ├── _client_assembly.py          # Shared client-assembly seam (constructor + test factory)

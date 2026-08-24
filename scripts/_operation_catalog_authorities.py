@@ -51,26 +51,29 @@ class AppAuthoritySourceContract:
 # derived directly; every shared operation/binding must appear here.
 SHARED_RPC_AUTHORITY_RULES: dict[tuple[Operation, NativeKey], tuple[AuthorityRule, ...]] = {
     (Operation.NOTEBOOK_LIST, _b(RPCMethod.LIST_NOTEBOOKS)): _rules(
-        ("_notebooks.py:NotebooksAPI.list", "public=notebooks.list")
+        ("_web/backend.py:WebRpcBackend._notebook_list", "public=notebooks.list")
     ),
     (Operation.NOTEBOOK_CREATE, _b(RPCMethod.LIST_NOTEBOOKS)): _rules(
-        ("_notebooks.py:NotebooksAPI.list", "pre-create baseline/probe or quota verification")
+        (
+            "_web/backend.py:WebRpcBackend._notebook_list",
+            "pre-create baseline/probe or quota verification",
+        )
     ),
     (Operation.COLLECTION_NOTEBOOKS, _b(RPCMethod.LIST_NOTEBOOKS)): _rules(
-        ("_notebooks.py:NotebooksAPI.list", "collection membership expansion")
+        ("_web/backend.py:WebRpcBackend._notebook_list", "collection membership expansion")
     ),
     (Operation.NOTEBOOK_GET, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_notebooks.py:NotebooksAPI.get", "typed notebook lookup"),
+        ("_web/backend.py:WebRpcBackend._notebook_get", "typed notebook lookup"),
         ("_notebooks.py:NotebooksAPI.get_raw", "raw/source-id notebook lookup"),
     ),
     (Operation.NOTEBOOK_CREATE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_notebooks.py:NotebooksAPI.get", "null-timestamp backfill only")
+        ("_web/backend.py:WebRpcBackend._notebook_get", "null-timestamp backfill only")
     ),
     (Operation.NOTEBOOK_UPDATE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_notebooks.py:NotebooksAPI.get", "unconditional post-mutation read")
+        ("_web/backend.py:WebRpcBackend._notebook_get", "unconditional post-mutation read")
     ),
     (Operation.NOTEBOOK_METADATA, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_notebooks.py:NotebooksAPI.get", "metadata notebook branch"),
+        ("_web/backend.py:WebRpcBackend._notebook_get", "metadata notebook branch"),
         ("_source/listing.py:SourceLister.list", "metadata source branch"),
     ),
     (Operation.NOTEBOOK_SUGGEST_PROMPTS, _b(RPCMethod.GET_NOTEBOOK)): _rules(
@@ -274,7 +277,7 @@ class RecencyRule:
     authority_sites: tuple[str, ...] = ()
 
 
-_GET_TYPED = "_notebooks.py:NotebooksAPI.get"
+_GET_TYPED = "_web/backend.py:WebRpcBackend._notebook_get"
 _GET_RAW = "_notebooks.py:NotebooksAPI.get_raw"
 _GET_SOURCES = "_source/listing.py:SourceLister.list"
 
