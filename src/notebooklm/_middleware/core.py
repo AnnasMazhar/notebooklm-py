@@ -82,6 +82,7 @@ class RpcRequest:
     state: RpcCallState = field(default_factory=RpcCallState)
     """Closed typed state for this logical call."""
 
+
 @dataclass(frozen=True)
 class RpcResponse:
     """HTTP-shape response envelope returned by the middleware chain.
