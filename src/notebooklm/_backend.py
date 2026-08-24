@@ -34,6 +34,7 @@ class BackendErrorReason(str, Enum):
 
     AUTH = "auth"
     ARTIFACT_FEATURE_UNAVAILABLE = "artifact_feature_unavailable"
+    ARTIFACT_NOT_FOUND = "artifact_not_found"
     CLIENT = "client"
     DECODING = "decoding"
     IDEMPOTENCY_VARIANT = "idempotency_variant"

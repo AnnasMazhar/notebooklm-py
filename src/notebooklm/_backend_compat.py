@@ -11,6 +11,7 @@ from ._backend import BackendContractError, BackendError, BackendErrorReason
 from ._records import LabelKind, SourceAddFailureKind, SourceAddFailureRecord
 from .exceptions import (
     ArtifactFeatureUnavailableError,
+    ArtifactNotFoundError,
     AuthError,
     ClientError,
     CollectionError,
@@ -224,6 +225,23 @@ def project_backend_error(error: BackendError) -> Exception:
             error,
             ArtifactFeatureUnavailableError(
                 cast(str, artifact_type),
+                method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
+                raw_response=cast(str | None, _optional(error, diagnostics, "raw_response", str)),
+            ),
+        )
+
+    if reason is BackendErrorReason.ARTIFACT_NOT_FOUND:
+        artifact_id = _optional(error, diagnostics, "artifact_id", str)
+        if artifact_id is None:
+            raise BackendContractError(
+                "artifact-not-found compatibility error lacks artifact_id",
+                operation=error.operation,
+            )
+        return _preserve_outcome(
+            error,
+            ArtifactNotFoundError(
+                cast(str, artifact_id),
+                cast(str | None, _optional(error, diagnostics, "artifact_type", str)),
                 method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
                 raw_response=cast(str | None, _optional(error, diagnostics, "raw_response", str)),
             ),

@@ -347,17 +347,9 @@ async def test_generate_mind_map_happy_path_still_returns_mind_map(auth_tokens) 
 
     Symmetric guard to ``test_create_artifact_happy_path_still_returns_artifact``.
 
-    The mind-map flow also persists a note after the RPC succeeds; we
-    stub the ``note_service.create_note`` seam on the artifacts API so
-    the test stays focused on the RPC-layer behavior and doesn't pull
-    in the full notes-API path. (Phase 5 moved the persistence call off
-    the module-level ``_mind_map.create_note`` shim and onto the
-    injected ``NoteService`` instance.)
+    The mind-map flow also persists a note after the generation succeeds;
+    the mock transport returns the exact CREATE_NOTE/UPDATE_NOTE sequence.
     """
-    from unittest.mock import AsyncMock
-
-    from notebooklm.types import Note
-
     mind_map_dict = {"name": "Test Mind Map", "children": []}
     mind_map_json = json.dumps(mind_map_dict)
 
@@ -371,13 +363,14 @@ async def test_generate_mind_map_happy_path_still_returns_mind_map(auth_tokens) 
         if rpc_id == RPCMethod.GENERATE_MIND_MAP.value:
             mind_map_count += 1
             return httpx.Response(200, text=_generate_mind_map_response(mind_map_json))
+        if rpc_id == RPCMethod.CREATE_NOTE.value:
+            return httpx.Response(200, text=_wrb_response(rpc_id, [["note_stub"]]))
+        if rpc_id == RPCMethod.UPDATE_NOTE.value:
+            return httpx.Response(200, text=_wrb_response(rpc_id, None))
         return httpx.Response(404, text=f"unexpected rpc: {rpc_id}")
 
     transport = httpx.MockTransport(handler)
     client = _make_client_with_transport(transport, auth_tokens)
-
-    stub_note = Note(id="note_stub", notebook_id="nb_test", title="Test Mind Map", content="")
-    client.artifacts._note_service.create_note = AsyncMock(return_value=stub_note)  # type: ignore[method-assign]
 
     try:
         result = await client.artifacts.generate_mind_map(notebook_id="nb_test")

@@ -636,7 +636,7 @@ CLI_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "note_id; interactive or absent-leaf paths have no Note contribution"
         ),
         "evidence": (
-            "notebooklm/_artifact/generation.py:note = await self._note_service.create_note",
+            "notebooklm/_web/backend.py:note = await LegacyNoteBackedService",
             "notebooklm/cli/generate_cmd.py:_output_mind_map_result",
         ),
     },

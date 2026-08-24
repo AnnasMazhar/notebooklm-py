@@ -53,6 +53,11 @@ _APP_GENERATION_DIVERGENCE = (
     "facade operation after rate limiting. P4.2 removes that internal use while preserving the "
     "public helper and adapter-neutral retry presentation policy."
 )
+_APP_DOWNLOAD_DIVERGENCE = (
+    "_app/download.py owns selection/conflict/filesystem choreography while the facade owns "
+    "network reads. P4.2 starts a separate budget at each facade list/download operation; "
+    "P5 keeps one backend execution path."
+)
 
 # This table is the catalog's reviewed source.  Do not add copied RPC ids,
 # idempotency values, golden pointers, or source locations here; those belong to
@@ -411,7 +416,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.ARTIFACT_GENERATE_SLIDE_DECK,
         CallPolicy.STATEFUL_START,
-        "SlideDeckFamilyService",
+        "StudioManagementService",
         "notebook+source-set",
         "Creates a slide deck with format and length variants.",
         _p("artifacts", "generate_slide_deck"),
@@ -452,7 +457,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.ARTIFACT_REVISE_SLIDE,
         CallPolicy.MUTATION,
-        "SlideDeckFamilyService",
+        "StudioManagementService",
         "notebook+artifact",
         "Derives one revised slide from an existing deck.",
         _p("artifacts", "revise_slide"),
@@ -463,7 +468,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.ARTIFACT_RETRY,
         CallPolicy.STATEFUL_START,
-        "StudioCatalog",
+        "StudioManagementService",
         "notebook+artifact",
         "Retries a failed artifact in place.",
         _p("artifacts", "retry_failed"),
@@ -472,7 +477,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.ARTIFACT_DELETE,
         CallPolicy.MUTATION,
-        "StudioCatalog",
+        "StudioManagementService",
         "notebook+artifact",
         "Deletes one artifact.",
         _p("artifacts", "delete"),
@@ -481,7 +486,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.ARTIFACT_RENAME,
         CallPolicy.MUTATION,
-        "StudioCatalog",
+        "StudioManagementService",
         "notebook+artifact",
         "Updates title and optionally re-lists to return the artifact.",
         _p("artifacts", "rename"),
@@ -499,7 +504,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.ARTIFACT_DOWNLOAD,
         CallPolicy.READ,
-        "StudioCatalog",
+        "ArtifactRepresentationService",
         "notebook+artifact",
         "Selects a representation, obtains its URL/content, and writes the requested format.",
         _p(
@@ -514,18 +519,20 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
             "download_quiz",
             "download_flashcards",
         ),
-        (_b(RPCMethod.LIST_ARTIFACTS), _b(RPCMethod.GET_INTERACTIVE_HTML)),
+        (
+            _b(RPCMethod.LIST_ARTIFACTS),
+            _b(RPCMethod.GET_NOTES_AND_MIND_MAPS),
+            _b(RPCMethod.GET_INTERACTIVE_HTML),
+        ),
         ("artifact_https_download",),
         Disposition.COMPOSITE,
         ("_app/download.py:execute_download",),
-        "_app/download.py owns selection/conflict/filesystem choreography while the facade owns "
-        "network reads. P4.2 starts a separate budget at each facade list/download operation; "
-        "P5 keeps one backend execution path.",
+        _APP_DOWNLOAD_DIVERGENCE,
     ),
     OperationSpec(
         Operation.ARTIFACT_WAIT,
         CallPolicy.READ,
-        "StudioCatalog",
+        "ArtifactLifecycleService",
         "notebook+artifact",
         "Polls the artifact catalog through the shared-leader polling registry.",
         _p("artifacts", "wait_for_completion"),
@@ -535,7 +542,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.ARTIFACT_SUGGEST_REPORTS,
         CallPolicy.STATEFUL_START,
-        "ReportFamilyService",
+        "ReportSuggestionService",
         "notebook",
         "Generates report-format suggestions.",
         _p("artifacts", "suggest_reports"),

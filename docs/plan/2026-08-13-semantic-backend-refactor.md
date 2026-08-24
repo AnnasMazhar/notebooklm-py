@@ -1366,13 +1366,17 @@ existing `client.artifacts` API stable.
 | **P5.7** | Byte retrieval & serialization clients | `src/notebooklm/_studio/downloads.py`, `src/notebooklm/_studio/serialization.py` | `test_curl_cffi_redirect_guard.py`, `test_artifact_downloads.py`, factory & redirect security parity |
 | **P5.8** | Facade projection & legacy verb retirement | `src/notebooklm/_artifacts.py` -> `_studio/` | Full artifacts test suite; public signatures and `wait_for_completion` lifecycle-terminal return parity |
 
-P5.4 is live as a bounded slice: report, study-guide, standard-video, and cinematic-video
-generation now cross typed `OperationDef` records through `ReportFamilyService` /
-`VideoFamilyService` and `WebRpcBackend`. The web codec reuses the characterized payload builders,
-preserves the caller's absolute deadline, and projects the existing `GenerationStatus` without
-changing public signatures. Report/video catalog filtering and metadata availability also live in
-the family services. Other Studio families, polling, retry, revision, downloads, and serialization
-remain in their existing owners until their named P5 slices; this evidence does not mark P5 complete.
+P5.1–P5.8 are live. Every family kickoff crosses typed `OperationDef` records through its
+transport-neutral Studio service and `WebRpcBackend`; P5.8 completes the compatibility-facade cut by
+routing slide revision, retry, rename, delete, suggestions, lifecycle status reads, and representation
+catalog/content reads through typed management, lifecycle, and representation services. The web
+codecs reuse the characterized payload builders, preserve caller-owned absolute deadlines, and
+project the existing public models/errors without changing method signatures. Remote bytes still use
+the canonical download-client factory, trusted-host allowlist, and per-hop redirect guard; local
+formats use the RPC-free serializer. `wait_for_completion()` continues to use the existing
+`ArtifactPollingService` and returns only on lifecycle-terminal state, independent of family-usable
+readiness. `_artifact/generation.py` and `_artifact/downloads.py` now retain compatibility exports
+only and own no native RPC authority. This completes P5; it does not mark P6–P9 complete.
 
 
 ### P6 — Migrate remaining feature domains

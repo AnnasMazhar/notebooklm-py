@@ -15,17 +15,16 @@ from notebooklm._artifact._download_client import (
 from notebooklm._artifact._download_client import (
     _make_download_client as canonical_make_download_client,
 )
-from notebooklm._artifact.downloads import ArtifactDownloadService
 from notebooklm._studio import downloads as studio_downloads
 from notebooklm._studio.downloads import DownloadResult, StudioDownloadClient
+from notebooklm._studio.representations import ArtifactRepresentationService
 from notebooklm._studio.serialization import StudioSerializationClient
 
 
-def _service() -> ArtifactDownloadService:
-    return ArtifactDownloadService(
-        rpc=MagicMock(),
-        listing=MagicMock(),
-        mind_maps=MagicMock(),
+def _service() -> ArtifactRepresentationService:
+    return ArtifactRepresentationService(
+        None,
+        remote=MagicMock(spec=StudioDownloadClient),
     )
 
 
@@ -94,7 +93,7 @@ async def test_artifact_service_delegates_all_remote_byte_retrieval() -> None:
     service._remote = remote
 
     assert await service.download_url("https://storage.googleapis.com/one", "one.bin") == "one.bin"
-    batch = await service.download_urls_batch([("https://storage.googleapis.com/one", "one.bin")])
+    batch = await service.download_batch([("https://storage.googleapis.com/one", "one.bin")])
 
     remote.download.assert_awaited_once_with(
         "https://storage.googleapis.com/one",

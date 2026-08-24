@@ -59,6 +59,11 @@ _APP_GENERATION_DIVERGENCE = (
     "facade operation after rate limiting. P4.2 removes that internal use while preserving the "
     "public helper and adapter-neutral retry presentation policy."
 )
+_APP_DOWNLOAD_DIVERGENCE = (
+    "_app/download.py owns selection/conflict/filesystem choreography while the facade owns "
+    "network reads. P4.2 starts a separate budget at each facade list/download operation; "
+    "P5 keeps one backend execution path."
+)
 
 
 WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = MappingProxyType(
@@ -354,6 +359,47 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
                     "explicit Google Drive companion export",
                 ),
             ),
+        ),
+        Operation.ARTIFACT_REVISE_SLIDE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (_native(RPCMethod.REVISE_SLIDE, _NO_RETRY, "unrepeatable slide revision"),),
+            known_divergence=_APP_GENERATION_DIVERGENCE,
+        ),
+        Operation.ARTIFACT_RETRY: WebCallPolicyBinding(
+            CallPolicy.STATEFUL_START,
+            (_native(RPCMethod.RETRY_ARTIFACT, _NO_RETRY, "unrepeatable retry kickoff"),),
+        ),
+        Operation.ARTIFACT_DELETE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (_native(RPCMethod.DELETE_ARTIFACT, _IDEMPOTENT, "idempotent deletion"),),
+        ),
+        Operation.ARTIFACT_RENAME: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(RPCMethod.RENAME_ARTIFACT, _IDEMPOTENT, "title set operation"),
+                _native(RPCMethod.LIST_ARTIFACTS, _IDEMPOTENT, "post-mutation readback"),
+            ),
+        ),
+        Operation.ARTIFACT_DOWNLOAD: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (
+                _native(RPCMethod.LIST_ARTIFACTS, _IDEMPOTENT, "representation catalog read"),
+                _native(
+                    RPCMethod.GET_NOTES_AND_MIND_MAPS,
+                    _IDEMPOTENT,
+                    "note-backed mind-map representation read",
+                ),
+                _native(
+                    RPCMethod.GET_INTERACTIVE_HTML,
+                    _IDEMPOTENT,
+                    "interactive representation read",
+                ),
+            ),
+            known_divergence=_APP_DOWNLOAD_DIVERGENCE,
+        ),
+        Operation.ARTIFACT_WAIT: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (_native(RPCMethod.LIST_ARTIFACTS, _IDEMPOTENT, "lifecycle status poll"),),
         ),
         Operation.NOTE_LIST: WebCallPolicyBinding(
             CallPolicy.READ,

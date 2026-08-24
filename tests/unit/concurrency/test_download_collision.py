@@ -29,8 +29,8 @@ from notebooklm import NotebookLMClient
 def _stub_storage_cookies(monkeypatch: pytest.MonkeyPatch) -> Iterator[MagicMock]:
     """Bypass on-disk storage_state.json lookup in `_download_url`.
 
-    `ArtifactDownloadService.download_url` calls
-    `load_httpx_cookies(path=self._storage_path)`
+    `StudioDownloadClient.download_url` calls the retained cookie-loader seam
+    with its storage path
     which raises `FileNotFoundError` on a clean CI runner that hasn't
     been through `notebooklm login`. We don't care about the cookies for
     this test (the mock transport doesn't validate auth) — return an

@@ -290,10 +290,8 @@ class _ApiReachInVisitor(ast.NodeVisitor):
 
     ``_REACH_IN_MIGRATED_MODULES`` enumerates helpers already migrated to
     constructor injection; this guard is actively enforced for those
-    modules. The migrated artifact-service helpers are
-    ``_artifact/downloads.py`` and ``_artifact/generation.py`` (the latter
-    re-extracted from the ``ArtifactsAPI`` facade as a constructor-injected
-    ``ArtifactGenerationService``).
+    modules. The retired artifact helper modules remain in this closed set so
+    their import-compatible helpers cannot regain facade reach-ins after P5.8.
     """
 
     def __init__(self, module_name: str) -> None:

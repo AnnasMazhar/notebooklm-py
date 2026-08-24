@@ -39,6 +39,8 @@ from notebooklm._notebook_payloads import (
 )
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._records import (
+    ARTIFACT_DELETE_DEF,
+    ARTIFACT_DOWNLOAD_DEF,
     ARTIFACT_EXPORT_DEF,
     ARTIFACT_GENERATE_AUDIO_DEF,
     ARTIFACT_GENERATE_DATA_TABLE_DEF,
@@ -51,7 +53,11 @@ from notebooklm._records import (
     ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
+    ARTIFACT_RENAME_DEF,
+    ARTIFACT_RETRY_DEF,
+    ARTIFACT_REVISE_SLIDE_DEF,
     ARTIFACT_SUGGEST_REPORTS_DEF,
+    ARTIFACT_WAIT_DEF,
     COLLECTION_CREATE_DEF,
     COLLECTION_DELETE_DEF,
     COLLECTION_GET_DEF,
@@ -94,6 +100,13 @@ from notebooklm._records import (
     SOURCE_ADD_URL_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
+    ArtifactDeleteInput,
+    ArtifactDownloadInput,
+    ArtifactPollInput,
+    ArtifactRenameInput,
+    ArtifactRetryInput,
+    ArtifactReviseSlideInput,
+    ArtifactSuggestReportsInput,
     AudioGenerateInput,
     InfographicGenerateInput,
     InteractiveGenerateInput,
@@ -254,6 +267,12 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.SETTINGS_GET,
         Operation.SETTINGS_GET_LIMITS,
         Operation.SETTINGS_SET_LANGUAGE,
+        Operation.ARTIFACT_REVISE_SLIDE,
+        Operation.ARTIFACT_RETRY,
+        Operation.ARTIFACT_DELETE,
+        Operation.ARTIFACT_RENAME,
+        Operation.ARTIFACT_DOWNLOAD,
+        Operation.ARTIFACT_WAIT,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -315,6 +334,12 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.SETTINGS_GET: SETTINGS_GET_DEF,
         Operation.SETTINGS_GET_LIMITS: SETTINGS_GET_LIMITS_DEF,
         Operation.SETTINGS_SET_LANGUAGE: SETTINGS_SET_LANGUAGE_DEF,
+        Operation.ARTIFACT_REVISE_SLIDE: ARTIFACT_REVISE_SLIDE_DEF,
+        Operation.ARTIFACT_RETRY: ARTIFACT_RETRY_DEF,
+        Operation.ARTIFACT_DELETE: ARTIFACT_DELETE_DEF,
+        Operation.ARTIFACT_RENAME: ARTIFACT_RENAME_DEF,
+        Operation.ARTIFACT_DOWNLOAD: ARTIFACT_DOWNLOAD_DEF,
+        Operation.ARTIFACT_WAIT: ARTIFACT_WAIT_DEF,
     }
     assert Operation.RESEARCH_WAIT not in WEB_SUPPORTED_OPERATIONS
     assert Operation.RESEARCH_IMPORT_VERIFY not in WEB_SUPPORTED_OPERATIONS
@@ -325,6 +350,105 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
     )
     assert not WEB_STAGED_OPERATIONS
     assert WEB_OPERATION_REGISTRY[Operation.SOURCE_ADD_URL].definition is SOURCE_ADD_URL_DEF
+
+
+@pytest.mark.asyncio
+async def test_artifact_management_handlers_preserve_exact_native_shapes() -> None:
+    executor = _RecordingExecutor(None, [["retry-id", None, None, None, 1]])
+    backend = _backend(executor)
+
+    await backend.invoke(
+        ARTIFACT_DELETE_DEF,
+        ArtifactDeleteInput("nb", "artifact-id"),
+        deadline=None,
+    )
+    retry = await backend.invoke(
+        ARTIFACT_RETRY_DEF,
+        ArtifactRetryInput("nb", "retry-id"),
+        deadline=None,
+    )
+
+    assert executor.calls[0].method is RPCMethod.DELETE_ARTIFACT
+    assert executor.calls[0].params == [[2], "artifact-id"]
+    assert executor.calls[1].method is RPCMethod.RETRY_ARTIFACT
+    assert retry.status.task_id == "retry-id"
+
+
+@pytest.mark.asyncio
+async def test_artifact_revision_wait_and_suggestions_use_typed_results() -> None:
+    suggestion = ["Title", "Description", "Prompt", None, None, "Advanced"]
+    executor = _RecordingExecutor(
+        [["task-id", None, None, None, 1]],
+        [["task-id", "Deck", 8, None, 3]],
+        [[suggestion]],
+    )
+    backend = _backend(executor)
+
+    revision = await backend.invoke(
+        ARTIFACT_REVISE_SLIDE_DEF,
+        ArtifactReviseSlideInput("nb", "deck", 2, "Improve"),
+        deadline=None,
+    )
+    observed = await backend.invoke(
+        ARTIFACT_WAIT_DEF,
+        ArtifactPollInput("nb", "task-id"),
+        deadline=None,
+    )
+    suggestions = await backend.invoke(
+        ARTIFACT_SUGGEST_REPORTS_DEF,
+        ArtifactSuggestReportsInput("nb"),
+        deadline=None,
+    )
+
+    assert revision.status.task_id == "task-id"
+    assert observed.status.task_id == "task-id"
+    assert observed.status.status == "in_progress"
+    assert [item.title for item in suggestions.suggestions] == ["Title"]
+
+
+@pytest.mark.asyncio
+async def test_artifact_download_actions_are_closed_and_transport_neutral() -> None:
+    executor = _RecordingExecutor([], [[None] * 9 + [["<html>"]]])
+    backend = _backend(executor)
+
+    catalog = await backend.invoke(
+        ARTIFACT_DOWNLOAD_DEF,
+        ArtifactDownloadInput("nb", "catalog"),
+        deadline=None,
+    )
+    content = await backend.invoke(
+        ARTIFACT_DOWNLOAD_DEF,
+        ArtifactDownloadInput("nb", "interactive_html", "artifact-id"),
+        deadline=None,
+    )
+
+    assert catalog.representations == ()
+    assert content.content == "<html>"
+    with pytest.raises(BackendContractError, match="unrecognized"):
+        await backend.invoke(
+            ARTIFACT_DOWNLOAD_DEF,
+            ArtifactDownloadInput("nb", "wire_passthrough"),
+            deadline=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_artifact_rename_missing_target_uses_closed_backend_reason() -> None:
+    executor = _RecordingExecutor(None, [])
+    with pytest.raises(BackendError) as info:
+        await _backend(executor).invoke(
+            ARTIFACT_RENAME_DEF,
+            ArtifactRenameInput("nb", "missing", "Title"),
+            deadline=None,
+        )
+
+    assert info.value.reason is BackendErrorReason.ARTIFACT_NOT_FOUND
+    assert info.value.diagnostics == {
+        "artifact_id": "missing",
+        "artifact_type": None,
+        "method_id": RPCMethod.RENAME_ARTIFACT.value,
+        "raw_response": None,
+    }
 
 
 @pytest.mark.asyncio
@@ -1699,7 +1823,7 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
     assert set(BackendErrorReason) == {
         BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
         BackendErrorReason.AUTH,
-        BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
+        BackendErrorReason.ARTIFACT_NOT_FOUND,
         BackendErrorReason.CLIENT,
         BackendErrorReason.DECODING,
         BackendErrorReason.IDEMPOTENCY_VARIANT,

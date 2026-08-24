@@ -376,14 +376,10 @@ def _assemble_client(
     note_service = NoteService(backend=client._backend)
     legacy_note_backed = LegacyNoteBackedService(internals.executor)
     mind_maps = NoteBackedMindMapService(legacy_note_backed)
-    # ADR-0014 Rule 2: the artifacts API takes its three runtime
-    # collaborators (``rpc`` + ``drain`` + ``lifecycle``) directly
-    # instead of via a composite-runtime adapter. ``rpc`` covers
-    # RPC dispatch; ``drain`` covers ``operation_scope`` and the
-    # close-time ``register_drain_hook`` used by the polling
-    # service; ``lifecycle`` covers ``assert_bound_loop``.
+    # P5.8: the artifacts compatibility facade owns no native RPC authority.
+    # It receives the semantic backend plus the drain/lifecycle collaborators
+    # used by its lifecycle-terminal polling service.
     client.artifacts = ArtifactsAPI(
-        rpc=internals.executor,
         drain=internals.collaborators.drain_tracker,
         lifecycle=internals.collaborators.lifecycle,
         notebooks=client.notebooks,

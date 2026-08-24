@@ -135,9 +135,9 @@ ALLOWLISTED_CEILINGS: dict[str, int] = {
     # 1000-line budget and removed (one-way ratchet); ``client.py`` dropped out
     # earlier when its ``__init__`` body moved to ``_client_assembly.py``.
     # ``_source/upload.py`` shed its pure decode/validation helpers to the sibling
-    # ``_source/_upload_decode.py``. ``_artifacts.py`` dropped out once its
-    # ``generate_*`` / ``revise_slide`` / ``retry_failed`` kickoff paths moved to
-    # the sibling ``_artifact/generation.py`` (``ArtifactGenerationService``).
+    # ``_source/_upload_decode.py``. ``_artifacts.py`` dropped out as generation
+    # and management paths moved behind the semantic Studio services; P5.8 then
+    # retired the temporary verb service.
     #
     # ``exceptions.py`` is the canonical public exception home — ``__all__`` and
     # the public-surface manifest pin every class to ``notebooklm.exceptions``, so

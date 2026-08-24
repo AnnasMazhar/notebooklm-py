@@ -145,6 +145,7 @@ def test_artifacts_no_longer_exposes_core_property_alias():
     )
     # The descriptor must be gone — not just empty, not just delegating.
     assert not hasattr(api, "_core")
-    assert api._rpc is rpc
+    assert not hasattr(api, "_rpc")
+    assert api._backend is not None
     assert api._drain is drain
     assert api._lifecycle is lifecycle

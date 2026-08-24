@@ -60,66 +60,6 @@ def mock_artifacts_api():
     return api, mock_core
 
 
-class TestDownloadInteractiveArtifact:
-    """Test shared quiz/flashcard download parsing behavior."""
-
-    @pytest.mark.asyncio
-    async def test_get_artifact_content_null_result_returns_none(self):
-        """Null GET_INTERACTIVE_HTML is a missing-content result, not schema drift."""
-        runtime = MagicMock(rpc_call=AsyncMock(return_value=None))
-        service = artifact_downloads.ArtifactDownloadService(
-            rpc=runtime,
-            listing=MagicMock(),
-            mind_maps=MagicMock(),
-        )
-
-        result = await service._get_artifact_content("nb_123", "quiz_001")
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_extract_app_data_value_error_propagates(self, monkeypatch, tmp_path):
-        """Bare ValueError from helper internals is not converted to parse drift."""
-        artifact = MagicMock(
-            id="quiz_001",
-            title="My Quiz",
-            is_completed=True,
-            created_at=None,
-        )
-        service = artifact_downloads.ArtifactDownloadService(
-            rpc=MagicMock(),
-            listing=MagicMock(),
-            mind_maps=MagicMock(),
-        )
-        monkeypatch.setattr(service, "_list_artifacts", AsyncMock(return_value=[artifact]))
-        monkeypatch.setattr(
-            service,
-            "_get_artifact_content",
-            AsyncMock(
-                return_value='<html><body data-app-data="{&quot;quiz&quot;:[]}"></body></html>'
-            ),
-        )
-        format_content = MagicMock(return_value="unused")
-        monkeypatch.setattr(artifact_downloads, "_format_interactive_content", format_content)
-
-        monkeypatch.setattr(
-            artifact_downloads,
-            "_extract_app_data",
-            MagicMock(side_effect=ValueError("implementation bug")),
-        )
-
-        with pytest.raises(ValueError, match="implementation bug"):
-            await service.download_interactive_artifact(
-                "nb_123",
-                str(tmp_path / "quiz.json"),
-                None,
-                "json",
-                "quiz",
-            )
-
-        format_content.assert_not_called()
-
-
 class TestDownloadAudio:
     """Test download_audio method."""
 
@@ -683,22 +623,13 @@ class TestDownloadMindMap:
             # the service instance directly so the simulated response
             # reaches the download path.
             json_content = '{"name": "Root", "children": [{"name": "Child1"}]}'
-            with patch.object(
-                api._mind_maps,
-                "list_mind_maps",
-                new=AsyncMock(
-                    return_value=[
-                        [
-                            "mindmap_001",  # mm[0] = id
-                            [None, json_content],  # mm[1][1] = JSON string
-                            None,
-                            None,
-                            "Mind Map Title",  # mm[4] = title
-                        ]
-                    ]
-                ),
-            ):
-                result = await api.download_mind_map("nb_123", output_path)
+            rows = [
+                [
+                    "mindmap_001",
+                    [None, json_content, None, None, "Mind Map Title"],
+                ]
+            ]
+            result = await api.download_mind_map("nb_123", output_path, mind_maps=rows)
 
             assert result == output_path
             # Verify JSON was written correctly
@@ -714,35 +645,22 @@ class TestDownloadMindMap:
         """Test error when no mind map exists."""
         api, mock_core = mock_artifacts_api
 
-        with (
-            patch.object(
-                api._mind_maps,
-                "list_mind_maps",
-                new=AsyncMock(return_value=[]),
-            ),
-            pytest.raises(ArtifactNotReadyError),
-        ):
-            await api.download_mind_map("nb_123", "/tmp/mindmap.json")
+        with pytest.raises(ArtifactNotReadyError):
+            await api.download_mind_map(
+                "nb_123", "/tmp/mindmap.json", mind_maps=[], artifacts_data=[]
+            )
 
     @pytest.mark.asyncio
     async def test_download_mind_map_specific_id_not_found(self, mock_artifacts_api):
         """Test error when specific mind map ID not found."""
         api, mock_core = mock_artifacts_api
 
-        with (
-            patch.object(
-                api._mind_maps,
-                "list_mind_maps",
-                new=AsyncMock(return_value=[["other_id", [None, "{}"], None, None, "Other"]]),
-            ),
-            # The studio backend is empty; the requested id is absent from the
-            # note-backed list above, so the lookup misses across both backends.
-            pytest.raises(ArtifactNotFoundError),
-        ):
+        with pytest.raises(ArtifactNotFoundError):
             await api.download_mind_map(
                 "nb_123",
                 "/tmp/mindmap.json",
                 artifact_id="mindmap_001",
+                mind_maps=[["other_id", [None, '{"children": []}', None, None, "Other"]]],
                 artifacts_data=[],
             )
 
@@ -845,74 +763,20 @@ class TestDownloadDataTable:
 
 
 class TestStoragePathEncapsulation:
-    """Regression guard for issue #838.
-
-    ``ArtifactDownloadService`` must read the storage path it was
-    constructed with, not via a sibling reach-in to
-    ``ArtifactsAPI._storage_path``.
-    """
+    """The Studio byte client owns its constructor-supplied storage path."""
 
     @pytest.mark.asyncio
-    async def test_download_url_uses_constructor_storage_path(self, tmp_path, monkeypatch):
-        from notebooklm._artifact.downloads import ArtifactDownloadService
+    async def test_download_batch_uses_constructor_storage_path(self, tmp_path):
+        from notebooklm._studio.downloads import StudioDownloadClient
 
         sentinel = tmp_path / "sentinel_storage.json"
-        # MagicMock collaborators are inert — the service must read the
-        # ``storage_path`` it was constructed with, not via any
-        # collaborator reach-through.
-        runtime = MagicMock()
-        listing = MagicMock()
-        mind_maps = MagicMock()
-        service = ArtifactDownloadService(
-            rpc=runtime,
-            listing=listing,
-            mind_maps=mind_maps,
-            storage_path=sentinel,
-        )
-
-        captured: list[object] = []
-
-        class _StopAfterCapture(Exception):
-            pass
-
-        def recording(path):
-            captured.append(path)
-            raise _StopAfterCapture
-
-        # Object-form patch against the locally-imported ``downloads`` module
-        # seam (ADR-0007: no string-target patches into private internals).
-        monkeypatch.setattr(artifact_downloads, "load_httpx_cookies", recording)
-        with pytest.raises(_StopAfterCapture):
-            await service.download_url(
-                "https://storage.googleapis.com/x.bin", str(tmp_path / "out.bin")
-            )
-
-        assert captured == [sentinel]
-
-    @pytest.mark.asyncio
-    async def test_download_urls_batch_uses_constructor_storage_path(self, tmp_path, monkeypatch):
-        from notebooklm._artifact.downloads import ArtifactDownloadService
-
-        sentinel = tmp_path / "sentinel_storage.json"
-        runtime = MagicMock()
-        listing = MagicMock()
-        mind_maps = MagicMock()
-        service = ArtifactDownloadService(
-            rpc=runtime,
-            listing=listing,
-            mind_maps=mind_maps,
-            storage_path=sentinel,
-        )
-
         captured: list[object] = []
 
         def recording(path):
             captured.append(path)
             return {}
 
-        # Object-form patch against the locally-imported ``downloads`` module
-        # seam (ADR-0007: no string-target patches into private internals).
-        monkeypatch.setattr(artifact_downloads, "load_httpx_cookies", recording)
-        await service.download_urls_batch([])
+        client = StudioDownloadClient(storage_path=sentinel, cookie_loader=recording)
+        await client.download_batch([])
 
         assert captured == [sentinel]

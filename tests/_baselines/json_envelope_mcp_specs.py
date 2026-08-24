@@ -642,7 +642,7 @@ MCP_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "mind_map_id; interactive or absent-leaf paths have no Note contribution"
         ),
         "evidence": (
-            "notebooklm/_artifact/generation.py:note = await self._note_service.create_note",
+            "notebooklm/_web/backend.py:note = await LegacyNoteBackedService",
             "notebooklm/mcp/tools/_studio_payloads.py:return result_obj.note_id",
             "notebooklm/mcp/tools/studio.py:payload = _generation_payload",
         ),

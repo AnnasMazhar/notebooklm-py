@@ -41,10 +41,17 @@ import pytest
 
 from notebooklm._app.generate_retry import generation_outcome_from_status
 from notebooklm._artifacts import ArtifactsAPI
+from notebooklm._backend import BackendAdapter
+from notebooklm._records import (
+    ARTIFACT_WAIT_DEF,
+    ArtifactPollResult,
+    GenerationStatusRecord,
+)
 from notebooklm.exceptions import ArtifactFeatureUnavailableError, RateLimitError, RPCError
 from notebooklm.rpc.decoder import decode_response, extract_rpc_result
-from notebooklm.rpc.types import ArtifactStatus, RPCMethod
+from notebooklm.rpc.types import RPCMethod
 from notebooklm.types import GenerationStatus
+from tests._fixtures.recording_backend import RecordingBackend
 from tests._fixtures.rpc_error_frames import (
     CREATE_ARTIFACT_METHOD_ID,
     LIVE_CREATE_ARTIFACT_INVALID_ARGUMENT_BODY,
@@ -60,7 +67,11 @@ from tests._fixtures.web_backend import build_web_backend
 # ---------------------------------------------------------------------------
 
 
-def _make_api(rpc_call: AsyncMock | None = None):
+def _make_api(
+    rpc_call: AsyncMock | None = None,
+    *,
+    backend: BackendAdapter | None = None,
+) -> ArtifactsAPI:
     """Return an ArtifactsAPI with mocked runtime + mind-map services.
 
     ``rpc_call`` overrides the RPC seam so a test can answer with a real
@@ -87,7 +98,7 @@ def _make_api(rpc_call: AsyncMock | None = None):
         notebooks=notebooks,
         mind_maps=mind_maps,
         note_service=note_service,
-        _backend=build_web_backend(core),
+        _backend=build_web_backend(core) if backend is None else backend,
     )
 
 
@@ -96,9 +107,15 @@ async def _noop_operation_scope():
     yield None
 
 
-def _art(artifact_id: str, status: int, artifact_type: int = 1, sources: list | None = None):
-    """Build a constructed artifact row; index 3 models ``Artifact.sources`` (#2134)."""
-    return [artifact_id, "Title", artifact_type, sources, status]
+def _polling_api(task_id: str, status: str) -> ArtifactsAPI:
+    """Build an API whose typed lifecycle operation returns one status."""
+
+    backend = RecordingBackend()
+    backend.set_result(
+        ARTIFACT_WAIT_DEF,
+        ArtifactPollResult(GenerationStatusRecord(task_id=task_id, status=status)),
+    )
+    return _make_api(backend=backend)
 
 
 # ---------------------------------------------------------------------------
@@ -112,8 +129,7 @@ class TestPollStatusNotFound:
     @pytest.mark.asyncio
     async def test_missing_artifact_returns_not_found(self):
         """Artifact absent from list → status 'not_found', not 'pending'."""
-        api = _make_api()
-        api._list_raw = AsyncMock(return_value=[_art("other_id", ArtifactStatus.PROCESSING)])
+        api = _polling_api("missing_task_id", "not_found")
 
         result = await api.poll_status("nb1", "missing_task_id")
 
@@ -124,8 +140,7 @@ class TestPollStatusNotFound:
     @pytest.mark.asyncio
     async def test_empty_list_returns_not_found(self):
         """Empty artifact list → status 'not_found'."""
-        api = _make_api()
-        api._list_raw = AsyncMock(return_value=[])
+        api = _polling_api("task_abc", "not_found")
 
         result = await api.poll_status("nb1", "task_abc")
 
@@ -135,8 +150,7 @@ class TestPollStatusNotFound:
     @pytest.mark.asyncio
     async def test_found_artifact_returns_correct_status(self):
         """Artifact present in list → actual status propagated."""
-        api = _make_api()
-        api._list_raw = AsyncMock(return_value=[_art("task_abc", ArtifactStatus.PROCESSING)])
+        api = _polling_api("task_abc", "in_progress")
 
         result = await api.poll_status("nb1", "task_abc")
 
@@ -146,11 +160,7 @@ class TestPollStatusNotFound:
     @pytest.mark.asyncio
     async def test_completed_artifact_status(self):
         """Completed non-media artifact (report) returns 'completed'."""
-        api = _make_api()
-        # Type 2 = REPORT (non-media, no URL check required)
-        api._list_raw = AsyncMock(
-            return_value=[_art("task_abc", ArtifactStatus.COMPLETED, artifact_type=2)]
-        )
+        api = _polling_api("task_abc", "completed")
 
         result = await api.poll_status("nb1", "task_abc")
 
@@ -160,8 +170,7 @@ class TestPollStatusNotFound:
     @pytest.mark.asyncio
     async def test_failed_artifact_returns_failed_status(self):
         """Artifact with status=FAILED returns 'failed'."""
-        api = _make_api()
-        api._list_raw = AsyncMock(return_value=[_art("task_abc", ArtifactStatus.FAILED)])
+        api = _polling_api("task_abc", "failed")
 
         result = await api.poll_status("nb1", "task_abc")
 
@@ -573,9 +582,9 @@ class TestRejectionAtGenerationTime:
 
     These tests deliberately do **not** stub the decode step. The rejection is
     handed to the production decoder as the server sent it, and the assertion
-    is on what ``generate_audio`` raises — the chain decoder → ``rpc_call`` →
-    ``ArtifactGenerationService`` → ``ArtifactsAPI`` is exactly where the #239
-    regression lived, and stubbing the decoder would have hidden it.
+    is on what ``generate_audio`` raises — the chain decoder → typed web binding
+    → family service → ``ArtifactsAPI`` is exactly where the #239 regression can
+    recur, and stubbing the decoder would hide it.
     """
 
     @staticmethod
@@ -730,8 +739,7 @@ class TestLateFailureHasNoReason:
     @pytest.mark.asyncio
     async def test_failed_row_polls_to_status_failed_with_no_error(self):
         """``Artifact`` has no failure field, so ``error`` stays ``None``."""
-        api = _make_api()
-        api._list_raw = AsyncMock(return_value=[_art("task_abc", ArtifactStatus.FAILED)])
+        api = _polling_api("task_abc", "failed")
 
         status = await api.poll_status("nb1", "task_abc")
 
@@ -747,8 +755,7 @@ class TestLateFailureHasNoReason:
         whose ``or f"{artifact_type.title()} generation failed"`` fallback is the
         only thing standing between the user and an empty error string.
         """
-        api = _make_api()
-        api._list_raw = AsyncMock(return_value=[_art("task_abc", ArtifactStatus.FAILED)])
+        api = _polling_api("task_abc", "failed")
 
         status = await api.poll_status("nb1", "task_abc")
         outcome = generation_outcome_from_status(status, "audio")

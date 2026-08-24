@@ -771,6 +771,132 @@ class GenerationStatusRecord:
     url: str | None = field(default=None, repr=False)
     error: str | None = field(default=None, repr=False)
     error_code: str | None = None
+    metadata: tuple[tuple[str, object], ...] = field(default=(), repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactReviseSlideInput:
+    """One slide-revision request without web payload vocabulary."""
+
+    notebook_id: str
+    artifact_id: str
+    slide_index: int
+    prompt: str = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactReviseSlideResult:
+    """Accepted slide revision and its lifecycle task state."""
+
+    status: GenerationStatusRecord
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactRetryInput:
+    """Identity of one failed artifact to retry in place."""
+
+    notebook_id: str
+    artifact_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactRetryResult:
+    """Accepted in-place retry and its lifecycle task state."""
+
+    status: GenerationStatusRecord
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactDeleteInput:
+    """Identity of one Studio artifact to delete idempotently."""
+
+    notebook_id: str
+    artifact_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactDeleteResult:
+    """Successful idempotent Studio artifact deletion."""
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactRenameInput:
+    """Identity and replacement title for one Studio artifact."""
+
+    notebook_id: str
+    artifact_id: str
+    new_title: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactRenameResult:
+    """Post-mutation Studio row, or ``None`` when the target is absent."""
+
+    artifact: ArtifactRecord | None
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactPollInput:
+    """Identity of one generation task whose lifecycle state is requested."""
+
+    notebook_id: str
+    task_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactPollResult:
+    """One lifecycle status observation."""
+
+    status: GenerationStatusRecord
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactRepresentationRecord:
+    """Download-relevant fields decoded from one Studio catalog row.
+
+    Large bodies and URLs are deliberately excluded from ``repr``.  The record
+    is not the public ``Artifact`` model and contains no positional wire data.
+    """
+
+    artifact: ArtifactRecord
+    audio_url: str | None = field(default=None, repr=False)
+    video_url: str | None = field(default=None, repr=False)
+    infographic_url: str | None = field(default=None, repr=False)
+    slide_deck_pdf_url: str | None = field(default=None, repr=False)
+    slide_deck_pptx_url: str | None = field(default=None, repr=False)
+    report_markdown: str | None = field(default=None, repr=False)
+    data_table_headers: tuple[str, ...] = field(default=(), repr=False)
+    data_table_rows: tuple[tuple[str, ...], ...] = field(default=(), repr=False)
+    data_table_error: str | None = field(default=None, repr=False)
+    parse_error: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class MindMapRepresentationRecord:
+    """One note-backed mind-map identity and serialized tree."""
+
+    id: str
+    title: str
+    content: str | None = field(default=None, repr=False)
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactDownloadInput:
+    """One representation lookup through the semantic download operation."""
+
+    notebook_id: str
+    action: str
+    artifact_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactDownloadResult:
+    """Decoded representation inventory or one interactive content leaf."""
+
+    representations: tuple[ArtifactRepresentationRecord, ...] = ()
+    mind_maps: tuple[MindMapRepresentationRecord, ...] = ()
+    content: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1077,6 +1203,52 @@ ARTIFACT_EXPORT_DEF: OperationDef[DriveExportInput, DriveExportResult] = Operati
     DriveExportInput,
     DriveExportResult,
 )
+ARTIFACT_REVISE_SLIDE_DEF: OperationDef[ArtifactReviseSlideInput, ArtifactReviseSlideResult] = (
+    OperationDef(
+        Operation.ARTIFACT_REVISE_SLIDE,
+        CallPolicy.MUTATION,
+        ArtifactReviseSlideInput,
+        ArtifactReviseSlideResult,
+    )
+)
+ARTIFACT_RETRY_DEF: OperationDef[ArtifactRetryInput, ArtifactRetryResult] = OperationDef(
+    Operation.ARTIFACT_RETRY,
+    CallPolicy.STATEFUL_START,
+    ArtifactRetryInput,
+    ArtifactRetryResult,
+)
+ARTIFACT_DELETE_DEF: OperationDef[ArtifactDeleteInput, ArtifactDeleteResult] = OperationDef(
+    Operation.ARTIFACT_DELETE,
+    CallPolicy.MUTATION,
+    ArtifactDeleteInput,
+    ArtifactDeleteResult,
+)
+ARTIFACT_RENAME_DEF: OperationDef[ArtifactRenameInput, ArtifactRenameResult] = OperationDef(
+    Operation.ARTIFACT_RENAME,
+    CallPolicy.MUTATION,
+    ArtifactRenameInput,
+    ArtifactRenameResult,
+)
+ARTIFACT_DOWNLOAD_DEF: OperationDef[ArtifactDownloadInput, ArtifactDownloadResult] = OperationDef(
+    Operation.ARTIFACT_DOWNLOAD,
+    CallPolicy.READ,
+    ArtifactDownloadInput,
+    ArtifactDownloadResult,
+)
+ARTIFACT_WAIT_DEF: OperationDef[ArtifactPollInput, ArtifactPollResult] = OperationDef(
+    Operation.ARTIFACT_WAIT,
+    CallPolicy.READ,
+    ArtifactPollInput,
+    ArtifactPollResult,
+)
+ARTIFACT_SUGGEST_REPORTS_DEF: OperationDef[
+    ArtifactSuggestReportsInput, ArtifactSuggestReportsResult
+] = OperationDef(
+    Operation.ARTIFACT_SUGGEST_REPORTS,
+    CallPolicy.STATEFUL_START,
+    ArtifactSuggestReportsInput,
+    ArtifactSuggestReportsResult,
+)
 ARTIFACT_GENERATE_AUDIO_DEF: OperationDef[AudioGenerateInput, AudioGenerateResult] = OperationDef(
     Operation.ARTIFACT_GENERATE_AUDIO,
     CallPolicy.STATEFUL_START,
@@ -1148,14 +1320,6 @@ NOTEBOOK_SUGGEST_PROMPTS_DEF: OperationDef[
     CallPolicy.STATEFUL_START,
     NotebookSuggestPromptsInput,
     NotebookSuggestPromptsResult,
-)
-ARTIFACT_SUGGEST_REPORTS_DEF: OperationDef[
-    ArtifactSuggestReportsInput, ArtifactSuggestReportsResult
-] = OperationDef(
-    Operation.ARTIFACT_SUGGEST_REPORTS,
-    CallPolicy.STATEFUL_START,
-    ArtifactSuggestReportsInput,
-    ArtifactSuggestReportsResult,
 )
 NOTE_LIST_DEF: OperationDef[NoteListInput, NoteListResult] = OperationDef(
     Operation.NOTE_LIST,
@@ -1230,7 +1394,8 @@ MIND_MAP_DELETE_DEF: OperationDef[MindMapDeleteInput, MindMapDeleteResult] = Ope
 
 
 __all__ = [
-    "ARTIFACT_SUGGEST_REPORTS_DEF",
+    "ARTIFACT_DELETE_DEF",
+    "ARTIFACT_DOWNLOAD_DEF",
     "ARTIFACT_EXPORT_DEF",
     "ARTIFACT_GET_DEF",
     "ARTIFACT_GENERATE_DATA_TABLE_DEF",
@@ -1254,6 +1419,11 @@ __all__ = [
     "LABEL_GET_DEF",
     "LABEL_LIST_DEF",
     "LABEL_UPDATE_DEF",
+    "ARTIFACT_RENAME_DEF",
+    "ARTIFACT_RETRY_DEF",
+    "ARTIFACT_REVISE_SLIDE_DEF",
+    "ARTIFACT_SUGGEST_REPORTS_DEF",
+    "ARTIFACT_WAIT_DEF",
     "NOTEBOOK_GET_DEF",
     "NOTEBOOK_LIST_DEF",
     "NOTEBOOK_CREATE_DEF",
@@ -1290,13 +1460,28 @@ __all__ = [
     "ArtifactSuggestReportsResult",
     "ArtifactGetInput",
     "ArtifactGetResult",
+    "ArtifactDeleteInput",
+    "ArtifactDeleteResult",
+    "ArtifactDownloadInput",
+    "ArtifactDownloadResult",
     "ArtifactInfographicRecord",
     "ArtifactListInput",
     "ArtifactListResult",
     "ArtifactMediaRecord",
+    "ArtifactPollInput",
+    "ArtifactPollResult",
     "ArtifactRecord",
+    "ArtifactRenameInput",
+    "ArtifactRenameResult",
+    "ArtifactRepresentationRecord",
+    "ArtifactRetryInput",
+    "ArtifactRetryResult",
+    "ArtifactReviseSlideInput",
+    "ArtifactReviseSlideResult",
     "ArtifactSlideRecord",
     "ArtifactUserStateRecord",
+    "ArtifactSuggestReportsInput",
+    "ArtifactSuggestReportsResult",
     "DataTableGenerateInput",
     "DataTableGenerateResult",
     "DriveExportInput",
@@ -1356,6 +1541,7 @@ __all__ = [
     "MindMapRecord",
     "MindMapUpdateInput",
     "MindMapUpdateResult",
+    "MindMapRepresentationRecord",
     "NoteCreateInput",
     "NoteCreateResult",
     "NoteDeleteInput",

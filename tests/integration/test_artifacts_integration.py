@@ -22,8 +22,16 @@ from notebooklm import NotebookLMClient
 from notebooklm._artifacts import ArtifactsAPI
 from notebooklm._mind_map import NoteBackedMindMapService
 from notebooklm._note_service import NoteService
+from notebooklm._records import (
+    ARTIFACT_DOWNLOAD_DEF,
+    ARTIFACT_GET_DEF,
+    ArtifactDownloadInput,
+    ArtifactGetResult,
+    ArtifactRecord,
+)
 from notebooklm.exceptions import (
     ArtifactNotFoundError,
+    NetworkError,
     RateLimitError,
     UnknownRPCMethodError,
     ValidationError,
@@ -46,6 +54,8 @@ from notebooklm.types import (
     MindMapResult,
     UnknownTypeWarning,
 )
+from tests._fixtures.recording_backend import RecordingBackend
+from tests._fixtures.web_backend import build_web_backend
 
 pytestmark = pytest.mark.allow_no_vcr
 
@@ -399,37 +409,34 @@ class TestArtifactsAPI:
         assert isinstance(artifacts, list)
 
     @pytest.mark.asyncio
-    async def test_list_raw_preserves_rpc_call_shape(self):
-        """_list_raw keeps the exact LIST_ARTIFACTS RPC contract."""
+    async def test_semantic_catalog_preserves_rpc_call_shape(self):
+        """The artifact.download catalog binding keeps the native request contract."""
         from tests._fixtures.fake_core import make_fake_core
 
         core = make_fake_core(rpc_call=AsyncMock(return_value=[[]]))
-        api = ArtifactsAPI(
-            rpc=core,
-            drain=core,
-            lifecycle=core,
-            notebooks=MagicMock(),
-            mind_maps=MagicMock(spec=NoteBackedMindMapService),
-            note_service=MagicMock(spec=NoteService),
+        result = await build_web_backend(core.rpc_executor).invoke(
+            ARTIFACT_DOWNLOAD_DEF,
+            ArtifactDownloadInput("nb_123", "catalog"),
+            deadline=None,
         )
 
-        result = await api._list_raw("nb_123")
-
-        assert result == []
-        # After ``arch-d2-cutover``, ArtifactsAPI calls
-        # ``runtime.rpc_call`` directly (no adapter pass-through), so
-        # default kwargs aren't explicitly forwarded — they apply at the
-        # underlying :meth:`RpcExecutor.rpc_call` signature instead.
+        assert result.representations == ()
         core.rpc_executor.rpc_call.assert_awaited_once_with(
             RPCMethod.LIST_ARTIFACTS,
             [[2], "nb_123", 'NOT artifact.status = "ARTIFACT_STATUS_SUGGESTED"'],
             source_path="/notebook/nb_123",
             allow_null=True,
+            _is_retry=False,
+            disable_internal_retries=False,
+            operation_variant=None,
+            read_timeout=None,
+            raise_on_null_status=False,
+            _retry_deadline=None,
         )
 
     @pytest.mark.asyncio
-    async def test_list_raw_preserves_already_flat_artifact_rows(self):
-        """_list_raw must not collapse already-flat artifact rows."""
+    async def test_semantic_catalog_preserves_already_flat_artifact_rows(self):
+        """The web codec must not collapse already-flat artifact rows."""
         from tests._fixtures.fake_core import make_fake_core
 
         artifact_rows = [
@@ -437,30 +444,34 @@ class TestArtifactsAPI:
             ["art_002", "Audio Overview", 1, None, 3],
         ]
         core = make_fake_core(rpc_call=AsyncMock(return_value=artifact_rows))
-        api = ArtifactsAPI(
-            rpc=core,
-            drain=core,
-            lifecycle=core,
-            notebooks=MagicMock(),
-            mind_maps=MagicMock(spec=NoteBackedMindMapService),
-            note_service=MagicMock(spec=NoteService),
+        result = await build_web_backend(core.rpc_executor).invoke(
+            ARTIFACT_DOWNLOAD_DEF,
+            ArtifactDownloadInput("nb_123", "catalog"),
+            deadline=None,
         )
 
-        result = await api._list_raw("nb_123")
-
-        assert result == artifact_rows
+        assert tuple(item.artifact.id for item in result.representations) == (
+            "art_001",
+            "art_002",
+        )
 
     @pytest.mark.asyncio
-    async def test_list_uses_rpc_listing_and_mind_map_service(self):
-        """list() combines studio artifacts from RPC with the injected mind-map service."""
+    async def test_list_uses_semantic_catalog_for_studio_and_mind_map_rows(self):
+        """list() combines both backing families through the semantic catalog."""
         from tests._fixtures.fake_core import make_fake_core
 
         studio_artifact = ["art_001", "My Report", 2, None, 3]
         mind_map = [
             "mind_map_001",
-            ["mind_map_001", '{"name":"Map"}', [1, "user", [1704067200, 0]], None, "Map"],
+            [
+                "mind_map_001",
+                '{"name":"Map","children":[]}',
+                [1, "user", [1704067200, 0]],
+                None,
+                "Map",
+            ],
         ]
-        core = make_fake_core(rpc_call=AsyncMock(return_value=[[studio_artifact]]))
+        core = make_fake_core(rpc_call=AsyncMock(side_effect=[[[studio_artifact]], [[mind_map]]]))
         api = ArtifactsAPI(
             rpc=core,
             drain=core,
@@ -477,8 +488,8 @@ class TestArtifactsAPI:
         ) as list_mind_maps:
             artifacts = await api.list("nb_123")
 
-        core.rpc_call.assert_awaited_once()
-        list_mind_maps.assert_awaited_once_with("nb_123")
+        assert core.rpc_call.await_count == 2
+        list_mind_maps.assert_not_awaited()
         assert [artifact.id for artifact in artifacts] == ["art_001", "mind_map_001"]
 
     @pytest.mark.asyncio
@@ -509,33 +520,28 @@ class TestArtifactsAPI:
         list_mind_maps.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_get_uses_public_list_callback(self):
-        """get() delegates through the public list callback."""
-        core = MagicMock()
+    async def test_get_uses_semantic_catalog_and_preserves_public_miss(self):
+        """get() projects the typed catalog result and keeps the public miss error."""
+        backend = RecordingBackend()
+        backend.set_result(
+            ARTIFACT_GET_DEF,
+            ArtifactGetResult(ArtifactRecord("art_found", "Found", "report", "completed")),
+        )
         api = ArtifactsAPI(
-            rpc=core,
-            drain=core,
-            lifecycle=core,
+            drain=MagicMock(),
+            lifecycle=MagicMock(),
             notebooks=MagicMock(),
             mind_maps=MagicMock(spec=NoteBackedMindMapService),
             note_service=MagicMock(spec=NoteService),
+            _backend=backend,
         )
-        other = MagicMock()
-        other.id = "art_other"
-        found = MagicMock()
-        found.id = "art_found"
 
-        with patch.object(
-            api, "list", new=AsyncMock(return_value=[other, found])
-        ) as list_artifacts:
-            result = await api.get("nb_123", "art_found")
-            # v0.8.0: a miss now raises ArtifactNotFoundError (issue #1247).
-            with pytest.raises(ArtifactNotFoundError):
-                await api.get("nb_123", "art_missing")
+        result = await api.get("nb_123", "art_found")
+        assert result.id == "art_found"
 
-        assert result is found
-        assert list_artifacts.await_count == 2
-        list_artifacts.assert_awaited_with("nb_123")
+        backend.set_result(ARTIFACT_GET_DEF, ArtifactGetResult(None))
+        with pytest.raises(ArtifactNotFoundError):
+            await api.get("nb_123", "art_missing")
 
     @pytest.mark.asyncio
     async def test_rename_artifact(
@@ -1595,23 +1601,20 @@ class TestListMindMapErrorHandling:
     async def test_list_continues_when_mind_map_rpc_error(
         self,
         auth_tokens,
-        httpx_mock: HTTPXMock,
-        build_rpc_response,
     ):
         """list() returns studio artifacts when mind map fetch raises RPCError."""
-        # Return a report artifact from studio
         artifact_data = ["art_001", "My Report", 2, None, 3]
-        list_response = build_rpc_response(RPCMethod.LIST_ARTIFACTS, [[artifact_data]])
-        httpx_mock.add_response(content=list_response.encode())
 
         async with NotebookLMClient(auth_tokens) as client:
-            # After issue #691, ArtifactsAPI reaches mind-map rows through the
-            # injected NoteBackedMindMapService. Patch the service's list_mind_maps so
-            # the simulated error reaches ArtifactsAPI.list().
             with patch.object(
-                client.artifacts._mind_maps,
-                "list_mind_maps",
-                new=AsyncMock(side_effect=RPCError("mind map fetch failed")),
+                client._rpc_executor,
+                "rpc_call",
+                new=AsyncMock(
+                    side_effect=[
+                        [[artifact_data]],
+                        RPCError("mind map fetch failed"),
+                    ]
+                ),
             ):
                 result = await client.artifacts.list("nb_123")
 
@@ -1621,30 +1624,26 @@ class TestListMindMapErrorHandling:
         assert any(a.id == "art_001" for a in result)
 
     @pytest.mark.asyncio
-    async def test_list_continues_when_mind_map_http_error(
+    async def test_list_preserves_non_rpc_network_error_from_mind_map_fetch(
         self,
         auth_tokens,
-        httpx_mock: HTTPXMock,
-        build_rpc_response,
     ):
-        """list() returns studio artifacts when mind map fetch raises HTTPError."""
-        import httpx
-
+        """A semantic transport failure remains observable instead of being hidden."""
         artifact_data = ["art_002", "Audio Overview", 1, None, 3]
-        list_response = build_rpc_response(RPCMethod.LIST_ARTIFACTS, [[artifact_data]])
-        httpx_mock.add_response(content=list_response.encode())
 
         async with NotebookLMClient(auth_tokens) as client:
             with patch.object(
-                client.artifacts._mind_maps,
-                "list_mind_maps",
-                new=AsyncMock(side_effect=httpx.HTTPError("connection failed")),
+                client._rpc_executor,
+                "rpc_call",
+                new=AsyncMock(
+                    side_effect=[
+                        [[artifact_data]],
+                        NetworkError("connection failed"),
+                    ]
+                ),
             ):
-                result = await client.artifacts.list("nb_123")
-
-        assert isinstance(result, list)
-        assert len(result) >= 1
-        assert any(a.id == "art_002" for a in result)
+                with pytest.raises(NetworkError, match="connection failed"):
+                    await client.artifacts.list("nb_123")
 
 
 class TestGetArtifactRaisesWhenNotFound:
@@ -1746,13 +1745,10 @@ class TestReviseSlide:
         async with NotebookLMClient(auth_tokens) as client:
             err = RPCError("Rate limit exceeded")
             err.rpc_code = "USER_DISPLAYABLE_ERROR"
-            # ``ArtifactsAPI`` now stores its three runtime collaborators
-            # directly; the patch goes through ``_rpc`` (the
-            # ``RpcExecutor``) since that is what ``rpc_call`` resolves
-            # through.
+            # Patch the composition-owned executor below the semantic backend.
             with (
                 patch.object(
-                    client.artifacts._rpc,
+                    client._rpc_executor,
                     "rpc_call",
                     AsyncMock(side_effect=err),
                 ),
@@ -1776,10 +1772,10 @@ class TestReviseSlide:
         async with NotebookLMClient(auth_tokens) as client:
             err = RPCError("Internal error")
             err.rpc_code = "INTERNAL_ERROR"
-            # See sibling test above for the ``_rpc`` patch-target rationale.
+            # See sibling test above for the executor patch-target rationale.
             with (
                 patch.object(
-                    client.artifacts._rpc,
+                    client._rpc_executor,
                     "rpc_call",
                     AsyncMock(side_effect=err),
                 ),
@@ -1887,7 +1883,7 @@ class TestRetryFailedArtifact:
         async with NotebookLMClient(auth_tokens) as client:
             with (
                 patch.object(
-                    client.artifacts._rpc,
+                    client._rpc_executor,
                     "rpc_call",
                     AsyncMock(side_effect=err),
                 ),
@@ -1912,7 +1908,7 @@ class TestRetryFailedArtifact:
         async with NotebookLMClient(auth_tokens) as client:
             with (
                 patch.object(
-                    client.artifacts._rpc,
+                    client._rpc_executor,
                     "rpc_call",
                     AsyncMock(side_effect=err),
                 ),
@@ -1989,26 +1985,13 @@ class TestGenerateMindMapParsing:
         mindmap_response = build_rpc_response(RPCMethod.GENERATE_MIND_MAP, [[mind_map_json_str]])
         httpx_mock.add_response(content=notebook_response.encode())
         httpx_mock.add_response(content=mindmap_response.encode())
-
-        from notebooklm.types import Note
+        httpx_mock.add_response(
+            content=build_rpc_response(RPCMethod.CREATE_NOTE, [["note_created_001"]]).encode()
+        )
+        httpx_mock.add_response(content=build_rpc_response(RPCMethod.UPDATE_NOTE, None).encode())
 
         async with NotebookLMClient(auth_tokens) as client:
-            # After Phase 5, mind-map persistence flows through
-            # ``ArtifactsAPI._note_service.create_note`` rather than the
-            # legacy ``_mind_map.create_note`` module-level seam.
-            with patch.object(
-                client.artifacts._note_service,
-                "create_note",
-                new=AsyncMock(
-                    return_value=Note(
-                        id="note_created_001",
-                        notebook_id="nb_123",
-                        title="Root Topic",
-                        content=mind_map_json_str,
-                    )
-                ),
-            ):
-                result = await client.artifacts.generate_mind_map("nb_123")
+            result = await client.artifacts.generate_mind_map("nb_123")
 
         assert result.mind_map == mind_map_dict
         assert result.note_id == "note_created_001"
@@ -2040,23 +2023,13 @@ class TestGenerateMindMapParsing:
         mindmap_response = build_rpc_response(RPCMethod.GENERATE_MIND_MAP, [[mind_map_dict]])
         httpx_mock.add_response(content=notebook_response.encode())
         httpx_mock.add_response(content=mindmap_response.encode())
-
-        from notebooklm.types import Note
+        httpx_mock.add_response(
+            content=build_rpc_response(RPCMethod.CREATE_NOTE, [["note_dict_001"]]).encode()
+        )
+        httpx_mock.add_response(content=build_rpc_response(RPCMethod.UPDATE_NOTE, None).encode())
 
         async with NotebookLMClient(auth_tokens) as client:
-            with patch.object(
-                client.artifacts._note_service,
-                "create_note",
-                new=AsyncMock(
-                    return_value=Note(
-                        id="note_dict_001",
-                        notebook_id="nb_123",
-                        title="Topic",
-                        content=json.dumps(mind_map_dict),
-                    )
-                ),
-            ):
-                result = await client.artifacts.generate_mind_map("nb_123")
+            result = await client.artifacts.generate_mind_map("nb_123")
 
         assert result.mind_map == mind_map_dict
         assert result.note_id == "note_dict_001"
@@ -2405,8 +2378,8 @@ class TestPollStatusVariousPaths:
         assert result.status == "not_found"
 
 
-class TestCallGenerateErrorHandling:
-    """Tests for _call_generate() error handling (USER_DISPLAYABLE_ERROR path)."""
+class TestGenerateErrorHandling:
+    """Tests for semantic generation error projection."""
 
     @pytest.mark.asyncio
     async def test_generate_audio_user_displayable_error_raises(
@@ -2415,19 +2388,15 @@ class TestCallGenerateErrorHandling:
         httpx_mock: HTTPXMock,
         build_rpc_response,
     ):
-        """v0.8.0 (#1342): _call_generate re-raises on a USER_DISPLAYABLE_ERROR refusal."""
+        """v0.8.0 (#1342): generation re-raises a USER_DISPLAYABLE_ERROR refusal."""
         async with NotebookLMClient(auth_tokens) as client:
             err = RPCError("You have exceeded your quota")
             err.rpc_code = "USER_DISPLAYABLE_ERROR"
             # Pass source_ids explicitly so get_source_ids (GET_NOTEBOOK) is NOT called.
-            # Then patch the held ``rpc`` collaborator's ``rpc_call`` so the
-            # CREATE_ARTIFACT call raises the error. ``ArtifactsAPI``
-            # stores its three runtime collaborators directly, so the
-            # patch target is ``_rpc`` — see the ``revise_slide``
-            # siblings above for the same rationale.
+            # Patch the composition-owned executor so CREATE_ARTIFACT raises.
             with (
                 patch.object(
-                    client.artifacts._rpc,
+                    client._rpc_executor,
                     "rpc_call",
                     AsyncMock(side_effect=err),
                 ),
@@ -2442,17 +2411,15 @@ class TestCallGenerateErrorHandling:
         httpx_mock: HTTPXMock,
         build_rpc_response,
     ):
-        """_call_generate re-raises non-USER_DISPLAYABLE_ERROR RPCErrors."""
+        """Generation re-raises non-USER_DISPLAYABLE_ERROR RPCErrors."""
         async with NotebookLMClient(auth_tokens) as client:
             err = RPCError("Server error")
             err.rpc_code = "INTERNAL_ERROR"
             # Pass source_ids explicitly so get_source_ids (GET_NOTEBOOK) is NOT called.
-            # Then patch the held ``rpc`` collaborator's ``rpc_call`` so the
-            # CREATE_ARTIFACT call raises the error. See sibling tests above
-            # for the ``_rpc`` patch-target rationale.
+            # Patch the composition-owned executor so CREATE_ARTIFACT raises.
             with (
                 patch.object(
-                    client.artifacts._rpc,
+                    client._rpc_executor,
                     "rpc_call",
                     AsyncMock(side_effect=err),
                 ),

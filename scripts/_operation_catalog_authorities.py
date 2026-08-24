@@ -539,9 +539,8 @@ SHARED_RPC_AUTHORITY_RULES.update(
         (Operation.ARTIFACT_GET, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
             (
                 "_web/backend.py:WebRpcBackend._artifact_catalog_records",
-                "select artifact for get/get_or_none",
+                "select artifact for get/get_or_none/get_prompt",
             ),
-            ("_artifacts.py:ArtifactsAPI._list_raw", "select prompt or poll status"),
         ),
         (Operation.ARTIFACT_LIST, _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)): _rules(
             (
@@ -555,23 +554,24 @@ SHARED_RPC_AUTHORITY_RULES.update(
                 "select note-backed mind map",
             )
         ),
+        (Operation.ARTIFACT_DOWNLOAD, _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)): _rules(
+            (
+                "_web/studio_facade.py:StudioFacadeWebHandlers._artifact_download",
+                "note-backed mind-map representation read",
+            )
+        ),
         (Operation.ARTIFACT_RENAME, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
-            ("_artifacts.py:ArtifactsAPI._list_raw", "return_object=True post-read")
+            ("_web/backend.py:WebRpcBackend._artifact_catalog_records", "post-mutation readback")
         ),
         (Operation.ARTIFACT_DOWNLOAD, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
             (
-                "_web/backend.py:WebRpcBackend._artifact_catalog_records",
-                "audio selection when raw rows are not prefetched",
-            ),
-            ("_artifacts.py:ArtifactsAPI._list_raw", "application download selection"),
-            (
-                "_artifact/downloads.py:ArtifactDownloadService._list_raw",
-                "public family download selection",
+                "_web/studio_facade.py:StudioFacadeWebHandlers._studio_rows",
+                "representation catalog read",
             ),
         ),
         (Operation.ARTIFACT_WAIT, _b(RPCMethod.LIST_ARTIFACTS)): _rules(
             (
-                "_artifacts.py:ArtifactsAPI._list_raw",
+                "_web/studio_facade.py:StudioFacadeWebHandlers._studio_rows",
                 "one catalog read per poll tick",
             )
         ),
@@ -633,7 +633,10 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_web/research.py:ResearchWebHandlers._research_poll", "one read per wait poll tick")
         ),
         (Operation.ARTIFACT_RENAME, _b(RPCMethod.RENAME_ARTIFACT)): _rules(
-            ("_artifacts.py:ArtifactsAPI.rename", "public=artifacts.rename")
+            (
+                "_web/studio_facade.py:StudioFacadeWebHandlers._artifact_rename",
+                "public=artifacts.rename",
+            )
         ),
         (Operation.MIND_MAP_UPDATE, _b(RPCMethod.RENAME_ARTIFACT)): _rules(
             ("_web/backend.py:WebRpcBackend._mind_map_update", "kind=INTERACTIVE")
@@ -713,7 +716,10 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_web/labels.py:LabelSetWebHandlers._collection_create", "label_type=collection")
         ),
         (Operation.ARTIFACT_DELETE, _b(RPCMethod.DELETE_ARTIFACT)): _rules(
-            ("_artifacts.py:ArtifactsAPI.delete", "public=artifacts.delete")
+            (
+                "_web/studio_facade.py:StudioFacadeWebHandlers._artifact_delete",
+                "public=artifacts.delete",
+            )
         ),
         (Operation.MIND_MAP_DELETE, _b(RPCMethod.DELETE_ARTIFACT)): _rules(
             ("_web/backend.py:WebRpcBackend._mind_map_delete", "kind=INTERACTIVE")
@@ -741,12 +747,8 @@ SHARED_RPC_AUTHORITY_RULES.update(
         ),
         (Operation.ARTIFACT_DOWNLOAD, _b(RPCMethod.GET_INTERACTIVE_HTML)): _rules(
             (
-                "_artifact/downloads.py:ArtifactDownloadService._get_artifact_content",
-                "quiz|flashcards interactive representation",
-            ),
-            (
-                "_artifact/downloads.py:ArtifactDownloadService._get_interactive_mind_map_tree",
-                "interactive mind-map representation",
+                "_web/studio_facade.py:StudioFacadeWebHandlers._artifact_download",
+                "quiz|flashcards|mind-map interactive representation",
             ),
         ),
         (Operation.MIND_MAP_GET, _b(RPCMethod.GET_INTERACTIVE_HTML)): _rules(

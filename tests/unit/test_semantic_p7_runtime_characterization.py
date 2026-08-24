@@ -168,7 +168,8 @@ def test_rpc_executor_and_middleware_chain_ordering_invariants() -> None:
     assert client._rpc_executor is client._backend._executor
     assert client.notebooks._rpc is client._rpc_executor
     assert client.sources._rpc is client._rpc_executor
-    assert client.artifacts._rpc is client._rpc_executor
+    assert not hasattr(client.artifacts, "_rpc")
+    assert client.artifacts._backend is client._backend
     assert client.chat._rpc is client._rpc_executor
 
     # Canonical middleware chain ordering per ADR-0009:
@@ -250,7 +251,7 @@ def test_constructor_option_routing_to_all_collaborators() -> None:
 
     # 2. storage_path -> auth & artifacts download service
     assert client._auth.storage_path == Path("/tmp/test_storage.json")
-    assert client.artifacts._downloads._storage_path == Path("/tmp/test_storage.json")
+    assert client.artifacts._downloads._remote._storage_path == Path("/tmp/test_storage.json")
 
     # 3. keepalive & keepalive_min_interval -> lifecycle (clamped to min_interval)
     assert client._collaborators.lifecycle._keepalive_interval == 120.0

@@ -159,7 +159,7 @@ from .codec.notes import (
 )
 from .codec.sources import decode_source
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
-from .settings_suggestions import SettingsSuggestionWebHandlers
+from .studio_facade import StudioFacadeWebHandlers
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
 source_logger = logging.getLogger("notebooklm").getChild("_sources")
@@ -183,6 +183,17 @@ _WEB_ERROR_REASONS: dict[type[object], BackendErrorReason] = {
 
 _SAFE_REASON_DIAGNOSTICS: dict[BackendErrorReason, tuple[str, ...]] = {
     BackendErrorReason.AUTH: ("recoverable",),
+    BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE: (
+        "artifact_type",
+        "method_id",
+        "raw_response",
+    ),
+    BackendErrorReason.ARTIFACT_NOT_FOUND: (
+        "artifact_id",
+        "artifact_type",
+        "method_id",
+        "raw_response",
+    ),
     BackendErrorReason.CLIENT: ("status_code",),
     BackendErrorReason.DECODING: (),
     BackendErrorReason.IDEMPOTENCY_VARIANT: (),
@@ -314,6 +325,17 @@ def _capture_public_failure(
     capture_links = isinstance(exc, NotebookLMError)
     explicit = exc.__cause__ if capture_links else None
     context = exc.__context__ if capture_links else None
+    # ``RpcExecutor`` raises the public RPC error explicitly from the original
+    # httpx leaf while a private ``TransportServerError`` is the suppressed
+    # implicit context.  The neutral record preserves the explicit public leaf;
+    # it must neither serialize nor replay that web-runtime implementation type.
+    if (
+        context is not None
+        and exc.__suppress_context__
+        and explicit is not None
+        and type(context) not in kind_by_type
+    ):
+        context = None
     source_add_cause = exc.cause if isinstance(exc, SourceAddError) else None
     if source_add_cause is not None and explicit is not None and source_add_cause is not explicit:
         raise BackendContractError(
@@ -478,7 +500,7 @@ class _DeadlineRpcCaller:
         raise timeout_error
 
 
-class WebRpcBackend(SettingsSuggestionWebHandlers):
+class WebRpcBackend(StudioFacadeWebHandlers):
     """Typed semantic binding over the existing shared :class:`RpcExecutor`."""
 
     def __init__(

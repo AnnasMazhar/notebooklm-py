@@ -38,6 +38,8 @@ from notebooklm._idempotency import (
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._read_services import NotebookReadService, SourceReadService
 from notebooklm._records import (
+    ARTIFACT_DELETE_DEF,
+    ARTIFACT_DOWNLOAD_DEF,
     ARTIFACT_EXPORT_DEF,
     ARTIFACT_GENERATE_AUDIO_DEF,
     ARTIFACT_GENERATE_DATA_TABLE_DEF,
@@ -50,7 +52,11 @@ from notebooklm._records import (
     ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
+    ARTIFACT_RENAME_DEF,
+    ARTIFACT_RETRY_DEF,
+    ARTIFACT_REVISE_SLIDE_DEF,
     ARTIFACT_SUGGEST_REPORTS_DEF,
+    ARTIFACT_WAIT_DEF,
     COLLECTION_CREATE_DEF,
     COLLECTION_DELETE_DEF,
     COLLECTION_GET_DEF,
@@ -237,6 +243,15 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             CallPolicy.STATEFUL_START,
         ),
         ARTIFACT_EXPORT_DEF: (Operation.ARTIFACT_EXPORT, CallPolicy.MUTATION),
+        ARTIFACT_REVISE_SLIDE_DEF: (
+            Operation.ARTIFACT_REVISE_SLIDE,
+            CallPolicy.MUTATION,
+        ),
+        ARTIFACT_RETRY_DEF: (Operation.ARTIFACT_RETRY, CallPolicy.STATEFUL_START),
+        ARTIFACT_DELETE_DEF: (Operation.ARTIFACT_DELETE, CallPolicy.MUTATION),
+        ARTIFACT_RENAME_DEF: (Operation.ARTIFACT_RENAME, CallPolicy.MUTATION),
+        ARTIFACT_DOWNLOAD_DEF: (Operation.ARTIFACT_DOWNLOAD, CallPolicy.READ),
+        ARTIFACT_WAIT_DEF: (Operation.ARTIFACT_WAIT, CallPolicy.READ),
         NOTE_LIST_DEF: (Operation.NOTE_LIST, CallPolicy.READ),
         NOTE_GET_DEF: (Operation.NOTE_GET, CallPolicy.READ),
         NOTE_CREATE_DEF: (Operation.NOTE_CREATE, CallPolicy.MUTATION),
@@ -453,6 +468,49 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             ARTIFACT_EXPORT_DEF,
             [(RPCMethod.EXPORT_ARTIFACT, None)],
             [IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY],
+        ),
+        (
+            ARTIFACT_REVISE_SLIDE_DEF,
+            [(RPCMethod.REVISE_SLIDE, None)],
+            [IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY],
+        ),
+        (
+            ARTIFACT_RETRY_DEF,
+            [(RPCMethod.RETRY_ARTIFACT, None)],
+            [IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY],
+        ),
+        (
+            ARTIFACT_DELETE_DEF,
+            [(RPCMethod.DELETE_ARTIFACT, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            ARTIFACT_RENAME_DEF,
+            [(RPCMethod.RENAME_ARTIFACT, None), (RPCMethod.LIST_ARTIFACTS, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP, IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            ARTIFACT_DOWNLOAD_DEF,
+            [
+                (RPCMethod.LIST_ARTIFACTS, None),
+                (RPCMethod.GET_NOTES_AND_MIND_MAPS, None),
+                (RPCMethod.GET_INTERACTIVE_HTML, None),
+            ],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
+        ),
+        (
+            ARTIFACT_WAIT_DEF,
+            [(RPCMethod.LIST_ARTIFACTS, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            ARTIFACT_SUGGEST_REPORTS_DEF,
+            [(RPCMethod.GET_SUGGESTED_REPORTS, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
         ),
         (
             NOTE_LIST_DEF,

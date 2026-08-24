@@ -245,11 +245,6 @@ async def test_download_mind_map_runs_write_off_loop_thread(
         return original_write_text(self, *args, **kwargs)  # type: ignore[arg-type]
 
     with (
-        patch.object(
-            api._mind_maps,
-            "list_mind_maps",
-            new=AsyncMock(return_value=mind_map_rows),
-        ),
         # Patch the `json` module owned by the representation serializer so the
         # closure inside `download_mind_map` resolves to the stub.
         patch.object(studio_serialization.json, "dump", recording_json_dump),
@@ -257,7 +252,11 @@ async def test_download_mind_map_runs_write_off_loop_thread(
         # rewrite either direction is caught by this test.
         patch.object(Path, "write_text", recording_write_text),
     ):
-        result = await api.download_mind_map("nb_t7d4", str(output_path))
+        result = await api.download_mind_map(
+            "nb_t7d4",
+            str(output_path),
+            mind_maps=mind_map_rows,
+        )
 
     assert result == str(output_path)
     assert output_path.exists(), "download_mind_map should still produce the file"
@@ -310,7 +309,7 @@ async def test_concurrent_downloads_both_offload_writes(
     mind_map_rows = [
         [
             "mindmap_002",
-            [None, json.dumps({"name": "FanoutRoot"})],
+            [None, json.dumps({"name": "FanoutRoot", "children": []})],
             None,
             None,
             "Fanout Mind Map",
@@ -332,17 +331,17 @@ async def test_concurrent_downloads_both_offload_writes(
         return original_json_dump(*args, **kwargs)  # type: ignore[arg-type]
 
     with (
-        patch.object(
-            api._mind_maps,
-            "list_mind_maps",
-            new=AsyncMock(return_value=mind_map_rows),
-        ),
         patch.object(Path, "write_text", recording_write_text),
         patch.object(studio_serialization.json, "dump", recording_json_dump),
     ):
         report_result, mindmap_result = await asyncio.gather(
             api.download_report("nb_t7d4", str(report_path), artifacts_data=report_artifact_list),
-            api.download_mind_map("nb_t7d4", str(mindmap_path), artifacts_data=[]),
+            api.download_mind_map(
+                "nb_t7d4",
+                str(mindmap_path),
+                mind_maps=mind_map_rows,
+                artifacts_data=[],
+            ),
         )
 
     assert report_result == str(report_path)

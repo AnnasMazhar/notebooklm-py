@@ -13,34 +13,43 @@ from typing import TYPE_CHECKING, Any, cast
 
 # ``_mind_map`` re-exported as ``_artifacts._mind_map`` for legacy monkeypatch seams (runtime uses injected services).
 from . import _mind_map  # noqa: F401 — re-exported as facade attribute
+from ._artifact import downloads as _artifact_downloads
 from ._artifact import formatters as _artifact_formatters
 from ._artifact import polling as _artifact_polling
 from ._artifact import validation as _artifact_validation
-from ._artifact.downloads import ArtifactDownloadService, DownloadResult
-from ._artifact.generation import ArtifactGenerationService
+from ._artifact.downloads import DownloadResult
 from ._artifact.listing import ArtifactListingService
-from ._backend import BackendAdapter, BackendError
+from ._backend import BackendAdapter, BackendError, BackendErrorReason
 from ._backend_compat import project_backend_error
 from ._lookup import unwrap_or_raise
 from ._mind_map import NoteBackedMindMapService
 from ._note_service import LegacyNoteBackedService
 from ._notebook_metadata import NotebookSourceIdProvider
 from ._polling_registry import PollRegistry
-from ._projectors import project_artifact, project_generation_status
+from ._projectors import project_artifact, project_generation_status, project_report_suggestion
 from ._records import (
+    ArtifactDeleteInput,
+    ArtifactRecord,
+    ArtifactRenameInput,
+    ArtifactRepresentationRecord,
+    ArtifactRetryInput,
+    ArtifactReviseSlideInput,
+    ArtifactSuggestReportsInput,
     AudioGenerateInput,
     DataTableGenerateInput,
     DriveExportInput,
     InfographicGenerateInput,
     InteractiveGenerateInput,
     MindMapGenerateInput,
+    MindMapRepresentationRecord,
     ReportGenerateInput,
     SlideDeckGenerateInput,
     VideoGenerateInput,
 )
-from ._row_adapters import artifacts as _artifact_rows
-from ._runtime.contracts import RpcCaller
+from ._row_adapters.notes import NoteRow
 from ._studio import (
+    ArtifactLifecycleService,
+    ArtifactRepresentationService,
     AudioFamilyService,
     DataTableFamilyService,
     DocumentOptionError,
@@ -48,17 +57,19 @@ from ._studio import (
     InteractiveFamilyService,
     NoteBackedMindMapFamilyService,
     ReportFamilyService,
+    ReportSuggestionService,
     StudioCatalog,
+    StudioManagementService,
     VideoFamilyService,
     VisualFamilyService,
 )
-from ._suggestion_service import SuggestionService
+from ._studio.downloads import StudioDownloadClient
 from ._types.research import MindMapResult
+from ._web.backend import WebRpcBackend
+from ._web.codec.artifacts import decode_artifact_representation, decode_mind_map_representation
 from .exceptions import (
+    ArtifactFeatureUnavailableError,
     ArtifactNotFoundError,
-    ArtifactNotReadyError,
-    ArtifactParseError,
-    DecodingError,
     ValidationError,
 )
 
@@ -66,7 +77,6 @@ if TYPE_CHECKING:
     from ._runtime.lifecycle import ClientLifecycle
     from ._transport_drain import TransportDrainTracker
 from .rpc import (
-    ARTIFACT_STATUS_SUGGESTED_WIRE_NAME,
     ArtifactTypeCode,
     AudioFormat,
     AudioLength,
@@ -77,7 +87,6 @@ from .rpc import (
     QuizDifficulty,
     QuizQuantity,
     ReportFormat,
-    RPCMethod,
     SlideDeckFormat,
     SlideDeckLength,
     VideoFormat,
@@ -130,7 +139,7 @@ class ArtifactsAPI:
     def __init__(
         self,
         *,
-        rpc: RpcCaller,
+        rpc: object | None = None,
         drain: "TransportDrainTracker",
         lifecycle: "ClientLifecycle",
         notebooks: NotebookSourceIdProvider,
@@ -142,9 +151,9 @@ class ArtifactsAPI:
         """Initialize the artifacts API.
 
         Args:
-            rpc: RPC dispatch surface (:class:`RpcCaller`) — used for direct
-                artifact RPCs (delete, rename, export, list_raw) and threaded
-                into the generation and download services.
+            rpc: Deprecated compatibility constructor input. Artifact behavior
+                uses only ``_backend``; the value is retained for source
+                compatibility while test callers migrate to backend fakes.
             drain: Transport drain coordinator — owns ``operation_scope`` (used
                 by the polling service) and ``register_drain_hook`` (used here
                 to register the polling-service close-time cleanup hook).
@@ -153,23 +162,24 @@ class ArtifactsAPI:
             notebooks: Source-id resolver. Required — wire from
                 ``NotebookLMClient`` (no implicit fallback). Threaded into the
                 generation service.
-            mind_maps: Note-backed mind-map facade (:class:`NoteBackedMindMapService`)
-                — owns the ``list_mind_maps`` / ``extract_content`` paths
-                consumed by ``_artifact.downloads.download_mind_map``.
-            note_service: Backend note-row primitives — owns the ``create_note``
-                call site that the generation service's ``generate_mind_map``
-                uses to persist generated mind maps.
+            mind_maps: Deprecated manual-construction collaborator retained for
+                the legacy ``get_prompt`` fallback; production behavior uses the
+                semantic Studio catalog/representation services.
+            note_service: Deprecated source-compatible constructor input. P5.8
+                moved mind-map persistence behind the semantic backend.
             storage_path: Path to storage state file for loading download cookies.
             _backend: Private semantic backend used by Studio catalog reads.
         """
-        self._rpc = rpc
+        self._legacy_constructor = _backend is None
+        if _backend is None and rpc is not None:
+            _backend = WebRpcBackend(cast(Any, rpc), transport_factory=lambda **_kwargs: object())
         self._drain = drain
         self._lifecycle = lifecycle
         self._notebooks = notebooks
         self._mind_maps = mind_maps
-        self._note_service = note_service
+        del note_service
+        self._backend = _backend
         self._catalog = StudioCatalog(_backend) if _backend is not None else None
-        self._suggestions = SuggestionService(_backend) if _backend is not None else None
         self._data_tables = (
             DataTableFamilyService(_backend, self._catalog)
             if _backend is not None and self._catalog is not None
@@ -208,23 +218,28 @@ class ArtifactsAPI:
         )
         self._poll_registry = PollRegistry()
         self._listing = ArtifactListingService()
-        self._downloads = ArtifactDownloadService(
-            rpc=self._rpc,
-            listing=self._listing,
-            mind_maps=self._mind_maps,
-            storage_path=storage_path,
-        )
-        self._generation = ArtifactGenerationService(
-            rpc=self._rpc,
-            notebooks=self._notebooks,
-            note_service=self._note_service,
-        )
-        self._polling = _artifact_polling.ArtifactPollingService(
+        self._management = StudioManagementService(_backend) if _backend is not None else None
+        self._suggestions = ReportSuggestionService(_backend) if _backend is not None else None
+        self._lifecycle_service = ArtifactLifecycleService(
+            _backend,
             loop_guard=self._lifecycle,
             op_scope=self._drain,
             poll_registry=self._poll_registry,
         )
-        self._drain.register_drain_hook("artifacts.polls", self._polling.drain)
+        self._representations = ArtifactRepresentationService(
+            _backend,
+            remote=StudioDownloadClient(
+                storage_path=storage_path,
+                cookie_loader=_artifact_downloads._load_httpx_cookies,
+            ),
+        )
+        # Retain the historical private monkeypatch seam while its implementation
+        # is now the backend-neutral Studio representation service.
+        self._downloads = self._representations
+        self._drain.register_drain_hook(
+            "artifacts.polls",
+            self._lifecycle_service.drain,
+        )
 
     # =========================================================================
     # List/Get Operations
@@ -260,15 +275,45 @@ class ArtifactsAPI:
 
     async def _list_for_download(
         self, notebook_id: str, artifact_type: ArtifactType | None = None
-    ) -> tuple[builtins.list[Artifact], builtins.list[Any], builtins.list[Any] | None]:
-        """List artifacts + the raw rows fetched to build them — same RPC set as
-        :meth:`list`. Internal seam for the ``_app`` download executor (#1488)."""
-        return await self._listing.list_artifacts_with_raw(
-            notebook_id,
-            artifact_type,
-            list_raw=self._list_raw,
-            list_mind_maps=self._list_mind_maps,
-        )
+    ) -> tuple[
+        builtins.list[Artifact],
+        builtins.list[ArtifactRepresentationRecord],
+        builtins.list[MindMapRepresentationRecord] | None,
+    ]:
+        """List once and retain neutral representation records for downloads."""
+        if self._representations is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            studio = await self._representations._list_representations(notebook_id)
+        except BackendError as error:
+            raise project_backend_error(error) from None
+
+        mind_maps: tuple[MindMapRepresentationRecord, ...] | None = ()
+        if artifact_type is None or artifact_type is ArtifactType.MIND_MAP:
+            try:
+                mind_maps = await self._representations._list_mind_maps(notebook_id)
+            except BackendError as error:
+                if error.reason is BackendErrorReason.DECODING:
+                    raise project_backend_error(error) from None
+                logger.warning("Failed to fetch mind maps: %s", error)
+                mind_maps = None
+
+        records = [item.artifact for item in studio]
+        if mind_maps is not None:
+            records.extend(
+                ArtifactRecord(
+                    id=item.id,
+                    title=item.title,
+                    family="mind_map",
+                    status="completed",
+                    created_at=item.created_at,
+                )
+                for item in mind_maps
+            )
+        artifacts = [project_artifact(record) for record in records]
+        if artifact_type is not None:
+            artifacts = [artifact for artifact in artifacts if artifact.kind is artifact_type]
+        return artifacts, list(studio), None if mind_maps is None else list(mind_maps)
 
     async def get(self, notebook_id: str, artifact_id: str) -> Artifact:
         """Get a specific artifact by ID.
@@ -320,7 +365,19 @@ class ArtifactsAPI:
 
         .. versionadded:: 0.8.0
         """
-        return await self._listing.get_prompt(notebook_id, artifact_id, list_raw=self._list_raw, list_mind_maps=self._list_mind_maps)  # fmt: skip
+        if self._catalog is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            record = await self._catalog.get_record(notebook_id, artifact_id)
+        except BackendError as error:
+            raise project_backend_error(error) from None
+        if record is None:
+            if self._legacy_constructor:
+                rows = await self._mind_maps.list_mind_maps(notebook_id)
+                if any(NoteRow(row).id == artifact_id for row in rows):
+                    return None
+            raise ArtifactNotFoundError(artifact_id)
+        return record.generation_prompt
 
     async def list_audio(self, notebook_id: str) -> builtins.list[Artifact]:
         """List audio overview artifacts."""
@@ -676,7 +733,17 @@ class ArtifactsAPI:
         prompt: str,
     ) -> GenerationStatus:
         """Revise an individual slide in a completed slide deck using a prompt."""
-        return await self._generation.revise_slide(notebook_id, artifact_id, slide_index, prompt)
+        if slide_index < 0:
+            raise ValidationError(f"slide_index must be >= 0, got {slide_index}")
+        if self._management is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            result = await self._management.revise_slide(
+                ArtifactReviseSlideInput(notebook_id, artifact_id, slide_index, prompt)
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
+        return project_generation_status(result.status)
 
     async def retry_failed(self, notebook_id: str, artifact_id: str) -> GenerationStatus:
         """Retry a failed Studio artifact in place (the UI "Retry" action).
@@ -695,7 +762,13 @@ class ArtifactsAPI:
         is routing-only (sets the ``source_path`` header); the artifact is
         identified solely by ``artifact_id``.
         """
-        return await self._generation.retry_failed(notebook_id, artifact_id)
+        if self._management is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            result = await self._management.retry(ArtifactRetryInput(notebook_id, artifact_id))
+        except BackendError as error:
+            raise project_backend_error(error) from None
+        return project_generation_status(result.status)
 
     async def generate_data_table(
         self,
@@ -761,29 +834,16 @@ class ArtifactsAPI:
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download an Audio Overview to a file."""
-        if artifacts_data is None:
-            if self._audio is None:
-                raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
-            public_error: Exception | None = None
-            try:
-                metadata = await self._audio.select_download(notebook_id, artifact_id)
-            except BackendError as error:
-                public_error = project_backend_error(error)
-            else:
-                if metadata is None:
-                    raise ArtifactNotReadyError("audio", artifact_id=artifact_id)
-                if not metadata.preferred_url:
-                    raise ArtifactParseError(
-                        "audio",
-                        artifact_id=artifact_id,
-                        details="Could not extract download URL from artifact metadata",
-                    )
-                return await self._downloads.download_url(metadata.preferred_url, output_path)
-            assert public_error is not None
-            raise public_error
-        return await self._downloads.download_audio(
-            notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
-        )
+        service = self._require_representations()
+        try:
+            return await service.download_audio(
+                notebook_id,
+                output_path,
+                artifact_id,
+                representations=self._representation_records(artifacts_data),
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def download_video(
         self,
@@ -794,9 +854,16 @@ class ArtifactsAPI:
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a Video Overview to a file."""
-        return await self._downloads.download_video(
-            notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
-        )
+        service = self._require_representations()
+        try:
+            return await service.download_video(
+                notebook_id,
+                output_path,
+                artifact_id,
+                representations=self._representation_records(artifacts_data),
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def download_infographic(
         self,
@@ -807,9 +874,16 @@ class ArtifactsAPI:
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download an Infographic to a file."""
-        return await self._downloads.download_infographic(
-            notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
-        )
+        service = self._require_representations()
+        try:
+            return await service.download_infographic(
+                notebook_id,
+                output_path,
+                artifact_id,
+                representations=self._representation_records(artifacts_data),
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def download_slide_deck(
         self,
@@ -821,9 +895,17 @@ class ArtifactsAPI:
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a slide deck as PDF or PPTX."""
-        return await self._downloads.download_slide_deck(
-            notebook_id, output_path, artifact_id, output_format, artifacts_data=artifacts_data
-        )
+        service = self._require_representations()
+        try:
+            return await service.download_slide_deck(
+                notebook_id,
+                output_path,
+                artifact_id,
+                output_format,
+                representations=self._representation_records(artifacts_data),
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def _download_interactive_artifact(
         self,
@@ -836,9 +918,18 @@ class ArtifactsAPI:
         artifacts: builtins.list[Artifact] | None = None,
     ) -> str:
         """Download quiz or flashcard artifact."""
-        return await self._downloads.download_interactive_artifact(
-            notebook_id, output_path, artifact_id, output_format, artifact_type, artifacts=artifacts
-        )
+        service = self._require_representations()
+        try:
+            return await service.download_interactive(
+                notebook_id,
+                output_path,
+                artifact_id,
+                output_format,
+                artifact_type,
+                artifacts=self._artifact_records(artifacts),
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     def _format_interactive_content(
         self,
@@ -866,9 +957,16 @@ class ArtifactsAPI:
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a report artifact as markdown."""
-        return await self._downloads.download_report(
-            notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
-        )
+        service = self._require_representations()
+        try:
+            return await service.download_report(
+                notebook_id,
+                output_path,
+                artifact_id,
+                representations=self._representation_records(artifacts_data),
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def download_mind_map(
         self,
@@ -880,13 +978,17 @@ class ArtifactsAPI:
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a mind map as JSON."""
-        return await self._downloads.download_mind_map(
-            notebook_id,
-            output_path,
-            artifact_id,
-            mind_maps=mind_maps,
-            artifacts_data=artifacts_data,
-        )
+        service = self._require_representations()
+        try:
+            return await service.download_mind_map(
+                notebook_id,
+                output_path,
+                artifact_id,
+                mind_maps=self._mind_map_records(mind_maps),
+                representations=self._representation_records(artifacts_data),
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def download_data_table(
         self,
@@ -897,9 +999,16 @@ class ArtifactsAPI:
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a data table as CSV."""
-        return await self._downloads.download_data_table(
-            notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
-        )
+        service = self._require_representations()
+        try:
+            return await service.download_data_table(
+                notebook_id,
+                output_path,
+                artifact_id,
+                representations=self._representation_records(artifacts_data),
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def download_quiz(
         self,
@@ -946,13 +1055,12 @@ class ArtifactsAPI:
             no longer enters its block.
         """
         logger.debug("Deleting artifact %s from notebook %s", artifact_id, notebook_id)
-        params = [[2], artifact_id]  # Single-id only; live batch-shape probes failed.
-        await self._rpc.rpc_call(
-            RPCMethod.DELETE_ARTIFACT,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-        )
+        if self._management is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            await self._management.delete(ArtifactDeleteInput(notebook_id, artifact_id))
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def rename(
         self,
@@ -986,24 +1094,17 @@ class ArtifactsAPI:
             :class:`ArtifactNotFoundError` instead of silently returning
             ``None`` (#1362).
         """
-        params = [[artifact_id, new_title], [["title"]]]
-        await self._rpc.rpc_call(
-            RPCMethod.RENAME_ARTIFACT,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-        )
-        # Resolve via studio artifacts only — never public ``get()`` (#1247) nor
-        # the merged listing (a note-backed mind-map id no-ops on RENAME_ARTIFACT
-        # — use ``mind_maps.rename``). v0.8.0 (#1362): the lookup runs on
-        # ``False`` too so a missing target is detected, but ``False`` still
-        # returns ``None`` on success.
-        artifact = await self._listing.get_studio_only(
-            notebook_id, artifact_id, list_raw=self._list_raw
-        )
-        if artifact is None:
-            raise ArtifactNotFoundError(artifact_id, method_id=RPCMethod.RENAME_ARTIFACT.value)
-        return None if not return_object else artifact
+        if self._management is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            result = await self._management.rename(
+                ArtifactRenameInput(notebook_id, artifact_id, new_title)
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
+        if result.artifact is None:
+            raise RuntimeError("artifact.rename backend returned no post-mutation artifact")
+        return None if not return_object else project_artifact(result.artifact)
 
     async def poll_status(self, notebook_id: str, task_id: str) -> GenerationStatus:
         """Poll the status of a generation task.
@@ -1018,13 +1119,14 @@ class ArtifactsAPI:
             an artifact was absent from the list; now returns
             ``status="not_found"``.
         """
-        return await self._polling.poll_status(
-            notebook_id,
-            task_id,
-            list_raw=self._list_raw,
-            is_media_ready=self._is_media_ready,
-            get_artifact_type_name=self._get_artifact_type_name,
-        )
+        if self._lifecycle_service is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        try:
+            return project_generation_status(
+                await self._lifecycle_service.observe(notebook_id, task_id)
+            )
+        except BackendError as error:
+            raise project_backend_error(error) from None
 
     async def wait_for_completion(
         self,
@@ -1064,7 +1166,9 @@ class ArtifactsAPI:
         Raises:
             TimeoutError: If task doesn't complete within ``timeout``.
         """
-        return await self._polling.wait_for_completion(
+        if self._lifecycle_service is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        return await self._lifecycle_service.wait_for_completion(
             notebook_id,
             task_id,
             initial_interval=initial_interval,
@@ -1166,62 +1270,19 @@ class ArtifactsAPI:
         if self._suggestions is None:
             raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
         try:
-            return await self._suggestions.suggest_reports(notebook_id)
+            result = await self._suggestions.suggest(ArtifactSuggestReportsInput(notebook_id))
         except BackendError as error:
             raise project_backend_error(error) from None
+        return [project_report_suggestion(item) for item in result.suggestions]
 
     # =========================================================================
     # Private Helpers
     # =========================================================================
 
-    async def _call_generate(
-        self,
-        notebook_id: str,
-        params: builtins.list[Any],
-        *,
-        null_result_artifact_type: str | None = None,
-    ) -> GenerationStatus:
-        """Make a generation RPC call with error handling.
-
-        Facade hop: tests call ``api._call_generate(...)`` directly; the
-        implementation lives on :class:`ArtifactGenerationService`.
-        """
-        return await self._generation._call_generate(
-            notebook_id,
-            params,
-            null_result_artifact_type=null_result_artifact_type,
-        )
-
     async def _list_mind_maps(self, notebook_id: str) -> builtins.list[Any]:
-        """Get raw mind-map rows via the injected mind-map facade."""
-        return await self._mind_maps.list_mind_maps(notebook_id)
+        """Compatibility seam for the injected mind-map facade."""
 
-    async def _list_raw(self, notebook_id: str) -> builtins.list[Any]:
-        """Get raw artifact list data."""
-        params = [
-            [2],
-            notebook_id,
-            f'NOT artifact.status = "{ARTIFACT_STATUS_SUGGESTED_WIRE_NAME}"',
-        ]
-        result = await self._rpc.rpc_call(
-            RPCMethod.LIST_ARTIFACTS,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-        )
-        if isinstance(result, list):
-            return _artifact_rows.unwrap_artifact_rows(
-                result,
-                method_id=RPCMethod.LIST_ARTIFACTS.value,
-                source="ArtifactsAPI._list_raw",
-            )
-        if not result:
-            return []
-        raise DecodingError(
-            "Unrecognized LIST_ARTIFACTS payload shape",
-            raw_response=repr(result),
-            method_id=RPCMethod.LIST_ARTIFACTS.value,
-        )
+        return await self._mind_maps.list_mind_maps(notebook_id)
 
     def _select_artifact(
         self,
@@ -1232,24 +1293,8 @@ class ArtifactsAPI:
         *,
         type_code: ArtifactTypeCode,
     ) -> Any:
-        """Select an artifact from candidates by ID, or return latest completed.
+        """Compatibility shim over the pure artifact-row selector."""
 
-        Single point of completed-artifact selection: filters the raw
-        ``_list_raw`` list to entries matching ``type_code`` with status
-        ``COMPLETED``, then applies the explicit-ID or latest-timestamp rule.
-
-        The length guard requires only ``len(a) > 4`` — the minimum to read
-        ``a[2]`` (type) and ``a[4]`` (status). A completed-but-too-short
-        artifact passes here and surfaces as ``ArtifactParseError`` from the
-        downstream extractor rather than ``ArtifactNotReadyError`` from this
-        filter (downstream wraps ``IndexError``/``TypeError`` into
-        ``ArtifactParseError``). ``no_result_error_key`` is *not* in general
-        ``type_name.lower()`` — ``download_video`` passes ``"video_overview"``
-        to preserve historical exception keys.
-
-        Raises:
-            ArtifactNotReadyError: If no candidate is found after filtering.
-        """
         return self._listing.select_artifact(
             candidates,
             artifact_id,
@@ -1262,11 +1307,11 @@ class ArtifactsAPI:
         self, urls_and_paths: builtins.list[tuple[str, str]]
     ) -> "DownloadResult":
         """Download multiple files using httpx with proper cookie handling."""
-        return await self._downloads.download_urls_batch(urls_and_paths)
+        return await self._require_representations().download_batch(urls_and_paths)
 
     async def _download_url(self, url: str, output_path: str) -> str:
         """Download a file from URL using streaming with proper cookie handling."""
-        return await self._downloads.download_url(url, output_path)
+        return await self._require_representations().download_url(url, output_path)
 
     def _parse_generation_result(
         self,
@@ -1275,12 +1320,53 @@ class ArtifactsAPI:
         method_id: str,
         source: str = "_parse_generation_result",
     ) -> GenerationStatus:
-        """Parse a generation result into GenerationStatus.
+        """Compatibility parser retained for downstream private callers."""
+        from ._web.codec.studio_documents import decode_generation_status
 
-        Facade hop: tests call ``api._parse_generation_result(...)`` directly;
-        the implementation lives on :class:`ArtifactGenerationService`.
-        """
-        return self._generation._parse_generation_result(result, method_id=method_id, source=source)
+        record = decode_generation_status(result, method_id=method_id, source=source)
+        if record is None:
+            raise ArtifactFeatureUnavailableError("artifact", method_id=method_id)
+        return project_generation_status(record)
+
+    def _require_representations(self) -> ArtifactRepresentationService:
+        if self._representations is None:
+            raise RuntimeError("ArtifactsAPI requires the client-assembled semantic backend")
+        return self._representations
+
+    @staticmethod
+    def _representation_records(
+        rows: builtins.list[Any] | None,
+    ) -> tuple[ArtifactRepresentationRecord, ...] | None:
+        if rows is None:
+            return None
+        return tuple(decode_artifact_representation(row) for row in rows)
+
+    @staticmethod
+    def _artifact_records(
+        artifacts: builtins.list[Artifact] | None,
+    ) -> tuple[ArtifactRecord, ...] | None:
+        if artifacts is None:
+            return None
+        return tuple(
+            ArtifactRecord(
+                id=item.id,
+                title=item.title,
+                family=item.kind.value,
+                status=item.status_str,
+                created_at=item.created_at,
+            )
+            for item in artifacts
+        )
+
+    @staticmethod
+    def _mind_map_records(
+        rows: builtins.list[Any] | None,
+    ) -> tuple[MindMapRepresentationRecord, ...] | None:
+        if rows is None:
+            return None
+        return tuple(
+            record for row in rows if (record := decode_mind_map_representation(row)) is not None
+        )
 
     def _get_artifact_type_name(self, artifact_type: int) -> str:
         """Human-readable name for an ``ArtifactTypeCode``, else the raw int as str."""

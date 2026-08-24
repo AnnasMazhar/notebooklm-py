@@ -6,12 +6,16 @@ import logging
 import reprlib
 from typing import Any
 
+from ..._artifact.formatters import _parse_data_table
 from ..._records import (
     ArtifactInfographicRecord,
     ArtifactMediaRecord,
     ArtifactRecord,
+    ArtifactRepresentationRecord,
     ArtifactSlideRecord,
     ArtifactUserStateRecord,
+    GenerationStatusRecord,
+    MindMapRepresentationRecord,
     ReportSuggestionRecord,
 )
 from ..._row_adapters.artifacts import (
@@ -23,8 +27,10 @@ from ..._row_adapters.artifacts import (
     _UnknownUserStateValue,
 )
 from ..._row_adapters.notes import NoteRow
-from ...exceptions import UnknownRPCMethodError
+from ...exceptions import ArtifactParseError, UnknownRPCMethodError
+from ...rpc import RPCMethod, safe_index
 from ...rpc.types import ArtifactStatus, ArtifactTypeCode, artifact_status_to_str
+from .notes import _decode_note_rows
 
 logger = logging.getLogger("notebooklm._types.artifacts")
 
@@ -190,4 +196,167 @@ def decode_report_suggestion(data: list[Any]) -> ReportSuggestionRecord:
     )
 
 
-__all__ = ["decode_artifact", "decode_mind_map_artifact", "decode_report_suggestion"]
+def decode_artifact_representation(data: list[Any]) -> ArtifactRepresentationRecord:
+    """Decode only the representation fields relevant to one artifact family."""
+
+    row = ArtifactRow(data)
+    type_code = row.type_code
+    variant_code = row.variant if type_code == ArtifactTypeCode.QUIZ.value else None
+    family, unrecognized_family, variant, unrecognized_variant = _artifact_identity(
+        type_code, variant_code
+    )
+    status = artifact_status_to_str(row.status)
+    artifact = ArtifactRecord(
+        id=row.id,
+        title=row.title,
+        family=family,
+        status=status,
+        unrecognized_family=unrecognized_family,
+        variant=variant,
+        unrecognized_variant=unrecognized_variant,
+        unrecognized_status=(row.status if status == "unknown" and row.status != 0 else None),
+        created_at=row.created_at,
+    )
+    audio_url = video_url = infographic_url = None
+    slide_deck_pdf_url = slide_deck_pptx_url = None
+    report_markdown = None
+    data_table_headers: tuple[str, ...] = ()
+    data_table_rows: tuple[tuple[str, ...], ...] = ()
+    data_table_error = parse_error = None
+    try:
+        if artifact.family == "audio":
+            audio_url = row.audio_url
+        elif artifact.family == "video":
+            video_url = row.video_url
+        elif artifact.family == "infographic":
+            infographic_url = row.infographic_url
+        elif artifact.family == "slide_deck":
+            slide_deck_pdf_url = row.slide_deck_pdf_url
+            slide_deck_pptx_url = row.slide_deck_pptx_url
+        elif artifact.family == "report":
+            report_markdown = row.report_markdown
+        elif artifact.family == "data_table":
+            try:
+                headers, rows = _parse_data_table(row.data_table_raw_payload)
+            except ArtifactParseError as exc:
+                data_table_error = exc.details or str(exc)
+            else:
+                data_table_headers = tuple(headers)
+                data_table_rows = tuple(tuple(item) for item in rows)
+    except (IndexError, TypeError, UnknownRPCMethodError) as exc:
+        parse_error = str(exc)
+    return ArtifactRepresentationRecord(
+        artifact=artifact,
+        audio_url=audio_url,
+        video_url=video_url,
+        infographic_url=infographic_url,
+        slide_deck_pdf_url=slide_deck_pdf_url,
+        slide_deck_pptx_url=slide_deck_pptx_url,
+        report_markdown=report_markdown,
+        data_table_headers=data_table_headers,
+        data_table_rows=data_table_rows,
+        data_table_error=data_table_error,
+        parse_error=parse_error,
+    )
+
+
+def decode_mind_map_representation(data: list[Any]) -> MindMapRepresentationRecord | None:
+    """Decode one live note-backed mind map without retaining its wire row."""
+
+    row = NoteRow(data)
+    if row.is_deleted or not row.is_mind_map:
+        return None
+    return MindMapRepresentationRecord(
+        id=row.id,
+        title=row.title,
+        content=row.content,
+        created_at=row.created_at,
+    )
+
+
+def decode_mind_map_representations(result: object) -> tuple[MindMapRepresentationRecord, ...]:
+    """Decode live note-backed maps from the mixed note collection."""
+
+    return tuple(
+        record
+        for row in _decode_note_rows(result)
+        if (record := decode_mind_map_representation(row)) is not None
+    )
+
+
+def decode_interactive_content(result: object, *, tree: bool) -> str | None:
+    """Decode quiz/flashcard HTML or an interactive mind-map tree leaf."""
+
+    if result is None:
+        return None
+    payload = safe_index(
+        result,
+        0,
+        9,
+        method_id=RPCMethod.GET_INTERACTIVE_HTML.value,
+        source=(
+            "_artifact_downloads._get_interactive_mind_map_tree"
+            if tree
+            else "_artifact_downloads._get_artifact_content"
+        ),
+    )
+    if not isinstance(payload, list):
+        return None
+    index = 3 if tree else 0
+    if len(payload) <= index:
+        return None
+    value = payload[index]
+    return value if isinstance(value, str) else None
+
+
+def decode_artifact_poll(
+    rows: list[list[Any]],
+    task_id: str,
+) -> GenerationStatusRecord:
+    """Decode one lifecycle observation with the legacy media-settling rule."""
+
+    row = None
+    for item in rows:
+        candidate = ArtifactRow(item)
+        if candidate.id == task_id:
+            row = candidate
+            break
+    if row is None:
+        return GenerationStatusRecord(task_id=task_id, status="not_found")
+
+    status_code = row.status
+    raw_status = artifact_status_to_str(status_code)
+    metadata: tuple[tuple[str, object], ...] = ()
+    if status_code == ArtifactStatus.COMPLETED.value and not row.is_media_ready(row.type_code):
+        try:
+            type_name = ArtifactTypeCode(row.type_code).name
+        except ValueError:
+            type_name = str(row.type_code)
+        metadata = (
+            ("artifact_type", type_name),
+            ("artifact_type_code", row.type_code),
+            ("media_ready", False),
+            ("normalized_status", "in_progress"),
+            ("raw_status", raw_status),
+        )
+        status = "in_progress"
+    else:
+        status = raw_status
+    return GenerationStatusRecord(
+        task_id=task_id,
+        status=status,
+        url=row.artifact_url(row.type_code, suppress_drift=True),
+        metadata=metadata,
+    )
+
+
+__all__ = [
+    "decode_artifact",
+    "decode_artifact_representation",
+    "decode_artifact_poll",
+    "decode_interactive_content",
+    "decode_mind_map_artifact",
+    "decode_mind_map_representation",
+    "decode_mind_map_representations",
+    "decode_report_suggestion",
+]

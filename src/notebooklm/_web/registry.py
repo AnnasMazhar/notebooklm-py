@@ -15,6 +15,8 @@ from typing import Any, Final
 
 from .._operations import Operation, OperationDef
 from .._records import (
+    ARTIFACT_DELETE_DEF,
+    ARTIFACT_DOWNLOAD_DEF,
     ARTIFACT_EXPORT_DEF,
     ARTIFACT_GENERATE_AUDIO_DEF,
     ARTIFACT_GENERATE_DATA_TABLE_DEF,
@@ -27,7 +29,11 @@ from .._records import (
     ARTIFACT_GENERATE_VIDEO_DEF,
     ARTIFACT_GET_DEF,
     ARTIFACT_LIST_DEF,
+    ARTIFACT_RENAME_DEF,
+    ARTIFACT_RETRY_DEF,
+    ARTIFACT_REVISE_SLIDE_DEF,
     ARTIFACT_SUGGEST_REPORTS_DEF,
+    ARTIFACT_WAIT_DEF,
     COLLECTION_CREATE_DEF,
     COLLECTION_DELETE_DEF,
     COLLECTION_GET_DEF,
@@ -158,6 +164,12 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.SETTINGS_GET: SETTINGS_GET_DEF,
         Operation.SETTINGS_GET_LIMITS: SETTINGS_GET_LIMITS_DEF,
         Operation.SETTINGS_SET_LANGUAGE: SETTINGS_SET_LANGUAGE_DEF,
+        Operation.ARTIFACT_REVISE_SLIDE: ARTIFACT_REVISE_SLIDE_DEF,
+        Operation.ARTIFACT_RETRY: ARTIFACT_RETRY_DEF,
+        Operation.ARTIFACT_DELETE: ARTIFACT_DELETE_DEF,
+        Operation.ARTIFACT_RENAME: ARTIFACT_RENAME_DEF,
+        Operation.ARTIFACT_DOWNLOAD: ARTIFACT_DOWNLOAD_DEF,
+        Operation.ARTIFACT_WAIT: ARTIFACT_WAIT_DEF,
     }
 )
 
@@ -218,6 +230,12 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.SETTINGS_GET: "_settings_get",
         Operation.SETTINGS_GET_LIMITS: "_settings_get_limits",
         Operation.SETTINGS_SET_LANGUAGE: "_settings_set_language",
+        Operation.ARTIFACT_REVISE_SLIDE: "_artifact_revise_slide",
+        Operation.ARTIFACT_RETRY: "_artifact_retry",
+        Operation.ARTIFACT_DELETE: "_artifact_delete",
+        Operation.ARTIFACT_RENAME: "_artifact_rename",
+        Operation.ARTIFACT_DOWNLOAD: "_artifact_download",
+        Operation.ARTIFACT_WAIT: "_artifact_wait",
     }
 )
 
@@ -229,7 +247,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a P1 registry review.
 _EXPECTED_OPERATION_COUNT: Final = 86
-_EXPECTED_SUPPORTED_COUNT: Final = 55
+_EXPECTED_SUPPORTED_COUNT: Final = 61
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

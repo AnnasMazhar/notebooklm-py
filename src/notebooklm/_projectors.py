@@ -362,6 +362,7 @@ def project_generation_status(record: GenerationStatusRecord) -> GenerationStatu
         url=record.url,
         error=record.error,
         error_code=record.error_code,
+        metadata=dict(record.metadata) or None,
     )
 
 

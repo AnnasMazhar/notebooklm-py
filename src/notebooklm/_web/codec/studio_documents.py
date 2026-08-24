@@ -81,22 +81,26 @@ def encode_report_generation(
     )
 
 
-def decode_generation_status(result: Any) -> GenerationStatusRecord | None:
+def decode_generation_status(
+    result: Any,
+    *,
+    method_id: str = RPCMethod.CREATE_ARTIFACT.value,
+    source: str = "_parse_generation_result",
+) -> GenerationStatusRecord | None:
     """Decode the common CREATE_ARTIFACT task row; ``None`` means a null task id."""
 
-    method_id = RPCMethod.CREATE_ARTIFACT.value
     artifact_id = safe_index(
         result,
         0,
         0,
         method_id=method_id,
-        source="_parse_generation_result",
+        source=source,
     )
     if artifact_id is None:
         return None
     if not artifact_id:
         raise DecodingError(
-            "No artifact id (source=_parse_generation_result)",
+            f"No artifact id (source={source})",
             method_id=method_id,
         )
     status_code = safe_index(
@@ -104,7 +108,7 @@ def decode_generation_status(result: Any) -> GenerationStatusRecord | None:
         0,
         4,
         method_id=method_id,
-        source="_parse_generation_result",
+        source=source,
     )
     status = "pending" if status_code is None else artifact_status_to_str(status_code)
     return GenerationStatusRecord(task_id=cast(str, artifact_id), status=status)
