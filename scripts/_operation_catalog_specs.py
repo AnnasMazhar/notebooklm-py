@@ -362,7 +362,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "StudioCatalog",
         "notebook+artifact",
         "Selects one artifact or its prompt from the heterogeneous catalog.",
-        _p("artifacts", "get", "get_or_none", "get_prompt", "poll_status"),
+        _p("artifacts", "get", "get_or_none", "get_prompt"),
         (_b(RPCMethod.LIST_ARTIFACTS), _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)),
     ),
     OperationSpec(
@@ -440,7 +440,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
     OperationSpec(
         Operation.ARTIFACT_GENERATE_SLIDE_DECK,
         CallPolicy.STATEFUL_START,
-        "StudioManagementService",
+        "VisualFamilyService",
         "notebook+source-set",
         "Creates a slide deck with format and length variants.",
         _p("artifacts", "generate_slide_deck"),
@@ -559,7 +559,7 @@ OPERATION_SPECS: tuple[OperationSpec, ...] = (
         "ArtifactLifecycleService",
         "notebook+artifact",
         "Polls the artifact catalog through the shared-leader polling registry.",
-        _p("artifacts", "wait_for_completion"),
+        _p("artifacts", "poll_status", "wait_for_completion"),
         (_b(RPCMethod.LIST_ARTIFACTS),),
         disposition=Disposition.COMPOSITE,
     ),

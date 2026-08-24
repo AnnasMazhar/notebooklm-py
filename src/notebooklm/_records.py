@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from ._artifact_records import (
+    ArtifactParseFailureKind,
+    ArtifactParseFailureRecord,
+    sanitize_artifact_parse_text,
+)
 from ._chat_records import (
     CHAT_ASK_DEF,
     CHAT_CONFIGURE_DEF,
@@ -742,7 +747,9 @@ class ArtifactRepresentationRecord:
     data_table_headers: tuple[str, ...] = field(default=(), repr=False)
     data_table_rows: tuple[tuple[str, ...], ...] = field(default=(), repr=False)
     data_table_error: str | None = field(default=None, repr=False)
+    data_table_failure: ArtifactParseFailureRecord | None = field(default=None, repr=False)
     parse_error: str | None = field(default=None, repr=False)
+    parse_failure: ArtifactParseFailureRecord | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1428,6 +1435,9 @@ __all__ = [
     "ArtifactRenameInput",
     "ArtifactRenameResult",
     "ArtifactRepresentationRecord",
+    "ArtifactParseFailureKind",
+    "ArtifactParseFailureRecord",
+    "sanitize_artifact_parse_text",
     "ArtifactRetryInput",
     "ArtifactRetryResult",
     "ArtifactReviseSlideInput",

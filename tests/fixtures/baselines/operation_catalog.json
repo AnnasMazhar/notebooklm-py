@@ -1835,7 +1835,7 @@
     },
     {
       "key": "artifact.generate_slide_deck",
-      "owner": "StudioManagementService",
+      "owner": "VisualFamilyService",
       "policy": "stateful_start",
       "route_context": "notebook+source-set",
       "disposition": "semantic",
@@ -1976,13 +1976,11 @@
       "public_methods": [
         "artifacts.get",
         "artifacts.get_or_none",
-        "artifacts.get_prompt",
-        "artifacts.poll_status"
+        "artifacts.get_prompt"
       ],
       "app_callers": [
         "_app/artifacts.py:get_artifact",
-        "_app/artifacts.py:get_artifact_prompt",
-        "_app/artifacts.py:poll_artifact"
+        "_app/artifacts.py:get_artifact_prompt"
       ],
       "native_bindings": [
         "GET_NOTES_AND_MIND_MAPS:<default>",
@@ -2214,9 +2212,11 @@
       "route_context": "notebook+artifact",
       "disposition": "composite",
       "public_methods": [
+        "artifacts.poll_status",
         "artifacts.wait_for_completion"
       ],
       "app_callers": [
+        "_app/artifacts.py:poll_artifact",
         "_app/artifacts.py:wait_for_artifact",
         "_app/generate_retry.py:handle_generation_result"
       ],
@@ -5567,8 +5567,8 @@
         "MindMapFamilyService",
         "QuizFamilyService",
         "ReportFamilyService",
-        "StudioManagementService",
-        "VideoFamilyService"
+        "VideoFamilyService",
+        "VisualFamilyService"
       ],
       "route_contexts": [
         "notebook+source-set"
@@ -6397,8 +6397,8 @@
         "ReportFamilyService",
         "ResearchService",
         "SourceService",
-        "StudioManagementService",
-        "VideoFamilyService"
+        "VideoFamilyService",
+        "VisualFamilyService"
       ],
       "route_contexts": [
         "account",
@@ -8282,7 +8282,7 @@
     "artifacts.poll_status": {
       "disposition": "semantic",
       "operations": [
-        "artifact.get"
+        "artifact.wait"
       ],
       "declared_by": "notebooklm._artifacts.ArtifactsAPI",
       "app_callers": [

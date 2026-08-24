@@ -19,7 +19,7 @@ from ._artifact import polling as _artifact_polling
 from ._artifact import validation as _artifact_validation
 from ._artifact.downloads import DownloadResult
 from ._artifact.listing import ArtifactListingService
-from ._backend import BackendAdapter, BackendError, BackendErrorReason
+from ._backend import BackendAdapter, BackendContractError, BackendError, BackendErrorReason
 from ._backend_compat import project_backend_error
 from ._lookup import unwrap_or_raise
 from ._mind_map import NoteBackedMindMapService
@@ -100,6 +100,18 @@ from .types import (
 )
 
 logger = logging.getLogger(__name__)
+
+_PARTIAL_MIND_MAP_FAILURE_REASONS = frozenset(
+    {
+        BackendErrorReason.AUTH,
+        BackendErrorReason.CLIENT,
+        BackendErrorReason.RATE_LIMIT,
+        BackendErrorReason.RESPONSE_TOO_LARGE,
+        BackendErrorReason.RPC,
+        BackendErrorReason.SERVER,
+        BackendErrorReason.TIMEOUT,
+    }
+)
 
 
 def _interactive_option_name(
@@ -293,7 +305,9 @@ class ArtifactsAPI:
             try:
                 mind_maps = await self._representations._list_mind_maps(notebook_id)
             except BackendError as error:
-                if error.reason is BackendErrorReason.DECODING:
+                if error.reason not in _PARTIAL_MIND_MAP_FAILURE_REASONS:
+                    if isinstance(error, BackendContractError):
+                        raise
                     raise project_backend_error(error) from None
                 logger.warning("Failed to fetch mind maps: %s", error)
                 mind_maps = None
@@ -1339,7 +1353,12 @@ class ArtifactsAPI:
     ) -> tuple[ArtifactRepresentationRecord, ...] | None:
         if rows is None:
             return None
-        return tuple(decode_artifact_representation(row) for row in rows)
+        return tuple(
+            row
+            if isinstance(row, ArtifactRepresentationRecord)
+            else decode_artifact_representation(row)
+            for row in rows
+        )
 
     @staticmethod
     def _artifact_records(
@@ -1365,7 +1384,16 @@ class ArtifactsAPI:
         if rows is None:
             return None
         return tuple(
-            record for row in rows if (record := decode_mind_map_representation(row)) is not None
+            record
+            for row in rows
+            if (
+                record := (
+                    row
+                    if isinstance(row, MindMapRepresentationRecord)
+                    else decode_mind_map_representation(row)
+                )
+            )
+            is not None
         )
 
     def _get_artifact_type_name(self, artifact_type: int) -> str:

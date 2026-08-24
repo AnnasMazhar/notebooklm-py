@@ -483,6 +483,22 @@ async def test_artifact_download_actions_are_closed_and_transport_neutral() -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["interactive_html", "mind_map_tree"])
+async def test_artifact_interactive_options_block_drift_fails_loud(action: str) -> None:
+    executor = _RecordingExecutor([[None] * 9 + [{"moved": True}]])
+    backend = _backend(executor)
+
+    with pytest.raises(BackendError) as caught:
+        await backend.invoke(
+            ARTIFACT_DOWNLOAD_DEF,
+            ArtifactDownloadInput("nb", action, "artifact-id"),
+            deadline=None,
+        )
+
+    assert caught.value.reason is BackendErrorReason.UNKNOWN_RPC_METHOD
+
+
+@pytest.mark.asyncio
 async def test_artifact_rename_missing_target_uses_closed_backend_reason() -> None:
     executor = _RecordingExecutor(None, [])
     with pytest.raises(BackendError) as info:

@@ -10,11 +10,13 @@ from .._backend import BackendAdapter
 from .._records import (
     ARTIFACT_DOWNLOAD_DEF,
     ArtifactDownloadInput,
+    ArtifactParseFailureKind,
+    ArtifactParseFailureRecord,
     ArtifactRecord,
     ArtifactRepresentationRecord,
     MindMapRepresentationRecord,
 )
-from ..exceptions import ValidationError
+from ..exceptions import UnknownRPCMethodError, ValidationError
 from ..types import (
     ArtifactDownloadError,
     ArtifactNotFoundError,
@@ -38,6 +40,52 @@ class ArtifactRepresentationService:
         self._backend = backend
         self._remote = remote
         self._serialization = serialization or StudioSerializationClient()
+
+    @staticmethod
+    def _project_parse_failure(record: ArtifactParseFailureRecord) -> Exception:
+        """Rebuild a bounded public cause without retaining raw wire payloads."""
+
+        if record.kind is ArtifactParseFailureKind.UNKNOWN_RPC_METHOD:
+            return UnknownRPCMethodError(
+                record.message,
+                method_id=record.method_id,
+                path=record.path,
+                source=record.source,
+                found_ids=list(record.found_ids) or None,
+                raw_response=record.raw_response,
+                data_at_failure=record.data_at_failure,
+                rpc_code=record.rpc_code,
+            )
+        builtin_by_kind: dict[ArtifactParseFailureKind, type[Exception]] = {
+            ArtifactParseFailureKind.INDEX: IndexError,
+            ArtifactParseFailureKind.KEY: KeyError,
+            ArtifactParseFailureKind.TYPE: TypeError,
+            ArtifactParseFailureKind.VALUE: ValueError,
+        }
+        failure_type = builtin_by_kind.get(record.kind)
+        if failure_type is None:
+            raise RuntimeError(f"unsupported artifact parse failure kind: {record.kind.value}")
+        return failure_type(record.message)
+
+    @classmethod
+    def _raise_parse_error(
+        cls,
+        artifact_type: str,
+        *,
+        artifact_id: str | None,
+        details: str,
+        failure: ArtifactParseFailureRecord | None,
+    ) -> None:
+        cause = None if failure is None else cls._project_parse_failure(failure)
+        error = ArtifactParseError(
+            artifact_type,
+            artifact_id=artifact_id,
+            details=details,
+            cause=cause,
+        )
+        if cause is None:
+            raise error
+        raise error from cause
 
     async def _list_representations(
         self,
@@ -127,10 +175,11 @@ class ArtifactRepresentationService:
         )
         selected = self._select(candidates, artifact_id, "audio", "Audio", "audio")
         if selected.parse_error is not None:
-            raise ArtifactParseError(
+            self._raise_parse_error(
                 "audio",
                 artifact_id=artifact_id,
                 details=f"Failed to parse structure: {selected.parse_error}",
+                failure=selected.parse_failure,
             )
         if not selected.audio_url:
             raise ArtifactParseError(
@@ -161,10 +210,11 @@ class ArtifactRepresentationService:
             "video_overview",
         )
         if selected.parse_error is not None:
-            raise ArtifactParseError(
+            self._raise_parse_error(
                 "video_artifact",
                 artifact_id=artifact_id,
                 details=f"Failed to parse structure: {selected.parse_error}",
+                failure=selected.parse_failure,
             )
         if not selected.video_url:
             raise ArtifactParseError(
@@ -195,10 +245,11 @@ class ArtifactRepresentationService:
             "infographic",
         )
         if selected.parse_error is not None:
-            raise ArtifactParseError(
+            self._raise_parse_error(
                 "infographic",
                 artifact_id=artifact_id,
                 details=f"Failed to parse structure: {selected.parse_error}",
+                failure=selected.parse_failure,
             )
         if not selected.infographic_url:
             raise ArtifactParseError(
@@ -232,10 +283,11 @@ class ArtifactRepresentationService:
             "slide_deck",
         )
         if selected.parse_error is not None:
-            raise ArtifactParseError(
+            self._raise_parse_error(
                 "slide_deck",
                 artifact_id=artifact_id,
                 details=f"Failed to parse structure: {selected.parse_error}",
+                failure=selected.parse_failure,
             )
         url = (
             selected.slide_deck_pptx_url if output_format == "pptx" else selected.slide_deck_pdf_url
@@ -264,10 +316,11 @@ class ArtifactRepresentationService:
         )
         selected = self._select(candidates, artifact_id, "report", "Report", "report")
         if selected.parse_error is not None:
-            raise ArtifactParseError(
+            self._raise_parse_error(
                 "report",
                 artifact_id=artifact_id,
                 details=f"Failed to parse structure: {selected.parse_error}",
+                failure=selected.parse_failure,
             )
         if not isinstance(selected.report_markdown, str):
             raise ArtifactParseError(
@@ -298,13 +351,19 @@ class ArtifactRepresentationService:
             "data_table",
         )
         if selected.parse_error is not None:
-            raise ArtifactParseError(
+            self._raise_parse_error(
                 "data_table",
                 artifact_id=artifact_id,
                 details=f"Failed to parse structure: {selected.parse_error}",
+                failure=selected.parse_failure,
             )
         if selected.data_table_error is not None:
-            raise ArtifactParseError("data_table", details=selected.data_table_error)
+            self._raise_parse_error(
+                "data_table",
+                artifact_id=artifact_id,
+                details=selected.data_table_error,
+                failure=selected.data_table_failure,
+            )
         return await self._serialization.write_csv(
             output_path,
             list(selected.data_table_headers),

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -38,7 +39,17 @@ from notebooklm._app.download import (
     execute_download,
     select_artifact,
 )
+from notebooklm._artifacts import ArtifactsAPI
+from notebooklm._records import (
+    ARTIFACT_DOWNLOAD_DEF,
+    ArtifactDownloadResult,
+    ArtifactRecord,
+    ArtifactRepresentationRecord,
+)
+from notebooklm._studio.downloads import StudioDownloadClient
+from notebooklm._studio.representations import ArtifactRepresentationService
 from notebooklm.types import Artifact, ArtifactType
+from tests._fixtures.recording_backend import RecordingBackend
 
 # ---------------------------------------------------------------------------
 # Pure artifact-selection logic (Filter → Count → Select).
@@ -569,6 +580,46 @@ class TestFormatExtensionResolution:
 
 
 class TestExecuteDownload:
+    @pytest.mark.asyncio
+    async def test_shared_adapter_core_reuses_typed_facade_prefetch(self, tmp_path):
+        """CLI, MCP, and REST all execute this exact typed prefetch handoff."""
+
+        record = ArtifactRepresentationRecord(
+            ArtifactRecord("audio-id", "Audio", "audio", "completed"),
+            audio_url="https://storage.googleapis.com/audio.m4a",
+        )
+        backend = RecordingBackend()
+        backend.set_result(ARTIFACT_DOWNLOAD_DEF, ArtifactDownloadResult((record,)))
+        remote = MagicMock(spec=StudioDownloadClient)
+        remote.download = AsyncMock(return_value=str(tmp_path / "audio.m4a"))
+        service = ArtifactRepresentationService(backend, remote=remote)
+        api = object.__new__(ArtifactsAPI)
+        api._representations = service
+        facade = SimpleNamespace(artifacts=api)
+        plan = build_download_plan(
+            _AUDIO_SPEC,
+            {
+                "notebook_id": "nb",
+                "artifact_id": "audio-id",
+                "output_path": str(tmp_path / "audio.m4a"),
+            },
+            cwd=tmp_path,
+        )
+
+        result = await execute_download(
+            plan,
+            facade,
+            notebook_resolver=_passthrough_notebook_resolver(),
+            artifact_resolver=_artifact_resolver_identity,
+        )
+
+        assert result.outcome is DownloadOutcome.SINGLE_DOWNLOADED
+        assert len(backend.invocations) == 1
+        remote.download.assert_awaited_once_with(
+            "https://storage.googleapis.com/audio.m4a",
+            str(tmp_path / "audio.m4a"),
+        )
+
     @pytest.mark.asyncio
     async def test_no_completed_artifacts(self):
         facade = _make_facade(artifacts=[])

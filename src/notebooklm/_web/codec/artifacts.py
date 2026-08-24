@@ -10,6 +10,8 @@ from ..._artifact.formatters import _parse_data_table
 from ..._records import (
     ArtifactInfographicRecord,
     ArtifactMediaRecord,
+    ArtifactParseFailureKind,
+    ArtifactParseFailureRecord,
     ArtifactRecord,
     ArtifactRepresentationRecord,
     ArtifactSlideRecord,
@@ -17,6 +19,7 @@ from ..._records import (
     GenerationStatusRecord,
     MindMapRepresentationRecord,
     ReportSuggestionRecord,
+    sanitize_artifact_parse_text,
 )
 from ..._row_adapters.artifacts import (
     ArtifactRow,
@@ -47,6 +50,38 @@ _ARTIFACT_FAMILIES = {
 }
 _ARTIFACT_VARIANTS = {1: "flashcards", 2: "quiz", 4: "interactive_mind_map"}
 _MEDIA_KINDS = {1: "progressive", 2: "hls", 3: "dash", 4: "download"}
+
+
+def _capture_parse_failure(exc: Exception) -> ArtifactParseFailureRecord:
+    """Capture only reviewed, sanitized causes that the public API historically exposed."""
+
+    kind_by_type = {
+        UnknownRPCMethodError: ArtifactParseFailureKind.UNKNOWN_RPC_METHOD,
+        IndexError: ArtifactParseFailureKind.INDEX,
+        KeyError: ArtifactParseFailureKind.KEY,
+        TypeError: ArtifactParseFailureKind.TYPE,
+        ValueError: ArtifactParseFailureKind.VALUE,
+    }
+    kind = kind_by_type.get(type(exc))
+    if kind is None:
+        raise TypeError(f"unsupported artifact parse failure type: {type(exc).__name__}") from exc
+    raw_response = getattr(exc, "raw_response", None)
+    data_at_failure = getattr(exc, "data_at_failure", None)
+    return ArtifactParseFailureRecord(
+        kind=kind,
+        message=sanitize_artifact_parse_text(str(exc.args[0]) if exc.args else ""),
+        method_id=getattr(exc, "method_id", None),
+        path=getattr(exc, "path", None),
+        source=getattr(exc, "source", None),
+        found_ids=tuple(getattr(exc, "found_ids", ()) or ()),
+        raw_response=(
+            sanitize_artifact_parse_text(raw_response) if isinstance(raw_response, str) else None
+        ),
+        data_at_failure=(
+            sanitize_artifact_parse_text(data_at_failure) if data_at_failure is not None else None
+        ),
+        rpc_code=getattr(exc, "rpc_code", None),
+    )
 
 
 def _decode_user_state(value: _ArtifactUserStateValue) -> ArtifactUserStateRecord:
@@ -223,6 +258,7 @@ def decode_artifact_representation(data: list[Any]) -> ArtifactRepresentationRec
     data_table_headers: tuple[str, ...] = ()
     data_table_rows: tuple[tuple[str, ...], ...] = ()
     data_table_error = parse_error = None
+    data_table_failure = parse_failure = None
     try:
         if artifact.family == "audio":
             audio_url = row.audio_url
@@ -240,11 +276,14 @@ def decode_artifact_representation(data: list[Any]) -> ArtifactRepresentationRec
                 headers, rows = _parse_data_table(row.data_table_raw_payload)
             except ArtifactParseError as exc:
                 data_table_error = exc.details or str(exc)
+                if exc.cause is not None:
+                    data_table_failure = _capture_parse_failure(exc.cause)
             else:
                 data_table_headers = tuple(headers)
                 data_table_rows = tuple(tuple(item) for item in rows)
     except (IndexError, TypeError, UnknownRPCMethodError) as exc:
         parse_error = str(exc)
+        parse_failure = _capture_parse_failure(exc)
     return ArtifactRepresentationRecord(
         artifact=artifact,
         audio_url=audio_url,
@@ -256,7 +295,9 @@ def decode_artifact_representation(data: list[Any]) -> ArtifactRepresentationRec
         data_table_headers=data_table_headers,
         data_table_rows=data_table_rows,
         data_table_error=data_table_error,
+        data_table_failure=data_table_failure,
         parse_error=parse_error,
+        parse_failure=parse_failure,
     )
 
 
@@ -301,7 +342,18 @@ def decode_interactive_content(result: object, *, tree: bool) -> str | None:
         ),
     )
     if not isinstance(payload, list):
-        return None
+        raise UnknownRPCMethodError(
+            f"safe_index drift at path (0, 9): options block is "
+            f"{type(payload).__name__}, not a list",
+            method_id=RPCMethod.GET_INTERACTIVE_HTML.value,
+            path=(0, 9),
+            source=(
+                "_artifact_downloads._get_interactive_mind_map_tree"
+                if tree
+                else "_artifact_downloads._get_artifact_content"
+            ),
+            data_at_failure=reprlib.repr(payload),
+        )
     index = 3 if tree else 0
     if len(payload) <= index:
         return None

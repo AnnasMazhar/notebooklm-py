@@ -18,11 +18,13 @@ from notebooklm._records import (
 from notebooklm._studio.downloads import DownloadResult, StudioDownloadClient
 from notebooklm._studio.representations import ArtifactRepresentationService
 from notebooklm._studio.serialization import StudioSerializationClient
+from notebooklm._web.codec.artifacts import decode_artifact_representation
 from notebooklm.exceptions import (
     ArtifactDownloadError,
     ArtifactNotFoundError,
     ArtifactNotReadyError,
     ArtifactParseError,
+    UnknownRPCMethodError,
     ValidationError,
 )
 from tests._fixtures.recording_backend import RecordingBackend
@@ -176,6 +178,44 @@ async def test_representation_parse_errors_remain_public_and_scrubbed() -> None:
     with pytest.raises(ArtifactParseError, match="shape moved"):
         await service.download_audio("nb", "audio.bin", representations=(record,))
     assert "https://" not in repr(record)
+
+
+@pytest.mark.asyncio
+async def test_codec_parse_failure_preserves_sanitized_public_cause_graph() -> None:
+    # A present-but-empty slide metadata block is strict structural drift at
+    # the required PDF URL leaf, not an absent optional representation.
+    row: list[object] = ["deck-id", "Deck", 8, None, 3]
+    row.extend([None] * 11)
+    row.append([])
+    record = decode_artifact_representation(row)
+    assert record.parse_failure is not None
+    assert "raw" not in repr(record.parse_failure)
+
+    service, _, _ = _service()
+    with pytest.raises(ArtifactParseError) as caught:
+        await service.download_slide_deck("nb", "deck.pdf", representations=(record,))
+
+    assert isinstance(caught.value.cause, UnknownRPCMethodError)
+    assert caught.value.__cause__ is caught.value.cause
+    assert caught.value.cause.method_id is not None
+    assert caught.value.cause.data_at_failure == "[]"
+
+
+@pytest.mark.asyncio
+async def test_data_table_nested_parse_cause_survives_codec_boundary() -> None:
+    row: list[object] = ["table-id", "Table", 9, None, 3]
+    row.extend([None] * 13)
+    row.append([[[]]])
+    record = decode_artifact_representation(row)
+    assert record.data_table_error is not None
+    assert record.data_table_failure is not None
+
+    service, _, _ = _service()
+    with pytest.raises(ArtifactParseError) as caught:
+        await service.download_data_table("nb", "table.csv", representations=(record,))
+
+    assert isinstance(caught.value.cause, UnknownRPCMethodError)
+    assert caught.value.__cause__ is caught.value.cause
 
 
 @pytest.mark.asyncio
