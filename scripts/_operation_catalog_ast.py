@@ -464,12 +464,11 @@ GENERIC_RPC_FORWARDERS = frozenset(
     }
 )
 
-# P1 constructs the semantic web backend but deliberately leaves every feature
-# facade wired straight to RpcExecutor.  These six functions are therefore
-# executable only through direct private-object access, not production
-# authorities.  Keep the classification exact and temporary: Removal: P2
-# deletes each handler from this set in the same slice that delegates its
-# facade, at which point the handler becomes the catalogued native authority.
+# P1 constructed the semantic web backend with every handler inert. P2 removes
+# each handler from this set in the same slice that delegates its facade, at
+# which point the handler becomes the catalogued native authority. Notebook
+# list/get are live; the forwarding infrastructure remains inert only because
+# the still-inert source handlers use it.
 INERT_P1_WEB_FORWARDERS = frozenset(
     {
         "_web/backend.py:_DeadlineRpcCaller.rpc_call",
@@ -478,8 +477,6 @@ INERT_P1_WEB_FORWARDERS = frozenset(
 )
 INERT_P1_WEB_HANDLERS = frozenset(
     {
-        "_web/backend.py:WebRpcBackend._notebook_get",
-        "_web/backend.py:WebRpcBackend._notebook_list",
         "_web/backend.py:WebRpcBackend._source_get",
         "_web/backend.py:WebRpcBackend._source_list",
     }
@@ -489,10 +486,30 @@ INERT_P1_WEB_SITES = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
 # Removal: P2 deletes one handler exemption and admits the corresponding
 # service import/invoke sites in the same bounded delegation slice. Until then,
 # these exact imports are the whole production semantic-backend dataflow.
-INERT_P1_BACKEND_IMPORTS = frozenset(
+REVIEWED_BACKEND_IMPORTS = frozenset(
     {
+        ("_backend_compat.py", "_backend", "BackendContractError"),
+        ("_backend_compat.py", "_backend", "BackendError"),
+        ("_backend_compat.py", "_backend", "BackendErrorReason"),
         ("_client_assembly.py", "_web.backend", "WebRpcBackend"),
         ("client.py", "_backend", "BackendAdapter"),
+        ("_notebooks.py", "_backend", "BackendAdapter"),
+        ("_notebooks.py", "_backend", "BackendError"),
+        ("_notebooks.py", "_backend_compat", "project_backend_error"),
+        ("_notebooks.py", "_read_services", "NotebookReadService"),
+        ("_projectors.py", "_records", "NotebookRecord"),
+        ("_projectors.py", "_records", "SourceRecord"),
+        ("_read_services.py", "_backend", "BackendAdapter"),
+        ("_read_services.py", "_projectors", "project_notebook"),
+        ("_read_services.py", "_projectors", "project_source"),
+        ("_read_services.py", "_records", "NOTEBOOK_GET_DEF"),
+        ("_read_services.py", "_records", "NOTEBOOK_LIST_DEF"),
+        ("_read_services.py", "_records", "NotebookGetInput"),
+        ("_read_services.py", "_records", "NotebookListInput"),
+        ("_read_services.py", "_records", "SOURCE_GET_DEF"),
+        ("_read_services.py", "_records", "SOURCE_LIST_DEF"),
+        ("_read_services.py", "_records", "SourceGetInput"),
+        ("_read_services.py", "_records", "SourceListInput"),
         ("_web/__init__.py", "backend", "WebRpcBackend"),
         ("_web/backend.py", "_backend", "BackendCapabilities"),
         ("_web/backend.py", "_backend", "BackendContractError"),
@@ -523,24 +540,59 @@ INERT_P1_BACKEND_IMPORTS = frozenset(
     }
 )
 
-_P1_BACKEND_IMPORT_MODULES = frozenset({"_backend", "_records", "_web", "_web.backend"})
+_REVIEWED_BACKEND_IMPORT_MODULES = frozenset(
+    {
+        "_backend",
+        "_backend_compat",
+        "_projectors",
+        "_read_services",
+        "_records",
+        "_web",
+        "_web.backend",
+        "backend",
+        "registry",
+    }
+)
+
+_REVIEWED_BACKEND_IMPORT_PREFIXES = (
+    "notebooklm._backend",
+    "notebooklm._projectors",
+    "notebooklm._read_services",
+    "notebooklm._records",
+    "notebooklm._web",
+)
 
 
-def _is_p1_backend_import_module(module: str) -> bool:
-    return module in _P1_BACKEND_IMPORT_MODULES or module.startswith(
-        ("notebooklm._backend", "notebooklm._records", "notebooklm._web")
+def _is_reviewed_backend_import_module(module: str) -> bool:
+    return module in _REVIEWED_BACKEND_IMPORT_MODULES or module.startswith(
+        _REVIEWED_BACKEND_IMPORT_PREFIXES
     )
+
+
+ACTIVE_P2_BACKEND_INVOKE_SITES = frozenset(
+    {
+        "_read_services.py:NotebookReadService.get",
+        "_read_services.py:NotebookReadService.list",
+    }
+)
+INERT_P1_BACKEND_INVOKE_SITES = frozenset(
+    {
+        "_read_services.py:SourceReadService.get",
+        "_read_services.py:SourceReadService.list",
+    }
+)
 
 
 def audit_inert_p1_backend_dataflow(
     source_overrides: Mapping[str, str] | None = None,
 ) -> list[str]:
-    """Prove the assembled P1 backend has no production consumer before P2."""
+    """Prove backend dataflow is limited to the reviewed migrated service slice."""
 
     overrides = source_overrides or {}
     observed_imports: set[tuple[str, str, str]] = set()
     invoke_sites: set[str] = set()
-    assembly_backend_loads: list[int] = []
+    assembly_backend_bindings: list[int] = []
+    assembly_backend_escapes: list[int] = []
     assembly_constructor_targets: list[tuple[str, ...]] = []
 
     for path in sorted(SRC_ROOT.rglob("*.py")):
@@ -555,11 +607,11 @@ def audit_inert_p1_backend_dataflow(
                 observed_imports.update(
                     (relative, alias.name, "*")
                     for alias in node.names
-                    if _is_p1_backend_import_module(alias.name)
+                    if _is_reviewed_backend_import_module(alias.name)
                 )
             if isinstance(node, ast.ImportFrom):
                 if node.module is not None and (
-                    _is_p1_backend_import_module(node.module)
+                    _is_reviewed_backend_import_module(node.module)
                     or (relative.startswith("_web/") and node.module in {"backend", "registry"})
                 ):
                     observed_imports.update(
@@ -569,17 +621,33 @@ def audit_inert_p1_backend_dataflow(
                     observed_imports.update(
                         (relative, "." * node.level, alias.name)
                         for alias in node.names
-                        if alias.name in {"_backend", "_records", "_web"}
+                        if alias.name
+                        in {
+                            "_backend",
+                            "_backend_compat",
+                            "_projectors",
+                            "_read_services",
+                            "_records",
+                            "_web",
+                        }
                     )
-            if isinstance(node, ast.Call) and _attribute_parts(node.func)[-1:] == ("invoke",):
-                invoke_sites.add(f"{relative}:{node.lineno}")
             if relative == "_client_assembly.py":
                 if (
                     isinstance(node, ast.Attribute)
                     and _attribute_parts(node) == ("client", "_backend")
                     and isinstance(node.ctx, ast.Load)
                 ):
-                    assembly_backend_loads.append(node.lineno)
+                    parent = parents.get(node)
+                    call = parents.get(parent) if isinstance(parent, ast.keyword) else None
+                    if (
+                        isinstance(parent, ast.keyword)
+                        and parent.arg == "_backend"
+                        and isinstance(call, ast.Call)
+                        and _attribute_parts(call.func)[-1:] == ("NotebooksAPI",)
+                    ):
+                        assembly_backend_bindings.append(node.lineno)
+                    else:
+                        assembly_backend_escapes.append(node.lineno)
                 if isinstance(node, ast.Call) and _attribute_parts(node.func)[-1:] == (
                     "WebRpcBackend",
                 ):
@@ -589,29 +657,67 @@ def audit_inert_p1_backend_dataflow(
                         _attribute_parts(target) for target in targets
                     )
 
+        class InvokeVisitor(ast.NodeVisitor):
+            def __init__(self, module_path: str) -> None:
+                self.module_path = module_path
+                self.stack: list[str] = []
+
+            def visit_ClassDef(self, node: ast.ClassDef) -> None:
+                self.stack.append(node.name)
+                self.generic_visit(node)
+                self.stack.pop()
+
+            def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+                self.stack.append(node.name)
+                self.generic_visit(node)
+                self.stack.pop()
+
+            def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+                self._visit_function(node)
+
+            def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+                self._visit_function(node)
+
+            def visit_Call(self, node: ast.Call) -> None:
+                if _attribute_parts(node.func)[-1:] == ("invoke",):
+                    invoke_sites.add(f"{self.module_path}:{_qualname(self.stack)}")
+                self.generic_visit(node)
+
+        InvokeVisitor(relative).visit(tree)
+
     errors: list[str] = []
-    if observed_imports != INERT_P1_BACKEND_IMPORTS:
+    if observed_imports != REVIEWED_BACKEND_IMPORTS:
         errors.append(
-            "inert P1 backend imports changed: "
-            f"missing={sorted(INERT_P1_BACKEND_IMPORTS - observed_imports)}, "
-            f"extra={sorted(observed_imports - INERT_P1_BACKEND_IMPORTS)}"
+            "reviewed backend imports changed: "
+            f"missing={sorted(REVIEWED_BACKEND_IMPORTS - observed_imports)}, "
+            f"extra={sorted(observed_imports - REVIEWED_BACKEND_IMPORTS)}"
         )
-    if invoke_sites:
-        errors.append(f"inert P1 backend has production invoke sites: {sorted(invoke_sites)}")
+    expected_invokes = ACTIVE_P2_BACKEND_INVOKE_SITES | INERT_P1_BACKEND_INVOKE_SITES
+    if invoke_sites != expected_invokes:
+        errors.append(
+            "semantic backend invoke sites changed: "
+            f"missing={sorted(expected_invokes - invoke_sites)}, "
+            f"extra={sorted(invoke_sites - expected_invokes)}"
+        )
     if assembly_constructor_targets != [("client", "_backend")]:
         errors.append(
             f"P1 WebRpcBackend construction target changed: {assembly_constructor_targets}"
         )
-    if assembly_backend_loads:
+    if len(assembly_backend_bindings) != 1:
         errors.append(
-            "P1 client._backend escapes assembly assignment at lines: "
-            f"{sorted(assembly_backend_loads)}"
+            "P2 notebook backend binding changed: "
+            f"expected=1, actual={len(assembly_backend_bindings)}"
+        )
+    if assembly_backend_escapes:
+        errors.append(
+            "client._backend escapes the reviewed notebook binding at lines: "
+            f"{sorted(assembly_backend_escapes)}"
         )
     return errors
 
 
 def audit_inert_p1_web_sites(sites: frozenset[str] | None = None) -> list[str]:
-    """Fail closed when the bounded P1 no-authority classification drifts."""
+    """Fail closed when the remaining bounded P1 no-authority set drifts."""
     actual = INERT_P1_WEB_SITES if sites is None else sites
     expected = INERT_P1_WEB_FORWARDERS | INERT_P1_WEB_HANDLERS
     errors: list[str] = []

@@ -233,9 +233,9 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
 
     assert sites[(RPCMethod.GET_NOTEBOOK, None)] == [
         "_chat/api.py:ChatAPI.get_settings",
-        "_notebooks.py:NotebooksAPI.get",
         "_notebooks.py:NotebooksAPI.get_raw",
         "_source/listing.py:SourceLister.list",
+        "_web/backend.py:WebRpcBackend._notebook_get",
     ]
     assert any("_row_adapters/" in site for site in references[RPCMethod.GET_NOTEBOOK]["decoders"])
     assert all("_row_adapters/" not in site for site in sites[(RPCMethod.GET_NOTEBOOK, None)])
@@ -646,8 +646,8 @@ def test_get_metadata_recency_contract_pins_two_distinct_reads() -> None:
             "unit": "public_call",
             "condition": "always: concurrent notebook.get plus source listing",
             "authority_sites": [
-                "_notebooks.py:NotebooksAPI.get",
                 "_source/listing.py:SourceLister.list",
+                "_web/backend.py:WebRpcBackend._notebook_get",
             ],
         }
     ]
@@ -667,7 +667,7 @@ def test_update_and_chat_recency_conditions_are_explicit() -> None:
             "maximum_calls": 1,
             "unit": "public_call",
             "condition": "always after a successful mutation",
-            "authority_sites": ["_notebooks.py:NotebooksAPI.get"],
+            "authority_sites": ["_web/backend.py:WebRpcBackend._notebook_get"],
         }
     ]
     chat_contracts = rows["chat.configure"]["recency_contract"]

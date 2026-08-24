@@ -470,12 +470,14 @@ async def test_close_does_not_close_client_owned_executor() -> None:
     assert executor.calls == []
 
 
-def test_no_feature_runtime_reads_private_backend_before_p2() -> None:
-    """P1 keeps the port inert; P2 removes this pin as each facade delegates."""
+def test_only_migrated_feature_runtime_reads_private_backend() -> None:
+    """Only composition plus the first migrated notebook slice may use the port."""
     package = Path(__file__).resolve().parents[2] / "src" / "notebooklm"
     allowed = {
         package / "_client_assembly.py",
         package / "client.py",  # annotation-only declaration
+        package / "_notebooks.py",
+        package / "_read_services.py",
     }
     allowed.update((package / "_web").rglob("*.py"))
     violations: list[str] = []

@@ -1578,9 +1578,9 @@
       "disposition_reason": null,
       "execution_authorities": [
         "_chat/api.py:ChatAPI.get_settings",
-        "_notebooks.py:NotebooksAPI.get",
         "_notebooks.py:NotebooksAPI.get_raw",
-        "_source/listing.py:SourceLister.list"
+        "_source/listing.py:SourceLister.list",
+        "_web/backend.py:WebRpcBackend._notebook_get"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -2141,7 +2141,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_notebooks.py:NotebooksAPI.list"
+        "_web/backend.py:WebRpcBackend._notebook_list"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -4472,7 +4472,7 @@
         {
           "binding": "LIST_NOTEBOOKS:<default>",
           "discriminator": "collection membership expansion",
-          "site": "_notebooks.py:NotebooksAPI.list",
+          "site": "_web/backend.py:WebRpcBackend._notebook_list",
           "transport_kind": "rpc"
         }
       ],
@@ -5274,7 +5274,7 @@
         {
           "binding": "GET_NOTEBOOK:<default>",
           "discriminator": "null-timestamp backfill only",
-          "site": "_notebooks.py:NotebooksAPI.get",
+          "site": "_web/backend.py:WebRpcBackend._notebook_get",
           "transport_kind": "rpc"
         },
         {
@@ -5286,7 +5286,7 @@
         {
           "binding": "LIST_NOTEBOOKS:<default>",
           "discriminator": "pre-create baseline/probe or quota verification",
-          "site": "_notebooks.py:NotebooksAPI.list",
+          "site": "_web/backend.py:WebRpcBackend._notebook_list",
           "transport_kind": "rpc"
         }
       ],
@@ -5307,7 +5307,7 @@
       "recency_contract": [
         {
           "authority_sites": [
-            "_notebooks.py:NotebooksAPI.get"
+            "_web/backend.py:WebRpcBackend._notebook_get"
           ],
           "condition": "only when the created row has a null timestamp requiring backfill",
           "maximum_calls": 1,
@@ -5401,14 +5401,14 @@
       "execution_authorities": [
         {
           "binding": "GET_NOTEBOOK:<default>",
-          "discriminator": "typed notebook lookup",
-          "site": "_notebooks.py:NotebooksAPI.get",
+          "discriminator": "raw/source-id notebook lookup",
+          "site": "_notebooks.py:NotebooksAPI.get_raw",
           "transport_kind": "rpc"
         },
         {
           "binding": "GET_NOTEBOOK:<default>",
-          "discriminator": "raw/source-id notebook lookup",
-          "site": "_notebooks.py:NotebooksAPI.get_raw",
+          "discriminator": "typed notebook lookup",
+          "site": "_web/backend.py:WebRpcBackend._notebook_get",
           "transport_kind": "rpc"
         }
       ],
@@ -5429,8 +5429,8 @@
       "recency_contract": [
         {
           "authority_sites": [
-            "_notebooks.py:NotebooksAPI.get",
-            "_notebooks.py:NotebooksAPI.get_raw"
+            "_notebooks.py:NotebooksAPI.get_raw",
+            "_web/backend.py:WebRpcBackend._notebook_get"
           ],
           "condition": "always",
           "maximum_calls": 1,
@@ -5462,7 +5462,7 @@
         {
           "binding": "LIST_NOTEBOOKS:<default>",
           "discriminator": "public=notebooks.list",
-          "site": "_notebooks.py:NotebooksAPI.list",
+          "site": "_web/backend.py:WebRpcBackend._notebook_list",
           "transport_kind": "rpc"
         }
       ],
@@ -5494,14 +5494,14 @@
       "execution_authorities": [
         {
           "binding": "GET_NOTEBOOK:<default>",
-          "discriminator": "metadata notebook branch",
-          "site": "_notebooks.py:NotebooksAPI.get",
+          "discriminator": "metadata source branch",
+          "site": "_source/listing.py:SourceLister.list",
           "transport_kind": "rpc"
         },
         {
           "binding": "GET_NOTEBOOK:<default>",
-          "discriminator": "metadata source branch",
-          "site": "_source/listing.py:SourceLister.list",
+          "discriminator": "metadata notebook branch",
+          "site": "_web/backend.py:WebRpcBackend._notebook_get",
           "transport_kind": "rpc"
         }
       ],
@@ -5519,8 +5519,8 @@
       "recency_contract": [
         {
           "authority_sites": [
-            "_notebooks.py:NotebooksAPI.get",
-            "_source/listing.py:SourceLister.list"
+            "_source/listing.py:SourceLister.list",
+            "_web/backend.py:WebRpcBackend._notebook_get"
           ],
           "condition": "always: concurrent notebook.get plus source listing",
           "maximum_calls": 2,
@@ -5664,7 +5664,7 @@
         {
           "binding": "GET_NOTEBOOK:<default>",
           "discriminator": "unconditional post-mutation read",
-          "site": "_notebooks.py:NotebooksAPI.get",
+          "site": "_web/backend.py:WebRpcBackend._notebook_get",
           "transport_kind": "rpc"
         },
         {
@@ -5691,7 +5691,7 @@
       "recency_contract": [
         {
           "authority_sites": [
-            "_notebooks.py:NotebooksAPI.get"
+            "_web/backend.py:WebRpcBackend._notebook_get"
           ],
           "condition": "always after a successful mutation",
           "maximum_calls": 1,

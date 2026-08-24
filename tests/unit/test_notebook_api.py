@@ -38,6 +38,7 @@ from notebooklm.types import (
     Source,
     SourceType,
 )
+from tests._fixtures.web_backend import build_web_backend
 
 
 def _make_core(rpc_call: AsyncMock | None = None):
@@ -56,7 +57,11 @@ def _make_core(rpc_call: AsyncMock | None = None):
 
 def _make_api(rpc_call: AsyncMock | None = None) -> NotebooksAPI:
     core = _make_core(rpc_call)
-    return NotebooksAPI(core.rpc_executor, sources_api=MagicMock())
+    return NotebooksAPI(
+        core.rpc_executor,
+        sources_api=MagicMock(),
+        _backend=build_web_backend(core.rpc_executor),
+    )
 
 
 def _source_entry(
@@ -164,7 +169,10 @@ async def test_direct_notebooks_api_get_metadata_uses_phase8_source_lister() -> 
             "nb_123",
         ]
     ]
-    api = NotebooksAPI(core.rpc_executor)
+    api = NotebooksAPI(
+        core.rpc_executor,
+        _backend=build_web_backend(core.rpc_executor),
+    )
 
     metadata = await api.get_metadata("nb_123")
 
@@ -178,7 +186,10 @@ async def test_direct_notebooks_api_get_metadata_uses_phase8_source_lister() -> 
 @pytest.mark.asyncio
 async def test_direct_notebooks_api_metadata_lister_uses_late_bound_rpc_executor_call() -> None:
     core = _make_core()
-    api = NotebooksAPI(core.rpc_executor)
+    api = NotebooksAPI(
+        core.rpc_executor,
+        _backend=build_web_backend(core.rpc_executor),
+    )
     replacement_rpc = AsyncMock(
         return_value=[
             [

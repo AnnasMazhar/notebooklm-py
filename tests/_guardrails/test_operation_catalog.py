@@ -34,25 +34,23 @@ def test_operation_catalog_is_total_and_current() -> None:
 
 
 def test_p1_inert_web_sites_are_exact_and_mutation_sensitive() -> None:
-    """P1 web handlers are not authorities until their P2 facade delegates."""
+    """Only web handlers without a P2 facade delegation remain inert."""
     assert {
         "_web/backend.py:_DeadlineRpcCaller.rpc_call",
         "_web/backend.py:WebRpcBackend._rpc_call",
-        "_web/backend.py:WebRpcBackend._notebook_get",
-        "_web/backend.py:WebRpcBackend._notebook_list",
         "_web/backend.py:WebRpcBackend._source_get",
         "_web/backend.py:WebRpcBackend._source_list",
     } == INERT_P1_WEB_SITES
     assert audit_inert_p1_web_sites() == []
 
-    missing_one = INERT_P1_WEB_SITES - {"_web/backend.py:WebRpcBackend._notebook_list"}
+    missing_one = INERT_P1_WEB_SITES - {"_web/backend.py:WebRpcBackend._source_list"}
     assert audit_inert_p1_web_sites(frozenset(missing_one)) == [
         "inert P1 web site classification changed: "
-        "missing=['_web/backend.py:WebRpcBackend._notebook_list'], extra=[]"
+        "missing=['_web/backend.py:WebRpcBackend._source_list'], extra=[]"
     ]
 
 
-def test_p1_backend_dataflow_is_client_only_and_alias_mutation_sensitive() -> None:
+def test_backend_dataflow_is_bounded_to_migrated_notebook_service() -> None:
     assert audit_inert_p1_backend_dataflow() == []
 
     root = Path(__file__).resolve().parents[2] / "src" / "notebooklm"
@@ -63,7 +61,7 @@ def test_p1_backend_dataflow_is_client_only_and_alias_mutation_sensitive() -> No
     )
     errors = audit_inert_p1_backend_dataflow({"_notebooks.py": alias_mutation})
     assert len(errors) == 1
-    assert errors[0].startswith("inert P1 backend has production invoke sites: ")
+    assert errors[0].startswith("semantic backend invoke sites changed: ")
 
     assembly = (root / "_client_assembly.py").read_text(encoding="utf-8")
     escape_mutation = assembly + (
@@ -71,7 +69,7 @@ def test_p1_backend_dataflow_is_client_only_and_alias_mutation_sensitive() -> No
     )
     errors = audit_inert_p1_backend_dataflow({"_client_assembly.py": escape_mutation})
     assert len(errors) == 1
-    assert errors[0].startswith("P1 client._backend escapes assembly assignment at lines: ")
+    assert errors[0].startswith("client._backend escapes the reviewed notebook binding at lines: ")
 
     for statement in (
         "from .._web import WebRpcBackend",
@@ -81,7 +79,7 @@ def test_p1_backend_dataflow_is_client_only_and_alias_mutation_sensitive() -> No
         import_mutation = notebooks + f"\n{statement}\n"
         errors = audit_inert_p1_backend_dataflow({"_notebooks.py": import_mutation})
         assert len(errors) == 1
-        assert errors[0].startswith("inert P1 backend imports changed: ")
+        assert errors[0].startswith("reviewed backend imports changed: ")
 
 
 def test_catalog_projection_covers_the_live_authorities() -> None:
