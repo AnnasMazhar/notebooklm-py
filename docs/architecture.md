@@ -581,6 +581,22 @@ Beyond the client-owned runtime graph, several feature APIs are implemented via 
 | `_research_task_parser` | [`_research_task_parser.py`](../src/notebooklm/_research_task_parser.py) | Parses deep-research task results from raw rows. Returns dict-shaped output today; a typed-model migration is not yet complete. |
 | `_types/` | [`_types/`](../src/notebooklm/_types) | Private package holding the dataclass and `Protocol` implementations behind the public `types.py` / per-feature public schemas. Split per domain (`artifacts.py`, `artifact_content.py`, `chat.py`, `documents.py`, `labels.py`, `mind_maps.py`, `notebooks.py`, `notes.py`, `research.py`, `sharing.py`, `sources.py`, plus `common.py` for shared shapes like `ConnectionLimits`). |
 
+### Structured-document value boundary
+
+The exported `StructuredDocument` graph is the one ADR-0035 exception to the P3 rule that web
+codecs return private records before public projection. Its frozen public constructors are the
+transport-neutral validation boundary for UTF-16 ranges, span and cell normalization, annotation
+ordering, clipping, and rendering. Source fulltext and streamed chat therefore share one coordinate
+space without a second private document representation. Wire positions remain in
+`_row_adapters/documents.py`; they do not enter `_types/documents.py`.
+
+`tests/_guardrails/test_document_value_boundary.py` enforces the exception's exact type/export set,
+closed standard-library dependency set, frozen construction, and a rich nested pickle/UTF-16/render
+round trip. It complements `tests/unit/test_citation_alignment.py`, the public-model compatibility
+baseline, 39 independently schema-checked document wire mappings, and the source/chat decoded
+goldens. Any new document dependency or value type therefore requires an explicit boundary review;
+ordinary mutable decoded resources still follow `wire -> private record -> public model`.
+
 ## Authentication subpackage
 
 [`auth.py`](../src/notebooklm/auth.py) is a thin public facade that
