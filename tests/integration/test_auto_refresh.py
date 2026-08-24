@@ -203,7 +203,14 @@ class TestAutoRefreshIntegration:
             response.raise_for_status = MagicMock()
             return response
 
-        auth_rpc_error = RPCError("authentication expired")
+        auth_rpc_error = RPCError(
+            "authentication expired",
+            method_id="wXbhsf",
+            raw_response="RAWBODY",
+            rpc_code=401,
+            found_ids=["auth-id"],
+        )
+        auth_rpc_error.unconfirmed = True
 
         def mock_decode(*args, **kwargs):
             raise auth_rpc_error
@@ -219,7 +226,17 @@ class TestAutoRefreshIntegration:
             with pytest.raises(RPCError) as raised:
                 await client.notebooks.list()
 
-        assert raised.value is auth_rpc_error
+        # The semantic backend crosses a typed record boundary, so public
+        # exceptions are reconstructed rather than returned by object identity.
+        # Preserve the observable contract while still proving that the decoded
+        # error surfaced and the shared refresh budget prevented a second retry.
+        assert type(raised.value) is type(auth_rpc_error)
+        assert raised.value.args == auth_rpc_error.args
+        assert raised.value.method_id == auth_rpc_error.method_id
+        assert raised.value.raw_response == auth_rpc_error.raw_response
+        assert raised.value.rpc_code == auth_rpc_error.rpc_code
+        assert raised.value.found_ids == auth_rpc_error.found_ids
+        assert raised.value.unconfirmed is True
         assert len(refresh_calls) == 1, "wire-401 + decoded-auth-error must refresh exactly once"
         # Two POSTs: the initial 401 and the single post-refresh retry. No
         # third POST, because the decoded layer did not refresh-and-retry.

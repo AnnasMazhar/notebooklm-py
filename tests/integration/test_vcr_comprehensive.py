@@ -397,12 +397,22 @@ class TestArtifactsListAPI:
 
     @pytest.mark.vcr
     @pytest.mark.asyncio
-    @notebooklm_vcr.use_cassette("artifacts_list_slide_decks.yaml")
+    @notebooklm_vcr.use_cassette("artifacts_list_slide_decks.yaml", allow_playback_repeats=True)
     async def test_listing_decodes_recorded_content_metadata(self):
         """Real rows expose media duration/URLs and visual accessibility text."""
         async with vcr_client() as client:
-            rows = await client.artifacts._list_raw(READONLY_NOTEBOOK_ID)
-        artifacts = [Artifact.from_api_response(row) for row in rows]
+            artifacts = []
+            for kind in (
+                ArtifactType.AUDIO,
+                ArtifactType.VIDEO,
+                ArtifactType.INFOGRAPHIC,
+                ArtifactType.SLIDE_DECK,
+                ArtifactType.REPORT,
+                ArtifactType.QUIZ,
+                ArtifactType.FLASHCARDS,
+                ArtifactType.DATA_TABLE,
+            ):
+                artifacts.extend(await client.artifacts.list(READONLY_NOTEBOOK_ID, kind))
 
         audio = next(art for art in artifacts if art.kind is ArtifactType.AUDIO)
         video = next(art for art in artifacts if art.kind is ArtifactType.VIDEO)
@@ -989,28 +999,41 @@ class TestArtifactsAdditionalAPI:
 
     @pytest.mark.vcr
     @pytest.mark.asyncio
-    @notebooklm_vcr.use_cassette("artifacts_rename.yaml")
     async def test_rename(self):
         """Rename an artifact."""
-        async with vcr_client() as client:
-            # List artifacts to find one to rename
-            artifacts = await client.artifacts.list(MUTABLE_NOTEBOOK_ID)
-            if not artifacts:
-                pytest.skip("No artifacts available")
-            artifact = artifacts[0]
-            original_title = artifact.title
-            # v0.8.0 (#1362): return_object=False now runs the existence
-            # preflight too. Stub it as a hit (the artifact came from the list
-            # above, so it exists) so no extra LIST_ARTIFACTS round-trip fires
-            # and the existing cassette (rename RPC only) keeps replaying.
-            client.artifacts._listing.get_studio_only = AsyncMock(return_value=artifact)
-            # Rename, then restore the original name.
-            await client.artifacts.rename(
-                MUTABLE_NOTEBOOK_ID, artifact.id, "VCR Renamed Artifact", return_object=False
-            )
-            await client.artifacts.rename(
-                MUTABLE_NOTEBOOK_ID, artifact.id, original_title, return_object=False
-            )
+        with notebooklm_vcr.use_cassette(
+            "artifacts_rename.yaml", allow_playback_repeats=True
+        ) as cassette:
+            async with vcr_client() as client:
+                # List artifacts to find one to rename
+                artifacts = await client.artifacts.list(MUTABLE_NOTEBOOK_ID)
+                if not artifacts:
+                    pytest.skip("No artifacts available")
+                artifact = artifacts[0]
+                original_title = artifact.title
+                # The semantic rename owns its post-mutation LIST_ARTIFACTS fetch.
+                # Reuse the cassette's real listing response for both rename calls.
+                # Rename, then restore the original name.
+                await client.artifacts.rename(
+                    MUTABLE_NOTEBOOK_ID,
+                    artifact.id,
+                    "VCR Renamed Artifact",
+                    return_object=False,
+                )
+                await client.artifacts.rename(
+                    MUTABLE_NOTEBOOK_ID, artifact.id, original_title, return_object=False
+                )
+
+        if cassette.write_protected:
+            rpc_play_counts = {
+                rpc_id: sum(
+                    cassette.play_counts[index]
+                    for index, request in enumerate(cassette.requests)
+                    if f"rpcids={rpc_id}" in request.uri
+                )
+                for rpc_id in ("gArtLc", "cFji9", "rc3d8d")
+            }
+            assert rpc_play_counts == {"gArtLc": 3, "cFji9": 1, "rc3d8d": 2}
 
     @pytest.mark.vcr
     @pytest.mark.asyncio
