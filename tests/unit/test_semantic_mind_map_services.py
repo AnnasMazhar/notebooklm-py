@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -52,7 +52,7 @@ from tests._fixtures.recording_backend import BackendInvocation, RecordingBacken
 
 @pytest.mark.asyncio
 async def test_note_service_generates_and_persists_exact_mind_map_shape() -> None:
-    created_at = datetime(2026, 8, 24, tzinfo=UTC)
+    created_at = datetime(2026, 8, 24, tzinfo=timezone.utc)
     tree_json = '{"name":"Generated Map","children":[{"name":"Leaf"}]}'
     backend = RecordingBackend()
     backend.set_result(MIND_MAP_GENERATE_NOTE_DEF, MindMapGenerateNoteResult(tree_json))
@@ -141,7 +141,7 @@ async def test_note_service_renames_without_reencoding_tree_and_deletes_idempote
 
 @pytest.mark.asyncio
 async def test_interactive_service_uses_studio_catalog_and_typed_family_operations() -> None:
-    created_at = datetime(2026, 8, 24, tzinfo=UTC)
+    created_at = datetime(2026, 8, 24, tzinfo=timezone.utc)
     record = ArtifactRecord(
         "mind-map-id",
         "Generated Map",

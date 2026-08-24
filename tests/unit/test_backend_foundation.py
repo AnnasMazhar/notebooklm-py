@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, replace
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import cast
 
 import pytest
@@ -90,7 +90,7 @@ def test_backend_vocabulary_is_closed_hashable_and_runtime_checkable() -> None:
 
 
 def test_read_slice_records_are_frozen_slotted_values_with_typed_definitions() -> None:
-    timestamp = datetime(2026, 8, 23, tzinfo=UTC)
+    timestamp = datetime(2026, 8, 23, tzinfo=timezone.utc)
     notebook = NotebookRecord(
         id="notebook-id",
         title="Notebook",

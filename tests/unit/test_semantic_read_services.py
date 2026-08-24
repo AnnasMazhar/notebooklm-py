@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -44,8 +44,8 @@ from tests._fixtures.recording_backend import BackendInvocation, RecordingBacken
 
 
 def _notebook_record() -> NotebookRecord:
-    created = datetime(2025, 1, 2, 3, 4, tzinfo=UTC)
-    viewed = datetime(2026, 5, 6, 7, 8, tzinfo=UTC)
+    created = datetime(2025, 1, 2, 3, 4, tzinfo=timezone.utc)
+    viewed = datetime(2026, 5, 6, 7, 8, tzinfo=timezone.utc)
     return NotebookRecord(
         id="notebook-id",
         title="Notebook title",
@@ -65,9 +65,9 @@ def _notebook_record() -> NotebookRecord:
 
 
 def _source_record() -> SourceRecord:
-    created = datetime(2025, 2, 3, 4, 5, tzinfo=UTC)
-    revised = datetime(2025, 3, 4, 5, 6, tzinfo=UTC)
-    modified = datetime(2025, 4, 5, 6, 7, tzinfo=UTC)
+    created = datetime(2025, 2, 3, 4, 5, tzinfo=timezone.utc)
+    revised = datetime(2025, 3, 4, 5, 6, tzinfo=timezone.utc)
+    modified = datetime(2025, 4, 5, 6, 7, tzinfo=timezone.utc)
     return SourceRecord(
         id="source-id",
         title="Source title",

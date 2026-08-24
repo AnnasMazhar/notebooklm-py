@@ -331,10 +331,16 @@ class TransportDrainTracker(LoopBoundPrimitive):
         async with condition:
             if self._in_flight_posts == 0:
                 return
-            await asyncio.wait_for(
-                condition.wait_for(lambda: self._in_flight_posts == 0),
-                timeout=timeout,
-            )
+            try:
+                await asyncio.wait_for(
+                    condition.wait_for(lambda: self._in_flight_posts == 0),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError as exc:
+                # Python 3.10 still exposes ``asyncio.TimeoutError`` as a
+                # distinct exception. Normalize it to the public built-in
+                # contract consumed by ``NotebookLMClient.close``.
+                raise TimeoutError from exc
 
 
 __all__ = ["TransportDrainTracker", "_TransportOperationToken"]
